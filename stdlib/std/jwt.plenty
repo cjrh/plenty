@@ -1,0 +1,666 @@
+# JSON Web Tokens: RFC 7519 claims in RFC 7515 compact JWS form, with the
+# RFC 7518 and RFC 8037 algorithms that std.crypto provides. This module only
+# parses, validates and dispatches; every signature and MAC is computed by
+# std.crypto. The algorithm comes from the key, never from the token header.
+# See book/src/design/stdlib/jwt.md.
+import std.bytes
+import std.crypto
+import std.encoding
+import std.json
+import std.math
+from std.bytes import Bytes, BytesError
+from std.crypto import AdvancedError, CryptoError, P256PrivateKey, P256PublicKey, RsaPrivateKey, RsaPublicKey, RsaScheme
+from std.encoding import EncodingError
+from std.json import DuplicateKeys, Json, JsonError, JsonFault, Limits, Member
+from std.report import Formatter, FormatError
+
+# No HS384: std.crypto has no SHA-384 HMAC.
+pub enum Algorithm:
+    Hs256
+    Hs512
+    Rs256
+    Rs384
+    Rs512
+    Ps256
+    Ps384
+    Ps512
+    Es256
+    EdDsa
+
+    # The RFC 7518 or RFC 8037 `alg` value, such as "HS256" or "EdDSA".
+    pub def name(self) -> str:
+        algorithm_name(*self)
+
+# The registered claims that validation reads.
+pub enum Claim:
+    Expiry
+    NotBefore
+    IssuedAt
+    Issuer
+    Audience
+
+pub enum JwtError:
+    Malformed
+    NotObject
+    TooLarge
+    UnsupportedAlgorithm
+    AlgorithmMismatch
+    CriticalHeader
+    InvalidSignature
+    Expired
+    NotYetValid
+    MissingClaim(Claim)
+    InvalidClaim(Claim)
+    WrongIssuer
+    WrongAudience
+    InvalidKey
+    InvalidValidation
+    RandomFailure
+    Allocation(AllocError)
+
+    # The std.report message. None repeats token contents or key material.
+    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+        message = match self:
+            case JwtError.Malformed:
+                "malformed token, or claims that cannot be encoded: a token is three strict base64url segments holding a JSON header and claims"
+            case JwtError.NotObject:
+                "the header or claims are not a JSON object"
+            case JwtError.TooLarge:
+                "token is longer than the configured maximum size"
+            case JwtError.UnsupportedAlgorithm:
+                "header names no algorithm, `none`, or an unsupported algorithm"
+            case JwtError.AlgorithmMismatch:
+                "header algorithm differs from the verifying key's algorithm"
+            case JwtError.CriticalHeader:
+                "header lists critical extensions, which are not supported"
+            case JwtError.InvalidSignature:
+                "signature does not verify"
+            case JwtError.Expired:
+                "token has expired"
+            case JwtError.NotYetValid:
+                "token is not valid yet: nbf or iat is in the future"
+            case JwtError.MissingClaim(claim):
+                missing_message(*claim)
+            case JwtError.InvalidClaim(claim):
+                invalid_message(*claim)
+            case JwtError.WrongIssuer:
+                "issuer does not match"
+            case JwtError.WrongAudience:
+                "audience does not match"
+            case JwtError.InvalidKey:
+                "key is malformed, too short, or for another algorithm"
+            case JwtError.InvalidValidation:
+                "validation settings are out of range"
+            case JwtError.RandomFailure:
+                "operating-system randomness failed while signing"
+            case JwtError.Allocation(_):
+                "out of memory"
+        output.text(message)
+
+def missing_message(claim: Claim) -> str:
+    match claim:
+        case Claim.Expiry:
+            "required claim exp is missing"
+        case Claim.NotBefore:
+            "required claim nbf is missing"
+        case Claim.IssuedAt:
+            "required claim iat is missing"
+        case Claim.Issuer:
+            "required claim iss is missing"
+        case Claim.Audience:
+            "required claim aud is missing"
+
+def invalid_message(claim: Claim) -> str:
+    match claim:
+        case Claim.Expiry:
+            "claim exp is not a NumericDate"
+        case Claim.NotBefore:
+            "claim nbf is not a NumericDate"
+        case Claim.IssuedAt:
+            "claim iat is not a NumericDate"
+        case Claim.Issuer:
+            "claim iss is not a string"
+        case Claim.Audience:
+            "claim aud is not a string or an array of strings"
+
+def algorithm_name(algorithm: Algorithm) -> str:
+    match algorithm:
+        case Algorithm.Hs256:
+            "HS256"
+        case Algorithm.Hs512:
+            "HS512"
+        case Algorithm.Rs256:
+            "RS256"
+        case Algorithm.Rs384:
+            "RS384"
+        case Algorithm.Rs512:
+            "RS512"
+        case Algorithm.Ps256:
+            "PS256"
+        case Algorithm.Ps384:
+            "PS384"
+        case Algorithm.Ps512:
+            "PS512"
+        case Algorithm.Es256:
+            "ES256"
+        case Algorithm.EdDsa:
+            "EdDSA"
+
+# Names are case-sensitive, so `none` and every other spelling are Nothing.
+def named_algorithm(name: &str) -> Option[Algorithm]:
+    match *name:
+        case "HS256":
+            Some(Algorithm.Hs256)
+        case "HS512":
+            Some(Algorithm.Hs512)
+        case "RS256":
+            Some(Algorithm.Rs256)
+        case "RS384":
+            Some(Algorithm.Rs384)
+        case "RS512":
+            Some(Algorithm.Rs512)
+        case "PS256":
+            Some(Algorithm.Ps256)
+        case "PS384":
+            Some(Algorithm.Ps384)
+        case "PS512":
+            Some(Algorithm.Ps512)
+        case "ES256":
+            Some(Algorithm.Es256)
+        case "EdDSA":
+            Some(Algorithm.EdDsa)
+        case _:
+            Nothing
+
+def rsa_scheme(algorithm: Algorithm) -> Option[RsaScheme]:
+    match algorithm:
+        case Algorithm.Rs256:
+            Some(RsaScheme.Pkcs1Sha256)
+        case Algorithm.Rs384:
+            Some(RsaScheme.Pkcs1Sha384)
+        case Algorithm.Rs512:
+            Some(RsaScheme.Pkcs1Sha512)
+        case Algorithm.Ps256:
+            Some(RsaScheme.PssSha256)
+        case Algorithm.Ps384:
+            Some(RsaScheme.PssSha384)
+        case Algorithm.Ps512:
+            Some(RsaScheme.PssSha512)
+        case _:
+            Nothing
+
+# RFC 7518 section 3.2: an HMAC key is at least as long as the hash output.
+def hmac_hash(algorithm: Algorithm) -> Option[(std.crypto.Algorithm, i64)]:
+    match algorithm:
+        case Algorithm.Hs256:
+            Some((std.crypto.Algorithm.Sha256, 32))
+        case Algorithm.Hs512:
+            Some((std.crypto.Algorithm.Sha512, 64))
+        case _:
+            Nothing
+
+def bytes_fault(error: BytesError) -> JwtError:
+    match error:
+        case BytesError.Allocation(cause):
+            JwtError.Allocation(cause)
+        case _:
+            JwtError.Malformed
+
+def from_bytes[T](result: Result[T, BytesError]) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(bytes_fault(error))
+
+def from_encoding[T](result: Result[T, EncodingError]) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case EncodingError.Allocation(cause):
+                    Err(JwtError.Allocation(cause))
+                case _:
+                    Err(JwtError.Malformed)
+
+def from_json[T](result: Result[T, JsonError]) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error.fault:
+                case JsonFault.Allocation(cause):
+                    Err(JwtError.Allocation(cause))
+                case _:
+                    Err(JwtError.Malformed)
+
+def from_mac[T](result: Result[T, CryptoError]) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case CryptoError.Allocation(cause):
+                    Err(JwtError.Allocation(cause))
+                case _:
+                    Err(JwtError.InvalidKey)
+
+# `length` is the error for InvalidLength: a malformed key while building
+# keys or signing, a wrong-sized signature while verifying.
+def from_crypto[T](result: Result[T, AdvancedError], length: JwtError) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case AdvancedError.Allocation(cause):
+                    Err(JwtError.Allocation(cause))
+                case AdvancedError.RandomFailure:
+                    Err(JwtError.RandomFailure)
+                case AdvancedError.InvalidLength:
+                    Err(length)
+                case _:
+                    Err(JwtError.InvalidKey)
+
+enum Signer:
+    Secret(Bytes)
+    Rsa(RsaPrivateKey)
+    P256(P256PrivateKey)
+    Ed25519(Bytes)
+
+enum Verifier:
+    Secret(Bytes)
+    Rsa(RsaPublicKey)
+    P256(P256PublicKey)
+    Ed25519(Bytes)
+
+# A key bound to one algorithm. Tokens are signed only with that algorithm.
+pub class SigningKey:
+    _algorithm: Algorithm
+    _material: Signer
+
+    pub def algorithm(self) -> Algorithm:
+        self._algorithm
+
+    # The matching verifying key: a copy of an HMAC secret, or the public half.
+    pub def verifying_key(self) -> Result[VerifyingKey, JwtError]:
+        material = match &self._material:
+            case Signer.Secret(secret):
+                Verifier.Secret(from_bytes(secret.copy())?)
+            case Signer.Rsa(private):
+                Verifier.Rsa(from_crypto(private.public_key(), JwtError.InvalidKey)?)
+            case Signer.P256(private):
+                Verifier.P256(from_crypto(private.public_key(), JwtError.InvalidKey)?)
+            case Signer.Ed25519(seed):
+                Verifier.Ed25519(from_crypto(std.crypto.ed25519_public_key(seed), JwtError.InvalidKey)?)
+        Ok(VerifyingKey(self._algorithm, material))
+
+# A key bound to one algorithm. A token verifies only if its header names
+# that algorithm; the header never selects the algorithm.
+pub class VerifyingKey:
+    _algorithm: Algorithm
+    _material: Verifier
+
+    pub def algorithm(self) -> Algorithm:
+        self._algorithm
+
+def hmac_secret(algorithm: Algorithm, secret: &Bytes) -> Result[Bytes, JwtError]:
+    match hmac_hash(algorithm):
+        case Some(pair):
+            if secret.len() < pair[1]:
+                return Err(JwtError.InvalidKey)
+            from_bytes(secret.copy())
+        case Nothing:
+            Err(JwtError.InvalidKey)
+
+# HS256 needs at least 32 secret bytes and HS512 at least 64. The secret is
+# copied. Other algorithms are InvalidKey.
+pub def hmac_signing_key(algorithm: Algorithm, secret: &Bytes) -> Result[SigningKey, JwtError]:
+    Ok(SigningKey(algorithm, Signer.Secret(hmac_secret(algorithm, secret)?)))
+
+pub def hmac_verifying_key(algorithm: Algorithm, secret: &Bytes) -> Result[VerifyingKey, JwtError]:
+    Ok(VerifyingKey(algorithm, Verifier.Secret(hmac_secret(algorithm, secret)?)))
+
+# RS256..RS512 or PS256..PS512. Other algorithms are InvalidKey.
+pub def rsa_signing_key(algorithm: Algorithm, key: RsaPrivateKey) -> Result[SigningKey, JwtError]:
+    match rsa_scheme(algorithm):
+        case Some(_):
+            Ok(SigningKey(algorithm, Signer.Rsa(key)))
+        case Nothing:
+            Err(JwtError.InvalidKey)
+
+pub def rsa_verifying_key(algorithm: Algorithm, key: RsaPublicKey) -> Result[VerifyingKey, JwtError]:
+    match rsa_scheme(algorithm):
+        case Some(_):
+            Ok(VerifyingKey(algorithm, Verifier.Rsa(key)))
+        case Nothing:
+            Err(JwtError.InvalidKey)
+
+pub def es256_signing_key(key: P256PrivateKey) -> SigningKey:
+    SigningKey(Algorithm.Es256, Signer.P256(key))
+
+pub def es256_verifying_key(key: P256PublicKey) -> VerifyingKey:
+    VerifyingKey(Algorithm.Es256, Verifier.P256(key))
+
+# A 32-byte Ed25519 seed, copied.
+pub def ed25519_signing_key(seed: &Bytes) -> Result[SigningKey, JwtError]:
+    if seed.len() != 32:
+        return Err(JwtError.InvalidKey)
+    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(from_bytes(seed.copy())?)))
+
+# A 32-byte Ed25519 public key, copied. A small-order key is rejected here
+# rather than at each verification.
+pub def ed25519_verifying_key(public_key: &Bytes) -> Result[VerifyingKey, JwtError]:
+    if public_key.len() != 32:
+        return Err(JwtError.InvalidKey)
+    mut probe = from_bytes(std.bytes.with_capacity(64))?
+    from_bytes(probe.resize(64, 0u8))?
+    from_crypto(std.crypto.ed25519_verify(public_key, &probe, &probe), JwtError.InvalidKey)?
+    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(from_bytes(public_key.copy())?)))
+
+pub const default_max_size: i64 = 8192
+pub const max_leeway: i64 = 86400
+pub const max_token_size: i64 = 1048576
+
+# Rules for `verify`. `now` is Unix seconds from a clock the caller chooses,
+# such as `std.time.wall_now().seconds`. `leeway` (0..=max_leeway seconds)
+# widens every time check. An `aud` claim is accepted only when `audience`
+# names one of its values. `max_size` (1..=max_token_size) bounds the token
+# in bytes before anything is decoded.
+pub class Validation:
+    pub now: i64
+    pub leeway: i64
+    pub require_expiry: bool
+    pub issuer: Option[str]
+    pub audience: Option[str]
+    pub max_size: i64
+
+pub def validation(now: i64) -> Validation:
+    Validation(now, 0, True, Nothing, Nothing, default_max_size)
+
+def valid_rules(rules: &Validation) -> bool:
+    rules.now >= 0 and rules.leeway >= 0 and rules.leeway <= max_leeway and rules.max_size > 0 and rules.max_size <= max_token_size
+
+# `token_type` is the `typ` member. Before verification, every field is
+# unauthenticated.
+pub class Header:
+    pub algorithm: Algorithm
+    pub key_id: Option[str]
+    pub token_type: Option[str]
+
+pub class Token:
+    pub header: Header
+    pub claims: list[Member]
+
+# Header nesting has no use beyond a few levels; claims may nest.
+const header_depth: i64 = 4
+const claims_depth: i64 = 32
+
+# A token as bytes with the offsets of its two dots.
+class Parts:
+    source: Bytes
+    first: i64
+    second: i64
+
+def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
+    if max_size <= 0 or max_size > max_token_size:
+        return Err(JwtError.InvalidValidation)
+    if token.byte_len() > max_size:
+        return Err(JwtError.TooLarge)
+    source = from_bytes(std.bytes.from_text(token))?
+    first = match from_bytes(source.find(46u8, 0, source.len()))?:
+        case Some(index):
+            index
+        case Nothing:
+            return Err(JwtError.Malformed)
+    second = match from_bytes(source.find(46u8, first + 1, source.len()))?:
+        case Some(index):
+            index
+        case Nothing:
+            return Err(JwtError.Malformed)
+    # A third dot is rejected by the strict base64url decoder.
+    Ok(Parts(source, first, second))
+
+def object(source: &Bytes, depth: i64) -> Result[list[Member], JwtError]:
+    bounds = Limits(depth, source.len(), 0, DuplicateKeys.Reject)
+    match from_json(std.json.parse(source, &bounds))?:
+        case Json.Object(members):
+            Ok(members)
+        case _:
+            Err(JwtError.NotObject)
+
+def header_text(value: Json) -> Result[str, JwtError]:
+    match value:
+        case Json.Text(text):
+            Ok(text)
+        case _:
+            Err(JwtError.Malformed)
+
+# Unknown members are ignored. In particular `jwk`, `jku`, `x5u` and `x5c`
+# never supply a key: the caller chooses it.
+def read_header(parts: &Parts) -> Result[Header, JwtError]:
+    raw = from_encoding(std.encoding.base64url_decode(&parts.source, 0, parts.first))?
+    members = object(&raw, header_depth)?
+    mut name: Option[str] = Nothing
+    mut key_id: Option[str] = Nothing
+    mut token_type: Option[str] = Nothing
+    mut critical = False
+    for member in members:
+        if member.key == "alg":
+            name = Some(header_text(member.value)?)
+        elif member.key == "kid":
+            key_id = Some(header_text(member.value)?)
+        elif member.key == "typ":
+            token_type = Some(header_text(member.value)?)
+        elif member.key == "crit":
+            critical = True
+    algorithm = match name:
+        case Some(text):
+            match named_algorithm(&text):
+                case Some(algorithm):
+                    algorithm
+                case Nothing:
+                    return Err(JwtError.UnsupportedAlgorithm)
+        case Nothing:
+            return Err(JwtError.Malformed)
+    # RFC 7515 section 4.1.11: no extension is understood, so any is fatal.
+    if critical:
+        return Err(JwtError.CriticalHeader)
+    Ok(Header(algorithm, key_id, token_type))
+
+# Reads the header without verifying anything, for example to choose a key
+# by `kid`. The result is attacker-controlled until `verify` succeeds.
+pub def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[Header, JwtError]:
+    parts = split(token, max_size)?
+    read_header(&parts)
+
+def signature_valid(key: &VerifyingKey, message: &Bytes, signature: &Bytes) -> Result[bool, JwtError]:
+    match &key._material:
+        case Verifier.Secret(secret):
+            match hmac_hash(key._algorithm):
+                case Some(pair):
+                    mut mac = from_mac(std.crypto.hmac(pair[0], secret))?
+                    from_mac(mac.update(message, 0, message.len()))?
+                    from_mac(mac.verify(signature, 0, signature.len()))
+                case Nothing:
+                    Err(JwtError.InvalidKey)
+        case Verifier.Rsa(public):
+            match rsa_scheme(key._algorithm):
+                case Some(scheme):
+                    from_crypto(public.verify(scheme, message, signature), JwtError.InvalidSignature)
+                case Nothing:
+                    Err(JwtError.InvalidKey)
+        case Verifier.P256(public):
+            from_crypto(public.verify(message, signature), JwtError.InvalidSignature)
+        case Verifier.Ed25519(public):
+            from_crypto(std.crypto.ed25519_verify(public, message, signature), JwtError.InvalidSignature)
+
+# A NumericDate in whole seconds. Fractions round toward rejection: `exp`
+# down, `nbf` and `iat` up.
+def numeric_date(claims: &list[Member], name: &str, claim: Claim, down: bool) -> Result[Option[i64], JwtError]:
+    match std.json.find(claims, name):
+        case Nothing:
+            Ok(Nothing)
+        case Some(index):
+            match &claims[index].value:
+                case Json.Int(seconds):
+                    Ok(Some(*seconds))
+                case Json.Float(seconds):
+                    rounded = std.math.floor(*seconds) if down else std.math.ceil(*seconds)
+                    match rounded:
+                        case Ok(whole):
+                            Ok(Some(whole))
+                        case Err(_):
+                            Err(JwtError.InvalidClaim(claim))
+                case _:
+                    Err(JwtError.InvalidClaim(claim))
+
+# `later - now > leeway` without overflow: `now` is nonnegative.
+def in_future(moment: i64, rules: &Validation) -> bool:
+    moment > rules.now and moment - rules.now > rules.leeway
+
+def audience_contains(value: &Json, expected: &str) -> Result[bool, JwtError]:
+    match value:
+        case Json.Text(audience):
+            Ok(*audience == *expected)
+        case Json.Array(items):
+            mut found = False
+            for item in items:
+                match item:
+                    case Json.Text(audience):
+                        if *audience == *expected:
+                            found = True
+                    case _:
+                        return Err(JwtError.InvalidClaim(Claim.Audience))
+            Ok(found)
+        case _:
+            Err(JwtError.InvalidClaim(Claim.Audience))
+
+def check_claims(claims: &list[Member], rules: &Validation) -> Result[(), JwtError]:
+    match numeric_date(claims, "exp", Claim.Expiry, True)?:
+        case Some(expiry):
+            # RFC 7519 section 4.1.4: invalid on or after `exp`.
+            if rules.now - rules.leeway >= expiry:
+                return Err(JwtError.Expired)
+        case Nothing:
+            if rules.require_expiry:
+                return Err(JwtError.MissingClaim(Claim.Expiry))
+    match numeric_date(claims, "nbf", Claim.NotBefore, False)?:
+        case Some(start):
+            if in_future(start, rules):
+                return Err(JwtError.NotYetValid)
+        case Nothing:
+            pass
+    match numeric_date(claims, "iat", Claim.IssuedAt, False)?:
+        case Some(issued):
+            if in_future(issued, rules):
+                return Err(JwtError.NotYetValid)
+        case Nothing:
+            pass
+    match &rules.issuer:
+        case Some(expected):
+            match std.json.find(claims, "iss"):
+                case Some(index):
+                    match &claims[index].value:
+                        case Json.Text(issuer):
+                            if *issuer != *expected:
+                                return Err(JwtError.WrongIssuer)
+                        case _:
+                            return Err(JwtError.InvalidClaim(Claim.Issuer))
+                case Nothing:
+                    return Err(JwtError.MissingClaim(Claim.Issuer))
+        case Nothing:
+            pass
+    # RFC 7519 section 4.1.3: a recipient not named in `aud` rejects the token.
+    match std.json.find(claims, "aud"):
+        case Some(index):
+            match &rules.audience:
+                case Some(expected):
+                    if not audience_contains(&claims[index].value, expected)?:
+                        return Err(JwtError.WrongAudience)
+                case Nothing:
+                    return Err(JwtError.WrongAudience)
+        case Nothing:
+            match &rules.audience:
+                case Some(_):
+                    return Err(JwtError.MissingClaim(Claim.Audience))
+                case Nothing:
+                    pass
+    Ok(())
+
+# Checks, in order: settings, size, structure, header, algorithm, signature,
+# claims JSON, then claim rules. The claims are not parsed before the
+# signature verifies.
+pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]:
+    if not valid_rules(rules):
+        return Err(JwtError.InvalidValidation)
+    mut parts = split(token, rules.max_size)?
+    header = read_header(&parts)?
+    if header.algorithm != key._algorithm:
+        return Err(JwtError.AlgorithmMismatch)
+    payload = from_encoding(std.encoding.base64url_decode(&parts.source, parts.first + 1, parts.second))?
+    signature = from_encoding(std.encoding.base64url_decode(&parts.source, parts.second + 1, parts.source.len()))?
+    from_bytes(parts.source.truncate(parts.second))?
+    if not signature_valid(key, &parts.source, &signature)?:
+        return Err(JwtError.InvalidSignature)
+    claims = object(&payload, claims_depth)?
+    check_claims(&claims, rules)?
+    Ok(Token(header, claims))
+
+def signature_for(key: &SigningKey, message: &Bytes) -> Result[Bytes, JwtError]:
+    match &key._material:
+        case Signer.Secret(secret):
+            match hmac_hash(key._algorithm):
+                case Some(pair):
+                    mut mac = from_mac(std.crypto.hmac(pair[0], secret))?
+                    from_mac(mac.update(message, 0, message.len()))?
+                    from_mac(mac.finish())
+                case Nothing:
+                    Err(JwtError.InvalidKey)
+        case Signer.Rsa(private):
+            match rsa_scheme(key._algorithm):
+                case Some(scheme):
+                    from_crypto(private.sign(scheme, message), JwtError.InvalidKey)
+                case Nothing:
+                    Err(JwtError.InvalidKey)
+        case Signer.P256(private):
+            from_crypto(private.sign(message), JwtError.InvalidKey)
+        case Signer.Ed25519(seed):
+            from_crypto(std.crypto.ed25519_sign(seed, message), JwtError.InvalidKey)
+
+def append_segment(target: &mut Bytes, data: &Bytes) -> Result[(), JwtError]:
+    from_bytes(target.extend(&from_encoding(std.encoding.base64url_encode(data, 0, data.len()))?))
+
+# The header is `{"alg":...,"typ":"JWT"}`, plus `kid` when given. `claims`
+# must be a JSON object; it is encoded compactly in member order.
+pub def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> Result[str, JwtError]:
+    match claims:
+        case Json.Object(_):
+            pass
+        case _:
+            return Err(JwtError.NotObject)
+    bounds = std.json.limits()
+    mut header = from_json(std.json.encoder(&bounds))?
+    from_json(header.start_object())?
+    from_json(header.key("alg"))?
+    from_json(header.text(algorithm_name(key._algorithm)))?
+    from_json(header.key("typ"))?
+    from_json(header.text("JWT"))?
+    match key_id:
+        case Some(id):
+            from_json(header.key("kid"))?
+            from_json(header.text(&id))?
+        case Nothing:
+            pass
+    from_json(header.end_object())?
+    header_json = from_json(header.take())?
+    payload_json = from_json(std.json.encode(claims, &bounds))?
+    mut token = from_bytes(std.bytes.empty())?
+    append_segment(&mut token, &header_json)?
+    from_bytes(token.push(46u8))?
+    append_segment(&mut token, &payload_json)?
+    signature = signature_for(key, &token)?
+    from_bytes(token.push(46u8))?
+    append_segment(&mut token, &signature)?
+    from_bytes(token.to_text())

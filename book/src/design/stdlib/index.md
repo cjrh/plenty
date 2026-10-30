@@ -61,6 +61,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
+| [`std.jwt`](jwt.md) | JSON Web Tokens: compact JWS signing and verification with the algorithm fixed by the key, strict decoding, and explicit-clock claim checks | `JwtError` |
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
 | [`std.markdown`](markdown.md) | CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, and output limits | `MarkdownError` |
 | [`std.template`](template.md) | Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance | `TemplateError` |

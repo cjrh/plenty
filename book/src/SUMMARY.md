@@ -426,6 +426,7 @@
         - [`std.io`](design/stdlib/io.md)
         - [`std.io.typed`](design/stdlib/io-typed.md)
         - [`std.json`](design/stdlib/json.md)
+        - [`std.jwt`](design/stdlib/jwt.md)
         - [`std.log`](design/stdlib/log.md)
         - [`std.markdown`](design/stdlib/markdown.md)
         - [`std.template`](design/stdlib/template.md)
