@@ -4,7 +4,7 @@
 # validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes, BytesError, ByteSource
 
 pub enum CryptoError:
     OutOfRange
@@ -203,15 +203,19 @@ pub def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
 pub def equal(a: &Bytes, b: &Bytes) -> bool:
     a.crypto_equal(b)
 
-# Authenticated encryption, Ed25519, X25519 and HKDF use ring 0.17.14
-# (Apache-2.0 AND ISC, https://github.com/briansmith/ring). No primitive is
-# implemented here. See crypto-advanced.md for nonce and key-use contracts.
+# Authenticated encryption, Ed25519, X25519, HKDF, RSA and ECDSA use ring
+# 0.17.14 (Apache-2.0 AND ISC, https://github.com/briansmith/ring). No
+# primitive is implemented here. See crypto-advanced.md for nonce and key-use
+# contracts and crypto-keys.md for key import. Key errors carry no payload,
+# so no error reveals key material.
 pub enum AdvancedError:
     InvalidLength
     AuthenticationFailed
     InvalidPeer
     Finished
     RandomFailure
+    InvalidKey
+    WeakKey
     Allocation(AllocError)
 
 pub enum AeadAlgorithm:
@@ -241,6 +245,10 @@ def advanced_status(status: i64) -> Result[(), AdvancedError]:
             Err(AdvancedError.RandomFailure)
         case -4:
             Err(AdvancedError.InvalidPeer)
+        case -5:
+            Err(AdvancedError.InvalidKey)
+        case -6:
+            Err(AdvancedError.WeakKey)
         case _:
             Err(AdvancedError.InvalidLength)
 
@@ -344,3 +352,359 @@ pub def x25519() -> Result[X25519Key, AdvancedError]:
     # Validate entropy/key generation before returning a usable key.
     drop(key.public_key()?)
     Ok(key)
+
+# Signature schemes for RSA keys, named by padding and digest. JOSE names them
+# RS256/RS384/RS512 (PKCS #1 v1.5) and PS256/PS384/PS512 (PSS, salt as long
+# as the digest).
+pub enum RsaScheme:
+    Pkcs1Sha256
+    Pkcs1Sha384
+    Pkcs1Sha512
+    PssSha256
+    PssSha384
+    PssSha512
+
+# The runtime's scheme numbers.
+def rsa_scheme(scheme: RsaScheme) -> i64:
+    match scheme:
+        case RsaScheme.Pkcs1Sha256:
+            0
+        case RsaScheme.Pkcs1Sha384:
+            1
+        case RsaScheme.Pkcs1Sha512:
+            2
+        case RsaScheme.PssSha256:
+            3
+        case RsaScheme.PssSha384:
+            4
+        case RsaScheme.PssSha512:
+            5
+
+# An RSA public key with a 2048..8192-bit modulus. It holds the validated
+# DER RSAPublicKey that ring verifies against.
+pub class RsaPublicKey:
+    _key: Bytes
+    _size: i64
+
+    # Signature bytes: the modulus length.
+    pub def signature_size(self) -> i64:
+        self._size
+
+    # False for a signature that does not verify. A signature of the wrong
+    # length is an InvalidLength error.
+    pub def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
+        if signature.len() != self._size:
+            return Err(AdvancedError.InvalidLength)
+        Ok(std.bytes.crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature) == 1)
+
+# An RSA private key with a 2048..4096-bit modulus, held by the runtime.
+pub class RsaPrivateKey:
+    _state: Bytes
+
+    pub def signature_size(self) -> i64:
+        std.bytes.crypto_key_size(&self._state, 1)
+
+    pub def public_key(self) -> Result[RsaPublicKey, AdvancedError]:
+        mut key = advanced_output(std.bytes.crypto_key_size(&self._state, 0))?
+        advanced_status(std.bytes.crypto_key_public(&self._state, &mut key))?
+        Ok(RsaPublicKey(key, self.signature_size()))
+
+    # The target must hold exactly signature_size() bytes. PKCS #1 v1.5
+    # signatures are deterministic; PSS draws a random salt.
+    pub def sign_into(self, scheme: RsaScheme, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+        advanced_status(std.bytes.crypto_key_sign(&self._state, rsa_scheme(scheme), message, target))
+
+    pub def sign(self, scheme: RsaScheme, message: &Bytes) -> Result[Bytes, AdvancedError]:
+        mut target = advanced_output(self.signature_size())?
+        self.sign_into(scheme, message, &mut target)?
+        Ok(target)
+
+# A validated point on P-256, for ECDSA with SHA-256 (JOSE ES256).
+pub class P256PublicKey:
+    _point: Bytes
+
+    # The signature is the fixed 64-byte r || s form; a DER-encoded
+    # signature has another length and is an InvalidLength error.
+    pub def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
+        status = std.bytes.crypto_p256_verify(&self._point, message, signature)
+        if status < 0:
+            return Err(AdvancedError.InvalidLength)
+        Ok(status == 1)
+
+# A P-256 private key held by the runtime, for ECDSA with SHA-256.
+pub class P256PrivateKey:
+    _state: Bytes
+
+    pub def public_key(self) -> Result[P256PublicKey, AdvancedError]:
+        mut point = advanced_output(65)?
+        advanced_status(std.bytes.crypto_key_public(&self._state, &mut point))?
+        Ok(P256PublicKey(point))
+
+    # Writes the 64-byte r || s signature. Each signature uses a fresh
+    # random nonce, hedged with the key and message.
+    pub def sign_into(self, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+        advanced_status(std.bytes.crypto_key_sign(&self._state, 0, message, target))
+
+    pub def sign(self, message: &Bytes) -> Result[Bytes, AdvancedError]:
+        mut target = advanced_output(64)?
+        self.sign_into(message, &mut target)?
+        Ok(target)
+
+# One DER element's contents. The parser below accepts the strict DER subset
+# that key encodings use: single-byte tags and minimal definite lengths.
+@copy
+class Der:
+    start: i64
+    stop: i64
+
+# The element with `tag` at der[at:limit].
+def der_at(der: &Bytes, at: i64, limit: i64, tag: u8) -> Result[Der, AdvancedError]:
+    if limit - at < 2 or der[at] != tag:
+        return Err(AdvancedError.InvalidKey)
+    first = i64(der[at + 1])
+    mut start = at + 2
+    mut size = first
+    if first > 127:
+        count = first - 128
+        # Three length bytes cover every supported key. 0x80 is BER's
+        # indefinite length; a leading zero or a short length in long form
+        # is not minimal.
+        if count < 1 or count > 3 or limit - start < count:
+            return Err(AdvancedError.InvalidKey)
+        if der[start] == 0u8:
+            return Err(AdvancedError.InvalidKey)
+        size = 0
+        for index in range(count):
+            size = size << 8 | i64(der[start + index])
+        if size < 128:
+            return Err(AdvancedError.InvalidKey)
+        start += count
+    if size > limit - start:
+        return Err(AdvancedError.InvalidKey)
+    Ok(Der(start, start + size))
+
+# The outermost SEQUENCE, which must end the buffer.
+def der_whole(der: &Bytes) -> Result[Der, AdvancedError]:
+    outer = der_at(der, 0, der.len(), 48u8)?
+    if outer.stop != der.len():
+        return Err(AdvancedError.InvalidKey)
+    Ok(outer)
+
+def der_same[S: ByteSource](der: &Bytes, element: Der, expected: &S) -> Result[bool, AdvancedError]:
+    if element.stop - element.start != expected.len():
+        return Ok(False)
+    advanced_bytes(der.matches(element.start, expected, 0, expected.len()))
+
+# SubjectPublicKeyInfo (RFC 5280): SEQUENCE { AlgorithmIdentifier, BIT
+# STRING }. Comparing the identifier with one fixed encoding rejects every
+# other algorithm, curve and parameter form. Returns the key bits.
+def spki[S: ByteSource](der: &Bytes, algorithm: &S) -> Result[Der, AdvancedError]:
+    outer = der_whole(der)?
+    identifier = der_at(der, outer.start, outer.stop, 48u8)?
+    if not der_same(der, identifier, algorithm)?:
+        return Err(AdvancedError.InvalidKey)
+    bits = der_at(der, identifier.stop, outer.stop, 3u8)?
+    if bits.stop != outer.stop or bits.stop == bits.start or der[bits.start] != 0u8:
+        return Err(AdvancedError.InvalidKey)
+    Ok(Der(bits.start + 1, bits.stop))
+
+# A positive DER INTEGER's magnitude, without its sign byte. `stop` is the
+# element's end, where the next element starts.
+def der_unsigned(der: &Bytes, at: i64, limit: i64) -> Result[Der, AdvancedError]:
+    value = der_at(der, at, limit, 2u8)?
+    if value.stop == value.start or der[value.start] > 127u8:
+        return Err(AdvancedError.InvalidKey)
+    if der[value.start] == 0u8:
+        if value.stop - value.start == 1 or der[value.start + 1] < 128u8:
+            return Err(AdvancedError.InvalidKey)
+        return Ok(Der(value.start + 1, value.stop))
+    Ok(value)
+
+# ring's RSA public-key rules, checked at import so that verification never
+# meets a key ring would reject: the modulus has 2048..8192 bits, no leading
+# zero byte, and is odd; the exponent is odd, 3 <= e < 2**33, with no leading
+# zero byte. Returns the modulus length in bytes.
+def rsa_size(modulus: &Bytes, n: Der, exponent: &Bytes, e: Der) -> Result[i64, AdvancedError]:
+    size = n.stop - n.start
+    width = e.stop - e.start
+    if size == 0 or width == 0 or width > 5:
+        return Err(AdvancedError.InvalidKey)
+    if modulus[n.start] == 0u8 or exponent[e.start] == 0u8:
+        return Err(AdvancedError.InvalidKey)
+    mut bits = (size - 1) * 8
+    mut top = i64(modulus[n.start])
+    while top > 0:
+        bits += 1
+        top = top >> 1
+    if bits < 2048:
+        return Err(AdvancedError.WeakKey)
+    if bits > 8192 or modulus[n.stop - 1] & 1u8 == 0u8:
+        return Err(AdvancedError.InvalidKey)
+    mut value = 0
+    for index in range(e.start, e.stop):
+        value = value << 8 | i64(exponent[index])
+    if value < 3 or value > 8589934591 or value & 1 == 0:
+        return Err(AdvancedError.InvalidKey)
+    Ok(size)
+
+# A DER RSAPublicKey: SEQUENCE { INTEGER n, INTEGER e }.
+def rsa_public(der: &Bytes, start: i64, stop: i64) -> Result[RsaPublicKey, AdvancedError]:
+    key = der_at(der, start, stop, 48u8)?
+    if key.stop != stop:
+        return Err(AdvancedError.InvalidKey)
+    n = der_unsigned(der, key.start, key.stop)?
+    e = der_unsigned(der, n.stop, key.stop)?
+    if e.stop != key.stop:
+        return Err(AdvancedError.InvalidKey)
+    size = rsa_size(der, n, der, e)?
+    Ok(RsaPublicKey(advanced_bytes(der.slice(start, stop))?, size))
+
+def der_length_size(size: i64) -> i64:
+    if size < 128:
+        return 2
+    if size < 256:
+        return 3
+    4
+
+# Lengths here stay below 65536, so at most two length bytes follow 0x82.
+def der_header(target: &mut Bytes, tag: u8, size: i64) -> Result[(), AdvancedError]:
+    advanced_bytes(target.push(tag))?
+    if size > 255:
+        advanced_bytes(target.push(130u8))?
+        advanced_bytes(target.push(u8(size >> 8)))?
+    elif size > 127:
+        advanced_bytes(target.push(129u8))?
+    advanced_bytes(target.push(u8(size & 255)))
+
+def der_integer(target: &mut Bytes, magnitude: &Bytes) -> Result[(), AdvancedError]:
+    signed = magnitude[0] > 127u8
+    size = magnitude.len() + (1 if signed else 0)
+    der_header(target, 2u8, size)?
+    if signed:
+        advanced_bytes(target.push(0u8))?
+    advanced_bytes(target.extend(magnitude))
+
+def integer_size(magnitude: &Bytes) -> i64:
+    size = magnitude.len() + (1 if magnitude[0] > 127u8 else 0)
+    der_length_size(size) + size
+
+# SubjectPublicKeyInfo DER with the rsaEncryption algorithm and NULL
+# parameters, as `openssl pkey -pubout` writes it.
+pub def rsa_public_key_from_spki(der: &Bytes) -> Result[RsaPublicKey, AdvancedError]:
+    bits = spki(der, b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00")?
+    rsa_public(der, bits.start, bits.stop)
+
+# Big-endian unsigned modulus and exponent without leading zero bytes, as in
+# a JWK's decoded `n` and `e`.
+pub def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublicKey, AdvancedError]:
+    size = rsa_size(n, Der(0, n.len()), e, Der(0, e.len()))?
+    body = integer_size(n) + integer_size(e)
+    mut key = advanced_bytes(std.bytes.with_capacity(der_length_size(body) + body))?
+    der_header(&mut key, 48u8, body)?
+    der_integer(&mut key, n)?
+    der_integer(&mut key, e)?
+    Ok(RsaPublicKey(key, size))
+
+# Unencrypted PKCS #8 v1 (RFC 5208) holding a two-prime RSAPrivateKey, as
+# `openssl genpkey -algorithm RSA` writes it.
+pub def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, AdvancedError]:
+    mut state = advanced_bytes(std.bytes.crypto_key_new())?
+    advanced_status(std.bytes.crypto_rsa_load(&mut state, der))?
+    Ok(RsaPrivateKey(state))
+
+def p256_checked(point: Bytes) -> Result[P256PublicKey, AdvancedError]:
+    advanced_status(std.bytes.crypto_p256_check(&point))?
+    Ok(P256PublicKey(point))
+
+# A 65-byte uncompressed SEC1 point: 0x04, then x and y. Compressed points
+# are rejected. The point must lie on the curve.
+pub def p256_public_key_from_point(point: &Bytes) -> Result[P256PublicKey, AdvancedError]:
+    if point.len() != 65 or point[0] != 4u8:
+        return Err(AdvancedError.InvalidKey)
+    p256_checked(advanced_bytes(point.copy())?)
+
+# 32-byte big-endian coordinates, as in a JWK's decoded `x` and `y`.
+pub def p256_public_key_from_coordinates(x: &Bytes, y: &Bytes) -> Result[P256PublicKey, AdvancedError]:
+    if x.len() != 32 or y.len() != 32:
+        return Err(AdvancedError.InvalidKey)
+    mut point = advanced_bytes(std.bytes.with_capacity(65))?
+    advanced_bytes(point.push(4u8))?
+    advanced_bytes(point.extend(x))?
+    advanced_bytes(point.extend(y))?
+    p256_checked(point)
+
+# SubjectPublicKeyInfo DER with id-ecPublicKey and the named curve
+# prime256v1. Other curves, explicit curve parameters and compressed points
+# are rejected.
+pub def p256_public_key_from_spki(der: &Bytes) -> Result[P256PublicKey, AdvancedError]:
+    bits = spki(der, b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07")?
+    if bits.stop - bits.start != 65 or der[bits.start] != 4u8:
+        return Err(AdvancedError.InvalidKey)
+    p256_checked(advanced_bytes(der.slice(bits.start, bits.stop))?)
+
+# Unencrypted PKCS #8 v1 holding a P-256 ECPrivateKey (RFC 5915) that
+# includes its public key, as `openssl genpkey` writes it. The public key
+# must match the private scalar.
+pub def p256_private_key_from_pkcs8(der: &Bytes) -> Result[P256PrivateKey, AdvancedError]:
+    mut state = advanced_bytes(std.bytes.crypto_key_new())?
+    advanced_status(std.bytes.crypto_p256_load(&mut state, der))?
+    Ok(P256PrivateKey(state))
+
+# SubjectPublicKeyInfo DER with id-Ed25519 (RFC 8410). Returns the 32-byte
+# public key that ed25519_verify takes.
+pub def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError]:
+    bits = spki(der, b"\x06\x03\x2b\x65\x70")?
+    if bits.stop - bits.start != 32:
+        return Err(AdvancedError.InvalidKey)
+    advanced_bytes(der.slice(bits.start, bits.stop))
+
+# Unencrypted PKCS #8 (RFC 8410) holding an Ed25519 key. Returns the 32-byte
+# seed that ed25519_sign takes. Version 1 may include the public key, which
+# must match the seed; attributes are ignored.
+pub def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]:
+    outer = der_whole(der)?
+    version = der_at(der, outer.start, outer.stop, 2u8)?
+    if version.stop - version.start != 1 or der[version.start] > 1u8:
+        return Err(AdvancedError.InvalidKey)
+    identifier = der_at(der, version.stop, outer.stop, 48u8)?
+    if not der_same(der, identifier, b"\x06\x03\x2b\x65\x70")?:
+        return Err(AdvancedError.InvalidKey)
+    wrapped = der_at(der, identifier.stop, outer.stop, 4u8)?
+    inner = der_at(der, wrapped.start, wrapped.stop, 4u8)?
+    if inner.stop != wrapped.stop or inner.stop - inner.start != 32:
+        return Err(AdvancedError.InvalidKey)
+    mut at = wrapped.stop
+    if at < outer.stop and der[at] == 160u8:
+        at = der_at(der, at, outer.stop, 160u8)?.stop
+    mut seed = advanced_bytes(der.slice(inner.start, inner.stop))?
+    if at == outer.stop:
+        return Ok(seed)
+    mut outcome: Result[bool, AdvancedError] = Ok(False)
+    if der[version.start] == 1u8:
+        outcome = ed25519_matches(der, at, outer.stop, &seed)
+    match outcome:
+        case Ok(True):
+            return Ok(seed)
+        case Ok(False):
+            outcome = Err(AdvancedError.InvalidKey)
+        case Err(_):
+            pass
+    # The seed is secret; do not leave a copy in freed memory.
+    advanced_bytes(seed.fill(0, 32, 0u8))?
+    match outcome:
+        case Err(error):
+            Err(error)
+        case Ok(_):
+            Err(AdvancedError.InvalidKey)
+
+# Whether der[at:stop] is exactly a [1] public key matching the seed's.
+def ed25519_matches(der: &Bytes, at: i64, stop: i64, seed: &Bytes) -> Result[bool, AdvancedError]:
+    public = match der_at(der, at, stop, 129u8):
+        case Ok(element):
+            element
+        case Err(_):
+            return Ok(False)
+    if public.stop != stop or public.stop - public.start != 33 or der[public.start] != 0u8:
+        return Ok(False)
+    derived = ed25519_public_key(seed)?
+    advanced_bytes(der.matches(public.start + 1, &derived, 0, 32))

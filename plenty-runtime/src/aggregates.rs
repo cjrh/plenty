@@ -15,6 +15,7 @@ mod clist;
 mod compress;
 mod crypto;
 mod crypto_advanced;
+mod crypto_keys;
 mod entry_error;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
@@ -1854,6 +1855,10 @@ operation_entries! {
 operation_entries! {
     308 309 310 311 312 313 314 315 316 317 318
 }
+// `std.crypto` RSA and P-256 keys.
+operation_entries! {
+    340 341 342 343 344 345 346 347 348
+}
 // `std.compress`.
 operation_entries! {
     320 321 322 323 324 325
@@ -1919,12 +1924,13 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     // operations that cannot trap.
     unsafe {
         let out = args.add(3).cast_mut();
-        if matches!(op, 300..340 | 440..500) {
+        if matches!(op, 300..350 | 440..500) {
             let operands = read_operands::<4>(op, args);
             out.write(match op {
                 300..308 => crypto::call(op, operands),
                 308..320 => crypto_advanced::call(op, operands),
                 320..340 => compress::call(op, operands),
+                340..350 => crypto_keys::call(op, operands),
                 #[cfg(plenty_runtime_sqlite)]
                 440..470 => sqlite::call(op, operands),
                 470..500 => tls::call(op, operands),

@@ -1,6 +1,7 @@
 //! Native primitives behind `std.crypto`: RustCrypto digests/HMAC, BLAKE3, and ring
-//! authenticated encryption, signatures, key exchange and derivation. The public API, range validation
-//! and error policy live in `std.crypto` and `std.bytes`.
+//! authenticated encryption, signatures, RSA/P-256 keys, key exchange and
+//! derivation. The public API, range validation and error policy live in
+//! `std.crypto` and `std.bytes`.
 use crate::{op::Ty, sum};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -24,6 +25,16 @@ pub enum CryptoOp {
     XNew = 16,
     XPublic = 17,
     XAgree = 18,
+    // RSA and P-256 keys: opcodes 340..349.
+    KeyNew = 40,
+    RsaLoad = 41,
+    P256Load = 42,
+    KeySize = 43,
+    KeyPublic = 44,
+    KeySign = 45,
+    RsaVerify = 46,
+    P256Verify = 47,
+    P256Check = 48,
 }
 
 impl CryptoOp {
@@ -48,6 +59,15 @@ impl CryptoOp {
             "__crypto_x_public" => Self::XPublic,
             "__crypto_x_agree" => Self::XAgree,
             "__crypto_new_derive_key" => Self::NewDeriveKey,
+            "__crypto_key_new" => Self::KeyNew,
+            "__crypto_rsa_load" => Self::RsaLoad,
+            "__crypto_p256_load" => Self::P256Load,
+            "__crypto_key_size" => Self::KeySize,
+            "__crypto_key_public" => Self::KeyPublic,
+            "__crypto_key_sign" => Self::KeySign,
+            "__crypto_rsa_verify" => Self::RsaVerify,
+            "__crypto_p256_verify" => Self::P256Verify,
+            "__crypto_p256_check" => Self::P256Check,
             _ => return None,
         })
     }
@@ -74,7 +94,18 @@ impl CryptoOp {
             Self::EdSign | Self::EdVerify | Self::XAgree => {
                 (vec![storage(), storage(), storage()], Ty::I64)
             }
-            Self::XNew => (vec![], state()),
+            Self::XNew | Self::KeyNew => (vec![], state()),
+            Self::RsaLoad | Self::P256Load | Self::KeyPublic => {
+                (vec![storage(), storage()], Ty::I64)
+            }
+            // Selector 0 is the public key's length, 1 the signature's.
+            Self::KeySize => (vec![storage(), Ty::I64], Ty::I64),
+            // The I64 is the RSA scheme; P-256 ignores it.
+            Self::KeySign | Self::RsaVerify => {
+                (vec![storage(), Ty::I64, storage(), storage()], Ty::I64)
+            }
+            Self::P256Verify => (vec![storage(), storage(), storage()], Ty::I64),
+            Self::P256Check => (vec![storage()], Ty::I64),
         }
     }
 
@@ -86,7 +117,15 @@ impl CryptoOp {
             | Self::Equal
             | Self::EdVerify
             | Self::XNew
-            | Self::NewDeriveKey => false,
+            | Self::NewDeriveKey
+            | Self::KeyNew
+            | Self::KeySize
+            | Self::RsaVerify
+            | Self::P256Verify
+            | Self::P256Check => false,
+            Self::RsaLoad | Self::P256Load => operand == 0,
+            Self::KeyPublic => operand == 1,
+            Self::KeySign => operand == 3,
             Self::AesSeal | Self::AesOpen | Self::ChaChaSeal | Self::ChaChaOpen | Self::Hkdf => {
                 operand == 3
             }

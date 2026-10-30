@@ -13,6 +13,8 @@ pub enum EncodingError:
     InvalidPadding(i64)
     NonCanonical(i64)
     InvalidAlphabet
+    InvalidPem(i64)
+    PemLabel
     Allocation(AllocError)
 
 pub enum Endian:
@@ -141,6 +143,148 @@ pub def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, En
 pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
     base64mime_decode(&source, 0, source.len())
+
+# RFC 7468 strict PEM: one BEGIN line, base64 lines of exactly 64 symbols
+# except a shorter last line, the matching END line and one line terminator.
+# The label is bytes so a literal such as `b"PUBLIC KEY"` costs no allocation.
+pub def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    pem_label(label)?
+    if start == stop:
+        return Err(EncodingError.InvalidLength)
+    encoded = base64_encode(source, start, stop)?
+    lines = (encoded.len() + 63) // 64
+    mut text = lifted(std.bytes.with_capacity(encoded.len() + lines + 2 * label.len() + 32))?
+    pem_boundary(&mut text, b"-----BEGIN ", label)?
+    for index in range(encoded.len()):
+        emit(&mut text, i64(encoded[index]))?
+        if index % 64 == 63 or index == encoded.len() - 1:
+            emit(&mut text, 10)?
+    pem_boundary(&mut text, b"-----END ", label)?
+    Ok(text)
+
+pub def pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[str, EncodingError]:
+    lifted(pem_encode(source, start, stop, label)?.to_text())
+
+# Accepts LF or CRLF, used consistently, and nothing outside the one block:
+# no explanatory text, headers, blank lines or whitespace. `PemLabel` means
+# the BEGIN label differs from `label` or `label` is not an RFC 7468 label;
+# `InvalidPem` and the base64 errors give an offset into `source`.
+pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
+    checked(start, stop, source.len())?
+    pem_label(label)?
+    mut at = pem_expect(source, start, stop, b"-----BEGIN ")?
+    if not pem_matches(source, at, stop, label) or not pem_matches(source, at + label.len(), stop, b"-----"):
+        return Err(EncodingError.PemLabel)
+    at += label.len() + 5
+    mut eol = 0
+    if at < stop and source[at] == 10u8:
+        eol = 1
+    elif at + 1 < stop and source[at] == 13u8 and source[at + 1] == 10u8:
+        eol = 2
+    else:
+        return Err(EncodingError.InvalidPem(at))
+    at += eol
+    body = at
+    mut count = 0
+    mut short = False
+    while at < stop and source[at] != 45u8:
+        if short:
+            return Err(EncodingError.InvalidPem(at))
+        mut end = at
+        while end < stop and source[end] != 10u8 and source[end] != 13u8:
+            if end - at == 64:
+                return Err(EncodingError.InvalidPem(end))
+            end += 1
+        if end == at:
+            return Err(EncodingError.InvalidPem(at))
+        short = end - at < 64
+        count += end - at
+        at = pem_line_end(source, end, stop, eol)?
+    if count == 0:
+        return Err(EncodingError.InvalidPem(at))
+    at = pem_expect(source, at, stop, b"-----END ")?
+    at = pem_expect(source, at, stop, label)?
+    at = pem_expect(source, at, stop, b"-----")?
+    if at < stop:
+        at = pem_line_end(source, at, stop, eol)?
+        if at < stop:
+            return Err(EncodingError.InvalidPem(at))
+    mut compact = lifted(std.bytes.with_capacity(count))?
+    for index in range(body, body + count + (count + 63) // 64 * eol):
+        code = source[index]
+        if code != 10u8 and code != 13u8:
+            emit(&mut compact, i64(code))?
+    match base64_decode(&compact, 0, count):
+        case Ok(decoded):
+            Ok(decoded)
+        case Err(error):
+            match error:
+                case EncodingError.InvalidByte(index):
+                    Err(EncodingError.InvalidByte(pem_index(body, eol, index)))
+                case EncodingError.InvalidPadding(index):
+                    Err(EncodingError.InvalidPadding(pem_index(body, eol, index)))
+                case EncodingError.NonCanonical(index):
+                    Err(EncodingError.NonCanonical(pem_index(body, eol, index)))
+                case _:
+                    Err(error)
+
+pub def pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]:
+    source = lifted(std.bytes.from_text(text))?
+    pem_decode(&source, 0, source.len(), label)
+
+# RFC 7468 section 3: printable ASCII except `-`, with single spaces or
+# hyphens only between such characters. The empty label is rejected because
+# no key or certificate format uses it.
+def pem_label[S: ByteSource](label: &S) -> Result[(), EncodingError]:
+    count = label.len()
+    if count == 0:
+        return Err(EncodingError.PemLabel)
+    for index in range(count):
+        code = label[index]
+        if code == 32u8 or code == 45u8:
+            if index == 0 or index == count - 1 or label[index - 1] == 32u8 or label[index - 1] == 45u8:
+                return Err(EncodingError.PemLabel)
+        elif code < 33u8 or code > 126u8:
+            return Err(EncodingError.PemLabel)
+    Ok(())
+
+def pem_boundary[K: ByteSource, S: ByteSource](text: &mut Bytes, kind: &K, label: &S) -> Result[(), EncodingError]:
+    for index in range(kind.len()):
+        emit(text, i64(kind[index]))?
+    for index in range(label.len()):
+        emit(text, i64(label[index]))?
+    for _ in range(5):
+        emit(text, 45)?
+    emit(text, 10)
+
+def pem_matches[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> bool:
+    if stop - at < expected.len():
+        return False
+    for index in range(expected.len()):
+        if source[at + index] != expected[index]:
+            return False
+    True
+
+# The position after `expected`, or an error at the first byte that differs.
+def pem_expect[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> Result[i64, EncodingError]:
+    for index in range(expected.len()):
+        if at + index >= stop or source[at + index] != expected[index]:
+            return Err(EncodingError.InvalidPem(at + index))
+    Ok(at + expected.len())
+
+def pem_line_end(source: &Bytes, at: i64, stop: i64, eol: i64) -> Result[i64, EncodingError]:
+    if eol == 2:
+        if at + 1 < stop and source[at] == 13u8 and source[at + 1] == 10u8:
+            return Ok(at + 2)
+    elif at < stop and source[at] == 10u8:
+        return Ok(at + 1)
+    Err(EncodingError.InvalidPem(at))
+
+# Every body line but the last holds 64 symbols, so a compact index maps
+# directly back to its offset in the source.
+def pem_index(body: i64, eol: i64, compact_index: i64) -> i64:
+    body + compact_index // 64 * (64 + eol) + compact_index % 64
 
 def mime_space(code: u8) -> bool:
     code == 32u8 or code == 9u8 or code == 13u8 or code == 10u8

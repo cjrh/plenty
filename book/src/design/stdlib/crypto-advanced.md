@@ -61,7 +61,13 @@ deterministic, and a signing seed can sign multiple messages. Verification
 requires exactly 32 public-key bytes and 64 signature bytes; other lengths
 return `InvalidLength`, whereas correctly sized malformed keys/signatures
 return `False`. This is plain Ed25519, without a prehash or context mode.
-Public keys must be authenticated by the application's protocol.
+Public keys must be authenticated by the application's protocol. Small-order
+and mixed-order public keys are not rejected. With such a key, a signature can
+verify without any matching seed; with the identity point, one fixed signature
+verifies for every message. Never accept a public key that the protocol has
+not authenticated. The
+[Wycheproof vectors](crypto-keys.md#test-vectors) record this as their
+`acceptable` cases.
 
 ## X25519
 
@@ -111,6 +117,7 @@ unchanged. Use context to separate keys with different purposes. HKDF is
 | `InvalidPeer` | X25519 rejected the peer key |
 | `Finished` | X25519 key already used for an agreement attempt |
 | `RandomFailure` | OS entropy or X25519 key/public-key generation failed |
+| `InvalidKey`, `WeakKey` | Raised only by [RSA, ECDSA and key import](crypto-keys.md#errors) |
 | `Allocation(AllocError)` | A fallible buffer or private-state allocation failed |
 
 The `_into` functions, verification, and opening allocate nothing. Sealing
@@ -127,8 +134,9 @@ when consumed or dropped. This does not scrub copies in registers or on the
 stack, caller-owned seeds/keys/shared-secret buffers, or allocator caches.
 `Bytes` does not zero its storage on drop; see [key material](crypto.md#key-material).
 
-There are no password KDFs, key serialization formats, streaming AEAD, or
-persistent private-key stores in this API. It supports the project's
+There are no password KDFs, streaming AEAD, or persistent private-key stores
+in this API. Ed25519 keys can be read from PKCS #8 and SubjectPublicKeyInfo
+with the [key import functions](crypto-keys.md#import). It supports the project's
 x86-64 Linux GNU target. Runtime entry symbols keep unused primitive paths
 eligible for linker garbage collection; `ring` is also used by `std.tls`.
 

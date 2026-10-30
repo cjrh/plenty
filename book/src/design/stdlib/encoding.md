@@ -1,6 +1,6 @@
 # std.encoding
 
-`import std.encoding` provides hex, base32, base64 and custom codecs and
+`import std.encoding` provides hex, base32, base64, PEM and custom codecs and
 fixed-width integer packing over [`std.bytes`](bytes.md) buffers, with one error type,
 `EncodingError`.
 
@@ -55,7 +55,7 @@ hi!
 Each result is a new buffer whose capacity equals its length. Encoders produce
 ASCII only.
 
-For base32/base32hex, MIME line wrapping, and reusable custom alphabets, see
+For base32/base32hex, MIME line wrapping, PEM, and reusable custom alphabets, see
 [additional codecs](encoding-codecs.md). They use the same ranges, result
 types, and absolute byte indexes as the functions here.
 
@@ -110,6 +110,8 @@ pub enum EncodingError:
     InvalidPadding(i64)
     NonCanonical(i64)
     InvalidAlphabet
+    InvalidPem(i64)
+    PemLabel
     Allocation(AllocError)
 ```
 
@@ -121,6 +123,8 @@ pub enum EncodingError:
 | `InvalidPadding(index)` | A configured padding byte at `index` where the codec does not accept it |
 | `NonCanonical(index)` | The symbol at `index` has nonzero bits that encode no byte |
 | `InvalidAlphabet` | A custom alphabet or padding symbol violates its construction rules |
+| `InvalidPem(index)` | The [PEM](encoding-codecs.md#pem) framing is malformed at `index` |
+| `PemLabel` | The PEM label is not the expected one, or the expected label is invalid |
 | `Allocation(cause)` | Storage for the result could not be allocated |
 
 An index is a position in the source buffer, not relative to `start`; for the

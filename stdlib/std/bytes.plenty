@@ -423,3 +423,30 @@ pub def crypto_x_agree(state: &mut Bytes, peer: &Bytes, target: &mut Bytes) -> i
 
 pub def crypto_x_new() -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__crypto_x_new())?))
+
+pub def crypto_key_new() -> Result[Bytes, BytesError]:
+    Ok(Bytes(allocated(__crypto_key_new())?))
+
+pub def crypto_rsa_load(state: &mut Bytes, der: &Bytes) -> i64:
+    __crypto_rsa_load(state._owner, der._owner)
+
+pub def crypto_p256_load(state: &mut Bytes, der: &Bytes) -> i64:
+    __crypto_p256_load(state._owner, der._owner)
+
+pub def crypto_key_size(state: &Bytes, which: i64) -> i64:
+    __crypto_key_size(state._owner, which)
+
+pub def crypto_key_public(state: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_key_public(state._owner, target._owner)
+
+pub def crypto_key_sign(state: &Bytes, scheme: i64, message: &Bytes, target: &mut Bytes) -> i64:
+    __crypto_key_sign(state._owner, scheme, message._owner, target._owner)
+
+pub def crypto_rsa_verify(key: &Bytes, scheme: i64, message: &Bytes, signature: &Bytes) -> i64:
+    __crypto_rsa_verify(key._owner, scheme, message._owner, signature._owner)
+
+pub def crypto_p256_verify(point: &Bytes, message: &Bytes, signature: &Bytes) -> i64:
+    __crypto_p256_verify(point._owner, message._owner, signature._owner)
+
+pub def crypto_p256_check(point: &Bytes) -> i64:
+    __crypto_p256_check(point._owner)
