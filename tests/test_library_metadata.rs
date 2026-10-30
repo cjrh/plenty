@@ -284,7 +284,7 @@ fn rejects_other_architecture_even_when_contract_matches() {
     } else {
         object::elf::EM_AARCH64
     };
-    bytes[18..20].copy_from_slice(&machine.to_le_bytes());
+    bytes[18..20].copy_from_slice(&machine.0.to_le_bytes());
     std::fs::write(&path, bytes).unwrap();
     let error = plenty::read_library_interfaces(&path)
         .unwrap_err()

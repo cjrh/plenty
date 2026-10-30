@@ -28,11 +28,14 @@ The application archive supplies C `main`, calling `plenty_main`. A separate
 library archive omits both startup and that dependency; shared-library export
 maps hide runtime symbols. Both archives are built with the compiler.
 
-Native emission validates `x86_64-unknown-linux-gnu`, Cranelift's ISA and pointer
-type, and the packaged runtime target. Current layouts depend on 64-bit pointers,
-128-bit slots, little-endian metadata, System V callbacks, and fixed descriptor
-offsets. Layout assertions and native tests protect these boundaries; selecting
-a linker does not validate a new platform.
+Native emission validates the native GNU/Linux triple (`x86_64` or `aarch64`),
+Cranelift's ISA and pointer type, and the packaged runtime target. Current layouts
+depend on 64-bit pointers, 128-bit slots, little-endian metadata, the native C ABI
+and fixed descriptor offsets. Cranelift names both Linux C conventions SystemV;
+on AArch64 this implements AAPCS64, including aligned `u128` register pairs.
+Ordinary Plenty functions keep the private Tail convention, with native adapters
+at foreign boundaries. Layout assertions and native tests protect these
+boundaries; selecting a linker does not validate a new platform.
 
 ## Entry symbols
 
@@ -88,8 +91,12 @@ context exits. Libraries leave signal handling to their host and register no
 alternate signal stack on threads they create.
 
 Executable startup installs a `SIGSEGV` handler unless one already exists. Each
-thread registers a 16 KiB alternate signal stack reserved in its own entry frame
-and removes it when Plenty code returns, with no heap allocation or mapping.
+thread reserves an alternate signal stack in its own entry frame: 16 KiB on
+x86-64 and 64 KiB on AArch64, which has larger saved register contexts. It removes
+the stack when Plenty code returns, with no heap allocation or mapping. Startup
+checks the runtime page size and kernel minimum signal-stack requirement before
+installing the handler; an inadequate reserved stack leaves the default signal
+behavior in place. ARM qualification currently covers 4 KiB pages.
 Generated frames larger than a page probe
 each page. The handler recognizes a data fault below the entry frame and no more
 than one page below the faulting stack pointer; other faults retain the default
@@ -134,8 +141,8 @@ its own.
 
 Inline checks (integer overflow, division by zero, shift counts, float-to-integer
 casts, `unwrap`) branch to a cold trap block; checks of one kind at one
-position share the block. In an executable the block is a single `ud2`
-with its own Cranelift trap code, and the object holds a trap table mapping
+position share the block. In an executable the block is a single x86 `ud2` or
+AArch64 `udf`, with its own Cranelift trap code, and the object holds a trap table mapping
 each such address to the check's kind and site record. Its addresses are
 32-bit offsets the linker resolves, so a PIE applies no relocations to it
 and its pages stay unread until a check fails. `plenty_main`
@@ -143,7 +150,9 @@ registers the table, and startup installs a `SIGILL` handler on the
 alternate signal stack. On a kernel-raised `SIGILL` at a listed address the
 handler resumes the thread in the check's helper with the site as its
 argument, so the report, exit status and thread behaviour match a direct
-call; any other `SIGILL` goes to the previous action. The table lists only
+call. x86 restores a call-compatible stack; AArch64 restores PC, aligned SP and
+argument registers for a native C helper entry. Any other
+`SIGILL` goes to the previous action. The table lists only
 functions reachable from exported functions and destructors, so linker
 garbage collection still removes the rest. A function has 247 trap codes;
 later checks, and every check in a library, `--fuzz` or `--coverage` build,

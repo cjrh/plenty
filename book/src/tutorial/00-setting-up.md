@@ -12,8 +12,12 @@ portable binary download described here.
 ## Check your system
 
 The current binary release supports **x86-64 Linux with glibc 2.28 or later**.
-There are no release binaries for macOS, Windows, ARM, or musl-based Linux
-distributions such as Alpine yet. See the
+AArch64 GNU/Linux is also implemented for source builds and is undergoing
+[ARM qualification](../development/linux-aarch64.md). Use an ARM release only
+when its release notes list your system as tested; the x86 archive below cannot
+run on an ARM machine. Optional engines must match that same target. macOS,
+Windows and musl-based Linux distributions such as Alpine remain unsupported.
+See the
 [installation requirements](../design/toolchain/01-building/installing.md#requirements)
 for supported systems and troubleshooting.
 

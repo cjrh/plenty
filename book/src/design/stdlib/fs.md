@@ -79,3 +79,4 @@ Native enumeration currently supports 64-bit Linux; unsupported hosts return
 ## Acknowledgements
 
 - Directory API modelled on Python's [`os.scandir`](https://docs.python.org/3/library/os.html#os.scandir) and Rust's [`std::fs::read_dir`](https://doc.rust-lang.org/std/fs/fn.read_dir.html).
+- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for target-specific Linux open flags (MIT OR Apache-2.0).

@@ -140,7 +140,9 @@ borrows; parameters, masks, generators and mutable-borrowed locals retain that
 storage path. This is an internal optimization, not a different ownership rule.
 Checked integer arithmetic, mask summaries, ordered float reductions and list access keep
 their ordinary scalar implementations. On other compiler hosts, the module's
-scalar bodies remain available; this does not add a new supported Plenty target.
+scalar bodies remain available. The AArch64 implementation currently uses these
+scalar bodies, including in release builds; ARM vector acceleration is separate
+work.
 The same source semantics apply with and without optimization. No runtime ISA
 selection or newer CPU feature is required.
 

@@ -18,7 +18,7 @@ imports. Checking does not invoke native functions or inspect C headers.
 
 The raw ABI supports `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, nominal opaque
 pointers, and unit for void results, plus the
-[explicit borrowing/text adapters](borrowing-text.md). On x86_64 Linux GNU,
+[explicit borrowing/text adapters](borrowing-text.md). On x86-64 and AArch64 GNU/Linux,
 these match C `intN_t`, `uintN_t`, `float`, `double`, and pointers. Binding aliases
 can name C types: `int` is `i32`, `long` and `ptrdiff_t` are `i64`, and `size_t`
 is `u64`. Bool, aggregate values, and private Plenty layouts have no raw ABI.
