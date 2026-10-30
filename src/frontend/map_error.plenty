@@ -1,0 +1,7 @@
+def map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F) -> Result[T, G]:
+    mut convert = mapper
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(convert(cause))

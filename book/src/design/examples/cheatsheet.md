@@ -371,7 +371,8 @@ There is no `None` and no exceptions: absence is `Option[T]`
 (`Some(x)`/`Nothing`), failure is `Result[T, E]` (`Ok(x)`/`Err(e)`). `?`
 returns early on `Nothing` or `Err`; the function's error type must equal the
 source's or contain it in an `A | B` union. `?` never converts an `Option` into
-a `Result`: use `ok_or(error)?`. `unwrap()` traps. `print` shows the full
+a `Result`: use `ok_or(error)?`. To wrap an error, map it explicitly:
+`print(line).map_error(AppError.Io)?`. `unwrap()` traps. `print` shows the full
 enum name, as in `Option[i64].Some(6)`. See
 [propagation](../language/08-errors/01-sums-and-propagation.md) and
 [anonymous sums](../language/03-types/anonymous-sums.md).

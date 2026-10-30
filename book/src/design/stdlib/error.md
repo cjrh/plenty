@@ -20,7 +20,7 @@ pub class Context[E]:
 
 | Operation | Result | Contract |
 | --- | --- | --- |
-| `map_error(result, mapper)` | `Result[T, G]` | Consumes `Result[T, E]`; invokes an owned `OnceCallable[[E], G]` only on `Err` |
+| `map_error(result, mapper)` | `Result[T, G]` | Consumes `Result[T, E]`; invokes an owned `OnceCallable[[E], G]` only on `Err`; same as the `result.map_error(mapper)` method |
 | `Context(operation, subject, cause)` | `Context[E]` | Takes ownership of all three; allocates nothing |
 | `context(result, operation)` | `Result[T, Context[E]]` | Wraps an `Err` with `Subject.Absent`; allocates nothing |
 | `path_context(result, operation, &path)` | `Result[T, Context[E]]` | Wraps an `Err`, copying the path only then |
@@ -69,15 +69,22 @@ using default settings
 
 ## Explicit error mapping
 
-`map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F)`
-returns `Result[T, G]`. Use a named classifier when several error variants need
-different policies, or a small anonymous function for a single wrapper:
+`result.map_error(mapper)` consumes `Result[T, E]` and returns `Result[T, G]`,
+where `mapper` is an owned `OnceCallable[[E], G]`. A one-payload enum variant is
+the usual mapper; use a named classifier when several error variants need
+different policies, or a closure to add other payloads or captured context:
 
 ```text
-map_error(i64.parse(text), def (cause: ParseError) -> ConfigError: ConfigError.Parse(cause))?
+i64.parse(text).map_error(ConfigError.Parse)?
+print(line).map_error(def [path](cause: IoError) -> AppError: AppError.Write(path, cause))?
 ```
 
-The result and mapper expressions run once, left to right, even on success.
+The library function
+`map_error[T, E, G, F: OnceCallable[[E], G]](result: Result[T, E], mapper: F)`
+has the same behavior; the method is a compiler-provided `Result` method, not
+an import. A class or enum that defines its own `map_error` keeps it.
+
+The receiver and mapper expressions run once, receiver first, even on success.
 The mapper runs exactly once on `Err`, taking ownership of the original error;
 on `Ok`, the success payload moves through unchanged and the unused mapper is
 dropped. Named functions, reusable closures (including mutable environments),
@@ -90,15 +97,17 @@ destruction retain their ordinary effects. If the callback returns
 and no cause-preservation policy is invented. Use [`context`](#allocation-failure)
 or `path_context` when their explicit context-allocation policy fits.
 
-This is a library function, not a Result method; `.map_err(...)` is not
-implemented. `?` still requires identical error types (except legacy
-`Failure` erasure). The conversion is visible at the `map_error` call.
+`?` still requires identical error types (except legacy `Failure` erasure);
+the conversion is visible at the `map_error` call. The mapper must be owned and
+take exactly the error type: a reference, a variant with several payloads, or
+a callable returning unit is rejected. `.map_err(...)` is not implemented.
 See [the lesson](../../tutorial/03-absence/error-details.md).
 
 Worker-reachable calls need an inspectable concrete closure, such as
 `def once (cause: ParseError) -> ConfigError: classify(cause)`. A thin named or
-anonymous function value called indirectly inside a generic helper retains the
-existing worker-thread effect restriction. The `once` form keeps the
+anonymous function value, including a variant constructor value such as
+`ConfigError.Parse`, retains the existing worker-thread effect restriction when
+either form of `map_error` calls it. The `once` form keeps the
 callback body concrete without allocating; it does not bypass its effect check.
 
 ## Allocation failure

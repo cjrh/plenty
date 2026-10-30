@@ -45,6 +45,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod mapping;
 mod modules;
 mod mutex;
 mod numeric;
@@ -3524,6 +3525,14 @@ impl Lower<'_> {
                         self.variant(ty, name, None, &e.at, ops)?
                     }
                     _ => {
+                        if let Expression::Name(owner) = &base.kind
+                            && !self.names.contains_key(owner)
+                            && self.aliases.data.is_enum(owner)
+                        {
+                            return Err(e.at.error(format!(
+                                "generic enum `{owner}` needs type arguments here, such as `{owner}[i64].{name}`"
+                            )));
+                        }
                         let moving = self.place_type(e).is_some_and(|ty| ty.affine());
                         let owner = if moving {
                             self.field_owner(e)?

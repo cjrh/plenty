@@ -2813,6 +2813,15 @@ impl Lower<'_> {
         {
             return self.option_method(base, name, args, None, ops);
         }
+        if name == "map_error"
+            && !self
+                .place_type(base)
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
+        {
+            return self.result_map_error(base, args, &base.at, ops);
+        }
         if name == "drop_job"
             && self.place_type(base).map(classes::unbox).is_none_or(|ty| {
                 crate::sum::job_free(&ty).is_some() || !classes::inherent_receiver(&ty)

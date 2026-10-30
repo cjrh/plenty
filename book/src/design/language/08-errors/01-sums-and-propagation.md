@@ -38,10 +38,12 @@ family; Result errors must be identical or widen losslessly into a declared
 erasure below. Success types may differ. There are
 no implicit Result/Option conversions. A unit success produces unit.
 
-For explicit error conversion, [`std.error.map_error(result, mapper)`](../../stdlib/error.md#explicit-error-mapping)
+For explicit error conversion, [`result.map_error(mapper)`](../../stdlib/error.md#explicit-error-mapping)
 consumes `Result[T, E]` and returns `Result[T, G]`, invoking the mapper only
-for `Err`. It forwards `Ok` without copying and adds no allocation. This is
-an ordinary library call; it does not change the propagation rule.
+for `Err`. It forwards `Ok` without copying and adds no allocation. A payload
+variant is a mapper, as in `print(line).map_error(AppError.Io)?`. The
+`std.error.map_error(result, mapper)` function has the same behavior. Neither
+changes the propagation rule.
 
 ```plenty
 def checked_first(values: &list[i64]) -> Option[i64]:

@@ -9,7 +9,9 @@ or `&mut F`; see [generic functions](../07-generics/index.md).
 `Callable[[], T]` takes no arguments, and `Callable[[T], ()]` returns unit.
 Aliases may name these signatures. Function values are copyable, display as
 `<function>`, and compare native code addresses rather than behavior. They
-cannot be dictionary keys or set elements.
+cannot be dictionary keys or set elements. A payload enum variant written
+without arguments, such as `AppError.Io`, is also a function value; see
+[enums](../03-types/enums.md).
 
 An arbitrary callee expression is allowed: `choose()(n)`, `(f)(n)`,
 `handlers[index](n)`, and `record.callback(n)`. The callee evaluates before its
