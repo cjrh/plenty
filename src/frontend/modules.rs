@@ -2072,6 +2072,25 @@ pub class NonZero[T: IntType]:
         self.value
 ";
 
+/// The component after `outer` in `inner` when `outer` is a strict dotted
+/// prefix of it: `other` for `p` in `p.other.x`.
+fn nested_member<'a>(outer: &str, inner: &'a str) -> Option<&'a str> {
+    inner
+        .strip_prefix(outer)?
+        .strip_prefix('.')?
+        .split('.')
+        .next()
+}
+
+/// A module import as written, for diagnostics.
+fn import_text(import: &Import) -> String {
+    if import.module == import.binding {
+        format!("import {}", import.module)
+    } else {
+        format!("import {} as {}", import.module, import.binding)
+    }
+}
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 fn resolve(
     mut modules: Vec<Module>,
@@ -2118,6 +2137,36 @@ fn resolve(
             )
         })
         .collect();
+    // `import p` and `import p.other` coexist unless module `p` has a member
+    // `other`, which `p.other` would also name (issue #568). Collect member
+    // names only for modules bound by such an enclosing import. Dependencies
+    // precede their importers and are qualified when resolved, so names are
+    // read before that.
+    let mut members: HashMap<usize, HashSet<String>> = HashMap::default();
+    for (m, deps) in modules.iter().zip(&dependencies) {
+        let namespaces = || {
+            m.imports
+                .iter()
+                .zip(deps)
+                .filter(|(import, _)| import.item.is_none())
+        };
+        for (outer, &d) in namespaces() {
+            if outer.binding == outer.module
+                && !members.contains_key(&d)
+                && namespaces()
+                    .any(|(inner, _)| nested_member(&outer.binding, &inner.binding).is_some())
+            {
+                let module = &modules[d];
+                let names = module
+                    .names()
+                    .chain(&module.constants)
+                    .chain(exports[d].keys())
+                    .cloned()
+                    .collect();
+                members.insert(d, names);
+            }
+        }
+    }
     let mut result = Resolved {
         // Like `std`, the arithmetic errors' constructors are emitted only
         // when a program uses them.
@@ -2147,6 +2196,8 @@ fn resolve(
             namespaces: Arc::default(),
             constants: constants.clone(),
         };
+        // Namespace imports so far, to check enclosing and nested bindings.
+        let mut bound: Vec<(&Import, usize)> = Vec::new();
         for (import, dependency) in m.imports.iter().zip(&dependencies[i]) {
             let root = import.binding.split('.').next().unwrap();
             let identical_builtin = import.item.as_ref().is_some_and(|item| {
@@ -2158,14 +2209,50 @@ fn resolve(
                 || scope.declared.contains(root)
                 || scope.imported.contains_key(root)
                 || scope.namespaces.contains_key(&import.binding)
-                || scope.namespaces.contains_key(root)
-                || (scope.namespace_root(root)
-                    && (import.item.is_some() || !import.binding.contains('.')))
+                || (scope.namespace_root(root) && import.item.is_some())
             {
                 return Err(import.at.error(format!(
                     "import binding `{}` conflicts with an existing name",
                     import.binding
                 )));
+            }
+            if import.item.is_none() {
+                for &(other, other_dependency) in &bound {
+                    let (outer, inner, module, member) = if let Some(member) =
+                        nested_member(&other.binding, &import.binding)
+                    {
+                        (other, import, other_dependency, member)
+                    } else if let Some(member) = nested_member(&import.binding, &other.binding) {
+                        (import, other, *dependency, member)
+                    } else {
+                        continue;
+                    };
+                    let tail = inner.binding.rsplit('.').next().unwrap();
+                    let hint = format!(
+                        "bind the nested module under another name, such as `import {} as {tail}`",
+                        inner.module
+                    );
+                    // A binding path names its own module path; an alias
+                    // would make `p` and `p.other` unrelated modules.
+                    if outer.binding != outer.module {
+                        return Err(import.at.error(format!(
+                            "`{}` conflicts with `{}`: the alias `{}` cannot enclose a module path; {hint}",
+                            import_text(import),
+                            import_text(other),
+                            outer.binding,
+                        )));
+                    }
+                    if members[&module].contains(member) {
+                        return Err(import.at.error(format!(
+                            "`{}` conflicts with `{}`: module `{}` declares `{member}`, so `{}.{member}` would name both; {hint}",
+                            import_text(import),
+                            import_text(other),
+                            outer.module,
+                            outer.binding,
+                        )));
+                    }
+                }
+                bound.push((import, *dependency));
             }
             if let Some(item) = &import.item {
                 let name = exports[*dependency].get(item).ok_or_else(|| {
