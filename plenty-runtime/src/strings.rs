@@ -395,6 +395,42 @@ pub(crate) unsafe fn try_join_generator(
 pub(crate) unsafe extern "C" fn plenty_str_eq(a: *const Text, b: *const Text) -> i8 {
     unsafe { (a == b || bytes(&a) == bytes(&b)) as i8 }
 }
+/// Dispatch for a large `match` on string literals (issue #565): the index of
+/// `text` among `len` distinct literals, or `len` when none is equal.
+///
+/// The compiler-built table holds `len + 1` native-endian `u32` byte offsets,
+/// then the literals' bytes back to back; literal `i` spans offsets `i` to
+/// `i + 1`. Literals are ordered by byte length, then bytes, so most probes
+/// stop after comparing lengths. The table holds no addresses, so it needs no
+/// load-time relocation.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_str_match(
+    text: *const Text,
+    table: *const u32,
+    len: u64,
+) -> u64 {
+    // SAFETY: the compiler keeps `text` alive through the call and passes an
+    // immortal, 4-aligned table in the layout above.
+    unsafe {
+        let key = bytes(&text);
+        let count = len as usize;
+        let offsets = slice::from_raw_parts(table, count + 1);
+        let data = table.add(count + 1).cast::<u8>();
+        let (mut low, mut high) = (0, count);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let start = offsets[middle] as usize;
+            let literal =
+                slice::from_raw_parts(data.add(start), offsets[middle + 1] as usize - start);
+            match literal.len().cmp(&key.len()).then_with(|| literal.cmp(key)) {
+                std::cmp::Ordering::Less => low = middle + 1,
+                std::cmp::Ordering::Greater => high = middle,
+                std::cmp::Ordering::Equal => return middle as u64,
+            }
+        }
+        len
+    }
+}
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_contains(haystack: *const Text, needle: *const Text) -> i8 {
     unsafe { utf8(&haystack).contains(utf8(&needle)) as i8 }

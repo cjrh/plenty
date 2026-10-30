@@ -23,7 +23,8 @@
 //! defined once at function entry.
 //!
 //! Phase c.3 adds `Op::Match`: each arm becomes its own Cranelift block,
-//! large contiguous integer/tag sets use a bounded jump table; other
+//! large contiguous integer/tag sets use a bounded jump table, large
+//! string sets search one sorted table (`codegen::matching`); other
 //! patterns lower to a linear chain of `brif` compares (wildcards become
 //! unconditional jumps and short-circuit the chain; a `bool` scrutinee
 //! branches on itself and its second value is a jump), and a single join
@@ -40,7 +41,8 @@
 //! `Op::Eq` now dispatch on operand types: integer pairs take the
 //! existing CLIF paths; `Str Str` calls `plenty_concat` / `plenty_str_eq`
 //! in the Rust runtime. `Display` prints strings via `plenty_print_str`,
-//! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`.
+//! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`, or
+//! one `plenty_str_match` search and a `br_table` for 16 or more literals.
 //! A byte literal (`Op::PushBytes`) uses the same immortal layout and is
 //! tagged `Ty::ByteStr`; it is never released and never reaches a text helper.
 //!
@@ -999,6 +1001,9 @@ struct Runtime {
     concat: FuncId,
     /// `plenty_str_eq(*const u8, *const u8) -> i8` — c.4.
     str_eq: FuncId,
+    /// `plenty_str_match(text, table, len) -> u64` (issue #565): binary search
+    /// of a sorted literal table, for large string matches.
+    str_match: FuncId,
     /// `plenty_trap_overflow(site) -> !` — prints `error: integer overflow`
     /// with the site's position to stderr and `exit(1)`s. The lowerer calls
     /// this from the overflow branch of every checked arithmetic op.
@@ -1329,6 +1334,12 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         print_space: nullary(module, "plenty_print_space")?,
         concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
+        str_match: helper(
+            module,
+            "plenty_str_match",
+            &[PTR_TY, PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
         trap_overflow: one_arg(module, "plenty_trap_overflow", PTR_TY)?,
         trap_shift: one_arg(module, "plenty_trap_shift", PTR_TY)?,
         trap_div_zero: one_arg(module, "plenty_trap_div_zero", PTR_TY)?,
@@ -1414,14 +1425,11 @@ fn string_literal_bytes((data, scalars): (&[u8], usize)) -> Vec<u8> {
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
-fn declare_str_data(
-    ops: &[Op],
-    heap: &Heap,
-    module: &mut ObjectModule,
-) -> Result<HashMap<StrId, DataId>> {
+fn declare_str_data(ops: &[Op], heap: &Heap, module: &mut ObjectModule) -> Result<StrData> {
     let mut ids: Vec<StrId> = Vec::new();
     let mut seen: HashMap<StrId, ()> = HashMap::default();
-    collect_str_ids(ops, &mut ids, &mut seen);
+    let mut matches = Vec::new();
+    collect_str_ids(ops, &mut ids, &mut seen, &mut matches);
 
     let mut out: HashMap<StrId, DataId> = HashMap::default();
     for (i, id) in ids.into_iter().enumerate() {
@@ -1437,7 +1445,18 @@ fn declare_str_data(
         module.define_data(data_id, &desc)?;
         out.insert(id, data_id);
     }
-    Ok(out)
+    let tables = matching::declare_str_tables(&matches, heap, module)?;
+    Ok(StrData {
+        literals: out,
+        tables,
+    })
+}
+
+/// Read-only data for string literals: one symbol per literal, and the sorted
+/// tables that large string matches search (issue #565).
+pub(super) struct StrData {
+    literals: HashMap<StrId, DataId>,
+    tables: matching::StrTables,
 }
 
 /// An aligned, immortal, counted empty string for the legacy EOF fallback.
@@ -1452,26 +1471,41 @@ fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
 
 /// Recursive helper for [`declare_str_data`]: emits `StrId`s in
 /// first-seen order, skipping duplicates so the same literal appearing
-/// in multiple places shares one data symbol.
-fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, ()>) {
+/// in multiple places shares one data symbol. Also collects every match
+/// that has string patterns, in the same deterministic order.
+fn collect_str_ids<'a>(
+    ops: &'a [Op],
+    out: &mut Vec<StrId>,
+    seen: &mut HashMap<StrId, ()>,
+    matches: &mut Vec<&'a [MatchArm]>,
+) {
     for op in ops {
         match op {
             Op::Loop { condition, body } => {
-                collect_str_ids(condition, out, seen);
-                collect_str_ids(body, out, seen);
+                collect_str_ids(condition, out, seen, matches);
+                collect_str_ids(body, out, seen, matches);
             }
             Op::CheckedBlock { body, .. } | Op::CheckedArith { cleanup: body, .. } => {
-                collect_str_ids(body, out, seen);
+                collect_str_ids(body, out, seen, matches);
             }
             Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
             Op::Match(arms) => {
+                if matches!(
+                    arms.first(),
+                    Some(MatchArm {
+                        pattern: Pattern::Str(_),
+                        ..
+                    })
+                ) {
+                    matches.push(arms);
+                }
                 for arm in arms.iter() {
                     if let Pattern::Str(id) = arm.pattern
                         && seen.insert(id, ()).is_none()
                     {
                         out.push(id);
                     }
-                    collect_str_ids(&arm.body, out, seen);
+                    collect_str_ids(&arm.body, out, seen, matches);
                 }
             }
             Op::If {
@@ -1479,14 +1513,14 @@ fn collect_str_ids(ops: &[Op], out: &mut Vec<StrId>, seen: &mut HashMap<StrId, (
                 elifs,
                 otherwise,
             } => {
-                collect_str_ids(then, out, seen);
+                collect_str_ids(then, out, seen, matches);
                 for arm in elifs.iter() {
-                    collect_str_ids(&arm.condition, out, seen);
-                    collect_str_ids(&arm.body, out, seen);
+                    collect_str_ids(&arm.condition, out, seen, matches);
+                    collect_str_ids(&arm.body, out, seen, matches);
                 }
-                collect_str_ids(otherwise, out, seen);
+                collect_str_ids(otherwise, out, seen, matches);
             }
-            Op::DefineFn(_, f) => collect_str_ids(&f.body, out, seen),
+            Op::DefineFn(_, f) => collect_str_ids(&f.body, out, seen, matches),
             _ => {}
         }
     }
@@ -1740,7 +1774,7 @@ fn build_user_function(
     name: &str,
     body: &[Op],
     fns: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
+    str_data: &StrData,
     eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
@@ -1916,7 +1950,7 @@ fn build_main(
     returns_status: bool,
     main_id: FuncId,
     fns: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
+    str_data: &StrData,
     eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
@@ -2101,7 +2135,7 @@ struct Lowerer<'a, 'b> {
     /// emits a `global_value` against the matching entry; pattern
     /// compares in `Op::Match` use the same map for the `Pattern::Str`
     /// case. Populated once per module by `declare_str_data`.
-    str_data: &'a HashMap<StrId, DataId>,
+    str_data: &'a StrData,
     /// Immortal counted empty string used for legacy input EOF.
     eof_empty_str: DataId,
     /// The active function's input variables, indexed by the local
@@ -3347,12 +3381,16 @@ impl Lowerer<'_, '_> {
     /// data symbol that holds this literal's bytes, push the address (typed
     /// as `ty`) onto the compile-time stack.
     fn lower_push_str(&mut self, id: StrId, ty: Ty) -> Result<()> {
-        let data_id = *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
-            // `declare_str_data` is supposed to register every StrId
-            // reachable through ops; missing here means the collection
-            // walk missed an op variant.
-            format!("AOT: PushStr({id:?}) without a declared data symbol").into()
-        })?;
+        let data_id = *self
+            .str_data
+            .literals
+            .get(&id)
+            .ok_or_else(|| -> Box<dyn Error> {
+                // `declare_str_data` is supposed to register every StrId
+                // reachable through ops; missing here means the collection
+                // walk missed an op variant.
+                format!("AOT: PushStr({id:?}) without a declared data symbol").into()
+            })?;
         let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
         let addr = self.bcx.ins().symbol_value(PTR_TY, gv);
         self.stack.push((addr, ty));
@@ -3883,7 +3921,10 @@ impl Lowerer<'_, '_> {
         // compare. A wildcard short-circuits with an unconditional jump
         // and renders any trailing arms unreachable (the checker would
         // already have noticed if a useful arm came after `_`).
-        let mut chain_terminated = self.lower_dense_dispatch(scrut, &scrut_ty, arms, &arm_blocks);
+        let dense = self.lower_dense_dispatch(scrut, &scrut_ty, arms, &arm_blocks);
+        // A table search releases the scrutinee once, before branching.
+        let released = !dense && self.lower_str_table_dispatch(scrut, &scrut_ty, arms, &arm_blocks);
+        let mut chain_terminated = dense || released;
         // Indexed by `bool as usize`: the values earlier `Bool` arms tested.
         let mut bool_covered = [false; 2];
         for (i, arm) in arms.iter().enumerate() {
@@ -3939,9 +3980,14 @@ impl Lowerer<'_, '_> {
                     // does the byte-for-byte comparison and returns a
                     // Plenty Bool (`i8`). The data symbol for `id` was
                     // already declared by `declare_str_data`.
-                    let data_id = *self.str_data.get(&id).ok_or_else(|| -> Box<dyn Error> {
-                        format!("AOT: Pattern::Str({id:?}) without declared data").into()
-                    })?;
+                    let data_id =
+                        *self
+                            .str_data
+                            .literals
+                            .get(&id)
+                            .ok_or_else(|| -> Box<dyn Error> {
+                                format!("AOT: Pattern::Str({id:?}) without declared data").into()
+                            })?;
                     let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
                     let pat_addr = self.bcx.ins().symbol_value(PTR_TY, gv);
                     let str_eq = self
@@ -3978,7 +4024,9 @@ impl Lowerer<'_, '_> {
             self.bcx.seal_block(arm_blocks[i]);
             self.stack = entry_stack.clone();
             self.terminated = false;
-            self.release(scrut, &scrut_ty);
+            if !released {
+                self.release(scrut, &scrut_ty);
+            }
             for op in arm.body.iter() {
                 if self.terminated {
                     break;

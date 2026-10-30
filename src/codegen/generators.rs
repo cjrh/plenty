@@ -57,7 +57,7 @@ pub(super) fn build_generator(
     name: &str,
     body: &[Op],
     fns: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
+    str_data: &StrData,
     eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,

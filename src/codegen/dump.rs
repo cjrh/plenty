@@ -139,13 +139,14 @@ impl Plan {
         user_fns: &HashMap<String, UserFn>,
         module: &ObjectModule,
         heap: &Heap,
-        str_data: &HashMap<StrId, DataId>,
+        str_data: &super::StrData,
     ) -> Self {
         let mut plan = Self {
             options: options.clone(),
             optimize,
             subjects: HashMap::default(),
             strings: str_data
+                .literals
                 .iter()
                 .map(|(id, data)| (*data, preview(heap, *id)))
                 .collect(),

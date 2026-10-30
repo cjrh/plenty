@@ -54,7 +54,10 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     bcx.switch_to_block(entry);
     bcx.seal_block(entry);
     let incoming = bcx.block_params(entry).to_vec();
-    let strings = HashMap::default();
+    let strings = StrData {
+        literals: HashMap::default(),
+        tables: HashMap::default(),
+    };
     let mut lower = Lowerer {
         bcx: &mut bcx,
         module: &mut symbols,
