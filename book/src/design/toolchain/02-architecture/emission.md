@@ -150,6 +150,16 @@ dispatch changes: arm bodies, payload loads, ownership cleanup, source-order
 payload subpatterns, joins and tail exits use their existing lowering paths.
 No source syntax, allocation behavior or target CPU requirement changes.
 
+A `str` match whose arms before the fallback are at least 16 distinct literals
+searches one table instead of comparing each literal (issue #565). Codegen
+sorts the literals by byte length and then bytes, keeping the first source arm
+of any repeated literal, and emits a read-only data object of `n + 1` 32-bit
+offsets followed by the bytes. `plenty_str_match` binary-searches it and
+returns the entry index, or `n` for no match; `br_table` maps the index to the
+arm block, with `n` going to the wildcard. The scrutinee is released once
+before the branch. Other `str` matches keep their `plenty_str_eq` chain; see
+the [string match measurements](../../../development/profiling.md#string-match-dispatch).
+
 ## Symbol references
 
 Code is compiled position-independent (Cranelift's `is_pic`), so the object
