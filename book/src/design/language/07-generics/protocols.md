@@ -55,6 +55,17 @@ class Crate:
     def size(self) -> i64:
         self.width
 
+enum Parcel:
+    Letter
+    Packet(i64)
+
+    def size(self) -> i64:
+        match self:
+            case Parcel.Letter:
+                1
+            case Parcel.Packet(width):
+                *width
+
 class Total:
     sum: i64
 
@@ -68,12 +79,18 @@ def feed[K: Sink, S: Sized](sink: &mut K, item: &S) -> i64:
 def main() -> Result[(), IoError]:
     mut total = Total(0)
     feed(&mut total, &Crate(3))
-    print(feed(&mut total, &Crate(4)))?
+    feed(&mut total, &Parcel.Letter)
+    print(feed(&mut total, &Parcel.Packet(4)))?
     Ok(())
 ```
 ```output
-7
+8
 ```
+
+`Crate` and `Parcel` both satisfy `Sized`, so `feed` accepts either. Use an
+enum to model a sum type, a value that is one of several variants, and a class
+to model a product type, a record that holds all of its fields. Either can meet
+the same protocol.
 
 A generic method cannot satisfy a requirement without type parameters, and a
 non-generic method cannot satisfy one with them. This is how `std.io.Writer`
