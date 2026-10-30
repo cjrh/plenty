@@ -372,6 +372,26 @@ print(str.repr(std.crypto.ed25519_seed_from_pkcs8(&unhex("$EC_PKCS8")?))?)?
     );
 }
 
+/// SPKI import applies the small-order rule of `ed25519_verify` (issue
+/// #569): the identity, a non-canonical encoding (y = p + 1) and an order-8
+/// point with its sign bit set. A mixed-order key (Wycheproof tcId 160)
+/// imports.
+#[test]
+fn ed25519_spki_rejects_small_order_keys() {
+    native(
+        r#"
+for key in ["0100000000000000000000000000000000000000000000000000000000000000", "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa", "15deb30729eb3e465c88f11b57d0c8d36eb0f670c3b22d2f80ea6049eeb2c23b"]?:
+    der = unhex("302a300506032b6570032100".concat(key)?)?
+    match std.crypto.ed25519_public_key_from_spki(&der):
+        case Ok(public):
+            print(hex(&public)? == key)?
+        case Err(error):
+            print(str.repr(error)?)?
+"#,
+        "E.SmallOrderKey\nE.SmallOrderKey\nE.SmallOrderKey\nTrue",
+    );
+}
+
 #[test]
 fn short_rsa_keys_are_weak_at_import() {
     native(

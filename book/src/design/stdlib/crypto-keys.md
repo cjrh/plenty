@@ -76,7 +76,7 @@ the key's configured algorithm, never from an unauthenticated message header.
 | `p256_public_key_from_point(point)` | A 65-byte uncompressed SEC1 point: `0x04`, x, y | `P256PublicKey` |
 | `p256_public_key_from_coordinates(x, y)` | 32-byte big-endian coordinates, as a JWK's decoded `x` and `y` | `P256PublicKey` |
 | `p256_private_key_from_pkcs8(der)` | Unencrypted PKCS #8 v1 holding an ECPrivateKey with its public key | `P256PrivateKey` |
-| `ed25519_public_key_from_spki(der)` | SubjectPublicKeyInfo with `id-Ed25519` | The 32-byte public key, as `Bytes` |
+| `ed25519_public_key_from_spki(der)` | SubjectPublicKeyInfo with `id-Ed25519`; a [small-order key](crypto-advanced.md#small-order-public-keys) is `SmallOrderKey` | The 32-byte public key, as `Bytes` |
 | `ed25519_seed_from_pkcs8(der)` | Unencrypted PKCS #8 v1 or v2 holding an Ed25519 private key | The 32-byte seed, as `Bytes` |
 
 Every input is `&Bytes`. These are the forms `openssl genpkey` and
@@ -125,6 +125,7 @@ the target.
 |---|---|
 | `InvalidKey` | A key encoding is malformed, uses another algorithm or curve, or breaks a size or consistency rule other than the minimum |
 | `WeakKey` | An RSA modulus is shorter than 2048 bits |
+| `SmallOrderKey` | An Ed25519 public key has [small order](crypto-advanced.md#small-order-public-keys) |
 | `InvalidLength` | A signature or signing target has the wrong length for the key |
 | `RandomFailure` | Operating-system randomness failed during point validation, PSS or ECDSA signing, or private-key import |
 | `Allocation(AllocError)` | A fallible buffer or key-state allocation failed |
@@ -187,9 +188,10 @@ Cases marked `acceptable` are pinned to the observed behavior:
 
 - The one PKCS #1 v1.5 case per file whose DigestInfo omits the NULL
   parameters (`MissingNull`) is rejected.
-- The 29 Ed25519 cases with small-order or mixed-order public keys verify,
-  because `ring` does not reject such keys; see
-  [Ed25519](crypto-advanced.md#ed25519).
+- The 8 Ed25519 cases with small-order public keys (tcId 152 to 159) are
+  `SmallOrderKey`, from SPKI import and from verification. The 21 with
+  mixed-order keys (160 to 180) verify. See
+  [small-order public keys](crypto-advanced.md#small-order-public-keys).
 
 The extracts and their generator, with the upstream commit and file digests,
 are in `tests/fixtures/crypto/wycheproof`.

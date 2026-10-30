@@ -589,7 +589,8 @@ def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
 enum AdvancedError
-    InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | Allocation(AllocError)
+    InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | SmallOrderKey | Allocation(AllocError)
+    def format(self, output: &mut Formatter) -> Result[(), FormatError]
 enum AeadAlgorithm
     Aes256Gcm | ChaCha20Poly1305
 def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]

@@ -11,7 +11,8 @@
 //! The Plenty program reads framed records from stdin, so one compiled
 //! program checks a whole file: `K` and a key's fields, or `T`, a message and
 //! a signature. For each `T` it prints one token per import form: `1`
-//! verified, `0` rejected, `L` `InvalidLength`, `E` any other error.
+//! verified, `0` rejected, `L` `InvalidLength`, `S` `SmallOrderKey` (from
+//! the import or the verification), `E` any other error.
 mod support;
 
 use std::collections::BTreeMap;
@@ -41,6 +42,8 @@ def token(result: Result[bool, AdvancedError]) -> str:
             "0"
         case Err(AdvancedError.InvalidLength):
             "L"
+        case Err(AdvancedError.SmallOrderKey):
+            "S"
         case Err(_):
             "E"
 
@@ -148,6 +151,17 @@ def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
 "#;
 
 const ED25519: &str = r#"
+# A small-order key fails SPKI import; each of its cases then prints `S` for
+# that form, so the forms can still be compared.
+def verify(key: &Result[Bytes, AdvancedError], message: &Bytes, signature: &Bytes) -> str:
+    match key:
+        case Ok(public_key):
+            token(std.crypto.ed25519_verify(public_key, message, signature))
+        case Err(AdvancedError.SmallOrderKey):
+            "S"
+        case Err(_):
+            "E"
+
 def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | AdvancedError | EncodingError]:
     mut at = start + 1
     spki = field(data, at)?
@@ -156,7 +170,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | Advanc
     at = after(data, at)
     x_text = field(data, at)?
     at = after(data, at)
-    from_spki = std.crypto.ed25519_public_key_from_spki(&spki)?
+    from_spki = std.crypto.ed25519_public_key_from_spki(&spki)
     # Groups without a JWK send an empty member; those cases print `-` for it.
     has_jwk = x_text.len() > 0
     mut from_jwk = raw.copy()?
@@ -167,7 +181,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | Advanc
         at = after(data, at + 1)
         signature = field(data, at)?
         at = after(data, at)
-        a = token(std.crypto.ed25519_verify(&from_spki, &message, &signature))
+        a = verify(&from_spki, &message, &signature)
         b = token(std.crypto.ed25519_verify(&raw, &message, &signature))
         mut c = "-"
         if has_jwk:
@@ -388,15 +402,20 @@ fn ecdsa_p256_der_signatures_never_verify() {
     eprintln!("ecdsa_secp256r1_sha256.jsonl: {counts:?}");
 }
 
-/// The `acceptable` Ed25519 cases (152-180) use small-order or mixed-order
-/// public keys. ring does not reject such keys, so their signatures verify;
-/// the reference page documents this. A change in ring's policy fails here.
-fn small_order_keys_accepted(id: u64) -> &'static str {
-    assert!((152..=180).contains(&id), "unexpected acceptable case {id}");
-    "1"
+/// The `acceptable` Ed25519 cases (152-180) use small-order (152-159) or
+/// mixed-order (160-180) public keys. Small-order keys are rejected with
+/// `SmallOrderKey` (issue #569). Mixed-order keys are accepted and their
+/// signatures verify; the reference page documents this choice, and a
+/// change to it fails here.
+fn small_order_keys_rejected(id: u64) -> &'static str {
+    match id {
+        152..=159 => "S",
+        160..=180 => "1",
+        _ => panic!("unexpected acceptable case {id}"),
+    }
 }
 
 #[test]
 fn ed25519_vectors() {
-    check("ed25519.jsonl", Family::Ed25519, &small_order_keys_accepted);
+    check("ed25519.jsonl", Family::Ed25519, &small_order_keys_rejected);
 }
