@@ -49,7 +49,7 @@ pub(super) fn build_adapter(
     sort: &KeySort,
     id: FuncId,
     functions: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
+    str_data: &StrData,
     eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,

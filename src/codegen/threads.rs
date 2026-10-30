@@ -40,7 +40,7 @@ pub(super) fn build_adapter(
     task: &Task,
     id: FuncId,
     functions: &HashMap<String, UserFn>,
-    str_data: &HashMap<StrId, DataId>,
+    str_data: &StrData,
     eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,

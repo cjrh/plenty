@@ -189,7 +189,10 @@ or defensive invalid-tag trap. Table storage grows with the case count.
 Smaller or sparse sets use comparison chains; a `str` case compares lengths
 and then bytes. These chains can be sensitive to which cases occur most often; the
 [dispatch measurements](../../../development/profiling.md#dense-match-dispatch)
-explain the conservative table threshold. Keep using `match` for clear
+explain the conservative table threshold. A match on at least 16 distinct `str`
+literals instead binary-searches them once, so its cost grows with the
+logarithm of the case count and does not depend on arm order; see the
+[string match measurements](../../../development/profiling.md#string-match-dispatch). Keep using `match` for clear
 exhaustive branching; dispatch selection does not change its behavior.
 
 Guards, tuple patterns, float patterns, range patterns, and `pattern as name`

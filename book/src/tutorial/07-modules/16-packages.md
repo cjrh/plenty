@@ -105,6 +105,12 @@ import what `shapes` depends on without declaring it too, and a local module
 named `geometry` would be an error. Two packages may each define `Square`;
 those are distinct types.
 
+The dependency's name also reaches its other modules. If `shapes` had
+`src/circles.plenty`, `import geometry.circles` would bind it beside
+`import geometry`, unless the library itself declares something named
+`circles`; [modules and imports](../../design/language/02-source/modules.md)
+gives the rule.
+
 Programs in `tests/` are integration tests. Each one sees the package's library
 under the package name, and passes when `main` returns exit status zero:
 

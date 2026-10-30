@@ -638,3 +638,5 @@ mod test_std_xml;
 mod test_nonzero;
 #[path = "test_std_cli_fileinput.rs"]
 mod test_std_cli_fileinput;
+#[path = "test_str_match.rs"]
+mod test_str_match;

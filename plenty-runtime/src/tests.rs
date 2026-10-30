@@ -3,7 +3,7 @@ use crate::aggregates::collection;
 use crate::aggregates::{Type, Variant};
 use crate::generators::Generator;
 use crate::memory::{Header, plenty_release, plenty_retain};
-use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq};
+use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq, plenty_str_match};
 use std::cell::RefCell;
 use std::ptr;
 
@@ -1977,6 +1977,40 @@ unsafe extern "C" fn hook(owner: *mut u128) {
 }
 fn trace() -> Vec<u128> {
     TRACE.with(|trace| std::mem::take(&mut *trace.borrow_mut()))
+}
+
+#[test]
+fn str_match_searches_by_length_then_bytes() {
+    // Sorted as the compiler sorts a match table.
+    let sorted = ["", "b", "ab", "ba", "é🦀", "abcdefgh", "abcdefgi"];
+    let mut table: Vec<u32> = vec![0];
+    let mut data = Vec::new();
+    for s in sorted {
+        data.extend_from_slice(s.as_bytes());
+        table.push(data.len() as u32);
+    }
+    data.resize(data.len().next_multiple_of(4), 0);
+    table.extend(
+        data.chunks(4)
+            .map(|c| u32::from_ne_bytes(c.try_into().unwrap())),
+    );
+    let len = sorted.len() as u64;
+    unsafe {
+        // Short probes are inline values; the long ones are heap texts.
+        for (i, s) in sorted.iter().enumerate() {
+            let probe = strings::new(s.as_bytes());
+            assert_eq!(plenty_str_match(probe, table.as_ptr(), len), i as u64);
+            plenty_release(probe.cast());
+        }
+        for missing in ["a", "c", "abc", "abcdefg", "abcdefgg", "abcdefghi", "é"] {
+            let probe = strings::new(missing.as_bytes());
+            assert_eq!(plenty_str_match(probe, table.as_ptr(), len), len);
+            plenty_release(probe.cast());
+        }
+        let probe = strings::new(b"b");
+        assert_eq!(plenty_str_match(probe, [0u32].as_ptr(), 0), 0);
+        plenty_release(probe.cast());
+    }
 }
 
 #[test]

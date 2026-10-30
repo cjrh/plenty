@@ -293,6 +293,46 @@ controls are noise rather than evidence for tuning smaller matches. This run
 does not measure allocation or peak memory, nor justify a broader sparse-table
 policy.
 
+## String match dispatch
+
+A `match` with at least 16 distinct `str` literals before its fallback calls
+`plenty_str_match` once and branches through a `br_table` (issue #565). The
+runtime binary-searches a read-only table of the literals, ordered by byte
+length and then bytes; each entry maps to the first source arm with that
+literal. Smaller matches keep the `plenty_str_eq` chain. The table stores
+32-bit offsets followed by the literal bytes, so it needs no load-time
+relocations in a PIE.
+
+The 2026-10-30 measurements at `1756617d` used a Ryzen 7 7840HS, x86-64 Linux
+and Cranelift 0.137, pinned to the eight physical cores. Each program matches
+the first `n` sorted IANA zone names (a seeded sample below 597) and four
+misses: a longer string, a shorter prefix, the empty string and an unknown
+name. Inputs are split from one literal at run time, so no lookup compares
+literal addresses. Times are medians and ranges of five shuffled rounds of
+two million lookups, including process start:
+
+| Arms | Uniform: chain / table | First arm only: chain / table | `find` bytes: chain / table |
+|---:|---:|---:|---:|
+| 5 | 32.5 / 32.9 ms (chain kept) | 18.3 / 17.1 ms | 283 / 283 |
+| 15 | 58.5 / 59.6 ms (chain kept) | 17.8 / 17.7 ms | 693 / 693 |
+| 16 | 59.7 [59.4–60.5] / 49.2 [48.6–52.1] ms | 18.2 / 28.0 ms | 734 / 357 |
+| 50 | 123.8 [123.0–125.0] / 65.1 [63.5–66.2] ms | 17.7 / 30.9 ms | 2,128 / 831 |
+| 597 | 1,078.8 [1,077.8–1,087.6] / 110.6 [109.4–112.3] ms | 18.7 / 46.3 ms | 24,555 / 8,491 |
+
+At 597 arms a uniform lookup falls from about 530 to 46 ns. The table data
+adds 4(n + 1) bytes plus the literal bytes. Optimized CLIF instruction counts
+fall from 115 to 55 at 16 arms and from 3,601 to 1,217 at 597. Cold compile
+times were within noise of each other (66–71 ms at 597 arms).
+
+A run that forced the table for every size found the chain faster for uniform
+inputs below about 12 arms (5 arms: 33.8 / 38.1 ms), so 16 is where the table
+clearly pays. When the first arm matches every input, the chain always wins,
+by about 5 ns per lookup at 16 arms and 14 ns at 597: the chain stops after
+one comparison, while the search always takes about log2(n) steps. Order arms
+by frequency only in a small match; a large match no longer depends on order.
+A same-length comparison by 8-byte big-endian words was slower than the
+byte-slice comparison, which calls `memcmp`, and was not kept.
+
 ## Inline scalar list rows
 
 Issue #509 found `std.diff`'s Myers loop spending most of its time in runtime
