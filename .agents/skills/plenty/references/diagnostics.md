@@ -29,6 +29,8 @@ start with `error: FILE:LINE:COLUMN:`.
 | Runtime `dictionary key not found; use insert` | `d[k] = v` for a new key | `d.insert(k, v)?` |
 | `expected Result[...], got ()` at the end of `main` | Missing final value | End with `Ok(())` |
 
+<!-- Rows for `None`, `try`, `int`, `max`, `for line in file`, and the move-through-reference hint work around issues #570-#574 and #576; drop each row once its diagnostic explains the fix. -->
+
 ## Examples
 
 ```plenty-error
@@ -120,6 +122,7 @@ conflicting borrow
 
 ## Matching unions
 
+<!-- issue #575: drop this section once the diagnostic explains it -->
 A variant pattern does not select a member of an error union:
 
 ```plenty-error

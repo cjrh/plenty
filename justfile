@@ -22,3 +22,13 @@ docs:
     python3 -B scripts/check_links.py book/src
     python3 -B -m unittest discover -s scripts -p 'test_*.py'
     python3 -B scripts/build_docs_site.py
+
+# Spends API credit; not run in CI. Arguments pass through, e.g.
+# `just skill-trial wordfreq --model sonnet`.
+# Trial the agent skill with fresh agents; report in target/skill-trial/.
+skill-trial *args: compiler
+    python3 -B scripts/skill_trial.py "$@"
+
+# Assemble the plentylang/skills repository from .agents/skills/plenty.
+skill-sync out:
+    python3 -B scripts/sync_agent_skill.py "$1"

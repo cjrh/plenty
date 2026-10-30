@@ -230,6 +230,7 @@ aborting, which `Allocation` relies on. The runtime calls its zlib-style
 interface (`deflate::init`, `inflate::inflate`, and so on), enabled by the
 crate's `__internal-api` feature.
 
+<!-- contributors-only -->
 The licence file is kept with the sources. The version is pinned in
 `Cargo.lock`, and a test fails if the two disagree. Updating it is the
 runtime maintainers' job, with each release that fixes a defect: replace the
@@ -238,6 +239,7 @@ VERSION`, and rerun `tests/test_std_compress.rs`, whose fixtures come from
 CPython's `zlib` and `gzip` and from the system `gzip` tool. The
 `__internal-api` interface is not covered by semver, so read the release's
 changes to `deflate.rs` and `inflate.rs`.
+<!-- /contributors-only -->
 
 Executables are linked with `--gc-sections`, and the codecs are reached only
 through their own runtime entry symbols, so a program that does not use

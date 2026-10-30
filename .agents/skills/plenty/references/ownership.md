@@ -150,5 +150,6 @@ def main() -> Result[(), IoError]:
 2
 ```
 
+<!-- issue #574 -->
 `readline()` keeps the newline and returns `""` at end of file. A file is not
 iterable with `for`.

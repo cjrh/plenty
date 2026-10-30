@@ -9,8 +9,10 @@ variants, and limits. `pub` is omitted. Fields, methods, and variants are
 indented under their owner. Summaries come from the
 [module table](index.md#modules).
 
+<!-- contributors-only -->
 After changing a standard module, regenerate this page with
 `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
+<!-- /contributors-only -->
 
 ## `std.actor`
 

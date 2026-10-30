@@ -8,10 +8,11 @@ that help coding agents (Claude Code, Codex, Cursor, and others that read the
 This release matches **Plenty @VERSION@**. Each Plenty release has a matching
 tag here, `v@VERSION@`; install the tag that matches `plenty --version`.
 
-The reference pages under `skills/plenty/references/` (other than
-`workflow.md`, `errors.md`, `ownership.md`, and `diagnostics.md`) are generated
-from the Plenty book for that release. Report problems against Plenty, not by
-editing the generated pages.
+Everything here is copied from the Plenty repository at that release: the
+skill from `.agents/skills/plenty/`, and the cheat sheet, standard library,
+builtins, I/O and packages pages under `skills/plenty/references/` from the
+Plenty book. Report problems against Plenty; changes made here are replaced by
+the next release.
 
 ## Install
 

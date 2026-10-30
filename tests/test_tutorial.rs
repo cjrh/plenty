@@ -600,13 +600,13 @@ fn run_shard(shard: usize, shards: usize) {
     );
 }
 
-/// The hand-written pages of the published agent skill (`agent-skills/`) use
-/// the same fence kinds, so their programs, diagnostics and project commands
-/// are checked against this compiler. Generated skill pages are copies of book
-/// pages checked above; `scripts/build_agent_skills.py` assembles both.
+/// The pages of the `plenty` agent skill (`.agents/skills/plenty/`) use the
+/// same fence kinds, so their programs, diagnostics and project commands are
+/// checked against this compiler. The skill links to book pages checked above;
+/// `scripts/sync_agent_skill.py` bundles copies of them when publishing.
 #[test]
 fn agent_skill_examples_match_the_language() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("agent-skills");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(".agents/skills/plenty");
     let mut pages = Vec::new();
     markdown_paths(&root, &mut pages);
     pages.sort();
@@ -614,7 +614,7 @@ fn agent_skill_examples_match_the_language() {
         .iter()
         .flat_map(|path| {
             let page = path.strip_prefix(&root).unwrap().to_string_lossy();
-            let page = format!("agent-skills/{}", page.replace('\\', "/"));
+            let page = format!(".agents/skills/plenty/{}", page.replace('\\', "/"));
             fences(&page, &std::fs::read_to_string(path).unwrap())
         })
         .collect();

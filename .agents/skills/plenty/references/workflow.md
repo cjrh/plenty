@@ -29,7 +29,7 @@ an application (`src/main.plenty`); `plenty new NAME --lib` creates a library
 | `plenty update` | Move Git dependencies to what their tags name now |
 
 The full manifest format, dependency resolution, and test rules are in
-[the package reference](packages.md).
+[the package reference](../../../../book/src/design/toolchain/01-building/packages.md).
 
 ### A library, an application, and a test
 
@@ -137,9 +137,9 @@ Dependencies are not transitive: import only what your manifest declares.
 - Prelude names (no import): `print`, `len`, `range`, `copy`, `drop`, `iter`,
   `args`, `input`, `read_text`, `write_text`, `open`, `write_stderr`, and the
   types `list`, `dict`, `set`, `str`, `Option`, `Result`, `Box`. Their
-  contracts are in [builtins](builtins/index.md) and [I/O](io/index.md).
+  contracts are in [builtins](../../../../book/src/design/facilities/01-builtins/index.md) and [I/O](../../../../book/src/design/facilities/02-io/index.md).
 - Standard modules (`import std.json`, `from std.math import max`): search
-  [the signature index](std/signatures.md) for a name or return type, then read
+  [the signature index](../../../../book/src/design/stdlib/signatures.md) for a name or return type, then read
   that module's page under `std/` for errors, ownership, and limits.
 - Signatures show ownership: `&T` borrows, `&mut T` borrows exclusively, a
   bare `T` takes ownership. A `Result[..., E]` names exactly the errors a

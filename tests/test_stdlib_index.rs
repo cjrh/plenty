@@ -142,8 +142,10 @@ fn render(rows: &[Row], listings: &[Vec<String>], provided: &[Vec<&str>]) -> Str
          variants, and limits. `pub` is omitted. Fields, methods, and variants are\n\
          indented under their owner. Summaries come from the\n\
          [module table](index.md#modules).\n\n\
+         <!-- contributors-only -->\n\
          After changing a standard module, regenerate this page with\n\
-         `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.\n",
+         `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.\n\
+         <!-- /contributors-only -->\n",
     );
     for ((row, lines), provided) in rows.iter().zip(listings).zip(provided) {
         page.push_str(&format!("\n## `{}`\n\n{}.", row.module, row.contents));
