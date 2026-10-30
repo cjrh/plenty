@@ -626,8 +626,6 @@
     - [Value generic parameters](proposals/value-generics.md)
     - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
         - [Examples beside ggplot2 and plotnine](proposals/std-plot/examples.md)
-    - [Python slice syntax](proposals/slice-syntax.md)
-        - [Implementation plan](proposals/slice-syntax/plan.md)
     - [Completed proposals](proposals/completed/index.md)
         - [Runtime allocation audit](proposals/completed/allocation-audit.md)
         - [References, ownership, and explicit copying](proposals/completed/references-and-copying.md)
@@ -649,6 +647,8 @@
         - [Explicit applications, modules, and executable lessons](proposals/completed/entrypoints-modules-and-tutorials.md)
         - [Plenty's next language phase](proposals/completed/next-language-phase.md)
         - [Checked arithmetic blocks](proposals/completed/checked-arithmetic.md)
+        - [Python slice syntax](proposals/completed/slice-syntax.md)
+            - [Implementation plan](proposals/completed/slice-syntax/plan.md)
 
 
 # Development

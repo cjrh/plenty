@@ -2,7 +2,7 @@
 
 **Status: Implemented** (issue #579). Copying slices of lists, text, `Bytes`,
 `bytes`, tuples and clists shipped as one change rather than the planned
-sequence; the [slices reference](../design/language/04-expressions/slices.md)
+sequence; the [slices reference](../../design/language/04-expressions/slices.md)
 owns the contract. Shipped differently: tuple slices of affine components and
 slices of temporary clists are rejected; Python-style `copy()` of such
 components is not implemented. Element types containing `Shared` fields wait on
@@ -267,7 +267,7 @@ mark is reversed separately from its base.
 A step-1 string slice copies. It does not share the source's storage:
 
 - A `str` is one word pointing at a header followed by its UTF-8 bytes (see
-  [value representations](../design/toolchain/02-architecture/values.md#strings)).
+  [value representations](../../design/toolchain/02-architecture/values.md#strings)).
   A substring that shares storage needs an offset and length, either a second
   word or a new header kind. Every string operation, hash and comparison would
   pay to check for it.
@@ -275,7 +275,7 @@ A step-1 string slice copies. It does not share the source's storage:
   100 MB file would hold the file. Java changed `String.substring` to copy in
   JDK 7u6 for this reason, and Go substrings have the same retention cost. That
   conflicts with low memory use.
-- The [string design](completed/strings.md) chose one public `str` with no
+- The [string design](strings.md) chose one public `str` with no
   owning/view distinction. A view belongs to `&s[a:b]`, a separate type that
   borrows.
 
@@ -289,7 +289,7 @@ retain the source's immutable storage instead of copying it.
 
 `buffer[a:b:c]` on a `Bytes` returns a new `Bytes` with exact capacity, like
 the `slice` method. The syntax clamps; the methods keep the
-[range rule](../design/stdlib/bytes.md#the-range-rule), under which an
+[range rule](../../design/stdlib/bytes.md#the-range-rule), under which an
 out-of-range bound returns `BytesError.OutOfRange`. Index syntax already
 follows list rules rather than method rules, so this is consistent within
 `Bytes`. Because clamping removes `OutOfRange`, the error is `AllocError`, not
@@ -385,7 +385,7 @@ recovering needs no repair. `k` never exceeds the source length, so a slice
 never reports `CapacityOverflow`.
 
 Copying a slice only to iterate it wastes the copy. Lessons should teach
-`for i in range(1, len(xs)):` or a [pipeline](../design/language/09-iteration/06-pipelines.md)
+`for i in range(1, len(xs)):` or a [pipeline](../../design/language/09-iteration/06-pipelines.md)
 over the source for that, until a view can be iterated with `for x in &xs[1:]`.
 
 ## Diagnostics

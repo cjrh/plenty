@@ -133,5 +133,5 @@ borrowed slice views are not implemented yet
 
 Borrowed views spelled `&xs[a:b]` are planned (issue #581, backlog B39); they
 need stored references (B11). First-class `slice(...)` values are not
-implemented. The [slice syntax proposal](../../../proposals/slice-syntax.md)
+implemented. The [slice syntax proposal](../../../proposals/completed/slice-syntax.md)
 records the design and alternatives.

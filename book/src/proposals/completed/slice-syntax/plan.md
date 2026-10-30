@@ -9,7 +9,7 @@ proposed syntax and are not compiled. File names refer to local `main` at
 
 Each slice is one local PR. Each updates the reference pages, cheat sheet rows
 and tutorial lessons for what it ships, following the
-[development workflow](../../development/workflow.md).
+[development workflow](../../../development/workflow.md).
 
 1. **Parsing, diagnostics and copyable lists.** Add `Expression::Slice { base,
    start, stop, step }` in `src/frontend.rs`; the postfix loop that builds
@@ -102,25 +102,25 @@ Tutorial:
 
 - New lesson "Take part of a list or text" in
   `tutorial/04-collections/`, after
-  [Transfer or copy ownership](../../tutorial/04-collections/moves-and-copies.md),
+  [Transfer or copy ownership](../../../tutorial/04-collections/moves-and-copies.md),
   because a slice is a copy. It teaches `xs[a:b]?`, omitted bounds, negative
   positions, `[::-1]`, clamping, and the cost of copying; it shows nested lists
   being deep-copied, and recommends a `range` loop or pipeline over the source
   when the copy is only iterated.
-- [Build text with recoverable allocation](../../tutorial/03-absence/allocating-text.md)
+- [Build text with recoverable allocation](../../../tutorial/03-absence/allocating-text.md)
   mentions `text[a:b]?` as another allocating text operation.
-- [Byte buffers](../../tutorial/08-resources/24-byte-buffers.md) keeps
+- [Byte buffers](../../../tutorial/08-resources/24-byte-buffers.md) keeps
   `frame.slice(1, 3)?` where the function's error type is `BytesError`, and
   notes the syntax.
 
 Review other lessons and `stdlib/std/*.plenty` for `.slice(` calls and manual
 sub-range loops that the syntax states more clearly, following the
-[tutorial guidelines](../../tutorial/index.md). The standard library has 45
+[tutorial guidelines](../../../tutorial/index.md). The standard library has 45
 `.slice(` calls; migrate only where the result is clearer, as a separate PR.
 
 Status updates when the work lands: this proposal's status blocks, the
-[string design](../completed/strings.md) note "slice syntax remains a B12
-candidate", and the [proposals index](../index.md).
+[string design](../strings.md) note "slice syntax remains a B12
+candidate", and the [proposals index](../../index.md).
 
 ## Backlog note
 
@@ -129,7 +129,7 @@ The backlog is edited only after merge. Proposed B39 wording, replacing
 
 > Slice syntax (`buffer[a:b:c]?`, issue #579) copies with Python's clamping and
 > returns `Result[Bytes, AllocError]`; `bytes` slices produce a `Bytes`. See
-> `[slices](design/language/04-expressions/slices.md)`. Remaining: borrowed
+> `[slices](../../slice-syntax/design/language/04-expressions/slices.md)`. Remaining: borrowed
 > sub-range views `&buffer[a:b]` (issue #581; needs B11 stored references).
 
 B12 lists "borrowed sub-range views (B11/B39)"; add that their spelling is
