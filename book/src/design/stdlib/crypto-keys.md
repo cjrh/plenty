@@ -168,6 +168,32 @@ scrubbed either:
 `Bytes` does not zero its storage on drop; see
 [key material](crypto.md#key-material).
 
+## Test vectors
+
+Every `valid` and `invalid` case in these
+[Wycheproof](https://github.com/C2SP/wycheproof) files gives the expected
+result, with the key imported through each available form (SPKI, JWK
+members, and the raw point or key):
+
+| File | Cases | Result |
+|---|---|---|
+| `rsa_signature_2048_sha256`, `_2048_sha384`, `_2048_sha512`, `_3072_sha256`, `_4096_sha512` | 258 to 259 each | All pass |
+| `rsa_pss_2048_sha256_mgf1_32`, `_2048_sha384_mgf1_48`, `_4096_sha512_mgf1_64` | 108, 141, 179 | All pass |
+| `ecdsa_secp256r1_sha256_p1363` | 262 | All pass |
+| `ecdsa_secp256r1_sha256` (DER signatures) | 484 | None verifies: each is `InvalidLength` |
+| `ed25519` | 210 | All pass |
+
+Cases marked `acceptable` are pinned to the observed behavior:
+
+- The one PKCS #1 v1.5 case per file whose DigestInfo omits the NULL
+  parameters (`MissingNull`) is rejected.
+- The 29 Ed25519 cases with small-order or mixed-order public keys verify,
+  because `ring` does not reject such keys; see
+  [Ed25519](crypto-advanced.md#ed25519).
+
+The extracts and their generator, with the upstream commit and file digests,
+are in `tests/fixtures/crypto/wycheproof`.
+
 ## Limits
 
 - No key generation for RSA or P-256, and no private-key export.
@@ -182,6 +208,8 @@ scrubbed either:
 - Wraps [`ring`](https://github.com/briansmith/ring) 0.17.14 (Apache-2.0 AND ISC),
   already vendored for TLS, for RSA and ECDSA signing, verification, and
   private-key parsing.
+- Project Wycheproof (C2SP/wycheproof, Apache-2.0) supplies the RSA, ECDSA
+  and Ed25519 [test vectors](#test-vectors).
 - [RFC 7515](https://www.rfc-editor.org/rfc/rfc7515) appendices A.2 and A.3
   supply the RS256 and ES256 known-answer tests, and
   [RFC 8037](https://www.rfc-editor.org/rfc/rfc8037) appendix A the Ed25519 one.

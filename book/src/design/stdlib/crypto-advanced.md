@@ -61,7 +61,13 @@ deterministic, and a signing seed can sign multiple messages. Verification
 requires exactly 32 public-key bytes and 64 signature bytes; other lengths
 return `InvalidLength`, whereas correctly sized malformed keys/signatures
 return `False`. This is plain Ed25519, without a prehash or context mode.
-Public keys must be authenticated by the application's protocol.
+Public keys must be authenticated by the application's protocol. Small-order
+and mixed-order public keys are not rejected. With such a key, a signature can
+verify without any matching seed; with the identity point, one fixed signature
+verifies for every message. Never accept a public key that the protocol has
+not authenticated. The
+[Wycheproof vectors](crypto-keys.md#test-vectors) record this as their
+`acceptable` cases.
 
 ## X25519
 
