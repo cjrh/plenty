@@ -1,11 +1,34 @@
 # Dictionaries
 
 Dictionaries use the [common collection rules](collections.md).
-`dictionary[key] = value` replaces an existing entry without allocation; an
-absent key traps. Use [insert](construction-copy.md) to add a key recoverably.
-`insert(key, value)` also replaces an existing value, so counting can use
-`counts.insert(key, counts.get(key, 0) + 1)?`. This deliberate upsert spelling
-exposes allocation failure; indexed assignment remains allocation-free.
+[`insert(key, value)`](construction-copy.md) adds a key or replaces its
+value, so counting uses `counts.insert(key, counts.get(key, 0) + 1)?`. Its
+`?` exposes allocation failure.
+
+Dictionaries have no indexed assignment. `dictionary[key] = value`,
+`dictionary[key] += n`, and `&mut dictionary[key]` are compile errors whose
+messages name `insert` or `get_mut`: key presence is a run-time fact, so a
+write through an absent key would trap where `--check` cannot see it.
+Reading `dictionary[key]` remains, and traps on an absent key.
+Writing through `dictionary[key].field` or calling a mutating method on
+`dictionary[key]` is rejected the same way; use `get_mut`.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut stock = {"apples": 3}?
+    stock.insert("pears", 5)?
+    match stock.get_mut("apples"):
+        case Some(count):
+            *count -= 1
+        case Nothing:
+            pass
+    print(stock)?
+    Ok(())
+```
+
+```output
+{"apples": 2, "pears": 5}
+```
 
 ## Lookup and removal
 
@@ -22,6 +45,16 @@ default evaluate once in that order; the default is eager even for a present
 key. Lookup still requires a copyable value and adds no allocation. Zero,
 `False`, and an empty string are present values. This does not insert the key.
 A stored `Nothing` produces `Some(Nothing)`, distinct from a missing key.
+
+`dictionary.get_mut(key) -> Option[&mut V]` lends the value for `key`
+exclusively, or returns `Nothing`. It works for every value type, including
+affine ones, and allocates nothing. The key is observed before the receiver is
+borrowed. The result holds an exclusive loan of the whole dictionary until its
+last use, as a reference-returning method's result does, so the dictionary
+cannot be read, mutated, or borrowed again meanwhile. Match on the result to
+update a value in place: `*count += 1` for a scalar, `items.append(x)?` for a
+list, or `point.x = 0` for a class. `replace(*value, new)` returns the previous
+value and keeps the entry's position.
 
 `dictionary.pop(key) -> Option[V]` requires exclusive access and supports all
 permitted value types. A hit removes the entry, drops its stored key, and transfers
@@ -68,7 +101,7 @@ moving a named set or view.
 result explicitly.
 
 A bound view holds a shared loan on the whole dictionary until its last use.
-Insertion, indexed assignment, update, removal, clearing, and moving the owner
+Insertion, `get_mut`, update, removal, clearing, and moving the owner
 conflict with that loan, including through aliases. Views cannot be stored in
 fields, collections, tuples, enum payloads, generators or worker/closure
 captures, or passed to or returned from user functions. Binding a view of a

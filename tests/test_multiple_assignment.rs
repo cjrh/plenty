@@ -68,7 +68,9 @@ print(bytes).unwrap()
 _, items[0] = 1, 99
 print(items).unwrap()
 mut table = {"a": 1, "b": 2}.unwrap()
-table["a"], table["b"] = table["b"], table["a"]
+first = table["a"]
+table.insert("a", table["b"]).unwrap()
+table.insert("b", first).unwrap()
 print(table).unwrap()
 "#,
         concat!(

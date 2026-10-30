@@ -47,9 +47,9 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   source's error or contain it in a union (`AllocError | IoError | ParseError`).
   `?` never turns an `Option` into a `Result`; use `.ok_or(error)?`.
 - No exceptions, `None`, `try`, `raise`, or `lambda`. Use `Result[T, E]`,
-  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`. <!-- issues #570, #571: diagnostics give no hint yet -->
+  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`.
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
-  and `float`. No implicit numeric widening; cast with `f64(n)`. <!-- issue #572 -->
+  and `float`. No implicit numeric widening; cast with `f64(n)`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Scalars, `str`, and `@copy` classes copy. Assigning or passing a
   collection, box, or other class instance moves it; the old name is then
@@ -60,13 +60,15 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Tuples: `pair = (3, "a")`, `pair[0]`, `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
 - Methods that mutate declare `self: &mut ClassName`; bare `self` is a shared
   borrow.
-- `d[k] = v` only replaces an existing key; add one with `d.insert(k, v)?`.
+- Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
+  replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
+  place. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
 - No `**`, slices, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `xs.slice(a, b)?`, `len(xs) > 0`, `a < b and b < c`, and
   composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an
   explicit import; prelude names (`print`, `len`, `range`, `open`,
-  `read_text`, `args`, ...) do not. <!-- issue #573 -->
+  `read_text`, `args`, ...) do not.
 
 ## Idioms
 

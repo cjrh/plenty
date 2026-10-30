@@ -167,7 +167,7 @@ mut callbacks = single(make(10)).unwrap()
 for n in range(1, 60):
     callbacks.insert(n, make(n)).unwrap()
 print(callbacks[59]()).unwrap()
-callbacks[0] = make(100)
+callbacks.insert(0, make(100)).unwrap()
 removed = callbacks.pop(0).unwrap()
 callbacks.insert(0, make(200)).unwrap()
 print(removed()).unwrap()

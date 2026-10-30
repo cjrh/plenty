@@ -88,8 +88,11 @@ pub class LruCache[K, V]:
                 self._tail = slot
             else:
                 self._prev[after] = slot
-            moved = self._keys[slot]
-            self._index[moved] = slot
+            match self._index.get_mut(&self._keys[slot]):
+                case Some(position):
+                    *position = slot
+                case Nothing:
+                    pass
         key = self._keys.pop().unwrap()
         value = self._values.pop().unwrap()
         drop(self._index.pop(&key))

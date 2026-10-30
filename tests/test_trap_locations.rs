@@ -130,10 +130,6 @@ fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &s
     "    ages = {\"a\": 1}?\n    print(ages[\"b\"])?\n",
     "3:11: dictionary key not found"
 )]
-#[case::dictionary_assignment(
-    "    mut ages = {\"a\": 1}?\n    ages[\"b\"] = 2\n",
-    "3:5: dictionary key not found; use insert to add a new key"
-)]
 #[case::unwrap_nothing(
     "    absent: Option[i64] = Nothing\n    print(absent.unwrap())?\n",
     "3:11: unwrap on Nothing"

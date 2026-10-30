@@ -78,7 +78,11 @@ mut table = {"row": [1, 2].unwrap()}.unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 rows[0].values[0] = Some(range(5, 8))
-table["row"][-1] = 9
+match table.get_mut("row"):
+    case Some(row):
+        row[-1] = 9
+    case Nothing:
+        pass
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(rows[0].values[0]).unwrap()
@@ -125,6 +129,20 @@ fn outstanding_element_loans_and_moved_roots_still_reject_writes() {
 
 #[test]
 fn invalid_nested_destinations_trap_instead_of_inserting() {
+    // Dictionaries have no indexed destinations (issue #580).
+    for (source, diagnostic) in [
+        (
+            "mut rows = {\"a\": [1].unwrap()}.unwrap()\nrows[\"b\"][0] = 3",
+            "use `d.get_mut(k)`",
+        ),
+        (
+            "mut rows = [{\"a\": 1}.unwrap()].unwrap()\nrows[0][\"b\"] = 3",
+            "use `d.insert(k, v)?`",
+        ),
+    ] {
+        let error = support::check_diagnostic(source);
+        assert!(error.contains(diagnostic), "{source}\n{error}");
+    }
     for (source, diagnostic) in [
         (
             "mut rows = [[1].unwrap()].unwrap()\nrows[0][2] = 3",
@@ -133,14 +151,6 @@ fn invalid_nested_destinations_trap_instead_of_inserting() {
         (
             "mut rows = [[1].unwrap()].unwrap()\nrows[-2][0] = 3",
             "index out of bounds",
-        ),
-        (
-            "mut rows = {\"a\": [1].unwrap()}.unwrap()\nrows[\"b\"][0] = 3",
-            "dictionary key not found",
-        ),
-        (
-            "mut rows = [{\"a\": 1}.unwrap()].unwrap()\nrows[0][\"b\"] = 3",
-            "dictionary key not found",
         ),
     ] {
         let output = support::run(source);

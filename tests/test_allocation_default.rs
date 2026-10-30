@@ -129,12 +129,12 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn dictionary_assignment_replaces_but_insertion_is_checked() {
+fn dictionary_insertion_replaces_and_is_checked() {
     let output = support::run(
         r#"
 def main() -> Result[(), AllocError]:
     mut values = {"a": 1}?
-    values["a"] = 2
+    values.insert("a", 2)?
     values.insert("b", 3)?
     print(values).unwrap()
     Ok(())
@@ -142,9 +142,8 @@ def main() -> Result[(), AllocError]:
     );
     assert!(output.status.success());
     assert_eq!(output.stdout, b"{\"a\": 2, \"b\": 3}\n");
-    let output = support::run("mut values = {\"a\": 1}.unwrap()\nvalues[\"b\"] = 2");
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("use insert"));
+    let error = support::check_diagnostic("mut values = {\"a\": 1}.unwrap()\nvalues[\"b\"] = 2");
+    assert!(error.contains("use `d.insert(k, v)?`"), "{error}");
 }
 
 #[test]

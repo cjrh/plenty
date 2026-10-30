@@ -1821,7 +1821,7 @@ operation_entries! {
     1 4 5 6 7 8 10 12 13 15 24 26 27 28 29 32 33 34 35 36 37 38 39 40 41 42 43 44 45
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
-    100 101 102 103 104 105 106 107 110 111 112 114 117 118 119 120 121 122 123 124
+    100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
     583 584 585
 }
@@ -2089,11 +2089,20 @@ pub(crate) unsafe fn collection_at(
                         crate::fail_kind_at(
                             crate::actor_heap::TrapKind::Index,
                             site,
-                            format_args!("dictionary key not found; use insert to add a new key"),
+                            format_args!("dictionary key not found"),
                         )
                     })
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
+            }
+            // `dict.get_mut`: the value slot's address, or Nothing; never traps.
+            113 => {
+                let owner = *(a as *const u128);
+                let c = &mut *(owner as *mut Collection);
+                match c.find(b) {
+                    Some(position) => wrap(c.entries.slot(position, true) as u128, 1),
+                    None => wrap(0, 0),
+                }
             }
             114 => strings::at(a as *const Text, b as i64, site) as u128,
             167 => {

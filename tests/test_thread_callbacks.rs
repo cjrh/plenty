@@ -29,8 +29,12 @@ with spawn(&mut callbacks[0]).unwrap() as task:
     print(task.join()).unwrap()
 print(callbacks[0]()).unwrap()
 mut named = {0: counter(30)}.unwrap()
-with spawn(&mut named[0]).unwrap() as task:
-    print(task.join()).unwrap()
+match named.get_mut(0):
+    case Some(callback):
+        with spawn(&mut *callback).unwrap() as task:
+            print(task.join()).unwrap()
+    case Nothing:
+        pass
 "#,
         "2\n11\n21\n22\n31\n",
     );

@@ -543,7 +543,11 @@ print("replaced").unwrap()
 drop(old)
 drop(values)
 mut dictionary = {1: [4].unwrap()}.unwrap()
-print(replace(dictionary[1], [5].unwrap()), dictionary).unwrap()
+match dictionary.get_mut(1):
+    case Some(value):
+        print(replace(*value, [5].unwrap()), dictionary).unwrap()
+    case Nothing:
+        pass
 "#,
         "value\nindex\nreplaced\nold\nnew\n[4] {1: [5]}",
     );

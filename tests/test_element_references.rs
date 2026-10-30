@@ -22,8 +22,11 @@ p = &mut points[0].x
 *p = 9
 print(points).unwrap()
 mut counts = {"a": 1}.unwrap()
-v = &mut counts["a"]
-*v = 4
+match counts.get_mut("a"):
+    case Some(v):
+        *v = 4
+    case Nothing:
+        pass
 print(counts).unwrap()
 "#,
     );
@@ -231,7 +234,7 @@ fn unproven_indices_and_whole_list_access_conflict() {
             "`xs` while `xs[0]` is exclusively borrowed",
         ),
         (
-            "mut d = {1: 2, 3: 4}.unwrap()\na = &mut d[1]\nb = &mut d[3]\n*a = 1\n*b = 2",
+            "mut d = {1: 2, 3: 4}.unwrap()\na = d.get_mut(1)\nb = d.get_mut(3)\nprint(str.repr(a).unwrap()).unwrap()",
             "`d` while it is exclusively borrowed",
         ),
         (

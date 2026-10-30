@@ -154,6 +154,8 @@ mod test_data_structure_patterns;
 mod test_dense_match;
 #[path = "test_dictionary_lookup.rs"]
 mod test_dictionary_lookup;
+#[path = "test_dictionary_mutation.rs"]
+mod test_dictionary_mutation;
 #[path = "test_dictionary_removal.rs"]
 mod test_dictionary_removal;
 #[path = "test_dictionary_snapshots.rs"]
