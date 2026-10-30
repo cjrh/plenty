@@ -59,10 +59,21 @@ cd "$repo"
 target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 mkdir -p "$target_dir"
 target_dir="$(cd "$target_dir" && pwd)"
-bash "$here/install-mold.sh" "$target_dir/release-tools/mold"
-export PATH="$target_dir/release-tools/mold/bin:$PATH"
-export COMPILER_PATH="$target_dir/release-tools/mold/libexec/mold"
-"$repo/scripts/ci_check_mold.sh"
+if [ "$release_arch" = aarch64 ]; then
+    # Upstream mold 3.0.0's ARM binary imports gettid@GLIBC_2.30 and
+    # cannot run in this glibc 2.28 image. Use the image's pinned GNU linker;
+    # Ubuntu ARM host CI can still use the separately pinned mold binary.
+    release_ld="$(cc -print-prog-name=ld)"
+    release_ld="$(command -v "$release_ld")"
+    "$release_ld" --version | sed -n '1p'
+    COMPILER_PATH="$(dirname "$release_ld")"
+    export COMPILER_PATH
+else
+    bash "$here/install-mold.sh" "$target_dir/release-tools/mold"
+    export PATH="$target_dir/release-tools/mold/bin:$PATH"
+    export COMPILER_PATH="$target_dir/release-tools/mold/libexec/mold"
+    "$repo/scripts/ci_check_mold.sh"
+fi
 # Baseline CPU: no host tuning reaches the compiler or runtime archives.
 unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
 export RUSTFLAGS="-C target-cpu=$release_cpu"

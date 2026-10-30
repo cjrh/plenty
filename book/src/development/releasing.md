@@ -134,14 +134,17 @@ git push --atomic origin main vX.Y.Z
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
 | Publish | Creates a draft release with the compiler, dataframe and linalg archives and their checksums, then publishes it (`publish.sh`) |
 
-Both release test environments install the SHA-256-verified mold version pinned
-in `scripts/release/toolchain.env`, without requiring root. They check a linked
-program's `.comment` section before running the suite, so a missing linker fails
-early rather than silently changing executable sizes. The container build and
-local rehearsal use the same setup. The size budgets are measured with mold;
-GNU ld can retain additional unused runtime code and panic-message strings.
-Users can still link with their system linker, as the clean distribution smoke
-tests exercise; mold is not a required release-installation dependency.
+Native Ubuntu test runners and the x86-64 baseline build install the
+SHA-256-verified mold version pinned in `scripts/release/toolchain.env`, without
+requiring root. They check a linked program's `.comment` section before running
+the suite, so a missing linker fails early rather than silently changing
+executable sizes. The ARM glibc 2.28 build and its local rehearsal use the GNU
+linker already pinned by the build image: upstream's ARM mold 3.0.0 binary
+imports `gettid@GLIBC_2.30` and cannot run in that image. This preserves the
+existing glibc floor. Size budgets measured with mold require care when comparing
+GNU ld outputs, which can retain additional unused runtime code and panic strings.
+The clean distribution smoke tests also exercise system linkers; mold is not a
+release-installation dependency.
 
 The build never uses moving `main`, a host build, or a cache from another
 environment. The release is published only after every job passes, so a failed
