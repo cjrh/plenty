@@ -251,6 +251,7 @@ fn collections_preserve_typed_function_results() {
 #[case("print(range(True)).unwrap()", "expected i64")]
 #[case("xs = [1}.unwrap()", "mismatched")]
 #[case("print(len(1)).unwrap()", "requires an iterable")]
+#[case("print(range(0, 4, 0)).unwrap()", "a NonZero value cannot be zero")]
 fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(
@@ -263,7 +264,6 @@ fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
 #[case("print([1].unwrap()[1]).unwrap()", "index out of bounds")]
 #[case("print([1].unwrap()[-2]).unwrap()", "index out of bounds")]
 #[case("print({'a': 1}.unwrap()['b']).unwrap()", "dictionary key not found")]
-#[case("print(range(0, 4, 0)).unwrap()", "range step cannot be zero")]
 #[case(
     "print(len(range(-9223372036854775808, 9223372036854775807))).unwrap()",
     "range length exceeds i64"

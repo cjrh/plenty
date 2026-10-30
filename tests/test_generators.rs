@@ -275,9 +275,10 @@ fn a_chain_of_300_distinct_generator_consumers_runs() {
 fn expanding_generator_consumers_are_bounded() {
     for (call, expected) in [
         // Each frame requires a deeper one: the dependency depth stops it.
+        // The limit counts `total` and the builtin `NonZero.get`.
         (
             "total((v + 1 for v in values), n - 1)",
-            "dependency depth limit of 257 (256 plus one per generic function or generator consumer) exceeded",
+            "dependency depth limit of 258 (256 plus one per generic function or generator consumer) exceeded",
         ),
         // Two per frame reach the consumer's limit within that depth.
         (

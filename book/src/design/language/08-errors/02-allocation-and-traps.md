@@ -102,7 +102,7 @@ thread the report has no position.
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |
 | List, text, range, or `Bytes` index out of range | `index out of bounds: index I, length N` |
 | Absent dictionary key | `dictionary key not found`; indexed assignment adds `; use insert to add a new key` |
-| Zero range step, or a range longer than `i64` | `range step cannot be zero`, `range length exceeds i64` |
+| A range longer than `i64` | `range length exceeds i64` |
 | Empty `split` separator | `string split requires a nonempty separator` |
 
 A bounds report prints the index as written, before a negative index counts
