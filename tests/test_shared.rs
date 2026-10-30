@@ -55,11 +55,11 @@ fn output(source: &str) -> String {
     std::fs::write(&path, source).unwrap();
     plenty::compile_file_to_executable(&path, &executable, None)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = std::process::Command::new("timeout")
-        .arg("60s")
-        .arg(&executable)
-        .output()
-        .unwrap();
+    let output = support::output_within(
+        &mut std::process::Command::new(&executable),
+        b"",
+        std::time::Duration::from_secs(60),
+    );
     assert!(
         output.status.success(),
         "{source}\n{}",

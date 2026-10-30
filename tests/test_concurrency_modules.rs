@@ -14,11 +14,11 @@ fn runs(source: &str, expected: &str) {
     let (dir, path) = source_file(source);
     let exe = dir.path().join("program");
     plenty::compile_file_to_executable(&path, &exe, None).unwrap();
-    let output = Command::new("timeout")
-        .args(["30s"])
-        .arg(exe)
-        .output()
-        .unwrap();
+    let output = support::output_within(
+        &mut Command::new(exe),
+        b"",
+        std::time::Duration::from_secs(30),
+    );
     assert!(output.status.success(), "{output:?}");
     let output = String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -318,11 +318,11 @@ pub def cancelled(token: &sync.CancellationToken) -> bool:
     .unwrap();
     let exe = dir.path().join("program");
     plenty::compile_file_to_executable(&path, &exe, None).unwrap();
-    let output = Command::new("timeout")
-        .arg("30s")
-        .arg(exe)
-        .output()
-        .unwrap();
+    let output = support::output_within(
+        &mut Command::new(exe),
+        b"",
+        std::time::Duration::from_secs(30),
+    );
     assert!(output.status.success(), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("True"));
     std::fs::write(
@@ -353,15 +353,15 @@ fn relocated_compiler_imports_facilities_offline() {
     );
     let path = dir.path().join("main.plenty");
     std::fs::write(&path, "from std.thread import spawn as start\nfrom std.sync import CancellationToken as Token\nimport std.channel as ch\nimport std.concurrent as jobs\ndef main() -> Result[(), AllocError | IoError]:\n    token = Token()?\n    token.cancel()\n    print(token.is_cancelled())?\n    Ok(())\n").unwrap();
-    let output = Command::new("timeout")
-        .arg("30s")
-        .arg(compiler)
-        .arg(&path)
-        .current_dir(dir.path())
-        .env("CARGO_HOME", dir.path().join("absent"))
-        .env("RUSTUP_HOME", dir.path().join("absent"))
-        .output()
-        .unwrap();
+    let output = support::output_within(
+        Command::new(compiler)
+            .arg(&path)
+            .current_dir(dir.path())
+            .env("CARGO_HOME", dir.path().join("absent"))
+            .env("RUSTUP_HOME", dir.path().join("absent")),
+        b"",
+        std::time::Duration::from_secs(30),
+    );
     assert!(output.status.success(), "{output:?}");
     assert!(String::from_utf8_lossy(&output.stdout).contains("True"));
 }

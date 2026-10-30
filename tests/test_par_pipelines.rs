@@ -6,11 +6,11 @@ fn output(source: &str) -> std::process::Output {
     let executable = directory.path().join("par-test");
     support::compile_source_to_executable(source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
-    std::process::Command::new("timeout")
-        .arg("15s")
-        .arg(executable)
-        .output()
-        .unwrap()
+    support::output_within(
+        &mut std::process::Command::new(executable),
+        b"",
+        std::time::Duration::from_secs(15),
+    )
 }
 
 fn runs(source: &str, expected: &str) {
