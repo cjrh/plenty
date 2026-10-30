@@ -44,6 +44,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod mapping;
 mod modules;
 mod mutex;
 mod numeric;

@@ -5,7 +5,9 @@ use super::*;
 const KEY_OF: &str = include_str!("sorting.plenty");
 
 impl Lower<'_> {
-    fn sorting_helper(&mut self, name: &str, source: &str) -> Result<()> {
+    /// Register `source`'s one function as template `name`; callers specialize it
+    /// with ordinary generic calls.
+    pub(super) fn plenty_helper(&mut self, name: &str, source: &str) -> Result<()> {
         if !self.generics.templates.contains_key(name) {
             let mut function = modules::generated_interface(source)?.functions.remove(0);
             function.name = name.into();
@@ -97,7 +99,7 @@ impl Lower<'_> {
                 .at
                 .error("sort_by_key callback must return an integer, float, str, or tuple of those")
         })?;
-        self.sorting_helper("__plenty_key_of", KEY_OF)?;
+        self.plenty_helper("__plenty_key_of", KEY_OF)?;
         let key_of = self.specialize(
             "__plenty_key_of",
             vec![(*element).clone(), key.clone(), callback],
@@ -190,7 +192,7 @@ impl Lower<'_> {
                     "sorted does not order {element} elements; it orders integers, floats, str, and tuples of those"
                 )));
         }
-        self.sorting_helper("__plenty_sorted", "def sorteditems[T](items: &list[T], descending: bool) -> Result[list[T], AllocError]:\n    mut result = copy(items)?\n    result.sort(descending)\n    Ok(result)\n")?;
+        self.plenty_helper("__plenty_sorted", "def sorteditems[T](items: &list[T], descending: bool) -> Result[list[T], AllocError]:\n    mut result = copy(items)?\n    result.sort(descending)\n    Ok(result)\n")?;
         let descending = Self::reverse_argument(&args[1..], at);
         self.generic_call(
             "__plenty_sorted",

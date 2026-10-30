@@ -793,6 +793,16 @@ impl Lower<'_> {
             {
                 self.unwrap_result(base, args, expected, ops)
             }
+            Expression::Method(base, name, args, _)
+                if name == "map_error"
+                    && !self
+                        .place_type(base)
+                        .map(classes::unbox)
+                        .as_ref()
+                        .is_some_and(classes::inherent_receiver) =>
+            {
+                self.result_map_error(base, args, &e.at, ops)
+            }
             Expression::Call(name, args)
                 if name == crate::atomic::ATOMIC && matches!(&expected, Some(Ty::Atomic(_))) =>
             {

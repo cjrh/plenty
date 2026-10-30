@@ -429,6 +429,9 @@ impl Lower<'_> {
         if fields.is_empty() && args.is_some() {
             return Err(at.error("nullary variants do not take parentheses"));
         }
+        if args.is_none() && !fields.is_empty() {
+            return self.variant_function(t, tag, at, ops);
+        }
         if args.map_or(0, <[Expr]>::len) != fields.len() || (!fields.is_empty() && args.is_none()) {
             return Err(at.error(format!(
                 "variant `{name}` requires {} payload arguments",
