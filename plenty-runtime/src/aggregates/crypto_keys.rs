@@ -405,7 +405,6 @@ mod tests {
                 .verify(&message, &signature)
         });
         verified.unwrap();
-        eprintln!("high water: load {load}, sign {sign}, verify {verify}");
         // Dropping the arena frees the key's limbs.
         std::mem::forget(key);
         drop(keys);

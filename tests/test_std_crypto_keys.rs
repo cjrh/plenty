@@ -683,7 +683,6 @@ def main() -> Result[(), Fault]:
             .collect();
         assert_eq!(results.len(), LIMIT, "{out}");
         let failures = results.iter().take_while(|r| **r == "allocation").count();
-        eprintln!("{operation}: {failures} injected failures before success");
         // The reservation, then at least one allocation inside ring.
         assert!(failures >= 2, "{operation}: {results:?}");
         assert!(
