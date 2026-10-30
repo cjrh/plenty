@@ -287,6 +287,8 @@ mod test_list_ordering;
 mod test_list_queries;
 #[path = "test_list_removal.rs"]
 mod test_list_removal;
+#[path = "test_literal_forms.rs"]
+mod test_literal_forms;
 #[path = "test_loop_counter_ranges.rs"]
 mod test_loop_counter_ranges;
 #[path = "test_loops.rs"]

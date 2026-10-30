@@ -2,7 +2,9 @@
 
 The type `str` represents text. Single and double quotes both make strings;
 triple quotes allow physical newlines. Escapes include `\n`, `\r`, `\t`,
-escaped quotes, `\\`, and `\0` for an embedded NUL.
+escaped quotes, `\\`, `\0` for an embedded NUL, and `\u{H...}` for any
+character by its hexadecimal code point, such as `"e\u{301}"` for an `e`
+followed by a combining accent. See [escapes](../../design/facilities/01-builtins/text.md#escapes).
 
 ```plenty
 def main() -> Result[(), IoError]:
