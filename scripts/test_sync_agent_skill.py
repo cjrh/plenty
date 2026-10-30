@@ -92,6 +92,11 @@ class BuildTests(unittest.TestCase):
         # The version belongs in plugin.json only; Claude Code warns on a mismatch.
         self.assertNotIn("version", entry)
 
+    def test_only_the_plenty_skill_is_published(self):
+        # Repository maintenance skills (consistency-check, upstream-check,
+        # plenty-search) live beside it in .agents/skills but are not for users.
+        self.assertEqual([p.name for p in (self.out / "skills").iterdir()], ["plenty"])
+
     def test_skill_frontmatter_names_its_directory(self):
         for skill in (self.out / "skills").iterdir():
             text = (skill / "SKILL.md").read_text()
@@ -157,6 +162,19 @@ class BuildTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 sync_agent_skill.build(Path(temp), "1.0.0")
             self.assertTrue((Path(temp) / "keep.txt").exists())
+
+
+class RepositorySkillTests(unittest.TestCase):
+    def test_maintenance_skills_are_linked_for_claude(self):
+        repo = Path(sync_agent_skill.REPO)
+        for name in ("consistency-check", "upstream-check"):
+            text = (repo / ".agents/skills" / name / "SKILL.md").read_text()
+            fields = dict(line.split(": ", 1) for line in re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)[1].splitlines())
+            self.assertEqual(fields["name"], name)
+            self.assertTrue(0 < len(fields["description"]) <= 1024)
+            link = repo / ".claude/skills" / name
+            self.assertTrue(link.is_symlink(), link)
+            self.assertEqual(str(link.readlink()), f"../../.agents/skills/{name}")
 
 
 if __name__ == "__main__":
