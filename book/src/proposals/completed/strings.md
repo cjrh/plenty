@@ -17,8 +17,9 @@
 > provides owned binary buffers with explicit fallible allocation, and
 > [byte literals](../../design/language/03-types/bytes.md) provide immutable
 > `bytes` values.
-> **Remaining:** broader C text/buffer representations (B27); language-level
-> slice syntax remains a B12 candidate.
+> **Remaining:** broader C text/buffer representations (B27). Language-level
+> [slice syntax](../../design/language/04-expressions/slices.md) shipped with
+> issue #579.
 
 ## Language contract
 

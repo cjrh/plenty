@@ -143,9 +143,12 @@ iteration-local copy, because single bytes are not addressable values.
 assign through an index instead. The loop holds a shared loan, so its body
 cannot change the buffer.
 
-There is no slice syntax. A list slice copies, so `buffer[a:b]` would hide an
-allocation; `slice(start, stop)` makes that copy explicit, and passing the buffer
-with a range gives a view without one.
+[Slice syntax](../language/04-expressions/slices.md) `buffer[a:b:c]?` copies the
+selected bytes into a new `Bytes` with Python's clamping and returns
+`Result[Bytes, AllocError]`; it also slices `bytes` literals. The `slice(start,
+stop)` method keeps the [range rule](#the-range-rule) and reports `BytesError`,
+which suits functions that already return it. Passing the buffer with a range
+gives a view without a copy.
 
 ## Scanning
 

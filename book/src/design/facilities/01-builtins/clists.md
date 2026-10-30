@@ -26,6 +26,7 @@ removing a row requires access to every field; field selection respects module p
 | `items[i].field = value` | Checked scalar replacement |
 | `items[i].field += value` | Numeric augmented assignment; evaluates the index once |
 | `items.copy_row(i)` | Allocation-free `Option[T]`, independent of subsequent writes |
+| `items[a:b:c]` | `Result[clist[T], AllocError]`; a [slice](../../language/04-expressions/slices.md) copying the selected rows; `items[:]?` duplicates the owner |
 | `items.column(T.field)` | Local, one-shot `Iter[FieldType]` borrowing the owner |
 
 Capacity growth allocates replacement storage, copies each column, and publishes
@@ -52,6 +53,10 @@ left in every column. `clear` makes all columns empty. Both require mutable
 access, allocate nothing, and retain capacity for later appends. Neither changes
 the owner pointer or column starts. Removing a row requires access to every
 field, just like `copy_row`; clearing does not expose any field.
+
+A slice reserves exactly the selected row count, then copies each column; a
+step-1 slice copies each column as one block. It reads every field, so it needs
+the same access as `copy_row`, and the receiver must be a named clist.
 
 ## Column iteration and ownership
 

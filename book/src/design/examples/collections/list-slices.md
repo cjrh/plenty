@@ -1,18 +1,20 @@
 # Take a list slice
 
-`items.slice(start, stop)` returns a new list inside a `Result`. Start is
-included and stop is excluded. Negative bounds count from the end, and bounds
-outside the list clamp to its ends:
+A [slice](../../language/04-expressions/slices.md) `items[start:stop:step]`
+returns a new list inside a `Result`. Start is included and stop is excluded.
+Negative bounds count from the end, omitted bounds run to the ends, a negative
+step walks backwards, and bounds outside the list clamp to its ends:
 
 ```plenty
 def middle(items: &list[i64]) -> Result[list[i64], AllocError]:
-    items.slice(1, -1)
+    items[1:-1]
 
 def main() -> Result[(), AllocError | IoError]:
     items = [10, 20, 30, 40]?
     print(middle(&items)?)?
-    print(items.slice(-100, 100)?)?
-    print(items.slice(3, 1)?)?
+    print(items[-100:100]?)?
+    print(items[3:1]?)?
+    print(items[::-2]?)?
     print(items)?
     Ok(())
 ```
@@ -20,17 +22,18 @@ def main() -> Result[(), AllocError | IoError]:
 [20, 30]
 [10, 20, 30, 40]
 []
+[40, 20]
 [10, 20, 30, 40]
 ```
 
-Both bounds must be `i64`. Slice syntax such as `items[1:3]`, omitted bounds,
-and steps are not implemented yet. Even an empty result can fail to allocate
-its list header; use `?` or `match` to handle `AllocError`.
+Bounds must be `i64`, and the step is a `NonZero[i64]`. Even an empty result
+can fail to allocate its list header; use `?` or `match` to handle `AllocError`.
 
-Strings in the slice share their immutable storage and copyable enums copy
-inline; both outlive the original list. For owned elements such as nested
-lists or classes, the receiver must be an owned temporary. Use
-`copy(items)?.slice(start, stop)` to preserve the original, or call the
-method on a list returned by a function to transfer selected elements. Unselected
-elements of that temporary are dropped after the call. If allocation fails,
-the temporary is cleaned up in full; a borrowed source remains unchanged.
+The slice copies each selected element with `copy()`, so nested lists are
+duplicated and the source keeps its elements. Element types that cannot be
+copied, such as `std.bytes.Bytes`, are rejected. For those, call
+`items.slice(start, stop)` on an owned temporary, such as a list returned by a
+function: it transfers the selected elements and drops the rest. Use
+`copy(items)?.slice(start, stop)` only when the elements can be copied anyway.
+If allocation fails, the temporary is cleaned up in full; a borrowed source
+remains unchanged.

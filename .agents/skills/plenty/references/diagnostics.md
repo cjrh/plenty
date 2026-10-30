@@ -15,7 +15,8 @@ start with `error: FILE:LINE:COLUMN:`.
 | ``expected `->` `` | Missing result type | Every `def` declares `-> T`; `-> ()` for none |
 | `expected bool, got list[i64]` | Truthiness | `len(xs) > 0` |
 | `expected i64, got &i64` | Using a borrowed loop item as a value | `*item` |
-| ``expected `]` `` at `xs[1:3]` | Slice syntax | `xs.slice(1, 3)?` |
+| `` slice returns Result[list[i64], AllocError]; use `?` `` | A slice without `?` | `xs[1:3]?` |
+| ``slice step must be `NonZero[i64]` `` | A computed `i64` step | `xs[::NonZero.try_from(step)?]?` |
 | `bare self is read-only in ordinary methods` | Mutating through `self` | `def bump(self: &mut C) -> ():` |
 | `mutable reference arguments require explicit &mut borrowing` | Passing `xs` to a `&mut` parameter | `add(&mut xs)` |
 | `` use of moved binding `xs` `` | Using a value after moving it | Borrow (`&xs`), or `copy(xs)?` |

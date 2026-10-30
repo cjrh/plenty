@@ -113,7 +113,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 | [Flat class layout](flat-class-layout.md) — one-field classes without `__del__` are their field (implemented); flat nested records assessed, not adopted | B19 (issue #547); related B35 |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
-| [Python slice syntax](slice-syntax.md), with an [implementation plan](slice-syntax/plan.md) — copying `xs[a:b:c]?` with Python's clamping and `copy()` element semantics; `&xs[a:b]` reserved for views | B39, B12 (issue #579) |
 
 ## Completed investigations
 

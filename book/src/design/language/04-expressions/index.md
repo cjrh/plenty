@@ -10,7 +10,7 @@ Operator precedence, from highest to lowest:
 
 | Group | Operators or forms |
 | --- | --- |
-| Postfix | Calls, member access, indexing, error propagation `?` |
+| Postfix | Calls, member access, indexing, [slicing](slices.md), error propagation `?` |
 | Unary | `+`, `-`, dereference `*`, borrowing `&` and `&mut` |
 | Multiplication | `*`, `/`, `//`, `%` |
 | Addition | `+`, `-` |

@@ -107,6 +107,8 @@ thread the report has no position.
 
 A bounds report prints the index as written, before a negative index counts
 from the end. A missing dictionary key is not printed.
+[Slices](../04-expressions/slices.md) never trap on their bounds: out-of-range
+bounds clamp as in Python.
 
 [Stack overflow](../../toolchain/02-architecture/runtime.md) is reported
 separately and has no position. [Trap sites](../../toolchain/02-architecture/runtime.md)
