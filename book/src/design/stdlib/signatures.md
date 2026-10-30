@@ -18,86 +18,87 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 102-174
-- [`std.actor.net`](#stdactornet): 176-239
-- [`std.actor.tls`](#stdactortls): 241-270
-- [`std.archive`](#stdarchive): 272-338
-- [`std.atomic`](#stdatomic): 340-349
-- [`std.bytes`](#stdbytes): 351-446
-- [`std.cache.lru`](#stdcachelru): 448-470
-- [`std.channel`](#stdchannel): 472-476
-- [`std.cli`](#stdcli): 478-508
-- [`std.cli.fileinput`](#stdclifileinput): 510-519
-- [`std.cli.progress`](#stdcliprogress): 521-545
-- [`std.collections`](#stdcollections): 547-574
-- [`std.complex`](#stdcomplex): 576-602
-- [`std.compress`](#stdcompress): 604-634
-- [`std.concurrent`](#stdconcurrent): 636-640
-- [`std.crypto`](#stdcrypto): 642-723
-- [`std.csv`](#stdcsv): 725-788
-- [`std.dataframe`](#stddataframe): 790-989
-- [`std.db.kv`](#stddbkv): 991-1023
-- [`std.db.sqlite`](#stddbsqlite): 1025-1089
-- [`std.deque`](#stddeque): 1091-1105
-- [`std.diff`](#stddiff): 1107-1136
-- [`std.encoding`](#stdencoding): 1138-1199
-- [`std.env`](#stdenv): 1201-1215
-- [`std.error`](#stderror): 1217-1237
-- [`std.fmt`](#stdfmt): 1239-1292
-- [`std.fs`](#stdfs): 1294-1377
-- [`std.fs.dirs`](#stdfsdirs): 1379-1389
-- [`std.fs.watch`](#stdfswatch): 1391-1426
-- [`std.graph`](#stdgraph): 1428-1516
-- [`std.http`](#stdhttp): 1518-1587
-- [`std.http.body`](#stdhttpbody): 1589-1624
-- [`std.http.client`](#stdhttpclient): 1626-1736
-- [`std.http.cookie`](#stdhttpcookie): 1738-1770
-- [`std.http.files`](#stdhttpfiles): 1772-1785
-- [`std.http.https`](#stdhttphttps): 1787-1801
-- [`std.http.proxy`](#stdhttpproxy): 1803-1824
-- [`std.http.server`](#stdhttpserver): 1826-1911
-- [`std.http.sse`](#stdhttpsse): 1913-1932
-- [`std.http.tls`](#stdhttptls): 1934-1951
-- [`std.http.typed`](#stdhttptyped): 1953-1986
-- [`std.http.websocket`](#stdhttpwebsocket): 1988-2023
-- [`std.http.wss`](#stdhttpwss): 2025-2031
-- [`std.io`](#stdio): 2033-2113
-- [`std.io.typed`](#stdiotyped): 2115-2153
-- [`std.json`](#stdjson): 2155-2219
-- [`std.log`](#stdlog): 2221-2288
-- [`std.markdown`](#stdmarkdown): 2290-2324
-- [`std.template`](#stdtemplate): 2326-2347
-- [`std.math`](#stdmath): 2349-2415
-- [`std.net`](#stdnet): 2417-2499
-- [`std.path`](#stdpath): 2501-2518
-- [`std.process`](#stdprocess): 2520-2566
-- [`std.random`](#stdrandom): 2568-2589
-- [`std.ready`](#stdready): 2591-2621
-- [`std.regex`](#stdregex): 2623-2676
-- [`std.report`](#stdreport): 2678-2701
-- [`std.secrets`](#stdsecrets): 2703-2729
-- [`std.shlex`](#stdshlex): 2731-2740
-- [`std.sketch`](#stdsketch): 2742-2780
-- [`std.sketch.xor`](#stdsketchxor): 2782-2793
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2795-2810
-- [`std.signal`](#stdsignal): 2812-2829
-- [`std.simd`](#stdsimd): 2831-2932
-- [`std.stat`](#stdstat): 2934-2967
-- [`std.plot`](#stdplot): 2969-3058
-- [`std.linalg`](#stdlinalg): 3060-3101
-- [`std.sync`](#stdsync): 3103-3112
-- [`std.system`](#stdsystem): 3114-3172
-- [`std.tempfile`](#stdtempfile): 3174-3206
-- [`std.test`](#stdtest): 3208-3250
-- [`std.text`](#stdtext): 3252-3271
-- [`std.thread`](#stdthread): 3273-3277
-- [`std.time`](#stdtime): 3279-3323
-- [`std.tls`](#stdtls): 3325-3407
-- [`std.toml`](#stdtoml): 3409-3458
-- [`std.unicode`](#stdunicode): 3460-3472
-- [`std.url`](#stdurl): 3474-3502
-- [`std.uuid`](#stduuid): 3504-3527
-- [`std.xml`](#stdxml): 3529-3562
+- [`std.actor`](#stdactor): 103-175
+- [`std.actor.net`](#stdactornet): 177-240
+- [`std.actor.tls`](#stdactortls): 242-271
+- [`std.archive`](#stdarchive): 273-339
+- [`std.atomic`](#stdatomic): 341-350
+- [`std.bytes`](#stdbytes): 352-447
+- [`std.cache.lru`](#stdcachelru): 449-471
+- [`std.channel`](#stdchannel): 473-477
+- [`std.cli`](#stdcli): 479-509
+- [`std.cli.fileinput`](#stdclifileinput): 511-520
+- [`std.cli.progress`](#stdcliprogress): 522-546
+- [`std.collections`](#stdcollections): 548-575
+- [`std.complex`](#stdcomplex): 577-603
+- [`std.compress`](#stdcompress): 605-635
+- [`std.concurrent`](#stdconcurrent): 637-641
+- [`std.crypto`](#stdcrypto): 643-724
+- [`std.csv`](#stdcsv): 726-789
+- [`std.dataframe`](#stddataframe): 791-990
+- [`std.db.kv`](#stddbkv): 992-1024
+- [`std.db.sqlite`](#stddbsqlite): 1026-1090
+- [`std.deque`](#stddeque): 1092-1106
+- [`std.diff`](#stddiff): 1108-1137
+- [`std.encoding`](#stdencoding): 1139-1200
+- [`std.env`](#stdenv): 1202-1216
+- [`std.error`](#stderror): 1218-1238
+- [`std.fmt`](#stdfmt): 1240-1293
+- [`std.fs`](#stdfs): 1295-1378
+- [`std.fs.dirs`](#stdfsdirs): 1380-1390
+- [`std.fs.watch`](#stdfswatch): 1392-1427
+- [`std.graph`](#stdgraph): 1429-1517
+- [`std.http`](#stdhttp): 1519-1588
+- [`std.http.body`](#stdhttpbody): 1590-1625
+- [`std.http.client`](#stdhttpclient): 1627-1737
+- [`std.http.cookie`](#stdhttpcookie): 1739-1771
+- [`std.http.files`](#stdhttpfiles): 1773-1786
+- [`std.http.https`](#stdhttphttps): 1788-1802
+- [`std.http.proxy`](#stdhttpproxy): 1804-1825
+- [`std.http.server`](#stdhttpserver): 1827-1912
+- [`std.http.sse`](#stdhttpsse): 1914-1933
+- [`std.http.tls`](#stdhttptls): 1935-1952
+- [`std.http.typed`](#stdhttptyped): 1954-1987
+- [`std.http.websocket`](#stdhttpwebsocket): 1989-2024
+- [`std.http.wss`](#stdhttpwss): 2026-2032
+- [`std.io`](#stdio): 2034-2114
+- [`std.io.typed`](#stdiotyped): 2116-2154
+- [`std.json`](#stdjson): 2156-2220
+- [`std.jwt`](#stdjwt): 2222-2269
+- [`std.log`](#stdlog): 2271-2338
+- [`std.markdown`](#stdmarkdown): 2340-2374
+- [`std.template`](#stdtemplate): 2376-2397
+- [`std.math`](#stdmath): 2399-2465
+- [`std.net`](#stdnet): 2467-2549
+- [`std.path`](#stdpath): 2551-2568
+- [`std.process`](#stdprocess): 2570-2616
+- [`std.random`](#stdrandom): 2618-2639
+- [`std.ready`](#stdready): 2641-2671
+- [`std.regex`](#stdregex): 2673-2726
+- [`std.report`](#stdreport): 2728-2751
+- [`std.secrets`](#stdsecrets): 2753-2779
+- [`std.shlex`](#stdshlex): 2781-2790
+- [`std.sketch`](#stdsketch): 2792-2830
+- [`std.sketch.xor`](#stdsketchxor): 2832-2843
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2845-2860
+- [`std.signal`](#stdsignal): 2862-2879
+- [`std.simd`](#stdsimd): 2881-2982
+- [`std.stat`](#stdstat): 2984-3017
+- [`std.plot`](#stdplot): 3019-3108
+- [`std.linalg`](#stdlinalg): 3110-3151
+- [`std.sync`](#stdsync): 3153-3162
+- [`std.system`](#stdsystem): 3164-3222
+- [`std.tempfile`](#stdtempfile): 3224-3256
+- [`std.test`](#stdtest): 3258-3300
+- [`std.text`](#stdtext): 3302-3321
+- [`std.thread`](#stdthread): 3323-3327
+- [`std.time`](#stdtime): 3329-3373
+- [`std.tls`](#stdtls): 3375-3457
+- [`std.toml`](#stdtoml): 3459-3508
+- [`std.unicode`](#stdunicode): 3510-3522
+- [`std.url`](#stdurl): 3524-3552
+- [`std.uuid`](#stduuid): 3554-3577
+- [`std.xml`](#stdxml): 3579-3612
 
 ## `std.actor`
 
@@ -2216,6 +2217,55 @@ def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(),
 def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]
 def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]
 def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]
+```
+
+## `std.jwt`
+
+JSON Web Tokens: compact JWS signing and verification with the algorithm fixed by the key, strict decoding, and explicit-clock claim checks. Errors: `JwtError`. [Reference](jwt.md).
+
+```text
+enum Algorithm
+    Hs256 | Hs512 | Rs256 | Rs384 | Rs512 | Ps256 | Ps384 | Ps512 | Es256 | EdDsa
+    def name(self) -> str
+enum Claim
+    Expiry | NotBefore | IssuedAt | Issuer | Audience
+enum JwtError
+    Malformed | NotObject | TooLarge | UnsupportedAlgorithm | AlgorithmMismatch | CriticalHeader | InvalidSignature | Expired | NotYetValid | MissingClaim(Claim) | InvalidClaim(Claim) | WrongIssuer | WrongAudience | InvalidKey | InvalidValidation | RandomFailure | Allocation(AllocError)
+    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+class SigningKey
+    def algorithm(self) -> Algorithm
+    def verifying_key(self) -> Result[VerifyingKey, JwtError]
+class VerifyingKey
+    def algorithm(self) -> Algorithm
+def hmac_signing_key(algorithm: Algorithm, secret: &Bytes) -> Result[SigningKey, JwtError]
+def hmac_verifying_key(algorithm: Algorithm, secret: &Bytes) -> Result[VerifyingKey, JwtError]
+def rsa_signing_key(algorithm: Algorithm, key: RsaPrivateKey) -> Result[SigningKey, JwtError]
+def rsa_verifying_key(algorithm: Algorithm, key: RsaPublicKey) -> Result[VerifyingKey, JwtError]
+def es256_signing_key(key: P256PrivateKey) -> SigningKey
+def es256_verifying_key(key: P256PublicKey) -> VerifyingKey
+def ed25519_signing_key(seed: &Bytes) -> Result[SigningKey, JwtError]
+def ed25519_verifying_key(public_key: &Bytes) -> Result[VerifyingKey, JwtError]
+const default_max_size: i64 = 8192
+const max_leeway: i64 = 86400
+const max_token_size: i64 = 1048576
+class Validation
+    now: i64
+    leeway: i64
+    require_expiry: bool
+    issuer: Option[str]
+    audience: Option[str]
+    max_size: i64
+def validation(now: i64) -> Validation
+class Header
+    algorithm: Algorithm
+    key_id: Option[str]
+    token_type: Option[str]
+class Token
+    header: Header
+    claims: list[Member]
+def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[Header, JwtError]
+def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]
+def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> Result[str, JwtError]
 ```
 
 ## `std.log`

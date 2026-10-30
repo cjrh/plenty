@@ -489,6 +489,8 @@ mod test_std_http_websocket;
 mod test_std_io;
 #[path = "test_std_json.rs"]
 mod test_std_json;
+#[path = "test_std_jwt.rs"]
+mod test_std_jwt;
 #[path = "test_std_kv.rs"]
 mod test_std_kv;
 #[path = "test_std_log.rs"]
