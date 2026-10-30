@@ -16,6 +16,11 @@ repo="$(cd "$here/../.." && pwd)"
 # shellcheck source=target.sh
 . "$here/target.sh"
 
+[ "$(uname -m)" = "$release_arch" ] || {
+    echo "local-check.sh: $PLENTY_RELEASE_TARGET requires a native $release_arch host" >&2
+    exit 1
+}
+
 build_args=()
 smoke=1
 for option in "$@"; do

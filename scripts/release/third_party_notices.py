@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 TARGET = "x86_64-unknown-linux-gnu"
@@ -268,6 +269,29 @@ def shipped_packages(metadata, roots=ROOTS):
     )
 
 
+def embedded_vendor_packages(repo, packages):
+    """Cover the direct-rustc inputs as well as Cargo's target-filtered graph.
+
+    For example, the direct build compiles BLAKE3's cpufeatures 0.3 rlib on
+    ARM too, although Cargo only connects that dependency on x86. Keep its
+    reviewed source/license represented without reintroducing unrelated host
+    dependencies from the unfiltered graph.
+    """
+    vendor = repo / "plenty-runtime/vendor"
+    names = {path.name for path in vendor.iterdir()} if vendor.is_dir() else set()
+    selected = {(package["name"], package["version"]): package for package in packages}
+    for name in names:
+        manifest = vendor / name / "Cargo.toml"
+        if not manifest.is_file():
+            continue
+        package = tomllib.loads(manifest.read_text())["package"]
+        key = (package["name"], package["version"])
+        if key not in selected:
+            selected[key] = {**package, "manifest_path": str(manifest),
+                             "source": "registry+https://github.com/rust-lang/crates.io-index"}
+    return sorted(selected.values(), key=lambda package: (package["name"], package["version"]))
+
+
 def license_files(package, include_nested=False):
     directory = Path(package["manifest_path"]).parent
     found = [
@@ -371,6 +395,7 @@ def main():
     )
     packages = shipped_packages(metadata, (f"plenty-{args.component}-engine",) if args.component != "compiler" else ROOTS)
     if args.component == "compiler":
+        packages = embedded_vendor_packages(args.repo, packages)
         uncovered = uncovered_vendor_dirs(args.repo, packages)
         if uncovered:
             raise SystemExit("vendored directories without a notice: " + ", ".join(uncovered))

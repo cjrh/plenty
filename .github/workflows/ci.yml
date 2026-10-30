@@ -162,7 +162,7 @@ jobs:
   # here; the shards build with all features. This job and proxy_tests run
   # few tests, so they keep the faster-building dev profile.
   doctests:
-    name: Doctests and default-feature build
+    name: Doctests and default-feature build (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -194,7 +194,7 @@ jobs:
 
   # Stable only: new nightly lints would fail unrelated changes.
   lint:
-    name: Format, clippy, and book links
+    name: Format, clippy, and book links (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

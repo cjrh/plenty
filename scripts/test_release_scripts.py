@@ -140,6 +140,15 @@ class ThirdPartyNotices(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.notices.render([self.package])
 
+    def test_direct_vendor_inputs_keep_notices_when_cargo_filters_an_architecture_edge(self):
+        vendor = self.root / "plenty-runtime/vendor/cpufeatures-0.3.1"
+        vendor.mkdir(parents=True)
+        (vendor / "Cargo.toml").write_text('[package]\nname = "cpufeatures"\nversion = "0.3.1"\nlicense = "MIT OR Apache-2.0"\n')
+        (vendor / "LICENSE-MIT").write_text("Vendored CPU feature license")
+        packages = self.notices.embedded_vendor_packages(self.root, [])
+        self.assertEqual([(p["name"], p["version"]) for p in packages], [("cpufeatures", "0.3.1")])
+        self.assertIn("Vendored CPU feature license", self.notices.render(packages))
+
     def test_compiler_bundles_brotli_license_but_dataframe_does_not(self):
         license_text = (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text().rstrip()
         compiler = self.notices.render([self.package])
