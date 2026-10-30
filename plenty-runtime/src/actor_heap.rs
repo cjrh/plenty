@@ -180,9 +180,20 @@ mod native {
         OWNER.load(Ordering::Acquire) == token()
     }
 
-    /// Stops a thread other than the owner from reaching the table.
+    fn claim_owner(owner: &AtomicUsize, claimant: usize) -> bool {
+        let observed = owner.load(Ordering::Acquire);
+        if observed != 0 {
+            return observed == claimant;
+        }
+        match owner.compare_exchange(0, claimant, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => true,
+            Err(owner) => owner == claimant,
+        }
+    }
+
+    /// Claim ownership before any shared table access, including initialization.
     fn check_owner() {
-        if !BASE.load(Ordering::Acquire).is_null() && !owning() {
+        if !claim_owner(&OWNER, token()) {
             crate::fail("std.actor: actor heaps belong to the thread that created the first one");
         }
     }
@@ -885,8 +896,8 @@ mod native {
     /// first use are initialized here, outside every heap: one created by a
     /// handler would live in a heap that is later discarded.
     pub(super) fn prepare() -> i64 {
+        check_owner();
         if !BASE.load(Ordering::Acquire).is_null() {
-            check_owner();
             return 0;
         }
         // Linux supports 4, 16 and 64 KiB pages on AArch64. Both slot
@@ -894,6 +905,7 @@ mod native {
         // SAFETY: sysconf has no pointer arguments.
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         if page <= 0 || !COMMIT_STEP.is_multiple_of(page as usize) {
+            OWNER.store(0, Ordering::Release);
             return RESERVE_FAILED;
         }
         PAGE_BYTES.store(page as usize, Ordering::Relaxed);
@@ -912,9 +924,10 @@ mod native {
             )
         };
         if base as isize == -1 {
+            // No heap/table state was published. A later caller may retry.
+            OWNER.store(0, Ordering::Release);
             return RESERVE_FAILED;
         }
-        OWNER.store(token(), Ordering::Release);
         BASE.store(base, Ordering::Release);
         0
     }
@@ -975,6 +988,24 @@ mod native {
     }
 
     pub(super) fn operate(op: i64, argument: i64) -> i64 {
+        // Libraries lack the router and must remain safely unsupported on
+        // every caller thread, without acquiring a process-wide actor owner.
+        if !cfg!(plenty_runtime_embedded) && matches!(op, CREATE | PREPARE) {
+            return UNSUPPORTED;
+        }
+        if op == TRAP_KIND {
+            return LAST_TRAP.with(Cell::get);
+        }
+        if BASE.load(Ordering::Acquire).is_null() {
+            // Queries before initialization need no owner and must not read
+            // TABLE while another thread may be publishing its first heap.
+            match op {
+                USED_TOTAL | COMMITTED_TOTAL | LIVE_COUNT => return 0,
+                USED | DISCARD => return -1,
+                SWITCH if argument < 0 => return -1,
+                _ => {}
+            }
+        }
         check_owner();
         // SAFETY (each table read): owning thread, checked above.
         let heaps = || unsafe { &(*table()).heaps };
@@ -1019,6 +1050,51 @@ mod native {
             _ => crate::fail("std.actor: unknown heap operation"),
         }
     }
+    #[cfg(test)]
+    mod initialization_tests {
+        use super::*;
+
+        #[test]
+        fn unsupported_entries_neither_claim_nor_require_an_owner() {
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        assert_eq!(operate(CREATE, 4096), UNSUPPORTED);
+                        assert_eq!(operate(PREPARE, 0), UNSUPPORTED);
+                    });
+                }
+            });
+        }
+
+        #[test]
+        fn concurrent_first_calls_grant_exactly_one_owner() {
+            let owner = AtomicUsize::new(0);
+            let start = std::sync::Barrier::new(16);
+            std::thread::scope(|scope| {
+                let results = (1..=16)
+                    .map(|token| {
+                        let (owner, start) = (&owner, &start);
+                        scope.spawn(move || {
+                            start.wait();
+                            claim_owner(owner, token)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    results
+                        .into_iter()
+                        .map(|result| result.join().unwrap())
+                        .filter(|claimed| *claimed)
+                        .count(),
+                    1
+                );
+            });
+            let winner = owner.load(Ordering::Acquire);
+            assert!(claim_owner(&owner, winner));
+            assert!(!claim_owner(&owner, winner + 1));
+        }
+    }
+
     #[cfg(test)]
     mod recovery_tests {
         use super::*;
