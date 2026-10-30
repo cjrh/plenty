@@ -347,6 +347,15 @@ def crypto_hkdf(salt: &Bytes, key: &Bytes, info: &Bytes, target: &mut Bytes) -> 
 def crypto_x_public(state: &Bytes, target: &mut Bytes) -> i64
 def crypto_x_agree(state: &mut Bytes, peer: &Bytes, target: &mut Bytes) -> i64
 def crypto_x_new() -> Result[Bytes, BytesError]
+def crypto_key_new() -> Result[Bytes, BytesError]
+def crypto_rsa_load(state: &mut Bytes, der: &Bytes) -> i64
+def crypto_p256_load(state: &mut Bytes, der: &Bytes) -> i64
+def crypto_key_size(state: &Bytes, which: i64) -> i64
+def crypto_key_public(state: &Bytes, target: &mut Bytes) -> i64
+def crypto_key_sign(state: &Bytes, scheme: i64, message: &Bytes, target: &mut Bytes) -> i64
+def crypto_rsa_verify(key: &Bytes, scheme: i64, message: &Bytes, signature: &Bytes) -> i64
+def crypto_p256_verify(point: &Bytes, message: &Bytes, signature: &Bytes) -> i64
+def crypto_p256_check(point: &Bytes) -> i64
 ```
 
 ## `std.cache.lru`
@@ -580,7 +589,7 @@ def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
 enum AdvancedError
-    InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | Allocation(AllocError)
+    InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | Allocation(AllocError)
 enum AeadAlgorithm
     Aes256Gcm | ChaCha20Poly1305
 def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
@@ -598,6 +607,31 @@ class X25519Key
     def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
     def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]
 def x25519() -> Result[X25519Key, AdvancedError]
+enum RsaScheme
+    Pkcs1Sha256 | Pkcs1Sha384 | Pkcs1Sha512 | PssSha256 | PssSha384 | PssSha512
+class RsaPublicKey
+    def signature_size(self) -> i64
+    def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
+class RsaPrivateKey
+    def signature_size(self) -> i64
+    def public_key(self) -> Result[RsaPublicKey, AdvancedError]
+    def sign_into(self, scheme: RsaScheme, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+    def sign(self, scheme: RsaScheme, message: &Bytes) -> Result[Bytes, AdvancedError]
+class P256PublicKey
+    def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
+class P256PrivateKey
+    def public_key(self) -> Result[P256PublicKey, AdvancedError]
+    def sign_into(self, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
+    def sign(self, message: &Bytes) -> Result[Bytes, AdvancedError]
+def rsa_public_key_from_spki(der: &Bytes) -> Result[RsaPublicKey, AdvancedError]
+def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublicKey, AdvancedError]
+def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, AdvancedError]
+def p256_public_key_from_point(point: &Bytes) -> Result[P256PublicKey, AdvancedError]
+def p256_public_key_from_coordinates(x: &Bytes, y: &Bytes) -> Result[P256PublicKey, AdvancedError]
+def p256_public_key_from_spki(der: &Bytes) -> Result[P256PublicKey, AdvancedError]
+def p256_private_key_from_pkcs8(der: &Bytes) -> Result[P256PrivateKey, AdvancedError]
+def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError]
+def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]
 ```
 
 ## `std.csv`
@@ -1019,7 +1053,7 @@ Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width
 
 ```text
 enum EncodingError
-    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | Allocation(AllocError)
+    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | InvalidPem(i64) | PemLabel | Allocation(AllocError)
 enum Endian
     Little | Big
 class Encoding
@@ -1040,6 +1074,10 @@ def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, En
 def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
 def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
+def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]
+def pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[str, EncodingError]
+def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]
+def pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]
 def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]

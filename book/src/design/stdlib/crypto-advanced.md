@@ -111,6 +111,7 @@ unchanged. Use context to separate keys with different purposes. HKDF is
 | `InvalidPeer` | X25519 rejected the peer key |
 | `Finished` | X25519 key already used for an agreement attempt |
 | `RandomFailure` | OS entropy or X25519 key/public-key generation failed |
+| `InvalidKey`, `WeakKey` | Raised only by [RSA, ECDSA and key import](crypto-keys.md#errors) |
 | `Allocation(AllocError)` | A fallible buffer or private-state allocation failed |
 
 The `_into` functions, verification, and opening allocate nothing. Sealing
@@ -127,8 +128,9 @@ when consumed or dropped. This does not scrub copies in registers or on the
 stack, caller-owned seeds/keys/shared-secret buffers, or allocator caches.
 `Bytes` does not zero its storage on drop; see [key material](crypto.md#key-material).
 
-There are no password KDFs, key serialization formats, streaming AEAD, or
-persistent private-key stores in this API. It supports the project's
+There are no password KDFs, streaming AEAD, or persistent private-key stores
+in this API. Ed25519 keys can be read from PKCS #8 and SubjectPublicKeyInfo
+with the [key import functions](crypto-keys.md#import). It supports the project's
 x86-64 Linux GNU target. Runtime entry symbols keep unused primitive paths
 eligible for linker garbage collection; `ring` is also used by `std.tls`.
 

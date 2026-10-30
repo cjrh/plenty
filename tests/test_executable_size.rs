@@ -146,6 +146,19 @@ def main() -> Result[(), CryptoError | BytesError | AllocError | IoError]:
         ],
     },
     NativeModule {
+        module: "std.crypto keys",
+        program: r#"import std.bytes
+import std.crypto
+from std.bytes import BytesError
+from std.crypto import AdvancedError
+
+def main() -> Result[(), AdvancedError | BytesError | AllocError | IoError]:
+    print(std.crypto.p256_public_key_from_point(&std.bytes.empty()?).is_err())?
+    Ok(())
+"#,
+        patterns: &[Pattern::Operations(340..349)],
+    },
+    NativeModule {
         module: "std.compress",
         program: r#"import std.bytes
 import std.compress

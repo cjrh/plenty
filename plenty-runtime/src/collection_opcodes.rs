@@ -32,6 +32,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         178 | 188 | 189 | 191 | 230 | 232 | 233 | 236 | 237 | 282
         // Digest/HMAC update/verification, AEAD and HKDF.
         | 301 | 302 | 305 | 308..=311 | 315
+        // Key signing and RSA verification.
+        | 345 | 346
         // Codec steps and checksums; readiness and selectors.
         | 321 | 325 | 419 | 421 | 422
         // TLS buffer transfers and details; primitive column assignment.

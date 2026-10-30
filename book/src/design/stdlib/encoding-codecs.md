@@ -1,4 +1,4 @@
-# Base32, MIME and custom alphabets
+# Base32, MIME, PEM and custom alphabets
 
 These operations extend [`std.encoding`](encoding.md). They are implemented in
 Plenty over [`Bytes`](bytes.md), without another runtime primitive or native
@@ -69,6 +69,64 @@ non-ASCII whitespace, and damaged padding remain errors. Error indexes still
 refer to the original buffer, including skipped whitespace; `_from_text` indexes
 are UTF-8 byte offsets. It does not parse MIME headers or multipart messages.
 
+## PEM
+
+```text
+pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+    -> Result[Bytes, EncodingError]
+pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+    -> Result[str, EncodingError]
+pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+    -> Result[Bytes, EncodingError]
+pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]
+```
+
+These read and write one block in the strict form of
+[RFC 7468](https://www.rfc-editor.org/rfc/rfc7468.html) (section 3,
+`stricttextualmsg`), the textual wrapping of DER keys and certificates.
+`label` is the text between `BEGIN ` and the dashes, such as `b"PUBLIC KEY"`
+or `b"PRIVATE KEY"`; a `bytes` literal costs no allocation. The decoder takes
+the label it expects, so a private key cannot be read where a public key was
+meant.
+
+```plenty
+import std.bytes
+import std.encoding
+from std.encoding import EncodingError
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
+    pem = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n"
+    der = std.encoding.pem_from_text(pem, b"PUBLIC KEY")?
+    print(der.len(), std.encoding.pem_text(&der, 0, der.len(), b"PUBLIC KEY")? == pem)?
+    print(str.repr(std.encoding.pem_from_text(pem, b"PRIVATE KEY"))?)?
+    Ok(())
+```
+```output
+44 True
+Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingError.PemLabel)
+```
+
+The decoder accepts exactly:
+
+- `-----BEGIN LABEL-----` at `start`, with the expected label;
+- one line terminator, LF or CRLF, used for every line that follows;
+- padded standard base64 in lines of exactly 64 symbols, except a final line of
+  1 to 64 symbols, with at least one symbol in all;
+- `-----END LABEL-----` with the same label;
+- at most one final line terminator, then `stop`.
+
+Explanatory text around the block, RFC 1421 headers such as `Proc-Type`,
+blank lines, spaces, tabs, and other line widths are errors. A label that is
+not an RFC 7468 label (printable ASCII except `-`, with single spaces or
+hyphens only between other characters) or a BEGIN label other than `label` is
+`PemLabel`. Other structural errors are `InvalidPem(index)`; base64 errors give
+the same variants as `base64_decode`. Every index is a position in `source`.
+The decoder does not interpret the DER it returns; the
+[key import functions](crypto-keys.md) do.
+
+The encoder writes that form with LF terminators, including a final one. An
+empty range has no strict PEM form and is `InvalidLength`.
+
 ## Reusable custom encoding
 
 ```text
@@ -115,6 +173,10 @@ MIME encoding holds ordinary base64 plus its wrapped result; MIME decoding
 holds a whitespace-free copy plus its decoded result. These are whole-buffer
 copies, not zero-copy adapters. `_text` additionally copies output into a `str`;
 `_from_text` additionally copies input into `Bytes`, as with existing codecs.
+PEM encoding holds ordinary base64 plus the framed result; PEM decoding holds
+the base64 body without line terminators plus its decoded result. A decoded
+private key is therefore left in freed buffers that are not zeroed; see
+[key material](crypto-keys.md#allocation-and-key-material).
 
 All operations take linear time in input length. Base32 output is
 `8 * ceil(n / 5)` bytes. Unpadded custom output is `ceil(8n / bits_per_symbol)`;

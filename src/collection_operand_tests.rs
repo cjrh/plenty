@@ -25,7 +25,8 @@ fn scratch_operand_contract_matches_typed_primitives() {
         OverwriteLiteral, FindInLiteral, FindBytesLiteral, MatchesLiteral);
     check_family!(CryptoOp: New, NewKeyed, Update, UpdateText, Finish, Verify,
         Equal, NewDeriveKey, AesSeal, AesOpen, ChaChaSeal, ChaChaOpen, EdPublic,
-        EdSign, EdVerify, Hkdf, XNew, XPublic, XAgree);
+        EdSign, EdVerify, Hkdf, XNew, XPublic, XAgree, KeyNew, RsaLoad, P256Load,
+        KeySize, KeyPublic, KeySign, RsaVerify, P256Verify, P256Check);
     check_family!(CompressOp: New, Step, Flush, Ended, Restart, Crc32, StepLiteral);
     check_family!(StreamOp: FileRead, FileWrite, StdinRead, StdWrite, FileSeek,
         EntropyRead, Wait, FileWriteLiteral, StdWriteLiteral);
