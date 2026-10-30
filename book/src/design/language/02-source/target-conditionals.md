@@ -55,8 +55,10 @@ of a selected arm can be the function's result.
 The set is closed. An unknown fact, such as `target.cpu`, is an error, and so is
 a comparison with a value outside the known values, such as `"linx"`, so a
 misspelling cannot silently select the `else` arm. The compiler currently
-builds only for x86_64 Linux, where the facts are `"linux"`, `"x86_64"`, `64`,
-and `"little"`; see [platform support](../../toolchain/02-architecture/support.md).
+builds natively for GNU/Linux on x86-64 and AArch64: `target.os` is `"linux"`,
+`target.arch` is `"x86_64"` or `"aarch64"`, pointer width is `64`, and endian is
+`"little"`. The facts describe the packaged runtime, and an installed compiler
+cannot select the other architecture with `--target`; see [platform support](../../toolchain/02-architecture/support.md).
 
 ## Conditions
 

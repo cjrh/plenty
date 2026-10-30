@@ -654,6 +654,7 @@
 # Development
 
 - [Development workflow](development/workflow.md)
+    - [Linux AArch64 development](development/linux-aarch64.md)
     - [Documentation versions](development/documentation-versions.md)
     - [Local semantic search trial](development/semantic-search.md)
     - [Search the repository](development/semantic-search-corpus.md)
