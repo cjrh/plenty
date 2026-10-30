@@ -18,7 +18,11 @@ suffixed name (`libclang_rt.fuzzer_no_main-aarch64.a` or
 `libclang_rt.fuzzer_no_main-x86_64.a`). It accepts only a successful query naming
 an existing absolute file. LLVM's compiler-rt supplies the archive: install
 `compiler-rt` on Fedora, or `clang` and `libclang-rt-dev` on Debian/Ubuntu.
-The build fails with a message when neither name resolves. `--linker` and `--link-arg` apply as for
+The build fails with a message when neither name resolves. When clang ships a
+separate `libclang_rt.fuzzer_interceptors` archive beside the selected runtime,
+Plenty links its matching generic or target-suffixed companion so libFuzzer can
+learn the strings compared by the program. It never substitutes another target's
+companion. `--linker` and `--link-arg` apply as for
 `--compile`. The libFuzzer flags are LLVM's; `-help=1` lists them.
 
 ## Writing a target
