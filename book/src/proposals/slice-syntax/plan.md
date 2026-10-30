@@ -19,8 +19,9 @@ and tutorial lessons for what it ships, following the
    with the messages in the [proposal](../slice-syntax.md#diagnostics).
    Generalize the runtime's `slice_bounds` (`plenty-runtime/src/aggregates.rs`)
    to the stepped algorithm, and extend `try_list_slice` to copy strided rows of
-   copyable elements, including `str` retains. Implement the zero-step
-   treatment once it is chosen ([open question](../slice-syntax.md#zero-step-open)).
+   copyable elements, including `str` retains. The step uses the nonzero
+   integer type, so S1 depends on issue #584 for written steps; slices without
+   a step can land first if #584 is not ready.
 2. **Lists of affine elements.** Reuse the runtime's `try_copy` for each
    selected element, and `share()` for `Shared[T]`. Elements with nested
    `Shared` fields work once issue #582 lands. Check copyability per
@@ -69,9 +70,9 @@ Extend `tests/test_slicing.rs`, which holds the existing `slice` method tests:
 - **Diagnostics.** One `plenty-error` style case per row of the proposal's
   diagnostics table. The `&xs[a:b]` rejection is a phase-guard test with a
   comment naming issue #581, B11 and B39, to be replaced when views land.
-- **Zero step.** Constant and run-time zero steps, with expectations for the
-  chosen option: a trap at the slice's position with exit status one, an
-  `Err` value, or an empty result.
+- **Step type.** Literal steps convert at compile time; literal and constant
+  `0` are compile errors; a plain `i64` step is a compile error whose hint shows
+  the issue #584 conversion; a converted run-time step slices correctly.
 - **Strings.** ASCII and mixed text, negative steps, combining marks,
   results of seven and eight UTF-8 bytes (inline versus heap), and the
   whole-string case.
@@ -81,7 +82,7 @@ Extend `tests/test_slicing.rs`, which holds the existing `slice` method tests:
 ## Documentation and tutorial
 
 A new reference page, `design/language/04-expressions/slices.md`, holds the
-syntax, the normalization algorithm, the examples table, the zero-step rule and
+syntax, the normalization algorithm, the examples table, the step type and
 the reserved `&` form. Receiver pages link to it and state their result types
 and costs:
 
@@ -93,7 +94,6 @@ and costs:
 | `design/language/03-types/bytes.md` | Replace "no slicing" with the `Bytes` result |
 | `design/language/03-types/tuples.md` | Literal-bound slices and their types |
 | `design/facilities/01-builtins/clists.md` | Row slices; `items[:]?` as the duplicate |
-| `design/language/08-errors/02-allocation-and-traps.md` | Add `slice step cannot be zero` to the trap table, if the trap option is chosen |
 | `design/examples/cheatsheet.md` | Use `name[1:3]?` and `items[1:3]?` in the examples; replace "There is no slice syntax"; change the Python row to `xs[1:3]` → `xs[1:3]?` ("allocates a copy") |
 | `design/examples/collections/list-slices.md`, `design/examples/text-files/text-23-slice-text-by-unicode-scalar-position.md` | Show the syntax first, then the methods |
 | `design/toolchain/02-architecture/support.md` | List slice syntax |

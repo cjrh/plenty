@@ -37,8 +37,7 @@ These were settled with the user on the issue and in review of local PR #694:
 3. Copying slices come first. Borrowed views will be spelled `&xs[1:3]`; the
    syntax reserves that form.
 4. Out-of-range bounds clamp exactly as in Python, including negative indices
-   and negative steps. The treatment of a zero step is still
-   [open](#zero-step-open).
+   and negative steps.
 5. First-class `slice(...)` values are deferred.
 6. Receivers: `list`, `str`, `Bytes`, `bytes`, tuples and `clist`.
 7. Every slice returns a `Result`, tuples included, for consistency. The
@@ -52,6 +51,8 @@ These were settled with the user on the issue and in review of local PR #694:
     until borrowed views exist (issue #581).
 12. `str.slice()` stays until slice syntax lands; whether to deprecate it is
     decided then, by its remaining use.
+13. The step has a nonzero integer type, as `range` steps will (issue #584), so
+    a zero step cannot be written or computed. See [the step](#the-step).
 
 Plenty has no shared mutable aliasing, so a deep copy differs from Python's
 shallow copy only where a Python program mutates an element through one list
@@ -101,22 +102,22 @@ literals, which are inside braces. Neither can end a bound early.
 
 ## Bounds and normalization
 
-Bounds and step are `i64` expressions, or references to `i64`, as indices are.
+Bounds are `i64` expressions, or references to `i64`, as indices are.
 Unsuffixed literals infer `i64`; other integer types need an explicit cast such
-as `i64(n)`. An omitted step is `1`. Omitted bounds depend on the sign of the
-step, as in Python. Positions count elements, Unicode scalars for `str`, bytes
+as `i64(n)`. The step is a nonzero `i64`, described in [the step](#the-step);
+an omitted step is `1`. Omitted bounds depend on the sign of the step, as in
+Python. Positions count elements, Unicode scalars for `str`, bytes
 for `Bytes` and `bytes`, and rows for `clist`.
 
 Normalization follows CPython's `PySlice_Unpack` and `PySlice_AdjustIndices`.
 This algorithm is normative:
 
 ```text
-positions(length, start: Option[i64], stop: Option[i64], step: i64):
+positions(length, start: Option[i64], stop: Option[i64], step: NonZero[i64]):
     # length >= 0. Arithmetic is exact: compute in i128, or first clamp a step
     # of i64.MIN to -i64.MAX as CPython does. Both give the same positions,
     # since a step of magnitude >= length selects at most one element.
-    if step == 0:
-        see "Zero step (open)"
+    # step != 0 by its type; there is no zero case.
     if step > 0:
         low, high = 0, length                 # clamp targets
         first, last = 0, length               # omitted start, omitted stop
@@ -166,7 +167,7 @@ CPython 3, checked with `slice.indices` while writing this page.
 | `a[10:20]` | Past the end: clamps | `(5, 5, 1)` | `[]` |
 | `a[-100:100]` | Both sides clamp | `(0, 5, 1)` | `[0, 1, 2, 3, 4]` |
 | `a[3:1]` | Empty, not reversed | `(3, 1, 1)` | `[]` |
-| `a[::0]` | Zero step | — | [open](#zero-step-open) |
+| `a[::0]` | Zero step | — | compile error |
 
 ### Why clamp
 
@@ -177,38 +178,27 @@ three. A trapping slice would turn correct Python habits into crashes. Clamping
 is total, so clamping alone never causes an error. The existing `slice` methods
 of lists and text already clamp.
 
-### Zero step (open)
+### The step
 
-A zero step selects no well-defined positions. Python raises
-`ValueError: slice step cannot be zero`; Plenty's `range` traps with
-`range step cannot be zero`. Three treatments are under consideration, and none
-is decided:
+A zero step selects no well-defined positions. Python raises `ValueError`, and
+Plenty's `range` traps today. Neither suits Plenty's reliability goal: a zero
+computed elsewhere, such as `n // k`, must not stop the program where a slice
+uses it. So the step's type cannot hold zero. It is the nonzero integer type of
+issue #584, called `NonZero[i64]` here; its exact construction API is decided
+in that issue. `range` steps use the same type.
 
-| Option | `xs[::0]` | `xs[::k]` with `k == 0` at run time | Slice type |
-| --- | --- | --- | --- |
-| (a) Trap | Compile error `slice step cannot be zero` when the step is a constant | Trap with the same message, exit status one | `Result[_, AllocError]` |
-| (b) Error value | `Err(ZeroStepError)`, or a compile error for a constant | `Err(ZeroStepError)` | `Result[_, AllocError \| ZeroStepError]` |
-| (c) Empty | Empty result | Empty result | `Result[_, AllocError]` |
+- An integer literal step converts at compile time: `xs[::2]`, `xs[::-1]` and
+  `xs[1:10:3]` need no conversion.
+- A literal `0`, or a constant that evaluates to zero, is a compile error.
+- A step that is a run-time `i64` needs the explicit, fallible conversion that
+  issue #584 defines, and the program handles the zero case where the value is
+  created. A `NonZero[i64]` value can be passed directly.
+- An omitted step is `1`.
 
-Trade-offs:
-
-- **Bug masking.** A zero step is almost always a bug, such as an uninitialized
-  or miscomputed stride. (a) stops at the bug. (b) reports it but lets `?`
-  carry it to a caller that cannot fix it. (c) hides it: the program continues
-  with empty data and fails later, far from the cause.
-- **Type widening.** (b) adds a variant to every slice's error type, including
-  slices with no step, unless the type depends on whether a step is written or
-  constant. Callers whose error type is `AllocError` would need to widen it or
-  handle a case that cannot occur. (a) and (c) keep `Result[_, AllocError]`.
-- **Python mindshare.** Python raises, which matches (a) most closely: a
-  program that fails in Python fails in Plenty. (b) is close in spirit. (c)
-  silently accepts code that Python rejects.
-- **Consistency with `range`.** `range` traps today, so (a) matches it. (b) or
-  (c) would need `range` to change too, or leave the two step rules different.
-  Under (a), a constant zero `range` step could also become a compile error;
-  today `range(0, 10, 0)` passes `--check` and traps when run.
-- **Cost.** All three need one comparison when the step is not constant, and
-  none when it is.
+The check happens once, where the value is created, not at each slice. A slice
+has no zero-step trap and no zero-step error, and its type stays
+`Result[_, AllocError]`. Slice syntax with a written step depends on issue
+#584; slices without a step do not.
 
 ## Results by receiver
 
@@ -345,7 +335,7 @@ duplicate one.
 ## Evaluation, borrowing and `&`
 
 A slice evaluates the receiver place, then start, stop and step, left to right,
-each once. It then checks the step, normalizes the bounds, and copies under a
+each once. It then normalizes the bounds and copies under a
 shared loan of the receiver. Bounds may read the receiver, as in
 `xs[len(xs) - 2:]?`, because the bounds are evaluated before the copy and only
 shared loans are involved.
@@ -401,7 +391,8 @@ over the source for that, until a view can be iterated with `for x in &xs[1:]`.
 | --- | --- |
 | `ys: list[i64] = xs[1:3]` | `slice returns Result[list[i64], AllocError]; use ? to propagate allocation failure`, matching the collection-literal message |
 | `buffers[1:]?`, `buffers: list[Bytes]` | `slicing list[Bytes] copies each element, and Bytes cannot be copied`; hint: transfer from an owned temporary with `.slice(start, stop)`, or build a new list from explicit copies |
-| `xs[::0]` | Under options (a) and (b) for the [zero step](#zero-step-open): `slice step cannot be zero` at compile time |
+| `xs[::0]` | `slice step cannot be zero` |
+| `xs[::k]`, `k: i64` | `slice step must be NonZero[i64]`; hint: the conversion from issue #584 |
 | `xs[a:b] = ys`, `xs[a:b] += ys` | `slice assignment is not supported`; hint: assign elements by index, or build a new list |
 | `&xs[1:3]`, `&mut xs[1:3]` | `borrowed slice views are not implemented yet`; hint: bind the copy first |
 | `t[i:]`, `t: tuple` | `tuple slice bounds must be integer literals; the result type depends on them` |
@@ -443,9 +434,3 @@ element is not written in the slice expression.
 - **Nim** writes inclusive `a[1..3]` and counts from the end with `a[^2..^1]`.
   It copies into a new `seq` and raises on out-of-range bounds; `toOpenArray`
   borrows without copying.
-
-## Open question: zero step
-
-Choose (a) trap, (b) `ZeroStepError` in the result type, or (c) an empty
-result. The [zero step](#zero-step-open) section compares them. If (b) or (c)
-is chosen, decide whether `range` changes to match.
