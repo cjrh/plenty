@@ -360,6 +360,7 @@ pub(super) fn resolve(
             }
             Request::Sites(records) => {
                 let (id, base) = sites.append(module, records)?;
+                let (id, base) = sites.address(module, id, base)?;
                 addends[number] = base;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
