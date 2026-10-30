@@ -75,7 +75,6 @@ def main() -> i32:
 hello, Ada
 ```
 
-<!-- issue #575 -->
 Match a union member by type with `case name: Type:`; `_` covers the rest.
 A variant pattern such as `Err(UsageError.Arguments)` does not select a union
 member.

@@ -56,8 +56,10 @@ targets are unsupported; explicitly copy a list first to preserve it.
 
 `replace(collection[index], value)` transfers the previous element out while
 writing its replacement. It requires exclusive access, evaluates the replacement
-before the target index, and adds no allocation. List indices must exist;
-dictionary keys must already be present, as for indexed assignment.
+before the target index, and adds no allocation. List indices must exist.
+Dictionaries reject it, as they reject all
+[indexed writes](dictionaries.md); use `replace(*value, replacement)` on a
+reference from `get_mut`.
 
 ## Shared mutation rules
 
@@ -94,8 +96,9 @@ Borrowed forms take a suffix: `get_ref` and `peek_ref` for shared references,
 `get_mut` and `peek_mut` for exclusive ones. Builtin and standard library
 containers follow the same rule, so the method name tells the reader whether
 they hold a copy or a borrow. User functions can return
-[`Option[&V]`](../../language/05-ownership/05-optional-references.md), but the
-builtin containers do not provide optional borrowed lookups yet.
+[`Option[&V]`](../../language/05-ownership/05-optional-references.md). Of the
+builtin containers, only dictionaries provide an optional borrowed lookup,
+[`get_mut`](dictionaries.md#lookup-and-removal); `get_ref` is not provided yet.
 
 `collection.clear() -> ()` removes all entries while retaining capacity and
 allocating no runtime storage. Removed owners drop before return: lists in

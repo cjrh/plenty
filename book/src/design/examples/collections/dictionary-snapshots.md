@@ -11,7 +11,7 @@ def names(scores: &dict[str, i64]) -> Result[list[str], AllocError]:
 def main() -> Result[(), AllocError | IoError]:
     mut scores = {"Ada": 10, "Bea": 20}?
     saved = scores.values_snapshot()?
-    scores["Ada"] = 30
+    scores.insert("Ada", 30)?
     print(names(&scores)?)?
     print(saved)?
     print(scores)?

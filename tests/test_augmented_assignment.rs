@@ -44,7 +44,7 @@ print(boxes).unwrap()
 }
 
 #[test]
-fn saved_string_keys_and_references_work_in_generic_functions() {
+fn borrowed_dictionary_values_and_references_work_in_generic_functions() {
     expect(
         r#"
 def key() -> str:
@@ -53,8 +53,13 @@ def key() -> str:
 def add[T](value: &mut T, amount: T) -> ():
     *value += amount
 mut table = {"row": [4].unwrap()}.unwrap()
-table[key()][-1] += len(table["row"])
-add(&mut table["row"][0], 2)
+size = len(table["row"])
+match table.get_mut(key()):
+    case Some(row):
+        row[-1] += size
+        add(&mut row[0], 2)
+    case Nothing:
+        pass
 mut score = 5
 reference = &mut score
 reference *= 3
@@ -168,18 +173,15 @@ print(Count()).unwrap()
 
 #[test]
 fn missing_target_slots_trap_before_evaluating_the_rhs() {
-    for source in [
+    let output = support::run(
         "def rhs() -> i64:\n    print(\"rhs\").unwrap()\n    2\nmut values = [1].unwrap()\nvalues[1] += rhs()",
-        "def rhs() -> i64:\n    print(\"rhs\").unwrap()\n    2\nmut values = {\"found\": 1}.unwrap()\nvalues[\"missing\"] += rhs()",
-    ] {
-        let output = support::run(source);
-        assert!(!output.status.success());
-        assert!(
-            output.stdout.is_empty(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-    }
+    );
+    assert!(!output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -191,7 +193,11 @@ key = str.repr(123456789).unwrap()
 mut table = {key: [4].unwrap()}.unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-table[key][0] += 3
+match table.get_mut(key):
+    case Some(row):
+        row[0] += 3
+    case Nothing:
+        pass
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(table).unwrap()

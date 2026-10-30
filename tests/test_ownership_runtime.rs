@@ -77,7 +77,7 @@ def main() -> ():
         text = (text + "é\0").unwrap()
         mut values = {text: [text].unwrap()}.unwrap()
         saved = copy(values).unwrap()
-        values[text] = [('new' + ' value').unwrap()].unwrap()
+        values.insert(text, [('new' + ' value').unwrap()].unwrap()).unwrap()
         len(saved[text])
 
     print(len(tail(10_000, text))).unwrap()

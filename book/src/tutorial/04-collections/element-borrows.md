@@ -4,19 +4,21 @@ Borrow an element when you want to inspect or change it without moving its owner
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
-    mut counts = {"visits": 1}?
-    value = &mut counts["visits"]
+    mut counts = [1, 5]?
+    value = &mut counts[0]
     *value = 2
     print(counts)?
     Ok(())
 ```
 ```output
-{"visits": 2}
+[2, 5]
 ```
 
 The loan ends after its last use. While an element reference is live, the
-collection cannot grow, remove entries, or move. Missing keys and out-of-range
-indices still trap.
+collection cannot grow, remove entries, or move. An out-of-range index traps.
+Dictionaries lend a value through
+[`get_mut`](dictionaries.md), which returns an `Option` instead of trapping on
+a missing key.
 
 Two list elements written as different number literals are different places, so
 both can be borrowed at once:

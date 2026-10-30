@@ -1269,7 +1269,7 @@ def main() -> ():
 
 def table{i}(n: i64) -> Result[dict[str, list[i64]], AllocError]:
     mut table: dict[str, list[i64]] = {{}}?
-    table[\"k{i}\"] = [n, n + {i}]?
+    table.insert(\"k{i}\", [n, n + {i}]?)?
     Ok(table)
 
 def worker{i}(n: i64) -> Result[list[i64], AllocError]:

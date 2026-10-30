@@ -8,7 +8,7 @@ fn snapshots_preserve_order_types_and_empty_lists() {
     native(
         r#"
 mut data = {3u8: 2.5f32, 1u8: -1.5f32, 2u8: 0f32}.unwrap()
-data[1u8] = 4.5f32
+data.insert(1u8, 4.5f32).unwrap()
 print(str.repr(data.keys_snapshot()).unwrap()).unwrap()
 print(str.repr(data.values_snapshot()).unwrap()).unwrap()
 print(data).unwrap()
@@ -31,7 +31,7 @@ enum Label:
 mut data = {("na" + "me").unwrap(): ("é" + "🙂").unwrap()}.unwrap()
 keys = data.keys_snapshot()
 values = data.values_snapshot()
-data["name"] = "changed"
+data.insert("name", "changed").unwrap()
 drop(data)
 print(str.repr(keys).unwrap()).unwrap()
 print(str.repr(values).unwrap()).unwrap()
@@ -60,7 +60,7 @@ mut data = Data({"a": 1, "b": 2}.unwrap())
 print(str.repr(values(&data.entries)).unwrap()).unwrap()
 print(str.repr(keys(&mut data.entries)).unwrap()).unwrap()
 print(str.repr(data.entries.values_snapshot()).unwrap()).unwrap()
-data.entries["a"] = 3
+data.entries.insert("a", 3).unwrap()
 print(data.entries).unwrap()
 "#,
         "Result[list[i64], AllocError].Ok([1, 2])\nResult[list[str], AllocError].Ok([\"a\", \"b\"])\nResult[list[i64], AllocError].Ok([1, 2])\n{\"a\": 3, \"b\": 2}",
@@ -259,7 +259,7 @@ drop(result)
     "values_snapshot with owned payloads requires an owned temporary"
 )]
 #[case(
-    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(str.repr(data.keys_snapshot()).unwrap()).unwrap()\nloan[1] = 3",
+    "mut data = {1: 2}.unwrap()\nloan = &mut data\nprint(str.repr(data.keys_snapshot()).unwrap()).unwrap()\nloan.insert(1, 3).unwrap()",
     "borrow"
 )]
 fn rejects_invalid_snapshots(#[case] source: &str, #[case] expected: &str) {

@@ -9,7 +9,7 @@ explains references in detail.
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
     mut scores: dict[str, i64] = {"Ada": 10, "Grace": 20}?
-    scores["Ada"] = 12
+    scores.insert("Ada", 12)?
     scores.insert("Lin", 30)?
     print(scores["Ada"])?
     print("Grace" in scores)?
@@ -32,24 +32,33 @@ Lin
 30
 ```
 
-A repeated dictionary key replaces its value and keeps its insertion position.
-Indexed assignment updates an existing key; `insert` can add a new one and
-returns an allocation result. Nested values update directly too:
+`insert` adds a key or replaces the value of an existing one, which keeps its
+insertion position. Adding a key can allocate, so `insert` returns an
+allocation result. Dictionaries have no indexed assignment: `scores["Ada"] = 12`
+is a compile error. Reading `scores["Ada"]` traps when the key is missing.
+
+To change a value in place, `get_mut` returns `Option[&mut V]`: a mutable
+reference when the key is present, or `Nothing`:
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
     mut groups = {"first": [10, 20]?}?
-    groups["first"][0] = 11
+    match groups.get_mut("first"):
+        case Some(group):
+            group[0] = 11
+            group.append(30)?
+        case Nothing:
+            pass
     print(groups)?
     Ok(())
 ```
 
 ```output
-{"first": [11, 20]}
+{"first": [11, 20, 30]}
 ```
 
-Indexed assignment allocates nothing. A missing key or an invalid list index
-is a runtime error.
+`get_mut` allocates nothing. The reference borrows the whole dictionary
+exclusively, so the dictionary cannot be read or changed while it is live.
 
 `keys()` and `values()` borrow elements in insertion order without allocating.
 The references protect the dictionary from mutation while they are used.

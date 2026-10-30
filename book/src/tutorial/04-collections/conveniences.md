@@ -26,8 +26,7 @@ north east 2
 Tuple keys contain integers, booleans, strings, or further tuples of those
 types. Values compare by their contents; a grid coordinate needs no integer
 encoding or string allocation. `insert` adds or replaces a dictionary value
-with a recoverable allocation error. Indexed assignment only replaces an
-existing key.
+with a recoverable allocation error.
 
 Consume dictionary values directly when the dictionary is finished:
 
