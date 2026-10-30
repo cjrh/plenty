@@ -201,6 +201,8 @@ def build(out_dir, version, repo=REPO):
         destination = out_dir / source.relative_to(REPO_FILES)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(source.read_text().replace("@VERSION@", version))
+    for licence in ("LICENSE-APACHE", "LICENSE-MIT"):
+        shutil.copy2(repo / licence, out_dir / licence)
     pages = published_pages(repo)
     for page, output in pages.items():
         destination = out_dir / output
