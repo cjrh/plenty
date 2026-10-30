@@ -57,7 +57,9 @@ gets its type from context. Signed minimum literals such as `-128i8` remain
 valid, and floating-point negative zero is preserved.
 
 Integer arithmetic overflow and division by zero are runtime errors that
-[report their source position](../08-errors/02-allocation-and-traps.md). `//` floors
+[report their source position](../08-errors/02-allocation-and-traps.md), unless
+the arithmetic is written inside a [`checked:` block](#checked-blocks). `//` floors
+
 signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
@@ -98,3 +100,90 @@ For scalar floats, NaN is
 unequal to every value, including itself, and all ordered comparisons with it are
 false. These rules also apply to structural equality and membership. Floats cannot
 be dictionary keys or set elements.
+
+## Checked blocks
+
+A `checked:` block turns the integer failures written inside it into a value.
+Its body is an indented suite whose last expression is the block's value `T`.
+The block is an expression of type `Result[T, E]`:
+
+```plenty
+def mean(total: i64, count: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        total * 2 // count
+```
+
+If no operation fails, the block's value is `Ok(T)`. The first failing
+operation exits the block with `Err`, and the rest of the block does not run.
+`E` is the [anonymous sum](anonymous-sums.md) of the errors that the block's
+operators can produce:
+
+| Operation inside the block | Error |
+| --- | --- |
+| `+`, `-`, `*`, unary `-` and `pow` on `T` | `OverflowError[T]` |
+| `//` on a signed `T` (`T.MIN // -1`) | `OverflowError[T]` |
+| `//` and `%` with a zero divisor | `ZeroDivisionError` |
+
+`OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
+2<sup>N</sup> for an N-bit `T`. `ZeroDivisionError` has no fields. Both are
+builtin classes; their names cannot be redefined. `T.MIN % -1` is `0`, inside
+or outside a block. Shifts, casts, and float arithmetic are unchanged: they
+neither add an error nor exit the block. A negative `pow` exponent still traps,
+since it has no integer result. Float `a.div_checked(b)` returns
+`Result[F, ZeroDivisionError]`, failing for either signed zero divisor; it
+behaves as a one-operation block and may appear anywhere.
+
+A [class pattern](../04-expressions/matching.md#class-patterns) names each
+error and binds the wrapped result:
+
+```plenty
+def halve_sum(a: i64, b: i64) -> i64:
+    result = checked:
+        (a + b) // 2
+    match result:
+        case Ok(half):
+            half
+        case Err(OverflowError(wrapped)):
+            wrapped // 2
+        case Err(ZeroDivisionError()):
+            0
+```
+
+The error type follows the operators, not their operand values. `n // 4`
+inside a block still adds `ZeroDivisionError` and `OverflowError[i64]`; the
+code generator omits the branches a constant divisor rules out. A declared
+`Result` whose error includes every possible failure is kept, so a block can
+be the body of a function that returns `Result[i64, OverflowError[i64] |
+ParseError]`.
+
+The rule is lexical. Only arithmetic written in the block's own suite is
+checked, including compound assignment such as `x += 1`, element updates
+such as `items[i] += 1`, comprehensions, and operators that
+[`@newtype` classes](../04-expressions/operators.md#newtype-forwarding) forward to their field, which
+report `OverflowError` of the field type. Functions and closures called from
+the block, and closures defined in it, keep trapping. Nested blocks catch at
+the innermost block.
+
+Control flow is otherwise unchanged. `?` inside the block exits the function,
+and `return`, `break` and `continue` behave as they do outside it. A failure
+releases the values and locals the block owns, as `?` does. It does not roll
+back assignments the block already made to outer variables or elements, and an
+assignment whose operation failed does not happen.
+
+A block may appear wherever a [`match` block](../04-expressions/matching.md)
+can produce a value: as the value of a binding or assignment, after `return`,
+or as a function's or case's final expression. `checked` is not reserved: it
+starts a block only when `:` and a newline follow it, so `checked: i64 = 0`
+still declares a variable. A block whose value is discarded is rejected like
+any unused `Result`. A block with no operation that can fail is a compile-time
+error, as is one whose every path exits. A block cannot produce a reference.
+
+Module constants are evaluated at compile time, where overflow is a
+compile-time error. Arithmetic in a block is evaluated at run time even when
+its operands are constants, so `checked:` around `i8.MAX + 1i8` produces
+`Err(OverflowError[i8](wrapped=-128))`.
+
+Arithmetic outside a block compiles exactly as before: plain types and an
+inline check that traps. A block's operations compute the wrapped result and a
+failure flag, then branch to a cold exit path; see the
+[design note](../../../proposals/completed/checked-arithmetic.md).

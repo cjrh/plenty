@@ -517,6 +517,11 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 types.extend(t.get().variants[*tag].fields.iter().cloned());
                 types
             }
+            Op::SplitClass(t) => {
+                let mut types = vec![Ty::Class(t.clone())];
+                types.extend(t.get().fields.iter().map(|(_, ty)| ty.clone()));
+                types
+            }
             Op::Try {
                 source,
                 target,
@@ -542,6 +547,15 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 validate_ops(body)?;
                 Vec::new()
             }
+            Op::CheckedBlock { body, result } => {
+                validate_ops(body)?;
+                vec![result.clone()]
+            }
+            Op::CheckedArith { ty, cleanup, .. } => {
+                validate_ops(cleanup)?;
+                vec![ty.clone()]
+            }
+
             Op::If {
                 then,
                 elifs,

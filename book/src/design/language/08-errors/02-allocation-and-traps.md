@@ -37,7 +37,9 @@ when owned. `Err` or `Nothing` deliberately traps. Invalid indexing, absent
 dictionary keys in indexed access, integer overflow, division by zero, a
 numeric cast to an integer type that cannot represent the value, invalid range
 parameters, and an empty `split` separator are also fatal runtime errors;
-optional lookups provide recoverable absence where supported. Traps terminate
+optional lookups provide recoverable absence where supported, and integer
+arithmetic written inside a [`checked:` block](../03-types/numbers.md#checked-blocks)
+returns overflow and division by zero as `Err`. Traps terminate
 the process without unwinding language scopes. They are not caught by Result
 propagation or resource scopes.
 
@@ -91,8 +93,10 @@ thread the report has no position.
 
 | Trap | Message |
 |---|---|
-| Integer overflow in `+`, `-`, `*`, `//`, or negation | `integer overflow` |
-| `//` or `%` by zero | `division by zero` |
+| Integer overflow in `+`, `-`, `*`, `//`, `pow`, or negation, outside a `checked:` block | `integer overflow` |
+| `//` or `%` by zero, outside a `checked:` block | `division by zero` |
+| Integer `pow` with a negative exponent | `negative integer exponent` |
+
 | Shift count negative or not below the integer width | `shift count outside integer width` |
 | Numeric cast to an integer type that cannot represent the value | `integer cast out of range` |
 | `unwrap()` on `Nothing` or `Err` | `unwrap on Nothing`, `unwrap on Err` |

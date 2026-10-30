@@ -208,8 +208,13 @@ pub(super) fn prepare(
             engine.validate_template(&f, aliases)?;
             engine.record_defaults(&f);
             engine.retention.template(&f);
+            // The builtin `OverflowError[T]` factory calls nothing generic, so
+            // it adds no depth; counting it would change every program's
+            // reported limit.
+            if f.name != "OverflowError" {
+                engine.specializable += 1;
+            }
             engine.templates.insert(f.name.clone(), Arc::new(f));
-            engine.specializable += 1;
         }
     }
     // Checked against the function tables, which exist anyway: a table of
@@ -1806,6 +1811,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                     positional_protocol_methods(&case.body)?;
                 }
             }
+            Expression::Checked(body) => positional_protocol_methods(body)?,
             Expression::Collection {
                 entries, clauses, ..
             } => {
@@ -1953,7 +1959,7 @@ fn substitute_match(
     substitute_expr(value, substitutions)?;
     for case in cases {
         case.pattern
-            .qualifiers_mut(&mut |t| substitute(t, substitutions))?;
+            .qualifiers_mut(false, &mut |t| substitute(t, substitutions))?;
         substitute_block(&mut case.body, substitutions)?;
     }
     Ok(())
@@ -1961,6 +1967,8 @@ fn substitute_match(
 pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
+        Expression::Checked(body) => substitute_block(body, substitutions)?,
+
         Expression::GenericMethod(base, _, types, args, _) => {
             substitute_expr(base, substitutions)?;
             for ty in types {

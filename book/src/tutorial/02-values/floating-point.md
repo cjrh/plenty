@@ -58,7 +58,13 @@ False
 True
 ```
 
+When a zero divisor is an error rather than a source of infinity,
+`x.div_checked(y)` returns an `Err` holding a `ZeroDivisionError` for a zero `y` and
+`Ok(x / y)` otherwise; see
+[recover from overflow](numeric-operations.md#recover-from-overflow).
+
 Floats support `+`, `-`, `*`, `/`, unary signs, and comparisons.
+
 `//` and `%` currently require integers. Floats cannot be dictionary keys or set elements. Float literals that overflow their declared width are compile errors.
 
 Math functions are methods on a float, and each float type provides the

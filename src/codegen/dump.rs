@@ -476,6 +476,8 @@ fn definitions<'a>(ops: &'a [Op], out: &mut Vec<(&'a str, &'a CompiledFn)>) {
                     definitions(&arm.body, out);
                 }
             }
+            Op::CheckedBlock { body, .. } => definitions(body, out),
+
             Op::If {
                 then,
                 elifs,
@@ -626,8 +628,24 @@ fn render_ops(ops: &[Op], heap: &Heap, depth: usize, out: &mut String) -> usize 
                     count += render_ops(cleanup, heap, depth + 2, out);
                 }
             }
+            Op::CheckedBlock { body, result } => {
+                label(out, depth, &format!("CheckedBlock -> {result:?}"));
+                count += render_ops(body, heap, depth + 1, out);
+            }
+            Op::CheckedArith {
+                operation,
+                ty,
+                cleanup,
+            } => {
+                label(out, depth, &format!("CheckedArith {operation:?} {ty:?}"));
+                if !cleanup.is_empty() {
+                    label(out, depth + 1, "cleanup:");
+                    count += render_ops(cleanup, heap, depth + 2, out);
+                }
+            }
             // The body has its own section.
             Op::DefineFn(name, _) => label(out, depth, &format!("DefineFn {name}")),
+
             Op::Site(site) => label(
                 out,
                 depth,

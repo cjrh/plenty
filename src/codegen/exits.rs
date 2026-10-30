@@ -765,8 +765,10 @@ impl Lowerer<'_, '_> {
                 }
                 Op::CallerSite(site) => self.position.set_call(site),
                 Op::Match(arms) => arms.iter().for_each(|arm| self.follow_markers(&arm.body)),
+                Op::CheckedBlock { body, .. } => self.follow_markers(body),
                 Op::Loop { condition, body } => {
                     self.follow_markers(condition);
+
                     self.follow_markers(body);
                 }
                 Op::If {

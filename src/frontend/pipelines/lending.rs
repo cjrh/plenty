@@ -113,7 +113,8 @@ fn slots(ops: &[Op], out: &mut BTreeSet<u8>) {
                 slots(otherwise, out);
             }
             Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, out)),
-            Op::Try { cleanup, .. } => slots(cleanup, out),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => slots(cleanup, out),
+            Op::CheckedBlock { body, .. } => slots(body, out),
             _ => {}
         }
     }
@@ -142,7 +143,8 @@ fn loans(ops: &[Op], out: &mut BTreeMap<usize, crate::ownership::Loan>) {
                 loans(otherwise, out);
             }
             Op::Match(arms) => arms.iter().for_each(|arm| loans(&arm.body, out)),
-            Op::Try { cleanup, .. } => loans(cleanup, out),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => loans(cleanup, out),
+            Op::CheckedBlock { body, .. } => loans(body, out),
             _ => {}
         }
     }
@@ -315,6 +317,19 @@ impl Relocation<'_> {
                 } => Op::Try {
                     source: source.clone(),
                     target: target.clone(),
+                    cleanup: self.ops(cleanup)?.into(),
+                },
+                Op::CheckedBlock { body, result } => Op::CheckedBlock {
+                    body: self.ops(body)?.into(),
+                    result: result.clone(),
+                },
+                Op::CheckedArith {
+                    operation,
+                    ty,
+                    cleanup,
+                } => Op::CheckedArith {
+                    operation: *operation,
+                    ty: ty.clone(),
                     cleanup: self.ops(cleanup)?.into(),
                 },
                 _ => op.clone(),

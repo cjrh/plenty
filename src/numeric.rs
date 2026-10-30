@@ -97,3 +97,66 @@ pub fn int_kind(ty: &Ty) -> i64 {
         _ => panic!("non-integer in int_kind"),
     }
 }
+
+/// Arithmetic that exits the innermost enclosing `checked:` block with an
+/// error instead of trapping: `+ - *`, unary `-` (as `0 - x`), `//`, `%` and
+/// `pow` on integers, and float division for `div_checked`. The rules are in
+/// `book/src/design/language/03-types/numbers.md#checked-blocks`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Checked {
+    Add,
+    Sub,
+    Mul,
+    FloorDiv,
+    Modulo,
+    Pow,
+    FloatDiv,
+}
+
+impl Checked {
+    /// The integer operator `op` names, if it can fail.
+    pub fn named(op: &str) -> Option<Self> {
+        Some(match op {
+            "+" => Self::Add,
+            "-" => Self::Sub,
+            "*" => Self::Mul,
+            "//" => Self::FloorDiv,
+            "%" => Self::Modulo,
+            _ => return None,
+        })
+    }
+
+    /// Whether the operation can overflow on operands of type `ty`. Among
+    /// the divisions only signed `//` overflows, at `MIN // -1`; `MIN % -1`
+    /// is 0.
+    pub fn overflows(self, ty: &Ty) -> bool {
+        match self {
+            Self::Add | Self::Sub | Self::Mul | Self::Pow => true,
+            Self::FloorDiv => matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64),
+            Self::Modulo | Self::FloatDiv => false,
+        }
+    }
+
+    /// Whether a zero divisor is an error.
+    pub fn divides(self) -> bool {
+        matches!(self, Self::FloorDiv | Self::Modulo | Self::FloatDiv)
+    }
+
+    /// Pops `T T` and pushes `T`.
+    pub fn check(self, ty: &Ty, stack: &mut Vec<Ty>) -> Result<(), String> {
+        let b = stack.pop().ok_or("checked arithmetic stack underflow")?;
+        let a = stack.pop().ok_or("checked arithmetic stack underflow")?;
+        let accepted = if self == Self::FloatDiv {
+            a.is_float()
+        } else {
+            a.is_int()
+        };
+        if !accepted || a != b || a != *ty {
+            return Err(format!(
+                "checked arithmetic {self:?} does not accept ({a} {b})"
+            ));
+        }
+        stack.push(a);
+        Ok(())
+    }
+}

@@ -25,7 +25,8 @@ fn sequences<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a [Op])) {
     visit(ops);
     for op in ops {
         match op {
-            Op::Try { cleanup, .. } => sequences(cleanup, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => sequences(cleanup, visit),
+            Op::CheckedBlock { body, .. } => sequences(body, visit),
             Op::Match(arms) => arms.iter().for_each(|arm| sequences(&arm.body, visit)),
             Op::Loop { condition, body } => {
                 sequences(condition, visit);
@@ -152,6 +153,9 @@ struct Walk<'c, 'a, 'p> {
     last: Vec<Option<Cancel>>,
     /// Exits other than the normal end, for the worker-side rule.
     exits: Vec<Exit>,
+    /// For each enclosing `checked:` block, innermost last: the path of each
+    /// failing `CheckedArith` after its cleanup, which joins the block's end.
+    escapes: Vec<Vec<Path>>,
 }
 
 pub(super) fn check<'a>(checker: &Checker<'a, '_>) -> Result<()> {
@@ -241,6 +245,7 @@ pub(super) fn check<'a>(checker: &Checker<'a, '_>) -> Result<()> {
         positions,
         last,
         exits: Vec::new(),
+        escapes: Vec::new(),
     };
     let mut path = Path {
         cancelled: vec![false; locals.len()],
@@ -275,7 +280,10 @@ fn number<'a>(
         *counter += 1;
         visit(op, ops, index, site, *counter);
         match op {
-            Op::Try { cleanup, .. } => number(cleanup, site, counter, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                number(cleanup, site, counter, visit)
+            }
+            Op::CheckedBlock { body, .. } => number(body, site, counter, visit),
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     number(&arm.body, site, counter, visit)
@@ -575,6 +583,25 @@ impl Walk<'_, '_, '_> {
                         self.leave(op, end, site, "`?`")?;
                     }
                     add(&mut path.pending, accepted.drain(..));
+                }
+                Op::CheckedArith { cleanup, .. } => {
+                    let mut failed = path.clone();
+                    if let Some(end) =
+                        self.sequence(cleanup, &mut failed, &mut Vec::new(), site, None)?
+                        && let Some(escapes) = self.escapes.last_mut()
+                    {
+                        escapes.push(end);
+                    }
+                }
+                Op::CheckedBlock { body, .. } => {
+                    self.escapes.push(Vec::new());
+                    let end = self.sequence(body, path, loops, site, None);
+                    let mut continuing = self.escapes.pop().unwrap_or_default();
+                    continuing.extend(end?);
+                    let Some(merged) = Path::merge(&continuing) else {
+                        return Ok(None);
+                    };
+                    *path = merged;
                 }
                 Op::Match(arms) => {
                     let mut continuing = Vec::new();

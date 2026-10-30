@@ -62,7 +62,28 @@ def main() -> Result[(), IoError | ParseError]:
 - `//` floors, `%` is integer-only, overflow traps. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
-See [numbers](../language/03-types/numbers.md) and
+A `checked:` block turns integer overflow and division by zero inside it into
+`Err`; its last line is the `Ok` value:
+
+```plenty
+def scaled(n: i64, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        n * 1000 // d
+
+def main() -> Result[(), IoError]:
+    print(scaled(7, 2).unwrap(), scaled(7, 0).is_err(), scaled(i64.MAX, 1).is_err())?
+    Ok(())
+```
+```output
+3500 True True
+```
+
+- Only arithmetic written in the block is checked; calls keep trapping.
+- `?`, `return`, `break`, and `continue` inside it act on the function or loop.
+- Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
+
+See [numbers](../language/03-types/numbers.md#checked-blocks) and
+
 [assignment](../language/04-expressions/assignment.md).
 
 ## Text
@@ -182,8 +203,8 @@ even
 
 A suite's final expression is its value, so `return` is only needed for early
 exits. Conditions must be `bool`; there is no truthiness. Chained comparisons
-and loop `else` are rejected. `match` works on enums, integers, `str`, and
-`bool`, must be exhaustive, and has no guards or tuple patterns. See
+and loop `else` are rejected. `match` works on enums, classes, integers, `str`,
+and `bool`, must be exhaustive, and has no guards or tuple patterns. See
 [matching](../language/04-expressions/matching.md) and
 [loops](../language/04-expressions/loops.md).
 
@@ -261,6 +282,13 @@ enum Shape:
             case Shape.Rect(width, height):
                 *width * *height
 
+def unused(counter: &Counter) -> bool:
+    match counter:
+        case Counter(_, 0):
+            True
+        case Counter(name=_, hits=_):
+            False
+
 def main() -> Result[(), IoError]:
     mut counter = Counter("clicks", 0)
     counter.bump()
@@ -271,12 +299,14 @@ def main() -> Result[(), IoError]:
     mut shifted = origin
     shifted.x = 1.5
     print(origin, shifted)?
+    print(unused(&counter))?
     Ok(())
 ```
 ```output
 2 Counter(name="clicks", hits=2)
 6.0 Shape.Dot
 Point(x=0.0, y=0.0) Point(x=1.5, y=0.0)
+False
 ```
 
 Classes have typed fields and a generated positional constructor; there is no
@@ -285,11 +315,14 @@ inheritance. Bare `self` is a shared borrow; mutating methods declare
 method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. `@copy` before `class` makes instances copy like integers; every
 field must copy, and the class cannot define `__del__` or take type parameters
-([copy classes](../language/03-types/classes.md#copy-classes)). A field can move out of an owned binding or receiver, after
+([copy classes](../language/03-types/classes.md#copy-classes)). `@newtype` on a one-field class forwards the field's operators between two values of that class ([newtype forwarding](../language/04-expressions/operators.md#newtype-forwarding)). A field can move out of an owned binding or receiver, after
 which the object cannot be used as a whole until that field is assigned again;
 see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Variants are always qualified (`Shape.Dot`), and matching a
-borrowed enum binds references, so payloads are dereferenced with `*`. See
+borrowed enum binds references, so payloads are dereferenced with `*`.
+`case Counter(name, hits=0)` takes a class apart, written like its constructor, with
+every field named once
+([class patterns](../language/04-expressions/matching.md#class-patterns)). See
 [classes](../language/03-types/classes.md), [enums](../language/03-types/enums.md),
 and [borrowed matching](../language/05-ownership/06-borrowed-matching.md).
 

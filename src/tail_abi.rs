@@ -175,6 +175,7 @@ fn collect<'a>(ops: &'a [Op], sigs: &mut HashMap<&'a str, &'a Arc<FnSig>>) {
                 collect(condition, sigs);
                 collect(body, sigs);
             }
+            Op::CheckedBlock { body, .. } => collect(body, sigs),
             Op::If {
                 then,
                 elifs,
@@ -238,6 +239,17 @@ fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &Signatures<'_>) -> Optio
                 let body = shared(nested, caller, sigs, &mut changed);
                 changed.then_some(Op::Loop { condition, body })
             }
+            Op::CheckedBlock {
+                body: nested,
+                result,
+            } => {
+                let body = shared(nested, caller, sigs, &mut changed);
+                changed.then_some(Op::CheckedBlock {
+                    body,
+                    result: result.clone(),
+                })
+            }
+
             Op::If {
                 then,
                 elifs,

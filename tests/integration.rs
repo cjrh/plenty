@@ -19,6 +19,9 @@ mod test_pipelines;
 #[path = "test_clist.rs"]
 mod test_clist;
 
+#[path = "test_arithmetic_errors.rs"]
+mod test_arithmetic_errors;
+
 #[path = "test_record_walks.rs"]
 mod test_record_walks;
 #[path = "test_std_dataframe.rs"]
@@ -92,6 +95,8 @@ mod test_channels;
 mod test_checked_add_sub;
 #[path = "test_class_allocation.rs"]
 mod test_class_allocation;
+#[path = "test_class_patterns.rs"]
+mod test_class_patterns;
 #[path = "test_classes.rs"]
 mod test_classes;
 #[path = "test_cli.rs"]
@@ -312,6 +317,8 @@ mod test_nested_indexing;
 mod test_nesting;
 #[path = "test_newtype_classes.rs"]
 mod test_newtype_classes;
+#[path = "test_newtype_operators.rs"]
+mod test_newtype_operators;
 #[path = "test_numeric_builtins.rs"]
 mod test_numeric_builtins;
 #[path = "test_numeric_casts.rs"]

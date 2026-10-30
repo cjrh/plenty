@@ -484,6 +484,10 @@ fn inspect(
             types.push(Ty::Enum(t.clone()));
             types.extend(t.get().variants[*tag].fields.iter().cloned());
         }
+        Op::SplitClass(t) => {
+            types.push(Ty::Class(t.clone()));
+            types.extend(t.get().fields.iter().map(|(_, ty)| ty.clone()));
+        }
         Op::ReadRef(ty) | Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => {
             types.push(ty.clone())
         }
@@ -531,7 +535,8 @@ pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                         pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
                     }
                 }
-                Op::Try { cleanup, .. } => pending.push(cleanup),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => pending.push(cleanup),
+                Op::CheckedBlock { body, .. } => pending.push(body),
                 _ => {}
             }
         }
@@ -572,7 +577,11 @@ pub fn walk_sited<'a>(
                         pending.extend([(arm.condition.as_ref(), site), (arm.body.as_ref(), site)]);
                     }
                 }
-                Op::Try { cleanup, .. } => pending.push((cleanup, site)),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                    pending.push((cleanup, site))
+                }
+                Op::CheckedBlock { body, .. } => pending.push((body, site)),
+
                 _ => {}
             }
         }

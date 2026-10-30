@@ -68,7 +68,10 @@ the receiver's type. There is no `**` operator.
 
 For integers the result is exact. A result outside the type is the
 `integer overflow` runtime error, and a negative exponent is the runtime error
-`negative integer exponent`. `x.pow(0)` is `1` for every `x`, including zero.
+`negative integer exponent`. Inside a
+[`checked:` block](../../language/03-types/numbers.md#checked-blocks), an
+out-of-range result exits the block with `Err(OverflowError[T])`; a negative
+exponent still traps. `x.pow(0)` is `1` for every `x`, including zero.
 Convert to a float for a fractional or negative power.
 
 For floats `pow` is the platform math library's `pow`: `(2.0).pow(0.5)` is the
@@ -79,8 +82,9 @@ An integer literal receiver needs parentheses, as in `(2).pow(10)`, because
 
 ## Float functions
 
-These methods are defined on `f32` and `f64` and return the receiver's type.
-None fails or allocates; results outside a function's domain are NaN or an
+These methods are defined on `f32` and `f64` and return the receiver's type,
+except `div_checked`, which returns a `Result`. None traps or allocates;
+ results outside a function's domain are NaN or an
 infinity, following IEEE 754 and the platform math library.
 
 | Method | Result |
@@ -100,6 +104,7 @@ infinity, following IEEE 754 and the platform math library.
 | `x.fabs()`, `x.copysign(y)` | Absolute magnitude; magnitude with the sign bit of `y` |
 | `x.pow(y)` | `x` to the power `y` |
 | `x.fmod(y)` | Remainder of `x / y` with the sign of `x`; NaN when `y` is zero |
+| `x.div_checked(y)` | `Result[F, ZeroDivisionError]`: `Ok(x / y)`, or `Err` when `y` is `0.0` or `-0.0`; an infinite or NaN `y` divides normally |
 
 An integer receiver is a compile-time error naming the float cast. `%` remains
 integer-only; `fmod` is the float remainder. `floor` and `ceil` return floats,

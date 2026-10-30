@@ -158,6 +158,7 @@ mod tests {
                 destructor: Some(crate::record::method(name, "__del__")),
                 fallible_init: false,
                 copy: false,
+                forwards_operators: false,
                 bytes: Default::default(),
                 managed: Default::default(),
             }),

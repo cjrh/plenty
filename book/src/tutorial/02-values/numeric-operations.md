@@ -224,3 +224,43 @@ A result that does not fit is the same runtime error as arithmetic overflow:
 `small.pow(2)` stops the program with `integer overflow`. An integer power with
 a negative exponent stops with `negative integer exponent`; convert to a float
 for that.
+
+## Recover from overflow
+
+Stopping the program is the right default when overflow means a bug. When a
+calculation can legitimately go out of range, for example on input from a
+user, write it inside a `checked:` block. The block's last line is its value,
+and the block returns a `Result`: `Ok` with the value, or `Err` as soon as an
+operation inside it overflows or divides by zero.
+
+```plenty
+def average(total: u8, count: u8) -> Result[u8, OverflowError[u8] | ZeroDivisionError]:
+    checked:
+        rounded = total + count // 2
+        rounded // count
+
+def main() -> Result[(), OverflowError[u8] | ZeroDivisionError | IoError]:
+    print(average(200, 4)?)?
+    print(average(250, 20).is_err())?
+    print(average(250, 0).is_err())?
+    Ok(())
+```
+
+```output
+50
+True
+True
+```
+
+The error type lists what the block's operators can produce:
+`OverflowError[u8]` for `+` on `u8`, and `ZeroDivisionError` for `//`.
+Unsigned `//` cannot overflow, so it adds only `ZeroDivisionError`. `?` passes
+either error to the caller, as with `try_from`. An `OverflowError` holds the
+wrapped result in its `wrapped` field: `250 + 10` on a `u8` wraps to 4.
+[Keep several error types](../03-absence/anonymous-sums.md) shows how to
+handle each error instead of passing it on.
+
+
+Only arithmetic written inside the block is checked. A function called from
+the block keeps its own behavior, and arithmetic after the block traps as
+before, so a checked calculation costs nothing elsewhere in the program.

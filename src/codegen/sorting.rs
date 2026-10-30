@@ -78,6 +78,7 @@ pub(super) fn build_adapter(
         stack: vec![],
         terminated: false,
         loop_targets: vec![],
+        checked_targets: vec![],
         generator: None,
         local_frame: None,
         return_storage: None,

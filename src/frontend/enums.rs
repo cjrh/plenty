@@ -239,7 +239,9 @@ pub(super) fn resolve_types(
     let mut names = HashMap::default();
     for (i, declaration) in declarations.iter().enumerate() {
         let name = declaration.name();
-        if builtin(name) {
+        // Module parsing already rejects source declarations of these
+        // names; the arithmetic errors themselves are declared as classes.
+        if builtin(name) && !matches!(name, "OverflowError" | "ZeroDivisionError") {
             return Err(declaration
                 .at()
                 .error(format!("cannot redefine builtin `{name}` as a type")));
@@ -505,7 +507,7 @@ impl Lower<'_> {
             ty => ty,
         };
         let (ty, borrowed) = match ty {
-            Ty::Ref(inner, mutable) if matches!(*inner, Ty::Enum(_)) => {
+            Ty::Ref(inner, mutable) if matches!(*inner, Ty::Enum(_) | Ty::Class(_)) => {
                 let borrowed = Some((self.reference_origin(value, ops)?, mutable));
                 (Ty::Ref(inner, mutable), borrowed)
             }
@@ -518,7 +520,7 @@ impl Lower<'_> {
                 ops.push(Op::UseLoan(loan));
                 ((*inner).clone(), None)
             }
-            ty if matches!(ty, Ty::Enum(_)) || literal_matchable(&ty) => (ty, None),
+            ty if matches!(ty, Ty::Enum(_) | Ty::Class(_)) || literal_matchable(&ty) => (ty, None),
             _ => return Err(value.at.error(NOT_MATCHABLE)),
         };
         let matched = match &ty {
@@ -556,8 +558,12 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        match self.match_cases(value, cases, &Tail::Value(expected), ops)? {
+        let outer = std::mem::replace(&mut self.checked_value_tail, false);
+        let result = self.match_cases(value, cases, &Tail::Value(expected), ops);
+        self.checked_value_tail = outer;
+        match result? {
             BlockResult::Continues(ty) => Ok(ty),
+
             BlockResult::Exits => Err(at.error(
                 "every case of this `match` exits, so it has no value; write it as a statement",
             )),
@@ -565,7 +571,7 @@ impl Lower<'_> {
     }
 }
 
-const NOT_MATCHABLE: &str = "match requires an enum, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
+const NOT_MATCHABLE: &str = "match requires an enum, class, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
 
 /// The types a literal pattern can match.
 fn literal_matchable(ty: &Ty) -> bool {

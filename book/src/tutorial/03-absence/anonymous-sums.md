@@ -45,6 +45,44 @@ wrap a lower-level error in its own enum; that does not require adding the
 lower-level type separately. A new wrapper enum is useful when an API wants
 to hide or reorganize its causes, but naming a group needs only an alias.
 
+A [`checked:` block](../02-values/numeric-operations.md#recover-from-overflow)
+returns one of these sums. Its errors are classes, values with named fields,
+and a class pattern matches one and binds its fields in order:
+
+```plenty
+def report(total: u8, count: u8) -> Result[(), IoError]:
+    result = checked:
+        rounded = total + count // 2
+        rounded // count
+    match result:
+        case Ok(mean):
+            print(mean)?
+        case Err(OverflowError(wrapped)):
+            print("overflow, wrapped to", wrapped)?
+        case Err(ZeroDivisionError()):
+            print("no values")?
+    Ok(())
+
+def main() -> Result[(), IoError]:
+    report(200, 4)?
+    report(250, 20)?
+    report(250, 0)?
+    Ok(())
+```
+
+```output
+50
+overflow, wrapped to 4
+no values
+```
+
+`OverflowError(wrapped)` selects the overflow member and binds its one field.
+`ZeroDivisionError()` has no fields, so its parentheses are empty. Write `_`
+for a field you do not need.
+[Classes](../06-data/01-records-and-methods.md) explains fields, and
+[class patterns](../../design/language/04-expressions/matching.md#class-patterns)
+gives the complete rules.
+
 Sums also work outside errors:
 
 ```plenty

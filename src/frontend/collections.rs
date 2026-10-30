@@ -266,7 +266,7 @@ impl Lower<'_> {
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
         self.same(actual, Some(ty.clone()), &value.at)?;
         self.mark_arithmetic(op, &ty, &target.at, ops);
-        Self::numeric_operation(op, ty.clone(), &target.at, ops)?;
+        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
         let result = self.slot(ty.clone(), &target.at)?;
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));
@@ -333,7 +333,7 @@ impl Lower<'_> {
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
         self.same(actual, Some(ty.clone()), &value.at)?;
         self.mark_arithmetic(op, &ty, &target.at, ops);
-        Self::numeric_operation(op, ty, &target.at, ops)?;
+        self.numeric_operation(op, ty, &target.at, ops)?;
         ops.push(Op::UseLoan(read));
         self.mark(&target.at, ops);
         ops.push(Op::StoreLocal(slot));
@@ -773,6 +773,8 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
+            Expression::Checked(body) => self.checked_value(&e.at, body, expected, ops),
+
             Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")
                     && !self
