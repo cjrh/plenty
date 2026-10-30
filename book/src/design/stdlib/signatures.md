@@ -18,88 +18,89 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 104-176
-- [`std.actor.net`](#stdactornet): 178-241
-- [`std.actor.tls`](#stdactortls): 243-272
-- [`std.archive`](#stdarchive): 274-340
-- [`std.atomic`](#stdatomic): 342-351
-- [`std.bytes`](#stdbytes): 353-448
-- [`std.cache.lru`](#stdcachelru): 450-472
-- [`std.channel`](#stdchannel): 474-478
-- [`std.cli`](#stdcli): 480-510
-- [`std.cli.fileinput`](#stdclifileinput): 512-521
-- [`std.cli.progress`](#stdcliprogress): 523-547
-- [`std.collections`](#stdcollections): 549-576
-- [`std.complex`](#stdcomplex): 578-604
-- [`std.compress`](#stdcompress): 606-636
-- [`std.concurrent`](#stdconcurrent): 638-642
-- [`std.crypto`](#stdcrypto): 644-725
-- [`std.csv`](#stdcsv): 727-790
-- [`std.dataframe`](#stddataframe): 792-991
-- [`std.db.kv`](#stddbkv): 993-1025
-- [`std.db.sqlite`](#stddbsqlite): 1027-1091
-- [`std.deque`](#stddeque): 1093-1107
-- [`std.diff`](#stddiff): 1109-1138
-- [`std.encoding`](#stdencoding): 1140-1201
-- [`std.env`](#stdenv): 1203-1217
-- [`std.error`](#stderror): 1219-1239
-- [`std.fmt`](#stdfmt): 1241-1294
-- [`std.fs`](#stdfs): 1296-1379
-- [`std.fs.dirs`](#stdfsdirs): 1381-1391
-- [`std.fs.watch`](#stdfswatch): 1393-1428
-- [`std.graph`](#stdgraph): 1430-1518
-- [`std.http`](#stdhttp): 1520-1589
-- [`std.http.body`](#stdhttpbody): 1591-1626
-- [`std.http.client`](#stdhttpclient): 1628-1738
-- [`std.http.cookie`](#stdhttpcookie): 1740-1772
-- [`std.http.files`](#stdhttpfiles): 1774-1787
-- [`std.http.https`](#stdhttphttps): 1789-1803
-- [`std.http.proxy`](#stdhttpproxy): 1805-1826
-- [`std.http.server`](#stdhttpserver): 1828-1913
-- [`std.http.sse`](#stdhttpsse): 1915-1934
-- [`std.http.tls`](#stdhttptls): 1936-1953
-- [`std.http.typed`](#stdhttptyped): 1955-1988
-- [`std.http.websocket`](#stdhttpwebsocket): 1990-2025
-- [`std.http.wss`](#stdhttpwss): 2027-2033
-- [`std.image`](#stdimage): 2035-2081
-- [`std.io`](#stdio): 2083-2163
-- [`std.io.typed`](#stdiotyped): 2165-2203
-- [`std.json`](#stdjson): 2205-2269
-- [`std.jwt`](#stdjwt): 2271-2318
-- [`std.log`](#stdlog): 2320-2387
-- [`std.markdown`](#stdmarkdown): 2389-2423
-- [`std.template`](#stdtemplate): 2425-2446
-- [`std.math`](#stdmath): 2448-2514
-- [`std.net`](#stdnet): 2516-2598
-- [`std.path`](#stdpath): 2600-2617
-- [`std.process`](#stdprocess): 2619-2665
-- [`std.random`](#stdrandom): 2667-2688
-- [`std.ready`](#stdready): 2690-2720
-- [`std.regex`](#stdregex): 2722-2775
-- [`std.report`](#stdreport): 2777-2800
-- [`std.secrets`](#stdsecrets): 2802-2828
-- [`std.shlex`](#stdshlex): 2830-2839
-- [`std.sketch`](#stdsketch): 2841-2879
-- [`std.sketch.xor`](#stdsketchxor): 2881-2892
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2894-2909
-- [`std.signal`](#stdsignal): 2911-2928
-- [`std.simd`](#stdsimd): 2930-3031
-- [`std.stat`](#stdstat): 3033-3066
-- [`std.plot`](#stdplot): 3068-3157
-- [`std.linalg`](#stdlinalg): 3159-3200
-- [`std.sync`](#stdsync): 3202-3211
-- [`std.system`](#stdsystem): 3213-3271
-- [`std.tempfile`](#stdtempfile): 3273-3305
-- [`std.test`](#stdtest): 3307-3349
-- [`std.text`](#stdtext): 3351-3370
-- [`std.thread`](#stdthread): 3372-3376
-- [`std.time`](#stdtime): 3378-3422
-- [`std.tls`](#stdtls): 3424-3506
-- [`std.toml`](#stdtoml): 3508-3557
-- [`std.unicode`](#stdunicode): 3559-3571
-- [`std.url`](#stdurl): 3573-3601
-- [`std.uuid`](#stduuid): 3603-3626
-- [`std.xml`](#stdxml): 3628-3661
+- [`std.actor`](#stdactor): 105-177
+- [`std.actor.net`](#stdactornet): 179-242
+- [`std.actor.tls`](#stdactortls): 244-273
+- [`std.archive`](#stdarchive): 275-341
+- [`std.atomic`](#stdatomic): 343-352
+- [`std.bytes`](#stdbytes): 354-449
+- [`std.cache.lru`](#stdcachelru): 451-473
+- [`std.channel`](#stdchannel): 475-479
+- [`std.cli`](#stdcli): 481-511
+- [`std.cli.fileinput`](#stdclifileinput): 513-522
+- [`std.cli.progress`](#stdcliprogress): 524-548
+- [`std.collections`](#stdcollections): 550-577
+- [`std.complex`](#stdcomplex): 579-605
+- [`std.compress`](#stdcompress): 607-637
+- [`std.concurrent`](#stdconcurrent): 639-643
+- [`std.crypto`](#stdcrypto): 645-726
+- [`std.csv`](#stdcsv): 728-791
+- [`std.dataframe`](#stddataframe): 793-992
+- [`std.db.kv`](#stddbkv): 994-1026
+- [`std.db.sqlite`](#stddbsqlite): 1028-1092
+- [`std.deque`](#stddeque): 1094-1108
+- [`std.diff`](#stddiff): 1110-1139
+- [`std.encoding`](#stdencoding): 1141-1202
+- [`std.env`](#stdenv): 1204-1218
+- [`std.error`](#stderror): 1220-1240
+- [`std.fmt`](#stdfmt): 1242-1295
+- [`std.fs`](#stdfs): 1297-1380
+- [`std.fs.dirs`](#stdfsdirs): 1382-1392
+- [`std.fs.watch`](#stdfswatch): 1394-1429
+- [`std.graph`](#stdgraph): 1431-1519
+- [`std.http`](#stdhttp): 1521-1590
+- [`std.http.body`](#stdhttpbody): 1592-1627
+- [`std.http.client`](#stdhttpclient): 1629-1739
+- [`std.http.cookie`](#stdhttpcookie): 1741-1773
+- [`std.http.files`](#stdhttpfiles): 1775-1788
+- [`std.http.https`](#stdhttphttps): 1790-1804
+- [`std.http.proxy`](#stdhttpproxy): 1806-1827
+- [`std.http.server`](#stdhttpserver): 1829-1914
+- [`std.http.sse`](#stdhttpsse): 1916-1935
+- [`std.http.tls`](#stdhttptls): 1937-1954
+- [`std.http.typed`](#stdhttptyped): 1956-1989
+- [`std.http.websocket`](#stdhttpwebsocket): 1991-2026
+- [`std.http.wss`](#stdhttpwss): 2028-2034
+- [`std.image`](#stdimage): 2036-2082
+- [`std.io`](#stdio): 2084-2164
+- [`std.io.typed`](#stdiotyped): 2166-2204
+- [`std.json`](#stdjson): 2206-2270
+- [`std.jwt`](#stdjwt): 2272-2319
+- [`std.log`](#stdlog): 2321-2388
+- [`std.markdown`](#stdmarkdown): 2390-2424
+- [`std.template`](#stdtemplate): 2426-2447
+- [`std.math`](#stdmath): 2449-2515
+- [`std.mime`](#stdmime): 2517-2541
+- [`std.net`](#stdnet): 2543-2625
+- [`std.path`](#stdpath): 2627-2644
+- [`std.process`](#stdprocess): 2646-2692
+- [`std.random`](#stdrandom): 2694-2715
+- [`std.ready`](#stdready): 2717-2747
+- [`std.regex`](#stdregex): 2749-2802
+- [`std.report`](#stdreport): 2804-2827
+- [`std.secrets`](#stdsecrets): 2829-2855
+- [`std.shlex`](#stdshlex): 2857-2866
+- [`std.sketch`](#stdsketch): 2868-2906
+- [`std.sketch.xor`](#stdsketchxor): 2908-2919
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2921-2936
+- [`std.signal`](#stdsignal): 2938-2955
+- [`std.simd`](#stdsimd): 2957-3058
+- [`std.stat`](#stdstat): 3060-3093
+- [`std.plot`](#stdplot): 3095-3184
+- [`std.linalg`](#stdlinalg): 3186-3227
+- [`std.sync`](#stdsync): 3229-3238
+- [`std.system`](#stdsystem): 3240-3298
+- [`std.tempfile`](#stdtempfile): 3300-3332
+- [`std.test`](#stdtest): 3334-3376
+- [`std.text`](#stdtext): 3378-3397
+- [`std.thread`](#stdthread): 3399-3403
+- [`std.time`](#stdtime): 3405-3449
+- [`std.tls`](#stdtls): 3451-3533
+- [`std.toml`](#stdtoml): 3535-3584
+- [`std.unicode`](#stdunicode): 3586-3598
+- [`std.url`](#stdurl): 3600-3628
+- [`std.uuid`](#stduuid): 3630-3653
+- [`std.xml`](#stdxml): 3655-3688
 
 ## `std.actor`
 
@@ -2511,6 +2512,32 @@ def sum[T](items: &list[T], start: T) -> T
 def prod[T](items: &list[T], start: T) -> T
 def sum_iter[I, T](items: &I, start: T) -> T
 def prod_iter[I, T](items: &I, start: T) -> T
+```
+
+## `std.mime`
+
+Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table. Errors: `ParseError`, `AllocError`. [Reference](mime.md).
+
+```text
+class Param
+    name: str
+    value: str
+class MediaType
+    def type_name(self) -> &str
+    def subtype(self) -> &str
+    def params(self) -> &list[Param]
+    def param(self, name: &str) -> Option[str]
+    def suffix(self) -> Result[Option[str], AllocError]
+    def essence(self) -> Result[str, AllocError]
+    def is_wildcard(self) -> bool
+    def matches(self, pattern: &MediaType) -> bool
+    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
+    def remove_param(self: &mut MediaType, name: &str) -> bool
+    def format(self) -> Result[str, AllocError]
+def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
+def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
+def from_extension(extension: &str) -> Option[str]
+def from_file_name(name: &str) -> str
 ```
 
 ## `std.net`

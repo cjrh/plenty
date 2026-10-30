@@ -510,6 +510,8 @@ mod test_std_log;
 mod test_std_markdown;
 #[path = "test_std_math.rs"]
 mod test_std_math;
+#[path = "test_std_mime.rs"]
+mod test_std_mime;
 #[path = "test_std_net.rs"]
 mod test_std_net;
 #[path = "test_std_plot.rs"]
