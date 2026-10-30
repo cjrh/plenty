@@ -12,6 +12,91 @@ indented under their owner. Summaries come from the
 After changing a standard module, regenerate this page with
 `UPDATE_STDLIB_INDEX=1 cargo test --locked --test integration test_stdlib_index::`.
 
+## Modules
+
+Each section's lines in this file, so one module can be read alone.
+
+- [`std.actor`](#stdactor): 100-172
+- [`std.actor.net`](#stdactornet): 174-237
+- [`std.actor.tls`](#stdactortls): 239-268
+- [`std.archive`](#stdarchive): 270-336
+- [`std.atomic`](#stdatomic): 338-347
+- [`std.bytes`](#stdbytes): 349-444
+- [`std.cache.lru`](#stdcachelru): 446-468
+- [`std.channel`](#stdchannel): 470-474
+- [`std.cli`](#stdcli): 476-506
+- [`std.cli.fileinput`](#stdclifileinput): 508-517
+- [`std.cli.progress`](#stdcliprogress): 519-543
+- [`std.collections`](#stdcollections): 545-572
+- [`std.complex`](#stdcomplex): 574-600
+- [`std.compress`](#stdcompress): 602-632
+- [`std.concurrent`](#stdconcurrent): 634-638
+- [`std.crypto`](#stdcrypto): 640-721
+- [`std.csv`](#stdcsv): 723-786
+- [`std.dataframe`](#stddataframe): 788-987
+- [`std.db.kv`](#stddbkv): 989-1021
+- [`std.db.sqlite`](#stddbsqlite): 1023-1087
+- [`std.deque`](#stddeque): 1089-1103
+- [`std.diff`](#stddiff): 1105-1134
+- [`std.encoding`](#stdencoding): 1136-1197
+- [`std.env`](#stdenv): 1199-1213
+- [`std.error`](#stderror): 1215-1235
+- [`std.fmt`](#stdfmt): 1237-1290
+- [`std.fs`](#stdfs): 1292-1375
+- [`std.fs.dirs`](#stdfsdirs): 1377-1387
+- [`std.fs.watch`](#stdfswatch): 1389-1424
+- [`std.graph`](#stdgraph): 1426-1514
+- [`std.http`](#stdhttp): 1516-1585
+- [`std.http.body`](#stdhttpbody): 1587-1622
+- [`std.http.client`](#stdhttpclient): 1624-1734
+- [`std.http.cookie`](#stdhttpcookie): 1736-1768
+- [`std.http.files`](#stdhttpfiles): 1770-1783
+- [`std.http.https`](#stdhttphttps): 1785-1799
+- [`std.http.proxy`](#stdhttpproxy): 1801-1822
+- [`std.http.server`](#stdhttpserver): 1824-1909
+- [`std.http.sse`](#stdhttpsse): 1911-1930
+- [`std.http.tls`](#stdhttptls): 1932-1949
+- [`std.http.typed`](#stdhttptyped): 1951-1984
+- [`std.http.websocket`](#stdhttpwebsocket): 1986-2021
+- [`std.http.wss`](#stdhttpwss): 2023-2029
+- [`std.io`](#stdio): 2031-2111
+- [`std.io.typed`](#stdiotyped): 2113-2151
+- [`std.json`](#stdjson): 2153-2217
+- [`std.log`](#stdlog): 2219-2286
+- [`std.markdown`](#stdmarkdown): 2288-2322
+- [`std.template`](#stdtemplate): 2324-2345
+- [`std.math`](#stdmath): 2347-2413
+- [`std.net`](#stdnet): 2415-2497
+- [`std.path`](#stdpath): 2499-2516
+- [`std.process`](#stdprocess): 2518-2564
+- [`std.random`](#stdrandom): 2566-2587
+- [`std.ready`](#stdready): 2589-2619
+- [`std.regex`](#stdregex): 2621-2674
+- [`std.report`](#stdreport): 2676-2699
+- [`std.secrets`](#stdsecrets): 2701-2727
+- [`std.shlex`](#stdshlex): 2729-2738
+- [`std.sketch`](#stdsketch): 2740-2778
+- [`std.sketch.xor`](#stdsketchxor): 2780-2791
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2793-2808
+- [`std.signal`](#stdsignal): 2810-2827
+- [`std.simd`](#stdsimd): 2829-2930
+- [`std.stat`](#stdstat): 2932-2965
+- [`std.plot`](#stdplot): 2967-3056
+- [`std.linalg`](#stdlinalg): 3058-3099
+- [`std.sync`](#stdsync): 3101-3110
+- [`std.system`](#stdsystem): 3112-3170
+- [`std.tempfile`](#stdtempfile): 3172-3204
+- [`std.test`](#stdtest): 3206-3248
+- [`std.text`](#stdtext): 3250-3269
+- [`std.thread`](#stdthread): 3271-3275
+- [`std.time`](#stdtime): 3277-3321
+- [`std.tls`](#stdtls): 3323-3405
+- [`std.toml`](#stdtoml): 3407-3456
+- [`std.unicode`](#stdunicode): 3458-3470
+- [`std.url`](#stdurl): 3472-3500
+- [`std.uuid`](#stduuid): 3502-3525
+- [`std.xml`](#stdxml): 3527-3560
+
 ## `std.actor`
 
 Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files; timers, request-reply and restart. Errors: `StartError`, `Undelivered[M]`, `TimerError`, `RequestError[M]`. [Reference](actor.md).
