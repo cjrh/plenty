@@ -198,6 +198,88 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
     );
 }
 
+/// A dependency's library and its other modules bind under their own paths
+/// together, unless the library has a member that the module path would also
+/// name (issue #568).
+#[test]
+fn a_dependency_library_and_its_modules_import_together() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "tz",
+        "",
+        &[
+            ("src/lib.plenty", "pub def base() -> i64:\n    100\n"),
+            (
+                "src/zones.plenty",
+                "pub enum Zone:\n    Utc\n    Fixed(i64)\n\npub const HOURS: i64 = 24\n\npub def offset(zone: Zone) -> i64:\n    match zone:\n        case Zone.Utc:\n            0\n        case Zone.Fixed(n):\n            n\n",
+            ),
+            ("src/rules/dst.plenty", "pub def shift() -> i64:\n    1\n"),
+            (
+                "tests/zones.plenty",
+                "import tz\nimport tz.zones\n\ndef main() -> i32:\n    if tz.base() + tz.zones.offset(tz.zones.Zone.Fixed(2)) == 102:\n        0\n    else:\n        1\n",
+            ),
+        ],
+    );
+    let tz = dir.path().join("tz");
+    assert!(succeeds(&tz, &["test"]).ends_with("test result: ok. 1 passed; 0 failed\n"));
+
+    package(
+        dir.path(),
+        "app",
+        "tz = { path = \"../tz\" }\n",
+        &[(
+            "src/main.plenty",
+            "import tz.zones\nimport tz\nimport tz.rules.dst\n\ndef local(zone: tz.zones.Zone) -> i64:\n    tz.zones.offset(zone) + tz.rules.dst.shift()\n\ndef main() -> Result[(), IoError]:\n    print(tz.base() + local(tz.zones.Zone.Fixed(3)) + tz.zones.HOURS)?\n    Ok(())\n",
+        )],
+    );
+    let app = dir.path().join("app");
+    assert_eq!(succeeds(&app, &["run"]), "128\n");
+
+    // `from` imports a declaration of the library, not a module beside it.
+    write(
+        &app.join("src/main.plenty"),
+        "from tz import zones\n\ndef main() -> ():\n    pass\n",
+    );
+    fails(
+        &app,
+        &["check"],
+        "`tz.zones` is private or is not a declared export",
+    );
+
+    // A library member named like the module path is a real clash, in
+    // either import order and for deeper paths.
+    write(
+        &tz.join("src/lib.plenty"),
+        "pub def base() -> i64:\n    100\n\npub def zones() -> i64:\n    1\n\ndef rules() -> i64:\n    2\n",
+    );
+    for (main, message) in [
+        (
+            "import tz\nimport tz.zones\n",
+            "`import tz.zones` conflicts with `import tz`: module `tz` declares `zones`, so `tz.zones` would name both; bind the nested module under another name, such as `import tz.zones as zones`",
+        ),
+        (
+            "import tz.zones\nimport tz\n",
+            "`import tz` conflicts with `import tz.zones`: module `tz` declares `zones`",
+        ),
+        (
+            "import tz\nimport tz.rules.dst\n",
+            "module `tz` declares `rules`, so `tz.rules` would name both; bind the nested module under another name, such as `import tz.rules.dst as dst`",
+        ),
+    ] {
+        write(
+            &app.join("src/main.plenty"),
+            &format!("{main}\ndef main() -> ():\n    pass\n"),
+        );
+        fails(&app, &["check"], message);
+    }
+    write(
+        &app.join("src/main.plenty"),
+        "import tz\nimport tz.zones as zones\n\ndef main() -> Result[(), IoError]:\n    print(tz.zones() + zones.HOURS)?\n    Ok(())\n",
+    );
+    assert_eq!(succeeds(&app, &["run"]), "25\n");
+}
+
 #[test]
 fn graph_errors_are_reported() {
     let dir = tempfile::tempdir().unwrap();

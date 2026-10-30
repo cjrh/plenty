@@ -882,6 +882,64 @@ fn cycles_collisions_and_source_root_boundaries_are_diagnosed() {
     );
 }
 
+/// `import p` and `import p.b` coexist only when both name their own module
+/// paths (issue #568). Locally, `p.plenty` beside `p/b.plenty` is ambiguous,
+/// so a local `p` could enclose `p.b` only as an alias, which is rejected:
+/// `p.f` and `p.b.f` would then belong to unrelated modules.
+#[test]
+fn an_alias_cannot_enclose_a_module_path() {
+    let x = ("x.plenty", "pub def f() -> i64:\n    1\n");
+    let b = ("p/b.plenty", "pub def f() -> i64:\n    2\n");
+    for (first, second) in [
+        ("import x as p", "import p.b"),
+        ("import p.b", "import x as p"),
+    ] {
+        reject(
+            &[
+                x,
+                b,
+                (
+                    "main.plenty",
+                    &format!("{first}\n{second}\ndef main() -> ():\n    pass\n"),
+                ),
+            ],
+            &format!(
+                "`{second}` conflicts with `{first}`: the alias `p` cannot enclose a module path; bind the nested module under another name, such as `import p.b as b`"
+            ),
+        );
+    }
+    run(
+        &[
+            x,
+            b,
+            (
+                "main.plenty",
+                "import x as p\nimport p.b as b\ndef main() -> Result[(), IoError]:\n    print(p.f() * 10 + b.f())?\n    Ok(())\n",
+            ),
+        ],
+        "main.plenty",
+        "12\n",
+    );
+    // A module path cannot extend a declaration or an imported item either.
+    for main in [
+        "import p.b\nclass p:\n    v: i64\n",
+        "from x import f as p\nimport p.b\n",
+        "import p.b\nfrom x import f as p\n",
+    ] {
+        reject(
+            &[
+                x,
+                b,
+                (
+                    "main.plenty",
+                    &format!("{main}def main() -> ():\n    pass\n"),
+                ),
+            ],
+            "conflicts with an existing name",
+        );
+    }
+}
+
 #[test]
 fn in_memory_api_never_searches_the_filesystem_for_imports() {
     for source in [
