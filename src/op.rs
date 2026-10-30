@@ -164,6 +164,14 @@ impl Ty {
             _ => None,
         }
     }
+    /// `T` when `self` is the builtin `NonZero[T]`. Its name is reserved, so
+    /// the identity name identifies it.
+    pub fn nonzero_element(&self) -> Option<Ty> {
+        match self {
+            Self::Class(t) if t.name.starts_with("NonZero[") => Some(t.get().fields[0].1.clone()),
+            _ => None,
+        }
+    }
     /// `self` with every newtype class layer removed: the type whose layout
     /// the value actually has.
     pub fn newtype_base(&self) -> std::borrow::Cow<'_, Ty> {
@@ -1141,10 +1149,10 @@ pub enum Op {
     /// `Err(RangeError.OutOfRange)` otherwise. Unlike `Cast`, it never
     /// changes the value's mathematical meaning.
     TryCast(Ty),
-    /// Pop `start stop step` (two integers of the given type and an `i64`
-    /// step); push the `i64` element count of `range(start, stop, step)`.
-    /// A zero step or a count above `i64::MAX` fails with the same message
-    /// as constructing the range value. Counted `for` loops over a `range`
+    /// Pop `start stop step` (two integers of the given type and the nonzero
+    /// `i64` step); push the `i64` element count of `range(start, stop, step)`.
+    /// A count above `i64::MAX` fails with the same message as constructing
+    /// the range value. Counted `for` loops over a `range`
     /// call use this instead of a range value (issue #121).
     RangeLength(Ty),
     /// Pop a `range[T]` value; push its first element (`T`), its `i64` step,

@@ -138,10 +138,6 @@ fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &s
     "    failed: Result[i64, str] = Err(\"no\")\n    print(failed.unwrap())?\n",
     "3:11: unwrap on Err"
 )]
-#[case::range_step(
-    "    zero = 0\n    for i in range(0, 4, zero):\n        print(i)?\n",
-    "3:14: range step cannot be zero"
-)]
 #[case::range_length(
     "    print(len(range(-9223372036854775808, 9223372036854775807)))?\n",
     "2:15: range length exceeds i64"
@@ -149,10 +145,6 @@ fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &s
 #[case::range_loop_length(
     "    for i in range(-9223372036854775808, 9223372036854775807):\n        print(i)?\n",
     "2:14: range length exceeds i64"
-)]
-#[case::reversed_range_step(
-    "    zero = 0\n    for i in reversed(range(3, 9, zero)):\n        print(i)?\n",
-    "3:23: range step cannot be zero"
 )]
 #[case::split_separator(
     "    parts = \"a,b\".split(\"\")?\n    print(len(parts))?\n",

@@ -288,9 +288,9 @@ impl Lowerer<'_, '_> {
     }
 
     /// The element count of `range(start, stop, step)`, computed inline for
-    /// counted loops. Invalid parameters take a cold call to the range
-    /// constructor, so its zero-step and oversized-length failures keep
-    /// their messages and site.
+    /// counted loops. The frontend passes a `NonZero[i64]` step's integer.
+    /// An oversized length takes a cold call to the range constructor, so
+    /// its failure keeps its message and site.
     pub(super) fn lower_range_length(&mut self, element: &Ty) -> Result<()> {
         let (step, _) = self.pop_typed(Ty::I64)?;
         let (stop, _) = self.pop_typed(element.clone())?;
@@ -319,7 +319,6 @@ impl Lowerer<'_, '_> {
         let distance = b.ins().isub(high, low);
         let negated = b.ins().ineg(step);
         let magnitude = b.ins().select(forward, step, negated);
-        let zero_step = b.ins().icmp_imm_s(IntCC::Equal, step, 0);
         let one = b.ins().iconst(types::I64, 1);
         // Cranelift keeps a division by a constant 1, and most loops use the
         // default step.
@@ -336,18 +335,16 @@ impl Lowerer<'_, '_> {
         let count = if unit {
             distance
         } else {
-            let divisor = b.ins().select(zero_step, one, magnitude);
             let last = b.ins().isub(distance, one);
-            let quotient = b.ins().udiv(last, divisor);
+            let quotient = b.ins().udiv(last, magnitude);
             b.ins().iadd(quotient, one)
         };
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
         let oversized = b.ins().icmp_imm_s(IntCC::SignedLessThan, length, 0);
-        let invalid = b.ins().bor(zero_step, oversized);
         let cold = b.create_block();
         let after = b.create_block();
-        b.ins().brif(invalid, cold, &[], after, &[]);
+        b.ins().brif(oversized, cold, &[], after, &[]);
         b.switch_to_block(cold);
         b.seal_block(cold);
         b.set_cold_block(cold);

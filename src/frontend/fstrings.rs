@@ -1047,6 +1047,9 @@ impl Lower<'_> {
         if ty.facts().atomic {
             return Err(at.error("atomics cannot be formatted; format a value read with load()"));
         }
+        // `NonZero[T]` formats as its integer.
+        let nonzero = ty.nonzero_element().is_some();
+        let ty = ty.nonzero_element().unwrap_or(ty);
         let category = match &ty {
             Ty::Str => Category::Text,
             Ty::Bool => Category::Bool,
@@ -1115,7 +1118,13 @@ impl Lower<'_> {
                 at,
             )?;
         }
-        let scalar = || unary(at, "*", value.clone());
+        let scalar = || {
+            if nonzero {
+                method(at, value.clone(), "get", vec![])
+            } else {
+                unary(at, "*", value.clone())
+            }
+        };
         let Some(spec) = &spec else {
             return Ok(match category {
                 Category::Text if repr_text => method(at, out, "debug_text", vec![value]),

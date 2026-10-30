@@ -48,6 +48,7 @@ mod lexer_tests;
 mod mapping;
 mod modules;
 mod mutex;
+mod nonzero;
 mod numeric;
 mod operators;
 mod patterns;
@@ -2791,6 +2792,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "AppendError"
                 | "OverflowError"
                 | "ZeroDivisionError"
+                | "NonZero"
                 | "set"
                 | "len"
                 | "sorted"

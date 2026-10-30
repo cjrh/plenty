@@ -33,11 +33,12 @@ h
 ```
 
 `range(stop)` starts at zero; the stop is excluded. A step may be negative but
-never zero. Ranges can be reused and do not allocate; `list(range(5))?` allocates
+never zero: it is a
+[`NonZero[i64]`](../../design/language/03-types/numbers.md#nonzero-integers). Ranges can be reused and do not allocate; `list(range(5))?` allocates
 the list. String iteration yields characters without allocating.
 
 Ranges default to `i64`. Use `range[u8](8)` or a typed bound to choose another
-element type. Start and stop must fit it; the step remains signed `i64`.
+element type. Start and stop must fit it; the step remains a signed `NonZero[i64]`.
 
 The iterable is evaluated once. Iterating an owned collection transfers it into
 the loop; use `for item in &values` to preserve the owner. Borrowed iteration

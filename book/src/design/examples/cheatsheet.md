@@ -528,6 +528,7 @@ def main() -> Result[(), IoError]:
 | `print(x)` as a statement | `print(x)?` |
 | `"a" + b` | `("a" + b)?`, or an f-string with `?` |
 | `x ** n` | `x.pow(n)` |
+| `range(a, b, step)` with a computed step | `range(a, b, NonZero.try_from(step)?)`; a literal step converts |
 | `abs(x)`, `min`, `max`, `sum(xs)` | `std.math.abs`, `min`, `max`, `sum(&xs, 0)` |
 | `if items:` | `if len(items) > 0:` |
 | `a < b < c` | `a < b and b < c` |

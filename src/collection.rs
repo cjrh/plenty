@@ -319,6 +319,7 @@ impl Ty {
     pub fn hashable(&self) -> bool {
         self.is_int()
             || matches!(self, Self::Bool | Self::Str | Self::ByteStr)
+            || self.nonzero_element().is_some()
             || matches!(self, Self::Enum(t) if t.tuple() && t.get().variants[0].fields.iter().all(Self::hashable))
     }
 }

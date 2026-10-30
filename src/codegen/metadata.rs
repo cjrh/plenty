@@ -104,6 +104,15 @@ fn define_type(
     // A newtype class has its field's values, so the runtime gets the
     // field's layout under the class's name; the wrapper link at byte 64
     // names the field for formatting and the columnar-list schema.
+    // `NonZero[T]` is described, and so formatted, as plain `T`.
+    let integer;
+    let ty = match ty.nonzero_element() {
+        Some(element) => {
+            integer = element;
+            &integer
+        }
+        None => ty,
+    };
     let newtype = match ty {
         Ty::Class(t) => t.get().newtype_field().map(|field| (t, field.clone())),
         _ => None,

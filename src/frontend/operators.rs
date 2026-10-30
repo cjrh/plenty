@@ -115,7 +115,7 @@ pub(super) fn validate(f: &Function, aliases: &TypeAliases) -> Result<()> {
 impl Lower<'_> {
     // Hints avoid materializing operands solely for dispatch. An unknown result
     // is evaluated once and lent below; hints never decide whether code is legal.
-    fn operator_hint(&self, e: &Expr) -> Type {
+    pub(super) fn operator_hint(&self, e: &Expr) -> Type {
         if let Some(ty) = self.place_type(e) {
             return Some(ty);
         }
@@ -309,6 +309,9 @@ impl Lower<'_> {
     ) -> Result<Option<Type>> {
         let hooks = binary(op);
         let ordering = ordering(op);
+        if let Some(result) = self.nonzero_literal_operand(op, left, right, at, ops)? {
+            return Ok(Some(result));
+        }
         if hooks.is_none() && !ordering {
             return Ok(None);
         }
@@ -473,6 +476,10 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let nonzero = Ty::Class(class.clone()).nonzero_element().is_some();
+        if nonzero && !nonzero::forwards(op) {
+            return Err(at.error(nonzero::unsupported(op, &Ty::Class(class.clone()))));
+        }
         let (held_left, l) = self.hold_operator_operand(left, ops)?;
         let (held_right, r) = self.hold_operator_operand(right, ops)?;
         let inner = Expr {
@@ -486,7 +493,8 @@ impl Lower<'_> {
         let result = self.expr(&inner, ops)?;
         self.release_operator_operand(&held_right, r, ops);
         self.release_operator_operand(&held_left, l, ops);
-        if ordering(op) {
+        // A sum or difference of nonzero values can be zero.
+        if ordering(op) || (nonzero && op != "*") {
             return Ok(result);
         }
         self.rewrap(class, declared, result, ops)
@@ -677,6 +685,9 @@ impl Lower<'_> {
             let Some((class, declared)) = self.forwarding(&ty) else {
                 return Ok(None);
             };
+            if op == "~" && ty.nonzero_element().is_some() {
+                return Err(value.at.error(nonzero::unsupported(op, unreferenced(&ty))));
+            }
             let (held, loan) = self.hold_operator_operand(value, ops)?;
             let inner = Expr {
                 at: value.at.clone(),
@@ -710,6 +721,23 @@ impl Lower<'_> {
             return Ok(false);
         };
         if self.operator_symbol(&ty, hook, &target.at)?.is_none() {
+            if unreferenced(&ty).nonzero_element().is_some() {
+                if op != "*" {
+                    return Err(target
+                        .at
+                        .error(nonzero::unsupported(&format!("{op}="), unreferenced(&ty))));
+                }
+                // `*=` by a literal: the literal is checked as a `NonZero`,
+                // then multiplies the field as a plain integer.
+                if nonzero::literal(value)
+                    && let Some((class, declared)) = self.forwarding(&ty)
+                {
+                    self.nonzero_literal(value, unreferenced(&ty), &mut Vec::new())?;
+                    let target = Self::forwarded_field(&class, &declared, target);
+                    self.augment(&target, op, value, ops)?;
+                    return Ok(true);
+                }
+            }
             // A `@newtype` updates its field with the field type's own
             // in-place operation, so the destination keeps its storage.
             if let Some((class, declared)) = self.forwarding(&ty)

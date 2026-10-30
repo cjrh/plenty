@@ -22,6 +22,8 @@ def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result
     mut chunks = list[(i64, range[i64])].with_capacity(count)?
     if count == 0:
         return Ok(chunks)
+    # `step` is the step of an existing range, which is never zero.
+    stride = NonZero.try_from(step).unwrap()
     base = n // count
     extra = n % count
     mut index = 0
@@ -31,7 +33,7 @@ def split_range(first: i64, step: i64, n: i64, start: i64, parts: i64) -> Result
         low = first + position * step
         last = low + (size - 1) * step
         stop = last + 1 if step > 0 else last - 1
-        chunks.append((start + position, range(low, stop, step)))?
+        chunks.append((start + position, range(low, stop, stride)))?
         position += size
         index += 1
     Ok(chunks)

@@ -41,7 +41,7 @@ fn calls(source: &str, function: &str) -> Vec<String> {
 #[test]
 fn counted_loops_call_the_runtime_only_to_report_an_invalid_range() {
     let source = r#"
-def total(n: i64, step: i64) -> i64:
+def total(n: i64, step: NonZero[i64]) -> i64:
     mut sum = 0
     for i in range(n):
         sum += i
@@ -58,7 +58,7 @@ def main() -> ():
         .iter()
         .filter(|name| name.starts_with("plenty_") && !name.starts_with("plenty_trap_"))
         .collect();
-    // One cold call per range reports a zero step or an oversized length.
+    // One cold call per range reports an oversized length.
     assert_eq!(runtime, ["plenty_op_10"; 4], "{calls:?}");
     expect(source, "175\n");
 }
@@ -138,7 +138,7 @@ def main() -> Result[(), AllocError | IoError]:
         c.append(v)?
     for v in range(0, 9223372036854775807, 4611686018427387904):
         c.append(v)?
-    for v in range(10, -10, -9223372036854775807 - 1):
+    for v in range(10, -10, -9223372036854775808):
         c.append(v)?
     for v in reversed(range(-9223372036854775807 - 1, 9223372036854775807, 9223372036854775807)):
         c.append(v)?
@@ -282,7 +282,7 @@ def main() -> Result[(), AllocError | IoError]:
         c.append(i64.wrapping_from(v))?
     for v in (x for x in range(9223372036854775800, 9223372036854775807, 3)):
         c.append(v)?
-    for v in (x for x in range(10, -10, -9223372036854775807 - 1)):
+    for v in (x for x in range(10, -10, -9223372036854775808)):
         c.append(v)?
     big = range(-9223372036854775807 - 1, 9223372036854775807, 9223372036854775807)
     for v in reversed(big):

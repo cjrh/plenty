@@ -204,7 +204,7 @@ class Bad:
 fn rejects_type_parameters() {
     rejects(
         "@copy\nclass Pair[T]:\n    a: T\n",
-        "`@copy` classes cannot have type parameters",
+        "`@copy` class type parameters need an `IntType` or `FloatType` bound",
     );
 }
 
