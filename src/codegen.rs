@@ -52,7 +52,7 @@
 
 use crate::hash::HashMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
@@ -407,8 +407,7 @@ fn link_object(
         ];
         // libFuzzer's `memcmp` and `strcmp` interceptors report the strings
         // compared to it, so it can try them, when its build has them.
-        let interceptors = libfuzzer.with_file_name(FUZZ_INTERCEPTORS);
-        if interceptors.is_file() {
+        if let Some(interceptors) = fuzz_interceptors(libfuzzer) {
             inputs.push(interceptors.into_os_string());
         }
         inputs.push("-lstdc++".into());
@@ -508,6 +507,23 @@ const TEST_HOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_test_
 const FUZZ_DRIVER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_fuzz_driver.o"));
 /// Found beside the `--libfuzzer` archive, as clang installs them.
 const FUZZ_INTERCEPTORS: &str = "libclang_rt.fuzzer_interceptors.a";
+
+fn fuzz_interceptors(libfuzzer: &Path) -> Option<PathBuf> {
+    let arch = libfuzzer
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("libclang_rt.fuzzer_no_main-"))
+        .and_then(|name| name.strip_suffix(".a"));
+    // Match the selected primary's naming convention. A generic fallback for
+    // a suffixed primary could silently choose another installed target.
+    let name = arch.map_or_else(
+        || FUZZ_INTERCEPTORS.to_owned(),
+        |arch| format!("libclang_rt.fuzzer_interceptors-{arch}.a"),
+    );
+    let path = libfuzzer.with_file_name(name);
+    path.is_file().then_some(path)
+}
+
 /// The C library calls the hook object intercepts. Only references from the
 /// program and runtime objects are redirected; the C library's own internal
 /// calls are not.
@@ -4166,6 +4182,40 @@ mod linux_target_tests {
                     .unwrap();
                 assert!(!context.compiled_code().unwrap().code_buffer().is_empty());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod fuzz_interceptor_tests {
+    use super::*;
+
+    #[test]
+    fn fuzz_interceptors_match_primary_names_without_cross_target_fallback() {
+        let temp = tempfile::tempdir().unwrap();
+        let generic = temp.path().join(FUZZ_INTERCEPTORS);
+        std::fs::write(&generic, "generic fixture").unwrap();
+        assert_eq!(
+            fuzz_interceptors(&temp.path().join("libclang_rt.fuzzer_no_main.a")),
+            Some(generic.clone())
+        );
+        // Explicit custom primary names retain the existing generic convention.
+        assert_eq!(
+            fuzz_interceptors(&temp.path().join("custom-fuzzer.a")),
+            Some(generic)
+        );
+        for arch in ["aarch64", "x86_64"] {
+            let primary = temp
+                .path()
+                .join(format!("libclang_rt.fuzzer_no_main-{arch}.a"));
+            let companion = temp
+                .path()
+                .join(format!("libclang_rt.fuzzer_interceptors-{arch}.a"));
+            std::fs::write(&companion, "target fixture").unwrap();
+            assert_eq!(fuzz_interceptors(&primary), Some(companion.clone()));
+            std::fs::remove_file(companion).unwrap();
+            // A generic companion remains installed but is not a match.
+            assert_eq!(fuzz_interceptors(&primary), None);
         }
     }
 }
