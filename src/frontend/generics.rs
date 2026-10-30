@@ -1799,6 +1799,12 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                 expression(a)?;
                 expression(b)?;
             }
+            Expression::Slice(base, bounds) => {
+                expression(base)?;
+                for bound in bounds.iter() {
+                    expression(bound)?;
+                }
+            }
             Expression::Conditional { condition, yes, no } => {
                 expression(condition)?;
                 expression(yes)?;
@@ -2038,6 +2044,12 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         Expression::Index(a, b) | Expression::Binary(_, a, b) => {
             substitute_expr(a, substitutions)?;
             substitute_expr(b, substitutions)?;
+        }
+        Expression::Slice(base, bounds) => {
+            substitute_expr(base, substitutions)?;
+            for bound in bounds.iter_mut() {
+                substitute_expr(bound, substitutions)?;
+            }
         }
         Expression::Conditional { condition, yes, no } => {
             substitute_expr(condition, substitutions)?;

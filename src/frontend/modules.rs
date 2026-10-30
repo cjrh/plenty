@@ -626,6 +626,16 @@ fn parse_items(
             binding: fstrings::FMT_BINDING.into(),
         });
     }
+    // A `bytes` slice gives a `Bytes` without the program importing it. The
+    // standard library imports `std.bytes` itself where it slices bytes.
+    if parser.slices && !module.name.starts_with("std.") {
+        module.imports.push(Import {
+            at: parser.peek().clone(),
+            module: "std.bytes".into(),
+            item: None,
+            binding: super::slices::BYTES_BINDING.into(),
+        });
+    }
     Ok((module, parser.peek().clone()))
 }
 
@@ -1116,7 +1126,10 @@ impl Loader {
                 self.inputs[input].import(&import.module, &dependency, owner);
             }
             // The implicit `std.fmt` import of an f-string has no source span.
-            if super::ide::active() && import.binding != fstrings::FMT_BINDING {
+            if super::ide::active()
+                && import.binding != fstrings::FMT_BINDING
+                && import.binding != super::slices::BYTES_BINDING
+            {
                 super::ide::module(
                     &import.module,
                     &dependency.path(),
@@ -1709,6 +1722,7 @@ impl Scope {
         fn leading(e: &Expr) -> Option<&str> {
             match &e.kind {
                 Expression::Index(base, _)
+                | Expression::Slice(base, _)
                 | Expression::Group(base)
                 | Expression::Unary(_, base) => leading(base),
                 Expression::Ambiguous { index, .. } => leading(index),
@@ -1938,6 +1952,12 @@ impl Scope {
             Expression::Index(a, b) | Expression::Binary(_, a, b) => {
                 self.expr(a, locals)?;
                 self.expr(b, locals)?;
+            }
+            Expression::Slice(base, bounds) => {
+                self.expr(base, locals)?;
+                for bound in bounds.iter_mut() {
+                    self.expr(bound, locals)?;
+                }
             }
             Expression::Conditional { condition, yes, no } => {
                 self.expr(condition, locals)?;

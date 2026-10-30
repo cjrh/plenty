@@ -14,6 +14,16 @@ pub const KEY_VIEW_DIFFERENCE: i64 = 582;
 pub const KEY_VIEW_SYMMETRIC_DIFFERENCE: i64 = 583;
 pub const KEY_VIEW_EQUAL: i64 = 584;
 pub const KEY_VIEW_TO_SET: i64 = 585;
+/// Slice syntax, `xs[start:stop:step]`: list, text, byte and column slices.
+pub const LIST_SLICE: i64 = 590;
+pub const TEXT_SLICE: i64 = 591;
+pub const BYTES_SLICE: i64 = 283;
+pub const CLIST_SLICE: i64 = 532;
+/// Bits of a slice's flags operand: which bounds the source wrote. An omitted
+/// bound's default depends on the step's sign, so no bound value can stand
+/// for it.
+pub const SLICE_START: i64 = 1;
+pub const SLICE_STOP: i64 = 2;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize
@@ -28,6 +38,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         // Byte overwrite, membership/prefix scans, float formatting;
         // datagram send/receive.
         179 | 231 | 234 | 281 | 416 | 417 => 2,
+        // Slices: receiver, start, stop, step and the bound flags.
+        LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // Byte append, file/standard-stream output, scans, fill and copy_within.
         178 | 188 | 189 | 191 | 230 | 232 | 233 | 236 | 237 | 282
         // Digest/HMAC update/verification, AEAD and HKDF.

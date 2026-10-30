@@ -778,6 +778,7 @@ impl Lower<'_> {
                     .map(Some)
             }
             Expression::Try(value) => self.propagate(e, value, expected, ops),
+            Expression::Slice(..) => self.slice(e, expected, ops).map(Some),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
             Expression::Checked(body) => self.checked_value(&e.at, body, expected, ops),
 
@@ -4001,7 +4002,7 @@ impl Lower<'_> {
         }
         for (i, arg) in args.iter().enumerate() {
             if i == 2 {
-                self.range_step(arg, ops)?;
+                self.nonzero_step("range", arg, ops)?;
                 continue;
             }
             let actual = self.expr_expected(arg, Some(element.clone()), ops)?;
@@ -4016,7 +4017,13 @@ impl Lower<'_> {
 
     /// A range step is a `NonZero[i64]`, so a zero step cannot reach the
     /// range; the operand stack receives its `i64`.
-    fn range_step(&mut self, step: &Expr, ops: &mut Vec<Op>) -> Result<()> {
+    /// A `range` or slice step, which is a `NonZero[i64]`, as its integer.
+    pub(super) fn nonzero_step(
+        &mut self,
+        what: &str,
+        step: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
         let ty = self.nonzero_type(&Ty::I64, &step.at)?;
         let actual = self.expr_expected(step, Some(ty.clone()), ops)?;
         let actual = match actual {
@@ -4028,7 +4035,7 @@ impl Lower<'_> {
         };
         if actual.as_ref().is_some_and(Ty::is_int) {
             return Err(step.at.error(format!(
-                "range step must be `NonZero[i64]`, not `{}`; write a nonzero literal, or convert a value with `NonZero.try_from(step)?`",
+                "{what} step must be `NonZero[i64]`, not `{}`; write a nonzero literal, or convert a value with `NonZero.try_from(step)?`",
                 actual.unwrap()
             )));
         }

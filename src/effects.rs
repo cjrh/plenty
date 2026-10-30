@@ -227,6 +227,8 @@ impl CollectionOp {
             | TryKeys(_)
             | TryValues(_)
             | ListTrySlice(_)
+            | ListSlice(_)
+            | TextSlice
             | TextByteLen
             | TextIndex
             | TextTryConcat

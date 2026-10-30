@@ -102,6 +102,9 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
         Expression::Index(left, right) | Expression::Binary(_, left, right) => {
             plain(left, bound, enclosing) && plain(right, bound, enclosing)
         }
+        Expression::Slice(base, bounds) => {
+            plain(base, bound, enclosing) && bounds.iter().all(|v| plain(v, bound, enclosing))
+        }
         Expression::Conditional { condition, yes, no } => {
             plain(condition, bound, enclosing)
                 && plain(yes, bound, enclosing)

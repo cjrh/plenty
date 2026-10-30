@@ -246,6 +246,11 @@ pub enum CollectionOp {
     TryKeys(Ty),
     TryValues(Ty),
     ListTrySlice(Ty),
+    /// `xs[start:stop:step]` on a list: the list, the three bounds (an
+    /// omitted step is 1) and the `SLICE_START`/`SLICE_STOP` flags.
+    ListSlice(Ty),
+    /// `text[start:stop:step]`, with the operands of `ListSlice`.
+    TextSlice,
     TextByteLen,
     TextIndex,
     TextTryConcat,
@@ -742,6 +747,14 @@ impl CollectionOp {
                 vec![t.clone(), Ty::I64, Ty::I64],
                 crate::sum::result(t.clone(), crate::sum::alloc_error()),
             ),
+            ListSlice(t) => (
+                vec![t.clone(), Ty::I64, Ty::I64, Ty::I64, Ty::I64],
+                crate::sum::result(t.clone(), crate::sum::alloc_error()),
+            ),
+            TextSlice => (
+                vec![Ty::Str, Ty::I64, Ty::I64, Ty::I64, Ty::I64],
+                crate::sum::result(Ty::Str, crate::sum::alloc_error()),
+            ),
         }
     }
     /// Whether the runtime can trap in this operation, which then takes the
@@ -889,6 +902,8 @@ impl CollectionOp {
             Self::TryKeys(_) => 43,
             Self::TryValues(_) => 44,
             Self::ListTrySlice(_) => 45,
+            Self::ListSlice(_) => opcode::LIST_SLICE,
+            Self::TextSlice => opcode::TEXT_SLICE,
             Self::TextByteLen => 12,
             Self::TextIndex => 114,
             Self::TextTryRemovePrefix => 71,

@@ -477,6 +477,12 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                     self.expr(a, initialized)?;
                     self.expr(b, initialized)?;
                 }
+                Expression::Slice(base, bounds) => {
+                    self.expr(base, initialized)?;
+                    for bound in bounds.iter() {
+                        self.expr(bound, initialized)?;
+                    }
+                }
                 Expression::Conditional { condition, yes, no } => {
                     self.expr(condition, initialized)?;
                     self.expr(yes, initialized)?;

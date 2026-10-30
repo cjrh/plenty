@@ -279,6 +279,11 @@ impl DataTypes {
 impl TypeAliases {
     /// The `@newtype` annotation of class `name`, a concrete instance name
     /// such as `Wrap[i64]` included.
+    /// Where the class `name` is declared, which reaches its private members.
+    pub(super) fn class_declaration(&self, name: &str) -> Option<Token> {
+        Some(self.data.classes.get(name)?.at.clone())
+    }
+
     pub(super) fn newtype_annotation(&self, name: &str) -> Option<Token> {
         let base = name.split('[').next().unwrap_or(name);
         self.data.classes.get(base)?.newtype.clone()

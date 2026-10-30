@@ -547,6 +547,12 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             free_names(left, bound, names);
             free_names(right, bound, names);
         }
+        Expression::Slice(base, bounds) => {
+            free_names(base, bound, names);
+            for value in bounds.iter() {
+                free_names(value, bound, names);
+            }
+        }
         Expression::Conditional { condition, yes, no } => {
             free_names(condition, bound, names);
             free_names(yes, bound, names);
