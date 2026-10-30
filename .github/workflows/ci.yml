@@ -215,8 +215,12 @@ jobs:
   # The images are pulled in their own step so pulls are not timed with the
   # tests; keep the tags in step with NGINX_IMAGE and CADDY_IMAGE there.
   proxy_tests:
-    name: Reverse-proxy tests (Docker)
-    runs-on: ubuntu-latest
+    name: Reverse-proxy tests (Docker, ${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v4
       - name: Install mold
@@ -226,6 +230,7 @@ jobs:
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
+          key: proxy-${{ runner.arch }}
           cache-bin: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: docker version && curl --version
@@ -239,7 +244,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cargo-timings-proxy
+          name: cargo-timings-proxy-${{ runner.arch }}
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 7
