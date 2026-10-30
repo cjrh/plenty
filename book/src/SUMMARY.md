@@ -554,6 +554,11 @@
 # Proposals
 
 - [Proposals](proposals/index.md)
+    - [Cosmopolitan and Actually Portable Executables](proposals/cosmopolitan.md)
+        - [Cosmo target, runtime and driver design](proposals/cosmopolitan/runtime.md)
+        - [Cosmo compile-time target and code-generation contract](proposals/cosmopolitan/target-and-codegen.md)
+        - [Self-contained baseline harness specification](proposals/cosmopolitan/reproduction-harness.md)
+        - [Cosmo evidence and qualification gates](proposals/cosmopolitan/evidence-and-gates.md)
     - [Native macOS, Windows, and AArch64 support](proposals/cross-platform.md)
         - [Compiler, runtime build, and native ABI](proposals/cross-platform/compiler.md)
         - [Standard library and OS semantics](proposals/cross-platform/stdlib.md)
