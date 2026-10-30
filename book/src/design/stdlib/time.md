@@ -138,7 +138,7 @@ looks up a zone links no zone data. Its API follows Rust's jiff. Add it as a
 
 ```toml
 [dependencies]
-tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.1.0" }
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.2.0" }
 ```
 
 A `tz.Zoned` holds a `Timestamp` with its zone. Adding calendar units keeps
@@ -167,8 +167,26 @@ def main() -> Result[(), tz.TzError | FormatError | AllocError | IoError]:
 ```
 
 `tz.zoned(&stamp, &zone)` and `zoned.timestamp()` convert between the two
-types. The package README lists the API, its data version, and how the data
-is regenerated.
+types.
+
+`tz.zone(name)` can return any zone, so it links the whole database (about
+150 KB). The `tz.zones` module has one function per canonical zone, and each
+links only that zone's data. The functions cannot fail:
+
+```plenty fragment
+import tz
+from tz.zones import america_new_york
+
+def main() -> Result[(), tz.TzError | AllocError | IoError]:
+    new_york = america_new_york()
+    meeting = tz.datetime(2024, 3, 10, 2, 30)?.to_zoned(&new_york, tz.Disambiguation.Compatible)?
+    print(meeting.offset().seconds())?
+    Ok(())
+```
+
+This prints `-14400`: 02:30 falls in that day's gap, and `Compatible` moves it
+forward to 03:30 EDT. The package README lists the API, how zone names map to
+function names, its data version, and how the data is regenerated.
 
 ## Sleeping and timed waits
 

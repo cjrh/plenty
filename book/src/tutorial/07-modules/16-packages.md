@@ -83,7 +83,7 @@ is one:
 
 ```toml
 [dependencies]
-tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.1.0", version = "0.1.0" }
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.2.0", version = "0.2.0" }
 ```
 
 The first build fetches the repository into `.pkg/` and records the exact
@@ -94,7 +94,7 @@ these entries and updates the lockfile:
 
 ```text
 plenty add geometry --path ../shapes
-plenty add tz --git https://github.com/plentylang/tz.git --tag v0.1.0
+plenty add tz --git https://github.com/plentylang/tz.git --tag v0.2.0
 ```
 
 Several related packages can share one lockfile and `target/` as a
