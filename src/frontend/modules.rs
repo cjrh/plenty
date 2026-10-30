@@ -104,6 +104,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.url", include_str!("../../stdlib/std/url.plenty")),
     ("std.uuid", include_str!("../../stdlib/std/uuid.plenty")),
+    ("std.mime", include_str!("../../stdlib/std/mime.plenty")),
     ("std.sketch", include_str!("../../stdlib/std/sketch.plenty")),
     (
         "std.sketch.xor",

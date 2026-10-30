@@ -433,6 +433,7 @@
         - [`std.markdown`](design/stdlib/markdown.md)
         - [`std.template`](design/stdlib/template.md)
         - [`std.math`](design/stdlib/math.md)
+        - [`std.mime`](design/stdlib/mime.md)
         - [`std.net`](design/stdlib/net.md)
         - [`std.path`](design/stdlib/path.md)
         - [`std.process`](design/stdlib/process.md)
