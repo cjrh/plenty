@@ -337,9 +337,9 @@ fn printing_a_mac_shows_no_key_material() {
         r#"
 key = std.bytes.from_text("secret")?
 mac = std.crypto.hmac(Algorithm.Sha256, &key)?
-print(mac)?
+print(mac, std.crypto.digest(Algorithm.Sha256)?)?
 "#,
-        "std.crypto.Mac(_state=Bytes(_owner=b\"\"), _size=32)",
+        "std.crypto.Mac(???) std.crypto.Digest(???)",
     );
 }
 

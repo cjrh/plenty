@@ -86,7 +86,9 @@ HMAC secrets and Ed25519 keys are copied. RSA and P-256 keys come from
 [`std.crypto` key import](crypto-keys.md), which enforces their sizes and
 encodings, and are moved in. `SigningKey.verifying_key()` returns the matching
 verifying key: a copy of the secret, or the public half. `algorithm()` returns
-a key's algorithm and `Algorithm.name()` its JOSE name.
+a key's algorithm and `Algorithm.name()` its JOSE name. Both key types are
+[redacted](../language/03-types/classes.md#redacted-types): printing one shows `std.jwt.SigningKey(???)` or
+`std.jwt.VerifyingKey(???)`, never the secret.
 
 HS384 and ES384 are not provided: `std.crypto` has no SHA-384 HMAC or P-384
 curve. Their names are `UnsupportedAlgorithm`.
@@ -215,8 +217,6 @@ see [RSA and ECDSA keys](crypto-keys.md).
   [`std.crypto`](crypto-keys.md), which accepts JWK components.
 - No HS384, ES384, ES512 or `ES256K`.
 - Header nesting is limited to 4 levels and claims to 32.
-- Keys print structurally, so printing a `SigningKey` or an HMAC
-  `VerifyingKey` reveals its secret. Do not print or log keys.
 
 ## Acknowledgements
 

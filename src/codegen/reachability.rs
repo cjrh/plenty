@@ -159,6 +159,7 @@ mod tests {
                 fallible_init: false,
                 copy: false,
                 forwards_operators: false,
+                redacted: false,
                 bytes: Default::default(),
                 managed: Default::default(),
             }),

@@ -357,7 +357,9 @@ recover.
 
 `TrustRoots`, `ClientConfig`, `ServerConfig`, `TlsStream`, and `Session` each own one
 runtime object; dropping it releases the object, and dropping a stream closes
-its socket without `close_notify`. A stream may move to a worker. Trust roots,
+its socket without `close_notify`. The configurations, builders, streams and
+sessions are [redacted](../language/03-types/classes.md#redacted-types): printing one shows its type name
+and `(???)`, never key or session state. A stream may move to a worker. Trust roots,
 builders and configurations are allocated outside every
 [actor heap](actor.md), since sessions in other heaps share them. Starting a
 session draws randomness and verifying a certificate reads the clock; both are

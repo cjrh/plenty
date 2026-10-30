@@ -128,6 +128,8 @@ all-zero shared secret is `InvalidPeer`; `agree_into` zeros its output on
 that failure. Later agreement or public-key requests return `Finished`.
 Invalid lengths and output allocation failure leave the key usable and
 existing output unchanged. Exchange public keys before calling `agree`.
+`X25519Key` is [redacted](../language/03-types/classes.md#redacted-types): printing one shows
+`std.crypto.X25519Key(???)`.
 
 X25519 alone does **not** authenticate the peer. Authenticate the exchange
 through a suitable protocol and pass the shared secret through HKDF with

@@ -58,6 +58,7 @@ static BLOCK: Type = Type {
     drop: None,
     wrapper: None,
     plan: None,
+    redacted: false,
 };
 
 /// The width of the aligned blocks reduced inside one job: the smallest power

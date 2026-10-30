@@ -116,8 +116,9 @@ builtin [`NonZero[T]`](numbers.md#nonzero-integers); see the
 
 An annotation is `@name` alone on a line directly before a declaration. The
 set is closed and compiler-known; there are no user decorators. The
-annotations are `@copy` and `@newtype`; both apply only to class declarations,
-including `pub class`. An unknown name, arguments, a repeated annotation, or an
+annotations are `@copy`, `@newtype`, and `@redacted`. `@copy` and `@newtype`
+apply only to class declarations, including `pub class`; `@redacted` also
+applies to enums. An unknown name, arguments, a repeated annotation, or an
 annotation before any other declaration, member, or statement is an error.
 
 `@newtype` makes a class forward its field's operators; see
@@ -153,4 +154,57 @@ without `@newtype`, and a `@newtype` value prints as its class
 (`Seconds(value=3.0)`). Annotation names follow
 `@` and do not reserve words: `copy` remains an ordinary name, and the builtin
 `copy(value)` is unaffected.
+
+### Redacted types
+
+`@redacted` on a class or enum hides its contents from every automatic
+formatting path: `print`, `str.repr`, f-string fields, and the report `main`
+writes for a returned error. The value renders as its type name followed by
+`(???)`, at any nesting depth: in a list, dictionary, tuple, `Option`,
+`Result`, enum payload, or another class's field.
+
+```plenty
+@redacted
+class ApiKey:
+    secret: str
+
+class Client:
+    host: str
+    key: ApiKey
+
+def main() -> Result[(), AllocError | IoError]:
+    client = Client("example.com", ApiKey("hunter2"))
+    print(client)?
+    print([ApiKey("other")]?)?
+    print(client.key.secret.byte_len())?
+    Ok(())
+```
+```output
+Client(host="example.com", key=ApiKey(???))
+[ApiKey(???)]
+7
+```
+
+The rules:
+
+- Redaction applies to the whole value. There is no per-field form; a class
+  that mixes secret and public data either is redacted entirely or keeps its
+  secret in a separate redacted field type, as `Client` does above.
+- The name includes type arguments and module qualification as ordinary
+  printing would: a generic `Secret[T]` prints `Secret[i64](???)`.
+- A generic wrapper over a redacted type is not itself redacted;
+  `Holder[ApiKey]` prints `Holder[ApiKey](item=ApiKey(???))`. A `@newtype`
+  over a redacted type likewise prints its own name with the redacted field.
+- In an f-string, `!r`, `!s`, `!a`, `=`, and every format spec give the same
+  `ApiKey(???)`; there is no conversion that reveals the contents. Padding and
+  alignment apply to the marker.
+- Explicit formatting is unaffected: a public `display` or `debug` method the
+  type defines still formats its f-string fields, and a
+  [`std.report`](../../stdlib/report.md) `Formattable` implementation still
+  writes what it chooses.
+- Field access, equality, hashing, ordering, matching, moves, and layout are
+  unchanged. `@redacted` combines with `@copy` and `@newtype` in any order.
+
+Redaction is a guard against accidental logging, not a security boundary:
+code that can read a field can still print it.
 

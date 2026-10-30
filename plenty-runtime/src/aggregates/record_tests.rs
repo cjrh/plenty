@@ -13,6 +13,7 @@ static INTEGER: Type = Type {
     drop: None,
     wrapper: None,
     plan: None,
+    redacted: false,
 };
 static WIDE: Type = Type {
     inline_bytes: 64,

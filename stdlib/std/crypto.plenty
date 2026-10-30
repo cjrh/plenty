@@ -78,6 +78,7 @@ def output(state: &mut Bytes, size: i64) -> Result[Bytes, CryptoError]:
 
 # An incremental hash. Feed input in any number of pieces; the result equals
 # hashing the concatenation. `finish` ends it: later calls report Finished.
+@redacted
 pub class Digest:
     _state: Bytes
     _size: i64
@@ -104,6 +105,7 @@ pub class Digest:
 
 # An incremental HMAC or keyed BLAKE3. Its state holds key material; finishing or dropping it
 # overwrites that state.
+@redacted
 pub class Mac:
     _state: Bytes
     _size: i64
@@ -358,6 +360,7 @@ pub def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64)
 
 # OS-generated ephemeral X25519 private key. One agreement attempt consumes
 # it, even if the peer key is invalid. Length errors do not consume it.
+@redacted
 pub class X25519Key:
     _state: Bytes
 
@@ -434,6 +437,7 @@ pub class RsaPublicKey:
         Ok(status == 1)
 
 # An RSA private key with a 2048..4096-bit modulus, held by the runtime.
+@redacted
 pub class RsaPrivateKey:
     _state: Bytes
 
@@ -468,6 +472,7 @@ pub class P256PublicKey:
         Ok(status == 1)
 
 # A P-256 private key held by the runtime, for ECDSA with SHA-256.
+@redacted
 pub class P256PrivateKey:
     _state: Bytes
 

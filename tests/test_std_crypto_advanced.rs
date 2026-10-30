@@ -403,6 +403,6 @@ fn exchange_state_is_private_noncopyable_and_rejects_forged_buffers() {
     assert!(String::from_utf8_lossy(&forged.stderr).contains("operand is not an X25519 key"));
     native(
         "key = std.crypto.x25519()?\nprint(key)?\n",
-        "std.crypto.X25519Key(_state=Bytes(_owner=b\"\"))",
+        "std.crypto.X25519Key(???)",
     );
 }

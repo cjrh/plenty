@@ -139,6 +139,40 @@ A `@copy` class also cannot define `__del__` or take type parameters. Keep the
 default for instances that own resources or should be used only once; see
 [copy classes](../../design/language/03-types/classes.md#copy-classes).
 
+## Hide secrets when printing
+
+Printing a class shows every field, so a password or key reaches any log that
+prints its holder. Write `@redacted` before `class` or `enum` to replace the
+contents with `(???)` wherever the value is printed or formatted, however
+deeply it is nested:
+
+```plenty
+@redacted
+class Password:
+    text: str
+
+class Login:
+    user: str
+    password: Password
+
+def main() -> Result[(), AllocError | IoError]:
+    login = Login("ada", Password("hunter2"))
+    print(login)?
+    print(str.repr(login.password)?)?
+    print(login.password.text == "hunter2")?
+    Ok(())
+```
+
+```output
+Login(user="ada", password=Password(???))
+Password(???)
+True
+```
+
+The fields stay readable in code, so redaction prevents accidental printing
+rather than enforcing secrecy; see
+[redacted types](../../design/language/03-types/classes.md#redacted-types).
+
 ## Limits
 
 There is no inheritance, dynamic attribute creation, or class-variable syntax.

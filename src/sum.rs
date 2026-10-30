@@ -14,6 +14,9 @@ fn structural(mut ty: EnumType, identity: String) -> Ty {
 pub struct EnumType {
     pub facts: std::sync::OnceLock<crate::type_facts::Facts>,
     pub restricted_storage: bool,
+    /// Declared `@redacted`: automatic formatting writes `Name(???)`. See
+    /// book/src/design/language/03-types/classes.md#redacted-types.
+    pub redacted: bool,
     // Names are unique within a compilation; builtin names include concrete args.
     pub name: String,
     pub variants: Vec<Variant>,
@@ -138,6 +141,7 @@ pub fn anonymous(types: Vec<Ty>) -> Ty {
         EnumType {
             facts: std::sync::OnceLock::new(),
             restricted_storage: members.iter().any(Ty::restricted_storage),
+            redacted: false,
             name: display,
             managed: true,
             managed_fields: std::sync::OnceLock::new(),
@@ -248,6 +252,7 @@ pub fn producer_conflict(target: &Ty, source: &Ty) -> Option<Ty> {
 pub fn failure() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {
         restricted_storage: false,
+        redacted: false,
         name: "Failure".into(),
         variants: vec![Variant {
             name: "Unspecified".into(),
@@ -267,6 +272,7 @@ pub fn failure() -> Ty {
 pub fn alloc_error() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {
         restricted_storage: false,
+        redacted: false,
         name: "AllocError".into(),
         variants: ["OutOfMemory", "CapacityOverflow"]
             .into_iter()
@@ -681,6 +687,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
             ),
             facts: std::sync::OnceLock::new(),
             restricted_storage: fields.iter().any(|t| !t.heap_storable()),
+            redacted: false,
             managed: true,
             inline_range: false,
             payload_bytes: std::sync::OnceLock::new(),
@@ -701,6 +708,7 @@ pub fn option(element: Ty) -> Ty {
     structural(
         EnumType {
             restricted_storage: element.restricted_storage(),
+            redacted: false,
             name: format!("Option[{element}]"),
             facts: std::sync::OnceLock::new(),
             // Payloads may be forward nominal definitions during alias
@@ -730,6 +738,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
     structural(
         EnumType {
             restricted_storage: ok.restricted_storage() || error.restricted_storage(),
+            redacted: false,
             name: format!("Result[{ok}, {error}]"),
             facts: std::sync::OnceLock::new(),
             managed: true,

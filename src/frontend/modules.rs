@@ -648,19 +648,24 @@ struct Items<'a, 's> {
 impl Items<'_, '_> {
     fn item(&mut self, module: &mut Module, declared: &mut HashSet<String>) -> Result<()> {
         let annotations = self.parser.annotations()?;
-        if let Some((at, annotation)) = annotations.first() {
-            let declaration = self.parser.pos + usize::from(self.parser.peek().is("pub"));
-            if !self
-                .parser
-                .token(declaration)
-                .is_some_and(|token| token.is("class"))
-            {
+        let declaration = self.parser.pos + usize::from(self.parser.peek().is("pub"));
+        let declaration = self.parser.token(declaration);
+        for (at, annotation) in &annotations {
+            let applies = declaration.is_some_and(|token| {
+                token.is("class")
+                    || *annotation == annotations::Annotation::Redacted && token.is("enum")
+            });
+            if !applies {
                 return Err(at.error(format!(
-                    "`@{}` applies only to class declarations",
-                    annotation.name()
+                    "`@{}` applies only to {}",
+                    annotation.name(),
+                    annotation.targets()
                 )));
             }
         }
+        let redacted = annotations
+            .iter()
+            .any(|(_, a)| *a == annotations::Annotation::Redacted);
         if self.parser.at_const_if() {
             self.parser.depth += 1;
             let result = if self.parser.depth > MAX_NESTING {
@@ -781,6 +786,7 @@ impl Items<'_, '_> {
                     ));
                 }
             }
+            c.redacted = redacted;
             let name = c.name.clone();
             module.classes.push(c);
             name
@@ -790,7 +796,8 @@ impl Items<'_, '_> {
             module.protocols.push(p);
             name
         } else if self.parser.peek().is("enum") {
-            let e = self.parser.enum_decl()?;
+            let mut e = self.parser.enum_decl()?;
+            e.redacted = redacted;
             let name = e.name.clone();
             module.enums.push(e);
             name
