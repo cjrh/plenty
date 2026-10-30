@@ -9,8 +9,8 @@ pub fn build(native: &Path, out: &Path) {
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
+    let cc = crate::native_tools::tool("CC");
+    let ar = crate::native_tools::tool("AR");
     let mut objects = Vec::new();
     for section in ["common", "dec", "enc"] {
         let mut files: Vec<PathBuf> = std::fs::read_dir(source.join("c").join(section))
