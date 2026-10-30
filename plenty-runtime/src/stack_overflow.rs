@@ -10,73 +10,28 @@ use std::mem::MaybeUninit;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-// The constants and layouts below are the x86_64 Linux GNU ABI, the compiler's
-// only supported native target.
-const SIGSEGV: i32 = 11;
-const SA_SIGINFO: i32 = 4;
-const SA_ONSTACK: i32 = 0x0800_0000;
-const SS_ONSTACK: i32 = 1;
-const SS_DISABLE: i32 = 2;
-const REG_RSP: usize = 15;
-const REG_ERR: usize = 19;
-/// Page-fault error bit for an instruction fetch.
-const INSTRUCTION_FETCH: u64 = 1 << 4;
+use crate::signal_context;
+use libc::{
+    SA_ONSTACK, SA_SIGINFO, SIGSEGV, SS_ONSTACK, abort, raise, sigaction, sigaltstack, write,
+};
+use std::sync::atomic::AtomicUsize;
 
-/// Holds the kernel's signal frame, including the widest non-AMX register
-/// state (about 4 KiB with AVX-512), plus the handler's own small frames.
+// Includes the fixed ARM context and extended register records. Refuse to
+// install if the kernel advertises a larger minimum signal frame.
+#[cfg(target_arch = "aarch64")]
+const RESERVED: usize = 64 * 1024;
+#[cfg(target_arch = "x86_64")]
 const RESERVED: usize = 16 * 1024;
-
-/// Code may write this far below its stack pointer before moving it: the
-/// System V red zone is 128 bytes and a call pushes 8. A page leaves margin.
-const BELOW_STACK_POINTER: usize = 4096;
+#[cfg(target_arch = "aarch64")]
+const HANDLER_MARGIN: usize = 8 * 1024;
+#[cfg(target_arch = "x86_64")]
+const HANDLER_MARGIN: usize = 2 * 1024;
+static PAGE_BYTES: AtomicUsize = AtomicUsize::new(4096);
 
 const MESSAGE: &[u8] = b"error: stack overflow\n";
 
-#[repr(C)]
-struct Action {
-    handler: usize,
-    mask: [u64; 16],
-    flags: i32,
-    restorer: usize,
-}
-
-#[repr(C)]
-struct SignalStack {
-    base: *mut c_void,
-    flags: i32,
-    size: usize,
-}
-
-#[repr(C)]
-struct Info {
-    signal: i32,
-    errno: i32,
-    code: i32,
-    address: usize,
-}
-
-#[repr(C)]
-struct Context {
-    flags: u64,
-    link: usize,
-    stack: SignalStack,
-    registers: [u64; 23],
-}
-
-const _: () = {
-    assert!(size_of::<Action>() == 152);
-    assert!(size_of::<SignalStack>() == 24);
-    assert!(std::mem::offset_of!(Info, address) == 16);
-    assert!(std::mem::offset_of!(Context, registers) == 40);
-};
-
-unsafe extern "C" {
-    fn sigaction(signal: i32, action: *const Action, previous: *mut Action) -> i32;
-    fn sigaltstack(stack: *const SignalStack, previous: *mut SignalStack) -> i32;
-    fn write(descriptor: i32, bytes: *const c_void, count: usize) -> isize;
-    fn raise(signal: i32) -> i32;
-    fn abort() -> !;
-}
+type SignalStack = libc::stack_t;
+type Info = libc::siginfo_t;
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 
@@ -84,18 +39,24 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 /// a Plenty library leaves signal dispositions to its host.
 #[cfg_attr(not(plenty_runtime_embedded), allow(dead_code))]
 pub(crate) fn install() {
-    let action = Action {
-        handler: on_fault as *const () as usize,
-        mask: [0; 16],
-        flags: SA_SIGINFO | SA_ONSTACK,
-        restorer: 0,
+    // SAFETY: these queries take no pointers and run outside signal handlers.
+    let (page, minimum) = unsafe {
+        (
+            libc::sysconf(libc::_SC_PAGESIZE),
+            libc::getauxval(libc::AT_MINSIGSTKSZ),
+        )
     };
-    let mut previous = MaybeUninit::<Action>::uninit();
+    if page <= 0 || minimum as usize > RESERVED - HANDLER_MARGIN {
+        return;
+    }
+    PAGE_BYTES.store(page as usize, Ordering::Relaxed);
+    let action = signal_context::action(on_fault as *const () as usize, SA_SIGINFO | SA_ONSTACK);
+    let mut previous = MaybeUninit::<libc::sigaction>::uninit();
     // SAFETY: both records have the ABI layout and outlive the calls.
     unsafe {
         // A handler present before `main`, such as a sanitizer's, keeps the signal.
         if sigaction(SIGSEGV, null(), previous.as_mut_ptr()) == 0
-            && previous.assume_init().handler == 0
+            && previous.assume_init().sa_sigaction == libc::SIG_DFL
             && sigaction(SIGSEGV, &action, null_mut()) == 0
         {
             INSTALLED.store(true, Ordering::Relaxed);
@@ -111,22 +72,19 @@ pub(crate) fn guarded<R>(body: impl FnOnce() -> R) -> R {
     }
     let mut reserved = MaybeUninit::<[u8; RESERVED]>::uninit();
     let stack = SignalStack {
-        base: reserved.as_mut_ptr().cast(),
-        flags: 0,
-        size: RESERVED,
+        ss_sp: reserved.as_mut_ptr().cast(),
+        ss_flags: 0,
+        ss_size: RESERVED,
     };
     // SAFETY: the reservation outlives its registration, which ends below.
     // A refusal leaves the thread without a report, as before.
-    let registered = unsafe { sigaltstack(&stack, null_mut()) } == 0;
+    let mut previous = MaybeUninit::<SignalStack>::uninit();
+    let registered = unsafe { sigaltstack(&stack, previous.as_mut_ptr()) } == 0;
     let result = body();
     if registered {
-        let disabled = SignalStack {
-            base: null_mut(),
-            flags: SS_DISABLE,
-            size: 0,
-        };
-        // SAFETY: this thread is not running on the stack it unregisters.
-        unsafe { sigaltstack(&disabled, null_mut()) };
+        // SAFETY: successful registration initialized the previous stack;
+        // restoring it preserves a host's alternate stack and nested guards.
+        unsafe { sigaltstack(previous.as_ptr(), null_mut()) };
     }
     result
 }
@@ -136,32 +94,32 @@ pub(crate) fn guarded<R>(body: impl FnOnce() -> R) -> R {
 /// range below `stack_pointer` is where a call, a frame, or a stack probe
 /// touches new stack. The range above it is the live stack, which faults only
 /// when the stack pointer itself has passed the end of the stack.
-fn exhausted(address: usize, stack_pointer: usize, top: usize, error: u64) -> bool {
-    error & INSTRUCTION_FETCH == 0
+fn exhausted(address: usize, stack_pointer: usize, top: usize, instruction: bool) -> bool {
+    !instruction
         && stack_pointer < top
         && address < top
-        && address >= stack_pointer.saturating_sub(BELOW_STACK_POINTER)
+        && address >= stack_pointer.saturating_sub(PAGE_BYTES.load(Ordering::Relaxed))
 }
 
 unsafe extern "C" fn on_fault(_signal: i32, info: *const Info, context: *const c_void) {
     // Only async-signal-safe calls are made here: no allocation and no locks.
     // SAFETY: the kernel passes live records with the declared layouts.
     unsafe {
-        let registers = &(*context.cast::<Context>()).registers;
+        let context = &*context.cast::<libc::ucontext_t>();
         // The kernel reports its own faults with a positive code. A signal
         // sent by a process carries no fault address.
-        let fault = (*info).code > 0;
+        let fault = (*info).si_code > 0;
         let mut stack = MaybeUninit::<SignalStack>::uninit();
         // Running on an alternate stack shows this thread reserved one in
         // `guarded`, so its base is the top of the stack that code runs on.
         if fault && sigaltstack(null(), stack.as_mut_ptr()) == 0 {
             let stack = stack.assume_init();
-            if stack.flags & SS_ONSTACK != 0
+            if stack.ss_flags & SS_ONSTACK != 0
                 && exhausted(
-                    (*info).address,
-                    registers[REG_RSP] as usize,
-                    stack.base as usize,
-                    registers[REG_ERR],
+                    (*info).si_addr() as usize,
+                    signal_context::sp(context),
+                    stack.ss_sp as usize,
+                    signal_context::instruction_fault(context, (*info).si_addr() as usize),
                 )
             {
                 write(2, MESSAGE.as_ptr().cast(), MESSAGE.len());
@@ -169,12 +127,7 @@ unsafe extern "C" fn on_fault(_signal: i32, info: *const Info, context: *const c
             }
         }
         // Any other fault reruns its instruction under the default action.
-        let default = Action {
-            handler: 0,
-            mask: [0; 16],
-            flags: 0,
-            restorer: 0,
-        };
+        let default = signal_context::action(libc::SIG_DFL, 0);
         sigaction(SIGSEGV, &default, null_mut());
         if !fault {
             // Nothing reruns, so deliver the signal again once this returns.
@@ -192,21 +145,31 @@ mod tests {
     #[test]
     fn stack_growth_below_the_stack_pointer_is_exhaustion() {
         let sp = TOP - 0x8000;
-        assert!(exhausted(sp - 8, sp, TOP, 0));
-        assert!(exhausted(sp - BELOW_STACK_POINTER, sp, TOP, 0));
-        assert!(exhausted(sp, sp, TOP, 0));
-        assert!(exhausted(TOP - 1, sp, TOP, 0));
+        assert!(exhausted(sp - 8, sp, TOP, false));
+        assert!(exhausted(
+            sp - PAGE_BYTES.load(Ordering::Relaxed),
+            sp,
+            TOP,
+            false
+        ));
+        assert!(exhausted(sp, sp, TOP, false));
+        assert!(exhausted(TOP - 1, sp, TOP, false));
     }
 
     #[test]
     fn other_faults_are_not_exhaustion() {
         let sp = TOP - 0x8000;
-        assert!(!exhausted(0, sp, TOP, 0));
-        assert!(!exhausted(sp - BELOW_STACK_POINTER - 1, sp, TOP, 0));
-        assert!(!exhausted(TOP, sp, TOP, 0));
-        assert!(!exhausted(sp - 8, sp, TOP, INSTRUCTION_FETCH));
+        assert!(!exhausted(0, sp, TOP, false));
+        assert!(!exhausted(
+            sp - PAGE_BYTES.load(Ordering::Relaxed) - 1,
+            sp,
+            TOP,
+            false
+        ));
+        assert!(!exhausted(TOP, sp, TOP, false));
+        assert!(!exhausted(sp - 8, sp, TOP, true));
         // A stack pointer above the reservation belongs to another stack.
-        assert!(!exhausted(TOP - 8, TOP + 0x1000, TOP, 0));
+        assert!(!exhausted(TOP - 8, TOP + 0x1000, TOP, false));
     }
 
     #[test]

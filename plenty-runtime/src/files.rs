@@ -459,7 +459,10 @@ pub(crate) unsafe fn truncate(pointer: *mut File, size: Option<i64>) -> Result<u
 ///
 /// # Safety
 /// `pointer` is a tracked owner in a live heap that no handler is using.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 pub(crate) unsafe fn abandon(pointer: *mut File) -> bool {
     // SAFETY: as the caller guarantees.
     unsafe { (*pointer).file.take() }.is_some()
