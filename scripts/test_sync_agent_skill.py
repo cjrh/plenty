@@ -80,6 +80,10 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(plugin["version"], "9.8.7")
         self.assertIn("Plenty 9.8.7", (self.out / "skills/plenty/SKILL.md").read_text())
 
+    def test_licences_match_the_repository(self):
+        for licence in ("LICENSE-APACHE", "LICENSE-MIT"):
+            self.assertEqual((self.out / licence).read_text(), (sync_agent_skill.REPO / licence).read_text())
+
     def test_marketplace_lists_the_root_plugin(self):
         marketplace = json.loads((self.out / ".claude-plugin/marketplace.json").read_text())
         plugin = json.loads((self.out / ".claude-plugin/plugin.json").read_text())

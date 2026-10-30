@@ -109,6 +109,21 @@ git fetch ~/plenty-release main --tags
 git merge --ff-only FETCH_HEAD
 ```
 
+Then publish the matching [coding-agent skill](agent-skill.md) to
+[`plentylang/skills`](https://github.com/plentylang/skills), tagged with the
+same version:
+
+```sh
+git clone git@github.com:plentylang/skills.git ~/plenty-skills   # once
+cd "$PRIMARY"
+just skill-sync ~/plenty-skills
+cd ~/plenty-skills
+git add -A
+git commit -m "Plenty X.Y.Z"
+git tag vX.Y.Z
+git push --atomic origin main vX.Y.Z
+```
+
 ## What the workflow does
 
 | Job | Work |
