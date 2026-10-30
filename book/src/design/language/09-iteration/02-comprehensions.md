@@ -14,6 +14,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(values)?
     Ok(())
 ```
+```output
+[4, 9, 16]
+```
 
 A comprehension with one `for` clause and any number of `if` clauses lowers to
 the same loop as the equivalent [pipeline](06-pipelines.md):

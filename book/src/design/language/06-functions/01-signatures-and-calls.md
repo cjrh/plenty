@@ -16,6 +16,9 @@ def main() -> Result[(), IoError]:
     print(clamp_low(2, 5))?
     Ok(())
 ```
+```output
+5
+```
 
 The final expression supplies the function's result. `return value` exits from
 any suite; bare `return` supplies unit. Every return must match the declared

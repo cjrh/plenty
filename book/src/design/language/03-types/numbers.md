@@ -107,7 +107,7 @@ A `checked:` block turns the integer failures written inside it into a value.
 Its body is an indented suite whose last expression is the block's value `T`.
 The block is an expression of type `Result[T, E]`:
 
-```plenty
+```plenty fragment
 def mean(total: i64, count: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     checked:
         total * 2 // count
@@ -136,7 +136,7 @@ behaves as a one-operation block and may appear anywhere.
 A [class pattern](../04-expressions/matching.md#class-patterns) names each
 error and binds the wrapped result:
 
-```plenty
+```plenty fragment
 def halve_sum(a: i64, b: i64) -> i64:
     result = checked:
         (a + b) // 2

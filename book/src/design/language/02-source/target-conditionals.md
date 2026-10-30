@@ -23,6 +23,13 @@ def main() -> Result[(), IoError]:
     Ok(())
 ```
 
+On a 64-bit Linux or macOS target, it prints:
+
+```output
+/
+1099511627776
+```
+
 The compiler decides the condition while parsing and keeps only the first arm
 whose condition holds, or the `else` arm. Each continuation is written
 `elif const`; an `elif` without `const` is an error. Unselected arms must

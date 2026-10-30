@@ -1,6 +1,6 @@
 # Structural protocols
 
-```python
+```plenty fragment
 protocol Readable[T]:
     def read(self) -> T:
         pass
@@ -40,7 +40,7 @@ with as many parameters, the same constraints, and the same signature once its
 parameter names are replaced by the requirement's; the names may differ.
 Calls through the bound instantiate the implementation for each argument type:
 
-```python
+```plenty
 protocol Sized:
     def size(self) -> i64:
         pass

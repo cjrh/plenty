@@ -39,6 +39,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(total(&chain))?
     Ok(())
 ```
+```output
+3
+```
 
 This traversal uses constant stack space and allocates nothing after constructing
 the chain. Because a reassignable reference can point anywhere within its first
@@ -62,6 +65,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(longest(&words))?
     Ok(())
 ```
+```output
+banana
+```
 
 Because the old loan ends at a retarget, a collection can grow after the old
 target's last use and before the binding is pointed at a new element:
@@ -76,4 +82,7 @@ def main() -> Result[(), AllocError | IoError]:
     *slot = 30
     print(values)?
     Ok(())
+```
+```output
+[10, 2, 30]
 ```

@@ -9,6 +9,7 @@
 //! following `sh plenty-project DIR` fence runs one `plenty` project command in
 //! `DIR`; the next `output` fence is its exact standard output. Each command
 //! runs in a fresh copy of every project file written so far on its page.
+//! `plenty fragment` fences are explanatory excerpts and are not run.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -125,11 +126,7 @@ enum Job<'a> {
 fn tutorial_fences() -> Vec<Fence> {
     summary_pages()
         .into_iter()
-        .filter(|page| {
-            page.starts_with("tutorial/")
-                || page.starts_with("design/examples/")
-                || page.starts_with("design/stdlib/")
-        })
+        .filter(|page| page.starts_with("tutorial/") || page.starts_with("design/"))
         .flat_map(|page| {
             let markdown = std::fs::read_to_string(book_src().join(&page)).unwrap();
             fences(&page, &markdown)
@@ -218,6 +215,12 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
                 "duplicate tutorial module"
             );
             modules.push((path, source));
+            index += 1;
+            continue;
+        }
+        // An explanatory excerpt, such as a signature shape, that is not a
+        // complete program. It keeps Plenty highlighting and is not run.
+        if source.language == "plenty fragment" {
             index += 1;
             continue;
         }

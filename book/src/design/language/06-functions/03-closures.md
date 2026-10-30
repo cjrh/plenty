@@ -29,6 +29,10 @@ def main() -> Result[(), IoError]:
     print(count())?
     Ok(())
 ```
+```output
+3
+4
+```
 
 Calls borrow the environment and may repeat. Mutable captures require an
 exclusive environment borrow and a mutable closure binding or owner. Captured

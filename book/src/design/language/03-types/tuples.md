@@ -20,7 +20,7 @@ through `&mut pair[0]` or a mutable payload match. Direct indexed assignment
 the tuple's arity. Owned components may be observed or explicitly copied; moving
 them out requires whole-tuple unpacking:
 
-```python
+```plenty fragment
 number, text = (42, "cm")
 number, text = 42, "cm"
 ```

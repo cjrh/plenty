@@ -177,9 +177,11 @@ A learner-visible language change updates, in the same change:
 - the tutorial lessons that teach the feature,
 - the backlog entry, if its scope changed or it completed.
 
-Tutorial, `design/examples/` and `design/stdlib/` code fences are executable tests, so stale
-lessons fail the suite. Proposal fences are not executed; use `text` for
-illustrative syntax and verify claims about implemented behavior separately.
+Tutorial and `design/` code fences are executable tests, so stale lessons and
+reference examples fail the suite. Tag an explanatory excerpt that is not a
+complete program `plenty fragment`; it keeps highlighting and is not run.
+Proposal fences are not executed; use `text` for proposed syntax and verify
+claims about implemented behavior separately.
 Before handing off changes to book content, navigation, assets, configuration,
 or docs build/check scripts, run all three docs CI commands:
 

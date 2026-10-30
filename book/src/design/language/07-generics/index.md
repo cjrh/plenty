@@ -2,7 +2,7 @@
 
 Functions, classes, enums, and methods can declare type parameters:
 
-```python
+```plenty fragment
 def identity[T](value: T) -> T:
     value
 

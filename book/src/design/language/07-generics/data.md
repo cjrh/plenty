@@ -1,6 +1,6 @@
 # Generic data and methods
 
-```python
+```plenty fragment
 class Cell[T]:
     value: T
 

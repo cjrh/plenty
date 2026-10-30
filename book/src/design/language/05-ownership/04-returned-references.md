@@ -23,6 +23,9 @@ def main() -> Result[(), IoError]:
     print(*value)?
     Ok(())
 ```
+```output
+3
+```
 
 Later reference parameters are ordinary inputs. Their loans end when the call
 returns, so a temporary key or a borrow of another owner does not restrict the
@@ -50,6 +53,10 @@ def main() -> Result[(), AllocError | IoError]:
     print(scores.points)?
     print(name)?
     Ok(())
+```
+```output
+[3, 15]
+eve
 ```
 
 To return a borrow of a different argument, make it the first reference

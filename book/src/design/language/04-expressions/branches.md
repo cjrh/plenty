@@ -16,7 +16,7 @@ An `if` takes any number of `elif` arms. The arms are alternatives at one level,
 tested in order; they do not count toward the
 [nesting limit](index.md#nesting). An `if` written inside an `else` suite does.
 
-```python
+```plenty fragment
 def clamp_low(value: i64, minimum: i64) -> i64:
     if value < minimum:
         return minimum

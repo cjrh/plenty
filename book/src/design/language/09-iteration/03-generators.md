@@ -18,6 +18,11 @@ def main() -> Result[(), IoError]:
         print(value)?
     Ok(())
 ```
+```output
+0
+1
+2
+```
 
 Resumption executes until a statement-only `yield value`, bare `return`, or
 fallthrough. Yield types are exact and owned payloads transfer to the caller.

@@ -5,7 +5,7 @@ Classes and user enums may refer to themselves or one another, including through
 through a heap boundary: `Box[T]`, a list, a set, or a dictionary. A cycle without
 one would require an infinite-sized value and is rejected.
 
-```python
+```plenty fragment
 class Node[T]:
     value: T
     next: Option[Box[Node[T]]]

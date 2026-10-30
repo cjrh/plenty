@@ -243,9 +243,10 @@ every test after a failure and writes `target/nextest/ci/junit.xml`.
 
 ## Runnable documentation
 
-`tests/test_tutorial.rs` reads tutorial, `design/examples/` and `design/stdlib/` pages in
-`SUMMARY.md` order. A `plenty` fence has an `output` fence and runs both through
-compile-and-run and an explicitly compiled binary. A `plenty-error` fence has an
+`tests/test_tutorial.rs` reads tutorial and `design/` pages in `SUMMARY.md`
+order. A `plenty` fence has an `output` fence and runs both through
+compile-and-run and an explicitly compiled binary. A `plenty fragment` fence is
+an explanatory excerpt, such as a signature shape, and is not run. A `plenty-error` fence has an
 `error` substring and must fail without executing effects. A `plenty-file`
 companion module remains on the same page as its example. Every book page must
 appear in `SUMMARY.md`. The examples run as 16 tests in parallel, each taking
@@ -253,7 +254,7 @@ every 16th example in reading order; a failure names the example's page and
 line.
 
 `book/theme/plenty-highlight.js` registers the highlight.js grammars for these
-fences: Plenty source for `plenty`, `plenty-error` and `plenty-file`, compiler
+fences: Plenty source for `plenty`, `plenty fragment`, `plenty-error` and `plenty-file`, compiler
 diagnostics with highlighted `` `code` `` for `error`, and plain text for
 `output`. `book/theme/plenty-highlight.css` colours the classes the bundled
 themes leave unstyled. Its keyword, literal, type and built-in lists follow the
