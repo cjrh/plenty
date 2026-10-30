@@ -450,6 +450,9 @@ def main() -> Result[(), AllocError | IoError | WaitError]:
 
 An allocation failure the handler does not handle, such as one inside a
 runtime operation that cannot report it, is contained like a trap.
+`std.crypto`'s RSA operations reserve their memory in the heap first and
+return `Allocation` when it does not fit; see
+[RSA allocation](crypto-keys.md#allocation-and-key-material).
 
 `heap_bytes_used()` is the sum of every heap's used bytes and
 `heap_bytes_committed()` the pages made writable; discarding a heap returns

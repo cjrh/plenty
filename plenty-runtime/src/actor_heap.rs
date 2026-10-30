@@ -65,14 +65,16 @@ const UNSUPPORTED: i64 = -4;
 pub(crate) use native::Router;
 #[cfg(feature = "allocation-checks")]
 pub(crate) use native::in_heap;
-pub(crate) use native::{foreign, outside, recover, running, track_file, untrack_file};
+pub(crate) use native::{
+    Arena, abandon_arena_call, foreign, outside, recover, running, track_file, untrack_file, within,
+};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod native {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::{Cell, UnsafeCell};
-    use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
     /// Virtual bytes reserved per heap; also the largest limit.
     pub(super) const SLOT_BYTES: usize = 1 << 26;
@@ -195,9 +197,11 @@ mod native {
         (offset < SLOT_BYTES * MAX_HEAPS).then_some(offset / SLOT_BYTES)
     }
 
+    /// Whether `pointer` lies in an actor heap or the routed arena, whose
+    /// blocks are released whole rather than freed one by one.
     #[cfg(feature = "allocation-checks")]
     pub(crate) fn in_heap(pointer: *const u8) -> bool {
-        owner(pointer).is_some()
+        owner(pointer).is_some() || in_arena(pointer)
     }
 
     /// Whether `pointer` lies outside the current allocation target: in
@@ -229,71 +233,87 @@ mod native {
         (size <= SLOT_BYTES).then(|| (size, (size.trailing_zeros() - MIN_SHIFT) as usize))
     }
 
+    impl Heap {
+        /// A block of `layout` from this heap, or null when it would pass
+        /// `limit`. Bytes past `committed` are made writable first.
+        ///
+        /// # Safety
+        /// The caller has exclusive access to this heap, `base` is its start,
+        /// and `base..base + limit` is reserved for it.
+        unsafe fn take(&mut self, base: *mut u8, layout: Layout) -> *mut u8 {
+            let Some((size, class)) = class_of(layout) else {
+                return std::ptr::null_mut();
+            };
+            let head = self.free[class];
+            if !head.is_null() && (head as usize).is_multiple_of(layout.align()) {
+                // SAFETY: a free block holds its successor in its first word.
+                self.free[class] = unsafe { head.cast::<*mut u8>().read() };
+                self.used += size;
+                return head;
+            }
+            let align = layout.align().max(1 << MIN_SHIFT);
+            let start = self.bump.next_multiple_of(align);
+            let Some(end) = start.checked_add(size).filter(|&end| end <= self.limit) else {
+                return std::ptr::null_mut();
+            };
+            if end > self.committed {
+                let target = end
+                    .next_multiple_of(COMMIT_STEP)
+                    .min(self.limit.next_multiple_of(4096));
+                // SAFETY: the range lies inside this heap's reservation.
+                let status = unsafe {
+                    mprotect(
+                        base.add(self.committed),
+                        target - self.committed,
+                        PROT_READ_WRITE,
+                    )
+                };
+                if status != 0 {
+                    return std::ptr::null_mut();
+                }
+                self.committed = target;
+            }
+            self.bump = end;
+            self.used += size;
+            base.wrapping_add(start)
+        }
+
+        /// # Safety
+        /// `pointer` came from `take(_, layout)` on this heap and is live.
+        unsafe fn give(&mut self, pointer: *mut u8, layout: Layout) {
+            if !self.live {
+                // A discarded heap has no writable pages; its blocks are gone.
+                return;
+            }
+            let Some((size, class)) = class_of(layout) else {
+                return;
+            };
+            // SAFETY: the block is at least 16 bytes and writable while live.
+            unsafe { pointer.cast::<*mut u8>().write(self.free[class]) };
+            self.free[class] = pointer;
+            self.used -= size;
+        }
+    }
+
     /// # Safety
     /// `index` names a live heap of the calling (owning) thread.
     pub(super) unsafe fn heap_alloc(index: usize, layout: Layout) -> *mut u8 {
-        let Some((size, class)) = class_of(layout) else {
-            return std::ptr::null_mut();
-        };
-        // SAFETY: the owning thread has exclusive access to its heap entries.
-        let heap = unsafe { &mut (*table()).heaps[index] };
-        let head = heap.free[class];
-        if !head.is_null() && (head as usize).is_multiple_of(layout.align()) {
-            // SAFETY: a free block holds its successor in its first word.
-            heap.free[class] = unsafe { head.cast::<*mut u8>().read() };
-            heap.used += size;
-            return head;
-        }
-        let align = layout.align().max(1 << MIN_SHIFT);
-        let start = heap.bump.next_multiple_of(align);
-        let Some(end) = start.checked_add(size).filter(|&end| end <= heap.limit) else {
-            return std::ptr::null_mut();
-        };
-        if end > heap.committed {
-            let target = end
-                .next_multiple_of(COMMIT_STEP)
-                .min(heap.limit.next_multiple_of(4096));
-            // SAFETY: the range lies inside this heap's reserved slot.
-            let status = unsafe {
-                mprotect(
-                    slot(index).add(heap.committed),
-                    target - heap.committed,
-                    PROT_READ_WRITE,
-                )
-            };
-            if status != 0 {
-                return std::ptr::null_mut();
-            }
-            heap.committed = target;
-        }
-        heap.bump = end;
-        heap.used += size;
-        slot(index).wrapping_add(start)
+        // SAFETY: the owning thread has exclusive access to its heap entries,
+        // and the slot is reserved for this heap.
+        unsafe { (*table()).heaps[index].take(slot(index), layout) }
     }
 
     /// # Safety
     /// `pointer` came from `heap_alloc(index, layout)` and is still live.
     pub(super) unsafe fn heap_free(index: usize, pointer: *mut u8, layout: Layout) {
-        // SAFETY: the owning thread has exclusive access to its heap entries.
-        let heap = unsafe { &mut (*table()).heaps[index] };
-        if !heap.live {
-            // A discarded heap has no writable pages; its blocks are gone.
-            return;
-        }
-        let Some((size, class)) = class_of(layout) else {
-            return;
-        };
-        // SAFETY: the block is at least 16 bytes and writable while live.
-        unsafe { pointer.cast::<*mut u8>().write(heap.free[class]) };
-        heap.free[class] = pointer;
-        heap.used -= size;
+        // SAFETY: as for `heap_alloc`.
+        unsafe { (*table()).heaps[index].give(pointer, layout) }
     }
 
-    /// Routes allocations to the current actor heap, and frees to their owner.
+    /// Routes allocations to the thread's arena or current actor heap, and
+    /// frees to their owner.
     pub(crate) struct Router;
 
-    // SAFETY: heap blocks are disjoint, aligned to the layout, and at least
-    // the requested size; System handles every pointer outside the range.
     /// One plus the current heap's index, or 0 for System. Reads no
     /// thread-local before the first heap exists, so programs without actors
     /// pay one load and a branch per allocation.
@@ -305,8 +325,17 @@ mod native {
         CURRENT.with(Cell::get)
     }
 
+    // SAFETY: arena and heap blocks are disjoint, aligned to the layout, and
+    // at least the requested size; System handles every other pointer. An
+    // arena block is freed or grown only while its arena is routed: see
+    // `within`.
     unsafe impl GlobalAlloc for Router {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let arena = routed();
+            if !arena.is_null() {
+                // SAFETY: a routed arena belongs to this thread's `within`.
+                return unsafe { (*arena).take(layout) };
+            }
             match current() {
                 // SAFETY: as GlobalAlloc requires of the caller.
                 0 => unsafe { System.alloc(layout) },
@@ -315,21 +344,31 @@ mod native {
             }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            match current() {
-                // SAFETY: as GlobalAlloc requires; keeps calloc's fresh pages.
-                0 => unsafe { System.alloc_zeroed(layout) },
-                current => {
-                    // SAFETY: as in `alloc`; a reused block may be dirty.
-                    let pointer = unsafe { heap_alloc(current - 1, layout) };
-                    if !pointer.is_null() {
-                        // SAFETY: the block holds at least `layout.size()` bytes.
-                        unsafe { pointer.write_bytes(0, layout.size()) };
-                    }
-                    pointer
+            let arena = routed();
+            let pointer = if !arena.is_null() {
+                // SAFETY: as in `alloc`.
+                unsafe { (*arena).take(layout) }
+            } else {
+                match current() {
+                    // SAFETY: as GlobalAlloc requires; keeps calloc's fresh pages.
+                    0 => return unsafe { System.alloc_zeroed(layout) },
+                    // SAFETY: as in `alloc`.
+                    current => unsafe { heap_alloc(current - 1, layout) },
                 }
+            };
+            if !pointer.is_null() {
+                // SAFETY: a reused block may be dirty; it holds at least
+                // `layout.size()` bytes.
+                unsafe { pointer.write_bytes(0, layout.size()) };
             }
+            pointer
         }
         unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            let arena = routed();
+            // SAFETY: as in `alloc`; the arena made this block with `layout`.
+            if !arena.is_null() && unsafe { (*arena).contains(pointer) } {
+                return unsafe { (*arena).give(pointer, layout) };
+            }
             match owner(pointer) {
                 // SAFETY: the owner made this block with this layout.
                 Some(index) if owning() => unsafe { heap_free(index, pointer, layout) },
@@ -341,6 +380,26 @@ mod native {
             }
         }
         unsafe fn realloc(&self, pointer: *mut u8, old: Layout, size: usize) -> *mut u8 {
+            let arena = routed();
+            // SAFETY: as in `dealloc`.
+            if !arena.is_null() && unsafe { (*arena).contains(pointer) } {
+                let Ok(new) = Layout::from_size_align(size, old.align()) else {
+                    return std::ptr::null_mut();
+                };
+                if class_of(old).map(|c| c.0) == class_of(new).map(|c| c.0) {
+                    return pointer;
+                }
+                // SAFETY: both blocks belong to the routed arena and hold the
+                // copied prefix.
+                unsafe {
+                    let moved = (*arena).take(new);
+                    if !moved.is_null() {
+                        std::ptr::copy_nonoverlapping(pointer, moved, old.size().min(size));
+                        (*arena).give(pointer, old);
+                    }
+                    return moved;
+                }
+            }
             let Some(index) = owner(pointer) else {
                 // Memory allocated outside every heap stays outside, even when
                 // a handler grows it: the actor does not own it.
@@ -375,6 +434,213 @@ mod native {
                 }
             }
             moved
+        }
+    }
+
+    // ------------------------------------------------------------- arenas
+
+    /// Arenas start on this boundary; a larger alignment is refused.
+    const ARENA_ALIGN: usize = 64;
+
+    /// Whether any thread has routed an arena. Each thread reads only its own
+    /// `ARENA`, which it set itself, so a stale `false` on another thread
+    /// still finds that thread's null `ARENA`.
+    static ARENAS: AtomicBool = AtomicBool::new(false);
+
+    thread_local! {
+        /// The arena receiving this thread's allocations, or null.
+        static ARENA: Cell<*mut Arena> = const { Cell::new(std::ptr::null_mut()) };
+        /// The register save area of the running `within`, or null.
+        static ARENA_RESUME: Cell<*mut Resume> = const { Cell::new(std::ptr::null_mut()) };
+    }
+
+    #[inline]
+    fn routed() -> *mut Arena {
+        if !ARENAS.load(Ordering::Relaxed) {
+            return std::ptr::null_mut();
+        }
+        ARENA.with(Cell::get)
+    }
+
+    /// A fixed block that receives one thread's Rust allocations while
+    /// `within` runs, for library code that cannot report allocation failure.
+    /// The block itself comes from the current allocation target, so an
+    /// actor's arena counts against its heap limit. Dropping the arena zeroes
+    /// and frees the whole block without visiting its allocations.
+    pub(crate) struct Arena {
+        block: std::ptr::NonNull<Block>,
+    }
+
+    /// The start of an arena's block: its free lists, then the bytes it hands
+    /// out. Keeping them in the block keeps `Arena` one pointer wide.
+    #[repr(C, align(64))]
+    struct Block {
+        heap: Heap,
+    }
+    const _: () = assert!(align_of::<Block>() == ARENA_ALIGN);
+
+    // SAFETY: the block is plain memory that only its owner reaches; routing
+    // state is per thread and set only during `within`. Dropping on another
+    // thread frees a System block normally. A block in an actor heap cannot
+    // move: values in a heap stay on its owning thread.
+    unsafe impl Send for Arena {}
+
+    impl Arena {
+        /// Reserves `size` bytes for allocations, plus the free lists, or
+        /// `None` when the allocation fails.
+        pub(crate) fn new(size: usize) -> Option<Self> {
+            let total = size.checked_add(size_of::<Block>())?;
+            let layout = Layout::from_size_align(total, ARENA_ALIGN).ok()?;
+            // SAFETY: the layout has a nonzero size.
+            let block = std::ptr::NonNull::new(unsafe { std::alloc::alloc(layout) })?.cast();
+            // SAFETY: a fresh block of at least `size_of::<Block>()` bytes,
+            // aligned for `Block`.
+            unsafe {
+                block.write(Block {
+                    heap: Heap {
+                        live: true,
+                        limit: size,
+                        // The block is writable throughout, so `take` never
+                        // calls mprotect.
+                        committed: size,
+                        ..EMPTY_HEAP
+                    },
+                });
+            }
+            Some(Self { block })
+        }
+
+        fn heap(&mut self) -> &mut Heap {
+            // SAFETY: the block holds an initialized `Block` until drop, and
+            // only this arena reaches it.
+            unsafe { &mut (*self.block.as_ptr()).heap }
+        }
+
+        fn limit(&self) -> usize {
+            // SAFETY: as in `heap`.
+            unsafe { (*self.block.as_ptr()).heap.limit }
+        }
+
+        pub(super) fn data(&self) -> *mut u8 {
+            self.block.as_ptr().wrapping_add(1).cast()
+        }
+
+        /// Bytes from the start of the data to the end of the last block ever
+        /// handed out: the size this arena's work needed.
+        #[cfg(test)]
+        pub(crate) fn high_water(&mut self) -> usize {
+            self.heap().bump
+        }
+
+        fn contains(&self, pointer: *const u8) -> bool {
+            (pointer as usize).wrapping_sub(self.data() as usize) < self.limit()
+        }
+
+        unsafe fn take(&mut self, layout: Layout) -> *mut u8 {
+            if layout.align() > ARENA_ALIGN {
+                return std::ptr::null_mut();
+            }
+            let data = self.data();
+            // SAFETY: the routing thread has exclusive access, and the data
+            // is writable through `limit`.
+            unsafe { self.heap().take(data, layout) }
+        }
+
+        unsafe fn give(&mut self, pointer: *mut u8, layout: Layout) {
+            // SAFETY: as GlobalAlloc's dealloc requires of its caller.
+            unsafe { self.heap().give(pointer, layout) }
+        }
+    }
+
+    impl Drop for Arena {
+        fn drop(&mut self) {
+            let used = self.heap().bump;
+            let limit = self.limit();
+            let data = self.data();
+            // SAFETY: the data holds `limit` writable bytes, and nothing past
+            // `bump` was ever handed out. Volatile writes keep the scrub of
+            // key material that ring frees without zeroing. The layout is the
+            // one `new` allocated.
+            unsafe {
+                for offset in 0..used {
+                    std::ptr::write_volatile(data.add(offset), 0);
+                }
+                std::alloc::dealloc(
+                    self.block.as_ptr().cast(),
+                    Layout::from_size_align_unchecked(limit + size_of::<Block>(), ARENA_ALIGN),
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "allocation-checks")]
+    fn in_arena(pointer: *const u8) -> bool {
+        let arena = routed();
+        // SAFETY: a routed arena is live while `within` runs.
+        !arena.is_null() && unsafe { (*arena).contains(pointer) }
+    }
+
+    struct Call<F, R> {
+        job: Option<F>,
+        result: Option<R>,
+    }
+
+    unsafe extern "C" fn run_call<F: FnOnce() -> R, R>(storage: *mut u8) -> *mut u8 {
+        // SAFETY: `within` passes its live `Call<F, R>`.
+        let call = unsafe { &mut *storage.cast::<Call<F, R>>() };
+        if let Some(job) = call.job.take() {
+            call.result = Some(job());
+        }
+        std::ptr::null_mut()
+    }
+
+    /// Runs `job` with every Rust allocation on this thread taken from
+    /// `arena`. Returns `None` when an allocation fails, which abandons
+    /// `job`'s frames without running their destructors; their blocks are
+    /// all in `arena`, which the caller then drops whole.
+    ///
+    /// `job` must leave nothing outside the arena that a destructor would
+    /// have to repair: no lock, no partly updated outside state, and no
+    /// allocation it hands back. Anything it allocates must stay in the arena
+    /// and be freed, if ever, inside another `within` on the same arena.
+    pub(crate) fn within<F: FnOnce() -> R, R>(arena: &mut Arena, job: F) -> Option<R> {
+        if !ARENA.with(Cell::get).is_null() {
+            crate::fail("internal: an arena call cannot nest");
+        }
+        let mut call = Call {
+            job: Some(job),
+            result: None,
+        };
+        let mut resume = Resume([0; 8]);
+        ARENAS.store(true, Ordering::Relaxed);
+        ARENA.with(|slot| slot.set(arena));
+        ARENA_RESUME.with(|slot| slot.set(&mut resume));
+        // SAFETY: `run_call` reads the `Call` it is given; `resume` and `call`
+        // outlive the call.
+        let status = unsafe {
+            plenty_actor_enter(
+                &mut resume,
+                run_call::<F, R>,
+                std::ptr::addr_of_mut!(call).cast(),
+            )
+        };
+        ARENA_RESUME.with(|slot| slot.set(std::ptr::null_mut()));
+        ARENA.with(|slot| slot.set(std::ptr::null_mut()));
+        if status != 0 {
+            return None;
+        }
+        call.result
+    }
+
+    /// Called by the allocation-failure handler: inside `within`, the failed
+    /// allocation was the arena's, and `within` returns `None`. Returns only
+    /// outside `within`.
+    pub(crate) fn abandon_arena_call() {
+        let resume = ARENA_RESUME.with(Cell::get);
+        if !resume.is_null() {
+            // SAFETY: `resume` was filled by the enter call of the `within`
+            // still on this thread's stack.
+            unsafe { plenty_actor_resume(resume, 1) }
         }
     }
 
@@ -533,6 +799,10 @@ mod native {
         RECOVERY.with(|recovery| recovery.set(std::ptr::null_mut()));
         CURRENT.with(|current| current.set(0));
         if status != 0 {
+            // Any other contained trap inside an arena call abandons `within`
+            // too. Its arena was allocated in this heap, which is discarded.
+            ARENA.with(|slot| slot.set(std::ptr::null_mut()));
+            ARENA_RESUME.with(|slot| slot.set(std::ptr::null_mut()));
             // Thread-local runtime state the abandoned frames may have changed.
             crate::CALLER.with(|current| current.set(caller));
             crate::memory::restore_queue(queue);
@@ -695,6 +965,23 @@ mod native {
     pub(crate) fn foreign(_: *const u8) -> bool {
         false
     }
+
+    /// No routing on this target: library allocations use System, and an
+    /// allocation failure inside `within` aborts as it would elsewhere.
+    pub(crate) struct Arena;
+
+    impl Arena {
+        pub(crate) fn new(_: usize) -> Option<Self> {
+            Some(Self)
+        }
+    }
+
+    pub(crate) fn within<R>(_: &mut Arena, job: impl FnOnce() -> R) -> Option<R> {
+        Some(job())
+    }
+
+    pub(crate) fn abandon_arena_call() {}
+
     pub(crate) fn track_file(_: *mut crate::files::File) {}
     pub(crate) fn untrack_file(_: *mut crate::files::File) {}
     pub(crate) fn running() -> bool {
@@ -757,5 +1044,32 @@ mod tests {
         assert_eq!(create(SLOT_BYTES as i64 + 1), BAD_LIMIT);
         // Cargo test builds have no router, so programs' entry refuses.
         assert_eq!(operate(CREATE, 4096), UNSUPPORTED);
+    }
+
+    #[test]
+    fn arenas_route_reuse_and_release() {
+        let mut arena = Arena::new(4096).unwrap();
+        let (first, grown) = within(&mut arena, || {
+            let small = Box::new([7u8; 100]);
+            let first = std::ptr::from_ref(&*small) as usize;
+            drop(small);
+            // The freed block is reused, and growth stays in the arena.
+            let mut values = Vec::<u8>::with_capacity(100);
+            values.extend_from_slice(&[1; 300]);
+            let grown = values.as_ptr() as usize;
+            std::mem::forget(values);
+            (first, grown)
+        })
+        .unwrap();
+        let base = arena.data() as usize;
+        assert!((base..base + 4096).contains(&first));
+        assert!((base..base + 4096).contains(&grown));
+        // The vector reused the box's 128-byte block, then grew to 512.
+        assert_eq!(arena.high_water(), 128 + 512);
+        // Outside `within`, allocations go to System again.
+        let outside = Box::new(0u64);
+        assert!(!(base..base + 4096).contains(&(std::ptr::from_ref(&*outside) as usize)));
+        // An arena may be dropped on another thread.
+        std::thread::spawn(move || drop(arena)).join().unwrap();
     }
 }

@@ -590,22 +590,235 @@ Result[Bytes, EE].Err(EE.Allocation(AllocError.OutOfMemory))
     );
 }
 
-/// ring's RSA arithmetic allocates through the Rust global allocator, which
-/// cannot report failure. This pins the documented limit: an exhausted heap
-/// during RSA verification aborts the program instead of returning an error.
+/// RSA operations reserve an arena, then run ring inside it. Failing the
+/// reservation, or any allocation ring makes inside it, returns Allocation;
+/// the key and the program stay usable, and the runtime's live-memory check
+/// at exit sees nothing leaked.
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn rsa_allocation_failure_aborts_as_documented() {
-    let result = run(&program(
+fn rsa_allocation_failures_are_errors() {
+    const LIMIT: usize = 60;
+    let markers = (0..LIMIT)
+        .map(|n| format!("\"__test_fail_allocations_after_{n}__\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = whole_program(
+        &r#"
+type Fault = AllocError | IoError | std.bytes.BytesError | AdvancedError | std.encoding.EncodingError
+
+def report(label: &str, result: Result[bool, AdvancedError]) -> Result[(), Fault]:
+    match result:
+        case Ok(value):
+            print(label, value)?
+        case Err(AdvancedError.Allocation(_)):
+            print(label, "allocation")?
+        case Err(other):
+            return Err(other)
+    Ok(())
+
+def load(marker: &str, der: &Bytes, message: &Bytes, expected: &Bytes) -> Result[(), Fault]:
+    print(marker)?
+    loaded = std.crypto.rsa_private_key_from_pkcs8(der)
+    print("__test_restore_allocations__")?
+    match loaded:
+        case Ok(key):
+            report("load", Ok(std.crypto.equal(&key.sign(RsaScheme.Pkcs1Sha256, message)?, expected)))
+        case Err(error):
+            report("load", Err(error))
+
+def sign(marker: &str, key: &std.crypto.RsaPrivateKey, message: &Bytes, expected: &Bytes) -> Result[(), Fault]:
+    mut target = std.bytes.empty()?
+    target.resize(256, 0u8)?
+    print(marker)?
+    signed = key.sign_into(RsaScheme.Pkcs1Sha256, message, &mut target)
+    print("__test_restore_allocations__")?
+    match signed:
+        case Ok(_):
+            report("sign", Ok(std.crypto.equal(&target, expected)))?
+        case Err(error):
+            print("zeroed", target[0] == 0u8 and target[255] == 0u8)?
+            report("sign", Err(error))?
+    Ok(())
+
+def verify(marker: &str, key: &std.crypto.RsaPublicKey, message: &Bytes, expected: &Bytes) -> Result[(), Fault]:
+    print(marker)?
+    verified = key.verify(RsaScheme.Pkcs1Sha256, message, expected)
+    print("__test_restore_allocations__")?
+    report("verify", verified)
+
+def main() -> Result[(), Fault]:
+    der = unhex("$RSA_PKCS8")?
+    message = text("$RS256_INPUT")?
+    expected = unhex("$RS256_SIG")?
+    public = std.crypto.rsa_public_key_from_spki(&unhex("$RSA_SPKI")?)?
+    private = std.crypto.rsa_private_key_from_pkcs8(&der)?
+    # Reading the size and public key runs no ring allocation.
+    mut state = std.bytes.crypto_key_new()?
+    loaded = std.bytes.crypto_rsa_load(&mut state, &der)
+    mut encoded = std.bytes.empty()?
+    encoded.resize(std.bytes.crypto_key_size(&state, 0), 0u8)?
+    print("__test_begin_no_allocations__")?
+    size = std.bytes.crypto_key_size(&state, 1)
+    status = std.bytes.crypto_key_public(&state, &mut encoded)
+    print("__test_end_no_allocations__")?
+    print("size", loaded == 1 and size == 256 and status == 1)?
+    markers = [MARKERS]?
+    for i in range(len(markers)):
+        load(markers[i], &der, &message, &expected)?
+        sign(markers[i], &private, &message, &expected)?
+        verify(markers[i], &public, &message, &expected)?
+        # The same keys still work after each failure.
+        signature = private.sign(RsaScheme.Pkcs1Sha256, &message)?
+        print("usable", signature == expected and public.verify(RsaScheme.Pkcs1Sha256, &message, &signature)?)?
+    Ok(())
+"#
+        .replace("MARKERS", &markers),
+    );
+    let out = output(&source);
+    for operation in ["load", "sign", "verify"] {
+        let results: Vec<&str> = out
+            .lines()
+            .filter_map(|line| line.strip_prefix(operation))
+            .map(str::trim)
+            .collect();
+        assert_eq!(results.len(), LIMIT, "{out}");
+        let failures = results.iter().take_while(|r| **r == "allocation").count();
+        // The reservation, then at least one allocation inside ring.
+        assert!(failures >= 2, "{operation}: {results:?}");
+        assert!(
+            failures < LIMIT && results[failures..].iter().all(|r| *r == "True"),
+            "{operation}: {results:?}"
+        );
+    }
+    assert!(!out.contains("False"), "{out}");
+}
+
+fn fixture(name: &str) -> String {
+    let path = format!(
+        "{}/tests/fixtures/crypto/rsa/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::read(path)
+        .unwrap()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The largest keys each operation accepts fit their arenas: a 4096-bit
+/// private key, and an 8192-bit public key.
+#[test]
+fn largest_rsa_keys_sign_and_verify() {
+    let body = r#"
+message = text("plenty arena bound")?
+private = std.crypto.rsa_private_key_from_pkcs8(&unhex("PKCS8_4096")?)?
+public = private.public_key()?
+print(str.repr(private.signature_size())?)?
+for scheme in [RsaScheme.Pkcs1Sha512, RsaScheme.PssSha512]?:
+    signature = private.sign(scheme, &message)?
+    print(public.verify(scheme, &message, &signature)?)?
+large = std.crypto.rsa_public_key_from_spki(&unhex("SPKI_8192")?)?
+signature = unhex("SIG_8192")?
+print(large.verify(RsaScheme.Pkcs1Sha256, &message, &signature)?)?
+print(large.verify(RsaScheme.Pkcs1Sha256, &private.sign(RsaScheme.Pkcs1Sha256, &message)?, &signature)?)?
+"#
+    .replace("PKCS8_4096", &fixture("rsa4096.pk8"))
+    .replace("SPKI_8192", &fixture("rsa8192.spki"))
+    .replace("SIG_8192", &fixture("rsa8192-pkcs1-sha256.sig"));
+    native(&body, "512\nTrue\nTrue\nTrue\nFalse");
+}
+
+fn whole_program(source: &str) -> String {
+    let mut source = format!("{HEADER}{source}");
+    for (name, value) in FIXTURES {
+        source = source.replace(&format!("${name}"), value);
+    }
+    source
+}
+
+/// Inside a handler the arenas come from the actor's heap and count against
+/// its limit: a full heap is an Allocation error the handler can return, not
+/// a trap, and the keys' arenas go when the handler drops them.
+#[test]
+fn rsa_keys_work_in_actor_handlers() {
+    let source = whole_program(
         r#"
-message = text("$RS256_INPUT")?
-signature = unhex("$RS256_SIG")?
-key = std.crypto.rsa_public_key_from_spki(&unhex("$RSA_SPKI")?)?
-print("__test_fail_allocations_after_0__")?
-print(str.repr(key.verify(RsaScheme.Pkcs1Sha256, &message, &signature))?)?
+from std.actor import Address, Context, Mail, heap_bytes_used, heaps_live, stage
+from std.ready import WaitError
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+type Fault = AllocError | IoError | std.bytes.BytesError | AdvancedError | std.encoding.EncodingError
+
+pub class Signer:
+    pub done: bool
+
+    pub def started(self: &mut Signer, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        der = unhex("$RSA_PKCS8")?
+        message = text("$RS256_INPUT")?
+        key = std.crypto.rsa_private_key_from_pkcs8(&der)?
+        signature = key.sign(RsaScheme.PssSha256, &message)?
+        print("verified", key.public_key()?.verify(RsaScheme.PssSha256, &message, &signature)?)?
+        print("matches", key.sign(RsaScheme.Pkcs1Sha256, &message)? == unhex("$RS256_SIG")?)?
+        mut keys: list[std.crypto.RsaPrivateKey] = []?
+        mut full = False
+        while not full:
+            match std.crypto.rsa_private_key_from_pkcs8(&der):
+                case Ok(next):
+                    keys.append(next)?
+                case Err(AdvancedError.Allocation(_)):
+                    full = True
+                case Err(other):
+                    return Err(other)
+        print("held some", len(keys) > 0)?
+        context.stop()
+        Ok(())
+
+    pub def receive(self: &mut Signer, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Signer], Fault]:
+        Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | WaitError]:
+    mut actors = stage[Signer, i64, Fault](1, 1, 1)?
+    actors.start(Signer(False), 65536).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken()?)?
+    stats = actors.stats()
+    print(stats.stopped, stats.failed, stats.trapped, heaps_live(), heap_bytes_used())?
+    Ok(())
 "#,
-    ));
-    assert!(!result.status.success());
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("memory allocation of"), "{stderr}");
+    );
+    assert_eq!(
+        output(&source),
+        "verified True\nmatches True\nheld some True\n1 0 0 0 0"
+    );
+}
+
+/// A key moves to another thread, signs there and is dropped there; another
+/// is shared by two threads signing at once.
+#[test]
+fn rsa_keys_move_between_threads() {
+    let source = whole_program(
+        r#"
+def sign(key: &std.crypto.RsaPrivateKey, message: &Bytes) -> Result[Bytes, AdvancedError]:
+    key.sign(RsaScheme.Pkcs1Sha256, message)
+
+def main() -> Result[(), AllocError | IoError | ThreadError | std.bytes.BytesError | AdvancedError | std.encoding.EncodingError]:
+    der = unhex("$RSA_PKCS8")?
+    message = text("$RS256_INPUT")?
+    expected = unhex("$RS256_SIG")?
+    moved = std.crypto.rsa_private_key_from_pkcs8(&der)?
+    copy = message.copy()?
+    job = def once [moved, copy]() -> Result[Bytes, AdvancedError]:
+        moved.sign(RsaScheme.Pkcs1Sha256, &copy)
+    with spawn(job).drop_job().unwrap() as task:
+        print(task.join()? == expected)?
+    shared = std.crypto.rsa_private_key_from_pkcs8(&der)?
+    with spawn(sign, &shared, &message)? as a, spawn(sign, &shared, &message)? as b:
+        print(a.join()? == expected, b.join()? == expected)?
+    Ok(())
+"#,
+    );
+    assert_eq!(output(&source), "True\nTrue True");
 }

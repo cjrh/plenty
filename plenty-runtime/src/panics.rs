@@ -60,6 +60,9 @@ extern "Rust" fn plenty_rust_panic(info: &core::panic::PanicInfo<'_>) -> ! {
 /// Replaces std's `__rust_alloc_error_handler`, with the same signature.
 #[unsafe(no_mangle)]
 extern "Rust" fn plenty_rust_alloc_error(size: usize, _align: usize) -> ! {
+    // Inside an arena call the failure is the arena's: the call reports it as
+    // an allocation error instead.
+    crate::actor_heap::abandon_arena_call();
     let _ = writeln!(Stderr, "error: memory allocation of {size} bytes failed");
     // Inside an actor handler this is the handler's failure, usually its heap
     // limit: contain it like a trap.

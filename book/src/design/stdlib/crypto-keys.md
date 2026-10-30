@@ -127,7 +127,7 @@ the target.
 | `WeakKey` | An RSA modulus is shorter than 2048 bits |
 | `InvalidLength` | A signature or signing target has the wrong length for the key |
 | `RandomFailure` | Operating-system randomness failed during point validation, PSS or ECDSA signing, or private-key import |
-| `Allocation(AllocError)` | A fallible buffer or key-state allocation failed |
+| `Allocation(AllocError)` | A fallible buffer or key-state allocation failed, or memory for an RSA operation could not be reserved |
 
 These extend the existing `AdvancedError` rather than adding a type, because
 the operations are the same family as Ed25519 and share its length, entropy
@@ -144,20 +144,36 @@ signing into an existing target and P-256 verification allocate nothing;
 tests enforce this with the runtime's allocation guard, as they do for
 `ring`'s P-256 private-key parsing and point validation.
 
-**RSA is the exception.** `ring`'s RSA private-key parsing, signing and
-verification allocate their big-number buffers through the Rust global
-allocator, which cannot report failure. If the heap is exhausted during
-`rsa_private_key_from_pkcs8`, `RsaPrivateKey.sign` or `sign_into`, or
-`RsaPublicKey.verify`, the program stops with
-`memory allocation of N bytes failed` instead of returning `Allocation`.
-Plenty-side allocations around those calls, such as the key state and result
-buffers, still report `Allocation`.
+`ring`'s RSA operations allocate big-number buffers through the Rust global
+allocator, which cannot report failure. Before each one the runtime reserves a
+fixed block, then runs `ring` with that thread's allocations taken from it:
+
+| Operation | Reserved | When | Released |
+|---|---|---|---|
+| `rsa_private_key_from_pkcs8` | 12 KiB | before parsing | when the key is dropped; at once if parsing fails |
+| `RsaPrivateKey.sign`, `sign_into` | 8 KiB | each call | when the call returns |
+| `RsaPublicKey.verify` | 12 KiB | each call | when the call returns |
+
+`signature_size` and `public_key` reserve nothing; `public_key` allocates only
+its result. Each size is at least twice the most that `ring` 0.17.14 uses for
+the largest key it accepts: a 4096-bit private modulus or an 8192-bit public
+one. `ring` makes a fixed number of buffers per operation, each at most
+1 KiB, so the use does not depend on the message or the key's value. A test
+measures it and fails if a `ring` update outgrows a block.
+
+If the block cannot be reserved, or `ring` asks for more than it holds, the
+call returns `Allocation`. A failure inside `ring` abandons its frames, which
+hold only the block and the stack, so nothing else needs repair; the block
+is then released. The key, the target and the program stay usable; a failed
+signature leaves the target zeroed. The blocks come from the current heap: in
+an actor handler they count against the actor's
+[heap limit](actor.md#memory-accounting).
 
 A private key's runtime state is overwritten with volatile zero writes when it
 is dropped. For P-256 that covers the scalar and nonce key, which `ring` keeps
-inline. For RSA it covers only the pointers: `ring` stores the primes,
-exponents and coefficients in heap buffers that it frees without zeroing. Not
-scrubbed either:
+inline. For RSA, the key's reserved block, which holds the primes, exponents
+and coefficients, is zeroed before it is freed, as is each call's block. A
+key may be used, and dropped, on any thread. Not scrubbed:
 
 - the caller's DER or PEM input buffers, and the intermediate base64 and
   decoded buffers that `std.encoding.pem_decode` releases;
