@@ -138,7 +138,7 @@ looks up a zone links no zone data. Its API follows Rust's jiff. Add it as a
 
 ```toml
 [dependencies]
-tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.2.0" }
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.3.0" }
 ```
 
 A `tz.Zoned` holds a `Timestamp` with its zone. Adding calendar units keeps
@@ -165,6 +165,12 @@ def main() -> Result[(), tz.TzError | FormatError | AllocError | IoError]:
 2024-03-16T13:30:00+00:00[Europe/London]
 167
 ```
+
+`span_until` measures elapsed time: the 167 hours above include the hour the
+DST transition skips. `zoned.until(&other, largest, disambiguation)` and
+`since` instead give a difference in calendar units up to `largest`
+(`tz.Unit.Year` down to `Nanosecond`), computed on the wall clock as jiff
+does; calendar units need both values in the same zone.
 
 `tz.zoned(&stamp, &zone)` and `zoned.timestamp()` convert between the two
 types.
