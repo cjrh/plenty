@@ -951,9 +951,17 @@ fn asm_arm64(
 ) -> String {
     let mut out = String::new();
     let mut line = None;
-    let end = arm64_code_length(bytes, relocs);
+    let pools = arm64_literal_pools(bytes, relocs);
     let mut offset = 0;
-    while offset + 4 <= end {
+    while offset + 4 <= bytes.len() {
+        if let Some(pool) = pools.iter().find(|pool| pool.contains(&offset)) {
+            for row in bytes[offset..pool.end].chunks(16) {
+                let data: Vec<_> = row.iter().map(|byte| format!("0x{byte:02x}")).collect();
+                let _ = writeln!(out, "{offset:6x}:  .byte   {}", data.join(","));
+                offset += row.len();
+            }
+            continue;
+        }
         let start = offset as u32;
         if let Some((_, _, source)) = srclocs
             .iter()
@@ -1003,28 +1011,63 @@ fn decode_arm64(bytes: &[u8]) -> String {
     }
 }
 
-/// Cranelift loads trailing constant pools with PC-relative literal loads.
-/// Recognize their signed imm19 address from the encoding, without treating
-/// ADR/branches or relocated loads as evidence of a pool boundary.
-fn arm64_code_length(bytes: &[u8], relocs: &[ModuleReloc]) -> usize {
-    let mut end = bytes.len();
+/// Literal loads identify their own payload, not the end of a function.
+/// Cranelift can branch around a pool island and continue emitting code after
+/// it. Skip known payload while finding additional loads, so constant bytes are
+/// never themselves interpreted as instructions pointing at another pool.
+fn arm64_literal_pools(bytes: &[u8], relocs: &[ModuleReloc]) -> Vec<std::ops::Range<usize>> {
+    let mut pools: Vec<std::ops::Range<usize>> = Vec::new();
     let mut offset = 0;
-    while offset + 4 <= end {
+    while offset + 4 <= bytes.len() {
+        if let Some(end) = pools
+            .iter()
+            .filter(|pool| pool.contains(&offset))
+            .map(|pool| pool.end)
+            .max()
+        {
+            offset = end;
+            continue;
+        }
         let word = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
         if word & 0x3b00_0000 == 0x1800_0000
             && !relocs
                 .iter()
-                .any(|r| (offset..offset + 4).contains(&(r.offset as usize)))
+                .any(|reloc| (offset..offset + 4).contains(&(reloc.offset as usize)))
         {
+            let vector = word & (1 << 26) != 0;
+            let width = match (vector, word >> 30) {
+                (_, 0) | (false, 2) => 4,
+                (_, 1) => 8,
+                (true, 2) => 16,
+                // PRFM literals name a prefetch address, not a constant value.
+                _ => 0,
+            };
             let displacement = ((word << 8) as i32 >> 13) * 4;
             let target = offset as i64 + i64::from(displacement);
-            if target >= (offset + 4) as i64 && target < end as i64 {
-                end = target as usize;
+            if width != 0 && target >= 0 {
+                let start = target as usize;
+                if start.is_multiple_of(4)
+                    && start + width <= bytes.len()
+                    && !(start..start + width).contains(&offset)
+                {
+                    pools.push(start..start + width);
+                }
             }
         }
         offset += 4;
     }
-    end
+    pools.sort_by_key(|pool| pool.start);
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::new();
+    for pool in pools {
+        if let Some(previous) = merged.last_mut()
+            && pool.start <= previous.end
+        {
+            previous.end = previous.end.max(pool.end);
+        } else {
+            merged.push(pool);
+        }
+    }
+    merged
 }
 
 #[cfg(test)]
@@ -1045,7 +1088,48 @@ mod arm64_tests {
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect();
-        assert_eq!(arm64_code_length(&bytes, &[]), 8);
-        assert_eq!(arm64_code_length(&0_u32.to_le_bytes(), &[]), 4);
+        assert_eq!(arm64_literal_pools(&bytes, &[]), vec![8..16]);
+        assert!(arm64_literal_pools(&0_u32.to_le_bytes(), &[]).is_empty());
+    }
+    #[test]
+    fn instructions_after_a_middle_literal_island_remain_disassembled() {
+        // ldr x0, pc+8; b pc+12; eight-byte constant; ret.
+        let bytes: Vec<_> = [0x58000040_u32, 0x14000003, 42, 0, 0xd65f03c0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        let isa = crate::codegen::baseline_isa(
+            "aarch64-unknown-linux-gnu",
+            "backtracking",
+            "none",
+            false,
+        )
+        .unwrap();
+        let module = ObjectModule::new(
+            cranelift_object::ObjectBuilder::new(
+                isa,
+                "island-dump",
+                cranelift_module::default_libcall_names(),
+            )
+            .unwrap(),
+        );
+        let plan = Plan {
+            options: DumpOptions::default(),
+            optimize: false,
+            subjects: HashMap::default(),
+            strings: HashMap::default(),
+            paths: Vec::new(),
+        };
+        let checks = super::super::traps::Checks::default();
+        let names = Names {
+            module: &module,
+            plan: &plan,
+            requests: &[],
+            targets: &[],
+            checks: &checks,
+        };
+        let listing = asm_arm64(&bytes, &[], &[], &[], &names);
+        assert!(listing.contains("     8:  .byte"), "{listing}");
+        assert!(listing.contains("    10:  ret"), "{listing}");
     }
 }

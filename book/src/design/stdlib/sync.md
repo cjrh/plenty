@@ -86,3 +86,4 @@ Semaphores, condition variables, and read-write locks are not exported.
 ## Acknowledgements
 
 - `Mutex` uses mutex 2 from Ulrich Drepper's ["Futexes Are Tricky"](https://www.akkadia.org/drepper/futex.pdf).
+- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for the target-specific Linux futex syscall number (MIT OR Apache-2.0).

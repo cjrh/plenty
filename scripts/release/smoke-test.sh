@@ -29,12 +29,17 @@ done
 file="$(basename "$archive")"
 name="${file%.tar.gz}"
 version="${name#plenty-}"
-version="${version%-x86_64-unknown-linux-gnu}"
+case "$name" in
+    *-x86_64-unknown-linux-gnu) target=x86_64-unknown-linux-gnu ;;
+    *-aarch64-unknown-linux-gnu) target=aarch64-unknown-linux-gnu ;;
+    *) echo "smoke-test: unsupported archive target: $name" >&2; exit 1 ;;
+esac
+version="${version%-"$target"}"
 
 fail() { echo "smoke-test: FAIL: $*" >&2; exit 1; }
 step() { echo "smoke-test: $*"; }
 
-[ "$file" = "plenty-$version-x86_64-unknown-linux-gnu.tar.gz" ] || fail "unexpected archive name $file"
+[ "$file" = "plenty-$version-$target.tar.gz" ] || fail "unexpected archive name $file"
 step "checksum"
 (cd "$(dirname "$archive")" && sha256sum -c "$file.sha256")
 
@@ -112,9 +117,9 @@ exercise() {
     step "$label: version"
     local reported
     reported="$(cd "$work/elsewhere" && as_user "$root" plenty --version)"
-    [ "$reported" = "plenty $version (x86_64-unknown-linux-gnu)" ] || fail "plenty --version: $reported"
+    [ "$reported" = "plenty $version ($target)" ] || fail "plenty --version: $reported"
     reported="$(cd "$work/elsewhere" && as_user "$root" plentyc --version)"
-    [ "$reported" = "plentyc $version (x86_64-unknown-linux-gnu)" ] || fail "plentyc --version: $reported"
+    [ "$reported" = "plentyc $version ($target)" ] || fail "plentyc --version: $reported"
     [ "$(as_user "$root" sh -c 'command -v plenty')" = "$root/bin/plenty" ] || fail "PATH does not select $root"
 
     step "$label: compile and run from another directory"

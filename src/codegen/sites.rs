@@ -64,6 +64,7 @@ pub(super) struct Table {
     /// Declared with the first function that has a record, so a program
     /// without one adds no symbol.
     data: Option<DataId>,
+    aliases: Vec<(DataId, u64)>,
 }
 
 impl Table {
@@ -85,6 +86,36 @@ impl Table {
         Ok((data, base))
     }
 
+    /// ELF AArch64 GOT relocations address a symbol's GOT slot, not a pointer
+    /// plus an arbitrary addend. Give each placed function's base its own
+    /// symbol so the backend's GOT load receives the exact record address.
+    pub(super) fn address(
+        &mut self,
+        module: &mut ObjectModule,
+        table: DataId,
+        base: i64,
+    ) -> Result<(DataId, i64)> {
+        if base == 0
+            || module.isa().triple().architecture
+                != target_lexicon::Architecture::Aarch64(
+                    target_lexicon::Aarch64Architecture::Aarch64,
+                )
+        {
+            return Ok((table, base));
+        }
+        // ObjectModule has no alias API. An import can remain undefined while
+        // the module is assembled; Placed::resolve defines it as a local alias
+        // after finish exposes the underlying object, before anything is emitted.
+        let alias = module.declare_data(
+            &format!(".Lplenty_site_{base}"),
+            Linkage::Import,
+            false,
+            false,
+        )?;
+        self.aliases.push((alias, u64::try_from(base)?));
+        Ok((alias, 0))
+    }
+
     /// The offset the next appended function's records start at.
     pub(super) fn next_offset(&self) -> i64 {
         (self.records.len() * RECORD) as i64
@@ -96,9 +127,12 @@ impl Table {
     }
 
     /// Defines the table in `module`, once every function is placed.
-    pub(super) fn define(self, module: &mut ObjectModule) -> Result<()> {
+    pub(super) fn define(self, module: &mut ObjectModule) -> Result<Placed> {
         let Some(data) = self.data else {
-            return Ok(());
+            return Ok(Placed {
+                table: None,
+                aliases: Vec::new(),
+            });
         };
         let names_start = self.records.len() * RECORD;
         let mut names = Vec::new();
@@ -126,6 +160,37 @@ impl Table {
         description.define(bytes.into_boxed_slice());
         description.set_align(4);
         module.define_data(data, &description)?;
+        Ok(Placed {
+            table: Some(data),
+            aliases: self.aliases,
+        })
+    }
+}
+
+pub(super) struct Placed {
+    table: Option<DataId>,
+    aliases: Vec<(DataId, u64)>,
+}
+
+impl Placed {
+    /// Define offset aliases in the same read-only section as the source table.
+    pub(super) fn resolve(self, product: &mut cranelift_object::ObjectProduct) -> Result<()> {
+        use cranelift_object::object::{SymbolScope, write::SymbolSection};
+        let Some(table) = self.table else {
+            return Ok(());
+        };
+        let table = product.object.symbol(product.data_symbol(table));
+        let SymbolSection::Section(section) = table.section else {
+            return Err("the source-site table has no section".into());
+        };
+        let base = table.value;
+        for (alias, offset) in self.aliases {
+            let symbol = product.data_symbol(alias);
+            let symbol = product.object.symbol_mut(symbol);
+            symbol.section = SymbolSection::Section(section);
+            symbol.value = base + offset;
+            symbol.scope = SymbolScope::Compilation;
+        }
         Ok(())
     }
 }

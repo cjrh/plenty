@@ -106,7 +106,7 @@ complete program.
 
 ## Limits
 
-- x86_64 Linux GNU only; elsewhere `listen` is
+- x86-64 and AArch64 GNU/Linux; elsewhere `listen` is
   `Stream(StreamError.Io(IoError.Unsupported))`.
 - Only `SIGTERM` and `SIGINT`. There is no `SIGHUP` reload, no other
   signal, and no way to catch a signal more than once.
@@ -116,3 +116,4 @@ complete program.
 ## Acknowledgements
 
 - Uses D. J. Bernstein's [self-pipe trick](https://cr.yp.to/docs/selfpipe.html), with a socket pair in place of the pipe.
+- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for Linux signal action and socket bindings (MIT OR Apache-2.0).

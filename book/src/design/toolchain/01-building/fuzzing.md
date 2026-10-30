@@ -121,4 +121,7 @@ Without AddressSanitizer libFuzzer has no leak checking or stack traces.
 Plenty code needs neither for memory safety; a trap prints its source
 position before libFuzzer's report.
 
-The target is x86-64 Linux, as for every build (see [linking](linking.md)).
+The target is the installed compiler's GNU/Linux architecture (see
+[linking](linking.md)). ARM libFuzzer/tool discovery and sanitizers require
+separate qualification; a successful ordinary ARM build does not prove their
+availability.

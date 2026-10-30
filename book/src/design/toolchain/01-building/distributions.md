@@ -117,6 +117,7 @@ Move the whole bundle, run it from another working directory without loader
 overrides, and test that removing an engine makes loading fail even on the
 build machine. End users need no Plenty, Rust or C compiler, but still need
 compatible host C libraries. This is **not static linking or OS-independent
-packaging**: the supported native target remains x86-64 GNU/Linux. Building on a
+packaging**: native emission uses the installed compiler's x86-64 or AArch64
+GNU/Linux target. Building on a
 newer system can raise the executable's glibc requirement. Build and test on the
 oldest system you support; engine metadata alone cannot establish portability.

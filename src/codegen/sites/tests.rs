@@ -126,3 +126,45 @@ fn a_standard_trap_after_advancing_a_user_generator_names_the_original_caller() 
         "error: std/fixture.plenty:9:5: division by zero\nnote: called from user.plenty:11:11\n"
     );
 }
+
+#[test]
+fn arm_source_table_bases_are_local_symbols_with_zero_relocation_addends() {
+    use cranelift_object::object::{SymbolScope, write::SymbolSection};
+    let isa =
+        super::super::baseline_isa("aarch64-unknown-linux-gnu", "backtracking", "none", false)
+            .unwrap();
+    let mut module = ObjectModule::new(
+        cranelift_object::ObjectBuilder::new(
+            isa,
+            "site-aliases",
+            cranelift_module::default_libcall_names(),
+        )
+        .unwrap(),
+    );
+    let mut table = Table::default();
+    let (first, offset) = table
+        .append(&mut module, &[(Some("main.plenty".into()), 3, 5, false)])
+        .unwrap();
+    assert_eq!(
+        table.address(&mut module, first, offset).unwrap(),
+        (first, 0)
+    );
+    let (data, offset) = table
+        .append(&mut module, &[(Some("picking.plenty".into()), 2, 5, false)])
+        .unwrap();
+    assert_eq!(offset, 16);
+    let (alias, addend) = table.address(&mut module, data, offset).unwrap();
+    assert_ne!(alias, first);
+    assert_eq!(addend, 0);
+    let placed = table.define(&mut module).unwrap();
+    let mut product = module.finish();
+    placed.resolve(&mut product).unwrap();
+    let table_symbol = product.object.symbol(product.data_symbol(first));
+    let alias_symbol = product.object.symbol(product.data_symbol(alias));
+    assert!(matches!(alias_symbol.section, SymbolSection::Section(_)));
+    assert_eq!(alias_symbol.section, table_symbol.section);
+    assert_eq!(alias_symbol.value, table_symbol.value + 16);
+    assert_eq!(alias_symbol.scope, SymbolScope::Compilation);
+    // Resolving aliases requires no writable pointer table or runtime fixups.
+    assert!(product.emit().unwrap().starts_with(b"\x7fELF"));
+}

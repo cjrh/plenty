@@ -205,12 +205,13 @@ impl Output {
             cache.finish();
         }
         let sites = self.sites.data();
-        self.sites.define(&mut self.module)?;
+        let site_aliases = self.sites.define(&mut self.module)?;
         let traps = match self.traps {
             Some(traps) => Some(traps.define(&mut self.module, sites)?),
             None => None,
         };
         let mut product = self.module.finish();
+        site_aliases.resolve(&mut product)?;
         if let Some(traps) = traps {
             traps.relocate(&mut product)?;
         }

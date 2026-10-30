@@ -129,19 +129,22 @@ git push --atomic origin main vX.Y.Z
 | Job | Work |
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
-| Test | The full test suite and release-script tests on the Ubuntu host, with the pinned Rust |
-| Build and test | In the pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both optional engines and packages separate archives |
-| Smoke test | For each pinned distribution image: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
+| Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
+| Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both optional engines and packages separate archives |
+| Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
 | Publish | Creates a draft release with the compiler, dataframe and linalg archives and their checksums, then publishes it (`publish.sh`) |
 
-Both release test environments install the SHA-256-verified mold version pinned
-in `scripts/release/toolchain.env`, without requiring root. They check a linked
-program's `.comment` section before running the suite, so a missing linker fails
-early rather than silently changing executable sizes. The container build and
-local rehearsal use the same setup. The size budgets are measured with mold;
-GNU ld can retain additional unused runtime code and panic-message strings.
-Users can still link with their system linker, as the clean distribution smoke
-tests exercise; mold is not a required release-installation dependency.
+Native Ubuntu test runners and the x86-64 baseline build install the
+SHA-256-verified mold version pinned in `scripts/release/toolchain.env`, without
+requiring root. They check a linked program's `.comment` section before running
+the suite, so a missing linker fails early rather than silently changing
+executable sizes. The ARM glibc 2.28 build and its local rehearsal use the GNU
+linker already pinned by the build image: upstream's ARM mold 3.0.0 binary
+imports `gettid@GLIBC_2.30` and cannot run in that image. This preserves the
+existing glibc floor. Size budgets measured with mold require care when comparing
+GNU ld outputs, which can retain additional unused runtime code and panic strings.
+The clean distribution smoke tests also exercise system linkers; mold is not a
+release-installation dependency.
 
 The build never uses moving `main`, a host build, or a cache from another
 environment. The release is published only after every job passes, so a failed
@@ -150,10 +153,17 @@ publish GitHub pre-releases that are not marked latest. Runs for the same tag
 are serialized. Only the publish job can write repository contents, through
 the workflow token; no crates.io or other credential is used.
 
-Optional assets are `plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz`
-and `plenty-linalg-VERSION-x86_64-unknown-linux-gnu.tar.gz`.
-Each contains `lib/libplenty_NAME_v1.so`, deployment instructions, notices,
-and `engine.json` identifying the release/source, target and library checksum.
+The target matrix uses `x86_64-unknown-linux-gnu` and
+`aarch64-unknown-linux-gnu`. Compiler assets are
+`plenty-VERSION-TRIPLE.tar.gz`; optional engine assets are
+`plenty-dataframe-VERSION-TRIPLE.tar.gz` and `plenty-linalg-VERSION-TRIPLE.tar.gz`.
+An engine must match the compiler's target. Native hardware, glibc-baseline
+execution and clean smoke tests must actually pass before the ARM artifacts
+carry a release support guarantee; configuring the matrix alone does not
+establish one. The [ARM harness](linux-aarch64.md) records emulated evidence.
+Each engine archive contains `lib/libplenty_NAME_v1.so`, deployment instructions,
+notices and `engine.json` identifying the release/source, target and library
+checksum.
 `package-engine.py NAME` rejects an incorrect SONAME, embedded search paths,
 unsupported native dependencies/symbol versions, and missing symbols required
 by that checkout's stdlib facade. This catches stale engines with the same
@@ -169,13 +179,15 @@ it is not a copy of the compiler's dependency inventory.
 
 `scripts/release/toolchain.env` pins every input that is not in the lockfile:
 
-- `BUILD_IMAGE`: `quay.io/pypa/manylinux_2_28_x86_64` by digest. AlmaLinux 8
-  with glibc 2.28 and gcc-toolset, maintained by the PyPA for exactly this
-  purpose. Building there fixes the glibc baseline of the compiler and of the
-  embedded runtime archives and optional engine, whose C and Rust objects are
-  compiled against glibc 2.28 headers.
-- `RUST_VERSION` and a checksummed `rustup-init`.
-- `SMOKE_IMAGES`: the distributions the README names as tested.
+- `BUILD_IMAGE` and `BUILD_IMAGE_AARCH64`: architecture-matched
+  `quay.io/pypa/manylinux_2_28_x86_64` and `manylinux_2_28_aarch64` images by
+  digest. They provide AlmaLinux 8 with glibc 2.28 and gcc-toolset, so C/Rust
+  objects are built against that baseline. ELF symbol auditing and execution
+  in the oldest smoke environment must confirm the result for each target.
+- `RUST_VERSION`, architecture-specific checksummed `rustup-init`, and mold.
+- `SMOKE_IMAGES` and `SMOKE_IMAGES_AARCH64`: separate pinned inventories.
+  x86 retains its six distributions; ARM uses AlmaLinux 8 and Debian 13.
+  A distribution without a matching ARM image is not silently treated as tested.
 
 Update these deliberately: change the pin, run `scripts/release/local-check.sh`,
 and update the tested distribution list in `scripts/release/README.dist.md`
@@ -208,8 +220,21 @@ the portable GLIBC/GCC symbol baseline. The release workflow never selects it.
 
 `scripts/release/local-check.sh` runs the build and smoke jobs with Docker,
 without tagging, uploading, or publishing. It builds in the pinned image into
-`target/release-container/`, separate from host builds, and smoke-tests the
-archives in every pinned distribution. Options:
+`target/release-container-ARCH/`, separate from host builds, and smoke-tests the
+archives in that target's pinned distributions. By default it selects the host
+architecture; `PLENTY_RELEASE_TARGET` explicitly selects one of the two triples.
+The native release build refuses a mismatched host rather than quietly relying
+on emulation. For example, on an ARM host:
+
+```sh
+PLENTY_RELEASE_TARGET=aarch64-unknown-linux-gnu scripts/release/local-check.sh --test
+```
+
+Normal CI requires the all-feature suite, doctests and a default-feature build
+on both `ubuntu-24.04` and `ubuntu-24.04-arm`; function/build cache keys include
+runner architecture. Optional engines are built and exercised independently.
+The engine builder accepts `--target TRIPLE` and `--validate`; a successful
+cross-build alone does not validate engine execution. Options:
 
 | Option | Effect |
 |---|---|
@@ -256,7 +281,10 @@ before it ships. For `iced-x86 1.21.0`, whose published crate omits its license
 file, the generator uses a bundled copy from the upstream commit recorded in
 the crate's `.cargo_vcs_info.json`. The fallback matches the package name,
 version, and declared license and includes the source URL in the notices.
-Dependency upgrades require a fresh review if they still omit the license file;
+`yaxpeax-arm 0.5.0`, the A64 assembly decoder, declares `0BSD` but omits a
+license file; its pinned fallback supplies the standard SPDX 0BSD terms without
+inventing a copyright notice. Both fallbacks identify their package version and
+source URL. Dependency upgrades require a fresh review if they still omit the license file;
 notice generation does not download fallback text during the release build.
 
 For each separate engine archive, `third_party_notices.py --component NAME`
