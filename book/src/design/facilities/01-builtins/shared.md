@@ -44,8 +44,16 @@ borrow at and must be named first.
 
 ## Rules
 
-- Handles have no equality, formatting, `print`, or `copy()`, including when
-  stored inside other values. Compare or print values read through the handle.
+- Handles have no equality, formatting, or `print`, including when stored
+  inside other values. Compare or print values read through the handle.
+- [`copy()`](../../language/05-ownership/01-bindings-moves-and-copies.md) of a
+  value that contains handles, such as a tuple, class, enum payload, list, or
+  dictionary, copies its owned parts and gives each nested handle another
+  owner, as `share()` would. The content is not copied and the count is
+  shared. Sharing a handle allocates nothing; the copy allocates only for its
+  owned parts. `copy(handle)` on a handle itself is rejected: write
+  `handle.share()`. [Slices](../../language/04-expressions/slices.md) copy
+  their elements the same way.
 - `T` follows the [storage rules](../../language/05-ownership/index.md) of a
   box: no references, generators, or borrowed environments.
 - `T` cannot reach a `ThreadPoolExecutor` or `Future`. The last owner could

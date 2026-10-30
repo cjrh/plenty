@@ -116,6 +116,7 @@ impl Type {
                     | b'Z'
                     | b'K'
                     | b'O'
+                    | b'W'
                     | b'J'
             )
     }
@@ -1043,7 +1044,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'U' => byte_storage::equal(a, b),
             b'Q' => clist::equal(a, b, ty),
-            b'O' => {
+            b'O' | b'W' => {
                 let (a, b) = (a as *const Boxed, b as *const Boxed);
                 let slot =
                     |boxed: *const Boxed| std::ptr::addr_of!((*boxed).slot).cast::<u128>().read();
@@ -1477,6 +1478,7 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             },
             b'L' | b'S' | b'D' => try_copy_collection(*value, ty),
             b'O' => try_copy_box(*value as *const Boxed, ty),
+            // A `Shared` owner (`W`) gains another owner, as `share()` would.
             _ => return try_copy_shared(value, ty),
         };
         match copied {
@@ -1681,9 +1683,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                     None => out.extend_from_slice(b"()"),
                 }
             }
-            b'O' => {
+            b'O' | b'W' => {
                 let boxed = value as *const Boxed;
-                out.extend_from_slice(b"Box(");
+                out.extend_from_slice(if ty.kind == b'O' { b"Box(" } else { b"Shared(" });
                 render(
                     std::ptr::addr_of!((*boxed).slot).cast::<u128>().read(),
                     ty.key(),
