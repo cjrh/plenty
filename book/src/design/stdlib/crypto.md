@@ -98,8 +98,8 @@ may be retried. A tag whose length differs from `size()`, such as a truncated
 tag, does not verify; `verify` does not accept truncation.
 
 The fields are private, so a state can only be made by the module's constructors.
-Both are [redacted](../language/03-types/classes.md#redacted-types): printing one shows `std.crypto.Digest(???)` or
-`std.crypto.Mac(???)`.
+Both are [redacted](../language/03-types/classes.md#redacted-types): printing one shows `std.crypto.Digest(@redacted)` or
+`std.crypto.Mac(@redacted)`.
 
 ## Errors
 

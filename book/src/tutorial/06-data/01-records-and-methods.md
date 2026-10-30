@@ -143,7 +143,7 @@ default for instances that own resources or should be used only once; see
 
 Printing a class shows every field, so a password or key reaches any log that
 prints its holder. Write `@redacted` before `class` or `enum` to replace the
-contents with `(???)` wherever the value is printed or formatted, however
+contents with `(@redacted)` wherever the value is printed or formatted, however
 deeply it is nested:
 
 ```plenty
@@ -164,8 +164,8 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 ```output
-Login(user="ada", password=Password(???))
-Password(???)
+Login(user="ada", password=Password(@redacted))
+Password(@redacted)
 True
 ```
 

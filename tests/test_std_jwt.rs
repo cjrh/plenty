@@ -585,10 +585,10 @@ print([es256_public()?]?)?
 print(f"{key!r} {key:>14}"?)?
 "#,
         r#"
-std.jwt.SigningKey(???)
-Result[std.jwt.VerifyingKey, std.jwt.JwtError].Ok(std.jwt.VerifyingKey(???))
-[std.jwt.VerifyingKey(???)]
-std.jwt.SigningKey(???) std.jwt.SigningKey(???)
+std.jwt.SigningKey(@redacted)
+Result[std.jwt.VerifyingKey, std.jwt.JwtError].Ok(std.jwt.VerifyingKey(@redacted))
+[std.jwt.VerifyingKey(@redacted)]
+std.jwt.SigningKey(@redacted) std.jwt.SigningKey(@redacted)
 "#,
     );
 }

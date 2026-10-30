@@ -1,4 +1,4 @@
-//! `@redacted` classes and enums (issue #586) format as `TypeName(???)` in
+//! `@redacted` classes and enums (issue #586) format as `TypeName(@redacted)` in
 //! every automatic formatting path, at any nesting depth: `print`, `str.repr`,
 //! f-string fields with any conversion or spec, and `main`'s error report.
 //! Field access, equality, hashing and ordering are unchanged.
@@ -77,19 +77,19 @@ print(Holder(Key("s", 1)))?
 print(Wrapped(Key("s", 1)))?
 "#,
         ),
-        "Key(???)\n\
-         Password(???)\n\
-         Token(???)\n\
-         a Password(???) 3\n\
-         Config(name=\"app\", key=Key(???), password=Password(???))\n\
-         [Key(???), Key(???)]\n\
-         {\"k\": Password(???)}\n\
-         (Key(???), 3)\n\
-         Option[Key].Some(Key(???))\n\
-         Result[Key, str].Ok(Key(???))\n\
-         Event.Login(Pin(???))\n\
-         Holder[Key](item=Key(???))\n\
-         Wrapped(key=Key(???))\n",
+        "Key(@redacted)\n\
+         Password(@redacted)\n\
+         Token(@redacted)\n\
+         a Password(@redacted) 3\n\
+         Config(name=\"app\", key=Key(@redacted), password=Password(@redacted))\n\
+         [Key(@redacted), Key(@redacted)]\n\
+         {\"k\": Password(@redacted)}\n\
+         (Key(@redacted), 3)\n\
+         Option[Key].Some(Key(@redacted))\n\
+         Result[Key, str].Ok(Key(@redacted))\n\
+         Event.Login(Pin(@redacted))\n\
+         Holder[Key](item=Key(@redacted))\n\
+         Wrapped(key=Key(@redacted))\n",
     );
 }
 
@@ -101,12 +101,12 @@ fn repr_and_format_strings_have_no_escape() {
 k = Key("hunter2", 7)
 print(str.repr(k)?)?
 print(str.repr(Password("pw"))?)?
-print(f"{k}|{k!r}|{k!s}|{k!a}|{k:>10}|{Password('z')=}"?)?
+print(f"{k}|{k!r}|{k!s}|{k!a}|{k:>16}|{Password('z')=}"?)?
 "#,
         ),
-        "Key(???)\n\
-         Password(???)\n\
-         Key(???)|Key(???)|Key(???)|Key(???)|  Key(???)|Password('z')=Password(???)\n",
+        "Key(@redacted)\n\
+         Password(@redacted)\n\
+         Key(@redacted)|Key(@redacted)|Key(@redacted)|Key(@redacted)|  Key(@redacted)|Password('z')=Password(@redacted)\n",
     );
 }
 
@@ -117,7 +117,7 @@ fn generic_redacted_types_name_their_arguments() {
          @redacted\nenum Choice[T]:\n    One(T)\n\n\
          def main() -> Result[(), AllocError | IoError]:\n    \
          print(Secret(5), Choice[str].One(\"x\"))?\n    Ok(())\n",
-        "Secret[i64](???) Choice[str](???)\n",
+        "Secret[i64](@redacted) Choice[str](@redacted)\n",
     );
 }
 
@@ -134,7 +134,7 @@ q = p
 print(p, q, p == q)?
 "#,
         ),
-        "hunter2 7\nTrue False\nPin(???) Pin(???) True\n",
+        "hunter2 7\nTrue False\nPin(@redacted) Pin(@redacted) True\n",
     );
 }
 
@@ -149,7 +149,7 @@ fn an_explicit_display_method_still_formats_f_strings() {
          out.text(\"shown\")\n\n\
          def main() -> Result[(), AllocError | IoError | FormatError]:\n    \
          s = Shown(\"x\")\n    print(f\"{s}\"?, s)?\n    Ok(())\n",
-        "shown Shown(???)\n",
+        "shown Shown(@redacted)\n",
     );
 }
 
@@ -161,7 +161,7 @@ fn main_error_report_is_redacted() {
     );
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Key(???)"), "{stderr}");
+    assert!(stderr.contains("Key(@redacted)"), "{stderr}");
     assert!(!stderr.contains("hunter2"), "{stderr}");
 }
 
@@ -236,6 +236,6 @@ def main() -> Result[(), Fault]:
     print(redacted > 0, redacted <= plain)?
     Ok(())
 "#,
-        "Key(???)\nPlain(secret=\"hunter2\", id=7)\nTrue True",
+        "Key(@redacted)\nPlain(secret=\"hunter2\", id=7)\nTrue True",
     );
 }

@@ -14,7 +14,7 @@ fn structural(mut ty: EnumType, identity: String) -> Ty {
 pub struct EnumType {
     pub facts: std::sync::OnceLock<crate::type_facts::Facts>,
     pub restricted_storage: bool,
-    /// Declared `@redacted`: automatic formatting writes `Name(???)`. See
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`. See
     /// book/src/design/language/03-types/classes.md#redacted-types.
     pub redacted: bool,
     // Names are unique within a compilation; builtin names include concrete args.

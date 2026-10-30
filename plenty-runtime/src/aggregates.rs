@@ -64,7 +64,7 @@ pub(crate) struct Type {
     /// Layout facts the compiler records for a class with a record, so
     /// release and relocation can skip their field walks (issue #550).
     pub(crate) plan: Option<&'static Plan>,
-    /// A `@redacted` class or enum: rendering writes `name(???)` and reads
+    /// A `@redacted` class or enum: rendering writes `name(@redacted)` and reads
     /// nothing from the value. See
     /// book/src/design/language/03-types/classes.md#redacted-types.
     pub(crate) redacted: bool,
@@ -1653,7 +1653,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     }
     if ty.redacted {
         out.extend_from_slice(ty.name.as_bytes());
-        out.extend_from_slice(b"(???)");
+        out.extend_from_slice(b"(@redacted)");
         return;
     }
     if let Some(wrapper) = ty.wrapper {

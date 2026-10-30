@@ -69,7 +69,7 @@ lowercase digits, the escape `debug_text` uses for controls:
 `\u2603`, or `\U0001f600`, with single quotes.
 
 A [`@redacted`](../03-types/classes.md#redacted-types) type without its own
-`display` or `debug` method writes `TypeName(???)` under every conversion and
+`display` or `debug` method writes `TypeName(@redacted)` under every conversion and
 spec, including `!r`, `!a`, and `=`.
 
 ## Format specs

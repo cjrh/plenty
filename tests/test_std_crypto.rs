@@ -339,7 +339,7 @@ key = std.bytes.from_text("secret")?
 mac = std.crypto.hmac(Algorithm.Sha256, &key)?
 print(mac, std.crypto.digest(Algorithm.Sha256)?)?
 "#,
-        "std.crypto.Mac(???) std.crypto.Digest(???)",
+        "std.crypto.Mac(@redacted) std.crypto.Digest(@redacted)",
     );
 }
 

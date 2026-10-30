@@ -505,7 +505,7 @@ fn private_keys_print_no_material_and_cannot_be_forged() {
 print(std.crypto.rsa_private_key_from_pkcs8(&unhex("$RSA_PKCS8")?)?)?
 print(std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?)?
 "#,
-        "RsaPrivateKey(???)\nP256PrivateKey(???)",
+        "RsaPrivateKey(@redacted)\nP256PrivateKey(@redacted)",
     );
     let forged = support::check_file_error(&program(
         "state = std.bytes.empty()?\nkey = std.crypto.RsaPrivateKey(state)\n",

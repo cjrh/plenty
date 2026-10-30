@@ -19,7 +19,7 @@ pub struct ClassType {
     /// book/src/design/language/04-expressions/operators.md#newtype-forwarding.
     pub forwards_operators: bool,
     /// Declared `@redacted`: automatic formatting (`print`, `str.repr`,
-    /// f-string fields) writes `Name(???)` instead of the fields, at any
+    /// f-string fields) writes `Name(@redacted)` instead of the fields, at any
     /// depth. See book/src/design/language/03-types/classes.md#redacted-types.
     pub redacted: bool,
     /// Inline field storage size; excluded from nominal equality.

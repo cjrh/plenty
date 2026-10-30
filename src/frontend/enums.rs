@@ -9,7 +9,7 @@ pub(super) struct EnumDecl {
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
-    /// Declared `@redacted`: automatic formatting writes `Name(???)`.
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
     pub(super) redacted: bool,
 }
 impl EnumDecl {

@@ -160,7 +160,7 @@ without `@newtype`, and a `@newtype` value prints as its class
 `@redacted` on a class or enum hides its contents from every automatic
 formatting path: `print`, `str.repr`, f-string fields, and the report `main`
 writes for a returned error. The value renders as its type name followed by
-`(???)`, at any nesting depth: in a list, dictionary, tuple, `Option`,
+`(@redacted)`, at any nesting depth: in a list, dictionary, tuple, `Option`,
 `Result`, enum payload, or another class's field.
 
 ```plenty
@@ -180,8 +180,8 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 ```
 ```output
-Client(host="example.com", key=ApiKey(???))
-[ApiKey(???)]
+Client(host="example.com", key=ApiKey(@redacted))
+[ApiKey(@redacted)]
 7
 ```
 
@@ -191,12 +191,12 @@ The rules:
   that mixes secret and public data either is redacted entirely or keeps its
   secret in a separate redacted field type, as `Client` does above.
 - The name includes type arguments and module qualification as ordinary
-  printing would: a generic `Secret[T]` prints `Secret[i64](???)`.
+  printing would: a generic `Secret[T]` prints `Secret[i64](@redacted)`.
 - A generic wrapper over a redacted type is not itself redacted;
-  `Holder[ApiKey]` prints `Holder[ApiKey](item=ApiKey(???))`. A `@newtype`
+  `Holder[ApiKey]` prints `Holder[ApiKey](item=ApiKey(@redacted))`. A `@newtype`
   over a redacted type likewise prints its own name with the redacted field.
 - In an f-string, `!r`, `!s`, `!a`, `=`, and every format spec give the same
-  `ApiKey(???)`; there is no conversion that reveals the contents. Padding and
+  `ApiKey(@redacted)`; there is no conversion that reveals the contents. Padding and
   alignment apply to the marker.
 - Explicit formatting is unaffected: a public `display` or `debug` method the
   type defines still formats its f-string fields, and a

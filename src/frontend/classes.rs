@@ -16,7 +16,7 @@ pub(super) struct ClassDecl {
     /// operators are lowered as if written at this token, in the class's
     /// own module; see `operators::Lower::forward_binary`.
     pub(super) newtype: Option<Token>,
-    /// Declared `@redacted`: automatic formatting writes `Name(???)`.
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
     pub(super) redacted: bool,
 }
 
