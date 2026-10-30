@@ -814,6 +814,211 @@ mod native {
         ".size plenty_actor_resume, . - plenty_actor_resume",
     );
 
+    /// Called after a trap's message is printed. Returns only when no handler
+    /// is running on this thread, and the process then exits as before.
+    pub(crate) fn recover(kind: TrapKind) {
+        let resume = RECOVERY.with(Cell::get);
+        if resume.is_null() {
+            return;
+        }
+        eprintln!("note: contained in an actor; its heap is discarded");
+        // SAFETY: `resume` was filled by the enter call that is still on this
+        // thread's stack, below every frame being abandoned.
+        unsafe { plenty_actor_resume(resume, kind as u64) }
+    }
+
+    fn live(heap: i64) -> Option<usize> {
+        let index = usize::try_from(heap).ok().filter(|&i| i < MAX_HEAPS)?;
+        // SAFETY: owning thread; see the module comment.
+        unsafe { (*table()).heaps[index].live }.then_some(index)
+    }
+
+    /// Runs a compiled `__actor_run` adapter with `heap` current. Returns 0
+    /// when the handler returned (its result is in `storage`), or the
+    /// `TrapKind` when it trapped; `TRAP_KIND` reports that kind again.
+    ///
+    /// # Safety
+    /// `entry` is the compiler's adapter for `storage`'s task layout.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn plenty_actor_run(
+        heap: i64,
+        storage: *mut u8,
+        entry: unsafe extern "C" fn(*mut u8) -> *mut u8,
+    ) -> i64 {
+        check_owner();
+        let Some(index) = live(heap) else {
+            crate::fail("std.actor: the actor heap is not live");
+        };
+        if !RECOVERY.with(Cell::get).is_null() {
+            crate::fail("std.actor: a handler cannot run another handler");
+        }
+        let caller = crate::CALLER.with(Cell::get);
+        let queue = crate::memory::save_queue();
+        let mut resume = Resume([0; RESUME_WORDS]);
+        CURRENT.with(|current| current.set(index + 1));
+        RECOVERY.with(|recovery| recovery.set(&mut resume));
+        // SAFETY: the adapter reads its arguments from `storage` and writes
+        // the result there; `resume` outlives the call.
+        let status = unsafe { plenty_actor_enter(&mut resume, entry, storage) };
+        RECOVERY.with(|recovery| recovery.set(std::ptr::null_mut()));
+        CURRENT.with(|current| current.set(0));
+        if status != 0 {
+            // Any other contained trap inside an arena call abandons `within`
+            // too. Its arena was allocated in this heap, which is discarded.
+            ARENA.with(|slot| slot.set(std::ptr::null_mut()));
+            ARENA_RESUME.with(|slot| slot.set(std::ptr::null_mut()));
+            // Thread-local runtime state the abandoned frames may have changed.
+            crate::CALLER.with(|current| current.set(caller));
+            crate::memory::restore_queue(queue);
+            LAST_TRAP.with(|last| last.set(status as i64));
+        }
+        status as i64
+    }
+
+    pub(crate) fn running() -> bool {
+        !RECOVERY.with(Cell::get).is_null()
+    }
+
+    // ---------------------------------------------------------- operations
+
+    /// Reserves the heap range once. Runtime globals that std initializes on
+    /// first use are initialized here, outside every heap: one created by a
+    /// handler would live in a heap that is later discarded.
+    pub(super) fn prepare() -> i64 {
+        if !BASE.load(Ordering::Acquire).is_null() {
+            check_owner();
+            return 0;
+        }
+        // Linux supports 4, 16 and 64 KiB pages on AArch64. Both slot
+        // boundaries and commit increments must be multiples of a page.
+        // SAFETY: sysconf has no pointer arguments.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page <= 0 || !COMMIT_STEP.is_multiple_of(page as usize) {
+            return RESERVE_FAILED;
+        }
+        PAGE_BYTES.store(page as usize, Ordering::Relaxed);
+        drop(std::io::stdout().lock());
+        drop(std::io::stderr().lock());
+        drop(std::io::stdin().lock());
+        // SAFETY: a fresh anonymous reservation; nothing is accessible.
+        let base = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                SLOT_BYTES * MAX_HEAPS,
+                PROT_NONE,
+                MAP_PRIVATE_ANONYMOUS_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if base as isize == -1 {
+            return RESERVE_FAILED;
+        }
+        OWNER.store(token(), Ordering::Release);
+        BASE.store(base, Ordering::Release);
+        0
+    }
+
+    pub(super) fn create(limit: i64) -> i64 {
+        let Some(limit) = usize::try_from(limit)
+            .ok()
+            .filter(|&limit| (1..=SLOT_BYTES).contains(&limit))
+        else {
+            return BAD_LIMIT;
+        };
+        let prepared = prepare();
+        if prepared != 0 {
+            return prepared;
+        }
+        // SAFETY: owning thread; see the module comment.
+        let heaps = unsafe { &mut (*table()).heaps };
+        let Some(index) = heaps.iter().position(|heap| !heap.live) else {
+            return TABLE_FULL;
+        };
+        heaps[index] = Heap {
+            live: true,
+            limit,
+            ..EMPTY_HEAP
+        };
+        index as i64
+    }
+
+    /// Closes the heap's open file owners and returns its pages to the OS,
+    /// without running any destructor. Returns the number of descriptors
+    /// closed, or -1 when `heap` is not live or is current.
+    pub(super) fn discard(heap: i64) -> i64 {
+        let Some(index) = live(heap) else {
+            return -1;
+        };
+        if CURRENT.with(Cell::get) == index + 1 {
+            return -1;
+        }
+        let mut closed = 0;
+        // SAFETY: owning thread; tracked owners in this slot are still mapped.
+        unsafe {
+            for entry in (*table()).files.iter_mut() {
+                if !entry.is_null() && owner(entry.cast()) == Some(index) {
+                    if crate::files::abandon(*entry) {
+                        closed += 1;
+                    }
+                    *entry = std::ptr::null_mut();
+                }
+            }
+            let heap = &mut (*table()).heaps[index];
+            if heap.committed > 0 {
+                madvise(slot(index), heap.committed, MADV_DONTNEED);
+                mprotect(slot(index), heap.committed, PROT_NONE);
+            }
+            *heap = EMPTY_HEAP;
+        }
+        closed
+    }
+
+    pub(super) fn operate(op: i64, argument: i64) -> i64 {
+        check_owner();
+        // SAFETY (each table read): owning thread, checked above.
+        let heaps = || unsafe { &(*table()).heaps };
+        match op {
+            CREATE => {
+                if cfg!(plenty_runtime_embedded) {
+                    create(argument)
+                } else {
+                    // Without the router, handler allocations would not
+                    // reach the heap.
+                    UNSUPPORTED
+                }
+            }
+            PREPARE => {
+                if cfg!(plenty_runtime_embedded) {
+                    prepare()
+                } else {
+                    UNSUPPORTED
+                }
+            }
+            DISCARD => discard(argument),
+            USED => live(argument).map_or(-1, |index| heaps()[index].used as i64),
+            USED_TOTAL => heaps()
+                .iter()
+                .filter(|heap| heap.live)
+                .map(|heap| heap.used as i64)
+                .sum(),
+            COMMITTED_TOTAL => heaps().iter().map(|heap| heap.committed as i64).sum(),
+            LIVE_COUNT => heaps().iter().filter(|heap| heap.live).count() as i64,
+            TRAP_KIND => LAST_TRAP.with(Cell::get),
+            SWITCH => {
+                let next = if argument < 0 {
+                    0
+                } else {
+                    match live(argument) {
+                        Some(index) => index + 1,
+                        None => crate::fail("std.actor: the actor heap is not live"),
+                    }
+                };
+                CURRENT.with(|current| current.replace(next)) as i64 - 1
+            }
+            _ => crate::fail("std.actor: unknown heap operation"),
+        }
+    }
     #[cfg(test)]
     mod recovery_tests {
         use super::*;
@@ -986,212 +1191,6 @@ mod native {
                     );
                 }
             }
-        }
-    }
-
-    /// Called after a trap's message is printed. Returns only when no handler
-    /// is running on this thread, and the process then exits as before.
-    pub(crate) fn recover(kind: TrapKind) {
-        let resume = RECOVERY.with(Cell::get);
-        if resume.is_null() {
-            return;
-        }
-        eprintln!("note: contained in an actor; its heap is discarded");
-        // SAFETY: `resume` was filled by the enter call that is still on this
-        // thread's stack, below every frame being abandoned.
-        unsafe { plenty_actor_resume(resume, kind as u64) }
-    }
-
-    fn live(heap: i64) -> Option<usize> {
-        let index = usize::try_from(heap).ok().filter(|&i| i < MAX_HEAPS)?;
-        // SAFETY: owning thread; see the module comment.
-        unsafe { (*table()).heaps[index].live }.then_some(index)
-    }
-
-    /// Runs a compiled `__actor_run` adapter with `heap` current. Returns 0
-    /// when the handler returned (its result is in `storage`), or the
-    /// `TrapKind` when it trapped; `TRAP_KIND` reports that kind again.
-    ///
-    /// # Safety
-    /// `entry` is the compiler's adapter for `storage`'s task layout.
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn plenty_actor_run(
-        heap: i64,
-        storage: *mut u8,
-        entry: unsafe extern "C" fn(*mut u8) -> *mut u8,
-    ) -> i64 {
-        check_owner();
-        let Some(index) = live(heap) else {
-            crate::fail("std.actor: the actor heap is not live");
-        };
-        if !RECOVERY.with(Cell::get).is_null() {
-            crate::fail("std.actor: a handler cannot run another handler");
-        }
-        let caller = crate::CALLER.with(Cell::get);
-        let queue = crate::memory::save_queue();
-        let mut resume = Resume([0; RESUME_WORDS]);
-        CURRENT.with(|current| current.set(index + 1));
-        RECOVERY.with(|recovery| recovery.set(&mut resume));
-        // SAFETY: the adapter reads its arguments from `storage` and writes
-        // the result there; `resume` outlives the call.
-        let status = unsafe { plenty_actor_enter(&mut resume, entry, storage) };
-        RECOVERY.with(|recovery| recovery.set(std::ptr::null_mut()));
-        CURRENT.with(|current| current.set(0));
-        if status != 0 {
-            // Any other contained trap inside an arena call abandons `within`
-            // too. Its arena was allocated in this heap, which is discarded.
-            ARENA.with(|slot| slot.set(std::ptr::null_mut()));
-            ARENA_RESUME.with(|slot| slot.set(std::ptr::null_mut()));
-            // Thread-local runtime state the abandoned frames may have changed.
-            crate::CALLER.with(|current| current.set(caller));
-            crate::memory::restore_queue(queue);
-            LAST_TRAP.with(|last| last.set(status as i64));
-        }
-        status as i64
-    }
-
-    pub(crate) fn running() -> bool {
-        !RECOVERY.with(Cell::get).is_null()
-    }
-
-    // ---------------------------------------------------------- operations
-
-    /// Reserves the heap range once. Runtime globals that std initializes on
-    /// first use are initialized here, outside every heap: one created by a
-    /// handler would live in a heap that is later discarded.
-    pub(super) fn prepare() -> i64 {
-        if !BASE.load(Ordering::Acquire).is_null() {
-            check_owner();
-            return 0;
-        }
-        // Linux supports 4, 16 and 64 KiB pages on AArch64. Both slot
-        // boundaries and commit increments must be multiples of a page.
-        // SAFETY: sysconf has no pointer arguments.
-        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        if page <= 0 || COMMIT_STEP % page as usize != 0 {
-            return RESERVE_FAILED;
-        }
-        PAGE_BYTES.store(page as usize, Ordering::Relaxed);
-        drop(std::io::stdout().lock());
-        drop(std::io::stderr().lock());
-        drop(std::io::stdin().lock());
-        // SAFETY: a fresh anonymous reservation; nothing is accessible.
-        let base = unsafe {
-            mmap(
-                std::ptr::null_mut(),
-                SLOT_BYTES * MAX_HEAPS,
-                PROT_NONE,
-                MAP_PRIVATE_ANONYMOUS_NORESERVE,
-                -1,
-                0,
-            )
-        };
-        if base as isize == -1 {
-            return RESERVE_FAILED;
-        }
-        OWNER.store(token(), Ordering::Release);
-        BASE.store(base, Ordering::Release);
-        0
-    }
-
-    pub(super) fn create(limit: i64) -> i64 {
-        let Some(limit) = usize::try_from(limit)
-            .ok()
-            .filter(|&limit| (1..=SLOT_BYTES).contains(&limit))
-        else {
-            return BAD_LIMIT;
-        };
-        let prepared = prepare();
-        if prepared != 0 {
-            return prepared;
-        }
-        // SAFETY: owning thread; see the module comment.
-        let heaps = unsafe { &mut (*table()).heaps };
-        let Some(index) = heaps.iter().position(|heap| !heap.live) else {
-            return TABLE_FULL;
-        };
-        heaps[index] = Heap {
-            live: true,
-            limit,
-            ..EMPTY_HEAP
-        };
-        index as i64
-    }
-
-    /// Closes the heap's open file owners and returns its pages to the OS,
-    /// without running any destructor. Returns the number of descriptors
-    /// closed, or -1 when `heap` is not live or is current.
-    pub(super) fn discard(heap: i64) -> i64 {
-        let Some(index) = live(heap) else {
-            return -1;
-        };
-        if CURRENT.with(Cell::get) == index + 1 {
-            return -1;
-        }
-        let mut closed = 0;
-        // SAFETY: owning thread; tracked owners in this slot are still mapped.
-        unsafe {
-            for entry in (*table()).files.iter_mut() {
-                if !entry.is_null() && owner(entry.cast()) == Some(index) {
-                    if crate::files::abandon(*entry) {
-                        closed += 1;
-                    }
-                    *entry = std::ptr::null_mut();
-                }
-            }
-            let heap = &mut (*table()).heaps[index];
-            if heap.committed > 0 {
-                madvise(slot(index), heap.committed, MADV_DONTNEED);
-                mprotect(slot(index), heap.committed, PROT_NONE);
-            }
-            *heap = EMPTY_HEAP;
-        }
-        closed
-    }
-
-    pub(super) fn operate(op: i64, argument: i64) -> i64 {
-        check_owner();
-        // SAFETY (each table read): owning thread, checked above.
-        let heaps = || unsafe { &(*table()).heaps };
-        match op {
-            CREATE => {
-                if cfg!(plenty_runtime_embedded) {
-                    create(argument)
-                } else {
-                    // Without the router, handler allocations would not
-                    // reach the heap.
-                    UNSUPPORTED
-                }
-            }
-            PREPARE => {
-                if cfg!(plenty_runtime_embedded) {
-                    prepare()
-                } else {
-                    UNSUPPORTED
-                }
-            }
-            DISCARD => discard(argument),
-            USED => live(argument).map_or(-1, |index| heaps()[index].used as i64),
-            USED_TOTAL => heaps()
-                .iter()
-                .filter(|heap| heap.live)
-                .map(|heap| heap.used as i64)
-                .sum(),
-            COMMITTED_TOTAL => heaps().iter().map(|heap| heap.committed as i64).sum(),
-            LIVE_COUNT => heaps().iter().filter(|heap| heap.live).count() as i64,
-            TRAP_KIND => LAST_TRAP.with(Cell::get),
-            SWITCH => {
-                let next = if argument < 0 {
-                    0
-                } else {
-                    match live(argument) {
-                        Some(index) => index + 1,
-                        None => crate::fail("std.actor: the actor heap is not live"),
-                    }
-                };
-                CURRENT.with(|current| current.replace(next)) as i64 - 1
-            }
-            _ => crate::fail("std.actor: unknown heap operation"),
         }
     }
 }
