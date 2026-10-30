@@ -1,0 +1,16 @@
+{
+  "name": "plentylang",
+  "owner": {
+    "name": "Plenty"
+  },
+  "metadata": {
+    "description": "Skills for writing Plenty programs with coding agents."
+  },
+  "plugins": [
+    {
+      "name": "plenty",
+      "source": "./",
+      "description": "Write, check, and fix Plenty programs and packages; bundles the Plenty @VERSION@ cheat sheet, standard library signatures, and module references."
+    }
+  ]
+}
