@@ -642,3 +642,6 @@ mod test_nonzero;
 mod test_std_cli_fileinput;
 #[path = "test_str_match.rs"]
 mod test_str_match;
+
+#[path = "test_signal_host.rs"]
+mod test_signal_host;
