@@ -55,7 +55,7 @@ moved to `completed/`.
 | Optional and fallible borrows | [Returned enums that carry references](returned-reference-enums.md) | [Returned references](../design/language/05-ownership/04-returned-references.md), [borrowed matching](../design/language/05-ownership/06-borrowed-matching.md) |
 | [Value generic parameters](value-generics.md) — `const N: i64` parameters with literal, constant or forwarded arguments, shipped with an inline `array[T, N]` | None yet; related B13, B23 |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
-| Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md) |
+| Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md), [slice syntax](slice-syntax.md) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
 | Typed data formats | [Derived serialization](derived-serialization.md) | [`std.json`](../design/stdlib/json.md), [`std.toml`](../design/stdlib/toml.md), [method annotations](protocol-method-bodies/final-and-visibility.md#method-annotations) |
 | Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
@@ -113,6 +113,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 | [Flat class layout](flat-class-layout.md) — one-field classes without `__del__` are their field (implemented); flat nested records assessed, not adopted | B19 (issue #547); related B35 |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
+| [Python slice syntax](slice-syntax.md), with an [implementation plan](slice-syntax/plan.md) — copying `xs[a:b:c]?` with Python's clamping and `copy()` element semantics; `&xs[a:b]` reserved for views | B39, B12 (issue #579) |
 
 ## Completed investigations
 
