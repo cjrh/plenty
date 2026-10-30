@@ -631,7 +631,7 @@ fn every_test_file_is_listed() {
 #[path = "test_std_xml.rs"]
 mod test_std_xml;
 
-#[path = "test_std_cli_fileinput.rs"]
-mod test_std_cli_fileinput;
 #[path = "test_nonzero.rs"]
 mod test_nonzero;
+#[path = "test_std_cli_fileinput.rs"]
+mod test_std_cli_fileinput;
