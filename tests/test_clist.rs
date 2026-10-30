@@ -242,7 +242,15 @@ def main() -> Result[(), IoError]:
         let text = String::from_utf8(output.stdout).unwrap();
         assert_eq!(text.contains("load.i32x4"), vectorized, "{text}");
         if vectorized {
-            assert!(text.contains("pcmpgtd"), "{text}");
+            let comparisons: &[&str] = if cfg!(target_arch = "aarch64") {
+                &["cmgt ", "cmge ", "cmeq "]
+            } else {
+                &["pcmpgtd"]
+            };
+            assert!(
+                comparisons.iter().any(|mnemonic| text.contains(mnemonic)),
+                "{text}"
+            );
         }
     }
 }

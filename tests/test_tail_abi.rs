@@ -32,14 +32,22 @@ def main() -> ():
         .next()
         .unwrap();
     let lines: Vec<_> = body.lines().collect();
-    let jump = lines
-        .windows(2)
-        .any(|pair| pair[0].contains("jmp") && pair[1].contains("__plenty_fn_countdown"));
+    let (jump_mnemonic, call_mnemonic) = if cfg!(target_arch = "aarch64") {
+        ("b", "bl")
+    } else {
+        ("jmp", "call")
+    };
+    let is_instruction =
+        |line: &str, mnemonic: &str| line.split_whitespace().any(|field| field == mnemonic);
+    let jump = lines.windows(2).any(|pair| {
+        is_instruction(pair[0], jump_mnemonic) && pair[1].contains("__plenty_fn_countdown")
+    });
     assert!(jump, "expected native tail jump to countdown:\n{body}");
     assert!(
         !lines
             .windows(2)
-            .any(|pair| pair[0].contains("call") && pair[1].contains("__plenty_fn_countdown")),
+            .any(|pair| is_instruction(pair[0], call_mnemonic)
+                && pair[1].contains("__plenty_fn_countdown")),
         "recursive call retained frame:\n{body}"
     );
 }

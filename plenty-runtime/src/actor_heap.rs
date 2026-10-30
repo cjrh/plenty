@@ -20,6 +20,9 @@
 //!
 //! Programs that never create a heap pay one load of `BASE` per allocation and
 //! one compare per free; `BASE` stays null and every call goes to System.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 
 /// `plenty_actor_heap` operations; `stdlib/std/actor.plenty` mirrors them.
 const CREATE: i64 = 0;

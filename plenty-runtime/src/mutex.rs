@@ -5,6 +5,9 @@
 //! waiters) calls [`plenty_mutex_wake`]. This is mutex 2 of Drepper's
 //! "Futexes Are Tricky". Nothing allocates, and a trap never unwinds through a
 //! held lock, so there is no poisoned state.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 use std::sync::atomic::{AtomicU32, Ordering};
 
 // Syscall numbers differ between the supported Linux architectures.

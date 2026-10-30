@@ -372,7 +372,10 @@ fn borrowed_scalar_iteration_loads_rows_directly() {
             "-",
         ],
     );
-    let calls: Vec<&str> = asm.lines().filter(|line| line.contains("call ")).collect();
+    let calls: Vec<&str> = asm
+        .lines()
+        .filter(|line| support::native_call(line))
+        .collect();
     assert_eq!(calls.len(), 2, "{asm}");
     for helper in ["plenty_list_rows", "plenty_list_row_bytes"] {
         assert!(calls.iter().any(|call| call.ends_with(helper)), "{asm}");
