@@ -1,0 +1,352 @@
+# Media types (RFC 9110 section 8.3.1): `type/subtype` with `; name=value`
+# parameters, token or quoted-string values, and the extension table used by
+# std.http.files. Names are stored in lowercase, so `==` compares two parsed
+# values without case. See book/src/design/stdlib/mime.md.
+import std.bytes
+from std.bytes import Bytes, BytesError
+
+pub class Param:
+    # Lowercase token.
+    pub name: str
+    # Unquoted and unescaped; lowercase for `charset`.
+    pub value: str
+
+pub class MediaType:
+    _type: str
+    _subtype: str
+    _params: list[Param]
+
+    pub def type_name(self) -> &str:
+        &self._type
+
+    pub def subtype(self) -> &str:
+        &self._subtype
+
+    pub def params(self) -> &list[Param]:
+        &self._params
+
+    # The value of the parameter `name`, compared without case.
+    pub def param(self, name: &str) -> Option[str]:
+        for item in &self._params:
+            if same_ascii(&item.name, name):
+                return Some(item.value)
+        Nothing
+
+    # The structured syntax suffix after the last `+`, such as `json` in
+    # `application/ld+json`.
+    pub def suffix(self) -> Result[Option[str], AllocError]:
+        match self._subtype.rfind("+"):
+            case Some(plus):
+                Ok(Some(self._subtype.slice(plus + 1, len(self._subtype))?))
+            case Nothing:
+                Ok(Nothing)
+
+    # `type/subtype` without parameters.
+    pub def essence(self) -> Result[str, AllocError]:
+        "/".join(&[self._type, self._subtype]?)
+
+    pub def is_wildcard(self) -> bool:
+        self._type == "*" or self._subtype == "*"
+
+    # True when `self` falls within the media range `pattern`: `*/*` matches
+    # every type, `text/*` every `text` subtype, and each pattern parameter
+    # must be present in `self` with the same value.
+    pub def matches(self, pattern: &MediaType) -> bool:
+        if pattern._type != "*" and pattern._type != self._type:
+            return False
+        if pattern._subtype != "*" and pattern._subtype != self._subtype:
+            return False
+        for wanted in &pattern._params:
+            match self.param(&wanted.name):
+                case Some(value):
+                    if value != wanted.value:
+                        return False
+                case Nothing:
+                    return False
+        True
+
+    # Adds the parameter, or replaces the value of one with the same name.
+    # `name` must be a token; `value` may be any text without control
+    # characters other than tab.
+    pub def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]:
+        if not token_text(name) or not value_text(value):
+            return Err(ParseError.Invalid)
+        lower = name.lower()?
+        stored = value.lower()? if lower == "charset" else *value
+        for index in range(len(self._params)):
+            if self._params[index].name == lower:
+                self._params[index] = Param(lower, stored)
+                return Ok(())
+        self._params.append(Param(lower, stored))?
+        Ok(())
+
+    # Removes the parameter `name`, compared without case; False when absent.
+    pub def remove_param(self: &mut MediaType, name: &str) -> bool:
+        for index in range(len(self._params)):
+            if same_ascii(&self._params[index].name, name):
+                drop(self._params.pop(index))
+                return True
+        False
+
+    # Canonical text: lowercase names, `; ` before each parameter, and a
+    # quoted-string for a value that is not a token.
+    pub def format(self) -> Result[str, AllocError]:
+        mut parts = list[str].with_capacity(3 + 4 * len(self._params))?
+        parts.append(self._type)?
+        parts.append("/")?
+        parts.append(self._subtype)?
+        for item in &self._params:
+            parts.append("; ")?
+            parts.append(item.name)?
+            parts.append("=")?
+            parts.append(quoted(&item.value)?)?
+        "".join(&parts)
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, AllocError | ParseError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(cause)
+        case Err(_):
+            Err(ParseError.Invalid)
+
+# tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+#         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+def tchar(code: i64) -> bool:
+    if (code >= 48 and code <= 57) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122):
+        return True
+    code == 33 or (code >= 35 and code <= 39) or code == 42 or code == 43 or code == 45 or code == 46 or code == 94 or code == 95 or code == 96 or code == 124 or code == 126
+
+def ows(code: i64) -> bool:
+    code == 32 or code == 9
+
+# qdtext and the escaped byte of a quoted-pair, without `"` and `\`: tab,
+# space, visible ASCII and obs-text (every byte of a non-ASCII scalar).
+def text_byte(code: i64) -> bool:
+    code == 9 or (code >= 32 and code != 127)
+
+def scalar_code(scalar: &str) -> i64:
+    match ord(scalar):
+        case Ok(code):
+            i64(code)
+        case Err(_):
+            -1
+
+def token_text(text: &str) -> bool:
+    if text.byte_len() == 0:
+        return False
+    for scalar in text:
+        if not tchar(scalar_code(&scalar)):
+            return False
+    True
+
+def value_text(text: &str) -> bool:
+    for scalar in text:
+        if not text_byte(scalar_code(&scalar)):
+            return False
+    True
+
+def ascii_folded(code: i64) -> i64:
+    if code >= 65 and code <= 90:
+        code + 32
+    else:
+        code
+
+# ASCII comparison without case; parameter names are ASCII tokens.
+def same_ascii(left: &str, right: &str) -> bool:
+    # Equal byte lengths of ASCII text are equal scalar counts, so indexing
+    # `right` by `left`'s positions stays in range.
+    if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
+        return False
+    for index, scalar in enumerate(left):
+        if ascii_folded(scalar_code(&scalar)) != ascii_folded(scalar_code(&right[index])):
+            return False
+    True
+
+def quoted(value: &str) -> Result[str, AllocError]:
+    if token_text(value):
+        return Ok(*value)
+    escaped = value.replace("\\", "\\\\")?.replace("\"", "\\\"")?
+    "".join(&["\"", escaped, "\""]?)
+
+def token_end(data: &Bytes, start: i64, stop: i64) -> i64:
+    mut index = start
+    while index < stop and tchar(i64(data[index])):
+        index += 1
+    index
+
+def ows_end(data: &Bytes, start: i64, stop: i64) -> i64:
+    mut index = start
+    while index < stop and ows(i64(data[index])):
+        index += 1
+    index
+
+def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, AllocError | ParseError]:
+    text = lifted(data.to_text_range(start, stop))?
+    Ok(text.lower()?)
+
+# Parses `type/subtype *( OWS ";" OWS [ name=value ] )`, allowing OWS around
+# the whole text. Type, subtype and parameter names, and the value of
+# `charset`, are stored in lowercase; other values keep their case. A
+# repeated parameter name is an error.
+pub def parse(text: &str) -> Result[MediaType, AllocError | ParseError]:
+    data = lifted(std.bytes.from_text(text))?
+    mut stop = data.len()
+    while stop > 0 and ows(i64(data[stop - 1])):
+        stop -= 1
+    start = ows_end(&data, 0, stop)
+    slash = token_end(&data, start, stop)
+    if slash == start or slash == stop or data[slash] != 47u8:
+        return Err(ParseError.Invalid)
+    subtype_end = token_end(&data, slash + 1, stop)
+    if subtype_end == slash + 1:
+        return Err(ParseError.Invalid)
+    type_name = lowered(&data, start, slash)?
+    subtype = lowered(&data, slash + 1, subtype_end)?
+    mut params: list[Param] = []?
+    mut index = subtype_end
+    while index < stop:
+        index = ows_end(&data, index, stop)
+        if data[index] != 59u8:
+            return Err(ParseError.Invalid)
+        index = ows_end(&data, index + 1, stop)
+        if index == stop or data[index] == 59u8:
+            continue
+        name_end = token_end(&data, index, stop)
+        if name_end == index or name_end == stop or data[name_end] != 61u8:
+            return Err(ParseError.Invalid)
+        name = lowered(&data, index, name_end)?
+        index = name_end + 1
+        mut value = ""
+        if index < stop and data[index] == 34u8:
+            mut unquoted = lifted(std.bytes.with_capacity(stop - index))?
+            index += 1
+            mut closed = False
+            while index < stop:
+                byte = data[index]
+                index += 1
+                if byte == 34u8:
+                    closed = True
+                    break
+                if byte == 92u8:
+                    if index == stop or not text_byte(i64(data[index])):
+                        return Err(ParseError.Invalid)
+                    lifted(unquoted.push(data[index]))?
+                    index += 1
+                elif text_byte(i64(byte)):
+                    lifted(unquoted.push(byte))?
+                else:
+                    return Err(ParseError.Invalid)
+            if not closed:
+                return Err(ParseError.Invalid)
+            value = lifted(unquoted.to_text())?
+        else:
+            value_end = token_end(&data, index, stop)
+            if value_end == index:
+                return Err(ParseError.Invalid)
+            value = lifted(data.to_text_range(index, value_end))?
+            index = value_end
+        for item in &params:
+            if item.name == name:
+                return Err(ParseError.Invalid)
+        if name == "charset":
+            value = value.lower()?
+        params.append(Param(name, value))?
+    Ok(MediaType(type_name, subtype, params))
+
+# A media type without parameters. Both names must be tokens.
+pub def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]:
+    if not token_text(type_name) or not token_text(subtype):
+        return Err(ParseError.Invalid)
+    params: list[Param] = []?
+    Ok(MediaType(type_name.lower()?, subtype.lower()?, params))
+
+# Extensions
+
+# True when the scalars of `text` from `start` spell the lowercase ASCII
+# `expected`, compared without ASCII case.
+def extension_at(text: &str, start: i64, expected: &str) -> bool:
+    count = expected.byte_len()
+    if len(text) - start != count:
+        return False
+    for index in range(count):
+        if ascii_folded(scalar_code(&text[start + index])) != scalar_code(&expected[index]):
+            return False
+    True
+
+# The fixed extension table: each row is an extension and its Content-Type.
+def table(index: i64) -> Option[(str, str)]:
+    match index:
+        case 0:
+            Some(("html", "text/html; charset=utf-8"))
+        case 1:
+            Some(("htm", "text/html; charset=utf-8"))
+        case 2:
+            Some(("css", "text/css; charset=utf-8"))
+        case 3:
+            Some(("js", "text/javascript; charset=utf-8"))
+        case 4:
+            Some(("mjs", "text/javascript; charset=utf-8"))
+        case 5:
+            Some(("json", "application/json"))
+        case 6:
+            Some(("txt", "text/plain; charset=utf-8"))
+        case 7:
+            Some(("csv", "text/csv; charset=utf-8"))
+        case 8:
+            Some(("xml", "application/xml"))
+        case 9:
+            Some(("svg", "image/svg+xml"))
+        case 10:
+            Some(("png", "image/png"))
+        case 11:
+            Some(("jpg", "image/jpeg"))
+        case 12:
+            Some(("jpeg", "image/jpeg"))
+        case 13:
+            Some(("gif", "image/gif"))
+        case 14:
+            Some(("webp", "image/webp"))
+        case 15:
+            Some(("ico", "image/vnd.microsoft.icon"))
+        case 16:
+            Some(("wasm", "application/wasm"))
+        case 17:
+            Some(("pdf", "application/pdf"))
+        case 18:
+            Some(("woff2", "font/woff2"))
+        case 19:
+            Some(("woff", "font/woff"))
+        case _:
+            Nothing
+
+# The Content-Type for a file extension given without its dot, compared
+# without ASCII case, or Nothing when the table has no entry.
+pub def from_extension(extension: &str) -> Option[str]:
+    lookup(extension, 0)
+
+def lookup(text: &str, start: i64) -> Option[str]:
+    mut index = 0
+    while True:
+        match table(index):
+            case Some(row):
+                if extension_at(text, start, &row[0]):
+                    return Some(row[1])
+            case Nothing:
+                return Nothing
+        index += 1
+    Nothing
+
+# The Content-Type for the extension of the file name or path `name`, or
+# application/octet-stream when it has none in the table. Allocates nothing.
+pub def from_file_name(name: &str) -> str:
+    match name.rfind("."):
+        case Some(dot):
+            match lookup(name, dot + 1):
+                case Some(found):
+                    found
+                case Nothing:
+                    "application/octet-stream"
+        case Nothing:
+            "application/octet-stream"
