@@ -124,8 +124,69 @@ span. Measure elapsed time and timeouts with instants. A timestamp cannot be
 converted to an instant or compared with one.
 
 A timestamp whose `nanoseconds` is out of range is an error in both operations.
-There is no subtraction of a span, calendar or time-zone arithmetic, leap-second
-table, parsing, or formatting.
+There is no subtraction of a span, leap-second table, parsing, or formatting
+here; the `tz` package provides calendars, zones, and text.
+
+## Civil time and time zones
+
+Calendar dates, wall-clock times, IANA time zones, and RFC 3339 text live in
+the official [`tz` package](https://github.com/plentylang/tz), not in `std`.
+It bundles a pinned release of the IANA time-zone database as Plenty source,
+so results do not depend on the host's zone files, and a program that never
+looks up a zone links no zone data. Its API follows Rust's jiff. Add it as a
+[Git dependency](../toolchain/01-building/packages.md#git-dependencies):
+
+```toml
+[dependencies]
+tz = { git = "https://github.com/plentylang/tz.git", tag = "v0.2.0" }
+```
+
+A `tz.Zoned` holds a `Timestamp` with its zone. Adding calendar units keeps
+the wall-clock reading; a local time that a transition skips or repeats is
+resolved by the `tz.Disambiguation` the caller passes:
+
+```plenty fragment
+import tz
+from std.fmt import FormatError
+
+def main() -> Result[(), tz.TzError | FormatError | AllocError | IoError]:
+    new_york = tz.zone("America/New_York")?
+    london = tz.zone("Europe/London")?
+    meeting = tz.datetime(2024, 3, 9, 9, 30)?.to_zoned(&new_york, tz.Disambiguation.Reject)?
+    next_week = meeting.checked_add(&tz.span(weeks=1), tz.Disambiguation.Reject)?
+    print(f"{next_week}"?)?
+    print(f"{next_week.in_zone(&london)?}"?)?
+    print(meeting.span_until(&next_week).hours())?
+    Ok(())
+```
+
+```text
+2024-03-16T09:30:00-04:00[America/New_York]
+2024-03-16T13:30:00+00:00[Europe/London]
+167
+```
+
+`tz.zoned(&stamp, &zone)` and `zoned.timestamp()` convert between the two
+types.
+
+`tz.zone(name)` can return any zone, so it links the whole database (about
+150 KB). The `tz.zones` module has one function per canonical zone, and each
+links only that zone's data. The functions cannot fail:
+
+```plenty fragment
+import tz
+from tz.zones import america_new_york
+
+def main() -> Result[(), tz.TzError | AllocError | IoError]:
+    new_york = america_new_york()
+    meeting = tz.datetime(2024, 3, 10, 2, 30)?.to_zoned(&new_york, tz.Disambiguation.Compatible)?
+    print(meeting.offset().seconds())?
+    Ok(())
+```
+
+This prints `-14400`: 02:30 falls in that day's gap, and `Compatible` moves it
+forward to 03:30 EDT. The package README lists the API, how zone names map to
+function names, its data version, and how the data is regenerated.
 
 ## Sleeping and timed waits
 
