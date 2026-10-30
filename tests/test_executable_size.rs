@@ -26,17 +26,50 @@ const HELLO: &str =
 /// | empty | 47,648 | 21,153 | 53,208 | 25,089 |
 /// | hello | 113,544 | 69,137 | 122,064 | 75,953 |
 ///
-/// Each budget allows about 13% growth. Raise one only as a deliberate,
+/// After the shared Linux signal/context port at `7d1e3080`, default x86
+/// measurements with mold 2.40.4 on 2026-10-30 are empty 52,568/24,689 and
+/// hello 120,848/74,417 (file/`.text`). Recalibrate only empty's `.text` cap
+/// to 28,000, about 13% above its current footprint; retain the other caps.
+///
+/// Budgets initially allow about 13% growth. Raise one only as a deliberate,
 /// reviewed change that records the new measurement here and explains it.
-#[cfg(not(feature = "runtime-checks"))]
+#[cfg(all(target_arch = "x86_64", not(feature = "runtime-checks")))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 54_000, 24_000),
+    ("empty", EMPTY, 54_000, 28_000),
     ("hello", HELLO, 128_000, 78_000),
 ];
-#[cfg(feature = "runtime-checks")]
+#[cfg(all(target_arch = "x86_64", feature = "runtime-checks"))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
     ("empty", EMPTY, 60_000, 28_500),
     ("hello", HELLO, 138_000, 86_000),
+];
+
+/// ARM budgets are measured separately: fixed-width instructions, native
+/// startup objects and linker layout differ from x86. Measured on 2026-10-30
+/// at `7d1e3080`, in the ARM guest with Debian GCC 14.2/GNU ld 2.44 and mold
+/// 3.0.0. Both use their native 64-KiB LOAD alignment; no page-size override.
+///
+/// | Runtime | Program | GNU file | GNU `.text` | mold file | mold `.text` |
+/// |---|---|---:|---:|---:|---:|
+/// | default | empty | 68,400 | 28,240 | 53,616 | 24,912 |
+/// | default | hello | 133,952 | 71,848 | 120,280 | 68,512 |
+/// | checked | empty | 68,464 | 31,644 | 58,888 | 28,304 |
+/// | checked | hello | 199,552 | 78,616 | 129,048 | 75,328 |
+///
+/// Each limit allows about 13% above the larger GNU/mold measurement. Keep
+/// native page alignment rather than shrinking files with a 4-KiB override.
+/// The checked GNU hello crosses a 64-KiB layout boundary; the separate
+/// `.text` limit still bounds code growth independently of that padding.
+#[cfg(all(target_arch = "aarch64", not(feature = "runtime-checks")))]
+const BUDGETS: [(&str, &str, u64, u64); 2] = [
+    ("empty", EMPTY, 77_500, 32_000),
+    ("hello", HELLO, 151_500, 81_500),
+];
+
+#[cfg(all(target_arch = "aarch64", feature = "runtime-checks"))]
+const BUDGETS: [(&str, &str, u64, u64); 2] = [
+    ("empty", EMPTY, 77_500, 35_800),
+    ("hello", HELLO, 225_500, 88_900),
 ];
 
 #[test]

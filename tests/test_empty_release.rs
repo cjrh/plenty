@@ -130,6 +130,25 @@ def main() -> Result[(), AllocError | IoError | StreamError]:
     Ok(())
 "#;
 
+/// The destination of a zero-test branch in function-relative dump offsets.
+/// x86 prints absolute function offsets; A64 prints a signed PC displacement.
+fn zero_branch_target(line: &str) -> Option<usize> {
+    let (address, instruction) = line.trim().split_once(':')?;
+    let address = usize::from_str_radix(address, 16).ok()?;
+    let mut words = instruction.split_whitespace();
+    if !matches!(words.next()?, "je" | "jz" | "cbz" | "b.eq") {
+        return None;
+    }
+    let operand = words.next_back()?;
+    if let Some(relative) = operand.strip_prefix("$+0x") {
+        address.checked_add(usize::from_str_radix(relative, 16).ok()?)
+    } else if let Some(relative) = operand.strip_prefix("$-0x") {
+        address.checked_sub(usize::from_str_radix(relative, 16).ok()?)
+    } else {
+        usize::from_str_radix(operand.strip_prefix("0x")?, 16).ok()
+    }
+}
+
 #[test]
 fn possibly_empty_release_tests_before_bookkeeping() {
     let dir = program(DYNAMIC);
@@ -145,11 +164,19 @@ fn possibly_empty_release_tests_before_bookkeeping() {
         .iter()
         .rposition(|line| line.ends_with("plenty_caller_enter"))
         .unwrap_or_else(|| panic!("{pick:#?}"));
-    let test = pick[..enter]
+    let leave = pick[release + 1..]
         .iter()
-        .rposition(|line| line.contains("  je "))
+        .find(|line| line.ends_with("plenty_caller_leave"))
         .unwrap_or_else(|| panic!("{pick:#?}"));
-    assert!(enter - test < 6, "{pick:#?}");
+    let leave_address = usize::from_str_radix(leave.trim().split_once(':').unwrap().0, 16).unwrap();
+    let target = pick[..enter]
+        .iter()
+        .rev()
+        .find_map(|line| zero_branch_target(line))
+        .unwrap_or_else(|| panic!("{pick:#?}"));
+    // Empty slots skip caller_enter, release, and caller_leave together.
+    // Checking the actual destination avoids an ISA-dependent instruction count.
+    assert!(target > leave_address, "{pick:#?}");
 }
 
 /// Destructors run once each whether a slot is moved out, reassigned in a
