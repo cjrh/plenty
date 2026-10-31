@@ -102,16 +102,25 @@ reproducibility contract below; package build fingerprints include it.
 
 ## Size budgets
 
-`tests/test_executable_size.rs` fails when a small program grows past its
-budget. These x86-64 measurements use the runtime from issues #500, #501 and #503:
+`tests/test_executable_size.rs` fails when an empty program or a hello program
+grows past its stripped-file or `.text` budget. The measurements and current
+limits live beside `BUDGETS` in that file. x86-64 and ARM64 have separate limits,
+as do ordinary runtimes and the `runtime-checks` feature's allocation accounting.
+Compare both sizes: linker layout and segment alignment can increase the file
+without increasing its code.
 
-| Program | Stripped file | `.text` | Budget (file, `.text`) |
-|---|---:|---:|---:|
-| empty `main` | 47,648 bytes | 21,153 bytes | 54,000, 24,000 |
-| `print("hello")` | 113,544 bytes | 69,137 bytes | 128,000, 78,000 |
-
-The `runtime-checks` test feature links a runtime with allocation accounting,
-about 6–9 KB larger; it has its own budgets.
+A failure preserves the measured executable, source, and `layout.txt` in the
+directory printed by the test. The report records sizes, section offsets,
+segment alignment, ELF producer comments, runtime-checks mode, Git revision,
+and available toolchain versions. Missing version commands are recorded rather
+than preventing artifact retention. Set `PLENTY_SIZE_ARTIFACT_DIR` to a dedicated
+directory to retain successful measurements too; each sample gets its own
+subdirectory. CI uploads these samples as `executable-size-ARCH-shard-N`
+artifacts with seven-day retention, so comparisons can use the actual runner
+ELFs. Local failures and explicitly requested samples remain until removed.
+Tool versions queried during the test describe the current environment;
+ELF producer comments can identify the actual linker (mold and lld record
+their versions there).
 
 The same file checks, for each `std` module with runtime native code, that
 hello links none of that code, that importing any `std` module links none of
