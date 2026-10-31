@@ -85,6 +85,14 @@ and `!=` still use IEEE equality. Consequently, `(-0.0,) == (0.0,)` and
 `(-0.0,) < (0.0,)` are both true; a NaN tuple is `<=` itself but not `==` itself.
 Scalar float operators keep their [IEEE behavior](numbers.md).
 
+The difference is deliberate. Tuple ordering exists to sort and rank records,
+so it must be total: every pair of tuples is ordered, and `<` on tuples agrees
+with `sort()`. IEEE ordering would make a tuple containing NaN unordered
+against every other tuple. Plenty has one total order rather than separate
+partial and total orders; the
+[ordering proposal](../../../proposals/user-type-ordering.md#total-and-partial-order)
+gives the rationale.
+
 Distinct components of a named tuple can be borrowed independently. Reads of
 one component can continue while another is exclusively borrowed; whole-tuple
 access overlaps all components. See [borrowing](../05-ownership/index.md) for
