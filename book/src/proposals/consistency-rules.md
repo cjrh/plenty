@@ -3,8 +3,9 @@
 > **Status: Not implemented.** Nothing shipped. Researched against local
 > `main` at `b4580c2d` on 2026-10-31, with probes on the debug compiler built
 > that day. The evidence is the 2026-10-31 language consistency survey,
-> recorded as issues #612–#637. No backlog entry exists yet; the
-> [staged plan](#staged-plan-and-suggested-backlog-wording) proposes B88–B93.
+> recorded as issues #612–#637. Accepted and scheduled as backlog rows
+> B88–B93 ([staged plan](#staged-plan-and-suggested-backlog-wording)); the
+> review [decisions](#decisions) settle five questions.
 > A seventh rule from the same survey, a written convention page for the
 > standard library, is separate documentation work and is only referenced here.
 
@@ -124,8 +125,9 @@ copies so they cannot drift again.
   `@copy` to every enum whose payloads all copy, which preserves today's
   behaviour exactly; reviewers then remove it where an enum should move.
   Generic enums whose copying depends on a type argument need a copyable
-  bound, which is B84's open work for generic `@copy` classes; phase 3 waits
-  for it or rejects such enums from `@copy` with the B84 diagnostic.
+  bound, which is B84's open work for generic `@copy` classes. Phase 3
+  waits for that bound (decided 2026-10-31), so B84 moves earlier: it now
+  gates this rule as well as generic copy classes.
 - Copy-dependent behaviour elsewhere (dictionary-key rules in
   [user type hashing](user-type-hashing.md), by-value receivers) keys off
   "copies", so it follows the new rule without its own change.
@@ -314,9 +316,10 @@ owner or a view of part of it.
 3. Byte-reading std APIs take `&[u8]`; remove `ByteSource`.
 
 `Box` already converts to `&T`, while `Shared` does not (survey section 2).
-Whether `&Shared[T]` should convert to `&T` is an open question: the content
-is immutable while shared, so the view is sound, but the conversion has not
-been designed.
+`&Shared[T]` converts to `&T` as `&Box[T]` does (decided 2026-10-31). The
+content is immutable while shared, so the view is sound; the borrow keeps
+the handle, and so its count, alive for the view's lifetime. This joins
+phase 1.
 
 ## Rule 4: adapters belong to iterators
 
@@ -568,44 +571,29 @@ Concretely:
   or a concrete expected `Callable` specialises them. *Probe:* a generic
   `ident[T]` passed to `f: Callable[[i64], i64]` checks today, while
   `Option[i64].Some` is rejected.
-- `checked:` overflow in a callback is `Err` or a trap by one rule,
-  independent of how the callback was written (issue #614 decides which).
-
-The names stay: `Callable[...]` as a value type is a code address and
-`F: Callable[...]` is a constraint, as issue #24 decided. The
-function-values page leads with the constraint form, as the tutorial does
-(issue #620).
-
-### On issue #556
-
-Issue #556 added single-payload variants as function values and excluded
-`Some`, `Ok` and `Err` deliberately; the enums page tells the reader to write
-a closure. The recorded reason is not stated in the issue or local PR #681.
-The likely one is inference: `Ok` alone fixes neither type argument of
-`Result[T, E]`, and generic user variants already need a written instance
-(`Wrapped[i64].One`). This proposal keeps that constraint and removes only
-the exception: a generic variant needs the same evidence a generic function
-needs, and no more. `.map(Some)` with an expected `Callable[[i64],
-Option[i64]]` would check; `x = Some` alone would still be rejected with the
-generic-function diagnostic. If the user prefers to keep #556's exclusion,
-the rule still holds for every other form and the diagnostic for `Some`
-should say why ("generic variants need an expected type").
-
-### Alternatives
-
-- **Unify callable types into one representation**, so a code-address
-  `Callable` can hold a closure. Issue #24 rejected this; it needs boxing or
-  a fat representation for every function value. Rejected.
-- **Keep class constructors out**, with a diagnostic. Leaves an exception in
-  a list that is otherwise complete. Constructor signatures already exist for
-  calls; a value only names them. Rejected, with one open question below.
-- **Accept only `&F`**, and keep `&mut` for closures. No single signature
-  would accept a named function and a mutating closure. Rejected.
+- Inside `checked:`, whether overflow is `Err` depends on where the code
+  is written, not on the callback's form (decided 2026-10-31, issue #614).
+  Arithmetic whose text is in the block, including the bodies of closures
+  defined in the block (literal or stored), reports `Err`. Any other
+  function, a named function or a closure defined elsewhere, behaves as
+  its signature says: an infallible signature keeps trapping, and a
+  function that can fail returns `Result`, which the block handles with
+  `match` or `?` like any other call. Builtin reductions such as `sum` are
+  calls, so their `i64` result traps on overflow, as the
+  [pipelines](../design/language/09-iteration/06-pipelines.md) page already
+  says; to sum with checking, write `fold` with a closure literal in the
+  block. Today a lowered closure literal reports `Err` while the
+  [numbers](../design/language/03-types/numbers.md) page says closures
+  defined in a block keep trapping; both change to this rule.
 
 ### Cost and compatibility
 
 All of rule 6 is additive except two items. The `checked:` fix (issue #614)
-changes which programs trap. Constructor values make a class name usable as a value
+changes which programs trap: a closure defined in a block, stored or
+lowered, now reports `Err`, while `sum` inside a block, which reports `Err`
+today because of pipeline lowering, traps as documented. A closure defined
+in a block may not outlive it, since a later overflow would have no block to
+exit (decision 5). Constructor values make a class name usable as a value
 expression; how that interacts with local bindings of the same name needs a
 check against the name-resolution rules in
 [names](../design/language/02-source/names.md). Worker-thread effect
@@ -626,7 +614,9 @@ you can call can be passed.
    reference with the constraint form (issue #620).
 2. Variant constructors in pipelines; class constructors as values; generic
    variants with an expected type (issue #618).
-3. One `checked:` behaviour for callbacks (issue #614).
+3. Inside `checked:`, code written in the block and closures defined in it
+   report `Err`; other functions behave as their signatures say (issue
+   #614).
 
 ## What the six rules remove
 
@@ -646,16 +636,34 @@ reference diagnostics (issue #628), and std conventions (rule 7; issues
 contextual literals, B36 builtin argument names, B11 borrowed returns) stay
 there.
 
-## Open questions
+## Decisions
 
-1. Rule 1: does phase 3 wait for B84's copyable bound, or ship with generic
-   enums excluded from `@copy`?
-2. Rule 3: should `&Shared[T]` convert to `&T`?
-3. Rule 6: does issue #556's exclusion of `Some`/`Ok`/`Err` stand, given the
-   generic-function precedent?
-4. Rule 6: which behaviour does `checked:` give callback overflow, `Err` or a
-   trap? Issue #614 records both; the [pipelines](../design/language/09-iteration/06-pipelines.md)
-   page says `sum` overflow traps like `+`.
+Recorded 2026-10-31 after review:
+
+1. Rule 1: phase 3 waits for B84's copyable bound, and B84 is brought
+   forward.
+2. Rule 3: `&Shared[T]` converts to `&T`, as `Box` does.
+3. Rule 6: `Some`, `Ok` and `Err` follow the generic-function rule; issue
+   #556's exclusion is lifted unless implementation shows the fallback is
+   needed.
+4. Rule 6: `checked:` covers arithmetic written in the block and in
+   closures defined in it, whatever their form. Every other function,
+   including a named function passed as a callback and builtins such as
+   `sum`, behaves as its signature says: it traps, or it returns a `Result`
+   that the block handles or propagates with `?`, which also leaves the
+   block. A function's possible failures are part of its signature, not of
+   the context that calls it.
+5. Rule 6: a closure defined in a `checked:` block may not leave it. It
+   leaves by assignment to a binding declared outside the block, as the
+   block's value or a return value, by being stored in a collection, field,
+   `Shared` or channel, or by being passed by value to a function that keeps
+   it (`spawn`, `pool.submit`). Passing it as `&f` or `&mut f` to a function
+   called in the block is allowed. The checker can treat the closure as
+   borrowing a block-scoped value, so existing borrow checking rejects every
+   escape; the diagnostic names `checked:` and suggests defining the closure
+   outside the block. Rejection can be relaxed later without breaking
+   programs; trapping when called outside the block would reintroduce
+   behaviour that depends on where a closure is called.
 
 ## Staged plan and suggested backlog wording
 
@@ -666,9 +674,9 @@ become `proposals/consistency-rules.md#...`.
 
 | ID | Area | Suggested wording |
 | --- | --- | --- |
-| B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound. [Proposal](#rule-1-one-copy-rule); issue #636. |
+| B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound, so B84 moves earlier. [Proposal](#rule-1-one-copy-rule); issue #636. |
 | B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook after issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
-| B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
+| B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; `&Shared[T]` converts to `&T` like `Box`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
 | B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
 | B92 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |
-| B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants as function values; one `checked:` callback behaviour. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
+| B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants, including `Some`/`Ok`/`Err`, as function values; inside `checked:`, closures defined in the block report `Err` and other functions follow their signatures. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
