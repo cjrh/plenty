@@ -3,8 +3,9 @@
 > **Status: Not implemented.** Nothing shipped. Researched against local
 > `main` at `b4580c2d` on 2026-10-31, with probes on the debug compiler built
 > that day. The evidence is the 2026-10-31 language consistency survey,
-> recorded as issues #612–#637. No backlog entry exists yet; the
-> [staged plan](#staged-plan-and-suggested-backlog-wording) proposes B88–B93.
+> recorded as issues #612–#637. Accepted and scheduled as backlog rows
+> B88–B93 ([staged plan](#staged-plan-and-suggested-backlog-wording)); the
+> review [decisions](#decisions) settle four questions and leave one open.
 > A seventh rule from the same survey, a written convention page for the
 > standard library, is separate documentation work and is only referenced here.
 
@@ -124,8 +125,9 @@ copies so they cannot drift again.
   `@copy` to every enum whose payloads all copy, which preserves today's
   behaviour exactly; reviewers then remove it where an enum should move.
   Generic enums whose copying depends on a type argument need a copyable
-  bound, which is B84's open work for generic `@copy` classes; phase 3 waits
-  for it or rejects such enums from `@copy` with the B84 diagnostic.
+  bound, which is B84's open work for generic `@copy` classes. Phase 3
+  waits for that bound (decided 2026-10-31), so B84 moves earlier: it now
+  gates this rule as well as generic copy classes.
 - Copy-dependent behaviour elsewhere (dictionary-key rules in
   [user type hashing](user-type-hashing.md), by-value receivers) keys off
   "copies", so it follows the new rule without its own change.
@@ -314,9 +316,10 @@ owner or a view of part of it.
 3. Byte-reading std APIs take `&[u8]`; remove `ByteSource`.
 
 `Box` already converts to `&T`, while `Shared` does not (survey section 2).
-Whether `&Shared[T]` should convert to `&T` is an open question: the content
-is immutable while shared, so the view is sound, but the conversion has not
-been designed.
+`&Shared[T]` converts to `&T` as `&Box[T]` does (decided 2026-10-31). The
+content is immutable while shared, so the view is sound; the borrow keeps
+the handle, and so its count, alive for the view's lifetime. This joins
+phase 1.
 
 ## Rule 4: adapters belong to iterators
 
@@ -568,8 +571,16 @@ Concretely:
   or a concrete expected `Callable` specialises them. *Probe:* a generic
   `ident[T]` passed to `f: Callable[[i64], i64]` checks today, while
   `Option[i64].Some` is rejected.
-- `checked:` overflow in a callback is `Err` or a trap by one rule,
-  independent of how the callback was written (issue #614 decides which).
+- Inside `checked:`, overflow in a callback is `Err`, whichever form the
+  callback has (decided 2026-10-31, issue #614). A user who writes
+  `checked:` has accepted an error result and a small cost in exchange for
+  not trapping; a callback must not bring the program down from inside the
+  block. Named functions and stored closures passed as callbacks are
+  therefore checked in the block's context, as lowered closure literals
+  already are, and reductions such as `sum` report overflow as `Err`
+  inside the block. The [pipelines](../design/language/09-iteration/06-pipelines.md)
+  and [numbers](../design/language/03-types/numbers.md) pages change to
+  match.
 
 The names stay: `Callable[...]` as a value type is a code address and
 `F: Callable[...]` is a constraint, as issue #24 decided. The
@@ -591,6 +602,11 @@ generic-function diagnostic. If the user prefers to keep #556's exclusion,
 the rule still holds for every other form and the diagnostic for `Some`
 should say why ("generic variants need an expected type").
 
+Decision (2026-10-31): the exclusion is not fixed; the user prefers the
+change if it makes a better language. Adopt the generic-function rule for
+`Some`, `Ok` and `Err`, and keep the fallback only if implementation shows
+the expected-type evidence cannot be made reliable.
+
 ### Alternatives
 
 - **Unify callable types into one representation**, so a code-address
@@ -598,14 +614,21 @@ should say why ("generic variants need an expected type").
   a fat representation for every function value. Rejected.
 - **Keep class constructors out**, with a diagnostic. Leaves an exception in
   a list that is otherwise complete. Constructor signatures already exist for
-  calls; a value only names them. Rejected, with one open question below.
+  calls; a value only names them. Rejected.
 - **Accept only `&F`**, and keep `&mut` for closures. No single signature
   would accept a named function and a mutating closure. Rejected.
 
 ### Cost and compatibility
 
 All of rule 6 is additive except two items. The `checked:` fix (issue #614)
-changes which programs trap. Constructor values make a class name usable as a value
+changes which programs trap: callbacks that trapped inside a block now
+produce `Err`, which can only turn a crash into a handled result, but it
+also adds `OverflowError` to blocks whose only arithmetic was in a
+callback. Checking a named callback in the block's context means
+compiling a checked instance of it, the same specialisation lowered
+literals already get; a callback that is not visible to the compiler (a
+`Callable` code address or a boxed callable) needs a checked calling
+convention or a diagnostic, to be settled in implementation. Constructor values make a class name usable as a value
 expression; how that interacts with local bindings of the same name needs a
 check against the name-resolution rules in
 [names](../design/language/02-source/names.md). Worker-thread effect
@@ -626,7 +649,8 @@ you can call can be passed.
    reference with the constraint form (issue #620).
 2. Variant constructors in pipelines; class constructors as values; generic
    variants with an expected type (issue #618).
-3. One `checked:` behaviour for callbacks (issue #614).
+3. Callback overflow inside `checked:` is `Err` for every callback form
+   (issue #614).
 
 ## What the six rules remove
 
@@ -646,16 +670,30 @@ reference diagnostics (issue #628), and std conventions (rule 7; issues
 contextual literals, B36 builtin argument names, B11 borrowed returns) stay
 there.
 
+## Decisions
+
+Recorded 2026-10-31 after review:
+
+1. Rule 1: phase 3 waits for B84's copyable bound, and B84 is brought
+   forward.
+2. Rule 3: `&Shared[T]` converts to `&T`, as `Box` does.
+3. Rule 6: `Some`, `Ok` and `Err` follow the generic-function rule; issue
+   #556's exclusion is lifted unless implementation shows the fallback is
+   needed.
+4. Rule 6: inside `checked:`, callback overflow is `Err` for every callback
+   form. `checked:` exists so that arithmetic inside it does not trap.
+
 ## Open questions
 
-1. Rule 1: does phase 3 wait for B84's copyable bound, or ship with generic
-   enums excluded from `@copy`?
-2. Rule 3: should `&Shared[T]` convert to `&T`?
-3. Rule 6: does issue #556's exclusion of `Some`/`Ok`/`Err` stand, given the
-   generic-function precedent?
-4. Rule 6: which behaviour does `checked:` give callback overflow, `Err` or a
-   trap? Issue #614 records both; the [pipelines](../design/language/09-iteration/06-pipelines.md)
-   page says `sum` overflow traps like `+`.
+1. `checked:` is lexical today: arithmetic in ordinary functions *called*
+   from the block (not passed as callbacks) still traps
+   ([numbers](../design/language/03-types/numbers.md)). Decision 4's reason,
+   that code inside `checked:` should not bring the program down, applies
+   to those calls too. Extending it means a checked instance of every
+   transitively called function, including std, or a checked calling
+   convention; it changes what a block's error type can contain. Decide
+   whether `checked:` covers only arithmetic written in the block and its
+   callbacks, or every call it makes.
 
 ## Staged plan and suggested backlog wording
 
@@ -666,9 +704,9 @@ become `proposals/consistency-rules.md#...`.
 
 | ID | Area | Suggested wording |
 | --- | --- | --- |
-| B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound. [Proposal](#rule-1-one-copy-rule); issue #636. |
+| B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound, so B84 moves earlier. [Proposal](#rule-1-one-copy-rule); issue #636. |
 | B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook after issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
-| B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
+| B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; `&Shared[T]` converts to `&T` like `Box`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
 | B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
 | B92 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |
-| B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants as function values; one `checked:` callback behaviour. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
+| B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants, including `Some`/`Ok`/`Err`, as function values; callback overflow inside `checked:` is `Err` for every form. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
