@@ -219,8 +219,13 @@ fn read_object(
         .into());
     }
     for section in object.sections() {
-        if let Some(name) = section.name()?.strip_prefix(".plenty.interface.") {
-            if interfaces.len() >= MAX_CONTRACTS || section.size() > MAX_CONTRACT as u64 {
+        let section_name = section.name()?;
+        let named = section_name.strip_prefix(".plenty.interface.");
+        let macho = object.format() == object::BinaryFormat::MachO
+            && section_name == "__plenty_iface"
+            && section.segment_name()? == Some("__TEXT");
+        if named.is_some() || macho {
+            if interfaces.len() >= MAX_CONTRACTS || section.size() > MAX_TOTAL as u64 {
                 return Err("embedded interface count or size exceeds inspection limits".into());
             }
             if matches!(section.flags(), object::SectionFlags::Elf { sh_flags, .. } if sh_flags.contains(object::elf::SHF_COMPRESSED))
@@ -232,16 +237,80 @@ fn read_object(
             if *total > MAX_TOTAL {
                 return Err("embedded interfaces exceed the 16 MiB total limit".into());
             }
-            let interface = LibraryInterface::parse(name, bytes)?;
-            if interfaces
-                .insert(interface.name.clone(), interface)
-                .is_some()
-            {
-                return Err(format!("duplicate embedded library interface `{name}`").into());
+            let records = if macho {
+                macho_interface_records(bytes)?
+            } else {
+                vec![bytes]
+            };
+            for bytes in records {
+                if interfaces.len() >= MAX_CONTRACTS || bytes.len() > MAX_CONTRACT {
+                    return Err("embedded interface count or size exceeds inspection limits".into());
+                }
+                let name = match named {
+                    Some(name) => name,
+                    None => std::str::from_utf8(bytes)?
+                        .lines()
+                        .nth(1)
+                        .and_then(|line| line.strip_prefix("# library: "))
+                        .ok_or("missing embedded library name")?,
+                };
+                let interface = LibraryInterface::parse(name, bytes)?;
+                if interfaces
+                    .insert(interface.name.clone(), interface)
+                    .is_some()
+                {
+                    return Err(format!("duplicate embedded library interface `{name}`").into());
+                }
             }
         }
     }
     Ok(())
+}
+
+fn macho_interface_records(mut bytes: &[u8]) -> Result<Vec<&[u8]>> {
+    let mut records = Vec::new();
+    while !bytes.is_empty() {
+        let length = bytes
+            .get(..8)
+            .ok_or("truncated embedded interface length")?;
+        let length = usize::try_from(u64::from_le_bytes(length.try_into()?))?;
+        bytes = &bytes[8..];
+        if length > MAX_CONTRACT || records.len() >= MAX_CONTRACTS {
+            return Err("embedded interface count or size exceeds inspection limits".into());
+        }
+        let record = bytes.get(..length).ok_or("truncated embedded interface")?;
+        records.push(record);
+        let padded = length.next_multiple_of(8);
+        let padding = bytes
+            .get(length..padded)
+            .ok_or("truncated embedded interface padding")?;
+        if padding.iter().any(|byte| *byte != 0) {
+            return Err("invalid embedded interface padding".into());
+        }
+        bytes = &bytes[padded..];
+    }
+    Ok(records)
+}
+
+#[cfg(test)]
+mod macho_record_tests {
+    use super::*;
+
+    #[test]
+    fn combined_sections_preserve_each_contract_and_reject_truncation() {
+        let mut bytes = Vec::new();
+        for record in [b"first".as_slice(), b"second".as_slice()] {
+            bytes.extend_from_slice(&(record.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(record);
+            bytes.resize(bytes.len().next_multiple_of(8), 0);
+        }
+        assert_eq!(
+            macho_interface_records(&bytes).unwrap(),
+            [b"first".as_slice(), b"second".as_slice()]
+        );
+        assert!(macho_interface_records(&bytes[..bytes.len() - 1]).is_err());
+        assert!(macho_interface_records(&[0; 7]).is_err());
+    }
 }
 
 /// Write one named source interface only after validating all embedded metadata.

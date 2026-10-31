@@ -72,9 +72,9 @@ pub fn emit_runtime(directory: &Path) -> Result<RuntimeArtifacts, Box<dyn std::e
     })
 }
 
-/// Options for native compilation. Linkers must accept the Unix C compiler
-/// driver interface (object/archive inputs, native `-l` flags, and `-o OUT`).
-/// Use a wrapper for drivers with another interface; this is not a raw `ld` API.
+/// Options for native compilation. Unix hosts use a C compiler driver;
+/// Windows MSVC hosts use the Microsoft linker interface (including `/OUT:`).
+/// The linker must target the same platform as the packaged runtime.
 #[derive(Clone, Debug)]
 pub struct CompileOptions {
     /// Optional explicit target; it must match the supported packaged runtime.
@@ -127,7 +127,7 @@ impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             target: None,
-            linker: "cc".into(),
+            linker: if cfg!(windows) { "link.exe" } else { "cc" }.into(),
             auto_linker: true,
             verbose: false,
             link_args: Vec::new(),
@@ -326,6 +326,18 @@ fn executable(path: &Path) -> bool {
     path.is_file()
 }
 
+fn linker_command(options: &CompileOptions) -> Command {
+    // Discover the Visual Studio tools and Windows SDK even outside a
+    // developer shell, just as Cargo does when linking the compiler itself.
+    #[cfg(windows)]
+    if options.linker == Path::new("link.exe") {
+        if let Some(tool) = cc::windows_registry::find_tool(native_target(), "link.exe") {
+            return tool.to_command();
+        }
+    }
+    Command::new(&options.linker)
+}
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn link(
     object: &Path,
@@ -347,7 +359,8 @@ pub(crate) fn link(
     let staged_output = bundle.as_ref().map(|bundle| bundle.executable(output));
     let output = staged_output.as_deref().unwrap_or(output);
     let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()))?;
-    let mut command = Command::new(&options.linker);
+    let mut command = linker_command(options);
+    let msvc = native_target().ends_with("-windows-msvc");
     if let Some(linker) = options.automatic_linker() {
         command.arg(format!("-fuse-ld={linker}"));
         let threads = std::env::var("PLENTY_LINKER_THREADS").ok();
@@ -364,10 +377,24 @@ pub(crate) fn link(
         .args(engines)
         .args(native_args.split_whitespace());
     // Last before `-o`, so wrapper drivers still see the inputs first.
-    if options.strip {
-        command.arg("-Wl,--strip-all");
+    if msvc {
+        command.args(["/NOLOGO", "/SUBSYSTEM:CONSOLE", "/OPT:REF"]);
+        let mut argument = OsString::from("/OUT:");
+        argument.push(output);
+        command.arg(argument);
+    } else {
+        if cfg!(target_os = "macos") {
+            command.arg("-Wl,-dead_strip");
+        }
+        if options.strip {
+            command.arg(if cfg!(target_os = "macos") {
+                "-Wl,-S,-x"
+            } else {
+                "-Wl,--strip-all"
+            });
+        }
+        command.arg("-o").arg(output);
     }
-    command.arg("-o").arg(output);
     if options.verbose {
         eprintln!("link: {command:?}");
     }
@@ -469,6 +496,11 @@ fn reached_engines<'a>(
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
     let object = object::File::parse(bytes)?;
     let engine_of = |name: &str| {
+        let name = if object.format() == object::BinaryFormat::MachO {
+            name.strip_prefix('_').unwrap_or(name)
+        } else {
+            name
+        };
         engines
             .iter()
             .position(|e| name.starts_with(e.symbol_prefix))

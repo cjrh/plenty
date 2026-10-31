@@ -4,7 +4,7 @@
 use cranelift_codegen::isa::CallConv;
 
 /// CPU features are never inferred from the build host: x86 uses SSE2;
-/// ARM uses generic ARMv8-A. Only 64-bit little-endian GNU/Linux is admitted.
+/// ARM uses generic ARMv8-A. All admitted targets use 64-bit little-endian pointers.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NativeTarget {
     pub triple: &'static str,
@@ -18,7 +18,7 @@ pub(crate) struct NativeTarget {
     pub call_conv: CallConv,
 }
 
-pub(crate) const NATIVE_TARGETS: [NativeTarget; 2] = [
+pub(crate) const NATIVE_TARGETS: [NativeTarget; 4] = [
     NativeTarget {
         triple: "x86_64-unknown-linux-gnu",
         arch: "x86_64",
@@ -40,6 +40,28 @@ pub(crate) const NATIVE_TARGETS: [NativeTarget; 2] = [
         object_format: object::BinaryFormat::Elf,
         baseline: "ARMv8-A",
         call_conv: CallConv::SystemV,
+    },
+    NativeTarget {
+        triple: "aarch64-apple-darwin",
+        arch: "aarch64",
+        os: "macos",
+        pointer_width: 64,
+        endian: "little",
+        object_arch: object::Architecture::Aarch64,
+        object_format: object::BinaryFormat::MachO,
+        baseline: "ARMv8-A",
+        call_conv: CallConv::AppleAarch64,
+    },
+    NativeTarget {
+        triple: "x86_64-pc-windows-msvc",
+        arch: "x86_64",
+        os: "windows",
+        pointer_width: 64,
+        endian: "little",
+        object_arch: object::Architecture::X86_64,
+        object_format: object::BinaryFormat::Coff,
+        baseline: "x86-64/SSE2",
+        call_conv: CallConv::WindowsFastcall,
     },
 ];
 
@@ -87,7 +109,7 @@ fn validate_target_identity(
     packaged: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if target_description(requested).is_none() {
-        return Err(format!("unsupported native target `{requested}`; supported targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu (64-bit little-endian GNU/Linux)").into());
+        return Err(format!("unsupported native target `{requested}`; supported targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, aarch64-apple-darwin, x86_64-pc-windows-msvc (64-bit little-endian)").into());
     }
     if target_description(compiler).is_none() {
         return Err(format!("unsupported compiler host `{compiler}`").into());
@@ -113,9 +135,23 @@ mod tests {
         for target in NATIVE_TARGETS {
             let triple: target_lexicon::Triple = target.triple.parse().unwrap();
             assert_eq!(triple.architecture.to_string(), target.arch);
-            assert_eq!(triple.operating_system.to_string(), target.os);
-            assert_eq!(triple.binary_format.to_string(), "elf");
-            assert_eq!(target.object_format, object::BinaryFormat::Elf);
+            assert_eq!(
+                triple.operating_system.to_string(),
+                if target.os == "macos" {
+                    "darwin"
+                } else {
+                    target.os
+                }
+            );
+            assert_eq!(
+                triple.binary_format.to_string(),
+                match target.object_format {
+                    object::BinaryFormat::Elf => "elf",
+                    object::BinaryFormat::MachO => "macho",
+                    object::BinaryFormat::Coff => "coff",
+                    _ => unreachable!(),
+                }
+            );
             assert_eq!(triple.pointer_width().unwrap().bits(), target.pointer_width);
             assert_eq!(
                 triple.endianness().unwrap(),
@@ -133,7 +169,7 @@ mod tests {
             );
             assert!(validate_target_identity(target.triple, target.triple, target.triple).is_ok());
         }
-        assert_eq!(NATIVE_TARGETS.len(), 2);
+        assert_eq!(NATIVE_TARGETS.len(), 4);
         assert_eq!(compiler_host(), native_target());
         validate_target(None).unwrap();
     }
@@ -169,8 +205,8 @@ mod tests {
         let native = NATIVE_TARGETS[0].triple;
         for unsupported in [
             "i686-unknown-linux-gnu",
-            "x86_64-pc-windows-msvc",
-            "aarch64-apple-darwin",
+            "aarch64-pc-windows-msvc",
+            "x86_64-apple-darwin",
             "not-a-target",
             "x86_64-unknown-linux-musl",
         ] {

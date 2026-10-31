@@ -409,8 +409,26 @@ fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Re
         false,
     )?;
     let mut description = DataDescription::new();
-    description.define(interface.source.as_bytes().to_vec().into_boxed_slice());
-    description.set_custom_section(&format!(".plenty.interface.{}", interface.name));
+    let macho = module.isa().triple().binary_format == target_lexicon::BinaryFormat::Macho;
+    let mut bytes = Vec::new();
+    if macho {
+        // ld64 combines identically named sections from linked objects.
+        // Frame each contract so inspection can recover every library.
+        bytes.extend_from_slice(&(interface.source.len() as u64).to_le_bytes());
+    }
+    bytes.extend_from_slice(interface.source.as_bytes());
+    if macho {
+        bytes.resize(bytes.len().next_multiple_of(8), 0);
+        description.set_align(8);
+    }
+    description.define(bytes.into_boxed_slice());
+    if macho {
+        // Mach-O names are limited to sixteen bytes. The contract header
+        // carries the complete library name for inspection.
+        description.set_custom_section("__TEXT,__plenty_iface");
+    } else {
+        description.set_custom_section(&format!(".plenty.interface.{}", interface.name));
+    }
     description.set_used(true);
     module.define_data(data, &description)?;
     let mut signature = module.make_signature();
@@ -433,6 +451,11 @@ fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Re
     );
     let global = module.declare_data_in_func(data, b.func);
     let pointer = b.ins().symbol_value(PTR_TY, global);
+    let pointer = if macho {
+        b.ins().iadd_imm_s(pointer, 8)
+    } else {
+        pointer
+    };
     b.ins().return_(&[pointer]);
     b.finalize(crate::codegen::FRONTEND);
     out.define(id, func)?;

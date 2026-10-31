@@ -46,7 +46,7 @@ cranelift-object = "0.137.0"
 cranelift-native = "0.137.0"
 target-lexicon = "0.13"
 tempfile = "3.27.0"
-object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "archive", "std"] }
+object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "archive", "std", "macho", "coff", "pe"] }
 sha2 = { version = "0.10", default-features = false }
 # JSON for the language server (`plenty lsp`, issue #155). Pinned: serde and
 # its derive are already built for Cranelift, so this adds one crate.
@@ -87,4 +87,7 @@ name = "rust_source_spike"
 required-features = ["rust-source-spike"]
 
 [build-dependencies]
+cc = "1"
+
+[target."cfg(windows)".dependencies]
 cc = "1"

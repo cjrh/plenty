@@ -166,5 +166,12 @@ fn arm_source_table_bases_are_local_symbols_with_zero_relocation_addends() {
     assert_eq!(alias_symbol.value, table_symbol.value + 16);
     assert_eq!(alias_symbol.scope, SymbolScope::Compilation);
     // Resolving aliases requires no writable pointer table or runtime fixups.
-    assert!(product.emit().unwrap().starts_with(b"\x7fELF"));
+    let bytes = product.emit().unwrap();
+    let object = object::File::parse(bytes.as_slice()).unwrap();
+    assert_eq!(
+        object.format(),
+        crate::target::target_description(crate::native_target())
+            .unwrap()
+            .object_format
+    );
 }
