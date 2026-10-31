@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn native_formats_emit_functions_source_aliases_and_relative_trap_tables() {
-        use object::{Object, ObjectSection};
+        use object::{Object, ObjectSection, ObjectSymbol};
         for target in crate::target::NATIVE_TARGETS {
             let isa =
                 super::super::baseline_isa(target.triple, "backtracking", "none", false).unwrap();
@@ -636,7 +636,7 @@ mod tests {
                 None,
             )
             .unwrap();
-            output.declare_traps().unwrap();
+            let trap_table = output.declare_traps().unwrap();
             let signature = output.module.make_signature();
             let id = output
                 .module
@@ -655,6 +655,7 @@ mod tests {
             builder.ins().return_(&[]);
             builder.finalize(super::super::FRONTEND);
             output.define(id, function).unwrap();
+            super::super::coverage::define(&mut output.module, id, 2).unwrap();
             let (table, _) = output
                 .sites
                 .append(
@@ -664,10 +665,31 @@ mod tests {
                 .unwrap();
             output.sites.address(&mut output.module, table, 16).unwrap();
             output.traps.as_mut().unwrap().add_stack_probes(id, [0]);
-            let bytes = output.finish().unwrap().emit().unwrap();
+            let product = output.finish().unwrap();
+            let anchor_name = product
+                .object
+                .symbol(product.data_symbol(trap_table))
+                .name
+                .clone();
+            let bytes = product.emit().unwrap();
             let object = object::File::parse(bytes.as_slice()).unwrap();
             assert_eq!(object.format(), target.object_format);
             assert_eq!(object.architecture(), target.object_arch);
+            if target.object_format == object::BinaryFormat::MachO {
+                let mut subtractors = 0;
+                for section in object.sections() {
+                    for (_, relocation) in section.relocations() {
+                        if let Some(index) = relocation.subtractor() {
+                            let symbol = object.symbol_by_index(index).unwrap();
+                            assert_eq!(symbol.name_bytes().unwrap(), anchor_name);
+                            assert_eq!(symbol.section_index(), Some(section.index()));
+                            subtractors += 1;
+                        }
+                    }
+                }
+                assert_eq!(subtractors, 2);
+            }
+
             assert!(
                 object
                     .sections()

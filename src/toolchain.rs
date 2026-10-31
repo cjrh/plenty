@@ -510,31 +510,53 @@ fn reached_engines<'a>(
     }) {
         return Ok(Vec::new());
     }
+    let atom = |symbol: object::Symbol<'_, '_>| {
+        let index = symbol.section_index()?;
+        let section = object.section_by_index(index).ok()?;
+        if object.format() != object::BinaryFormat::MachO {
+            return Some((index, 0, section.size()));
+        }
+        // Mach-O keeps functions and data in shared sections. Its linker
+        // collects symbol-delimited atoms under MH_SUBSECTIONS_VIA_SYMBOLS,
+        // so scanning a whole section would reach unused facade functions.
+        let start = symbol.address().checked_sub(section.address())?;
+        let end = object
+            .symbols()
+            .filter(|next| next.section_index() == Some(index) && next.address() > symbol.address())
+            .map(|next| next.address() - section.address())
+            .min()
+            .unwrap_or(section.size());
+        Some((index, start, end))
+    };
     let mut pending: Vec<_> = object
         .symbols()
-        .filter(|symbol| symbol.is_global() && !symbol.is_undefined())
-        .filter_map(|symbol| symbol.section_index())
+        .filter(|symbol| {
+            (symbol.is_global() && !symbol.is_undefined())
+                || matches!(symbol.flags(), object::SymbolFlags::MachO { n_desc, .. }
+                    if n_desc.contains(object::macho::N_NO_DEAD_STRIP))
+        })
+        .filter_map(atom)
         .collect();
-    // Exported library interfaces are explicitly retained even without a
-    // global symbol. Their relocations are roots too.
+    // Exported ELF interfaces are retained even without a global symbol.
     pending.extend(
         object
             .sections()
             .filter(|section| {
-                matches!(
-                    section.flags(), SectionFlags::Elf { sh_flags, .. }
-                    if sh_flags.0 & object::elf::SHF_GNU_RETAIN.0 != 0
-                )
+                matches!(section.flags(), SectionFlags::Elf { sh_flags, .. }
+            if sh_flags.0 & object::elf::SHF_GNU_RETAIN.0 != 0)
             })
-            .map(|section| section.index()),
+            .map(|section| (section.index(), 0, section.size())),
     );
     let mut reached = vec![false; engines.len()];
     let mut seen = std::collections::HashSet::new();
-    while let Some(index) = pending.pop() {
-        if !seen.insert(index) {
+    while let Some((index, start, end)) = pending.pop() {
+        if !seen.insert((index, start, end)) {
             continue;
         }
-        for (_, relocation) in object.section_by_index(index)?.relocations() {
+        for (offset, relocation) in object.section_by_index(index)?.relocations() {
+            if offset < start || offset >= end {
+                continue;
+            }
             match relocation.target() {
                 RelocationTarget::Symbol(index) => {
                     let symbol = object.symbol_by_index(index)?;
@@ -542,11 +564,14 @@ fn reached_engines<'a>(
                         if let Some(engine) = engine_of(symbol.name()?) {
                             reached[engine] = true;
                         }
-                    } else if let Some(section) = symbol.section_index() {
-                        pending.push(section);
+                    } else if let Some(range) = atom(symbol) {
+                        pending.push(range);
                     }
                 }
-                RelocationTarget::Section(section) => pending.push(section),
+                RelocationTarget::Section(index) => {
+                    let section = object.section_by_index(index)?;
+                    pending.push((index, 0, section.size()));
+                }
                 _ => {}
             }
         }
@@ -869,6 +894,68 @@ mod tests {
             .collect();
         assert_eq!(reached, ["std.a"]);
         assert!(reached_engines(&bytes, ENGINES).unwrap().is_empty());
+    }
+
+    #[test]
+    fn engine_reachability_follows_native_linker_atoms() {
+        use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
+        use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+        use cranelift_module::{Linkage, Module};
+        for target in crate::target::NATIVE_TARGETS {
+            let isa =
+                crate::codegen::baseline_isa(target.triple, "backtracking", "none", false).unwrap();
+            let mut builder = cranelift_object::ObjectBuilder::new(
+                isa,
+                "engine-atoms",
+                cranelift_module::default_libcall_names(),
+            )
+            .unwrap();
+            builder.per_function_section(true);
+            let mut module = cranelift_object::ObjectModule::new(builder);
+            let mut signature = module.make_signature();
+            signature.returns.push(AbiParam::new(types::I64));
+            let used = module
+                .declare_function("plfa_v1_used", Linkage::Import, &signature)
+                .unwrap();
+            let unused = module
+                .declare_function("plfb_v1_unused", Linkage::Import, &signature)
+                .unwrap();
+            let first = module
+                .declare_function("first", Linkage::Local, &signature)
+                .unwrap();
+            let second = module
+                .declare_function("second", Linkage::Local, &signature)
+                .unwrap();
+            let main = module
+                .declare_function("plenty_main", Linkage::Export, &signature)
+                .unwrap();
+            for (caller, callee) in [(first, used), (second, unused), (main, first)] {
+                let mut context = module.make_context();
+                context.func.signature = signature.clone();
+                let reference = module.declare_func_in_func(callee, &mut context.func);
+                let mut scratch = FunctionBuilderContext::new();
+                let mut body = FunctionBuilder::new(&mut context.func, &mut scratch);
+                let block = body.create_block();
+                body.switch_to_block(block);
+                body.seal_block(block);
+                let call = body.ins().call(reference, &[]);
+                let result = body.inst_results(call)[0];
+                body.ins().return_(&[result]);
+                body.finalize(crate::codegen::FRONTEND);
+                module.define_function(caller, &mut context).unwrap();
+            }
+            let bytes = module.finish().emit().unwrap();
+            let engines = [
+                fake_engine("std.a", "plfa_v1_"),
+                fake_engine("std.b", "plfb_v1_"),
+            ];
+            let reached: Vec<_> = reached_engines(&bytes, &engines)
+                .unwrap()
+                .into_iter()
+                .map(|engine| engine.module)
+                .collect();
+            assert_eq!(reached, ["std.a"], "{}", target.triple);
+        }
     }
 
     #[test]

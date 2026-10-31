@@ -917,7 +917,7 @@ fn optimized_isa(
     Ok(isa)
 }
 
-fn baseline_isa(
+pub(crate) fn baseline_isa(
     triple: &str,
     regalloc_algorithm: &str,
     opt_level: &str,
