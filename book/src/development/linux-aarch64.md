@@ -1,11 +1,14 @@
 # Linux AArch64 development
 
 The source tree implements native `aarch64-unknown-linux-gnu` alongside
-`x86_64-unknown-linux-gnu`. This page describes the development harness and its
-limits. It does not establish an ARM release's minimum glibc/kernel versions,
-native hardware concurrency behavior, or optional-engine availability.
+`x86_64-unknown-linux-gnu`, and releases publish its compiler and both optional
+engine archives, built and tested on native ARM runners as described in
+[releasing](releasing.md). This page describes the emulation harness used to
+develop the port and the evidence it recorded. That evidence does not establish
+minimum kernel versions, page sizes other than 4 KiB, or weak-memory behavior on
+other ARM hardware.
 [Platform support](../design/toolchain/02-architecture/support.md) describes the
-implemented contract; future work and admission gates remain in [B18](../backlog.md).
+implemented contract; future work remains in [B18](../backlog.md).
 
 ## Backend and C ABI probe
 

@@ -26,6 +26,9 @@ import tomllib
 from pathlib import Path
 
 TARGET = "x86_64-unknown-linux-gnu"
+# Every release target; scripts/release/target.sh lists their build facts.
+TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+           "aarch64-apple-darwin", "x86_64-pc-windows-msvc")
 # ring 0.17.14 ships for std.tls and advanced std.crypto. Its existing
 # vendored source and complete notices are covered through Cargo metadata.
 ROOTS = ("plenty", "plenty-runtime")
@@ -378,7 +381,7 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--list", action="store_true", help="print name, version, license only")
     parser.add_argument("--component", choices=("compiler", "dataframe", "linalg"), default="compiler")
-    parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"), default=TARGET)
+    parser.add_argument("--target", choices=TARGETS, default=TARGET)
     args = parser.parse_args()
     manifest = args.repo / (f"plenty-{args.component}/Cargo.toml" if args.component != "compiler" else "Cargo.toml")
     metadata = json.loads(

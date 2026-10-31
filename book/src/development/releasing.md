@@ -132,7 +132,9 @@ git push --atomic origin main vX.Y.Z
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
 | Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both optional engines and packages separate archives |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
-| Publish | Creates a draft release with the compiler, dataframe and linalg archives and their checksums, then publishes it (`publish.sh`) |
+| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the core archive (`build-native.sh`) |
+| Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
+| Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
 
 Native Ubuntu test runners and the x86-64 baseline build install the
 SHA-256-verified mold version pinned in `scripts/release/toolchain.env`, without
@@ -153,14 +155,26 @@ publish GitHub pre-releases that are not marked latest. Runs for the same tag
 are serialized. Only the publish job can write repository contents, through
 the workflow token; no crates.io or other credential is used.
 
-The target matrix uses `x86_64-unknown-linux-gnu` and
-`aarch64-unknown-linux-gnu`. Compiler assets are
-`plenty-VERSION-TRIPLE.tar.gz`; optional engine assets are
+`scripts/release/target.sh` defines each target and `scripts/release/matrix.py`
+turns the list into job matrices:
+
+| Target | Runner | Archives |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | compiler, dataframe and linalg engines (`.tar.gz`) |
+| `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` | compiler, dataframe and linalg engines (`.tar.gz`) |
+| `aarch64-apple-darwin` (experimental) | `macos-15` | compiler only (`.tar.gz`), macOS 11 or later |
+| `x86_64-pc-windows-msvc` (experimental) | `windows-2025` | compiler only (`.zip`), Windows 10 or later |
+
+Compiler assets are `plenty-VERSION-TRIPLE.EXT`; optional engine assets are
 `plenty-dataframe-VERSION-TRIPLE.tar.gz` and `plenty-linalg-VERSION-TRIPLE.tar.gz`.
-An engine must match the compiler's target. Native hardware, glibc-baseline
-execution and clean smoke tests must actually pass before the ARM artifacts
-carry a release support guarantee; configuring the matrix alone does not
-establish one. The [ARM harness](linux-aarch64.md) records emulated evidence.
+An engine must match the compiler's target. The engines are Linux ELF shared
+libraries, so macOS and Windows publish only the compiler. Their archives are
+not notarized or code-signed; macOS executables carry the linker's ad-hoc
+signature, and the Windows build links the dynamic MSVC runtime that the
+documented Build Tools prerequisite installs. `archive.py` writes those archives
+with sorted entries, fixed owners and modes, and `SOURCE_DATE_EPOCH` timestamps.
+The release notes mark them experimental. The [ARM harness](linux-aarch64.md)
+records the emulated evidence gathered before native ARM runners.
 Each engine archive contains `lib/libplenty_NAME_v1.so`, deployment instructions,
 notices and `engine.json` identifying the release/source, target and library
 checksum.
@@ -215,6 +229,21 @@ For a host-only compiler/engine installation with `--dist` notices, use the
 [just recipes](workflow.md#build-a-complete-local-installation). Their explicit
 `--local-install` packaging mode does not produce release archives or enforce
 the portable GLIBC/GCC symbol baseline. The release workflow never selects it.
+
+## Dry runs
+
+Run the workflow manually to test it before tagging. A manual run builds and
+smoke-tests the selected targets from the chosen branch and never publishes;
+the publish job runs only for tag pushes. It skips the tag checks and reads the
+version from `Cargo.toml`.
+
+```sh
+gh workflow run release.yml --ref BRANCH -f targets=all    # or linux, native
+gh run watch
+```
+
+Or use **Actions → Release → Run workflow** in the GitHub interface. The
+built archives remain downloadable from the run's artifacts for 30 days.
 
 ## Checking locally
 

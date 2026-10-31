@@ -5,8 +5,9 @@
 #
 # Used by the release workflow after every build and smoke job has passed.
 # Needs `gh` with GH_TOKEN (contents: write) and GITHUB_REPOSITORY.
+# PLENTY_RELEASE_TARGETS lists the targets whose archives must all be present.
 #
-# - No release for TAG: create a draft, upload both archives and checksums,
+# - No release for TAG: create a draft, upload every archive and checksum,
 #   then publish it. Readers never see a release with missing assets.
 # - A draft from an interrupted run: replace its assets and notes, publish.
 # - Already published: succeed without changes when its assets have the same
@@ -25,9 +26,13 @@ repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must name the repository}"
 assets=()
 checksums=()
 for target in ${PLENTY_RELEASE_TARGETS:-x86_64-unknown-linux-gnu}; do
-    case "$target" in x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu) ;; *) echo "publish.sh: unsupported target $target" >&2; exit 1 ;; esac
-    for component in plenty plenty-dataframe plenty-linalg; do
-        archive="$component-${tag#v}-$target.tar.gz"
+    # Each target's components and archive format come from target.sh, which
+    # rejects unknown targets.
+    PLENTY_RELEASE_TARGET="$target"
+    # shellcheck source=target.sh
+    . "$here/target.sh"
+    for component in $release_components; do
+        archive="$component-${tag#v}-$target.$release_archive_ext"
         assets+=("$dist/$archive" "$dist/$archive.sha256")
         checksums+=("$archive.sha256")
     done
@@ -36,7 +41,9 @@ mapfile -t assets < <(printf '%s\n' "${assets[@]}" | sort)
 for asset in "${assets[@]}"; do
     [ -f "$asset" ] || { echo "publish.sh: missing release asset $asset" >&2; exit 1; }
 done
-actual=("$dist"/*.tar.gz "$dist"/*.sha256)
+shopt -s nullglob
+actual=("$dist"/*.tar.gz "$dist"/*.zip "$dist"/*.sha256)
+shopt -u nullglob
 [ "${#actual[@]}" = "${#assets[@]}" ] || { echo "publish.sh: unexpected archive/checksum set in $dist" >&2; exit 1; }
 (cd "$dist" && sha256sum -c ./*.sha256)
 
