@@ -69,14 +69,47 @@ read another byte sequence accept a literal or a buffer through
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
 
 `source`, `set`, and `needle` parameters are `&S` for any `S: ByteSource`: a
-`Bytes` or a `bytes` literal. `==` and `!=` compare contents. Printing a
-buffer shows printable ASCII and writes every other byte as `\xhh`; it is a
-diagnostic form, not a conversion.
+`Bytes` or a `bytes` literal. `==` and `!=` compare contents. A buffer
+[prints](#printing) as a byte literal.
 
 `Bytes` is a resource: assignment and argument passing move it, and the builtin
 `copy` rejects it. Duplication is always the fallible `copy()` or `slice()`
 method. It has no hashing. A buffer can be stored in collections, sent through
 channels, and moved into worker threads.
+
+## Printing
+
+`print`, `str.repr`, and f-string fields spell a `Bytes` buffer, a `bytes`
+literal, and a `&[u8]` view the same way: as a byte literal that reads back as
+the same bytes. Printable ASCII appears as itself, except that a backslash,
+double quote, LF, CR, and TAB are `\\`, `\"`, `\n`, `\r`, and `\t`; every other
+byte is `\xhh` with lowercase digits. This matches Python's `bytes` repr, except that the quotes are always
+double. The private storage field never appears, also inside a class, list, or
+`Option`.
+
+```plenty
+import std.bytes
+import std.encoding
+from std.bytes import BytesError
+from std.encoding import EncodingError
+
+def main() -> Result[(), AllocError | IoError | BytesError | EncodingError]:
+    frame = std.bytes.from_bytes(b"GET\t\"/\"\r\n\x00\xff")?
+    print(frame)?
+    print(&frame[0:3], [std.bytes.from_text("ok")?]?)?
+    print(std.encoding.hex_text(&frame, 0, frame.len())?)?
+    Ok(())
+```
+```output
+b"GET\t\"/\"\r\n\x00\xff"
+b"GET" [b"ok"]
+47455409222f220d0a00ff
+```
+
+The literal spelling suits data that is mostly ASCII, such as protocol text.
+For binary data such as digests, keys, or packed records, write the hex form
+with [`std.encoding.hex_text`](encoding.md), two lowercase digits per byte, or
+format each byte explicitly.
 
 ## Byte sources
 

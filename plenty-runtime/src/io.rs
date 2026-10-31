@@ -129,11 +129,16 @@ pub(crate) fn flush() {
 }
 
 pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut crate::render_buffer::Buffer) {
+    // SAFETY: the caller borrows a live, validated string throughout rendering.
+    repr_text(unsafe { strings::utf8(&text) }, legacy, out);
+}
+
+/// The quoted spelling of `text`, which `str.repr` writes.
+pub(crate) fn repr_text(text: &str, legacy: bool, out: &mut crate::render_buffer::Buffer) {
     out.push(b'"');
     // Iterate scalars, not bytes, so the legacy escape names the code point
     // (`é` is `\u{e9}`), matching `!a` in format strings.
-    // SAFETY: the caller borrows a live, validated string throughout rendering.
-    for c in unsafe { strings::utf8(&text) }.chars() {
+    for c in text.chars() {
         if out.failed() {
             return;
         }

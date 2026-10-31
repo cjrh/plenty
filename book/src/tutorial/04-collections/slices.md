@@ -107,6 +107,10 @@ café
 !éfac
 ```
 
+To read part of a string without copying it, borrow it as `&word[:4]`, which
+the [element borrowing lesson](element-borrows.md#borrow-part-of-a-string)
+introduces.
+
 The step must not be zero. A literal `0` is a compile error, and a computed step
 is converted with `NonZero.try_from(step)?`, which reports zero as an error. The
 [slice reference](../../design/language/04-expressions/slices.md) covers steps,

@@ -626,6 +626,7 @@ mod native {
             wrapper: None,
             plan: None,
             redacted: false,
+            transparent: false,
         };
 
         struct Owner(u128);

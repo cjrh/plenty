@@ -34,6 +34,7 @@ mod record_tests;
 mod removal_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
+mod text_views;
 mod tls;
 mod watch;
 
@@ -68,6 +69,9 @@ pub(crate) struct Type {
     /// nothing from the value. See
     /// book/src/design/language/03-types/classes.md#redacted-types.
     pub(crate) redacted: bool,
+    /// A wrapper that renders as its field alone: `std.bytes.Bytes` prints
+    /// as a byte literal. See book/src/design/stdlib/bytes.md#printing.
+    pub(crate) transparent: bool,
 }
 /// What releasing and moving a class record involves, precomputed from its
 /// field types. Mirrors `codegen::metadata::plan`.
@@ -88,6 +92,7 @@ const _: () = {
     assert!(size_of::<Type>() == 88);
     assert!(std::mem::offset_of!(Type, plan) == 72);
     assert!(std::mem::offset_of!(Type, redacted) == 80);
+    assert!(std::mem::offset_of!(Type, transparent) == 81);
     assert!(size_of::<Plan>() == 24);
     assert!(std::mem::offset_of!(Plan, only_strings) == 16);
     assert!(std::mem::offset_of!(Plan, fixed) == 17);
@@ -1657,6 +1662,10 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
         return;
     }
     if let Some(wrapper) = ty.wrapper {
+        if ty.transparent {
+            unsafe { render(value, wrapper.fields[0], out) };
+            return;
+        }
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
         out.extend_from_slice(wrapper.name.as_bytes());
@@ -1764,6 +1773,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 out,
             ),
             b'V' => render_view(value, ty.key(), out),
+            b't' => crate::io::repr_text(text_views::text(value), false, out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -2020,7 +2030,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
@@ -2165,6 +2175,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
         if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280..=283) {
             let operands = read_operands::<5>(op, args);
             out.write(byte_storage::call(op, operands, descriptor, site));
+            return;
+        }
+        if (TEXT_VIEW_SUBVIEW..=TEXT_VIEW_SEARCH).contains(&op) {
+            let operands = read_operands::<5>(op, args);
+            out.write(text_views::call(op, operands, site));
             return;
         }
         if matches!(op, LIST_SLICE | TEXT_SLICE) {
@@ -2351,6 +2366,17 @@ pub(crate) unsafe fn collection_at(
                     crate::io::plenty_println(a as *const Text);
                     return wrap(0, 0);
                 }
+                if op == 111 && (*descriptor).kind == b't' {
+                    // A `&substr` prints its text, as a string does.
+                    let mut stdout = std::io::stdout().lock();
+                    return crate::text_io::result(
+                        stdout
+                            .write_all(text_views::bytes(a))
+                            .and_then(|()| stdout.write_all(b"\n"))
+                            .map(|()| 0)
+                            .map_err(crate::text_io::Error::from),
+                    );
+                }
                 if op == 111 && (*descriptor).raw_text() {
                     // A string already has its final byte representation. Printing
                     // it needs no formatting buffer, including inside destructors. A
@@ -2373,6 +2399,8 @@ pub(crate) unsafe fn collection_at(
                         }
                         if field.raw_text() {
                             out.extend_from_slice(strings::bytes(&(value as *const Text)));
+                        } else if field.kind == b't' {
+                            out.extend_from_slice(text_views::bytes(value));
                         } else {
                             render(value, field, &mut out);
                         }

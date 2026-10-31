@@ -369,7 +369,8 @@ impl Lower<'_> {
                 loans.push(loan);
                 ty
             } else if let Ty::View(_, mutable) = expected {
-                let (ty, loan) = self.view_argument(arg, *mutable, ops)?;
+                let text = *expected == text_view();
+                let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;
                 loans.push(loan);
                 ty
             } else {

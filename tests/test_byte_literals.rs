@@ -47,10 +47,10 @@ lines""")?
     );
     assert_eq!(
         printed,
-        "b\"\\x00\\xff\\x7f\\x0a\\x0d\\x09\\x00\"\n\
+        "b\"\\x00\\xff\\x7f\\n\\r\\t\\x00\"\n\
          b\"single \\\"double\\\"\"\n\
          b\"it's \\\"quoted\\\" \\\\ done\"\n\
-         0\nTrue\nb\"two\\x0alines\"\n2\n"
+         0\nTrue\nb\"two\\nlines\"\n2\n"
     );
 }
 

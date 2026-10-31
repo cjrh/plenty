@@ -1100,7 +1100,12 @@ impl Lower<'_> {
                 expected
             } else if matches!(pattern.name.as_deref(), Some(VIEW_TYPE | MUT_VIEW_TYPE)) {
                 let mutable = pattern.name.as_deref() == Some(MUT_VIEW_TYPE);
-                let (ty, loan) = self.view_argument(arg, mutable, ops)?;
+                let (ty, loan) = self.view_argument(arg, mutable, false, ops)?;
+                if ty == text_view() {
+                    return Err(arg.at.error(
+                        "a `&[T]` parameter takes a list or buffer view; `&s[a:b]` is a `&substr`, which a `&substr` parameter takes",
+                    ));
+                }
                 loans.push(loan);
                 ty
             } else if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {

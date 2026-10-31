@@ -190,11 +190,16 @@ itself keeps its own spelling. Other list operations, such as methods, `in`,
 
 ### Views borrow their owner
 
-A view holds a loan of its whole owner: a shared view a shared loan, and an
-exclusive view an exclusive one, under the [borrowing rules](../05-ownership/02-borrowing.md).
-While a view is live, its owner cannot grow, shrink, move, or be reassigned.
-Two views of one list are never disjoint, so `&mut xs[:2]` and `&xs[2:]`
-conflict while both are live.
+A view holds a loan of its run of elements in its owner: a shared view a
+shared loan, and an exclusive view an exclusive one, under the
+[borrowing rules](../05-ownership/02-borrowing.md). While a view is live, its
+owner cannot grow, shrink, move, or be reassigned, and `len(xs)` and `&xs`
+conflict with an exclusive view. Two views are disjoint when one stops where
+the other starts, at one literal or non-`mut` `i64` name, so `&mut xs[:m]` and
+`&mut xs[m:]` can both be live. Overlapping or unprovable ranges, such as
+`&mut xs[:3]` with `&xs[2:]`, conflict.
+[Disjoint slice views](../05-ownership/02-borrowing.md#disjoint-slice-views)
+states the full rule and why it is sound.
 
 A `&[T]` or `&mut [T]` parameter takes a view, `&xs[a:b]` or a view binding.
 A list is not converted to a view implicitly; pass the whole list as `&xs[:]`.
@@ -207,13 +212,76 @@ Views are local until stored references land (backlog B11). A view cannot be
 returned, stored in a class field, tuple, collection, or enum payload, or
 captured by an anonymous function. Return or store the bounds, or an owned copy.
 
-`str` has no slice views yet (issue #595). Finding the bounds is not the
-obstacle: the copying slice scans the text once, and a view could too. The
-[representation](../../toolchain/02-architecture/values.md#strings) is: a `str`
-addresses text that follows its byte length and scalar count, a `&str` refers
-to such a value, and every text operation reads that prefix. A run inside a
-string has no prefix, so it has no `&str` form. Copy part of a string with
-`s[a:b]?`.
+### Substring views
+
+`&s[a:b]` on a `str` borrows the selected text in place as a `&substr`
+(issue #595). Like other views it copies nothing, allocates nothing, and takes
+no `?`. Its bounds are those of the copying slice `s[a:b]?`: they count
+Unicode scalars, a negative bound counts from the end, and bounds outside the
+text clamp. A view therefore always starts and ends on a scalar boundary, and
+`s[a:b]? == &s[a:b]` for any `a` and `b`.
+
+```plenty
+def vowels(text: &substr) -> i64:
+    mut n = 0
+    for c in text:
+        if c in "aeiouéö":
+            n += 1
+    n
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "héllo, wörld"
+    word = &s[7:]
+    print(word, len(word), word.byte_len(), vowels(&s[:5]))?
+    print(word == "wörld", &s[:1] < word, "ör" in word, word.find("l"))?
+    for c in reversed(&word[1:3]):
+        print(c)?
+    owned = word[:2]?
+    print(owned)?
+    Ok(())
+```
+
+```output
+wörld 5 6 2
+True True True Option[i64].Some(3)
+r
+ö
+wö
+```
+
+`&substr` is a separate type from `&str`. A `&str` refers to a whole `str`,
+whose [representation](../../toolchain/02-architecture/values.md#strings)
+stores its byte length and scalar count ahead of the text, and every `str`
+operation reads them. A run inside a string has no such prefix, so a view
+holds the run's address and byte length instead. `substr` is only written as
+`&substr`; there is no owned `substr` and no `&mut substr`, since a `str` is
+immutable. A `&substr` parameter takes a view, `&s[a:b]` or a view binding;
+pass a whole string as `&s[:]`.
+
+| Operation | Meaning |
+| --- | --- |
+| `len(v)` | Number of scalars; scans the view's text, as positions do |
+| `v.byte_len()` | Number of UTF-8 bytes; constant time |
+| `v[i]` | Scalar `i` as a one-scalar `str`; a negative index counts from the end, and an index outside the view traps |
+| `&v[a:b]` | Narrower view; bounds count scalars from the start of `v` |
+| `v[a:b]?` | An owned copy of part of the view, `Result[str, AllocError]` |
+| `for c in v` | Each scalar as a one-scalar `str`; `reversed(v)`, `enumerate(v)`, and `iter(v)` also work |
+| `v == w`, `v != w`, `<`, `<=`, `>`, `>=` | Compare by Unicode scalar value, as `str` does; either side may be a `str` or a `&substr` |
+| `needle in v`, `needle not in v` | Substring membership; the needle is a `str` or a `&substr` |
+| `v.startswith(x)`, `v.endswith(x)` | Exact prefix or suffix; `x` is a `str` or a `&substr` |
+| `v.find(x)` | First matching scalar position within the view, or `Nothing` |
+| `print(v)`, `f"{v}"` | The text itself; `str.repr(v)` and `f"{v!r}"` quote it as a `str` |
+
+Each scalar a loop or index yields fits in a string's inline form, so these
+operations allocate nothing. Finding a bound, `len(v)`, `v[i]`, and `v.find(x)`
+scan the text before the position, as they do on a `str`. `str` methods other
+than those listed are not available on a view; copy it with `v[:]?` to use one.
+A `str` method does not take a `&substr` argument, and `v in s` for a `str`
+`s` is written `v in &s[:]`.
+
+A substring view borrows its string as other views borrow their owner: while
+it is live, the string cannot be reassigned or moved, and the view stays local
+until stored references land (backlog B11).
 
 ## Limits
 
@@ -223,7 +291,7 @@ string has no prefix, so it has no `&str` form. Copy part of a string with
 | `xs[::0]` | `slice step cannot be zero` |
 | `xs[::k]` with `k: i64` | ``slice step must be `NonZero[i64]`, not `i64` `` |
 | `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
-| `&s[1:3]` on a `str` | `str has no slice views` |
+| `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `total(&xs)` for `total(v: &[i64])` | ``this parameter takes a slice view, `&xs[a:b]`; pass a whole list or buffer as `&xs[:]` `` |
 | `x in v` for a view `v` | ``slice views do not support `in` yet`` |
