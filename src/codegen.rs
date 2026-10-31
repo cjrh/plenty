@@ -384,6 +384,9 @@ fn link_object(
     options: &crate::CompileOptions,
     test_hooks: bool,
 ) -> Result<()> {
+    if !cfg!(target_os = "linux") && (test_hooks || options.fuzz.is_some()) {
+        return Err("test fault injection and fuzzing require a Linux host".into());
+    }
     let rt_path = workspace.path().join("libplenty_runtime.a");
     std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     // Fuzz and `plenty test` executables are run and debugged where they are
@@ -502,9 +505,16 @@ fn report_cache(options: &crate::CompileOptions, cache: Option<&Cache>) {
 
 /// Failure injection for `plenty test` and `--test-hooks` builds, compiled from
 /// `plenty-runtime/native/test_hooks.c`. Linked only into instrumented executables.
+// Object packaging follows the same host boundary as target admission.
+#[cfg(not(target_os = "linux"))]
+const TEST_HOOKS: &[u8] = &[];
+#[cfg(not(target_os = "linux"))]
+const FUZZ_DRIVER: &[u8] = &[];
+#[cfg(target_os = "linux")]
 const TEST_HOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_test_hooks.o"));
 /// The libFuzzer entry of `--fuzz` executables, compiled from
 /// `plenty-runtime/native/fuzz_driver.c`. Linked into no other executable.
+#[cfg(target_os = "linux")]
 const FUZZ_DRIVER: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plenty_fuzz_driver.o"));
 /// Found beside the `--libfuzzer` archive, as clang installs them.
 const FUZZ_INTERCEPTORS: &str = "libclang_rt.fuzzer_interceptors.a";
