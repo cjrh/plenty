@@ -56,7 +56,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
          Option[i64].Some(3) Option[i64].Some(3)\n\
          Option[i64].Nothing\n\
          True True False\n\
-         std.bytes.Bytes(_owner=b\"\\x00\\xffXYcbc\\x0d\\x0a\")\n"
+         b\"\\x00\\xffXYcbc\\r\\n\"\n"
     );
 }
 
@@ -126,7 +126,7 @@ def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Part
     );
     assert_eq!(
         printed,
-        "direct\nall]\nabcdefgh\nmemory\nstd.bytes.Bytes(_owner=b\"\\x00\\xfffile\")\n\
+        "direct\nall]\nabcdefgh\nmemory\nb\"\\x00\\xfffile\"\n\
          compressed literal\n\
          Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)\n"
     );

@@ -113,7 +113,7 @@ def main() -> Result[(), AllocError | IoError | FormatError | BytesError]:
             "[2, 3] [] 2\n",
             "[\"b\\n\", \"é\"] [Point(x=3, y=4)] [(1, \"one\"), (2, \"two\")]\n",
             "[[1, 2], [3]] [1.5, -0.0]\n",
-            "b\"bc\" b\"\\x00\\xff\" b\"\" std.bytes.Bytes(_owner=b\"abc\\x00\\xff\")\n",
+            "b\"bc\" b\"\\x00\\xff\" b\"\" b\"abc\\x00\\xff\"\n",
             "b\"hi\" [1, -2]\n",
             "[Point(x=1, y=2)]\n",
             "[9, 2]\n",

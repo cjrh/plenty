@@ -9,7 +9,7 @@ use crate::bytes::BytesOp;
 use crate::nominal::Nominal;
 use crate::record::{ClassOp, ClassType};
 
-pub(super) const BYTES_CLASS: &str = "std.bytes.Bytes";
+pub(crate) const BYTES_CLASS: &str = "std.bytes.Bytes";
 
 /// The `Bytes` class when `ty` is a byte buffer value.
 pub(super) fn byte_buffer(ty: &Ty) -> Option<Nominal<ClassType>> {

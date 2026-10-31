@@ -493,6 +493,7 @@ mod tests {
         wrapper: None,
         plan: None,
         redacted: false,
+        transparent: false,
     };
 
     #[test]

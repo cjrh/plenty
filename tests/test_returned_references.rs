@@ -57,6 +57,64 @@ print(r).unwrap()
     );
 }
 
+#[test]
+fn assignment_writes_through_a_returned_reference() {
+    // Issue #598: `*f(...) = v` and `*f(...) op= v` need no named binding.
+    run(
+        r#"
+def first(xs: &mut list[i64]) -> &mut i64:
+    &mut xs[0]
+def head(xs: &mut [i64]) -> &mut i64:
+    &mut xs[0]
+def name(xs: &mut list[str]) -> &mut str:
+    &mut xs[1]
+def bump(xs: &mut list[i64]) -> ():
+    *first(xs) += 100
+class Counter:
+    calls: i64
+    n: i64
+    def slot(self: &mut Counter) -> &mut i64:
+        self.calls += 1
+        &mut self.n
+mut xs = [1, 2, 3].unwrap()
+*first(&mut xs) = 9
+*first(&mut xs) += 1
+*head(&mut xs[1:]) = 7
+*head(&mut xs[2:]) *= 4
+*(head(&mut xs[:2])) -= 1
+print(xs).unwrap()
+bump(&mut xs)
+print(xs).unwrap()
+mut names = ["a", "b"].unwrap()
+*name(&mut names) = "zed"
+print(names).unwrap()
+mut c = Counter(0, 1)
+*c.slot() = 5
+*c.slot() += 2
+print(c.n, c.calls).unwrap()
+"#,
+        "[9, 7, 12]\n[109, 7, 12]\n[\"a\", \"zed\"]\n7 2\n",
+    );
+}
+
+#[test]
+fn a_returned_reference_keeps_its_argument_borrowed_through_the_assignment() {
+    for op in ["=", "+="] {
+        reject(
+            &format!(
+                "def first(xs: &mut list[i64]) -> &mut i64:\n    &mut xs[0]\nmut xs = [1, 2].unwrap()\n*first(&mut xs) {op} xs[1]\n"
+            ),
+            "conflicting borrow",
+        );
+        reject(
+            &format!(
+                "def first(xs: &list[i64]) -> &i64:\n    &xs[0]\nxs = [1, 2].unwrap()\n*first(&xs) {op} 3\n"
+            ),
+            "assignment requires an exclusive reference",
+        );
+    }
+}
+
 fn run(source: &str, expected: &str) {
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
@@ -202,27 +260,67 @@ print(view(&left) if True else view(&right)).unwrap()
 }
 
 #[test]
-fn projected_temporary_receivers_cannot_hide_returned_loan_origins() {
-    reject(
+fn temporary_receivers_lend_returned_references_for_their_full_expression() {
+    // Issue #597: the temporary receiver lives to the end of the statement.
+    run(
         r#"
 class Point:
     x: i64
+    name: str
     def view(self) -> &i64:
         &self.x
-print(Point(1).view()).unwrap()
+    def label(self) -> &str:
+        &self.name
+    def slot(self: &mut Point) -> &mut i64:
+        &mut self.x
+    def maybe(self) -> Option[&i64]:
+        Some(&self.x)
+    def __del__(self: &mut Point) -> ():
+        print("drop", self.name).unwrap()
+def make(n: i64, name: str) -> Point:
+    Point(n, name)
+print("value", *Point(1, "a").view()).unwrap()
+print("after").unwrap()
+total = *make(2, "b").view() + len(make(3, "cd").label())
+print(total).unwrap()
+print(make(4, "e").label()).unwrap()
+print(*Point(5, "f").slot()).unwrap()
+print(Point(6, "g").maybe().is_some()).unwrap()
 "#,
-        "require a named receiver",
+        "value 1\ndrop a\nafter\ndrop cd\ndrop b\n4\ne\ndrop e\n5\ndrop f\nTrue\ndrop g\n",
     );
-    reject(
-        r#"
-class Point:
-    x: i64
-    def view(self) -> &i64:
-        &self.x
-print([Point(1)].unwrap()[0].view()).unwrap()
-"#,
-        "require a named receiver",
+    // A receiver viewing a temporary collection lends its result too. Kept
+    // without a destructor: issue #599 tracks the element drop it skips.
+    run(
+        "class Point:\n    x: i64\n    def view(self) -> &i64:\n        &self.x\nprint(*[Point(7)].unwrap()[0].view()).unwrap()\n",
+        "7\n",
     );
+}
+
+#[test]
+fn references_from_temporary_receivers_cannot_outlive_the_statement() {
+    let class = "class Point:\n    x: i64\n    def view(self) -> &i64:\n        &self.x\n    def maybe(self) -> Option[&i64]:\n        Some(&self.x)\n";
+    for (body, expected) in [
+        (
+            "r = Point(1).view()\nprint(*r).unwrap()\n",
+            "temporary cannot be stored",
+        ),
+        (
+            "r = Point(1).maybe()\nprint(r.is_some()).unwrap()\n",
+            "temporary cannot be stored",
+        ),
+        (
+            "def bad(p: &Point) -> &i64:\n    Point(1).view()\n",
+            "must originate",
+        ),
+        // The receiver views `a`; its loan would end before the result's use.
+        (
+            "def pick(p: &Point) -> &Point:\n    p\na = Point(1)\nprint(*pick(&a).view()).unwrap()\n",
+            "bind the receiver to a name",
+        ),
+    ] {
+        reject(&format!("{class}{body}"), expected);
+    }
 }
 
 #[test]
