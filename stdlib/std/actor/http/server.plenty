@@ -1,0 +1,887 @@
+# HTTP/1.1 on supervised connection actors. Wire grammar is shared with
+# std.http; connection/application state stays inside its actor heap.
+import std.actor
+import std.actor.net
+import std.actor.tls
+import std.http.decoder
+from std.actor import Address, Context, Exit, Mail, Stats, Timer, TimerError, Watch
+from std.actor.net import Connection, Expired
+from std.actor.tls import TlsConnection
+from std.http.decoder import Decoder
+from std.net import NetError, TcpListener, TcpStream
+from std.ready import Interest, Readiness, WaitError
+from std.sync import CancellationToken
+from std.tls import ServerConfig
+from std.time import deadline_after, milliseconds, monotonic_now, nanoseconds
+import std.bytes
+import std.http
+import std.io
+import std.http.server
+from std.bytes import ByteSource, Bytes, BytesError
+from std.http import Framing, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
+from std.time import Duration, seconds
+
+pub enum Fault:
+    Network
+    Protocol
+    Allocation
+    Timer
+    Handler
+
+# Application messages use the same bounded, copied actor delivery as std.actor.
+pub enum Notice[M]:
+    Message(M)
+    Drain
+    Resume
+    Completed
+    Rejected
+
+pub enum Event[M]:
+    Head(RequestHead, RequestTarget)
+    Body(Bytes)
+    Trailers(list[std.http.Header])
+    End
+    Writable
+    Wake(i64)
+    Ready(Watch, Readiness)
+    Message(M)
+    Stopping
+
+pub class Config:
+    pub capacity: i64
+    pub heap_limit: i64
+    pub input_buffer: i64
+    pub output_buffer: i64
+    pub pending_output: i64
+    pub limits: Limits
+    pub idle_timeout: Duration
+    pub head_timeout: Duration
+    pub body_timeout: Duration
+    pub write_timeout: Duration
+    pub response_timeout: Duration
+    pub handshake_timeout: Duration
+    pub drain_timeout: Duration
+    pub max_requests: i64
+
+pub class Report:
+    pub actors: Stats
+    pub requests: u64
+    pub rejected: u64
+    pub protocol_errors: u64
+
+pub protocol Handler[M, E]:
+    def receive(self: &mut Handler[M, E], event: Event[M], response: &mut Response, context: &mut Context[Notice[M], Fault]) -> Result[(), E]:
+        pass
+
+# Only owned bytes and scalars survive a callback; heads are encoded before
+# they enter this queue. Partial writes resume without retaining a borrow.
+pub class Response:
+    _output: Bytes
+    _start: i64
+    _limit: i64
+    _state: i64
+    _remaining: i64
+    _head: bool
+    _minor: i64
+    _keep: bool
+    _stopping: bool
+    _body_done: bool
+    _shutdown: bool
+
+    pub def stopping(self) -> bool:
+        self._stopping
+
+    pub def close_after(self: &mut Response) -> ():
+        self._keep = False
+
+    # Request server shutdown after this response, without a shared token in
+    # the connection heap. Admission receives an ordinary copied message.
+    pub def shutdown_server(self: &mut Response) -> ():
+        self._shutdown = True
+        self._keep = False
+
+    pub def started(self) -> bool:
+        self._state != 0
+
+    pub def ended(self) -> bool:
+        self._state == 4
+
+    pub def pending(self) -> i64:
+        self._output.len() - self._start
+
+    pub def space(self) -> i64:
+        mut room = self._limit - self.pending() - 64
+        if room < 0:
+            room = 0
+        room
+
+    pub def start(self: &mut Response, head: ResponseHead) -> Result[(), HttpError | BytesError | AllocError]:
+        if self._state != 0:
+            return Err(HttpError.Broken)
+        mut owned = head
+        if owned.status < 200:
+            return Err(HttpError.InvalidStatusLine)
+        if std.http.find(&owned.headers, "transfer-encoding").is_some():
+            return Err(HttpError.ConflictingFraming)
+        mut state = 1
+        mut length = 0
+        match std.http.response_framing(&owned, "GET")?:
+            case Framing.Length(size):
+                length = size
+            case Framing.Empty:
+                pass
+            case _:
+                if self._minor == 1:
+                    state = 2
+                    owned.add("Transfer-Encoding", "chunked")?
+                else:
+                    state = 3
+                    self._keep = False
+        owned.minor = self._minor
+        if not self._body_done or self._stopping:
+            self._keep = False
+        if not self._keep:
+            owned.add("Connection", "close")?
+        elif self._minor == 0:
+            owned.add("Connection", "keep-alive")?
+        encoded = std.http.encode_response(&owned)?
+        if encoded.len() > self._limit - self.pending() - 64:
+            return Err(HttpError.HeadTooLarge)
+        self._output.extend(&encoded)?
+        self._state = state
+        self._remaining = length
+        Ok(())
+
+    # A short result is back-pressure. Keep the remainder and resume on
+    # Writable; this never waits for a socket and never exceeds the queue.
+    pub def write[S: ByteSource](self: &mut Response, source: &S, start: i64, stop: i64) -> Result[i64, HttpError | BytesError]:
+        if self._state < 1 or self._state > 3:
+            return Err(HttpError.Broken)
+        if start < 0 or stop < start or stop > source.len():
+            return Err(BytesError.OutOfRange)
+        if self._state == 1 and stop - start > self._remaining and not self._head:
+            return Err(HttpError.LengthMismatch)
+        if self._head:
+            return Ok(stop - start)
+        mut count = stop - start
+        if count > self.space():
+            count = self.space()
+        if count == 0:
+            return Ok(0)
+        self.compact()?
+        if self._state == 2:
+            size = std.http.encode_chunk_size(count)?
+            self._output.extend(&size)?
+        self._output.extend_range(source, start, start + count)?
+        if self._state == 2:
+            self._output.extend(b"\r\n")?
+        elif self._state == 1:
+            self._remaining -= count
+        Ok(count)
+
+    pub def end(self: &mut Response) -> Result[(), HttpError | BytesError]:
+        if self._state < 1 or self._state > 3:
+            return Err(HttpError.Broken)
+        if self._state == 1 and self._remaining != 0 and not self._head:
+            return Err(HttpError.LengthMismatch)
+        if self._state == 2 and not self._head:
+            self.compact()?
+            self._output.extend(b"0\r\n\r\n")?
+        self._state = 4
+        Ok(())
+
+    pub def respond[S: ByteSource](self: &mut Response, head: ResponseHead, body: &S) -> Result[(), HttpError | BytesError | AllocError]:
+        mut owned = head
+        if std.http.find(&owned.headers, "content-length").is_some() or std.http.find(&owned.headers, "transfer-encoding").is_some():
+            return Err(HttpError.ConflictingFraming)
+        if (owned.status == 204 or owned.status == 304) and body.len() != 0:
+            return Err(HttpError.LengthMismatch)
+        if body.len() > self.space() and not self._head:
+            return Err(HttpError.BodyTooLarge)
+        owned.add("Content-Length", str.from(body.len())?)?
+        self.start(owned)?
+        if self.write(body, 0, body.len())? != body.len():
+            return Err(HttpError.BodyTooLarge)
+        self.end()?
+        Ok(())
+
+    pub def send[S: ByteSource](self: &mut Response, status: i64, content_type: &str, body: &S) -> Result[(), HttpError | BytesError | AllocError]:
+        mut head = std.http.response(status, std.http.server.reason(status))?
+        head.add("Content-Type", *content_type)?
+        self.respond(head, body)
+
+    pub def send_text(self: &mut Response, status: i64, text: &str) -> Result[(), HttpError | BytesError | AllocError]:
+        self.send(status, "text/plain; charset=utf-8", &std.bytes.from_text(text)?)
+
+    def compact(self: &mut Response) -> Result[(), BytesError]:
+        if self._start > 0:
+            self._output.copy_within(self._start, self._output.len(), 0)?
+            self._output.truncate(self.pending())?
+            self._start = 0
+        Ok(())
+
+pub def config() -> Config:
+    Config(256, 4194304, 4096, 4096, 65536, std.http.limits(), seconds(5u32), seconds(10u32), seconds(30u32), seconds(10u32), seconds(60u32), seconds(10u32), seconds(5u32), 1000)
+
+def response(limit: i64) -> Result[Response, BytesError]:
+    Ok(Response(std.bytes.with_capacity(limit)?, 0, limit, 0, 0, False, 1, True, False, False, False))
+
+# The same driver uses TCP or TLS. Both transports advance only on available
+# bytes and return back-pressure rather than waiting.
+pub enum Wire:
+    Plain(Connection)
+    Secure(TlsConnection)
+
+    pub def input(self) -> &Bytes:
+        match self:
+            case Wire.Plain(connection):
+                connection.input()
+            case Wire.Secure(connection):
+                connection.input()
+
+    pub def input_start(self) -> i64:
+        match self:
+            case Wire.Plain(connection):
+                connection.input_start()
+            case Wire.Secure(connection):
+                connection.input_start()
+
+    pub def input_stop(self) -> i64:
+        match self:
+            case Wire.Plain(connection):
+                connection.input_stop()
+            case Wire.Secure(connection):
+                connection.input_stop()
+
+    pub def available(self) -> i64:
+        match self:
+            case Wire.Plain(connection):
+                connection.available()
+            case Wire.Secure(connection):
+                connection.available()
+
+    pub def pending(self) -> i64:
+        match self:
+            case Wire.Plain(connection):
+                connection.pending()
+            case Wire.Secure(connection):
+                connection.pending()
+
+    pub def reading(self) -> bool:
+        match self:
+            case Wire.Plain(connection):
+                connection.reading()
+            case Wire.Secure(connection):
+                connection.reading()
+
+    pub def established(self) -> bool:
+        match self:
+            case Wire.Plain(_):
+                True
+            case Wire.Secure(connection):
+                connection.established()
+
+    pub def start[M](self: &mut Wire, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.start(context))
+            case Wire.Secure(connection):
+                network(connection.start(context))
+
+    pub def handle[M](self: &mut Wire, mail: &Mail[Notice[M], Fault], context: &mut Context[Notice[M], Fault]) -> Result[std.actor.net.Events, Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.handle(mail, context))
+            case Wire.Secure(connection):
+                network(connection.handle(mail, context))
+
+    pub def consume[M](self: &mut Wire, count: i64, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.consume(count, context))
+            case Wire.Secure(connection):
+                network(connection.consume(count, context))
+
+    pub def write[M](self: &mut Wire, bytes: &Bytes, start: i64, stop: i64, context: &mut Context[Notice[M], Fault]) -> Result[i64, Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.write(bytes, start, stop, context))
+            case Wire.Secure(connection):
+                network(connection.write(bytes, start, stop, context))
+
+    pub def shutdown_write[M](self: &mut Wire, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.shutdown_write(context))
+            case Wire.Secure(connection):
+                network(connection.shutdown_write(context))
+
+    pub def close[M](self: &mut Wire, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.close(context))
+            case Wire.Secure(connection):
+                network(connection.close(context))
+
+    pub def read_within[M](self: &mut Wire, span: &Duration, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Wire.Plain(connection):
+                network(connection.read_within(span, context))
+            case Wire.Secure(connection):
+                network(connection.read_within(span, context))
+
+def network[T, E](result: Result[T, E]) -> Result[T, Fault]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(Fault.Network)
+
+def storage[T, E](result: Result[T, E]) -> Result[T, Fault]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(Fault.Allocation)
+
+pub class Acceptor[F]:
+    pub socket: TcpListener
+    pub factory: F
+    pub config: Config
+    pub tls: Option[ServerConfig]
+    pub children: Option[list[Address]]
+    pub watch: Option[Watch]
+    pub address: Option[Address]
+    pub draining: bool
+    pub requests: u64
+    pub rejected: u64
+    pub protocol_errors: u64
+
+
+    pub def receive[M](self: &mut Acceptor[F], mail: Mail[Notice[M], Fault], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match mail:
+            case Mail.Ready(watch, _):
+                if not self.draining and self.watch.unwrap().key() == watch.key():
+                    match &mut self.children:
+                        case Some(children):
+                            if len(children) < self.config.capacity:
+                                match context.spawn_isolated(0, self.config.heap_limit):
+                                    case Ok(child):
+                                        storage(children.append(child))?
+                                        return Ok(())
+                                    case Err(_):
+                                        pass
+                        case Nothing:
+                            pass
+                    # Refusing never blocks or constructs TLS state.
+                    drop(self.socket.accept_now())
+                    self.rejected += 1u64
+            case Mail.Down(child, _, _):
+                match &mut self.children:
+                    case Some(children):
+                        for index in range(len(children)):
+                            if children[index].key() == child.key():
+                                children[index] = children[len(children) - 1]
+                                drop(children.pop())
+                                break
+                    case Nothing:
+                        pass
+            case Mail.Message(Notice.Completed):
+                self.requests += 1u64
+            case Mail.Message(Notice.Rejected):
+                self.protocol_errors += 1u64
+            case Mail.Message(Notice.Drain):
+                if not self.draining:
+                    self.draining = True
+                    drop(context.unwatch(&self.socket))
+                    drop(self.socket.close())
+                    match &self.children:
+                        case Some(children):
+                            for child in children:
+                                drop(context.send(*child, Notice[M].Drain))
+                        case Nothing:
+                            pass
+                    network(context.after(&self.config.drain_timeout, -100))?
+            case Mail.Timer(timer):
+                if timer.tag() == -100:
+                    match &self.children:
+                        case Some(children):
+                            for child in children:
+                                drop(context.stop_actor(*child))
+                        case Nothing:
+                            pass
+            case _:
+                pass
+        Ok(())
+
+    pub def done(self) -> bool:
+        if not self.draining:
+            return False
+        match &self.children:
+            case Some(children):
+                len(children) == 0
+            case Nothing:
+                True
+
+pub class Client[F, H]:
+    pub socket: Option[TcpStream]
+    pub factory: F
+    pub config: Config
+    pub tls: Option[ServerConfig]
+    pub parent: Address
+    pub handler: Option[H]
+    pub wire: Option[Wire]
+    pub decoder: Option[Decoder]
+    pub response: Option[Response]
+    pub requests: i64
+    pub phase: i64
+    pub timer: Option[Timer]
+    pub wake: Option[Timer]
+    pub draining: bool
+    pub lingering: i64
+    pub reported: bool
+
+
+    def set_deadline[M](self: &mut Client[F, H], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match replace(self.timer, Nothing):
+            case Some(timer):
+                drop(context.cancel(timer))
+            case Nothing:
+                pass
+        span = match self.phase:
+            case 0:
+                nanoseconds(self.config.handshake_timeout.as_nanoseconds())
+            case 1:
+                nanoseconds(self.config.idle_timeout.as_nanoseconds())
+            case 2:
+                nanoseconds(self.config.head_timeout.as_nanoseconds())
+            case 3:
+                nanoseconds(self.config.body_timeout.as_nanoseconds())
+            case 5:
+                seconds(2u32)
+            case _:
+                nanoseconds(self.config.response_timeout.as_nanoseconds())
+        if span.as_nanoseconds() > 0u64:
+            self.timer = Some(network(context.after(&span, -1))?)
+        Ok(())
+
+    def resume[M](self: &mut Client[F, H], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        if self.wake.is_none():
+            self.wake = Some(network(context.after(&milliseconds(1u32), -2))?)
+        Ok(())
+
+    pub def receive[M](self: &mut Client[F, H], mail: Mail[Notice[M], Fault], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        mut wire = replace(self.wire, Nothing).unwrap()
+        mut decoder = replace(self.decoder, Nothing).unwrap()
+        mut reply = replace(self.response, Nothing).unwrap()
+        mut handler = replace(self.handler, Nothing).unwrap()
+        events = wire.handle(&mail, context)?
+        if events.expired.is_some():
+            wire.close(context)?
+            context.stop()
+        else:
+            match mail:
+                case Mail.Timer(timer):
+                    match &self.timer:
+                        case Some(phase_timer):
+                            if timer.key() == phase_timer.key():
+                                if self.phase == 2 or self.phase == 3:
+                                    self.refuse(&mut reply, 408)?
+                                    self.phase = 4
+                                    self.set_deadline(context)?
+                                else:
+                                    wire.close(context)?
+                                    context.stop()
+                        case Nothing:
+                            pass
+                    match &self.wake:
+                        case Some(wake):
+                            if timer.key() == wake.key():
+                                self.wake = Nothing
+                        case Nothing:
+                            pass
+                    if timer.tag() >= 0:
+                        self.call(&mut handler, Event[M].Wake(timer.tag()), &mut reply, context)?
+                case Mail.Message(Notice.Message(message)):
+                    self.call(&mut handler, Event.Message(message), &mut reply, context)?
+                case Mail.Message(Notice.Drain):
+                    self.draining = True
+                    reply._stopping = True
+                    reply._keep = False
+                    if self.phase <= 1:
+                        wire.shutdown_write(context)?
+                        context.stop()
+                    else:
+                        self.call(&mut handler, Event[M].Stopping, &mut reply, context)?
+                case Mail.Ready(watch, ready):
+                    if not events.mine:
+                        self.call(&mut handler, Event[M].Ready(watch, ready), &mut reply, context)?
+                case Mail.Stop:
+                    drop(wire.close(context))
+                case _:
+                    pass
+            self.advance(&mut wire, &mut decoder, &mut reply, &mut handler, context)?
+        self.wire = Some(wire)
+        self.decoder = Some(decoder)
+        self.response = Some(reply)
+        self.handler = Some(handler)
+        Ok(())
+
+    def call[M](self: &mut Client[F, H], handler: &mut H, event: Event[M], reply: &mut Response, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match handler.receive(event, reply, context):
+            case Ok(_):
+                pass
+            case Err(_):
+                if reply.started():
+                    return Err(Fault.Handler)
+                self.refuse(reply, 500)?
+        if reply._shutdown:
+            drop(context.send(self.parent, Notice[M].Drain))
+        Ok(())
+
+    def refuse(self: &mut Client[F, H], reply: &mut Response, status: i64) -> Result[(), Fault]:
+        if reply.started():
+            return Err(Fault.Protocol)
+        reply._keep = False
+        reply._body_done = True
+        network(reply.send_text(status, std.http.server.reason(status)))?
+        Ok(())
+
+    def advance[M](self: &mut Client[F, H], wire: &mut Wire, decoder: &mut Decoder, reply: &mut Response, handler: &mut H, context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        if self.phase == 0:
+            if not wire.established():
+                return Ok(())
+            self.phase = 1
+            self.set_deadline(context)?
+        if self.phase == 5:
+            count = wire.available()
+            self.lingering += count
+            wire.consume(count, context)?
+            if not wire.reading() or self.lingering >= 16777216:
+                wire.close(context)?
+                context.stop()
+            elif wire.available() > 0:
+                self.resume(context)?
+            return Ok(())
+        if self.phase == 1 and wire.available() > 0:
+            self.phase = 2
+            self.set_deadline(context)?
+        # Bounded decoder events per actor turn. A continuation timer handles
+        # input already buffered when no further socket readiness is needed.
+        mut progress = False
+        for _ in range(16):
+            if self.phase != 2 and self.phase != 3:
+                break
+            next = decoder.feed(wire.input(), wire.input_start(), wire.input_stop())
+            match next:
+                case Err(error):
+                    drop(context.send(self.parent, Notice[M].Rejected))
+                    self.refuse(reply, error_status(&error))?
+                    self.phase = 4
+                    self.set_deadline(context)?
+                    break
+                case Ok(pair):
+                    consumed, event = pair
+                    wire.consume(consumed, context)?
+                    progress = consumed > 0
+                    match event:
+                        case Some(std.http.decoder.Event.Head(head, target, framing)):
+                            self.requests += 1
+                            reply._head = head.method == "HEAD"
+                            reply._minor = head.minor
+                            reply._keep = not self.draining and self.requests < self.config.max_requests and std.http.request_keeps_alive(&head)
+                            expect = wants_continue(&head)
+                            self.phase = 3
+                            self.set_deadline(context)?
+                            self.call(handler, Event[M].Head(head, target), reply, context)?
+                            if expect and not reply.started():
+                                match framing:
+                                    case Framing.Length(0) | Framing.Empty:
+                                        pass
+                                    case _:
+                                        storage(reply._output.extend(b"HTTP/1.1 100 Continue\r\n\r\n"))?
+                            progress = True
+                        case Some(std.http.decoder.Event.Body(bytes)):
+                            self.call(handler, Event[M].Body(bytes), reply, context)?
+                            progress = True
+                        case Some(std.http.decoder.Event.Trailers(fields)):
+                            self.call(handler, Event[M].Trailers(fields), reply, context)?
+                            progress = True
+                        case Some(std.http.decoder.Event.End):
+                            reply._body_done = True
+                            self.phase = 4
+                            self.set_deadline(context)?
+                            self.call(handler, Event[M].End, reply, context)?
+                            progress = True
+                        case Nothing:
+                            pass
+                    if reply.started() and not reply._body_done:
+                        reply._keep = False
+                        self.phase = 4
+                        self.set_deadline(context)?
+                    if not progress:
+                        break
+        if not wire.reading() and not progress and (self.phase == 2 or self.phase == 3):
+            match decoder.finish():
+                case Err(error):
+                    self.refuse(reply, error_status(&error))?
+                    self.phase = 4
+                case Ok(_):
+                    pass
+        if self.phase == 1 and not wire.reading():
+            wire.shutdown_write(context)?
+            context.stop()
+            return Ok(())
+        before = reply.pending()
+        if before > 0:
+            mut stop = reply._output.len()
+            if stop - reply._start > 16384:
+                stop = reply._start + 16384
+            count = wire.write(&reply._output, reply._start, stop, context)?
+            reply._start += count
+            if reply._start == reply._output.len():
+                reply._output.clear()
+                reply._start = 0
+            if count > 0 and not reply.ended() and reply.started():
+                self.call(handler, Event[M].Writable, reply, context)?
+        if reply.ended() and reply.pending() == 0 and wire.pending() == 0:
+            if not self.reported:
+                match context.send(self.parent, Notice[M].Completed):
+                    case Ok(_):
+                        self.reported = True
+                    case Err(_):
+                        self.resume(context)?
+                        return Ok(())
+            if not reply._keep or self.draining:
+                wire.shutdown_write(context)?
+                self.phase = 5
+                self.set_deadline(context)?
+                if not wire.reading():
+                    context.stop()
+                else:
+                    self.resume(context)?
+                return Ok(())
+            network(decoder.reset())?
+            reply._state = 0
+            reply._remaining = 0
+            reply._body_done = False
+            self.reported = False
+            self.phase = 1
+            self.set_deadline(context)?
+            progress = wire.available() > 0
+        if progress or (reply.pending() > 0 and wire.pending() == 0):
+            self.resume(context)?
+        Ok(())
+
+# phase 0 handshake, 1 idle, 2 head, 3 body, 4 response, 5 lingering.
+# Only one request is decoded at a time; pipelined input remains in the
+# bounded transport buffer until its preceding response has drained.
+pub enum Node[F, H]:
+    Accepting(Acceptor[F])
+    Serving(Client[F, H])
+
+    pub def started[M](self: &mut Node[F, H], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.address = Some(context.address())
+                acceptor.children = Some(storage(list[Address].with_capacity(acceptor.config.capacity))?)
+                acceptor.watch = Some(network(context.watch(&acceptor.socket, Interest.Read))?)
+            case Node.Serving(client):
+                mut socket = match replace(client.socket, Nothing):
+                    case Some(stream):
+                        stream
+                    case Nothing:
+                        context.stop()
+                        return Ok(())
+                drop(socket.set_no_delay(True))
+                limits = std.actor.net.Limits(client.config.input_buffer, client.config.output_buffer, seconds(0u32), nanoseconds(client.config.write_timeout.as_nanoseconds()))
+                net = network(std.actor.net.connection(socket, &limits))?
+                mut wire = match &client.tls:
+                    case Some(tls):
+                        Wire.Secure(network(std.actor.tls.server(net, tls, client.config.input_buffer))?)
+                    case Nothing:
+                        Wire.Plain(net)
+                wire.start(context)?
+                client.phase = 0 if not wire.established() else 1
+                client.wire = Some(wire)
+                client.handler = Some(network(client.factory.create())?)
+                client.decoder = Some(storage(std.http.decoder.decoder(&client.config.limits))?)
+                client.response = Some(storage(response(client.config.pending_output))?)
+                client.set_deadline(context)?
+        Ok(())
+
+    pub def receive[M](self: &mut Node[F, H], mail: Mail[Notice[M], Fault], context: &mut Context[Notice[M], Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                acceptor.receive(mail, context)
+            case Node.Serving(client):
+                client.receive(mail, context)
+
+    pub def spawn[M](self, tag: i64, child: Address, context: &mut Context[Notice[M], Fault]) -> Result[Option[Node[F, H]], Fault]:
+        match self:
+            case Node.Accepting(acceptor):
+                stream = match acceptor.socket.accept_now():
+                    case Ok(socket):
+                        Some(socket)
+                    case Err(_):
+                        Nothing
+                # The isolated spawn hook does only admission bookkeeping.
+                # User factory, buffers and TLS setup run in child.started.
+                Ok(Some(Node[F, H].Serving(Client(stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, storage(copy(&acceptor.tls))?, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False))))
+            case Node.Serving(_):
+                Ok(Nothing)
+
+def error_status(error: &HttpError) -> i64:
+    match error:
+        case HttpError.LineTooLong | HttpError.HeadTooLarge | HttpError.TooManyHeaders:
+            431
+        case HttpError.BodyTooLarge:
+            413
+        case HttpError.UnsupportedTransferEncoding:
+            501
+        case HttpError.UnsupportedVersion:
+            505
+        case _:
+            400
+
+def wants_continue(head: &RequestHead) -> bool:
+    for field in &head.headers:
+        if std.http.same_name(&field.name, "expect") and std.http.same_name(&field.value, "100-continue"):
+            return True
+    False
+
+pub enum ServerError:
+    InvalidConfig
+    AdmissionStopped
+
+pub class Request:
+    pub head: RequestHead
+    pub target: RequestTarget
+    pub body: Bytes
+    pub trailers: list[std.http.Header]
+
+pub protocol RequestHandler[E]:
+    def handle(self: &mut RequestHandler[E], request: Request, response: &mut Response) -> Result[(), E]:
+        pass
+
+pub class StreamingFactory[F, H, E]:
+    pub factory: F
+
+    pub def create(self) -> Result[H, E]:
+        self.factory()
+
+pub class SimpleFactory[F, H, E]:
+    pub factory: F
+    pub limit: i64
+
+    pub def create(self) -> Result[Whole[H, E], E | BytesError]:
+        Ok(Whole(self.factory()?, std.bytes.empty()?, std.bytes.empty()?, std.bytes.empty()?, self.limit))
+
+pub class Whole[H, E]:
+    pub handler: H
+    pub head: Bytes
+    pub body: Bytes
+    pub trailers: Bytes
+    pub limit: i64
+
+    pub def receive(self: &mut Whole[H, E], event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], Fault]) -> Result[(), E | HttpError | BytesError | AllocError | std.io.StreamError]:
+        match event:
+            case Event.Head(head, _):
+                self.head = std.http.encode_request(&head)?
+                self.body.clear()
+                self.trailers.clear()
+            case Event.Body(bytes):
+                if bytes.len() > self.limit - self.body.len():
+                    return Err(HttpError.BodyTooLarge)
+                self.body.extend(&bytes)?
+            case Event.Trailers(fields):
+                self.trailers = std.http.encode_response(&ResponseHead(1, 200, "OK", fields))?
+            case Event.End:
+                saved = replace(self.head, std.bytes.empty()?)
+                mut reader = std.io.buffered_reader(std.io.cursor(saved), 4096)?
+                head = std.http.read_request(&mut reader, &std.http.limits())?.ok_or(HttpError.Truncated)?
+                target = std.http.request_target(&head)?
+                body = replace(self.body, std.bytes.empty()?)
+                mut trailers: list[std.http.Header] = []?
+                if self.trailers.len() > 0:
+                    saved_trailers = replace(self.trailers, std.bytes.empty()?)
+                    mut trailer_reader = std.io.buffered_reader(std.io.cursor(saved_trailers), 4096)?
+                    trailer_head = std.http.read_response(&mut trailer_reader, &std.http.limits())?.ok_or(HttpError.Truncated)?
+                    trailers = trailer_head.headers
+                self.handler.handle(Request(head, target, body, trailers), response)?
+                if not response.started():
+                    response.send_text(500, "Handler sent no response")?
+                elif not response.ended():
+                    response.end()?
+            case _:
+                pass
+        Ok(())
+
+pub def serve[F: Callable[[], Result[H, E]], H: RequestHandler[E], E](listener: TcpListener, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+    create = SimpleFactory[F, H, E](factory, config.limits.max_body)
+    run[SimpleFactory[F, H, E], Whole[H, E], i64](listener, create, Nothing, config, stop)
+
+pub def serve_tls[F: Callable[[], Result[H, E]], H: RequestHandler[E], E](listener: TcpListener, tls: ServerConfig, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+    create = SimpleFactory[F, H, E](factory, config.limits.max_body)
+    run[SimpleFactory[F, H, E], Whole[H, E], i64](listener, create, Some(tls), config, stop)
+
+pub def serve_events[F: Callable[[], Result[H, E]], H: Handler[M, E], M, E](listener: TcpListener, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+    create = StreamingFactory[F, H, E](factory)
+    run[StreamingFactory[F, H, E], H, M](listener, create, Nothing, config, stop)
+
+pub def serve_tls_events[F: Callable[[], Result[H, E]], H: Handler[M, E], M, E](listener: TcpListener, tls: ServerConfig, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+    create = StreamingFactory[F, H, E](factory)
+    run[StreamingFactory[F, H, E], H, M](listener, create, Some(tls), config, stop)
+
+def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+    if config.capacity < 1 or config.capacity > 1000 or config.heap_limit < 262144 or config.heap_limit > std.actor.max_heap_limit:
+        return Err(ServerError.InvalidConfig)
+    if config.input_buffer < 64 or config.output_buffer < 64 or config.pending_output < 512 or config.max_requests < 1:
+        return Err(ServerError.InvalidConfig)
+    if config.limits.max_line < 1 or config.limits.max_head < 1 or config.limits.max_headers < 1 or config.limits.max_body < 0:
+        return Err(ServerError.InvalidConfig)
+    mut actors = std.actor.stage[Node[F, H], Notice[M], Fault](config.capacity + 1, 16, 64)?
+    actors.add_timers(4 * config.capacity + 8)?
+    acceptor = Acceptor(factory=factory, socket=listener, config=copy(config)?, tls=tls, children=Nothing, watch=Nothing, address=Nothing, draining=False, requests=0u64, rejected=0u64, protocol_errors=0u64)
+    root = actors.start(Node[F, H].Accepting(acceptor), 1048576)?
+    never = CancellationToken()?
+    mut stopping = False
+    mut requests = 0u64
+    mut rejected = 0u64
+    mut protocol_errors = 0u64
+    while True:
+        until = deadline_after(&monotonic_now(), &milliseconds(100u32))?
+        ran = if stopping:
+            actors.run(&until, &never)
+        else:
+            actors.run(&until, stop)
+        match ran:
+            case Ok(_):
+                return Err(ServerError.AdmissionStopped)
+            case Err(WaitError.TimedOut):
+                pass
+            case Err(WaitError.Cancelled):
+                stopping = True
+            case Err(error):
+                return Err(error)
+        if stopping:
+            drop(actors.send(root, Notice[M].Drain))
+        mut done = False
+        match actors.node(root):
+            case Some(node):
+                match node:
+                    case Node.Accepting(acceptor):
+                        done = acceptor.done()
+                        stopping = stopping or acceptor.draining
+                        requests = acceptor.requests
+                        rejected = acceptor.rejected
+                        protocol_errors = acceptor.protocol_errors
+                    case _:
+                        pass
+            case Nothing:
+                return Err(ServerError.AdmissionStopped)
+        if done:
+            break
+    drop(actors.stop_actor(root))
+    drop(actors.run(&deadline_after(&monotonic_now(), &seconds(1u32))?, &never))
+    Ok(Report(actors.stats(), requests, rejected, protocol_errors))
