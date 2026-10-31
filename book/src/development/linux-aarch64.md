@@ -147,9 +147,11 @@ reproduce in the complete unchanged guest shard; its cause remains unproven.
 An earlier integration harness itself exited on SIGILL without a core, before
 several qualification fixes. Focused reruns did not reproduce it, and local
 issue #592 records the missing original binary and diagnostic evidence without
-attributing a cause. Local PR #706 records revisions, totals and reconciled
-results; the task's ignored `target/worker-qualification/` and
-`target/aarch64-vm/evidence/` directories retain the manifests and raw logs.
+attributing a cause. Use the [ARM fault capture procedure](arm-fault-diagnostics.md)
+to preserve a recurrence before rebuilding. Local PR #706 records revisions,
+totals and reconciled results; its retained artifacts are now under the primary
+worktree's ignored `target/portability-pr706/worker-qualification/` and
+`target/portability-pr706/aarch64-vm/evidence/` directories.
 
 Seven tests are explicitly ignored: the large specialization-budget resource
 case, the external SQLite-vec extension trial, the systemd/playpen memory-limit
