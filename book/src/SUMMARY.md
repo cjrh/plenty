@@ -571,6 +571,7 @@
         - [Qualification, delivery, and reference implementations](proposals/cross-platform/delivery.md)
         - [Native ABI and Zig toolchain experiments](proposals/cross-platform/experiments.md)
     - [Standard library scope](proposals/standard-library-scope.md)
+    - [Arbitrary-precision integers (`std.bigint`)](proposals/bigint.md)
     - [Recursive owned data](proposals/recursive-data.md)
     - [Owned structures and checked node identities](proposals/arenas.md)
         - [Arena prototype assessment](proposals/arenas/prototype.md)
