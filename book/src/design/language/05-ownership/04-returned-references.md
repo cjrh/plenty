@@ -71,6 +71,27 @@ field loan; the original call still requires access to its whole argument.
 Indexed origins, control-dependent returns, and other bodies conservatively
 protect the whole argument, even after further projection.
 
+A `&mut T` result can be assigned through directly, without a binding:
+`*f(&mut xs) = value` and `*f(&mut xs) += value` call `f` once and write its
+referent. The call runs first, as in `r = f(&mut xs); *r = value`, so its loan
+is live through the right-hand side: `*f(&mut xs) = xs[1]` is a conflicting
+borrow. Read the value into a local first.
+
+```plenty
+def head(xs: &mut [i64]) -> &mut i64:
+    &mut xs[0]
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3]?
+    *head(&mut xs[:]) = 9
+    *head(&mut xs[1:]) += 10
+    print(xs)?
+    Ok(())
+```
+```output
+[9, 12, 3]
+```
+
 A caller may bind a result from named storage and reborrow it. A temporary
 origin survives only its full expression, the statement or condition that
 evaluates it. A shared temporary passed to an ordinary function follows this
