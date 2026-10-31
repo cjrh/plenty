@@ -35,6 +35,8 @@ This book provides:
   design decisions. They are not the current contract.
 - **[Backlog](backlog.md)** is the single maintained list of future work and
   proposed priorities. Start here when choosing the next task.
+- **[Completed work](completed-work.md)** records delivered milestones and retired
+  backlog entries, separate from outstanding work.
 
 ## Build this book
 
