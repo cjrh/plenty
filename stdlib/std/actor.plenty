@@ -192,6 +192,8 @@ pub enum StartError:
 # Counts since the stage was created.
 @copy
 pub class Stats:
+    # Includes isolated construction attempts, even if their hook fails
+    # before a node can run `started`.
     pub started: i64
     pub stopped: i64
     pub failed: i64
@@ -270,6 +272,7 @@ class Mailbox[M, E]:
     restart_window: u64
     restart_start: u64
     restart_count: i64
+    isolated_spawn: bool
 
 # A timer or a pending request. Records live outside every actor heap, are
 # allocated by `Stage.add_timers`, and are linked by index, so handlers use
@@ -387,6 +390,14 @@ pub class Context[M, E]:
         self._spawn_tags[self._spawn_count] = tag
         self._spawn_count += 1
         Ok(address(index, self._boxes[index].generation))
+
+    # Construction belongs to the child: a hook error, trap or Nothing
+    # produces Down without ending the parent. Failed reconstruction ends
+    # that child rather than recursively retrying its constructor.
+    pub def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]:
+        child = self.spawn(tag, limit)?
+        self._boxes[slot_of(child._key)].isolated_spawn = True
+        Ok(child)
 
     # Restarts `child`, a child of the running actor, when it fails or traps:
     # its heap is discarded, a new one of the same limit is reserved, and this
@@ -785,6 +796,7 @@ pub class Context[M, E]:
                 box.limit = limit
                 box.restart_limit = 0
                 box.restart_count = 0
+                box.isolated_spawn = False
                 Ok(index)
             case Err(_):
                 __actor_heap(op_discard, heap)
@@ -846,6 +858,18 @@ pub class Stage[N, M, E]:
     pub def stats(self) -> Stats:
         self._context._stats
 
+    # A shared observation between runs. The stage cannot run or retire an
+    # actor while this borrow is live, so its heap remains valid.
+    pub def node(self, actor: Address) -> Option[&N]:
+        if not self._context.accepts(actor._key):
+            return Nothing
+        index = slot_of(actor._key)
+        match &self._nodes[index]:
+            case Some(node):
+                Some(node)
+            case Nothing:
+                Nothing
+
     # Bytes used by the actor's heap, or Nothing once it has stopped.
     pub def heap_used(self, actor: Address) -> Option[i64]:
         if not self._context.accepts(actor._key):
@@ -856,6 +880,8 @@ pub class Stage[N, M, E]:
     # deadline passes or `cancel` is cancelled first.
     pub def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
         while self._live > 0:
+            if deadline.expired(&monotonic_now()):
+                return Err(WaitError.TimedOut)
             if self._context._order_count > 0:
                 self._context.fire(clock_now())
             if self._context._run_count > 0:
@@ -1050,11 +1076,24 @@ pub class Stage[N, M, E]:
                 pass
 
     # Builds spawn request `position` by calling the parent's spawn hook with
-    # the child's heap current. The hook is the parent's code, so its error
-    # or trap ends the parent.
+    # the child's heap current. Ordinary hook failures end the parent;
+    # isolated construction failures retire and notify the child instead.
     def build(self: &mut Stage[N, M, E], parent: i64, position: i64) -> Outcome[E]:
         child = self._context._spawn_slots[position]
         outcome = self.hook(parent, child, self._context._spawn_tags[position])
+        if self._context._boxes[child].isolated_spawn:
+            self._live += 1
+            self._context._stats.started += 1
+            match outcome:
+                case Outcome.Done:
+                    if self._nodes[child].is_none():
+                        self._context._stats.stopped += 1
+                        self.retire(child, Exit[E].Stopped)
+                case _:
+                    # A failed constructor has no runnable node to restart.
+                    self._context._boxes[child].restart_limit = 0
+                    self.end(child, outcome)
+            return Outcome[E].Done
         match &outcome:
             case Outcome.Done:
                 if self._nodes[child].is_some():
@@ -1088,6 +1127,8 @@ pub class Stage[N, M, E]:
             case Ok(Ok(Nothing)):
                 Outcome[E].Done
             case Ok(Err(error)):
+                if self._context._boxes[child].isolated_spawn:
+                    return Outcome[E].Failed(error)
                 # The error was made in the child's heap; the parent keeps it.
                 self.adopt(parent, error)
             case Err(_):
@@ -1187,7 +1228,17 @@ pub class Stage[N, M, E]:
                             self._context._stats.restarted += 1
                             drop(exit)
                             return
+                        if self._context._boxes[index].isolated_spawn:
+                            drop(exit)
+                            self._context._stats.stopped += 1
+                            self.retire(index, Exit[E].Stopped)
+                            return
                     case _:
+                        if self._context._boxes[index].isolated_spawn:
+                            drop(exit)
+                            self._context._boxes[index].restart_limit = 0
+                            self.end(index, outcome)
+                            return
                         # The hook's error or trap ends the parent, which
                         # would receive this exit.
                         drop(exit)
@@ -1318,7 +1369,7 @@ pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):
-        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0))?
+        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0, False))?
     # Popped from the end, so slot 0 is used first.
     free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
     runnable: list[i64] = [0 for _ in range(capacity)]?

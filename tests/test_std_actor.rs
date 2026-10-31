@@ -352,3 +352,284 @@ fn spawn_hook_cannot_move_values_between_heaps() {
     let path = support::write_main(dir.path(), &source);
     plenty::check_file(&path, None).unwrap_or_else(|error| panic!("{error}"));
 }
+
+const OBSERVED_NODE: &str = r#"
+from std.actor import Address, Context, Mail, stage
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, milliseconds, seconds
+
+pub class Node:
+    pub count: i64
+    pub values: list[i64]
+
+    pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        self.count += 1
+        self.values = [self.count]?
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        match mail:
+            case Mail.Message(value):
+                if value < 0:
+                    absent: Option[i64] = Nothing
+                    drop(absent.unwrap())
+                self.count += value
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+        Ok(Nothing)
+
+def main() -> ():
+    mut actors = stage[Node, i64, AllocError](1, 4, 1).unwrap()
+    first = actors.start(Node(40, list[i64].new().unwrap()), 65536).unwrap()
+    BODY
+"#;
+
+#[test]
+fn node_observation_tracks_lifetime_and_copies_outside_the_heap() {
+    let source = OBSERVED_NODE.replace(
+        "    BODY",
+        r#"    print(actors.node(first).unwrap().count).unwrap()
+    snapshot = copy(actors.node(first).unwrap().values).unwrap()
+    token = CancellationToken().unwrap()
+    actors.send(first, 1).unwrap()
+    drop(actors.run(&deadline_after(&monotonic_now(), &milliseconds(1)).unwrap(), &token))
+    print(actors.node(first).unwrap().count).unwrap()
+    drop(actors.stop_actor(first))
+    actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &token).unwrap()
+    print(actors.node(first).is_none()).unwrap()
+    second = actors.start(Node(7, list[i64].new().unwrap()), 65536).unwrap()
+    print(actors.node(first).is_none(), actors.node(second).unwrap().count).unwrap()
+    actors.send(second, -1).unwrap()
+    actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &token).unwrap()
+    print(actors.node(second).is_none(), actors.stats().trapped).unwrap()
+    drop(actors)
+    print(snapshot).unwrap()"#,
+    );
+    let (_dir, executable) = support::build_file(&source);
+    let output = Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "41\n42\nTrue\nTrue 8\nTrue 1\n[41]\n"
+    );
+}
+
+#[test]
+fn borrowed_node_prevents_stage_mutation_or_destruction() {
+    for action in [
+        "drop(actors.stop_actor(first))",
+        "drop(actors.send(first, 1))",
+        "drop(actors.start(Node(0, list[i64].new().unwrap()), 65536))",
+        "drop(actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap()))",
+        "drop(actors)",
+    ] {
+        let body = format!(
+            "observed = actors.node(first).unwrap()\n    {action}\n    print(observed.count).unwrap()"
+        );
+        let error = support::check_file_error(&OBSERVED_NODE.replace("BODY", &body));
+        assert!(error.contains("borrow"), "{action}: {error}");
+    }
+}
+
+#[test]
+fn runnable_stage_respects_its_deadline() {
+    let source = OBSERVED_NODE
+        .replace("self.count += value", "self.count += value\n                context.send(context.address(), 1).unwrap()")
+        .replace("    BODY", r#"    actors.send(first, 1).unwrap()
+    result = actors.run(&deadline_after(&monotonic_now(), &milliseconds(20)).unwrap(), &CancellationToken().unwrap())
+    match result:
+        case Err(error):
+            print(error).unwrap()
+        case Ok(_):
+            print("completed").unwrap()
+    print(actors.node(first).unwrap().count > 41).unwrap()"#);
+    let (_dir, executable) = support::build_file(&source);
+    let output = support::output_within(&mut Command::new(executable), &[], Duration::from_secs(5));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("TimedOut"), "{stdout}");
+    assert!(stdout.ends_with("True\n"), "{stdout}");
+}
+
+const ISOLATED_SPAWN: &str = r#"
+import std.fs
+import std.path
+from std.actor import Address, Context, Mail, heaps_live, heap_bytes_used, heap_bytes_committed, stage
+from std.net import listen, loopback_v4
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+pub enum Fault:
+    Detail(str)
+
+def descriptors() -> Result[i64, IoError]:
+    mut count = 0
+    for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
+        entry?
+        count += 1
+    Ok(count)
+
+pub class Node:
+    pub parent: bool
+    pub attempt: i64
+    pub child: Option[Address]
+
+    pub def started(self: &mut Node, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        if self.parent:
+            # A full mailbox cannot prevent constructor failure notices.
+            context.send(context.address(), 0).unwrap()
+            child = context.SPAWN(0, 65536).unwrap()
+            self.child = Some(child)
+            if RESTART:
+                drop(context.restart(child, 3, &seconds(60)))
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        match mail:
+            case Mail.Message(_):
+                if RESTART:
+                    if self.parent:
+                        self.attempt = 1
+                        context.send(self.child.unwrap(), 0).unwrap()
+                    else:
+                        absent: Option[i64] = Nothing
+                        drop(absent.unwrap())
+            case Mail.Down(_, tag, exit):
+                print(tag, exit).unwrap()
+                timer = context.after(&seconds(60), 88).unwrap()
+                drop(context.cancel(timer))
+                self.attempt += 1
+                if RESTART or self.attempt == 4:
+                    context.stop()
+                else:
+                    drop(context.SPAWN(self.attempt, 65536).unwrap())
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Node], Fault]:
+        # A failed hook must reclaim its timers and tracked descriptors too.
+        drop(context.after(&seconds(60), 99).unwrap())
+        socket = listen(&loopback_v4(0u16), 1).unwrap()
+        if RESTART:
+            if self.attempt > 0:
+                return Err(Fault.Detail(str.from(42).unwrap()))
+            return Ok(Some(Node(False, 0, Nothing)))
+        if tag == 0:
+            return Err(Fault.Detail(str.from(42).unwrap()))
+        if tag == 1:
+            absent: Option[i64] = Nothing
+            drop(absent.unwrap())
+        if tag == 2:
+            return Ok(Nothing)
+        # No work; test successful construction and normal child retirement.
+        Ok(Some(Node(False, 0, Nothing)))
+
+def main() -> ():
+    before = descriptors().unwrap()
+    mut actors = stage[Node, i64, Fault](2, 1, 2).unwrap()
+    actors.add_timers(1).unwrap()
+    root = actors.start(Node(True, 0, Nothing), 65536).unwrap()
+    RUN
+    print(actors.stats().started, actors.stats().stopped, actors.stats().failed, actors.stats().trapped).unwrap()
+    drop(actors)
+    print(heaps_live(), heap_bytes_used(), heap_bytes_committed()).unwrap()
+    print(descriptors().unwrap() == before).unwrap()
+"#;
+
+#[test]
+fn isolated_construction_failures_notify_parent_and_recover_capacity() {
+    let source = ISOLATED_SPAWN
+        .replace("SPAWN", "spawn_isolated")
+        .replace("RESTART", "False")
+        .replace("        Ok(())\n\n    pub def receive", "        else:\n            context.stop()\n        Ok(())\n\n    pub def receive")
+        .replace("RUN", "actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken().unwrap()).unwrap()");
+    let (_dir, executable) = support::build_file(&source);
+    let output =
+        support::output_within(&mut Command::new(executable), &[], Duration::from_secs(10));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("0 std.actor.Exit[Fault].Failed(Fault.Detail(\"42\"))"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("1 std.actor.Exit[Fault].Trapped(std.actor.TrapKind.Unwrap)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("2 std.actor.Exit[Fault].Stopped"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("3 std.actor.Exit[Fault].Stopped"),
+        "{stdout}"
+    );
+    assert!(stdout.ends_with("5 3 1 1\n0 0 0\nTrue\n"), "{stdout}");
+}
+
+#[test]
+fn isolated_restart_constructor_failure_cleans_new_timers_and_notifies_parent() {
+    for (failure, exit, counts) in [
+        (
+            "return Err(Fault.Detail(str.from(42).unwrap()))",
+            "Failed(Fault.Detail(\"42\"))",
+            "2 1 1 1",
+        ),
+        ("return Ok(Nothing)", "Stopped", "2 2 0 1"),
+        (
+            "absent: Option[i64] = Nothing\n                drop(absent.unwrap())",
+            "Trapped(std.actor.TrapKind.Unwrap)",
+            "2 1 0 2",
+        ),
+    ] {
+        let source = ISOLATED_SPAWN
+            .replace("SPAWN", "spawn_isolated")
+            .replace("RESTART", "True")
+            .replace("if self.attempt > 0:\n                return Err(Fault.Detail(str.from(42).unwrap()))", &format!("if self.attempt > 0:\n                {failure}"))
+            .replace("RUN", "actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken().unwrap()).unwrap()");
+        let (_dir, executable) = support::build_file(&source);
+        let output =
+            support::output_within(&mut Command::new(executable), &[], Duration::from_secs(10));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(&format!("0 std.actor.Exit[Fault].{exit}")),
+            "{stdout}"
+        );
+        assert!(
+            stdout.ends_with(&format!("{counts}\n0 0 0\nTrue\n")),
+            "{stdout}"
+        );
+    }
+}
+
+#[test]
+fn ordinary_constructor_failure_still_ends_parent() {
+    let source = ISOLATED_SPAWN
+        .replace("SPAWN", "spawn")
+        .replace("RESTART", "False")
+        .replace("RUN", "print(actors.node(root).is_none()).unwrap()");
+    let (_dir, executable) = support::build_file(&source);
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "True\n1 0 1 0\n0 0 0\nTrue\n"
+    );
+}

@@ -114,6 +114,18 @@ first byte is `X` traps, and only that connection closes.
 
 ## Actors and stages
 
+`Stage.node(address)` borrows a live node shared between calls to `run`.
+Use it to read counters or copy an owned snapshot outside the actor's heap.
+It returns `Nothing` after the actor stops or traps, including when another
+actor has reused its slot. End the borrow before running the stage, sending
+mail, stopping an actor or dropping the stage; the ordinary borrowing rules
+prevent those operations while the node is borrowed. The accessor does not
+switch heaps or run actor code.
+
+`run` checks its deadline between scheduling rounds even when mail remains
+queued. It does not preempt a running handler: a blocking call or an infinite
+loop still prevents the stage from making progress.
+
 A `Stage[N, M, E]` runs actors of one node type `N`, message type `M` and error
 type `E`. `N` is a public class or enum with three public methods:
 
@@ -153,10 +165,26 @@ values the child owns, such as an accepted socket, inside the hook. A hook
 declared `self: &mut N` is rejected with `cannot borrow shared reference as
 mutable` in the standard library's `run_spawn`.
 
-In the hook, `Context.spawn` returns `StartError.Capacity` and `Context.stop`
-has no effect. When the hook returns `Err(error)`, the error is copied into the
-parent's heap before the child's heap is discarded, and the parent receives
-`Down(child, tag, Exit.Failed(error))`.
+In the hook, `Context.spawn` and `Context.spawn_isolated` return
+`StartError.Capacity`, and `Context.stop` has no effect. With ordinary `spawn`,
+an error or trap in the hook ends the parent: the hook is the parent's code.
+An error is copied to the parent's heap before the child's heap is discarded.
+
+Use `Context.spawn_isolated(tag, heap_limit)` when construction itself belongs
+to the child's failure boundary, such as admitting a network connection. A
+hook error or trap ends only the attempted child and delivers
+`Down(child, tag, Exit.Failed(error))` or `Exit.Trapped(kind)` to its parent.
+Returning `Nothing` delivers `Exit.Stopped`. The notification does not require
+room in the parent's mailbox. A failed setup releases the child's heap,
+tracked handles and timers before another attempt can reuse its slot.
+`Stats.started` includes these admitted attempts, even if they never reach
+their `started` method.
+
+Isolation also applies when the stage rebuilds an isolated child under a
+restart policy. A replacement hook that fails or traps ends the child and
+notifies its parent immediately; it is not retried recursively. A replacement
+hook returning `Nothing` reports `Stopped`. Ordinary child handler failures
+continue to follow the configured restart policy.
 
 | Export | Contract |
 |---|---|
