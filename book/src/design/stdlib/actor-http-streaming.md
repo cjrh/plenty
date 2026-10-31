@@ -24,7 +24,7 @@ def receive(self: &mut H, event: Event[M], response: &mut Response,
 | `Writable` | Response output progressed; offer previously unaccepted bytes again |
 | `Message(value)` | A user `Notice.Message(value)` sent through the actor context |
 | `Actor(mail)` | Unconsumed actor readiness, user timer, request/reply or child-exit mail |
-| `Stopping` | The server is draining; finish pending work promptly |
+| `Stopping` | One notification when this connection starts draining; finish pending work promptly |
 
 Keep owned byte buffers, numeric state and actor-safe connection objects in
 the handler. Text in a head or trailer event is for that callback; copy needed
@@ -63,7 +63,7 @@ pool and can return `TimerError.Capacity`.
 | `space()` | Payload space presently available, after framing reserve |
 | `is_started()`, `is_done()`, `is_stopping()` | Whether framing began, finished, or shutdown was requested |
 | `close_after()` | Disable reuse after this response |
-| `shutdown_server()` | Request server-wide draining after this response |
+| `shutdown_server()` | Start server-wide draining; this response gets the shutdown grace period |
 
 All whole-response operations return `Result[(), ServerError]`. `start` and
 `respond` consume their heads; a failed call does not return the head for retry.

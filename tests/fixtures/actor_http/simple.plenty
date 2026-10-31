@@ -8,6 +8,14 @@ pub class App:
         if path == "/stop":
             response.shutdown_server()
             response.send_text(200, "stopping")?
+        elif path == "/explicit-close":
+            mut head = std.http.response(200, "OK")?
+            head.add("Connection", "close")?
+            response.respond(head, b"bye")?
+        elif path == "/invalid204":
+            mut head = std.http.response(204, "No Content")?
+            head.add("Content-Length", "0")?
+            response.start(head)?
         elif path == "/empty204":
             response.send(204, "text/plain", b"")?
         elif path == "/empty304":

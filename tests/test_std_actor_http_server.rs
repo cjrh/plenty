@@ -91,7 +91,7 @@ impl Server {
 
     fn finish(mut self) -> String {
         // Also releases the stdin thread if /stop already drained the server.
-        self.child.stdin.take().unwrap().write_all(b"x").unwrap();
+        let _ = self.child.stdin.take().unwrap().write_all(b"x");
         let deadline = Instant::now() + WAIT;
         let status = loop {
             if let Some(status) = self.child.try_wait().unwrap() {
@@ -566,6 +566,14 @@ fn actor_http_whole_response_limits_are_atomic_and_bodyless_statuses_have_no_len
         assert_eq!(reply.header("content-length"), None);
         assert_eq!(reply.header("transfer-encoding"), None);
     }
+    assert_eq!(server.ask("/invalid204").status, 500);
+    let mut explicit = server.connect();
+    explicit
+        .get_mut()
+        .write_all(b"GET /explicit-close HTTP/1.1\r\nHost: x\r\n\r\n")
+        .unwrap();
+    assert_eq!(response(&mut explicit, false).body, b"bye");
+    closed(&mut explicit);
     let mut client = server.connect();
     client
         .get_mut()
@@ -605,4 +613,145 @@ fn actor_http_custom_head_limits_http10_expect_and_blank_eof() {
     blank.get_mut().shutdown(Shutdown::Write).unwrap();
     closed(&mut blank);
     assert_eq!(counter(&server.finish(), "trapped"), 0);
+}
+
+#[test]
+fn actor_http_force_drain_reclaims_actor_with_perpetually_full_mailbox() {
+    let server = Server::start(EVENTS, &[]);
+    let mut client = server.connect();
+    client
+        .get_mut()
+        .write_all(b"GET /busy HTTP/1.1\r\nHost: x\r\n\r\n")
+        .unwrap();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        client.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+    }
+    let start = Instant::now();
+    let summary = server.finish();
+    assert!(start.elapsed() >= Duration::from_secs(1));
+    assert!(start.elapsed() < Duration::from_secs(4));
+    assert_eq!(counter(&summary, "trapped"), 0);
+    assert_eq!(counter(&summary, "requests"), 0);
+}
+
+#[test]
+fn actor_http_sigterm_finishes_an_inflight_response_before_exit() {
+    let server = Server::start(EVENTS, &[("signal_stop", "True")]);
+    let mut client = server.connect();
+    client
+        .get_mut()
+        .write_all(b"GET /delay HTTP/1.1\r\nHost: x\r\n\r\n")
+        .unwrap();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        client.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+    }
+    line.clear();
+    client.read_line(&mut line).unwrap();
+    assert_eq!(line, "5\r\n");
+    let mut first = [0; 7];
+    client.read_exact(&mut first).unwrap();
+    assert_eq!(&first, b"first\r\n");
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &server.child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut tail = Vec::new();
+    client.read_to_end(&mut tail).unwrap();
+    assert_eq!(tail, b"4\r\nlast\r\n0\r\n\r\n");
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 1);
+    assert_eq!(counter(&summary, "trapped"), 0);
+}
+
+#[test]
+fn actor_https_shutdown_request_survives_peer_omitting_close_notify() {
+    let server = Server::start(SIMPLE, &[("secure", "True")]);
+    let code = r#"import socket, ssl, sys
+context = ssl.create_default_context(cafile=sys.argv[2])
+stream = context.wrap_socket(socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=5), server_hostname='localhost')
+stream.sendall(b'GET /stop HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n')
+received = b''
+while b'\r\n\r\n' not in received:
+    received += stream.recv(1)
+assert received.startswith(b'HTTP/1.1 200')
+body = b''
+while len(body) < 8:
+    piece = stream.recv(8 - len(body))
+    assert piece
+    body += piece
+assert body == b'stopping'
+# Deliberately omit unwrap(): close the TCP stream without TLS close_notify.
+stream.close()
+"#;
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            code,
+            &server.port.to_string(),
+            &format!("{}/ca.pem", support::tls_fixtures()),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // A report proves serve returned before stdin cancellation. The fixture
+    // deliberately joins its stdin reader only after printing these lines.
+    assert_eq!(
+        server
+            .lines
+            .recv_timeout(Duration::from_secs(4))
+            .expect("TLS peer close lost shutdown request"),
+        "requests 1"
+    );
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "trapped"), 0);
+}
+
+#[test]
+fn actor_http_connection_churn_reclaims_admission_slots_while_mail_keeps_arriving() {
+    let server = Server::start(SIMPLE, &[("capacity", "64")]);
+    let port = server.port;
+    std::thread::scope(|scope| {
+        let mut clients = Vec::new();
+        for _ in 0..16 {
+            clients.push(scope.spawn(move || {
+                for _ in 0..320 {
+                    let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                    stream.set_read_timeout(Some(WAIT)).unwrap();
+                    stream.set_write_timeout(Some(WAIT)).unwrap();
+                    let mut client = BufReader::new(stream);
+                    client
+                        .get_mut()
+                        .write_all(b"GET / HTTP/1.0\r\n\r\n")
+                        .unwrap();
+                    assert_eq!(response(&mut client, false).body, b"home");
+                    closed(&mut client);
+                }
+            }));
+        }
+        for client in clients {
+            client.join().unwrap();
+        }
+    });
+    assert_eq!(server.ask("/").body, b"home");
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 5121);
+    assert_eq!(counter(&summary, "rejected"), 0);
+    assert_eq!(counter(&summary, "trapped"), 0);
 }

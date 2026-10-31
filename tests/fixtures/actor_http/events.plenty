@@ -4,6 +4,7 @@ pub class App:
     pub mode: i64
     pub remaining: i64
     pub block: Bytes
+    pub stopping: i64
 
     pub def pump(self: &mut App, response: &mut Response) -> Result[(), AppError]:
         while self.remaining > 0:
@@ -27,6 +28,8 @@ pub class App:
                     self.mode = 2
                 elif target.path == "/health":
                     self.mode = 4
+                elif target.path == "/busy":
+                    self.mode = 6
                 elif target.path == "/blocked":
                     self.mode = 5
                 else:
@@ -39,6 +42,11 @@ pub class App:
                     response.start(ResponseHead(1, 200, "OK", []?))?
                     response.write(b"first", 0, 5)?
                     drop(context.after(&std.time.milliseconds(300u32), 7).unwrap())
+                elif self.mode == 6:
+                    response.start(ResponseHead(1, 200, "OK", []?))?
+                    response.write(b"busy", 0, 4)?
+                    for _ in range(16):
+                        drop(context.send(context.address(), Notice[i64].Message(1)))
                 elif self.mode == 4:
                     response.send_text(200, "healthy")?
                 else:
@@ -51,6 +59,13 @@ pub class App:
             case Event.Writable:
                 if self.mode == 3:
                     self.pump(response)?
+            case Event.Stopping:
+                self.stopping += 1
+                if self.stopping != 1:
+                    return Err(HttpError.Broken)
+            case Event.Message(_):
+                if self.mode == 6:
+                    drop(context.send(context.address(), Notice[i64].Message(1)))
             case Event.Actor(mail):
                 match mail:
                     case Mail.Timer(timer):
@@ -66,7 +81,7 @@ pub class App:
 def factory() -> Result[App, AppError]:
     mut block = std.bytes.empty()?
     block.resize(1024, 120u8)?
-    Ok(App(0, 0, block))
+    Ok(App(0, 0, block, 0))
 
 def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
     std.actor.http.server.serve_events(listener, factory, config, stop).unwrap()

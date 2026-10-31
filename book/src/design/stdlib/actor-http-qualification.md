@@ -14,11 +14,11 @@ is separate evidence and remains in force for that implementation.
 | Bounded teardown | Actor tests cover full-mailbox shutdown, idempotence, reuse, and repeated live-stage drop with trapping node destructors |
 | Real HTTP/TLS connections | `test_std_actor_http_server` passed with runtime/allocation checks, including TLS close notification, keep-alive and nonblocking outbound TCP |
 | Corpus and deterministic mutations | `test_std_actor_http_corpus` passed: 80 shared requests sent in 1-byte and 64-byte writes, plus 600 mutations |
-| Coverage-guided fuzzing | Whole actor-server qualification pending; a contained parser trap must count as a failure |
+| Coverage-guided fuzzing | Incremental decoder: 1,688,343 libFuzzer executions in 61 seconds, seed 592601, zero findings; coverage instrumentation, not ASan/TSan. Whole actor lifecycle is covered by socket tests rather than this target |
 | Slow clients and output back-pressure | Socket tests passed for partial heads/bodies, handshakes and slow readers |
-| Shutdown under load and signals | Forced drain with a busy mailbox passed; signal/proxy qualification pending |
-| Repeated failure/resource stability | Socket tests passed repeated handler traps, heap exhaustion and factory failures; broader sustained-load evidence pending |
-| TLS and reverse proxies | Interoperability qualification pending |
+| Shutdown under load and signals | Forced drain with a busy mailbox passed; SIGTERM completes an in-flight streamed response; HTTP/TLS application shutdown is tested, including a TLS peer omitting close notification |
+| Repeated failure/resource stability | Repeated handler traps, heap exhaustion, factory failures and 5,120 connections at concurrency 16 pass; issue #641 remains for fresh TLS configurations retained after traps |
+| TLS and reverse proxies | curl 8.18.0, nginx 1.30.6 and Caddy 2.11.7 passed streamed/sized/Expect uploads, chunked replies, keep-alive, repeated 413 refusals and proxy TLS verification |
 | Installed/relocated toolchain | Actor application qualification pending |
 | Comparative measurements | Shared harness available; qualified actor measurements pending |
 

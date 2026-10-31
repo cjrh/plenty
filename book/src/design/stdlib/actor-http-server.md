@@ -139,6 +139,8 @@ locks have the [actor runtime's limits](actor.md#limits).
 TLS trap cleanup also retains a reference to its immutable configuration;
 see [TLS memory ownership](actor-tls.md#memory). Repeated failure with one
 configuration and repeated configuration replacement are different workloads.
+Issue #641 tracks retained configurations across trapped sessions and rotations;
+rotation and repeated fresh TLS-server lifecycles are not memory-stability guarantees.
 WebSocket upgrades, dedicated actor SSE helpers, blocking-work offload and
 multithreaded stages are not provided by this module.
 

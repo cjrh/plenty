@@ -129,6 +129,13 @@ pub class Response:
             return Err(HttpError.InvalidStatusLine)
         if std.http.find(&owned.headers, "transfer-encoding").is_some():
             return Err(HttpError.ConflictingFraming)
+        if owned.status == 204 and std.http.find(&owned.headers, "content-length").is_some():
+            return Err(HttpError.ConflictingFraming)
+        # Use HTTP/1.1 persistence here to test the application's close token;
+        # request persistence and the emitted version are handled separately.
+        owned.minor = 1
+        if not std.http.response_keeps_alive(&owned, &Framing.Length(0)):
+            self._keep = False
         mut state = 1
         mut length = 0
         match std.http.response_framing(&owned, "GET")?:
@@ -461,6 +468,7 @@ class Client[F, H]:
     draining: bool
     lingering: i64
     reported: bool
+    resuming: bool
 
 
     def set_deadline[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
@@ -487,8 +495,14 @@ class Client[F, H]:
         Ok(())
 
     def resume[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        if self.wake.is_none():
-            self.wake = Some(network(context.after(&milliseconds(1u32), -2))?)
+        if not self.resuming and self.wake.is_none():
+            # A bounded continuation yields to other actors without imposing
+            # a millisecond of artificial latency per transport-sized chunk.
+            match context.send(context.address(), Notice[M].Resume):
+                case Ok(_):
+                    self.resuming = True
+                case Err(_):
+                    self.wake = Some(network(context.after(&milliseconds(1u32), -2))?)
         Ok(())
 
     def receive[M](self: &mut Client[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
@@ -524,16 +538,19 @@ class Client[F, H]:
                             pass
                     if timer.tag() >= 0 and not events.mine:
                         self.call(&mut handler, Event[M].Actor(Mail[Notice[M], ServerError].Timer(timer)), &mut reply, context)?
+                case Mail.Message(Notice.Resume):
+                    self.resuming = False
                 case Mail.Message(Notice.Message(message)):
                     self.call(&mut handler, Event[M].Message(message), &mut reply, context)?
                 case Mail.Message(Notice.Drain):
-                    self.draining = True
-                    reply._stopping = True
-                    reply._keep = False
-                    if self.phase <= 1:
-                        self.close_after_flush(&mut wire, context)?
-                    else:
-                        self.call(&mut handler, Event[M].Stopping, &mut reply, context)?
+                    if not self.draining:
+                        self.draining = True
+                        reply._stopping = True
+                        reply._keep = False
+                        if self.phase <= 1:
+                            self.close_after_flush(&mut wire, context)?
+                        else:
+                            self.call(&mut handler, Event[M].Stopping, &mut reply, context)?
                 case Mail.Ready(watch, ready):
                     if not events.mine:
                         self.call(&mut handler, Event[M].Actor(Mail[Notice[M], ServerError].Ready(watch, ready)), &mut reply, context)?
@@ -557,6 +574,14 @@ class Client[F, H]:
                 if reply.is_started():
                     return Err(ServerError.Handler)
                 self.refuse(reply, 500)?
+        # Relay shutdown before transport I/O can observe an unclean peer
+        # close. If admission is busy, keep the response actor alive to retry.
+        if reply._shutdown:
+            match context.send(self.parent, Notice[M].Drain):
+                case Ok(_):
+                    reply._shutdown = False
+                case Err(_):
+                    self.resume(context)?
         Ok(())
 
     def refuse(self: &mut Client[F, H], reply: &mut Response, status: i64) -> Result[(), ServerError]:
@@ -684,6 +709,9 @@ class Client[F, H]:
                 reply._start = 0
             if count > 0 and not reply.is_done() and reply.is_started():
                 self.call(handler, Event[M].Writable, reply, context)?
+        if reply._shutdown:
+            self.resume(context)?
+            return Ok(())
         if reply.is_done() and reply.pending() == 0 and wire.pending() == 0:
             if not self.reported:
                 match context.send(self.parent, Notice[M].Completed):
@@ -771,7 +799,7 @@ pub class Node[F, H]:
                 # TLS configs cannot be copied. The session is constructed in
                 # the child heap under isolated admission; any failure retires
                 # this child. User factory and socket buffers run in started.
-                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False)))))
+                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False, False)))))
             case State.Serving(_):
                 Ok(Nothing)
 
