@@ -1,14 +1,16 @@
 # Installing a release
 
-Each Plenty release on the project's GitHub Releases page provides a compiler archive,
-`plenty-VERSION-x86_64-unknown-linux-gnu.tar.gz`, and its `.sha256` checksum.
+Each Plenty release on the project's GitHub Releases page provides a compiler archive
+for each Linux target, such as `plenty-VERSION-x86_64-unknown-linux-gnu.tar.gz`
+or `plenty-VERSION-aarch64-unknown-linux-gnu.tar.gz`, and its `.sha256` checksum.
+Download the archive matching your machine's architecture.
 Extract it anywhere and put its `bin/` directory on `PATH`. No installer, root
 access, fixed location, Rust, Cargo, or source checkout is needed. The README
 in the archive repeats these instructions.
 
 For `std.dataframe`, also download the optional
-`plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz` and checksum from
-the same release. Follow [engine installation](../../stdlib/dataframe-engine.md)
+`plenty-dataframe-VERSION-TRIPLE.tar.gz` for the same target and its checksum
+from the same release. Follow [engine installation](../../stdlib/dataframe-engine.md)
 and [application deployment](../../stdlib/dataframe-deployment.md). Ordinary
 programs do not need this additional asset.
 
@@ -34,26 +36,18 @@ uses the separately installed shared engine.
 
 | Requirement | Detail |
 |---|---|
-| Platform | x86-64 Linux with glibc 2.28 or later: RHEL/AlmaLinux/Rocky 8, Debian 10, Ubuntu 18.10, Fedora 29, or newer |
-| Kernel | 3.2 or later, the Rust standard library's minimum; old kernels are not tested |
-| CPU | Any x86-64 CPU; the compiler and generated programs use the original x86-64 (SSE2) instruction set |
+| Platform | x86-64 or ARM64 (AArch64) Linux with glibc 2.28 or later: RHEL/AlmaLinux/Rocky 8, Debian 10, Ubuntu 18.10, Fedora 29, or newer |
+| Kernel | The Rust standard library's minimum, 3.2 on x86-64 and 4.1 on ARM64; old kernels are not tested |
+| CPU | Any x86-64 CPU (the original SSE2 instruction set) or any ARMv8-A CPU; the compiler and generated programs use only that baseline |
 | Linking | A `cc` driver, linker, startup files, and C library development files |
 
-These requirements describe the established x86-64 release contract. Native
-AArch64 GNU/Linux compilation is implemented in the source tree and is under
-[ARM qualification](../../../development/linux-aarch64.md). ARM release tooling
-uses target-labelled archives such as `plenty-VERSION-aarch64-unknown-linux-gnu.tar.gz`;
-the minimum ARM glibc/kernel floor and native hardware execution still need
-qualification before those artifacts carry the same guarantee. Rust's
+Rust's
 [AArch64 Linux target](https://doc.rust-lang.org/rustc/platform-support/aarch64-unknown-linux-gnu.html)
-requires at least kernel 4.1, compared with x86-64's 3.2; the ARM environment
-validated here uses kernel 6.12.113, not that minimum. Check each
-release's published assets and tested requirements rather than substituting an
-architecture into an x86 archive name. Optional ARM engines have an independent
-validation gate.
+sets the 4.1 kernel minimum. ARM64 archives are built and tested on native ARM
+runners; page sizes other than 4 KiB are not tested.
 
-musl distributions such as Alpine, macOS and Windows remain outside the native
-target set; see [native linking and targets](linking.md).
+musl distributions such as Alpine are outside the native target set; see
+[native linking and targets](linking.md).
 
 Plenty generates machine code itself and runs `cc` only to link it with the
 embedded runtime and the system C library, as described in
@@ -72,10 +66,38 @@ sudo pacman -Syu --needed gcc
 ```
 
 Release checks run these commands in clean AlmaLinux 8.10 (glibc 2.28),
-Debian 12 and 13, Ubuntu 24.04, Fedora 44, and Arch Linux containers, then
-compile and run programs from the extracted archive. AlmaLinux 8 is the
+Debian 12 and 13, Ubuntu 24.04, Fedora 44, and Arch Linux containers for
+x86-64, and AlmaLinux 8.10 and Debian 13 for ARM64, then compile and run
+programs from the extracted archive. Each archive's README lists the systems
+it was tested on. AlmaLinux 8 is the
 glibc 2.28 baseline; installing packages does not make an older system
 compatible.
+
+## Experimental macOS and Windows downloads
+
+Releases also publish experimental compiler archives for macOS on Apple silicon
+and for 64-bit Windows:
+
+| Archive | Requirements |
+|---|---|
+| `plenty-VERSION-aarch64-apple-darwin.tar.gz` | macOS 11 or later on Apple silicon; the Xcode Command Line Tools (`xcode-select --install`) for linking |
+| `plenty-VERSION-x86_64-pc-windows-msvc.zip` | Windows 10, Windows Server 2016, or later on x86-64; Visual Studio Build Tools with the "Desktop development with C++" workload and the Windows SDK, which also supply the MSVC runtime the compiler uses |
+
+They contain only `bin/plenty`, `bin/plentyc` (`.exe` on Windows), the README,
+licenses and notices. The optional dataframe and linear algebra engines are
+Linux shared libraries and are not available for these systems. The release
+workflow builds each archive natively, runs the compiler/runtime unit tests and
+platform-boundary checks, then extracts it on a macOS 15 or Windows Server 2025
+runner with Rust and Cargo removed from `PATH`, and compiles and runs a small
+program. Projects, most standard-library services such as SQLite and TLS, and
+the diagnostics for a missing linker are not yet tested there, and several OS
+services are incomplete; see [platform support](../02-architecture/support.md).
+
+The executables are not notarized or code-signed for distribution. The macOS
+executables carry the linker's ad-hoc signature; a browser download is
+quarantined, so run `xattr -dr com.apple.quarantine` on the extracted
+directory, or download with `curl`, which does not quarantine files. Windows may show a SmartScreen warning. The
+archive's README gives installation and troubleshooting steps for each system.
 
 ## Install and use
 

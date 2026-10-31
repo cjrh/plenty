@@ -394,6 +394,59 @@ class Publish(unittest.TestCase):
         self.assertIn(self.linalg_checksum.read_text().strip(), result.stdout)
         self.assertIn("optional shared library", result.stdout)
 
+    def native_archives(self, version="0.4.0"):
+        import io
+        import zipfile
+        for target, ext in [("aarch64-apple-darwin", "tar.gz"), ("x86_64-pc-windows-msvc", "zip")]:
+            name = f"plenty-{version}-{target}"
+            archive = self.dist / f"{name}.{ext}"
+            text = f"# Plenty for {target} (experimental)\n\n## Install\n".encode()
+            if ext == "zip":
+                with zipfile.ZipFile(archive, "w") as package:
+                    package.writestr(f"{name}/README.md", text)
+            else:
+                with tarfile.open(archive, "w:gz") as package:
+                    entry = tarfile.TarInfo(f"{name}/README.md")
+                    entry.size = len(text)
+                    package.addfile(entry, io.BytesIO(text))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
+
+    def test_native_os_targets_publish_only_the_core_archive(self):
+        self.native_archives()
+        self.env["PLENTY_RELEASE_TARGETS"] = "x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-msvc"
+        result, calls = self.publish("missing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("plenty-0.4.0-x86_64-pc-windows-msvc.zip.sha256", calls[1])
+        self.assertIn("plenty-0.4.0-aarch64-apple-darwin.tar.gz", calls[1])
+        self.assertNotIn("plenty-dataframe-0.4.0-aarch64-apple-darwin", calls[1])
+        (self.dist / "plenty-0.4.0-x86_64-pc-windows-msvc.zip").unlink()
+        result, calls = self.publish("missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_unlisted_archive_blocks_publication(self):
+        self.native_archives()
+        result, calls = self.publish("missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unexpected archive/checksum set", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_notes_cover_each_target_in_order(self):
+        self.native_archives()
+        env = {**os.environ, "PLENTY_RELEASE_TARGETS":
+               "x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-msvc"}
+        result = run([RELEASE / "release-notes.sh", self.dist], env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        positions = [out.index(f"Download `plenty-0.4.0-{t}") for t in
+                     ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc")]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("## Plenty for x86_64-pc-windows-msvc (experimental)", out)
+        self.assertIn("**Experimental:** macOS 11 or later", out)
+        self.assertIn((self.dist / "plenty-0.4.0-x86_64-pc-windows-msvc.zip.sha256").read_text().strip(), out)
+        self.assertEqual(out.count("Experimental:**"), 2)
+
     def test_unknown_lookup_failure_creates_nothing(self):
         result, calls = self.publish("broken")
         self.assertNotEqual(result.returncode, 0)
@@ -488,6 +541,271 @@ class ReleaseMatrices(unittest.TestCase):
         arm = [row for row in smokes if row["target"].startswith("aarch64")]
         self.assertEqual({row["image"].split("@", 1)[0] for row in arm}, {"almalinux:8", "debian:13"})
         self.assertTrue(all(row["runner"] == "ubuntu-24.04-arm" for row in arm))
+
+
+    def test_native_targets_build_on_their_own_runners(self):
+        result = run(["python3", "-B", RELEASE / "matrix.py"])
+        values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+        native = json.loads(values["native_matrix"])["include"]
+        self.assertEqual([(r["target"], r["runner"], r["ext"], r["components"]) for r in native],
+                         [("aarch64-apple-darwin", "macos-15", "tar.gz", "plenty"),
+                          ("x86_64-pc-windows-msvc", "windows-2025", "zip", "plenty")])
+        self.assertEqual(values["targets"].split(), [
+            "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+            "aarch64-apple-darwin", "x86_64-pc-windows-msvc"])
+        self.assertEqual((values["linux"], values["native"]), ("true", "true"))
+
+    def test_dry_run_selection_limits_jobs_and_targets(self):
+        for select, linux, native in [("linux", "true", "false"), ("native", "false", "true")]:
+            with self.subTest(select=select):
+                result = run(["python3", "-B", RELEASE / "matrix.py", "--select", select])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+                self.assertEqual((values["linux"], values["native"]), (linux, native))
+                builds = json.loads(values["build_matrix"])["include"]
+                rows = json.loads(values["native_matrix"])["include"]
+                self.assertEqual(sorted(values["targets"].split()),
+                                 sorted([r["target"] for r in builds] + [r["target"] for r in rows]))
+                if select == "native":
+                    self.assertEqual(json.loads(values["smoke_matrix"])["include"], [])
+        self.assertNotEqual(run(["python3", "-B", RELEASE / "matrix.py", "--select", "mac"]).returncode, 0)
+
+    def test_workflow_publishes_only_from_tag_pushes(self):
+        workflow = (REPO / ".github" / "workflows" / "release.yml").read_text()
+        publish = workflow[workflow.index("\n  publish:"):]
+        self.assertIn("github.event_name == 'push'", publish)
+        self.assertIn("needs.plan.outputs.targets", publish)
+        self.assertIn("workflow_dispatch:", workflow)
+        for uses in re.findall(r"uses: (\S+)", workflow):
+            self.assertRegex(uses, r"@[0-9a-f]{40}$", uses)
+
+
+class TargetFacts(unittest.TestCase):
+    def facts(self, target):
+        script = ('. "$1"; printf "%s|%s|%s|%s|%s|%s" "$release_os" "$release_cpu" "$release_exe" '
+                  '"$release_archive_ext" "$release_components" "$release_experimental"')
+        return run(["bash", "-c", script, "facts", RELEASE / "target.sh"],
+                   env={**os.environ, "PLENTY_RELEASE_TARGET": target})
+
+    def test_native_os_targets(self):
+        expected = {
+            "x86_64-unknown-linux-gnu": "linux|x86-64||tar.gz|plenty plenty-dataframe plenty-linalg|0",
+            "aarch64-unknown-linux-gnu": "linux|generic||tar.gz|plenty plenty-dataframe plenty-linalg|0",
+            "aarch64-apple-darwin": "macos|apple-m1||tar.gz|plenty|1",
+            "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip|plenty|1",
+        }
+        for target, facts in expected.items():
+            with self.subTest(target=target):
+                result = self.facts(target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, facts)
+
+    def test_unknown_target_fails(self):
+        result = self.facts("x86_64-apple-darwin")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported release target", result.stderr)
+
+    def test_os_readmes_name_their_archives_and_prerequisites(self):
+        for os_name, needles in [("macos", ["macOS 11", "xcode-select --install", "com.apple.quarantine",
+                                             "@TARGET@.tar.gz", "experimental"]),
+                                 ("windows", ["Windows 10", "Build Tools", "@TARGET@.zip",
+                                              "plenty.exe", "experimental"])]:
+            text = (RELEASE / f"README.dist-{os_name}.md").read_text()
+            for needle in needles:
+                self.assertIn(needle, text, os_name)
+            self.assertNotIn("glibc", text)
+
+
+class Archive(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        stage = self.root / "stage"
+        self.name = "plenty-0.4.0-x86_64-pc-windows-msvc"
+        (stage / self.name / "bin").mkdir(parents=True)
+        (stage / self.name / "licenses" / "rust").mkdir(parents=True)
+        (stage / self.name / "bin" / "plenty.exe").write_bytes(b"MZ exe")
+        (stage / self.name / "README.md").write_text("# Plenty\n")
+        (stage / self.name / "licenses" / "rust" / "COPYRIGHT.html").write_text("rust")
+        (stage / self.name / "README.md").chmod(0o600)
+        self.stage = stage
+
+    def build(self, out, epoch="1700000000"):
+        return run(["python3", "-B", RELEASE / "archive.py", self.stage, self.name, out],
+                   env={**os.environ, "SOURCE_DATE_EPOCH": epoch})
+
+    def test_archives_are_reproducible_with_fixed_modes(self):
+        import zipfile
+        for ext in ("zip", "tar.gz"):
+            with self.subTest(ext=ext):
+                first, second = self.root / f"a.{ext}", self.root / f"b.{ext}"
+                self.assertEqual(self.build(first).returncode, 0)
+                os.utime(self.stage / self.name / "README.md", (1, 1))
+                self.assertEqual(self.build(second).returncode, 0)
+                self.assertEqual(first.read_bytes(), second.read_bytes())
+                if ext == "zip":
+                    with zipfile.ZipFile(first) as archive:
+                        modes = {i.filename: (i.external_attr >> 16) & 0o7777 for i in archive.infolist()}
+                        names = archive.namelist()
+                        self.assertEqual(archive.read(f"{self.name}/README.md"), b"# Plenty\n")
+                else:
+                    with tarfile.open(first) as archive:
+                        members = archive.getmembers()
+                        modes = {m.name.rstrip("/") + ("/" if m.isdir() else ""): m.mode for m in members}
+                        names = [m.name + ("/" if m.isdir() else "") for m in members]
+                        self.assertTrue(all(m.uid == 0 and m.gid == 0 and m.mtime == 1700000000 for m in members))
+                self.assertEqual(names, sorted(names))
+                self.assertEqual(modes[f"{self.name}/bin/plenty.exe"], 0o755)
+                self.assertEqual(modes[f"{self.name}/README.md"], 0o644)
+                self.assertEqual(modes[f"{self.name}/licenses/"], 0o755)
+
+    def test_unknown_format_fails(self):
+        self.assertNotEqual(self.build(self.root / "a.7z").returncode, 0)
+
+
+class CheckNative(unittest.TestCase):
+    """Synthetic Mach-O and PE headers exercise the audit without Apple or
+    Microsoft tools."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("check_native", RELEASE / "check-native.py")
+        self.check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.check)
+
+    @staticmethod
+    def macho(dylibs=("/usr/lib/libSystem.B.dylib",), minos=(11, 0), cpu=0x0100000C,
+              signed=True, rpath=False):
+        import struct
+        commands = []
+        for name in dylibs:
+            raw = name.encode() + b"\0"
+            raw += b"\0" * (-(24 + len(raw)) % 8)
+            commands.append(struct.pack("<IIIIII", 0xC, 24 + len(raw), 24, 2, 0, 0) + raw)
+        if minos:
+            commands.append(struct.pack("<IIIIII", 0x32, 24, 1, (minos[0] << 16) | (minos[1] << 8), 0, 0))
+        if rpath:
+            raw = b"@loader_path\0\0\0\0"
+            commands.append(struct.pack("<III", 0x8000001C, 12 + len(raw), 12) + raw)
+        if signed:
+            commands.append(struct.pack("<IIII", 0x1D, 16, 0, 0))
+        body = b"".join(commands)
+        return struct.pack("<IiIIIIII", 0xFEEDFACF, cpu, 0, 2, len(commands), len(body), 0, 0) + body
+
+    @staticmethod
+    def pe(dlls=("KERNEL32.dll", "VCRUNTIME140.dll", "api-ms-win-crt-runtime-l1-1-0.dll"),
+           machine=0x8664, subsystem=3):
+        import struct
+        optional = bytearray(240)
+        struct.pack_into("<H", optional, 0, 0x20B)
+        struct.pack_into("<H", optional, 68, subsystem)
+        struct.pack_into("<I", optional, 108, 16)
+        section_rva, raw = 0x1000, 0x400
+        table = bytearray(20 * (len(dlls) + 1))
+        names = bytearray()
+        for i, dll in enumerate(dlls):
+            struct.pack_into("<I", table, 20 * i + 12, section_rva + len(table) + len(names))
+            names += dll.encode() + b"\0"
+        data = bytes(table + names)
+        struct.pack_into("<II", optional, 112 + 8, section_rva, len(table))
+        coff = struct.pack("<HHIIIHH", machine, 1, 0, 0, 0, len(optional), 0x22)
+        section = struct.pack("<8sIIIIIIHHI", b".idata", len(data), section_rva, len(data), raw, 0, 0, 0, 0, 0)
+        header = bytearray(0x40)
+        header[:2] = b"MZ"
+        struct.pack_into("<I", header, 0x3C, 0x40)
+        image = bytes(header) + b"PE\0\0" + coff + bytes(optional) + section
+        return image + b"\0" * (raw - len(image)) + data
+
+    def test_macos_baseline_executable_is_accepted(self):
+        problems, summary = self.check.check_macho(self.macho(), "11.0")
+        self.assertEqual(problems, [])
+        self.assertIn("macOS 11.0.0+", summary)
+        frameworks = ("/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/Security.framework/Versions/A/Security")
+        self.assertEqual(self.check.check_macho(self.macho(dylibs=frameworks), "11.0")[0], [])
+
+    def test_macos_runner_dependencies_are_rejected(self):
+        for kwargs, message in [({"dylibs": ("/opt/homebrew/lib/libz.1.dylib",)}, "not a macOS system library"),
+                                ({"minos": (15, 0)}, "needs macOS 15.0.0"),
+                                ({"minos": None}, "no minimum macOS version"),
+                                ({"cpu": 0x01000007}, "expected arm64"),
+                                ({"signed": False}, "no code signature"),
+                                ({"rpath": True}, "LC_RPATH")]:
+            with self.subTest(kwargs=kwargs):
+                problems, _ = self.check.check_macho(self.macho(**kwargs), "11.0")
+                self.assertTrue(any(message in p for p in problems), problems)
+        self.assertIn("fat", self.check.check_macho(b"\xca\xfe\xba\xbe" + b"\0" * 40, "11.0")[0][0])
+
+    def test_windows_system_and_msvc_runtime_imports_are_accepted(self):
+        problems, summary = self.check.check_pe(self.pe())
+        self.assertEqual(problems, [])
+        self.assertIn("VCRUNTIME140.dll", summary)
+
+    def test_windows_foreign_imports_and_headers_are_rejected(self):
+        for kwargs, message in [({"dlls": ("KERNEL32.dll", "libgcc_s_seh-1.dll")}, "imports libgcc_s_seh-1.dll"),
+                                ({"dlls": ("zlib1.dll",)}, "imports zlib1.dll"),
+                                ({"machine": 0xAA64}, "expected x86-64"),
+                                ({"subsystem": 2}, "expected console")]:
+            with self.subTest(kwargs=kwargs):
+                problems, _ = self.check.check_pe(self.pe(**kwargs))
+                self.assertTrue(any(message in p for p in problems), problems)
+
+    def test_linux_executable_is_neither(self):
+        elf = b"\x7fELF" + b"\0" * 60
+        self.assertTrue(self.check.check_macho(elf, "11.0")[0])
+        self.assertTrue(self.check.check_pe(elf)[0])
+
+
+class SmokeNative(unittest.TestCase):
+    """Run smoke-native.py on Linux against a macOS-named archive whose
+    executables are shell stand-ins; the real run happens on macos-15."""
+
+    FAKE = """#!/bin/sh
+case "$1" in
+--version) echo "$(basename "$0") 0.4.0 (aarch64-apple-darwin)" ;;
+--check) test -f "$2" ;;
+--compile) printf '#!/bin/sh\\nexec "%s" run\\n' "$0" > "$4"; chmod +x "$4" ;;
+*) printf '%s' "$SMOKE_EXPECTED" ;;
+esac
+"""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("smoke_native", RELEASE / "smoke-native.py")
+        self.smoke = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.smoke)
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.name = "plenty-0.4.0-aarch64-apple-darwin"
+        stage = self.root / "stage"
+        top = stage / self.name
+        (top / "bin").mkdir(parents=True)
+        (top / "licenses" / "rust").mkdir(parents=True)
+        for entry in self.smoke.REQUIRED:
+            (top / entry).write_text(entry)
+        for tool in ("plenty", "plentyc"):
+            (top / "bin" / tool).write_text(self.FAKE)
+        self.stage = stage
+        self.archive = self.root / "dist" / f"{self.name}.tar.gz"
+        self.archive.parent.mkdir()
+
+    def pack(self, **env):
+        subprocess.run(["python3", "-B", RELEASE / "archive.py", self.stage, self.name, self.archive], check=True)
+        digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        self.archive.with_name(self.archive.name + ".sha256").write_text(f"{digest}  {self.archive.name}\n")
+        return run(["python3", "-B", RELEASE / "smoke-native.py", self.archive],
+                   env={**os.environ, "SMOKE_EXPECTED": env.get("expected", self.smoke.EXPECTED)})
+
+    def test_relocatable_archive_passes(self):
+        result = self.pack()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS plenty-0.4.0-aarch64-apple-darwin", result.stdout)
+
+    def test_wrong_output_missing_file_and_bad_checksum_fail(self):
+        result = self.pack(expected="wrong\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("printed 'wrong\\n'", result.stderr)
+        (self.stage / self.name / "LICENSE-MIT").unlink()
+        result = self.pack()
+        self.assertIn("missing plenty-0.4.0-aarch64-apple-darwin/LICENSE-MIT", result.stderr)
+        self.archive.with_name(self.archive.name + ".sha256").write_text("0" * 64 + f"  {self.archive.name}\n")
+        result = run(["python3", "-B", RELEASE / "smoke-native.py", self.archive])
+        self.assertIn("checksum file does not match", result.stderr)
 
 
 if __name__ == "__main__":

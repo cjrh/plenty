@@ -23,21 +23,25 @@ restrictions live with their contracts.
 | Native toolchain | [Commands and artifacts](../01-building/index.md), and [per-function IR and assembly dumps](dump.md); native `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, linking with the matching host `cc`; [release requirements](../01-building/installing.md) and [ARM qualification](../../../development/linux-aarch64.md) distinguish implementation from tested deployment environments |
 
 The ARM path uses generic ARMv8-A instructions, scalar `std.simd`, Linux ELF,
-and the AAPCS64 C ABI. It is being qualified under QEMU; native ARM hardware,
-minimum glibc/kernel versions, other page sizes and optional engines still need
-independent validation before a release guarantee. x86-64 retains its SSE2
-baseline and existing release contract. Selecting `--target` or a linker does
-not turn an installed compiler into a cross-compiler.
+and the AAPCS64 C ABI. It is a release platform: the release workflow builds the
+compiler and both optional engines in the glibc 2.28 image on native ARM
+runners, runs the full suite there, and smoke-tests the archives in AlmaLinux 8
+and Debian 13. Kernels older than the one tested, page sizes other than 4 KiB
+and other distributions are not tested; see the
+[ARM development notes](../../../development/linux-aarch64.md). x86-64 retains
+its SSE2 baseline. Selecting `--target` or a linker does not turn an installed
+compiler into a cross-compiler.
 
-Experimental native emission for `aarch64-apple-darwin` and
-`x86_64-pc-windows-msvc` is being exercised in native CI. It includes target ABI,
-Mach-O/COFF objects and native linker invocation, but is not yet a qualified
-release platform. Runtime and standard-library capabilities remain incomplete,
-including actor recovery and several OS services; optional engines and
-end-to-end packaging still need qualification. Native CI passes compiler/runtime
-builds and unit tests, platform-boundary checks, and compilation and execution
-of generated Plenty callback/result probes on both operating systems. These
-checks do not establish full standard-library parity.
+Native emission for `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` is
+experimental. It includes target ABI, Mach-O/COFF objects and native linker
+invocation. Releases publish an experimental core compiler archive for each,
+without the optional engines, which are Linux ELF libraries. Native CI and the
+release workflow pass compiler/runtime builds and unit tests, platform-boundary
+checks, and compilation and execution of a generated callback/result program on
+both operating systems. Runtime and standard-library capabilities remain
+incomplete, including actor recovery and several OS services, and these checks
+do not establish standard-library parity; see
+[experimental macOS and Windows downloads](../01-building/installing.md#experimental-macos-and-windows-downloads).
 
 There is no interpreter, REPL, JIT, async/await, inheritance, dynamic attributes,
 or exception unwinding. Future work and priorities remain in the

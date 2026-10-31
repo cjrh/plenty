@@ -11,13 +11,13 @@ portable binary download described here.
 
 ## Check your system
 
-The current binary release supports **x86-64 Linux with glibc 2.28 or later**.
-AArch64 GNU/Linux is also implemented for source builds and is undergoing
-[ARM qualification](../development/linux-aarch64.md). Use an ARM release only
-when its release notes list your system as tested; the x86 archive below cannot
-run on an ARM machine. Optional engines must match that same target. macOS,
-Windows and musl-based Linux distributions such as Alpine remain unsupported.
-See the
+Binary releases support **x86-64 and ARM64 Linux with glibc 2.28 or later**.
+This page uses the x86-64 archive names; on an ARM64 machine (`uname -m`
+prints `aarch64`), replace `x86_64-unknown-linux-gnu` with
+`aarch64-unknown-linux-gnu` in every command. Musl-based distributions such as
+Alpine are unsupported. Releases also include
+[experimental macOS and Windows downloads](../design/toolchain/01-building/installing.md#experimental-macos-and-windows-downloads),
+whose READMEs replace the Linux steps below. See the
 [installation requirements](../design/toolchain/01-building/installing.md#requirements)
 for supported systems and troubleshooting.
 
