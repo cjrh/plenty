@@ -109,6 +109,9 @@ scratch, such as a 64-digit binary integer or `1e300` with `f`, first grows the
 scratch fallibly (`Bytes(Allocation(...))`); preallocate scratch to keep
 formatting allocation-free. `represent(&value, &mut out)` writes the `str.repr`
 spelling of any value `str.repr` accepts, which allocates a temporary string.
+A `Bytes` buffer, `bytes` literal, or `&[u8]` view spells as a byte literal
+([printing bytes](bytes.md#printing)); write hex with
+[`std.encoding.hex_text`](encoding.md).
 `repr_string(&value)`, `debug_string(&text)`, and `ascii_string(&text)` return
 the `str.repr`, `debug_text`, and `ascii_text` spellings as fallible strings.
 A `&T` parameter cannot take a [slice view](../language/04-expressions/slices.md#slice-views),

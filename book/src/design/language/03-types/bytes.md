@@ -64,7 +64,7 @@ contents cannot change.
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
 | `x in value` | Whether the `u8` `x` occurs |
 | `==`, `!=` | Content equality with another `bytes` |
-| `print(value)` | The literal spelling, printable ASCII with `\xhh` for every other byte |
+| `print(value)` | The literal spelling, which reads back as the same bytes: printable ASCII, `\\`, `\"`, `\n`, `\r`, `\t`, and `\xhh` for every other byte; see [printing bytes](../../stdlib/bytes.md#printing) |
 
 `bytes` values can be elements, set members, dictionary keys, class fields, and
 enum payloads, and can be captured and passed to scoped threads. `len` is the

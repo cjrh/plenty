@@ -125,6 +125,12 @@ fn define_type(
         Ty::Class(t) => t.get().newtype_field().map(|field| (t, field.clone())),
         _ => None,
     };
+    // `std.bytes.Bytes` prints as its storage, a byte literal, rather than
+    // exposing the private field (issue #596).
+    bytes[81] = u8::from(matches!(
+        &newtype,
+        Some((class, Ty::ByteStorage)) if &*class.name == crate::frontend::BYTES_CLASS
+    ));
     let base;
     let (display_name, ty) = match &newtype {
         Some((class, _)) => {
