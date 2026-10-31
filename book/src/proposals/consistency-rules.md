@@ -5,7 +5,7 @@
 > that day. The evidence is the 2026-10-31 language consistency survey,
 > recorded as issues #612–#637. Accepted and scheduled as backlog rows
 > B88–B93 ([staged plan](#staged-plan-and-suggested-backlog-wording)); the
-> review [decisions](#decisions) settle four questions.
+> review [decisions](#decisions) settle five questions.
 > A seventh rule from the same survey, a written convention page for the
 > standard library, is separate documentation work and is only referenced here.
 
@@ -592,9 +592,8 @@ All of rule 6 is additive except two items. The `checked:` fix (issue #614)
 changes which programs trap: a closure defined in a block, stored or
 lowered, now reports `Err`, while `sum` inside a block, which reports `Err`
 today because of pipeline lowering, traps as documented. A closure defined
-in a block that outlives the block has no block to exit when it overflows
-later; it should be rejected, or trap when called outside, to be settled in
-implementation. Constructor values make a class name usable as a value
+in a block may not outlive it, since a later overflow would have no block to
+exit (decision 5). Constructor values make a class name usable as a value
 expression; how that interacts with local bindings of the same name needs a
 check against the name-resolution rules in
 [names](../design/language/02-source/names.md). Worker-thread effect
@@ -654,6 +653,17 @@ Recorded 2026-10-31 after review:
    that the block handles or propagates with `?`, which also leaves the
    block. A function's possible failures are part of its signature, not of
    the context that calls it.
+5. Rule 6: a closure defined in a `checked:` block may not leave it. It
+   leaves by assignment to a binding declared outside the block, as the
+   block's value or a return value, by being stored in a collection, field,
+   `Shared` or channel, or by being passed by value to a function that keeps
+   it (`spawn`, `pool.submit`). Passing it as `&f` or `&mut f` to a function
+   called in the block is allowed. The checker can treat the closure as
+   borrowing a block-scoped value, so existing borrow checking rejects every
+   escape; the diagnostic names `checked:` and suggests defining the closure
+   outside the block. Rejection can be relaxed later without breaking
+   programs; trapping when called outside the block would reintroduce
+   behaviour that depends on where a closure is called.
 
 ## Staged plan and suggested backlog wording
 
