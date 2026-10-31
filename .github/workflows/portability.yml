@@ -49,6 +49,11 @@ jobs:
           set -o pipefail
           rustc --edition 2024 --test plenty-runtime/native/tools.rs -o artifacts/native-tools-tests.exe
           artifacts/native-tools-tests.exe --nocapture 2>&1 | tee artifacts/native-tools-tests.log
+      - name: Check native crypto source selection
+        run: |
+          set -o pipefail
+          rustc --edition 2024 --test plenty-runtime/native/ring_sources.rs -o artifacts/ring-sources-tests.exe
+          artifacts/ring-sources-tests.exe --nocapture 2>&1 | tee artifacts/ring-sources-tests.log
       - name: Check native runtime boundaries
         run: |
           set -o pipefail

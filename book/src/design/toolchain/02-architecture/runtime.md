@@ -18,13 +18,13 @@ ThinLTO, abort-on-panic static archives and embeds them with native link require
 Program compilation extracts the archive and links through a `cc` driver. Runtime
 source and the Rust toolchain are not needed by an installed compiler.
 
-Direct native dependency builds share the archive command in
-`plenty-runtime/native/tools.rs`. GNU/Linux retains deterministic `ar crsD`;
-Apple targets use `ar crs` with `ZERO_AR_DATE=1`, because Apple's archiver does
-not accept GNU's `D` option. The native build-tool tests compile, archive and
-link a C fixture and check archive reproducibility after input timestamps
-change. This build-tool boundary does not establish macOS runtime support or
-MSVC-compatible dependency objects.
+Direct native dependency builds use the pinned `cc` crate through
+`plenty-runtime/native/cc_build.rs` for target compiler and archive selection.
+SQLite and Brotli use native C options; ring selects its upstream assembly for
+the target OS and architecture, including pregenerated COFF objects on Windows
+x86-64. The GNU archive-symbol parser and panic-symbol redirects are Linux-only.
+The standalone build-tool and source-selection tests do not by themselves
+establish a working native compiler port.
 
 Standard library Plenty sources are embedded in the compiler as well. `std.math`
 is parsed and checked as an ordinary module, with a stable toolchain identity;
@@ -82,12 +82,14 @@ context is a pointer to a separate record; Linux's is inline. The POSIX trap
 and stack-overflow handlers use native errno access and signal conventions.
 macOS stack exhaustion can arrive as SIGBUS or SIGSEGV, and its alternate
 stack reservation accounts for Darwin's larger minimum. Existing host handlers
-retain their signals. Windows exception handling remains unimplemented.
+retain their signals. Windows uses vectored exception handlers and a per-thread stack guarantee.
+Only registered checked-trap addresses are redirected; unrelated exceptions
+continue through the host chain. Library threads do not install these handlers.
 
 These boundaries are implementation work toward new ports, not admission of
 macOS or Windows as supported compiler targets. The native qualification
 workflow tests synchronization separately so failures elsewhere in the runtime
-do not prevent exercising these primitives. Windows exception handling, object
+do not prevent exercising these primitives. Native Windows exception tests, object
 and linker support, actor recovery, OS services and full native execution
 remain qualification requirements in the [portability plan](../../../backlog.md#b18--macos-and-windows-implementation-sequence).
 
