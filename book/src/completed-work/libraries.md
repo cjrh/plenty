@@ -191,4 +191,10 @@ references use their actual storage width (issue #643), preventing neighboring
 actor-address entries from being overwritten. The [qualification record](../design/stdlib/actor-http-qualification.md)
 separates implementation delivery from production readiness and comparative
 measurements. The worker HTTP server remains independently supported.
+The [qualification record](../design/stdlib/actor-http-qualification.md) includes
+540,000 successful matched HTTP/TLS benchmark requests, a mixed-failure run
+with 400 contained traps and stable resources, and relocated native binaries.
+TLS configuration rotation remains limited by issue #641; measured mailbox
+retry overhead is tracked as issue #644.
+
 Remaining stages stay **B85** in the [backlog](../backlog.md).

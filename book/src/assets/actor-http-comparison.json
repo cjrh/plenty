@@ -1,0 +1,4817 @@
+{
+  "source_revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+  "summary": {
+    "http": {
+      "worker1": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 21778.52,
+            "rps_min": 21537.33,
+            "rps_max": 21901.01,
+            "p50_ms_median": 0.044,
+            "p99_ms_median": 0.068,
+            "peak_rss_kib_max": 3504,
+            "cpu_seconds_median": 0.18
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 25544.74,
+            "rps_min": 25350.21,
+            "rps_max": 25704.96,
+            "p50_ms_median": 0.629,
+            "p99_ms_median": 1.013,
+            "peak_rss_kib_max": 3580,
+            "cpu_seconds_median": 0.15
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 24514.97,
+            "rps_min": 24297.91,
+            "rps_max": 24623.26,
+            "p50_ms_median": 2.495,
+            "p99_ms_median": 8.564,
+            "peak_rss_kib_max": 3608,
+            "cpu_seconds_median": 0.15
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 15160.47,
+            "rps_min": 14874.62,
+            "rps_max": 15526.12,
+            "p50_ms_median": 1.021,
+            "p99_ms_median": 1.414,
+            "peak_rss_kib_max": 3524,
+            "cpu_seconds_median": 0.18
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 18574.79,
+            "rps_min": 18285.55,
+            "rps_max": 18683.0,
+            "p50_ms_median": 0.899,
+            "p99_ms_median": 1.386,
+            "peak_rss_kib_max": 3584,
+            "cpu_seconds_median": 0.19
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 24214.6,
+            "rps_min": 23759.18,
+            "rps_max": 24489.52,
+            "p50_ms_median": 0.669,
+            "p99_ms_median": 0.85,
+            "peak_rss_kib_max": 3596,
+            "cpu_seconds_median": 0.16
+          }
+        ],
+        "idle_kib_per_connection_median": 0.86
+      },
+      "actor": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 30078.44,
+            "rps_min": 29753.23,
+            "rps_max": 30303.21,
+            "p50_ms_median": 0.031,
+            "p99_ms_median": 0.05,
+            "peak_rss_kib_max": 4264,
+            "cpu_seconds_median": 0.11
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 27703.13,
+            "rps_min": 27122.91,
+            "rps_max": 28279.26,
+            "p50_ms_median": 0.64,
+            "p99_ms_median": 1.625,
+            "peak_rss_kib_max": 4456,
+            "cpu_seconds_median": 0.15
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 13596.64,
+            "rps_min": 13529.75,
+            "rps_max": 13743.17,
+            "p50_ms_median": 2.729,
+            "p99_ms_median": 9.824,
+            "peak_rss_kib_max": 5480,
+            "cpu_seconds_median": 0.34
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 12214.87,
+            "rps_min": 11847.39,
+            "rps_max": 12293.71,
+            "p50_ms_median": 1.272,
+            "p99_ms_median": 1.937,
+            "peak_rss_kib_max": 4300,
+            "cpu_seconds_median": 0.34
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 13401.95,
+            "rps_min": 13205.82,
+            "rps_max": 13631.63,
+            "p50_ms_median": 1.066,
+            "p99_ms_median": 2.471,
+            "peak_rss_kib_max": 4968,
+            "cpu_seconds_median": 0.25
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 25070.57,
+            "rps_min": 24958.2,
+            "rps_max": 25202.25,
+            "p50_ms_median": 0.691,
+            "p99_ms_median": 1.781,
+            "peak_rss_kib_max": 4300,
+            "cpu_seconds_median": 0.17
+          }
+        ],
+        "idle_kib_per_connection_median": 21.73
+      },
+      "worker4": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 23433.25,
+            "rps_min": 23376.06,
+            "rps_max": 23678.5,
+            "p50_ms_median": 0.04,
+            "p99_ms_median": 0.07,
+            "peak_rss_kib_max": 3792,
+            "cpu_seconds_median": 0.17
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 96801.67,
+            "rps_min": 96547.46,
+            "rps_max": 105305.28,
+            "p50_ms_median": 0.144,
+            "p99_ms_median": 0.286,
+            "peak_rss_kib_max": 3812,
+            "cpu_seconds_median": 0.13
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 82128.78,
+            "rps_min": 75274.0,
+            "rps_max": 92397.53,
+            "p50_ms_median": 0.638,
+            "p99_ms_median": 7.927,
+            "peak_rss_kib_max": 3888,
+            "cpu_seconds_median": 0.13
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 15035.29,
+            "rps_min": 14985.27,
+            "rps_max": 15310.28,
+            "p50_ms_median": 1.016,
+            "p99_ms_median": 1.51,
+            "peak_rss_kib_max": 3744,
+            "cpu_seconds_median": 0.21
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 72903.3,
+            "rps_min": 72036.77,
+            "rps_max": 73291.22,
+            "p50_ms_median": 0.2,
+            "p99_ms_median": 0.547,
+            "peak_rss_kib_max": 3812,
+            "cpu_seconds_median": 0.18
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 98403.89,
+            "rps_min": 91635.51,
+            "rps_max": 100916.32,
+            "p50_ms_median": 0.15,
+            "p99_ms_median": 0.266,
+            "peak_rss_kib_max": 3860,
+            "cpu_seconds_median": 0.14
+          }
+        ],
+        "idle_kib_per_connection_median": 1.13
+      }
+    },
+    "https": {
+      "worker1": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 19195.18,
+            "rps_min": 18788.16,
+            "rps_max": 19710.49,
+            "p50_ms_median": 0.049,
+            "p99_ms_median": 0.079,
+            "peak_rss_kib_max": 4968,
+            "cpu_seconds_median": 0.2
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 22567.66,
+            "rps_min": 22501.14,
+            "rps_max": 22715.81,
+            "p50_ms_median": 0.698,
+            "p99_ms_median": 0.929,
+            "peak_rss_kib_max": 5644,
+            "cpu_seconds_median": 0.17
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 20662.69,
+            "rps_min": 20543.41,
+            "rps_max": 20826.48,
+            "p50_ms_median": 2.79,
+            "p99_ms_median": 23.703,
+            "peak_rss_kib_max": 7604,
+            "cpu_seconds_median": 0.18
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 3796.34,
+            "rps_min": 3795.69,
+            "rps_max": 3796.62,
+            "p50_ms_median": 1.749,
+            "p99_ms_median": 5.541,
+            "peak_rss_kib_max": 5244,
+            "cpu_seconds_median": 0.93
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 14902.02,
+            "rps_min": 14616.76,
+            "rps_max": 14945.4,
+            "p50_ms_median": 1.097,
+            "p99_ms_median": 1.245,
+            "peak_rss_kib_max": 5604,
+            "cpu_seconds_median": 0.26
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 20939.43,
+            "rps_min": 20763.95,
+            "rps_max": 21163.93,
+            "p50_ms_median": 0.759,
+            "p99_ms_median": 0.986,
+            "peak_rss_kib_max": 5588,
+            "cpu_seconds_median": 0.19
+          }
+        ],
+        "idle_kib_per_connection_median": 41.07
+      },
+      "actor": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 26604.8,
+            "rps_min": 25742.94,
+            "rps_max": 26645.49,
+            "p50_ms_median": 0.035,
+            "p99_ms_median": 0.059,
+            "peak_rss_kib_max": 5196,
+            "cpu_seconds_median": 0.13
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 25429.5,
+            "rps_min": 25375.43,
+            "rps_max": 25775.85,
+            "p50_ms_median": 0.392,
+            "p99_ms_median": 1.436,
+            "peak_rss_kib_max": 5692,
+            "cpu_seconds_median": 0.17
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 11975.96,
+            "rps_min": 11811.48,
+            "rps_max": 12168.5,
+            "p50_ms_median": 4.508,
+            "p99_ms_median": 21.209,
+            "peak_rss_kib_max": 7868,
+            "cpu_seconds_median": 0.37
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 4108.65,
+            "rps_min": 4108.64,
+            "rps_max": 4109.15,
+            "p50_ms_median": 1.555,
+            "p99_ms_median": 4.126,
+            "peak_rss_kib_max": 5132,
+            "cpu_seconds_median": 1.03
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 11858.79,
+            "rps_min": 11819.3,
+            "rps_max": 11929.3,
+            "p50_ms_median": 1.108,
+            "p99_ms_median": 2.75,
+            "peak_rss_kib_max": 6204,
+            "cpu_seconds_median": 0.3
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 23103.87,
+            "rps_min": 22995.59,
+            "rps_max": 23241.76,
+            "p50_ms_median": 0.565,
+            "p99_ms_median": 1.581,
+            "peak_rss_kib_max": 5692,
+            "cpu_seconds_median": 0.18
+          }
+        ],
+        "idle_kib_per_connection_median": 45.86
+      },
+      "worker4": {
+        "workloads": [
+          {
+            "workload": "keep-alive, 1 client",
+            "rps_median": 21323.96,
+            "rps_min": 20611.93,
+            "rps_max": 21367.98,
+            "p50_ms_median": 0.043,
+            "p99_ms_median": 0.078,
+            "peak_rss_kib_max": 5452,
+            "cpu_seconds_median": 0.19
+          },
+          {
+            "workload": "keep-alive, 16 clients",
+            "rps_median": 79376.42,
+            "rps_min": 79312.2,
+            "rps_max": 87345.4,
+            "p50_ms_median": 0.165,
+            "p99_ms_median": 0.42,
+            "peak_rss_kib_max": 5924,
+            "cpu_seconds_median": 0.15
+          },
+          {
+            "workload": "keep-alive, 64 clients",
+            "rps_median": 65670.23,
+            "rps_min": 62810.91,
+            "rps_max": 66391.36,
+            "p50_ms_median": 0.614,
+            "p99_ms_median": 20.696,
+            "peak_rss_kib_max": 7956,
+            "cpu_seconds_median": 0.16
+          },
+          {
+            "workload": "new connection per request, 16 clients",
+            "rps_median": 4285.12,
+            "rps_min": 4284.83,
+            "rps_max": 4477.06,
+            "p50_ms_median": 1.308,
+            "p99_ms_median": 4.611,
+            "peak_rss_kib_max": 5916,
+            "cpu_seconds_median": 1.07
+          },
+          {
+            "workload": "keep-alive 16 KiB response, 16 clients",
+            "rps_median": 53654.4,
+            "rps_min": 52522.66,
+            "rps_max": 53668.8,
+            "p50_ms_median": 0.268,
+            "p99_ms_median": 0.547,
+            "peak_rss_kib_max": 6060,
+            "cpu_seconds_median": 0.24
+          },
+          {
+            "workload": "keep-alive 1 KiB POST echo, 16 clients",
+            "rps_median": 81723.38,
+            "rps_min": 76084.97,
+            "rps_max": 83691.81,
+            "p50_ms_median": 0.161,
+            "p99_ms_median": 0.352,
+            "peak_rss_kib_max": 6004,
+            "cpu_seconds_median": 0.16
+          }
+        ],
+        "idle_kib_per_connection_median": 41.35
+      }
+    }
+  },
+  "normal_runs": {
+    "http-actor-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_http_server_bench.plenty",
+        "source_sha256": "949f84785014565b0bd9b1ccad2de8ea4560339af60148803b67c18ffc6c7012",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          3.267578125,
+          5.39306640625,
+          7.39306640625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 30078.44,
+              "missing": 0,
+              "p50_ms": 0.031,
+              "p99_ms": 0.05,
+              "peak_rss_kib": 4260,
+              "threads": 1,
+              "cpu_seconds": 0.12,
+              "report": "actors std.actor.Stats(started=7, stopped=7, failed=0, trapped=0, restarted=0, delivered=10028, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 30078.44,
+          "rps_min": 30078.44,
+          "rps_max": 30078.44,
+          "p50_ms_median": 0.031,
+          "p99_ms_median": 0.05,
+          "peak_rss_kib_max": 4260,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 28279.26,
+              "missing": 0,
+              "p50_ms": 0.64,
+              "p99_ms": 1.173,
+              "peak_rss_kib": 4276,
+              "threads": 1,
+              "cpu_seconds": 0.15,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84485, full=146367, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 28279.26,
+          "rps_min": 28279.26,
+          "rps_max": 28279.26,
+          "p50_ms_median": 0.64,
+          "p99_ms_median": 1.173,
+          "peak_rss_kib_max": 4276,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13743.17,
+              "missing": 0,
+              "p50_ms": 2.731,
+              "p99_ms": 9.749,
+              "peak_rss_kib": 5280,
+              "threads": 1,
+              "cpu_seconds": 0.34,
+              "report": "actors std.actor.Stats(started=66, stopped=66, failed=0, trapped=0, restarted=0, delivered=319929, full=616968, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13743.17,
+          "rps_min": 13743.17,
+          "rps_max": 13743.17,
+          "p50_ms_median": 2.731,
+          "p99_ms_median": 9.749,
+          "peak_rss_kib_max": 5280,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 12293.71,
+              "missing": 0,
+              "p50_ms": 1.259,
+              "p99_ms": 1.937,
+              "peak_rss_kib": 4296,
+              "threads": 1,
+              "cpu_seconds": 0.33,
+              "report": "actors std.actor.Stats(started=5002, stopped=5002, failed=0, trapped=0, restarted=0, delivered=30008, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 12293.71,
+          "rps_min": 12293.71,
+          "rps_max": 12293.71,
+          "p50_ms_median": 1.259,
+          "p99_ms_median": 1.937,
+          "peak_rss_kib_max": 4296,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13631.63,
+              "missing": 0,
+              "p50_ms": 1.019,
+              "p99_ms": 2.254,
+              "peak_rss_kib": 4780,
+              "threads": 1,
+              "cpu_seconds": 0.25,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84697, full=106791, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13631.63,
+          "rps_min": 13631.63,
+          "rps_max": 13631.63,
+          "p50_ms_median": 1.019,
+          "p99_ms_median": 2.254,
+          "peak_rss_kib_max": 4780,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25202.25,
+              "missing": 0,
+              "p50_ms": 0.534,
+              "p99_ms": 1.781,
+              "peak_rss_kib": 4272,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=83575, full=144556, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25202.25,
+          "rps_min": 25202.25,
+          "rps_max": 25202.25,
+          "p50_ms_median": 0.534,
+          "p99_ms_median": 1.781,
+          "peak_rss_kib_max": 4272,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 6544,
+        "rss_after_kib": 27928,
+        "kib_per_connection": 21.73
+      }
+    },
+    "http-actor-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_http_server_bench.plenty",
+        "source_sha256": "949f84785014565b0bd9b1ccad2de8ea4560339af60148803b67c18ffc6c7012",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.78271484375,
+          5.140625,
+          7.2666015625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 29753.23,
+              "missing": 0,
+              "p50_ms": 0.031,
+              "p99_ms": 0.053,
+              "peak_rss_kib": 4264,
+              "threads": 1,
+              "cpu_seconds": 0.11,
+              "report": "actors std.actor.Stats(started=7, stopped=7, failed=0, trapped=0, restarted=0, delivered=10028, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 29753.23,
+          "rps_min": 29753.23,
+          "rps_max": 29753.23,
+          "p50_ms_median": 0.031,
+          "p99_ms_median": 0.053,
+          "peak_rss_kib_max": 4264,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 27703.13,
+              "missing": 0,
+              "p50_ms": 0.571,
+              "p99_ms": 1.625,
+              "peak_rss_kib": 4456,
+              "threads": 1,
+              "cpu_seconds": 0.15,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84280, full=145958, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 27703.13,
+          "rps_min": 27703.13,
+          "rps_max": 27703.13,
+          "p50_ms_median": 0.571,
+          "p99_ms_median": 1.625,
+          "peak_rss_kib_max": 4456,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13529.75,
+              "missing": 0,
+              "p50_ms": 2.685,
+              "p99_ms": 9.824,
+              "peak_rss_kib": 5480,
+              "threads": 1,
+              "cpu_seconds": 0.34,
+              "report": "actors std.actor.Stats(started=66, stopped=66, failed=0, trapped=0, restarted=0, delivered=319930, full=616970, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13529.75,
+          "rps_min": 13529.75,
+          "rps_max": 13529.75,
+          "p50_ms_median": 2.685,
+          "p99_ms_median": 9.824,
+          "peak_rss_kib_max": 5480,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 12214.87,
+              "missing": 0,
+              "p50_ms": 1.272,
+              "p99_ms": 1.803,
+              "peak_rss_kib": 4268,
+              "threads": 1,
+              "cpu_seconds": 0.34,
+              "report": "actors std.actor.Stats(started=5004, stopped=5004, failed=0, trapped=0, restarted=0, delivered=30014, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 12214.87,
+          "rps_min": 12214.87,
+          "rps_max": 12214.87,
+          "p50_ms_median": 1.272,
+          "p99_ms_median": 1.803,
+          "peak_rss_kib_max": 4268,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13205.82,
+              "missing": 0,
+              "p50_ms": 1.087,
+              "p99_ms": 2.55,
+              "peak_rss_kib": 4968,
+              "threads": 1,
+              "cpu_seconds": 0.25,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84692, full=106781, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13205.82,
+          "rps_min": 13205.82,
+          "rps_max": 13205.82,
+          "p50_ms_median": 1.087,
+          "p99_ms_median": 2.55,
+          "peak_rss_kib_max": 4968,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24958.2,
+              "missing": 0,
+              "p50_ms": 0.782,
+              "p99_ms": 1.748,
+              "peak_rss_kib": 4256,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84513, full=146423, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 24958.2,
+          "rps_min": 24958.2,
+          "rps_max": 24958.2,
+          "p50_ms_median": 0.782,
+          "p99_ms_median": 1.748,
+          "peak_rss_kib_max": 4256,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 6412,
+        "rss_after_kib": 27856,
+        "kib_per_connection": 21.79
+      }
+    },
+    "http-actor-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_http_server_bench.plenty",
+        "source_sha256": "949f84785014565b0bd9b1ccad2de8ea4560339af60148803b67c18ffc6c7012",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.35595703125,
+          4.88818359375,
+          7.1376953125
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 30303.21,
+              "missing": 0,
+              "p50_ms": 0.031,
+              "p99_ms": 0.048,
+              "peak_rss_kib": 4076,
+              "threads": 1,
+              "cpu_seconds": 0.11,
+              "report": "actors std.actor.Stats(started=7, stopped=7, failed=0, trapped=0, restarted=0, delivered=10028, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 30303.21,
+          "rps_min": 30303.21,
+          "rps_max": 30303.21,
+          "p50_ms_median": 0.031,
+          "p99_ms_median": 0.048,
+          "peak_rss_kib_max": 4076,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 27122.91,
+              "missing": 0,
+              "p50_ms": 0.66,
+              "p99_ms": 1.727,
+              "peak_rss_kib": 4256,
+              "threads": 1,
+              "cpu_seconds": 0.16,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84510, full=146417, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 27122.91,
+          "rps_min": 27122.91,
+          "rps_max": 27122.91,
+          "p50_ms_median": 0.66,
+          "p99_ms_median": 1.727,
+          "peak_rss_kib_max": 4256,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13596.64,
+              "missing": 0,
+              "p50_ms": 2.729,
+              "p99_ms": 9.867,
+              "peak_rss_kib": 5480,
+              "threads": 1,
+              "cpu_seconds": 0.33,
+              "report": "actors std.actor.Stats(started=66, stopped=66, failed=0, trapped=0, restarted=0, delivered=319905, full=616922, gone=1, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13596.64,
+          "rps_min": 13596.64,
+          "rps_max": 13596.64,
+          "p50_ms_median": 2.729,
+          "p99_ms_median": 9.867,
+          "peak_rss_kib_max": 5480,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11847.39,
+              "missing": 0,
+              "p50_ms": 1.298,
+              "p99_ms": 2.032,
+              "peak_rss_kib": 4300,
+              "threads": 1,
+              "cpu_seconds": 0.35,
+              "report": "actors std.actor.Stats(started=5002, stopped=5002, failed=0, trapped=0, restarted=0, delivered=30008, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11847.39,
+          "rps_min": 11847.39,
+          "rps_max": 11847.39,
+          "p50_ms_median": 1.298,
+          "p99_ms_median": 2.032,
+          "peak_rss_kib_max": 4300,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 13401.95,
+              "missing": 0,
+              "p50_ms": 1.066,
+              "p99_ms": 2.471,
+              "peak_rss_kib": 4812,
+              "threads": 1,
+              "cpu_seconds": 0.25,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84678, full=106754, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 13401.95,
+          "rps_min": 13401.95,
+          "rps_max": 13401.95,
+          "p50_ms_median": 1.066,
+          "p99_ms_median": 2.471,
+          "peak_rss_kib_max": 4812,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25070.57,
+              "missing": 0,
+              "p50_ms": 0.691,
+              "p99_ms": 1.793,
+              "peak_rss_kib": 4300,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=18, failed=0, trapped=0, restarted=0, delivered=84494, full=146385, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25070.57,
+          "rps_min": 25070.57,
+          "rps_max": 25070.57,
+          "p50_ms_median": 0.691,
+          "p99_ms_median": 1.793,
+          "peak_rss_kib_max": 4300,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 6596,
+        "rss_after_kib": 27980,
+        "kib_per_connection": 21.73
+      }
+    },
+    "http-worker1-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          3.267578125,
+          5.39306640625,
+          7.39306640625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21778.52,
+              "missing": 0,
+              "p50_ms": 0.044,
+              "p99_ms": 0.068,
+              "peak_rss_kib": 3504,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21778.52,
+          "rps_min": 21778.52,
+          "rps_max": 21778.52,
+          "p50_ms_median": 0.044,
+          "p99_ms_median": 0.068,
+          "peak_rss_kib_max": 3504,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25544.74,
+              "missing": 0,
+              "p50_ms": 0.627,
+              "p99_ms": 1.013,
+              "peak_rss_kib": 3580,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 25544.74,
+          "rps_min": 25544.74,
+          "rps_max": 25544.74,
+          "p50_ms_median": 0.627,
+          "p99_ms_median": 1.013,
+          "peak_rss_kib_max": 3580,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24623.26,
+              "missing": 0,
+              "p50_ms": 2.494,
+              "p99_ms": 8.564,
+              "peak_rss_kib": 3608,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 24623.26,
+          "rps_min": 24623.26,
+          "rps_max": 24623.26,
+          "p50_ms_median": 2.494,
+          "p99_ms_median": 8.564,
+          "peak_rss_kib_max": 3608,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 15526.12,
+              "missing": 0,
+              "p50_ms": 0.997,
+              "p99_ms": 1.414,
+              "peak_rss_kib": 3452,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 5005 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 15526.12,
+          "rps_min": 15526.12,
+          "rps_max": 15526.12,
+          "p50_ms_median": 0.997,
+          "p99_ms_median": 1.414,
+          "peak_rss_kib_max": 3452,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 18683.0,
+              "missing": 0,
+              "p50_ms": 0.886,
+              "p99_ms": 1.462,
+              "peak_rss_kib": 3584,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 18683.0,
+          "rps_min": 18683.0,
+          "rps_max": 18683.0,
+          "p50_ms_median": 0.886,
+          "p99_ms_median": 1.462,
+          "peak_rss_kib_max": 3584,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24489.52,
+              "missing": 0,
+              "p50_ms": 0.662,
+              "p99_ms": 0.844,
+              "peak_rss_kib": 3464,
+              "threads": 2,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 24489.52,
+          "rps_min": 24489.52,
+          "rps_max": 24489.52,
+          "p50_ms_median": 0.662,
+          "p99_ms_median": 0.844,
+          "peak_rss_kib_max": 3464,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 2984,
+        "rss_after_kib": 3832,
+        "kib_per_connection": 0.86
+      }
+    },
+    "http-worker1-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.78271484375,
+          5.140625,
+          7.2666015625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21901.01,
+              "missing": 0,
+              "p50_ms": 0.044,
+              "p99_ms": 0.068,
+              "peak_rss_kib": 3448,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21901.01,
+          "rps_min": 21901.01,
+          "rps_max": 21901.01,
+          "p50_ms_median": 0.044,
+          "p99_ms_median": 0.068,
+          "peak_rss_kib_max": 3448,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25704.96,
+              "missing": 0,
+              "p50_ms": 0.629,
+              "p99_ms": 0.803,
+              "peak_rss_kib": 3576,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 25704.96,
+          "rps_min": 25704.96,
+          "rps_max": 25704.96,
+          "p50_ms_median": 0.629,
+          "p99_ms_median": 0.803,
+          "peak_rss_kib_max": 3576,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24514.97,
+              "missing": 0,
+              "p50_ms": 2.495,
+              "p99_ms": 10.549,
+              "peak_rss_kib": 3548,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 24514.97,
+          "rps_min": 24514.97,
+          "rps_max": 24514.97,
+          "p50_ms_median": 2.495,
+          "p99_ms_median": 10.549,
+          "peak_rss_kib_max": 3548,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 14874.62,
+              "missing": 0,
+              "p50_ms": 1.031,
+              "p99_ms": 1.496,
+              "peak_rss_kib": 3524,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 5007 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 14874.62,
+          "rps_min": 14874.62,
+          "rps_max": 14874.62,
+          "p50_ms_median": 1.031,
+          "p99_ms_median": 1.496,
+          "peak_rss_kib_max": 3524,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 18574.79,
+              "missing": 0,
+              "p50_ms": 0.899,
+              "p99_ms": 1.048,
+              "peak_rss_kib": 3452,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 18574.79,
+          "rps_min": 18574.79,
+          "rps_max": 18574.79,
+          "p50_ms_median": 0.899,
+          "p99_ms_median": 1.048,
+          "peak_rss_kib_max": 3452,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24214.6,
+              "missing": 0,
+              "p50_ms": 0.669,
+              "p99_ms": 0.85,
+              "peak_rss_kib": 3464,
+              "threads": 2,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 24214.6,
+          "rps_min": 24214.6,
+          "rps_max": 24214.6,
+          "p50_ms_median": 0.669,
+          "p99_ms_median": 0.85,
+          "peak_rss_kib_max": 3464,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 2988,
+        "rss_after_kib": 3872,
+        "kib_per_connection": 0.9
+      }
+    },
+    "http-worker1-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.38720703125,
+          4.93701171875,
+          7.16552734375
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21537.33,
+              "missing": 0,
+              "p50_ms": 0.044,
+              "p99_ms": 0.07,
+              "peak_rss_kib": 3456,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21537.33,
+          "rps_min": 21537.33,
+          "rps_max": 21537.33,
+          "p50_ms_median": 0.044,
+          "p99_ms_median": 0.07,
+          "peak_rss_kib_max": 3456,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25350.21,
+              "missing": 0,
+              "p50_ms": 0.629,
+              "p99_ms": 1.223,
+              "peak_rss_kib": 3476,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 25350.21,
+          "rps_min": 25350.21,
+          "rps_max": 25350.21,
+          "p50_ms_median": 0.629,
+          "p99_ms_median": 1.223,
+          "peak_rss_kib_max": 3476,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 24297.91,
+              "missing": 0,
+              "p50_ms": 2.526,
+              "p99_ms": 8.257,
+              "peak_rss_kib": 3544,
+              "threads": 2,
+              "cpu_seconds": 0.15,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 24297.91,
+          "rps_min": 24297.91,
+          "rps_max": 24297.91,
+          "p50_ms_median": 2.526,
+          "p99_ms_median": 8.257,
+          "peak_rss_kib_max": 3544,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 15160.47,
+              "missing": 0,
+              "p50_ms": 1.021,
+              "p99_ms": 1.369,
+              "peak_rss_kib": 3520,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 5008 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 15160.47,
+          "rps_min": 15160.47,
+          "rps_max": 15160.47,
+          "p50_ms_median": 1.021,
+          "p99_ms_median": 1.369,
+          "peak_rss_kib_max": 3520,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 18285.55,
+              "missing": 0,
+              "p50_ms": 0.905,
+              "p99_ms": 1.386,
+              "peak_rss_kib": 3488,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 18285.55,
+          "rps_min": 18285.55,
+          "rps_max": 18285.55,
+          "p50_ms_median": 0.905,
+          "p99_ms_median": 1.386,
+          "peak_rss_kib_max": 3488,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23759.18,
+              "missing": 0,
+              "p50_ms": 0.676,
+              "p99_ms": 1.232,
+              "peak_rss_kib": 3596,
+              "threads": 2,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 23759.18,
+          "rps_min": 23759.18,
+          "rps_max": 23759.18,
+          "p50_ms_median": 0.676,
+          "p99_ms_median": 1.232,
+          "peak_rss_kib_max": 3596,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 2940,
+        "rss_after_kib": 3744,
+        "kib_per_connection": 0.82
+      }
+    },
+    "http-worker4-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          3.005859375,
+          5.30322265625,
+          7.35302734375
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23376.06,
+              "missing": 0,
+              "p50_ms": 0.04,
+              "p99_ms": 0.073,
+              "peak_rss_kib": 3780,
+              "threads": 5,
+              "cpu_seconds": 0.17,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 23376.06,
+          "rps_min": 23376.06,
+          "rps_max": 23376.06,
+          "p50_ms_median": 0.04,
+          "p99_ms_median": 0.073,
+          "peak_rss_kib_max": 3780,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 105305.28,
+              "missing": 0,
+              "p50_ms": 0.136,
+              "p99_ms": 0.286,
+              "peak_rss_kib": 3812,
+              "threads": 5,
+              "cpu_seconds": 0.13,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 105305.28,
+          "rps_min": 105305.28,
+          "rps_max": 105305.28,
+          "p50_ms_median": 0.136,
+          "p99_ms_median": 0.286,
+          "peak_rss_kib_max": 3812,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 92397.53,
+              "missing": 0,
+              "p50_ms": 0.561,
+              "p99_ms": 7.927,
+              "peak_rss_kib": 3776,
+              "threads": 5,
+              "cpu_seconds": 0.14,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 92397.53,
+          "rps_min": 92397.53,
+          "rps_max": 92397.53,
+          "p50_ms_median": 0.561,
+          "p99_ms_median": 7.927,
+          "peak_rss_kib_max": 3776,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 15310.28,
+              "missing": 0,
+              "p50_ms": 0.996,
+              "p99_ms": 1.483,
+              "peak_rss_kib": 3744,
+              "threads": 5,
+              "cpu_seconds": 0.21,
+              "report": "connections 5010 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 15310.28,
+          "rps_min": 15310.28,
+          "rps_max": 15310.28,
+          "p50_ms_median": 0.996,
+          "p99_ms_median": 1.483,
+          "peak_rss_kib_max": 3744,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 72903.3,
+              "missing": 0,
+              "p50_ms": 0.197,
+              "p99_ms": 0.477,
+              "peak_rss_kib": 3808,
+              "threads": 5,
+              "cpu_seconds": 0.18,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 72903.3,
+          "rps_min": 72903.3,
+          "rps_max": 72903.3,
+          "p50_ms_median": 0.197,
+          "p99_ms_median": 0.477,
+          "peak_rss_kib_max": 3808,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 91635.51,
+              "missing": 0,
+              "p50_ms": 0.16,
+              "p99_ms": 0.266,
+              "peak_rss_kib": 3860,
+              "threads": 5,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 91635.51,
+          "rps_min": 91635.51,
+          "rps_max": 91635.51,
+          "p50_ms_median": 0.16,
+          "p99_ms_median": 0.266,
+          "peak_rss_kib_max": 3860,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 3048,
+        "rss_after_kib": 4160,
+        "kib_per_connection": 1.13
+      }
+    },
+    "http-worker4-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.6396484375,
+          5.07177734375,
+          7.23291015625
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23678.5,
+              "missing": 0,
+              "p50_ms": 0.039,
+              "p99_ms": 0.07,
+              "peak_rss_kib": 3784,
+              "threads": 5,
+              "cpu_seconds": 0.17,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 23678.5,
+          "rps_min": 23678.5,
+          "rps_max": 23678.5,
+          "p50_ms_median": 0.039,
+          "p99_ms_median": 0.07,
+          "peak_rss_kib_max": 3784,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 96801.67,
+              "missing": 0,
+              "p50_ms": 0.149,
+              "p99_ms": 0.272,
+              "peak_rss_kib": 3812,
+              "threads": 5,
+              "cpu_seconds": 0.13,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 96801.67,
+          "rps_min": 96801.67,
+          "rps_max": 96801.67,
+          "p50_ms_median": 0.149,
+          "p99_ms_median": 0.272,
+          "peak_rss_kib_max": 3812,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 82128.78,
+              "missing": 0,
+              "p50_ms": 0.638,
+              "p99_ms": 11.16,
+              "peak_rss_kib": 3836,
+              "threads": 5,
+              "cpu_seconds": 0.13,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 82128.78,
+          "rps_min": 82128.78,
+          "rps_max": 82128.78,
+          "p50_ms_median": 0.638,
+          "p99_ms_median": 11.16,
+          "peak_rss_kib_max": 3836,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 15035.29,
+              "missing": 0,
+              "p50_ms": 1.016,
+              "p99_ms": 1.566,
+              "peak_rss_kib": 3740,
+              "threads": 5,
+              "cpu_seconds": 0.21,
+              "report": "connections 5008 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 15035.29,
+          "rps_min": 15035.29,
+          "rps_max": 15035.29,
+          "p50_ms_median": 1.016,
+          "p99_ms_median": 1.566,
+          "peak_rss_kib_max": 3740,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 72036.77,
+              "missing": 0,
+              "p50_ms": 0.204,
+              "p99_ms": 0.547,
+              "peak_rss_kib": 3740,
+              "threads": 5,
+              "cpu_seconds": 0.18,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 72036.77,
+          "rps_min": 72036.77,
+          "rps_max": 72036.77,
+          "p50_ms_median": 0.204,
+          "p99_ms_median": 0.547,
+          "peak_rss_kib_max": 3740,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 100916.32,
+              "missing": 0,
+              "p50_ms": 0.142,
+              "p99_ms": 0.303,
+              "peak_rss_kib": 3800,
+              "threads": 5,
+              "cpu_seconds": 0.14,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 100916.32,
+          "rps_min": 100916.32,
+          "rps_max": 100916.32,
+          "p50_ms_median": 0.142,
+          "p99_ms_median": 0.303,
+          "peak_rss_kib_max": 3800,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 3052,
+        "rss_after_kib": 4164,
+        "kib_per_connection": 1.13
+      }
+    },
+    "http-worker4-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/http_server_bench.plenty",
+        "source_sha256": "a92c1a38e5580ef2b9397321f525d2885ff242a426b6805003757b95687a056e",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": null,
+        "tls": false,
+        "openssl": null,
+        "load_before": [
+          2.35595703125,
+          4.88818359375,
+          7.1376953125
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23433.25,
+              "missing": 0,
+              "p50_ms": 0.04,
+              "p99_ms": 0.069,
+              "peak_rss_kib": 3792,
+              "threads": 5,
+              "cpu_seconds": 0.18,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 23433.25,
+          "rps_min": 23433.25,
+          "rps_max": 23433.25,
+          "p50_ms_median": 0.04,
+          "p99_ms_median": 0.069,
+          "peak_rss_kib_max": 3792,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 96547.46,
+              "missing": 0,
+              "p50_ms": 0.144,
+              "p99_ms": 0.288,
+              "peak_rss_kib": 3752,
+              "threads": 5,
+              "cpu_seconds": 0.14,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 96547.46,
+          "rps_min": 96547.46,
+          "rps_max": 96547.46,
+          "p50_ms_median": 0.144,
+          "p99_ms_median": 0.288,
+          "peak_rss_kib_max": 3752,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 75274.0,
+              "missing": 0,
+              "p50_ms": 0.737,
+              "p99_ms": 7.114,
+              "peak_rss_kib": 3888,
+              "threads": 5,
+              "cpu_seconds": 0.13,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 75274.0,
+          "rps_min": 75274.0,
+          "rps_max": 75274.0,
+          "p50_ms_median": 0.737,
+          "p99_ms_median": 7.114,
+          "peak_rss_kib_max": 3888,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 14985.27,
+              "missing": 0,
+              "p50_ms": 1.018,
+              "p99_ms": 1.51,
+              "peak_rss_kib": 3744,
+              "threads": 5,
+              "cpu_seconds": 0.21,
+              "report": "connections 5005 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 14985.27,
+          "rps_min": 14985.27,
+          "rps_max": 14985.27,
+          "p50_ms_median": 1.018,
+          "p99_ms_median": 1.51,
+          "peak_rss_kib_max": 3744,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 73291.22,
+              "missing": 0,
+              "p50_ms": 0.2,
+              "p99_ms": 0.551,
+              "peak_rss_kib": 3812,
+              "threads": 5,
+              "cpu_seconds": 0.18,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 73291.22,
+          "rps_min": 73291.22,
+          "rps_max": 73291.22,
+          "p50_ms_median": 0.2,
+          "p99_ms_median": 0.551,
+          "peak_rss_kib_max": 3812,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 98403.89,
+              "missing": 0,
+              "p50_ms": 0.15,
+              "p99_ms": 0.254,
+              "peak_rss_kib": 3784,
+              "threads": 5,
+              "cpu_seconds": 0.14,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 98403.89,
+          "rps_min": 98403.89,
+          "rps_max": 98403.89,
+          "p50_ms_median": 0.15,
+          "p99_ms_median": 0.254,
+          "peak_rss_kib_max": 3784,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 3056,
+        "rss_after_kib": 4168,
+        "kib_per_connection": 1.13
+      }
+    },
+    "https-actor-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_https_server_bench.plenty",
+        "source_sha256": "18cd2c44bfaef2d67968b411f2edac08737ac06a20cf0505f095387173b68b89",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.84521484375,
+          5.2314453125,
+          7.31884765625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 26604.8,
+              "missing": 0,
+              "p50_ms": 0.035,
+              "p99_ms": 0.056,
+              "peak_rss_kib": 5136,
+              "threads": 1,
+              "cpu_seconds": 0.12,
+              "report": "actors std.actor.Stats(started=7, stopped=6, failed=1, trapped=0, restarted=0, delivered=10040, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 26604.8,
+          "rps_min": 26604.8,
+          "rps_max": 26604.8,
+          "p50_ms_median": 0.035,
+          "p99_ms_median": 0.056,
+          "peak_rss_kib_max": 5136,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25775.85,
+              "missing": 0,
+              "p50_ms": 0.418,
+              "p99_ms": 1.436,
+              "peak_rss_kib": 5500,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84234, full=145805, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25775.85,
+          "rps_min": 25775.85,
+          "rps_max": 25775.85,
+          "p50_ms_median": 0.418,
+          "p99_ms_median": 1.436,
+          "peak_rss_kib_max": 5500,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 12168.5,
+              "missing": 0,
+              "p50_ms": 4.508,
+              "p99_ms": 21.209,
+              "peak_rss_kib": 7868,
+              "threads": 1,
+              "cpu_seconds": 0.37,
+              "report": "actors std.actor.Stats(started=66, stopped=1, failed=65, trapped=0, restarted=0, delivered=315928, full=608738, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 12168.5,
+          "rps_min": 12168.5,
+          "rps_max": 12168.5,
+          "p50_ms_median": 4.508,
+          "p99_ms_median": 21.209,
+          "peak_rss_kib_max": 7868,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4109.15,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.56,
+              "p99_ms": 3.527,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5124,
+              "threads": 1,
+              "cpu_seconds": 1.03,
+              "report": "actors std.actor.Stats(started=5002, stopped=5001, failed=1, trapped=0, restarted=0, delivered=35894, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 4109.15,
+          "rps_min": 4109.15,
+          "rps_max": 4109.15,
+          "p50_ms_median": 1.56,
+          "p99_ms_median": 3.527,
+          "peak_rss_kib_max": 5124,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11929.3,
+              "missing": 0,
+              "p50_ms": 1.073,
+              "p99_ms": 2.787,
+              "peak_rss_kib": 6012,
+              "threads": 1,
+              "cpu_seconds": 0.3,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84369, full=136076, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11929.3,
+          "rps_min": 11929.3,
+          "rps_max": 11929.3,
+          "p50_ms_median": 1.073,
+          "p99_ms_median": 2.787,
+          "peak_rss_kib_max": 6012,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 22995.59,
+              "missing": 0,
+              "p50_ms": 0.565,
+              "p99_ms": 1.581,
+              "peak_rss_kib": 5692,
+              "threads": 1,
+              "cpu_seconds": 0.18,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84248, full=145834, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 22995.59,
+          "rps_min": 22995.59,
+          "rps_max": 22995.59,
+          "p50_ms_median": 0.565,
+          "p99_ms_median": 1.581,
+          "peak_rss_kib_max": 5692,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 7332,
+        "rss_after_kib": 52456,
+        "kib_per_connection": 45.86
+      }
+    },
+    "https-actor-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_https_server_bench.plenty",
+        "source_sha256": "18cd2c44bfaef2d67968b411f2edac08737ac06a20cf0505f095387173b68b89",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.50830078125,
+          5.00390625,
+          7.19921875
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 26645.49,
+              "missing": 0,
+              "p50_ms": 0.035,
+              "p99_ms": 0.059,
+              "peak_rss_kib": 5196,
+              "threads": 1,
+              "cpu_seconds": 0.13,
+              "report": "actors std.actor.Stats(started=7, stopped=6, failed=1, trapped=0, restarted=0, delivered=10040, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 26645.49,
+          "rps_min": 26645.49,
+          "rps_max": 26645.49,
+          "p50_ms_median": 0.035,
+          "p99_ms_median": 0.059,
+          "peak_rss_kib_max": 5196,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25429.5,
+              "missing": 0,
+              "p50_ms": 0.392,
+              "p99_ms": 1.443,
+              "peak_rss_kib": 5640,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84197, full=145732, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25429.5,
+          "rps_min": 25429.5,
+          "rps_max": 25429.5,
+          "p50_ms_median": 0.392,
+          "p99_ms_median": 1.443,
+          "peak_rss_kib_max": 5640,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11811.48,
+              "missing": 0,
+              "p50_ms": 4.545,
+              "p99_ms": 20.703,
+              "peak_rss_kib": 7868,
+              "threads": 1,
+              "cpu_seconds": 0.39,
+              "report": "actors std.actor.Stats(started=66, stopped=1, failed=65, trapped=0, restarted=0, delivered=316055, full=608991, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11811.48,
+          "rps_min": 11811.48,
+          "rps_max": 11811.48,
+          "p50_ms_median": 4.545,
+          "p99_ms_median": 20.703,
+          "peak_rss_kib_max": 7868,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4108.65,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.503,
+              "p99_ms": 4.376,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 4992,
+              "threads": 1,
+              "cpu_seconds": 1.03,
+              "report": "actors std.actor.Stats(started=5002, stopped=5001, failed=1, trapped=0, restarted=0, delivered=36157, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 4108.65,
+          "rps_min": 4108.65,
+          "rps_max": 4108.65,
+          "p50_ms_median": 1.503,
+          "p99_ms_median": 4.376,
+          "peak_rss_kib_max": 4992,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11858.79,
+              "missing": 0,
+              "p50_ms": 1.134,
+              "p99_ms": 2.732,
+              "peak_rss_kib": 6004,
+              "threads": 1,
+              "cpu_seconds": 0.3,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84372, full=136082, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11858.79,
+          "rps_min": 11858.79,
+          "rps_max": 11858.79,
+          "p50_ms_median": 1.134,
+          "p99_ms_median": 2.732,
+          "peak_rss_kib_max": 6004,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23103.87,
+              "missing": 0,
+              "p50_ms": 0.494,
+              "p99_ms": 1.583,
+              "peak_rss_kib": 5508,
+              "threads": 1,
+              "cpu_seconds": 0.19,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84044, full=145432, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 23103.87,
+          "rps_min": 23103.87,
+          "rps_max": 23103.87,
+          "p50_ms_median": 0.494,
+          "p99_ms_median": 1.583,
+          "peak_rss_kib_max": 5508,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 7332,
+        "rss_after_kib": 52460,
+        "kib_per_connection": 45.86
+      }
+    },
+    "https-actor-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/actor_https_server_bench.plenty",
+        "source_sha256": "18cd2c44bfaef2d67968b411f2edac08737ac06a20cf0505f095387173b68b89",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.22705078125,
+          4.7763671875,
+          7.07666015625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "actor",
+      "settings": {
+        "CAPACITY": "256"
+      },
+      "workers": null,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25742.94,
+              "missing": 0,
+              "p50_ms": 0.035,
+              "p99_ms": 0.06,
+              "peak_rss_kib": 5136,
+              "threads": 1,
+              "cpu_seconds": 0.13,
+              "report": "actors std.actor.Stats(started=7, stopped=6, failed=1, trapped=0, restarted=0, delivered=10040, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25742.94,
+          "rps_min": 25742.94,
+          "rps_max": 25742.94,
+          "p50_ms_median": 0.035,
+          "p99_ms_median": 0.06,
+          "peak_rss_kib_max": 5136,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 25375.43,
+              "missing": 0,
+              "p50_ms": 0.383,
+              "p99_ms": 1.265,
+              "peak_rss_kib": 5692,
+              "threads": 1,
+              "cpu_seconds": 0.17,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84134, full=145607, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 25375.43,
+          "rps_min": 25375.43,
+          "rps_max": 25375.43,
+          "p50_ms_median": 0.383,
+          "p99_ms_median": 1.265,
+          "peak_rss_kib_max": 5692,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11975.96,
+              "missing": 0,
+              "p50_ms": 4.413,
+              "p99_ms": 21.393,
+              "peak_rss_kib": 7808,
+              "threads": 1,
+              "cpu_seconds": 0.37,
+              "report": "actors std.actor.Stats(started=66, stopped=1, failed=65, trapped=0, restarted=0, delivered=316044, full=608969, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11975.96,
+          "rps_min": 11975.96,
+          "rps_max": 11975.96,
+          "p50_ms_median": 4.413,
+          "p99_ms_median": 21.393,
+          "peak_rss_kib_max": 7808,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4108.64,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.555,
+              "p99_ms": 4.126,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5132,
+              "threads": 1,
+              "cpu_seconds": 1.03,
+              "report": "actors std.actor.Stats(started=5002, stopped=5001, failed=1, trapped=0, restarted=0, delivered=36164, full=0, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 4108.64,
+          "rps_min": 4108.64,
+          "rps_max": 4108.64,
+          "p50_ms_median": 1.555,
+          "p99_ms_median": 4.126,
+          "peak_rss_kib_max": 5132,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 11819.3,
+              "missing": 0,
+              "p50_ms": 1.108,
+              "p99_ms": 2.75,
+              "peak_rss_kib": 6204,
+              "threads": 1,
+              "cpu_seconds": 0.3,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84222, full=135782, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 11819.3,
+          "rps_min": 11819.3,
+          "rps_max": 11819.3,
+          "p50_ms_median": 1.108,
+          "p99_ms_median": 2.75,
+          "peak_rss_kib_max": 6204,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 23241.76,
+              "missing": 0,
+              "p50_ms": 0.567,
+              "p99_ms": 1.536,
+              "peak_rss_kib": 5636,
+              "threads": 1,
+              "cpu_seconds": 0.18,
+              "report": "actors std.actor.Stats(started=18, stopped=1, failed=17, trapped=0, restarted=0, delivered=84259, full=145856, gone=0, lost=0) requests 5001 rejected 0"
+            }
+          ],
+          "rps_median": 23241.76,
+          "rps_min": 23241.76,
+          "rps_max": 23241.76,
+          "p50_ms_median": 0.567,
+          "p99_ms_median": 1.536,
+          "peak_rss_kib_max": 5636,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "CAPACITY": "1000",
+          "IDLE": "1000"
+        },
+        "rss_before_kib": 7520,
+        "rss_after_kib": 52648,
+        "kib_per_connection": 45.86
+      }
+    },
+    "https-worker1-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          3.005859375,
+          5.30322265625,
+          7.35302734375
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 18788.16,
+              "missing": 0,
+              "p50_ms": 0.05,
+              "p99_ms": 0.08,
+              "peak_rss_kib": 4968,
+              "threads": 2,
+              "cpu_seconds": 0.2,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 18788.16,
+          "rps_min": 18788.16,
+          "rps_max": 18788.16,
+          "p50_ms_median": 0.05,
+          "p99_ms_median": 0.08,
+          "peak_rss_kib_max": 4968,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 22567.66,
+              "missing": 0,
+              "p50_ms": 0.696,
+              "p99_ms": 1.266,
+              "peak_rss_kib": 5580,
+              "threads": 2,
+              "cpu_seconds": 0.17,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 22567.66,
+          "rps_min": 22567.66,
+          "rps_max": 22567.66,
+          "p50_ms_median": 0.696,
+          "p99_ms_median": 1.266,
+          "peak_rss_kib_max": 5580,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20662.69,
+              "missing": 0,
+              "p50_ms": 2.802,
+              "p99_ms": 21.478,
+              "peak_rss_kib": 7532,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20662.69,
+          "rps_min": 20662.69,
+          "rps_max": 20662.69,
+          "p50_ms_median": 2.802,
+          "p99_ms_median": 21.478,
+          "peak_rss_kib_max": 7532,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 3796.62,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.684,
+              "p99_ms": 5.541,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5244,
+              "threads": 2,
+              "cpu_seconds": 0.93,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 3796.62,
+          "rps_min": 3796.62,
+          "rps_max": 3796.62,
+          "p50_ms_median": 1.684,
+          "p99_ms_median": 5.541,
+          "peak_rss_kib_max": 5244,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 14616.76,
+              "missing": 0,
+              "p50_ms": 1.097,
+              "p99_ms": 1.73,
+              "peak_rss_kib": 5528,
+              "threads": 2,
+              "cpu_seconds": 0.26,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 14616.76,
+          "rps_min": 14616.76,
+          "rps_max": 14616.76,
+          "p50_ms_median": 1.097,
+          "p99_ms_median": 1.73,
+          "peak_rss_kib_max": 5528,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20939.43,
+              "missing": 0,
+              "p50_ms": 0.759,
+              "p99_ms": 1.331,
+              "peak_rss_kib": 5532,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20939.43,
+          "rps_min": 20939.43,
+          "rps_max": 20939.43,
+          "p50_ms_median": 0.759,
+          "p99_ms_median": 1.331,
+          "peak_rss_kib_max": 5532,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4132,
+        "rss_after_kib": 44540,
+        "kib_per_connection": 41.07
+      }
+    },
+    "https-worker1-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.6396484375,
+          5.07177734375,
+          7.23291015625
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 19195.18,
+              "missing": 0,
+              "p50_ms": 0.049,
+              "p99_ms": 0.079,
+              "peak_rss_kib": 4956,
+              "threads": 2,
+              "cpu_seconds": 0.21,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 19195.18,
+          "rps_min": 19195.18,
+          "rps_max": 19195.18,
+          "p50_ms_median": 0.049,
+          "p99_ms_median": 0.079,
+          "peak_rss_kib_max": 4956,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 22501.14,
+              "missing": 0,
+              "p50_ms": 0.705,
+              "p99_ms": 0.899,
+              "peak_rss_kib": 5644,
+              "threads": 2,
+              "cpu_seconds": 0.17,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 22501.14,
+          "rps_min": 22501.14,
+          "rps_max": 22501.14,
+          "p50_ms_median": 0.705,
+          "p99_ms_median": 0.899,
+          "peak_rss_kib_max": 5644,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20543.41,
+              "missing": 0,
+              "p50_ms": 2.79,
+              "p99_ms": 24.189,
+              "peak_rss_kib": 7604,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20543.41,
+          "rps_min": 20543.41,
+          "rps_max": 20543.41,
+          "p50_ms_median": 2.79,
+          "p99_ms_median": 24.189,
+          "peak_rss_kib_max": 7604,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 3796.34,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.749,
+              "p99_ms": 4.396,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5188,
+              "threads": 2,
+              "cpu_seconds": 0.93,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 3796.34,
+          "rps_min": 3796.34,
+          "rps_max": 3796.34,
+          "p50_ms_median": 1.749,
+          "p99_ms_median": 4.396,
+          "peak_rss_kib_max": 5188,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 14945.4,
+              "missing": 0,
+              "p50_ms": 1.092,
+              "p99_ms": 1.226,
+              "peak_rss_kib": 5532,
+              "threads": 2,
+              "cpu_seconds": 0.26,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 14945.4,
+          "rps_min": 14945.4,
+          "rps_max": 14945.4,
+          "p50_ms_median": 1.092,
+          "p99_ms_median": 1.226,
+          "peak_rss_kib_max": 5532,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20763.95,
+              "missing": 0,
+              "p50_ms": 0.772,
+              "p99_ms": 0.986,
+              "peak_rss_kib": 5532,
+              "threads": 2,
+              "cpu_seconds": 0.19,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20763.95,
+          "rps_min": 20763.95,
+          "rps_max": 20763.95,
+          "p50_ms_median": 0.772,
+          "p99_ms_median": 0.986,
+          "peak_rss_kib_max": 5532,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4200,
+        "rss_after_kib": 44608,
+        "kib_per_connection": 41.07
+      }
+    },
+    "https-worker1-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.2470703125,
+          4.8232421875,
+          7.1044921875
+        ],
+        "server_cpus": "0",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "1",
+        "IDLE": "256"
+      },
+      "workers": 1,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 19710.49,
+              "missing": 0,
+              "p50_ms": 0.048,
+              "p99_ms": 0.076,
+              "peak_rss_kib": 4888,
+              "threads": 2,
+              "cpu_seconds": 0.2,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 19710.49,
+          "rps_min": 19710.49,
+          "rps_max": 19710.49,
+          "p50_ms_median": 0.048,
+          "p99_ms_median": 0.076,
+          "peak_rss_kib_max": 4888,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 22715.81,
+              "missing": 0,
+              "p50_ms": 0.698,
+              "p99_ms": 0.929,
+              "peak_rss_kib": 5512,
+              "threads": 2,
+              "cpu_seconds": 0.17,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 22715.81,
+          "rps_min": 22715.81,
+          "rps_max": 22715.81,
+          "p50_ms_median": 0.698,
+          "p99_ms_median": 0.929,
+          "peak_rss_kib_max": 5512,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20826.48,
+              "missing": 0,
+              "p50_ms": 2.769,
+              "p99_ms": 23.703,
+              "peak_rss_kib": 7536,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20826.48,
+          "rps_min": 20826.48,
+          "rps_max": 20826.48,
+          "p50_ms_median": 2.769,
+          "p99_ms_median": 23.703,
+          "peak_rss_kib_max": 7536,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 3795.69,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 2.642,
+              "p99_ms": 5.553,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5200,
+              "threads": 2,
+              "cpu_seconds": 0.94,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 3795.69,
+          "rps_min": 3795.69,
+          "rps_max": 3795.69,
+          "p50_ms_median": 2.642,
+          "p99_ms_median": 5.553,
+          "peak_rss_kib_max": 5200,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 14902.02,
+              "missing": 0,
+              "p50_ms": 1.097,
+              "p99_ms": 1.245,
+              "peak_rss_kib": 5604,
+              "threads": 2,
+              "cpu_seconds": 0.26,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 14902.02,
+          "rps_min": 14902.02,
+          "rps_max": 14902.02,
+          "p50_ms_median": 1.097,
+          "p99_ms_median": 1.245,
+          "peak_rss_kib_max": 5604,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21163.93,
+              "missing": 0,
+              "p50_ms": 0.75,
+              "p99_ms": 0.933,
+              "peak_rss_kib": 5588,
+              "threads": 2,
+              "cpu_seconds": 0.18,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21163.93,
+          "rps_min": 21163.93,
+          "rps_max": 21163.93,
+          "p50_ms_median": 0.75,
+          "p99_ms_median": 0.933,
+          "peak_rss_kib_max": 5588,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "1",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4180,
+        "rss_after_kib": 44588,
+        "kib_per_connection": 41.07
+      }
+    },
+    "https-worker4-round1": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.93798828125,
+          5.2109375,
+          7.30078125
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21323.96,
+              "missing": 0,
+              "p50_ms": 0.043,
+              "p99_ms": 0.078,
+              "peak_rss_kib": 5324,
+              "threads": 5,
+              "cpu_seconds": 0.19,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21323.96,
+          "rps_min": 21323.96,
+          "rps_max": 21323.96,
+          "p50_ms_median": 0.043,
+          "p99_ms_median": 0.078,
+          "peak_rss_kib_max": 5324,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 87345.4,
+              "missing": 0,
+              "p50_ms": 0.148,
+              "p99_ms": 0.42,
+              "peak_rss_kib": 5924,
+              "threads": 5,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 87345.4,
+          "rps_min": 87345.4,
+          "rps_max": 87345.4,
+          "p50_ms_median": 0.148,
+          "p99_ms_median": 0.42,
+          "peak_rss_kib_max": 5924,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 65670.23,
+              "missing": 0,
+              "p50_ms": 0.612,
+              "p99_ms": 22.764,
+              "peak_rss_kib": 7876,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 65670.23,
+          "rps_min": 65670.23,
+          "rps_max": 65670.23,
+          "p50_ms_median": 0.612,
+          "p99_ms_median": 22.764,
+          "peak_rss_kib_max": 7876,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4285.12,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.292,
+              "p99_ms": 5.819,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5848,
+              "threads": 5,
+              "cpu_seconds": 1.09,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 4285.12,
+          "rps_min": 4285.12,
+          "rps_max": 4285.12,
+          "p50_ms_median": 1.292,
+          "p99_ms_median": 5.819,
+          "peak_rss_kib_max": 5848,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 52522.66,
+              "missing": 0,
+              "p50_ms": 0.273,
+              "p99_ms": 0.594,
+              "peak_rss_kib": 5988,
+              "threads": 5,
+              "cpu_seconds": 0.24,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 52522.66,
+          "rps_min": 52522.66,
+          "rps_max": 52522.66,
+          "p50_ms_median": 0.273,
+          "p99_ms_median": 0.594,
+          "peak_rss_kib_max": 5988,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 81723.38,
+              "missing": 0,
+              "p50_ms": 0.161,
+              "p99_ms": 0.352,
+              "peak_rss_kib": 5980,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 81723.38,
+          "rps_min": 81723.38,
+          "rps_max": 81723.38,
+          "p50_ms_median": 0.161,
+          "p99_ms_median": 0.352,
+          "peak_rss_kib_max": 5980,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4252,
+        "rss_after_kib": 44944,
+        "kib_per_connection": 41.35
+      }
+    },
+    "https-worker4-round2": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.38720703125,
+          4.93701171875,
+          7.16552734375
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 20611.93,
+              "missing": 0,
+              "p50_ms": 0.045,
+              "p99_ms": 0.08,
+              "peak_rss_kib": 5452,
+              "threads": 5,
+              "cpu_seconds": 0.2,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 20611.93,
+          "rps_min": 20611.93,
+          "rps_max": 20611.93,
+          "p50_ms_median": 0.045,
+          "p99_ms_median": 0.08,
+          "peak_rss_kib_max": 5452,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 79376.42,
+              "missing": 0,
+              "p50_ms": 0.165,
+              "p99_ms": 0.472,
+              "peak_rss_kib": 5872,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 79376.42,
+          "rps_min": 79376.42,
+          "rps_max": 79376.42,
+          "p50_ms_median": 0.165,
+          "p99_ms_median": 0.472,
+          "peak_rss_kib_max": 5872,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 66391.36,
+              "missing": 0,
+              "p50_ms": 0.614,
+              "p99_ms": 18.361,
+              "peak_rss_kib": 7956,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 66391.36,
+          "rps_min": 66391.36,
+          "rps_max": 66391.36,
+          "p50_ms_median": 0.614,
+          "p99_ms_median": 18.361,
+          "peak_rss_kib_max": 7956,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4284.83,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.405,
+              "p99_ms": 4.611,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5916,
+              "threads": 5,
+              "cpu_seconds": 1.07,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 4284.83,
+          "rps_min": 4284.83,
+          "rps_max": 4284.83,
+          "p50_ms_median": 1.405,
+          "p99_ms_median": 4.611,
+          "peak_rss_kib_max": 5916,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 53668.8,
+              "missing": 0,
+              "p50_ms": 0.268,
+              "p99_ms": 0.534,
+              "peak_rss_kib": 6060,
+              "threads": 5,
+              "cpu_seconds": 0.23,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 53668.8,
+          "rps_min": 53668.8,
+          "rps_max": 53668.8,
+          "p50_ms_median": 0.268,
+          "p99_ms_median": 0.534,
+          "peak_rss_kib_max": 6060,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 76084.97,
+              "missing": 0,
+              "p50_ms": 0.173,
+              "p99_ms": 0.341,
+              "peak_rss_kib": 5992,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 76084.97,
+          "rps_min": 76084.97,
+          "rps_max": 76084.97,
+          "p50_ms_median": 0.173,
+          "p99_ms_median": 0.341,
+          "peak_rss_kib_max": 5992,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4324,
+        "rss_after_kib": 45016,
+        "kib_per_connection": 41.35
+      }
+    },
+    "https-worker4-round3": {
+      "machine": {
+        "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+        "compiler_target": "x86_64-unknown-linux-gnu (CPU baseline: x86-64/SSE2)",
+        "compiler_version": "plenty 0.7.1 (x86_64-unknown-linux-gnu)",
+        "revision": "12c021c971886344b6acbf1728d5dc5731b499df",
+        "dirty": false,
+        "source": "/tmp/plenty-actor-http-review-20261031/examples/https_server_bench.plenty",
+        "source_sha256": "2f266f7b7bd8362c3eea5c470509771fe083a23b45e5ab88cb2bdd9df244274f",
+        "kernel": "7.2.11-200.fc44.x86_64",
+        "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+        "ab": "This is ApacheBench, Version 2.3 <$Revision: 1934973 $>",
+        "curl": "curl 8.18.0 (x86_64-redhat-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.9 zlib/1.3.1.zlib-ng brotli/1.2.1 libidn2/2.3.8 libpsl/0.21.5 libssh/0.12.2/openssl/zlib nghttp2/1.68.0 ngtcp2/1.22.1 nghttp3/1.18.0 mit-krb5/1.22.2 OpenLDAP/2.6.15",
+        "tls": true,
+        "openssl": "OpenSSL 3.5.9 29 Sep 2026 (Library: OpenSSL 3.5.9 29 Sep 2026)",
+        "load_before": [
+          2.04833984375,
+          4.69677734375,
+          7.03857421875
+        ],
+        "server_cpus": "0,2,4,6",
+        "client_cpus": "8,10,12,14"
+      },
+      "implementation": "worker",
+      "settings": {
+        "WORKERS": "4",
+        "IDLE": "256"
+      },
+      "workers": 4,
+      "workloads": [
+        {
+          "name": "keep-alive, 1 client",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 1,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 21367.98,
+              "missing": 0,
+              "p50_ms": 0.043,
+              "p99_ms": 0.074,
+              "peak_rss_kib": 5304,
+              "threads": 5,
+              "cpu_seconds": 0.19,
+              "report": "connections 6 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 21367.98,
+          "rps_min": 21367.98,
+          "rps_max": 21367.98,
+          "p50_ms_median": 0.043,
+          "p99_ms_median": 0.074,
+          "peak_rss_kib_max": 5304,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 16 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 79312.2,
+              "missing": 0,
+              "p50_ms": 0.177,
+              "p99_ms": 0.319,
+              "peak_rss_kib": 5916,
+              "threads": 5,
+              "cpu_seconds": 0.15,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 79312.2,
+          "rps_min": 79312.2,
+          "rps_max": 79312.2,
+          "p50_ms_median": 0.177,
+          "p99_ms_median": 0.319,
+          "peak_rss_kib_max": 5916,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive, 64 clients",
+          "path": "/",
+          "keep_alive": true,
+          "concurrency": 64,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 62810.91,
+              "missing": 0,
+              "p50_ms": 0.688,
+              "p99_ms": 20.696,
+              "peak_rss_kib": 7948,
+              "threads": 5,
+              "cpu_seconds": 0.16,
+              "report": "connections 65 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 62810.91,
+          "rps_min": 62810.91,
+          "rps_max": 62810.91,
+          "p50_ms_median": 0.688,
+          "p99_ms_median": 20.696,
+          "peak_rss_kib_max": 7948,
+          "failed": 0
+        },
+        {
+          "name": "new connection per request, 16 clients",
+          "path": "/",
+          "keep_alive": false,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "rps": 4477.06,
+              "failed": 0,
+              "completed": 5000,
+              "missing": 0,
+              "non_2xx": 0,
+              "p50_ms": 1.308,
+              "p99_ms": 4.282,
+              "client_exit_codes": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "peak_rss_kib": 5892,
+              "threads": 5,
+              "cpu_seconds": 1.06,
+              "report": "connections 5001 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 4477.06,
+          "rps_min": 4477.06,
+          "rps_max": 4477.06,
+          "p50_ms_median": 1.308,
+          "p99_ms_median": 4.282,
+          "peak_rss_kib_max": 5892,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 16 KiB response, 16 clients",
+          "path": "/16k",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 0,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 53654.4,
+              "missing": 0,
+              "p50_ms": 0.261,
+              "p99_ms": 0.547,
+              "peak_rss_kib": 6000,
+              "threads": 5,
+              "cpu_seconds": 0.24,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 53654.4,
+          "rps_min": 53654.4,
+          "rps_max": 53654.4,
+          "p50_ms_median": 0.261,
+          "p99_ms_median": 0.547,
+          "peak_rss_kib_max": 6000,
+          "failed": 0
+        },
+        {
+          "name": "keep-alive 1 KiB POST echo, 16 clients",
+          "path": "/echo",
+          "keep_alive": true,
+          "concurrency": 16,
+          "requests": 5000,
+          "body": 1024,
+          "runs": [
+            {
+              "non_2xx": 0,
+              "completed": 5000,
+              "failed": 0,
+              "rps": 83691.81,
+              "missing": 0,
+              "p50_ms": 0.156,
+              "p99_ms": 0.491,
+              "peak_rss_kib": 6004,
+              "threads": 5,
+              "cpu_seconds": 0.17,
+              "report": "connections 17 requests 5001 rejected 0 timeouts 0"
+            }
+          ],
+          "rps_median": 83691.81,
+          "rps_min": 83691.81,
+          "rps_max": 83691.81,
+          "p50_ms_median": 0.156,
+          "p99_ms_median": 0.491,
+          "peak_rss_kib_max": 6004,
+          "failed": 0
+        }
+      ],
+      "idle": {
+        "connections": 984,
+        "settings": {
+          "WORKERS": "4",
+          "IDLE": "1000",
+          "CAPACITY": "1000"
+        },
+        "rss_before_kib": 4320,
+        "rss_after_kib": 45008,
+        "kib_per_connection": 41.35
+      }
+    }
+  },
+  "fault": {
+    "metadata": {
+      "source_revision": "12c021c9",
+      "compiler": "/tmp/plenty-actor-http-review-20261031/target/plenty-final",
+      "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+      "fixture_sha256": {
+        "worker.plenty": "b2e988b006cdc96a85b8a001a466720685b9fc530865032eb98915a0f33af06b",
+        "actor.plenty": "6cb516d83f78ef1deac8f8564255a6df18b31f668579728cb23ba8ce5c90fa76",
+        "compare.py": "8b8329a52f9c7d1bec42c3f478be95be6de687aab30e6361a32651d33dc15415"
+      },
+      "compiler_flags": [
+        "--release",
+        "--compile"
+      ],
+      "note": "Unmodified existing comparison harness/fixtures copied; previous evidence preserved.",
+      "compile_environment": {
+        "PLENTY_CACHE": "off"
+      },
+      "final_source_revision": "12c021c9"
+    },
+    "results": {
+      "kernel": "7.2.11-200.fc44.x86_64",
+      "server_cpu": 6,
+      "client_cpu": 7,
+      "slow_heads_per_batch": 32,
+      "healthy_concurrency": 4,
+      "trials": [
+        {
+          "implementation": "worker",
+          "workers": 1,
+          "binary_sha256": "80cf868bac4a39d9b52af96f5ac731ddd7c7c05ba6e44c9fc74025438c2bf138",
+          "batches": [
+            {
+              "batch": 0,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 0,
+                "failed": 1000,
+                "failures": {
+                  "ConnectionResetError:104": 3,
+                  "ConnectionRefusedError:111": 997
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 1,
+                  "ConnectionRefusedError:111": 99
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": false,
+              "after_faults": null,
+              "recovery": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "ConnectionRefusedError:111": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "elapsed_seconds": 0.6356893139891326
+            }
+          ],
+          "baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.4438089672476053,
+            "success_p99_ms": 3.3115179976448417
+          },
+          "slow_heads_baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.4412139533087611,
+            "success_p99_ms": 2.000757958739996
+          },
+          "before_faults": {
+            "rss_kib": 3300,
+            "fd_count": 9
+          },
+          "survived": false,
+          "exit_code": 1,
+          "report": ""
+        },
+        {
+          "implementation": "worker",
+          "workers": 4,
+          "binary_sha256": "80cf868bac4a39d9b52af96f5ac731ddd7c7c05ba6e44c9fc74025438c2bf138",
+          "batches": [
+            {
+              "batch": 0,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 0,
+                "failed": 1000,
+                "failures": {
+                  "ConnectionResetError:104": 4,
+                  "ConnectionRefusedError:111": 996
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 1,
+                  "ConnectionRefusedError:111": 99
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": false,
+              "after_faults": null,
+              "recovery": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "ConnectionRefusedError:111": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "elapsed_seconds": 0.6369269259739667
+            }
+          ],
+          "baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.4429980181157589,
+            "success_p99_ms": 1.109422999434173
+          },
+          "slow_heads_baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.45812607277184725,
+            "success_p99_ms": 1.0421969927847385
+          },
+          "before_faults": {
+            "rss_kib": 3592,
+            "fd_count": 12
+          },
+          "survived": false,
+          "exit_code": 1,
+          "report": ""
+        },
+        {
+          "implementation": "actor",
+          "workers": 1,
+          "binary_sha256": "375b1b561922cd0e56d70cd6ee8aacb457dce46df70f768a4f9ebd548c7ac04f",
+          "batches": [
+            {
+              "batch": 0,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 1000,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5203729961067438,
+                "success_p99_ms": 1.2792999623343349
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": true,
+              "after_faults": {
+                "rss_kib": 4136,
+                "fd_count": 6
+              },
+              "recovery": {
+                "attempted": 100,
+                "successful": 100,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.4991720197722316,
+                "success_p99_ms": 1.107739983126521
+              },
+              "elapsed_seconds": 0.6654721699887887
+            },
+            {
+              "batch": 1,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 1000,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5205030320212245,
+                "success_p99_ms": 1.1950430925935507
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": true,
+              "after_faults": {
+                "rss_kib": 4136,
+                "fd_count": 6
+              },
+              "recovery": {
+                "attempted": 100,
+                "successful": 100,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.48933399375528097,
+                "success_p99_ms": 1.1054360074922442
+              },
+              "elapsed_seconds": 0.6641507010208443
+            },
+            {
+              "batch": 2,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 1000,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5184490000829101,
+                "success_p99_ms": 1.2166829546913505
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": true,
+              "after_faults": {
+                "rss_kib": 4136,
+                "fd_count": 6
+              },
+              "recovery": {
+                "attempted": 100,
+                "successful": 100,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5014979979023337,
+                "success_p99_ms": 1.5593130374327302
+              },
+              "elapsed_seconds": 0.6692198830423877
+            },
+            {
+              "batch": 3,
+              "healthy": {
+                "attempted": 1000,
+                "successful": 1000,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5219150334596634,
+                "success_p99_ms": 1.2030580546706915
+              },
+              "trap_requests": {
+                "attempted": 100,
+                "successful": 0,
+                "failed": 100,
+                "failures": {
+                  "empty response": 100
+                },
+                "success_p50_ms": null,
+                "success_p99_ms": null
+              },
+              "process_alive": true,
+              "after_faults": {
+                "rss_kib": 4136,
+                "fd_count": 6
+              },
+              "recovery": {
+                "attempted": 100,
+                "successful": 100,
+                "failed": 0,
+                "failures": {},
+                "success_p50_ms": 0.5124870222061872,
+                "success_p99_ms": 1.446523005142808
+              },
+              "elapsed_seconds": 0.6672557919519022
+            }
+          ],
+          "baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.5184490000829101,
+            "success_p99_ms": 1.1422039242461324
+          },
+          "slow_heads_baseline": {
+            "attempted": 100,
+            "successful": 100,
+            "failed": 0,
+            "failures": {},
+            "success_p50_ms": 0.5133389495313168,
+            "success_p99_ms": 1.0287129553034902
+          },
+          "before_faults": {
+            "rss_kib": 4136,
+            "fd_count": 6
+          },
+          "survived": true,
+          "stop_response_ok": true,
+          "exit_code": 0,
+          "report": "actors std.actor.Stats(started=5162, stopped=4602, failed=160, trapped=400, restarted=0, delivered=30733, full=2175, gone=0, lost=0) requests 4761 rejected 0\n"
+        }
+      ]
+    },
+    "reproduction_sources": {
+      "compare.py": "#!/usr/bin/env python3\n\"\"\"Reproduce a mixed healthy/trapping/stalled-head HTTP workload.\n\nCompile the adjacent actor.plenty and worker.plenty with the same compiler,\nusing --release --compile SOURCE -o EXECUTABLE, then run this script.\nFault-run latencies are descriptive, not a throughput benchmark.\n\"\"\"\nimport concurrent.futures\nimport collections\nimport hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport platform\nimport socket\nimport subprocess\nimport time\n\nROOT = Path(__file__).resolve().parent\nEXPECTED = b\"hello, world\\n\"\n\n\ndef snapshot(process):\n    try:\n        status = dict(line.split(\":\", 1) for line in Path(f\"/proc/{process.pid}/status\").read_text().splitlines())\n        return {\"rss_kib\": int(status[\"VmRSS\"].split()[0]),\n                \"fd_count\": len(list(Path(f\"/proc/{process.pid}/fd\").iterdir()))}\n    except (OSError, KeyError):\n        return None\n\n\ndef request(port, path=\"/\"):\n    start = time.monotonic()\n    try:\n        with socket.create_connection((\"127.0.0.1\", port), timeout=2) as stream:\n            stream.settimeout(2)\n            stream.sendall(f\"GET {path} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\".encode())\n            response = bytearray()\n            while True:\n                data = stream.recv(65536)\n                if not data:\n                    break\n                response.extend(data)\n        head, _, body = bytes(response).partition(b\"\\r\\n\\r\\n\")\n        ok = head.startswith(b\"HTTP/1.1 200 \") and (path != \"/\" or body == EXPECTED)\n        failure = None if ok else (head.split(b\"\\r\\n\", 1)[0].decode(errors=\"replace\") or \"empty response\")\n        return ok, (time.monotonic() - start) * 1000, failure\n    except OSError as error:\n        return False, (time.monotonic() - start) * 1000, f\"{type(error).__name__}:{error.errno}\"\n\n\ndef summarize(results):\n    successful = sorted(latency for ok, latency, _ in results if ok)\n    return {\"attempted\": len(results), \"successful\": len(successful),\n            \"failed\": len(results) - len(successful),\n            \"failures\": dict(collections.Counter(reason for ok, _, reason in results if not ok)),\n            \"success_p50_ms\": successful[len(successful) // 2] if successful else None,\n            \"success_p99_ms\": successful[min(len(successful) - 1, int(len(successful) * .99))] if successful else None}\n\n\ndef good_batch(port, count, concurrency=4):\n    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:\n        return summarize(list(pool.map(lambda _: request(port), range(count))))\n\n\ndef slow_heads(port, count):\n    streams = []\n    for _ in range(count):\n        stream = socket.create_connection((\"127.0.0.1\", port), timeout=2)\n        stream.sendall(b\"GET / HTTP/1.1\\r\\nHost:\")\n        streams.append(stream)\n    return streams\n\n\ndef trap_batch(port):\n    # Stretch the injections across the healthy traffic instead of sending\n    # only a burst before or after it.\n    results = []\n    for _ in range(100):\n        results.append(request(port, \"/trap\"))\n        time.sleep(.005)\n    return summarize(results)\n\n\ndef trial(implementation, workers):\n    name = f\"{implementation}-{workers}\"\n    binary = ROOT / implementation\n    stderr = (ROOT / f\"{name}.stderr\").open(\"w\")\n    process = subprocess.Popen([\"taskset\", \"-c\", \"6\", str(binary)],\n                               env={**os.environ, \"WORKERS\": str(workers), \"CAPACITY\": \"256\"},\n                               stdout=subprocess.PIPE, stderr=stderr, text=True)\n    result = {\"implementation\": implementation, \"workers\": workers, \"binary_sha256\": hashlib.sha256(binary.read_bytes()).hexdigest(), \"batches\": []}\n    try:\n        first = process.stdout.readline().strip()\n        assert first.startswith(\"port \"), first\n        port = int(first.split()[1])\n        result[\"baseline\"] = good_batch(port, 100)\n        streams = slow_heads(port, 32)\n        try:\n            result[\"slow_heads_baseline\"] = good_batch(port, 100)\n        finally:\n            for stream in streams:\n                stream.close()\n        time.sleep(.1)\n        result[\"before_faults\"] = snapshot(process)\n        for index in range(4):\n            if process.poll() is not None:\n                break\n            started = time.monotonic()\n            streams = slow_heads(port, 32)\n            try:\n                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:\n                    healthy = pool.submit(good_batch, port, 1000)\n                    traps = pool.submit(trap_batch, port)\n                    batch = {\"batch\": index, \"healthy\": healthy.result(), \"trap_requests\": traps.result()}\n            finally:\n                for stream in streams:\n                    stream.close()\n            time.sleep(.1)\n            batch[\"process_alive\"] = process.poll() is None\n            batch[\"after_faults\"] = snapshot(process)\n            batch[\"recovery\"] = good_batch(port, 100)\n            batch[\"elapsed_seconds\"] = time.monotonic() - started\n            result[\"batches\"].append(batch)\n            print(json.dumps({\"trial\": name, \"progress\": batch}), flush=True)\n        result[\"survived\"] = process.poll() is None\n        if result[\"survived\"]:\n            result[\"stop_response_ok\"] = request(port, \"/stop\")[0]\n        try:\n            result[\"exit_code\"] = process.wait(timeout=10)\n        except subprocess.TimeoutExpired:\n            result[\"shutdown_timeout\"] = True\n            process.kill()\n            result[\"exit_code\"] = process.wait()\n        result[\"report\"] = process.stdout.read()\n    finally:\n        if process.poll() is None:\n            process.kill()\n            process.wait()\n        stderr.close()\n    (ROOT / f\"{name}.json\").write_text(json.dumps(result, indent=2) + \"\\n\")\n    print(json.dumps(result), flush=True)\n    return result\n\n\nif __name__ == \"__main__\":\n    os.sched_setaffinity(0, {7})\n    result = {\"kernel\": platform.release(), \"server_cpu\": 6, \"client_cpu\": 7,\n              \"slow_heads_per_batch\": 32, \"healthy_concurrency\": 4,\n              \"trials\": [trial(\"worker\", 1), trial(\"worker\", 4), trial(\"actor\", 1)]}\n    (ROOT / \"results.json\").write_text(json.dumps(result, indent=2) + \"\\n\")\n",
+      "actor.plenty": "# Shared benchmark workload for the actor HTTP server.\nimport std.actor.http.server\nimport std.actor\nimport std.ready\nimport std.bytes\nimport std.env\nimport std.http\nimport std.net\nfrom std.actor.http.server import Request, Response\nfrom std.bytes import Bytes\nfrom std.sync import CancellationToken\n\ntype Error = AllocError | std.bytes.BytesError | std.actor.http.server.ServerError\n\npub class Bench:\n    pub small: Bytes\n    pub large: Bytes\n\n    pub def handle(self: &mut Bench, request: Request, response: &mut Response) -> Result[(), Error]:\n        match request.target.path:\n            case \"/\":\n                response.send(200, \"text/plain\", &self.small)?\n            case \"/16k\":\n                response.send(200, \"application/octet-stream\", &self.large)?\n            case \"/echo\":\n                response.send(200, \"application/octet-stream\", &request.body)?\n            case \"/stop\":\n                response.shutdown_server()\n                response.send_text(200, \"stopping\")?\n            case \"/trap\":\n                empty: Option[i64] = Nothing\n                empty.unwrap()\n            case _:\n                response.send_text(404, \"Not Found\")?\n        Ok(())\n\ndef make() -> Result[Bench, Error]:\n    mut large = std.bytes.with_capacity(16384)?\n    large.resize(16384, 120u8)?\n    Ok(Bench(std.bytes.from_text(\"hello, world\\n\")?, large))\n\ndef setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:\n    match std.env.get(name)?:\n        case Some(text):\n            Ok(i64.parse(&text)?)\n        case Nothing:\n            Ok(fallback)\n\ndef main() -> Result[(), AllocError | IoError | ParseError | std.net.NetError | std.ready.WaitError | std.actor.StartError | RangeError | std.actor.http.server.ServerError]:\n    mut config = std.actor.http.server.config()\n    config.capacity = setting(\"CAPACITY\", 256)?\n    listener = std.net.listen(&std.net.loopback_v4(0u16), 1024)?\n    print(\"port\", listener.local_address()?.port)?\n    report = std.actor.http.server.serve(listener, make, &config, &CancellationToken()?)?\n    print(\"actors\", report.actors, \"requests\", report.requests, \"rejected\", report.rejected)?\n    Ok(())\n",
+      "worker.plenty": "# The std.http.server benchmark target: serves fixed responses on a loopback\n# port until a request to /stop. `examples/http_server_bench.py` builds it,\n# drives it with ApacheBench and records throughput, latency and memory;\n# results are in book/src/design/stdlib/http-qualification.md.\n#\n# WORKERS and IDLE set `config.workers` and `config.idle_connections`.\nimport std.bytes\nimport std.env\nimport std.http\nimport std.http.server\nimport std.net\nfrom std.bytes import Bytes\nfrom std.http.server import Exchange, Report\nfrom std.net import TcpStream\nfrom std.sync import CancellationToken\n\npub enum Route:\n    Small\n    Large\n    Echo\n    Stop\n    Trap\n\npub class Bench:\n    pub stop: CancellationToken\n    pub small: Bytes\n    pub large: Bytes\n\n    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:\n        match route:\n            case Route.Small:\n                exchange.send(200, \"text/plain\", &self.small)?\n            case Route.Large:\n                exchange.send(200, \"application/octet-stream\", &self.large)?\n            case Route.Echo:\n                mut body = std.bytes.empty()?\n                exchange.read_all(&mut body)?\n                exchange.send(200, \"application/octet-stream\", &body)?\n            case Route.Trap:\n                empty: Option[i64] = Nothing\n                empty.unwrap()\n            case Route.Stop:\n                exchange.send_text(200, \"stopping\")?\n                self.stop.cancel()\n        Ok(())\n\ndef setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:\n    match std.env.get(name)?:\n        case Some(text):\n            Ok(i64.parse(&text)?)\n        case Nothing:\n            Ok(fallback)\n\ndef main() -> Result[(), AllocError | IoError | ParseError | std.bytes.BytesError | std.http.server.ServerError | std.net.NetError]:\n    mut table = std.http.server.router[Route]()?\n    table.add(\"GET\", \"/\", Route.Small)?\n    table.add(\"GET\", \"/16k\", Route.Large)?\n    table.add(\"POST\", \"/echo\", Route.Echo)?\n    table.add(\"GET\", \"/stop\", Route.Stop)?\n    table.add(\"GET\", \"/trap\", Route.Trap)?\n    mut large = std.bytes.with_capacity(16384)?\n    large.resize(16384, 120u8)?\n    stop = CancellationToken()?\n    bench = Bench(stop.share(), std.bytes.from_text(\"hello, world\\n\")?, large)\n    mut config = std.http.server.config()\n    config.workers = setting(\"WORKERS\", 4)?\n    config.idle_connections = setting(\"IDLE\", 256)?\n    config.queue = 1024\n    listener = std.net.listen(&std.net.loopback_v4(0u16), 1024)?\n    print(\"port \".concat(str.from(i64(listener.local_address()?.port))?)?)?\n    report = std.http.server.serve(listener, &table, &bench, &config, &stop)?\n    print(\"connections\", report.connections, \"requests\", report.requests, \"rejected\", report.rejected, \"timeouts\", report.timeouts)?\n    Ok(())\n"
+    }
+  },
+  "relocation": {
+    "work": "/tmp/actor-http-relocation-x124mpgq",
+    "compiler_sha256": "53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4",
+    "runs": [
+      {
+        "tls": false,
+        "summary": "actors std.actor.Stats(started=6, stopped=5, failed=0, trapped=1, restarted=0, delivered=31, full=0, gone=0, lost=0) requests 4 rejected 0",
+        "stderr": "error: http.plenty:34:17: unwrap on Nothing\nnote: contained in an actor; its heap is discarded",
+        "native_sha256": "9a578b60fc1651eb37a30dfcf19858fbfc93e561406bdd5367024173cae037e8"
+      },
+      {
+        "tls": true,
+        "summary": "actors std.actor.Stats(started=6, stopped=1, failed=4, trapped=1, restarted=0, delivered=40, full=0, gone=0, lost=0) requests 4 rejected 0",
+        "stderr": "error: https.plenty:35:17: unwrap on Nothing\nnote: contained in an actor; its heap is discarded",
+        "native_sha256": "b3fece71afec96e82964b6767908dbeafcf9990c913ee11cbf7aa72c0c78a85a"
+      }
+    ]
+  }
+}
