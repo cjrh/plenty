@@ -5,7 +5,7 @@
 > that day. The evidence is the 2026-10-31 language consistency survey,
 > recorded as issues #612–#637. Accepted and scheduled as backlog rows
 > B88–B93 ([staged plan](#staged-plan-and-suggested-backlog-wording)); the
-> review [decisions](#decisions) settle four questions and leave one open.
+> review [decisions](#decisions) settle five questions.
 > A seventh rule from the same survey, a written convention page for the
 > standard library, is separate documentation work and is only referenced here.
 
@@ -683,17 +683,49 @@ Recorded 2026-10-31 after review:
 4. Rule 6: inside `checked:`, callback overflow is `Err` for every callback
    form. `checked:` exists so that arithmetic inside it does not trap.
 
-## Open questions
+5. `checked:` covers every call the block makes, not only arithmetic
+   written in it and its callbacks. Decision 4's reason applies: code
+   inside `checked:` must not bring the program down through integer
+   overflow or division by zero, wherever that arithmetic is written. See
+   [transitive `checked:`](#transitive-checked).
 
-1. `checked:` is lexical today: arithmetic in ordinary functions *called*
-   from the block (not passed as callbacks) still traps
-   ([numbers](../design/language/03-types/numbers.md)). Decision 4's reason,
-   that code inside `checked:` should not bring the program down, applies
-   to those calls too. Extending it means a checked instance of every
-   transitively called function, including std, or a checked calling
-   convention; it changes what a block's error type can contain. Decide
-   whether `checked:` covers only arithmetic written in the block and its
-   callbacks, or every call it makes.
+### Transitive `checked:`
+
+Today the rule is lexical
+([numbers](../design/language/03-types/numbers.md)): functions called from a
+block keep trapping. Under decision 5, a call inside a block runs a checked
+instance of the callee, and of everything it calls in turn, including std.
+The first overflow or zero division anywhere in that call tree ends the
+block with `Err`, releasing owned values as `?` does.
+
+What stays the same:
+
+- Only integer overflow and zero division change. Out-of-bounds indexing,
+  a negative `pow` exponent and other traps still trap.
+- Explicit wrapping operations (`wrapping_add`) and `div_checked` keep their
+  meaning; a nested `checked:` block in a callee handles its own failures.
+- Work on other threads (spawned jobs, pool tasks, parallel pipelines) is
+  outside the block. Extern C code is outside it.
+
+To settle in implementation:
+
+- **Error type.** `OverflowError[T]` is per operand type, and the types
+  reached through calls are an internal detail of each callee; listing
+  them in the block's type would make a callee's private arithmetic part
+  of its caller's API. A block whose call tree may fail needs a
+  type-independent member, for example an `OverflowError` that reports the
+  operand type and wrapped value at run time, while arithmetic written in
+  the block keeps the precise `OverflowError[T]`.
+- **Code size and compile time.** Each function reached from a block gets a
+  checked instance alongside its trapping one, compiled only when some
+  block reaches it, and cached like any other specialisation.
+- **Unknown callees.** Calls through a `Callable` code address, a boxed
+  callable or a C import cannot be specialised at the call site; they need
+  a checked calling convention or a diagnostic (decision 4 has the same
+  case).
+- **Recovery.** A failure deep in a callee abandons the callee's partial
+  updates to outer state, as a failure in the block itself already does;
+  the reference must say so.
 
 ## Staged plan and suggested backlog wording
 
