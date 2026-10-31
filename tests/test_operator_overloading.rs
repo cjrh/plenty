@@ -210,7 +210,7 @@ print((v * 2i64) + 0.5, 1 + identity(V(2.5))).unwrap()
 #[test]
 fn equality_stays_structural_and_logical_operators_stay_boolean() {
     expect(
-        "class V:\n    n: i64\n    def __eq__(self, other: &V) -> bool:\n        False\na = V(1)\nb = V(1)\nprint(a == b, [a].unwrap() == [b].unwrap()).unwrap()",
+        "class V:\n    n: i64\na = V(1)\nb = V(1)\nprint(a == b, [a].unwrap() == [b].unwrap()).unwrap()",
         "True True\n",
     );
     assert!(support::check_source("class V:\n    def __and__(self, other: &V) -> bool:\n        True\na = V()\nb = V()\nprint(a and b).unwrap()").is_err());
@@ -371,4 +371,47 @@ print((a + b).unwrap().values).unwrap()
 "#,
         "__test_fail_allocations_after_0__\n__test_restore_allocations__\nallocation refused\n[1] [2]\n[1, 2]\n",
     );
+}
+
+// Phase guard (issue #613): equality, ordering and keys never call user code,
+// so the Python hooks are rejected rather than ignored. B37 (`__cmp__`) and
+// B74 (user-defined keys) replace this rejection for the hooks they admit.
+#[test]
+fn comparison_and_hashing_hooks_are_rejected() {
+    for (hook, rule) in [
+        ("__eq__", "`==` and `!=` always compare fields structurally"),
+        ("__ne__", "`==` and `!=` always compare fields structurally"),
+        ("__lt__", "come only from `@newtype` forwarding"),
+        ("__le__", "come only from `@newtype` forwarding"),
+        ("__gt__", "come only from `@newtype` forwarding"),
+        ("__ge__", "come only from `@newtype` forwarding"),
+        ("__cmp__", "come only from `@newtype` forwarding"),
+        ("__hash__", "hash structurally"),
+        ("__key__", "hash structurally"),
+    ] {
+        let class = format!(
+            "class Money:\n    cents: i64\n    def {hook}(self, other: &Money) -> bool:\n        True\nprint(Money(1) == Money(2)).unwrap()"
+        );
+        let enumeration = format!(
+            "enum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
+        );
+        let protocol = format!(
+            "protocol Ordered:\n    def {hook}(self) -> bool:\n        pass\nprint(1).unwrap()"
+        );
+        for source in [class, enumeration, protocol] {
+            let error = support::check_source(&source).unwrap_err().to_string();
+            assert!(
+                error.contains(&format!("`{hook}` is not supported")) && error.contains(rule),
+                "{source}\n{error}"
+            );
+            assert!(error.contains("Equality, ordering and hashing"), "{error}");
+        }
+    }
+    // A generic class's methods follow the same rule.
+    let error = support::check_source(
+        "class Cell[T]:\n    value: T\n    def __eq__(self, other: &Cell[T]) -> bool:\n        True\nprint(Cell(1) == Cell(2)).unwrap()",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("`__eq__` is not supported"), "{error}");
 }
