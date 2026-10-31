@@ -4149,6 +4149,45 @@ mod native_target_tests {
     use cranelift_codegen::ir::{AtomicRmwOp, MemFlagsData};
 
     #[test]
+    fn native_runtime_tagged_results_and_callbacks_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory
+            .path()
+            .join(format!("native-abi{}", std::env::consts::EXE_SUFFIX));
+        // Result/Option values occupy i128 internally, but the runtime C ABI
+        // carries those words through pointers, including callback results.
+        let source = r#"
+def key(value: &i64) -> i64:
+    -*value
+
+def count(stop: i64) -> Generator[i64]:
+    for value in range(stop):
+        yield value
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    number = i64.parse("9223372036854775806")?
+    mut values = [number, -7, 42]?
+    values.sort_by_key(key)
+    print(values)?
+    print(str.repr(i64.parse("bad"))?)?
+    for value in count(3):
+        print(value)?
+    Ok(())
+"#;
+        compile_source_to_executable(source, &executable).unwrap();
+        let result = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap(),
+            "[9223372036854775806, 42, -7]\nResult[i64, ParseError].Err(ParseError.Invalid)\n0\n1\n2\n"
+        );
+    }
+
+    #[test]
     fn all_baselines_lower_native_i128_and_tail_stack_arguments() {
         for target in crate::target::NATIVE_TARGETS {
             for convention in [target.call_conv, CallConv::Tail] {
