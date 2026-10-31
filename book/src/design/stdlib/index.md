@@ -101,6 +101,8 @@ the [prelude](../language/02-source/names.md) and are specified under
 
 The generated [signature index](signatures.md) lists every public declaration
 of every module on one page.
+[Standard library conventions](conventions.md) states the naming, error,
+parameter and type rules public modules follow, and where modules still differ.
 
 Planned modules appear only in the [backlog](../../backlog.md). The tutorial
 introduces the library in

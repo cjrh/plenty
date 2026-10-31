@@ -68,6 +68,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `book/src/design/toolchain/02-architecture/support.md` | What works today |
 | `book/src/design/stdlib/` | Standard library reference: one page per `std` module |
 | `book/src/design/stdlib/signatures.md` | Generated index of every public `std` signature; search it before guessing an API |
+| `book/src/design/stdlib/conventions.md` | Rules for public `std` APIs and known deviations; check new APIs with the [std-conventions skill](.agents/skills/std-conventions/SKILL.md) |
 | `book/src/tutorial/` | Learn Plenty: runnable lessons, checked by tests |
 | `book/src/design/examples/cheatsheet.md` | Syntax cheat sheet: read before writing Plenty |
 | `book/src/backlog.md` | The only list of future work and priorities |
@@ -245,6 +246,8 @@ few sampled pages establish the quality of the whole tutorial.
 - Throughout the docs, refer to other chapters and sections by descriptive name or topic with a direct link, never by position (such as "the next chapter" or "the previous section"). Cross-references are encouraged; they must remain correct when pages are reordered.
 
 - Prefer implementing manageable standard-library functionality directly in Plenty. Wrap Rust or C libraries when there is a concrete reason, such as substantial complexity (SQLite or Polars) or specialist security requirements (cryptography and timing-attack resistance). Explain that choice and preserve allocation-failure and other API contracts. See `AGENTS.md` for the shared preference.
+
+- New or changed public `std` APIs follow the [standard library conventions](book/src/design/stdlib/conventions.md); use the [std-conventions skill](.agents/skills/std-conventions/SKILL.md) when designing or reviewing them.
 
 - **Don't add comments that just restate the code.** Comments should give the
   *why*: invariants, non-obvious constraints, links to the reference.
