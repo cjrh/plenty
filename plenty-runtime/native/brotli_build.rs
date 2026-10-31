@@ -9,8 +9,14 @@ pub fn build(native: &Path, out: &Path) {
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
     let mut build = crate::native_tools::build(out);
+    // MSVC exposes its C99 features through the supported C11 mode.
+    let standard = if build.get_compiler().is_like_msvc() {
+        "c11"
+    } else {
+        "c99"
+    };
     build
-        .std("c99")
+        .std(standard)
         .define("BROTLI_HAVE_LOG2", "1")
         // Upstream's recoverable allocator must unwind encoder state on OOM.
         .define("BROTLI_ENCODER_CLEANUP_ON_OOM", None)
