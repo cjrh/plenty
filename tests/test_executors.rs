@@ -1530,10 +1530,11 @@ fn futures_returned_by_helpers_run_once_the_receiver_drops() {
 }
 
 /// Methods on futures and executors read out of temporaries (issue #599
-/// follow-up). Each temporary is destroyed at the end of its statement, so the
-/// pending result's destructor runs there. Under `--all-features` the
-/// allocation-checks runtime also checks that the executor in a temporary
-/// list was released.
+/// follow-up). Joining the worker first makes each temporary the last owner of
+/// its future, so the result is destroyed at the end of the statement.
+/// Completion alone does not synchronize the worker's future release.
+/// Under `--all-features` the allocation-checks runtime also checks that the
+/// executor in a temporary list was released.
 #[test]
 fn methods_on_temporary_projections_release_futures_and_executors() {
     runs(
@@ -1550,14 +1551,15 @@ def make() -> Point:
 def main() -> Result[(), Failure]:
     with ThreadPoolExecutor(1, 4)? as pool:
         f = pool.submit(make)?
+        g = pool.submit(make)?
+        h = pool.submit(make)?
+        pool.shutdown()
         print(f.wait_timeout(5000))?
         print([f]?[0].done())?
         print("after list")?
-        g = pool.submit(make)?
         print(g.wait_timeout(5000))?
         print(Hold(g).f.done())?
         print("after field")?
-        h = pool.submit(make)?
         print(h.wait_timeout(5000))?
         print([[h]?]?[0][0].done())?
         print("after nested")?
