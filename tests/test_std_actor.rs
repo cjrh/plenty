@@ -152,8 +152,8 @@ fn supervisor_receives_errors_traps_and_stops() {
     assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "0 got reply from 12\n\
-         down 1 11 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
+        "down 1 11 std.actor.Exit[AllocError].Failed(AllocError.OutOfMemory)\n\
+         0 got reply from 12\n\
          down 2 12 std.actor.Exit[AllocError].Stopped\n\
          down 3 13 std.actor.Exit[AllocError].Trapped(std.actor.TrapKind.Unwrap)\n\
          std.actor.Stats(started=4, stopped=2, failed=1, trapped=1, restarted=0, delivered=7, full=0, gone=0, lost=0) 0 0 0\n\
@@ -721,4 +721,71 @@ def main() -> ():
         String::from_utf8_lossy(&output.stdout),
         "0 0 0 True\n0 0 0 True\n0 0 0 True\n"
     );
+}
+
+#[test]
+fn child_exits_follow_prior_messages_without_starving_behind_new_mail() {
+    let source = r#"
+from std.actor import Address, Context, Mail, heaps_live, stage
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+pub class Node:
+    pub parent: Option[Address]
+    pub tag: i64
+    pub last_message: i64
+    pub exits: i64
+    pub address: Option[Address]
+
+    pub def started(self: &mut Node, context: &mut Context[i64, IoError]) -> Result[(), IoError]:
+        match self.parent:
+            case Some(parent):
+                context.send(parent, self.tag).unwrap()
+                context.stop()
+            case Nothing:
+                self.address = Some(context.address())
+                context.send(context.address(), -1).unwrap()
+                for tag in range(8):
+                    drop(context.spawn_isolated(tag, 65536).unwrap())
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, IoError], context: &mut Context[i64, IoError]) -> Result[(), IoError]:
+        match mail:
+            case Mail.Message(value):
+                if value < 0:
+                    # Never let the parent's ordinary mailbox empty.
+                    context.send(context.address(), -1).unwrap()
+                else:
+                    self.last_message = value
+                    print("message", value)?
+            case Mail.Down(_, tag, _):
+                print("down", tag, self.last_message == tag)?
+                self.exits += 1
+                if self.exits == 8:
+                    context.stop()
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, IoError]) -> Result[Option[Node], IoError]:
+        Ok(Some(Node(self.address, tag, -1, 0, Nothing)))
+
+def main() -> ():
+    mut actors = stage[Node, i64, IoError](9, 16, 1).unwrap()
+    drop(actors.start(Node(Nothing, -1, -1, 0, Nothing), 65536).unwrap())
+    result = actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap())
+    print(result.is_ok(), actors.stats().stopped, heaps_live()).unwrap()
+"#;
+    let (_dir, executable) = support::build_file(source);
+    let output = support::output_within(&mut Command::new(executable), &[], Duration::from_secs(5));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected = (0..8)
+        .map(|tag| format!("message {tag}\ndown {tag} True\n"))
+        .collect::<String>()
+        + "True 9 0\n";
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }

@@ -190,6 +190,11 @@ tracked handles and timers before another attempt can reuse its slot.
 `Stats.started` includes these admitted attempts, even if they never reach
 their `started` method.
 
+Child exits follow the mail already queued for the parent when the child
+stopped, including the child's final messages. Newer mail cannot postpone
+`Down` indefinitely: an acceptor can recover retired connection slots even
+while new readiness keeps arriving.
+
 Isolation also applies when the stage rebuilds an isolated child under a
 restart policy. A replacement hook that fails or traps ends the child and
 notifies its parent immediately; it is not retried recursively. A replacement

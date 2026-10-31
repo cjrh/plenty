@@ -273,6 +273,11 @@ class Mailbox[M, E]:
     restart_start: u64
     restart_count: i64
     isolated_spawn: bool
+    # Mail ordering fences let exits follow the already queued prefix
+    # without waiting for a busy parent's mailbox to become empty.
+    mail_written: u64
+    mail_read: u64
+    down_after: u64
 
 # A timer or a pending request. Records live outside every actor heap, are
 # allocated by `Stage.add_timers`, and are linked by index, so handlers use
@@ -750,6 +755,7 @@ pub class Context[M, E]:
         at = (self._boxes[index].head + self._boxes[index].count) % size
         self._boxes[index].items[at] = mail
         self._boxes[index].count += 1
+        self._boxes[index].mail_written += 1u64
         self.enqueue(index)
 
     def enqueue(self: &mut Context[M, E], index: i64) -> ():
@@ -797,6 +803,9 @@ pub class Context[M, E]:
                 box.restart_limit = 0
                 box.restart_count = 0
                 box.isolated_spawn = False
+                box.mail_written = 0u64
+                box.mail_read = 0u64
+                box.down_after = 0u64
                 Ok(index)
             case Err(_):
                 __actor_heap(op_discard, heap)
@@ -956,6 +965,8 @@ pub class Stage[N, M, E]:
             self.deliver(index)
 
     def deliver(self: &mut Stage[N, M, E], index: i64) -> ():
+        down = self._context._boxes[index].down_head
+        down_ready = down >= 0 and self._context._boxes[index].mail_read >= self._context._boxes[down].down_after
         box = &mut self._context._boxes[index]
         if box.heap < 0:
             return
@@ -970,14 +981,17 @@ pub class Stage[N, M, E]:
             self.deliver_notice(index)
             return
         box.turn = True
-        # Queued mail first, so `Down` follows every message the child sent.
+        # The earlier queued prefix goes first, including the child's last
+        # message. Later readiness/messages cannot starve its exit.
+        if down_ready:
+            self.deliver_down(index)
+            return
         if box.count == 0:
-            if box.down_head >= 0:
-                self.deliver_down(index)
             return
         mail = replace(box.items[box.head], Nothing)
         box.head = (box.head + 1) % len(box.items)
         box.count -= 1
+        box.mail_read += 1u64
         match &mail:
             case Some(Mail.Ready(_, _)):
                 box.ready -= 1
@@ -1332,11 +1346,13 @@ pub class Stage[N, M, E]:
             self._context._stats.lost += 1
             return
         target = slot_of(parent)
+        after = self._context._boxes[target].mail_written
         zombie = &mut self._context._boxes[index]
         zombie.zombie = True
         zombie.exit = Some(exit)
         zombie.down_key = child._key
         zombie.down_next = -1
+        zombie.down_after = after
         tail = self._context._boxes[target].down_tail
         if tail < 0:
             self._context._boxes[target].down_head = index
@@ -1355,6 +1371,7 @@ pub class Stage[N, M, E]:
             box.head = (box.head + 1) % len(box.items)
             box.count -= 1
         box.ready = 0
+        box.mail_read = box.mail_written
         while self._context._boxes[index].down_head >= 0:
             zombie = self.unlink_down(index)
             drop(replace(self._context._boxes[zombie].exit, Nothing))
@@ -1388,7 +1405,7 @@ pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):
-        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0, False))?
+        boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0, False, 0u64, 0u64, 0u64))?
     # Popped from the end, so slot 0 is used first.
     free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
     runnable: list[i64] = [0 for _ in range(capacity)]?
