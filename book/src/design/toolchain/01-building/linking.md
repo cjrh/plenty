@@ -77,7 +77,10 @@ library keeps its dynamic symbol table (`.dynsym`), so its exports and
 metadata is not a debug section.
 
 `--no-strip` keeps both, for `--compile` and `--shared-library`; `plenty build`
-and `plenty run` accept it too. Use it to inspect an executable with `nm`,
+and `plenty run` accept it too. For single-file compilation with `plenty` or
+`plentyc`, `--release` and `--no-strip` may appear in either order before or
+after `--compile FILE`, including between the mode and filename.
+Use `--no-strip` to inspect an executable with `nm`,
 `perf`, or a debugger, or to split the debug information into a separate
 file:
 

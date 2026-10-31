@@ -199,6 +199,7 @@ fn placeholder(name: &str) -> Ty {
         fallible_init: false,
         copy: false,
         forwards_operators: false,
+        redacted: false,
         bytes: std::sync::OnceLock::new(),
         managed: std::sync::OnceLock::new(),
     }))

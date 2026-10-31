@@ -30,7 +30,7 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     Ok(())
 ```
 ```output
-5 8 std.bytes.Bytes(_owner=b"\x02hi\x00\xff")
+5 8 b"\x02hi\x00\xff"
 209
 Result[i64, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
 hi
@@ -42,7 +42,9 @@ A range is `start` up to but not including `stop`, and must lie inside the
 buffer: there are no negative offsets and nothing is clamped, so `3..9` on five
 bytes is `OutOfRange`. `slice` and `copy` make independent buffers; nothing is
 copied unless you ask. `to_text` succeeds only for valid UTF-8, and a zero byte
-is ordinary data.
+is ordinary data. Printing a buffer spells it as a byte literal, with `\xhh`
+for bytes that are not printable ASCII; for hex output, see
+[printing bytes](../../design/stdlib/bytes.md#printing).
 
 `checksum` shows how to work on part of a buffer: borrow it and pass the range.
 While that borrow is in use the owner cannot change, so growth can never move
@@ -145,7 +147,8 @@ P....Y
 ```
 
 Use `get` and `set` instead when a missing index is an expected outcome to
-handle. `for b in &mut word` is rejected: write through an index. A
+handle. `for b in &mut word` yields `&mut u8` references into the buffer, so
+`*b = 0u8` in its body clears every byte in place. A
 [slice](../04-collections/slices.md) such as `word[1:3]?` copies with the list
 rules, clamping its bounds, and reports only `AllocError`. The `slice` method
 checks its range and reports `BytesError`, so `frame.slice(1, 3)?` suits a

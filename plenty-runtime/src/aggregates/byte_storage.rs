@@ -52,18 +52,24 @@ pub(super) unsafe fn equal(a: u128, b: u128) -> bool {
     unsafe { (*(a as *const Storage)).bytes == (*(b as *const Storage)).bytes }
 }
 
-/// Diagnostic spelling: printable ASCII, with every other byte as `\xhh`.
+/// The byte-literal spelling of a buffer; see `render_slice`.
 pub(super) unsafe fn render(value: u128, out: &mut crate::render_buffer::Buffer) {
     // SAFETY: the operand is a live storage owner.
     render_slice(unsafe { &(*(value as *const Storage)).bytes }, out);
 }
 
-/// The spelling `Bytes` and `bytes` values share: a valid byte literal.
+/// The spelling `Bytes`, `bytes`, and `&[u8]` values share, Python's: a
+/// valid byte literal that reads back as the same bytes. Printable ASCII is
+/// literal; `\\`, `\"`, LF, CR, and TAB use their escapes; every other byte
+/// is `\xhh`.
 pub(super) fn render_slice(bytes: &[u8], out: &mut crate::render_buffer::Buffer) {
     out.extend_from_slice(b"b\"");
     for byte in bytes {
         match byte {
             b'\\' | b'"' => out.extend_from_slice(&[b'\\', *byte]),
+            b'\n' => out.extend_from_slice(b"\\n"),
+            b'\r' => out.extend_from_slice(b"\\r"),
+            b'\t' => out.extend_from_slice(b"\\t"),
             0x20..=0x7e => out.push(*byte),
             _ => {
                 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -403,6 +409,22 @@ pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
     unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
 }
 
+/// The address of the first byte of a live buffer or `bytes` literal, for a
+/// slice view. Its loan keeps the storage from growing while the view exists;
+/// a shared view of a literal only reads it.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *const u8 {
+    // SAFETY: the compiler keeps the owner alive through the call.
+    unsafe { source(owner as usize as u128).as_ptr() }
+}
+
+/// The byte count of a live buffer or `bytes` literal, for a slice view.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_len(owner: *const u8) -> u64 {
+    // SAFETY: the compiler keeps the owner alive through the call.
+    unsafe { source(owner as usize as u128).len() as u64 }
+}
+
 /// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar
 /// of `text` that is (`member` 1) or is not (0) an ASCII byte of `set`, or
 /// -1. `set` is a buffer's storage or a `bytes` literal (issue #383).
@@ -515,7 +537,7 @@ mod tests {
             assert!(equal(target.0, target.0));
             let mut out = crate::render_buffer::Buffer::default();
             render(source.0, &mut out);
-            assert_eq!(out.finish().unwrap(), br#"b"\x00\xff\x80\x0a\x00""#);
+            assert_eq!(out.finish().unwrap(), br#"b"\x00\xff\x80\n\x00""#);
         }
     }
 

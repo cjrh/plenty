@@ -49,3 +49,44 @@ cm
 (2, "two")
 (3, "three")
 ```
+
+Unpacking a borrowed list keeps the list and borrows each component of the
+current tuple in place: in `for number, word in &pairs`, `number` is a `&i64`
+and `word` a `&str`. Over `&mut pairs`, the names are `&mut` references, so
+the loop can change the tuples:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut pairs = [(1, "one"), (2, "two")]?
+    for number, _ in &mut pairs:
+        *number *= 10
+    for number, word in &pairs:
+        print(*number, word)?
+    print(pairs)?
+    Ok(())
+```
+```output
+10 one
+20 two
+[(10, "one"), (20, "two")]
+```
+
+The names borrow different components, so both can be passed as `&mut`
+arguments to one call:
+
+```plenty
+def swap(a: &mut i64, b: &mut i64) -> ():
+    t = *a
+    *a = *b
+    *b = t
+
+def main() -> Result[(), AllocError | IoError]:
+    mut pairs = [(1, 2), (3, 4)]?
+    for low, high in &mut pairs:
+        swap(low, high)
+    print(pairs)?
+    Ok(())
+```
+```output
+[(2, 1), (4, 3)]
+```

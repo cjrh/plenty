@@ -30,8 +30,23 @@ the box. Mutation requires a mutable owner or exclusive reference.
 
 Read-only methods accept owned temporary boxes, keeping content alive through
 the expression. Mutation needs a binding, field, or element rather than a
-temporary receiver. Boxed projections from temporary collections/classes and
-temporary returned references require a named binding before builtin method calls.
+temporary receiver. Read-only builtin methods also accept boxed projections
+from temporary collections or classes: the temporary owner stays alive until
+the end of the full expression, without copying its content or requiring a
+named binding:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    print([Box([1, 2]?)?]?[0].get(1))?
+    Ok(())
+```
+```output
+Option[i64].Some(2)
+```
+
+A returned reference to a box still needs a named binding before calling a
+builtin method directly on it. See [returned references](../../language/05-ownership/04-returned-references.md)
+for temporary origins and projected receivers.
 
 Automatic copy, equality (including membership), print, and str.repr reject types
 whose stored values can recur, including through containers or standard sums.

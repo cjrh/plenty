@@ -34,3 +34,18 @@ def main() -> Result[(), IoError]:
 An annotation guides an unsuffixed literal, so `small: u8 = 200` works.
 It does not convert an already typed initializer:
 [convert the value explicitly](numeric-operations.md) for that.
+
+Underscores separate digits for readability, as in `1_000_000u64` above.
+Integers may also be written in hexadecimal, octal, or binary, with the same
+suffixes and range checks:
+
+```plenty
+def main() -> Result[(), IoError]:
+    mask: u8 = 0b1111_0000
+    print(0xFF, 0o755, mask, 0x1F600u32)?
+    Ok(())
+```
+
+```output
+255 493 240 128512
+```

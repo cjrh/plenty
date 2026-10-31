@@ -16,8 +16,11 @@ changing the original does not change the copy. Components can be changed
 through `&mut pair[0]` or a mutable payload match. Direct indexed assignment
 (`pair[0] = value`) remains unsupported; assign through the reference instead.
 
-`pair[0]` selects a component. Indices must be nonnegative integer literals within
-the tuple's arity. Owned components may be observed or explicitly copied; moving
+`pair[0]` selects a component. Indices must be integer literals. A negative
+literal counts from the end, as in Python: for a tuple of length `n`, `pair[-k]`
+is `pair[n - k]`, and `pair[-0]` is `pair[0]`. The same resolved component is
+borrowed by `&pair[-1]` and `&mut pair[-1]`. An index outside `-n` to `n - 1`
+is a compile error that states the tuple's length. Owned components may be observed or explicitly copied; moving
 them out requires whole-tuple unpacking:
 
 ```plenty fragment
@@ -29,6 +32,31 @@ Flat unpacking transfers each component; `_` destroys a discarded component.
 The parentheses are optional on the right of an unpacking statement, and targets
 may also be fields and collection elements: see
 [assignment to several targets](../04-expressions/assignment.md#several-targets).
+
+Unpacking a tuple reference borrows the components in place instead. With
+`p: &(i64, str)`, `n, s = p` binds `n = &p[0]` and `s = &p[1]`; with a
+`&mut` reference, or `n, s = &mut pair`, each name is a `&mut` reference to its
+component, and `_` skips one. The names are new immutable bindings: they cannot
+reuse existing names or be declared `mut`. `for n, s in &pairs` unpacks each
+element the same way, as described under
+[iterable values](../09-iteration/01-iterables.md).
+
+```plenty
+def bump(p: &mut (i64, str)) -> ():
+    n, _ = p
+    *n += 1
+
+def main() -> Result[(), AllocError | IoError]:
+    mut pair = (1, "one")
+    bump(&mut pair)
+    n, s = &pair
+    print(*n, s)?
+    Ok(())
+```
+
+```output
+2 one
+```
 
 A [slice](../04-expressions/slices.md) with integer-literal bounds and step
 selects components at compile time: `(1, "two", 3.0)[1:]?` has type

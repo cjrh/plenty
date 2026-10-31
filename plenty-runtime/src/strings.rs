@@ -23,7 +23,7 @@ pub(crate) fn is_inline(text: *const Text) -> bool {
     text as usize & 1 != 0
 }
 
-fn pack(data: &[u8]) -> *mut Text {
+pub(crate) fn pack(data: &[u8]) -> *mut Text {
     debug_assert!(data.len() <= INLINE_MAX);
     let mut word = [0u8; 8];
     word[0] = (data.len() as u8) << 1 | 1;

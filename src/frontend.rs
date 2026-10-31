@@ -63,9 +63,11 @@ mod sorting;
 mod tail_calls;
 mod target;
 mod threads;
+mod views;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
+pub(crate) use byte_buffers::BYTES_CLASS;
 pub(crate) use data::TypeAliases;
 
 /// A checked binary's source entrypoint determines the native process result.
@@ -566,6 +568,15 @@ impl<'a> Lexer<'a> {
                                 .ok_or_else(|| start.error("unterminated escape"))?;
                             self.pos += escaped.len_utf8();
                             self.column += 1;
+                            if escaped == 'u' {
+                                let (scalar, length) = unicode_escape(&source[self.pos..])
+                                    .map_err(|e| here.error(e))?;
+                                // The escape is ASCII, so bytes and columns agree.
+                                self.pos += length;
+                                self.skip_columns(length);
+                                text.push(scalar);
+                                continue;
+                            }
                             text.push(escape(escaped).ok_or_else(|| {
                                 here.error(format!("unsupported escape \\{escaped}"))
                             })?);
@@ -608,6 +619,23 @@ impl<'a> Lexer<'a> {
                             self.push(out, kind, line, column);
                         }
                     }
+                }
+                b'0' if matches!(
+                    bytes.get(self.pos + 1),
+                    Some(b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
+                ) =>
+                {
+                    let begin = self.pos;
+                    let end = begin
+                        + 2
+                        + bytes[begin + 2..]
+                            .iter()
+                            .position(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
+                            .unwrap_or(bytes.len() - begin - 2);
+                    let decimal = radix_integer(&source[begin..end]).map_err(|e| start.error(e))?;
+                    self.pos = end;
+                    self.skip_columns(end - begin);
+                    self.push(out, Kind::Number(decimal.into()), line, column);
                 }
                 c if c.is_ascii_digit()
                     || (c == b'.' && bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit)) =>
@@ -734,6 +762,11 @@ struct TypeRef {
 impl TypeRef {
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
+        if ty == Some(Ty::Text) {
+            return Err(self.at.error(
+                "`substr` is only the borrowed form `&substr`, a view of part of a string such as `&s[a:b]`; an owned string is `str`",
+            ));
+        }
         if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
             return Err(self
                 .at
@@ -793,6 +826,9 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
+            if matches!(signature.output, Some(Ty::View(..))) {
+                return Err(self.at.error(views::RETURN));
+            }
             if name == "BoxedCallable" && matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err(self
                     .at
@@ -848,12 +884,32 @@ impl TypeRef {
             }
             return Ok(Some(Ty::Range(Arc::new(ty))));
         }
+        if matches!(name.as_str(), VIEW_TYPE | MUT_VIEW_TYPE) {
+            let element = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
+            return view_type(element, name == MUT_VIEW_TYPE, &self.at).map(Some);
+        }
         if matches!(name.as_str(), "&" | "&mut") {
+            if self.args[0].concrete.is_none()
+                && self.args[0].name.as_deref() == Some(SUBSTR)
+                && self.args[0].args.is_empty()
+            {
+                if name == "&mut" {
+                    return Err(self.at.error(
+                        "a `str` is immutable, so a substring view is shared only; write `&substr`",
+                    ));
+                }
+                return Ok(Some(text_view()));
+            }
             // `&()` is the type of a borrowed unit payload; spelling it lets
             // generic `&T` signatures instantiate with `T = ()`.
             let inner = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if matches!(inner, Ty::Ref(..)) {
                 return Err(self.at.error("references to references are not supported"));
+            }
+            if matches!(inner, Ty::View(..)) {
+                return Err(self.at.error(
+                    "a slice view is already a borrow; write `&[T]` or `&mut [T]` without another `&`",
+                ));
             }
             return Ok(Some(Ty::Ref(Arc::new(inner), name == "&mut")));
         }
@@ -991,6 +1047,11 @@ impl TypeRef {
             for (i, arg) in args.iter().enumerate() {
                 if !arg.contains_reference() || Some(i) == success && references::carriable(arg) {
                     continue;
+                }
+                if arg.storage_barrier() == Some(crate::op::StorageBarrier::View) {
+                    return Err(self
+                        .at
+                        .error(crate::op::StorageBarrier::View.message("enum payloads")));
                 }
                 return Err(self.at.error(if name == "Result" && i == 1 {
                     "Result errors cannot carry references; copy the part of the input the error reports"
@@ -1539,12 +1600,24 @@ impl Parser {
     fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
         if self.eat("&") {
-            let name = if self.eat("mut") { "&mut" } else { "&" };
+            let mutable = self.eat("mut");
+            // `&[T]` and `&mut [T]` are slice views; see `view_type`.
+            let view = self.eat("[");
+            let name = match (view, mutable) {
+                (false, false) => "&",
+                (false, true) => "&mut",
+                (true, false) => VIEW_TYPE,
+                (true, true) => MUT_VIEW_TYPE,
+            };
             if self.type_depth >= 64 {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
             }
             self.type_depth += 1;
-            let inner = self.ty_inner();
+            let inner = if view {
+                self.ty().and_then(|inner| self.expect("]").map(|_| inner))
+            } else {
+                self.ty_inner()
+            };
             self.type_depth -= 1;
             return Ok(TypeRef {
                 concrete: None,
@@ -2501,8 +2574,9 @@ impl Parser {
             Kind::Symbol(s) if &**s == "&" => {
                 let op = if self.eat("mut") { "&mut" } else { "&" };
                 let operand = self.expr(10)?;
-                if slice_operand(&operand) {
-                    return Err(at.error(BORROWED_SLICE));
+                if matches!(&ungroup(&operand).kind, Expression::Try(inner) if matches!(ungroup(inner).kind, Expression::Slice(..)))
+                {
+                    return Err(at.error(VIEW_TRY));
                 }
                 Expression::Unary(op.into(), Box::new(operand))
             }
@@ -2752,8 +2826,82 @@ fn byte_escape(rest: &str) -> std::result::Result<(u8, usize), String> {
     }
     match escape(escaped) {
         Some(byte) => Ok((byte as u8, 1)),
+        None if escaped == 'u' => Err(
+            "unsupported escape \\u in a byte literal; a byte literal holds bytes, not scalars, so write the UTF-8 encoding with `\\xHH` escapes".into(),
+        ),
         None => Err(format!("unsupported escape \\{escaped} in a byte literal")),
     }
+}
+
+/// Decodes a `\u{H...}` escape in string text. `rest` follows the `\u`;
+/// returns the scalar and the source bytes consumed. The spelling is the one
+/// the `!a` conversion writes, so its output can be pasted back into source.
+fn unicode_escape(rest: &str) -> std::result::Result<(char, usize), String> {
+    let shape = || "`\\u` needs 1 to 6 hexadecimal digits in braces, as in `\\u{200d}`".to_string();
+    let digits = rest
+        .strip_prefix('{')
+        .map(|inner| {
+            &inner[..inner
+                .find(|c: char| !c.is_ascii_hexdigit())
+                .unwrap_or(inner.len())]
+        })
+        .filter(|digits| (1..=6).contains(&digits.len()))
+        .ok_or_else(shape)?;
+    if rest.as_bytes().get(digits.len() + 1) != Some(&b'}') {
+        return Err(shape());
+    }
+    let value = u32::from_str_radix(digits, 16).expect("at most six hexadecimal digits");
+    let scalar = char::from_u32(value).ok_or_else(|| {
+        if value > 0x10ffff {
+            format!("`\\u{{{digits}}}` is beyond the largest Unicode scalar value, `\\u{{10ffff}}`")
+        } else {
+            format!("`\\u{{{digits}}}` is a surrogate code point, not a Unicode scalar value")
+        }
+    })?;
+    Ok((scalar, digits.len() + 2))
+}
+
+/// Rewrites a `0x`, `0o`, or `0b` integer literal in decimal with the same
+/// suffix, so every later stage reads one integer spelling. Range checks
+/// against the suffix or context type happen there, as for decimal literals.
+fn radix_integer(text: &str) -> std::result::Result<String, String> {
+    let (radix, article, name) = match text.as_bytes()[1] {
+        b'x' | b'X' => (16, "a", "hexadecimal"),
+        b'o' | b'O' => (8, "an", "octal"),
+        _ => (2, "a", "binary"),
+    };
+    let body = &text[2..];
+    let split = body
+        .find(|c: char| c != '_' && !c.is_digit(radix))
+        .unwrap_or(body.len());
+    let (digits, suffix) = body.split_at(split);
+    // A suffix names an integer type, so anything else after the digits is a
+    // misplaced digit: `0b102`, `0xG`, or a float suffix such as `0b1f32`.
+    if !suffix.is_empty() && !suffix.starts_with(['i', 'u']) {
+        let bad = suffix.chars().next().unwrap();
+        return Err(format!("invalid digit `{bad}` in {article} {name} literal"));
+    }
+    if !matches!(
+        suffix,
+        "" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+    ) {
+        return Err("invalid integer suffix".into());
+    }
+    if digits.is_empty() {
+        return Err(format!("`{}` needs at least one {name} digit", &text[..2]));
+    }
+    if digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return Err("invalid integer separator".into());
+    }
+    let value = digits
+        .bytes()
+        .filter(|&c| c != b'_')
+        .try_fold(0u128, |value, c| {
+            let digit = (c as char).to_digit(radix).expect("checked digit");
+            value.checked_mul(radix.into())?.checked_add(digit.into())
+        })
+        .ok_or("integer literal out of range")?;
+    Ok(format!("{value}{suffix}"))
 }
 
 /// The escapes string and byte literals share; byte literals add `\xHH`.
@@ -2784,6 +2932,7 @@ fn named_type(name: &str) -> Type {
         "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
+        SUBSTR => Ty::Text,
         "bytes" => Ty::ByteStr,
         "File" => Ty::File,
         "FsReadDir" => Ty::FsReadDir,
@@ -3716,7 +3865,11 @@ impl Lower<'_> {
                             } else {
                                 "take it with replace(value.field, replacement) on a mutable owner"
                             };
-                            let rest = if ty.can_copy() && !ty.recursive_data() {
+                            let copies = ty.copy_facts();
+                            let rest = if copies.copyable
+                                && !copies.recursive
+                                && !matches!(ty, Ty::Shared(_))
+                            {
                                 format!("{replace}, or copy it with copy(value.field)?")
                             } else {
                                 format!("or {replace}")
@@ -3956,6 +4109,41 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let (b, other_loans) = self.observe(right, ops)?;
                 loans.extend(other_loans);
+                if b == text_view() {
+                    let needle_text = match a {
+                        Ty::Str => true,
+                        _ if a == text_view() => false,
+                        _ => {
+                            return Err(e.at.error(format!(
+                                "`{op}` on a `&substr` looks for a `str` or `&substr`, not {a}"
+                            )));
+                        }
+                    };
+                    ops.push(Op::Swap);
+                    let mode = crate::collection_opcodes::TEXT_SEARCH_CONTAINS << 1;
+                    ops.push(Op::PushInt(Value::I64(mode | i64::from(needle_text))));
+                    ops.push(Op::Collection(CollectionOp::TextView(
+                        crate::text::TextViewOp::Search {
+                            needle_text,
+                            find: false,
+                        },
+                    )));
+                    Self::end_reads(loans, ops);
+                    if op == "not in" {
+                        ops.push(Op::Not);
+                    }
+                    return Ok(Some(Ty::Bool));
+                }
+                if a == text_view() && b == Ty::Str {
+                    return Err(e.at.error(format!(
+                        "`{op}` on a `str` looks for a `str`; search for a `&substr` with `&s[:]`, as `v in &s[:]`"
+                    )));
+                }
+                if let Ty::View(..) = b {
+                    return Err(e.at.error(format!(
+                        "slice views do not support `{op}` yet; compare the elements in a loop"
+                    )));
+                }
                 if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
                     return Err(e
                         .at
@@ -4065,6 +4253,9 @@ impl Lower<'_> {
                 }
                 if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
                     return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
+                }
+                if matches!(a, Ty::View(..)) || matches!(b, Ty::View(..)) {
+                    return self.view_equality(op, (a, b), rhs, loans, &e.at, ops);
                 }
                 if a.restricted_storage() {
                     if matches!(a, Ty::Closure(_)) {
@@ -4744,6 +4935,13 @@ impl Lower<'_> {
     ) -> Result<Vec<usize>> {
         let mut argument_loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
+            if let Ty::View(_, mutable) = expected {
+                let text = *expected == text_view();
+                let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;
+                self.same(Some(ty), Some(expected.clone()), &arg.at)?;
+                argument_loans.push(loan);
+                continue;
+            }
             if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 // A borrowed box also lends its content.
@@ -5613,18 +5811,32 @@ fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
     }
 }
 
-/// Borrowed slice views are reserved syntax (issue #581, B11, B39).
-const BORROWED_SLICE: &str = "borrowed slice views are not implemented yet; bind the copy first, as in `part = xs[1:3]?`, then borrow `&part`";
+/// The type-reference names of `&[T]` and `&mut [T]`.
+/// The element name of `&substr`, a view of part of a string (issue #595).
+pub(crate) const SUBSTR: &str = "substr";
 
-/// A slice, possibly parenthesized or followed by `?`: the operand forms of
-/// `&` and `&mut` reserved for borrowed views.
-fn slice_operand(e: &Expr) -> bool {
-    match &ungroup(e).kind {
-        Expression::Slice(..) => true,
-        Expression::Try(inner) => slice_operand(inner),
-        _ => false,
-    }
+/// `&substr`: a shared view of a run of a string's scalars.
+pub(crate) fn text_view() -> Ty {
+    Ty::View(Arc::new(Ty::Text), false)
 }
+
+pub(crate) const VIEW_TYPE: &str = "&[]";
+pub(crate) const MUT_VIEW_TYPE: &str = "&mut []";
+
+/// `&[T]` (shared) or `&mut [T]` (exclusive): a view of list rows, or of
+/// bytes when `T` is `u8`. Its elements are list elements, which never hold
+/// references.
+fn view_type(element: Ty, mutable: bool, at: &Token) -> Result<Ty> {
+    if element.contains_reference() || element.restricted_storage() {
+        return Err(at.error(format!(
+            "a slice view's elements are list elements, and {element} cannot be stored in a list"
+        )));
+    }
+    Ok(Ty::View(Arc::new(element), mutable))
+}
+
+/// `&xs[a:b]?` would propagate an error that a view cannot produce.
+const VIEW_TRY: &str = "a slice view `&xs[a:b]` does not allocate, so it takes no `?`; write `&xs[a:b]`, or copy the elements with `xs[a:b]?`";
 
 const SLICE_ASSIGNMENT: &str =
     "slice assignment is not supported; assign elements by index, or build a new list";
@@ -6029,6 +6241,10 @@ fn register_with_body(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
+    // Aggregates, `Option` and `Result` included, reject views when built.
+    if matches!(output, Some(Ty::View(..))) {
+        return Err(f.at.error(views::RETURN));
+    }
     if types.iter().any(Ty::key_view) || output.as_ref().is_some_and(Ty::key_view) {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }
@@ -6080,12 +6296,13 @@ fn register_with_body(
     }
     check_carried_parameters(f, &inputs)?;
     if let Some(output) = output.as_ref().filter(|ty| ty.carries_loan()) {
-        // The first reference parameter is the result's origin; later ones
+        // The first reference or view parameter is the result's origin; later ones
         // are ordinary inputs whose loans end with the call.
-        let Some((_, origin)) = inputs.iter().find(|(_, ty)| matches!(ty, Ty::Ref(..))) else {
+        let Some((_, origin)) = inputs.iter().find(|(_, ty)| references::lends(ty)) else {
             return Err(f.at.error(no_origin(output)));
         };
-        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true)) {
+        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true) | Ty::View(_, true))
+        {
             return Err(f.at.error(immutable_origin(output)));
         }
     }
@@ -6268,7 +6485,7 @@ fn lower_body(
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs
                         .iter()
-                        .position(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                        .position(|(_, ty)| references::lends(ty))
                         .map(|i| i as u8)
                 } else {
                     None
@@ -6304,7 +6521,7 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (_, ty)) in sig.inputs.iter().enumerate() {
-                if let Ty::Ref(_, mutable) = ty {
+                if let Ty::Ref(_, mutable) | Ty::View(_, mutable) = ty {
                     if yield_type.is_some() {
                         return Err(f.at.error("generators cannot capture references"));
                     }

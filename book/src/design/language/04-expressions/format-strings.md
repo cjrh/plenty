@@ -2,7 +2,7 @@
 
 An f-string is a string literal with the prefix `f`: `f"..."`, `f'...'`,
 `f"""..."""`, or `f'''...'''`. Literal text uses the ordinary
-[string escapes](../../facilities/01-builtins/text.md); `{{` and `}}` are
+[string escapes](../../facilities/01-builtins/text.md#escapes), including `\u{H...}`; `{{` and `}}` are
 literal braces, and a single `}` is an error. Each `{...}` is a replacement
 field:
 
@@ -65,8 +65,12 @@ Without a conversion, a field is written as `print` writes it:
 one, and otherwise the `str.repr` spelling. `!a`, like Python's `ascii()`,
 takes the `!r` text and spells each non-ASCII scalar as `\u{hex}` with
 lowercase digits, the escape `debug_text` uses for controls:
-`f"{'café'!a}"` is `"caf\u{e9}"`. Python spells the same escapes `\xe9`,
+`f"{'café'!a}"` is `"caf\u{e9}"`, which is also a valid string literal. Python spells the same escapes `\xe9`,
 `\u2603`, or `\U0001f600`, with single quotes.
+
+A [`@redacted`](../03-types/classes.md#redacted-types) type without its own
+`display` or `debug` method writes `TypeName(@redacted)` under every conversion and
+spec, including `!r`, `!a`, and `=`.
 
 ## Format specs
 

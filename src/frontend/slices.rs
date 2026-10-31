@@ -35,7 +35,7 @@ fn positions(len: usize, start: Option<i64>, stop: Option<i64>, step: i64) -> Ve
 }
 
 /// The value of an integer literal bound, possibly negated.
-fn literal_bound(e: &Expr) -> Option<i64> {
+pub(super) fn literal_bound(e: &Expr) -> Option<i64> {
     let (negative, inner) = match &ungroup(e).kind {
         Expression::Unary(sign, inner) if sign == "-" => (true, ungroup(inner)),
         _ => (false, ungroup(e)),
@@ -46,6 +46,33 @@ fn literal_bound(e: &Expr) -> Option<i64> {
     let digits = n.replace('_', "");
     let value = digits.parse::<i128>().ok()?;
     i64::try_from(if negative { -value } else { value }).ok()
+}
+
+/// The component a tuple index names: a literal `k` or `-k` with `-0` as `0`,
+/// where negative literals count from the end as in Python (issue #583).
+/// Tuple indexing is resolved at compile time, so the index must be a literal.
+pub(super) fn tuple_position(index: &Expr, len: usize) -> Result<usize> {
+    let value = literal_bound(index).ok_or_else(|| {
+        index
+            .at
+            .error("tuple index must be an integer literal, such as `t[0]` or `t[-1]`")
+    })?;
+    let position = if value < 0 {
+        usize::try_from(value.unsigned_abs())
+            .ok()
+            .and_then(|back| len.checked_sub(back))
+    } else {
+        usize::try_from(value).ok().filter(|&i| i < len)
+    };
+    position.ok_or_else(|| {
+        let valid = match len {
+            0 => "no index is valid".to_owned(),
+            _ => format!("valid indices are 0 to {} and -1 to -{len}", len - 1),
+        };
+        index.at.error(format!(
+            "tuple index {value} is out of range for a tuple of length {len}; {valid}"
+        ))
+    })
 }
 
 fn zero_step(bounds: &SliceBounds) -> bool {
@@ -84,6 +111,15 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let alloc = crate::sum::alloc_error;
+        if self.place_type(base) == Some(text_view()) {
+            // Narrow in place, then copy only the selected bytes.
+            let (_, loan) = self.slice_view(base, bounds, false, ops)?;
+            ops.push(Op::Collection(CollectionOp::TextView(
+                crate::text::TextViewOp::Copy,
+            )));
+            Self::end_reads(vec![loan], ops);
+            return Ok(crate::sum::result(Ty::Str, alloc()));
+        }
         if let Some(ty @ Ty::Clist(_)) = self.place_type(base) {
             // Copying rows exposes every field, as `copy_row` does.
             self.check_clist_access(&ty, &base.at)?;
@@ -195,11 +231,10 @@ impl Lower<'_> {
         if matches!(element, Ty::Shared(_)) {
             return Ok(());
         }
-        let reason = if element.facts().shared {
-            "copy() does not yet copy values containing Shared owners (issue #582)".to_owned()
-        } else if element.recursive_data() {
+        let facts = element.copy_facts();
+        let reason = if facts.recursive {
             format!("{element} is recursive data, which copy() does not copy")
-        } else if !element.can_copy() {
+        } else if !facts.copyable {
             format!("{element} cannot be copied")
         } else if element.layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));
@@ -299,6 +334,7 @@ impl Lower<'_> {
 fn unsliceable(ty: &Ty) -> String {
     match ty {
         Ty::Dict(..) => "dict does not support slicing".into(),
+        Ty::View(..) => "a copying slice does not take a slice view; take a narrower view, `&v[a:b]`, or copy from the owner, `xs[a:b]?`".into(),
         Ty::Shared(_) => {
             format!("{ty} does not support slicing; index the handle, or copy its contents first")
         }

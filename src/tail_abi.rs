@@ -48,7 +48,7 @@ impl fmt::Display for TailCallRejection {
 }
 
 pub(crate) fn native_type(ty: &Ty) -> Type {
-    if ty.wide() || matches!(ty, Ty::Ref(..)) {
+    if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
         return types::I128;
     }
     if let Ty::Atomic(element) = ty {

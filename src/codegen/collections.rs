@@ -13,7 +13,7 @@ impl Lowerer<'_, '_> {
     /// Normalizes a negative `index` as Python does and checks it against
     /// `length`, as the runtime's `index` does; an index out of bounds traps
     /// with the runtime's message and this site.
-    fn list_index(
+    pub(super) fn list_index(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -48,7 +48,7 @@ impl Lowerer<'_, '_> {
     /// The row count of the live scalar list `owner`, read through
     /// `list_layout`: a scalar row uses its declared width, and a popped
     /// row stays stored until the next mutation.
-    fn scalar_list_len(
+    pub(super) fn scalar_list_len(
         &mut self,
         owner: cranelift_codegen::ir::Value,
         element: &Ty,
@@ -491,6 +491,9 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::Clist(op) = operation {
             return self.lower_clist(op);
         }
+        if self.lower_view(operation)? {
+            return Ok(());
+        }
         if let CollectionOp::KeyView(owner) = operation {
             let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
             let value = self.reference_word(reference);
@@ -733,9 +736,12 @@ impl Lowerer<'_, '_> {
         // With only text and scalar operands, the dispatcher runs no Plenty
         // code and reads the texts without keeping them, so a text copy that
         // is still held by its source is read in place (issue #387).
-        let reads_in_place = inputs
-            .iter()
-            .all(|input| *input == Ty::Str || input.is_numeric() || *input == Ty::Bool);
+        let reads_in_place = inputs.iter().all(|input| {
+            *input == Ty::Str
+                || input.is_numeric()
+                || *input == Ty::Bool
+                || *input == crate::frontend::text_view()
+        });
         let mut values = Vec::new();
         let mut held = Vec::new();
         for input in inputs.iter().rev() {

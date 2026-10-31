@@ -58,6 +58,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.typed`](http-typed.md) | Typed head parsing and writes, fixed/chunked/close-delimited bodies, and guarded connection recovery with concrete causes and progress | `FramingError[E]`, `Partial[E]` |
 | [`std.http.websocket`](websocket.md) | RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` client, bounded framed messages, pings and the closing handshake | `WebSocketError` |
 | [`std.http.wss`](websocket.md#wss) | `std.http.websocket` clients for `wss` URLs through [`std.tls`](tls.md) | `WebSocketError` |
+| [`std.image`](image.md) | Owned 8-bit pixel buffers, bounded PNG decoding and encoding, cropping, colour conversion and resizing | `ImageError` |
 | [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
@@ -66,6 +67,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.markdown`](markdown.md) | CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, and output limits | `MarkdownError` |
 | [`std.template`](template.md) | Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance | `TemplateError` |
 | [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |
+| [`std.mime`](mime.md) | Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table | `ParseError`, `AllocError` |
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
 | [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |
 | [`std.process`](process.md) | Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping | `IoError`, `StreamError` |

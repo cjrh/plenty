@@ -27,6 +27,11 @@ dropped, following the [error rules](../../language/08-errors/index.md).
 from fields, with Python format specs checked at compile time; fields without
 a spec use the same spellings as `print`.
 
+A [`@redacted`](../../language/03-types/classes.md#redacted-types) class or
+enum formats as its type name followed by `(@redacted)` in `str.repr`, `print`,
+f-string fields with any conversion or spec, and `main`'s error report, at any
+nesting depth. The marker uses the same checked buffer as ordinary formatting.
+
 Automatic formatting rejects stored recursive types even when an individual value
 is shallow. Print selected scalar fields or write an explicit traversal.
 A top-level closure, generator or scoped task, and sums that hold one (for example

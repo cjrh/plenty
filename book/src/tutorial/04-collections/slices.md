@@ -68,8 +68,10 @@ def main() -> Result[(), AllocError | IoError]:
 [[1, 2, 99], [3]]
 ```
 
-Copying costs time and memory in proportion to the selected elements. When you
-only need to read some elements once, loop over their positions instead:
+Copying costs time and memory in proportion to the selected elements. To read
+elements without copying them, borrow them as a slice view, `&scores[1:]`, which
+the [element borrowing lesson](element-borrows.md#borrow-part-of-a-list)
+introduces. A loop over their positions also avoids the copy:
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
@@ -105,7 +107,11 @@ café
 !éfac
 ```
 
+To read part of a string without copying it, borrow it as `&word[:4]`, which
+the [element borrowing lesson](element-borrows.md#borrow-part-of-a-string)
+introduces.
+
 The step must not be zero. A literal `0` is a compile error, and a computed step
 is converted with `NonZero.try_from(step)?`, which reports zero as an error. The
 [slice reference](../../design/language/04-expressions/slices.md) covers steps,
-tuples, bytes, and columnar lists.
+tuples, bytes, columnar lists, and views.

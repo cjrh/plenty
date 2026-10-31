@@ -276,6 +276,7 @@ enum Verifier:
     Ed25519(Bytes)
 
 # A key bound to one algorithm. Tokens are signed only with that algorithm.
+@redacted
 pub class SigningKey:
     _algorithm: Algorithm
     _material: Signer
@@ -298,6 +299,7 @@ pub class SigningKey:
 
 # A key bound to one algorithm. A token verifies only if its header names
 # that algorithm; the header never selects the algorithm.
+@redacted
 pub class VerifyingKey:
     _algorithm: Algorithm
     _material: Verifier

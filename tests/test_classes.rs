@@ -520,6 +520,52 @@ print("after").unwrap()
     );
 }
 
+/// Issue #599: a method on an element or field of a temporary borrows it in
+/// place, so the temporary still destroys it at the end of the statement.
+/// Under `--all-features` the allocation-checks runtime also checks at exit
+/// that every name was released.
+#[test]
+fn methods_on_temporary_projections_drop_the_temporary() {
+    run(
+        r#"
+class Point:
+    x: i64
+    name: str
+    def get(self) -> i64:
+        self.x
+    def bump(self: &mut Point) -> i64:
+        self.x += 1
+        self.x
+    def label(self) -> &str:
+        &self.name
+    def __del__(self: &mut Point) -> ():
+        print("drop", self.name).unwrap()
+class Pair:
+    point: Point
+class Holder:
+    items: list[Point]
+    def all(self) -> &list[Point]:
+        &self.items
+print([Point(1, "a")].unwrap()[0].x).unwrap()
+print([Point(2, "b")].unwrap()[0].get()).unwrap()
+print([Point(3, "c"), Point(4, "d")].unwrap()[1].get()).unwrap()
+print([Point(5, "e")].unwrap()[0].bump()).unwrap()
+print([Point(6, "f")].unwrap()[0].label()).unwrap()
+print([[Point(7, "g")].unwrap()].unwrap()[0][0].get()).unwrap()
+print({"k": Point(8, "h")}.unwrap()["k"].get()).unwrap()
+print((Point(9, "i"), 0)[0].get()).unwrap()
+print(Pair(Point(10, "j")).point.get()).unwrap()
+if [Point(11, "k")].unwrap()[0].get() == 11:
+    print("condition").unwrap()
+h = Holder([Point(12, "l")].unwrap())
+print(h.all()[0].get()).unwrap()
+print("end").unwrap()
+"#,
+        "1\ndrop a\n2\ndrop b\n4\ndrop c\ndrop d\n6\ndrop e\nf\ndrop f\n7\ndrop g\n\
+         8\ndrop h\n9\ndrop i\n10\ndrop j\ndrop k\ncondition\n12\nend\ndrop l\n",
+    );
+}
+
 #[test]
 fn list_iteration_moves_and_drops_each_element() {
     run(

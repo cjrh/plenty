@@ -23,7 +23,9 @@ adapters or an intermediate collection.
 Sources follow the [ordinary iteration rules](01-iterables.md): owned
 collections and generators move into the pipeline; borrowed collections retain
 their loan. Integer ranges use counted loops. Text, bytes and collection views
-keep their ordinary item types.
+keep their ordinary item types. A [slice view](../04-expressions/slices.md#slice-views)
+keeps its owner's loan and yields `&T`, or `&mut T` for an exclusive view, as
+in `iter(&xs[1:4]).filter(even).count()`.
 
 A source may be a reference-returning call, such as `iter(owner.column())`.
 The call runs once during construction; its owner stays borrowed until the

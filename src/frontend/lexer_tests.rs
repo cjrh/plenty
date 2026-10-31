@@ -219,8 +219,123 @@ fn words_and_numbers_keep_their_spelling_and_columns() {
             (Kind::Symbol("="), 1, 3),
             (text("é"), 1, 5),
             (Kind::Symbol("+"), 1, 9),
-            (Kind::Number("0x1F".into()), 1, 11),
+            (Kind::Number("31".into()), 1, 11),
             (Kind::Newline, 1, 19),
         ]
     );
+}
+
+fn number(s: &str) -> Kind {
+    Kind::Number(s.into())
+}
+
+/// Hexadecimal, octal, and binary literals reach the parser in decimal with
+/// their suffix, so later stages read one integer spelling (issue #563).
+#[test]
+fn radix_integers_lex_as_decimal() {
+    for (source, decimal) in [
+        ("0x1F", "31"),
+        ("0X1f", "31"),
+        ("0x1F1E6", "127462"),
+        ("0xFFu8", "255u8"),
+        ("0x1E", "30"),
+        ("0xffff_ffffu32", "4294967295u32"),
+        ("0o17", "15"),
+        ("0O17i16", "15i16"),
+        ("0b1010", "10"),
+        ("0B1_0000_0000u16", "256u16"),
+        ("0x0", "0"),
+    ] {
+        assert_eq!(
+            lex(source).unwrap(),
+            [number(decimal), Kind::Newline, Kind::Eof],
+            "{source}"
+        );
+    }
+    assert_eq!(
+        lex("0x10.bit_count()").unwrap()[..3],
+        [number("16"), Kind::Symbol("."), word("bit_count")]
+    );
+}
+
+#[test]
+fn malformed_radix_integers_are_rejected() {
+    for (source, error) in [
+        ("0x", "`0x` needs at least one hexadecimal digit"),
+        ("0bu8", "`0b` needs at least one binary digit"),
+        ("0b102", "invalid digit `2` in a binary literal"),
+        ("0o8", "invalid digit `8` in an octal literal"),
+        ("0xFG", "invalid digit `G` in a hexadecimal literal"),
+        ("0b1f32", "invalid digit `f` in a binary literal"),
+        ("0x1u7", "invalid integer suffix"),
+        ("0x_1", "invalid integer separator"),
+        ("0x1_", "invalid integer separator"),
+        ("0x1__0", "invalid integer separator"),
+        ("0x1_u8", "invalid integer separator"),
+        (
+            "0x1_0000_0000_0000_0000_0000_0000_0000_0000",
+            "integer literal out of range",
+        ),
+    ] {
+        assert_eq!(
+            lex(source).unwrap_err(),
+            format!("1:1: {error}"),
+            "{source}"
+        );
+    }
+}
+
+/// `\u{H...}` names one Unicode scalar in string and f-string text, in the
+/// spelling `!a` writes (issue #564).
+#[test]
+fn unicode_escapes_decode_in_strings() {
+    for (source, decoded) in [
+        (r#""e\u{301}""#, "e\u{301}"),
+        (r#"'\u{1F600}\u{0}'"#, "\u{1F600}\0"),
+        (r#""\u{10ffff}""#, "\u{10ffff}"),
+        (r#""""a\u{200d}b""""#, "a\u{200d}b"),
+    ] {
+        assert_eq!(
+            lex(source).unwrap(),
+            [text(decoded), Kind::Newline, Kind::Eof],
+            "{source}"
+        );
+    }
+    match &lex(r#"f"\u{e9}{x}""#).unwrap()[0] {
+        Kind::Format(parts) => {
+            assert_eq!(parts[0], super::fstrings::Part::Literal("\u{e9}".into()));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn malformed_unicode_escapes_are_rejected() {
+    let shape = "`\\u` needs 1 to 6 hexadecimal digits in braces, as in `\\u{200d}`";
+    for (source, error) in [
+        (r#"x = "ab\u200d""#, format!("1:8: {shape}")),
+        (r#""\u{}""#, format!("1:2: {shape}")),
+        (r#""\u{1234567}""#, format!("1:2: {shape}")),
+        (r#""\u{12""#, format!("1:2: {shape}")),
+        (r#""\u{12x}""#, format!("1:2: {shape}")),
+        (r#"f"\u{g}""#, format!("1:3: {shape}")),
+        (
+            r#""\u{D800}""#,
+            "1:2: `\\u{D800}` is a surrogate code point, not a Unicode scalar value".into(),
+        ),
+        (
+            r#"f"\u{dfff}""#,
+            "1:3: `\\u{dfff}` is a surrogate code point, not a Unicode scalar value".into(),
+        ),
+        (
+            r#""\u{110000}""#,
+            "1:2: `\\u{110000}` is beyond the largest Unicode scalar value, `\\u{10ffff}`".into(),
+        ),
+        (
+            r#"b"\u{41}""#,
+            "1:3: unsupported escape \\u in a byte literal; a byte literal holds bytes, not scalars, so write the UTF-8 encoding with `\\xHH` escapes".into(),
+        ),
+    ] {
+        assert_eq!(lex(source).unwrap_err(), error, "{source}");
+    }
 }

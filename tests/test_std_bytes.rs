@@ -115,7 +115,7 @@ print(str.repr(truncated.to_text())?)?
         r#"
 4 0 True
 Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
-std.bytes.Bytes(_owner=b"a\x00\xc3\xa9\xff")
+b"a\x00\xc3\xa9\xff"
 [97, 0, 195, 169, 255]
 True 4 4
 Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
@@ -125,6 +125,52 @@ Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
 
 /// Issue #375: `to_text_range` converts a range without an intermediate
 /// `Bytes`, with the same range rule and UTF-8 check as `slice` + `to_text`.
+/// `Bytes`, `bytes`, and `&[u8]` print as one byte literal that reads back as
+/// the same bytes, with no private field in the spelling (issue #596).
+#[test]
+fn printing_spells_a_byte_literal_that_reads_back() {
+    let printed = output(&program(
+        r#"
+mut every = std.bytes.with_capacity(256)?
+for value in range(256):
+    every.push(u8(value))?
+print(every)?
+"#,
+    ));
+    let expected = (0..=255u8)
+        .map(|byte| match byte {
+            b'\\' => r"\\".to_string(),
+            b'"' => r#"\""#.to_string(),
+            b'\n' => r"\n".to_string(),
+            b'\r' => r"\r".to_string(),
+            b'\t' => r"\t".to_string(),
+            0x20..=0x7e => char::from(byte).to_string(),
+            _ => format!("\\x{byte:02x}"),
+        })
+        .collect::<String>();
+    assert_eq!(printed, format!("b\"{expected}\""));
+    let reread = output(&program(&format!(
+        r#"
+mut every = std.bytes.with_capacity(256)?
+for value in range(256):
+    every.push(u8(value))?
+print(every == std.bytes.from_bytes({printed})?)?
+"#
+    )));
+    assert_eq!(reread, "True");
+    native(
+        r#"
+buffer = std.bytes.from_bytes(b"a\tb\r\n")?
+print(buffer, b"a\tb\r\n", &buffer[1:3])?
+print(str.repr(Some(std.bytes.from_text("x")?))?, [std.bytes.from_text("y")?]?)?
+"#,
+        r#"
+b"a\tb\r\n" b"a\tb\r\n" b"\tb"
+Option[std.bytes.Bytes].Some(b"x") [b"y"]
+"#,
+    );
+}
+
 #[test]
 fn text_ranges_validate_the_range_and_its_utf8() {
     native(
@@ -420,23 +466,32 @@ fn missing_byte_index_traps_with_the_list_message() {
 }
 
 #[test]
-fn iteration_yields_bytes_and_references_to_copies() {
-    native(
+fn iteration_yields_bytes_and_references_into_the_buffer() {
+    // Issue #594: `&buffer` and `&mut buffer` loop over a view of the whole
+    // buffer, as `&buffer[:]` does, so `&mut u8` writes reach the buffer.
+    let source = program(
         r#"
-buffer = std.bytes.from_text("abc")?
+mut buffer = std.bytes.from_text("abc")?
+for value in &mut buffer:
+    *value += 1u8
 mut seen = list[u8]()?
 for value in &buffer:
     seen.append(*value)?
 for value in reversed(&buffer):
     seen.append(*value)?
 print(seen)?
+shout(&mut buffer)
+print(buffer.to_text()?)?
 mut total = 0
 for value in buffer:
     total += i64(value)
 print(total)?
 "#,
-        "[97, 98, 99, 99, 98, 97]\n294",
     );
+    let source = format!(
+        "{source}\ndef shout(text: &mut Bytes) -> ():\n    for value in text:\n        *value -= 32u8\n"
+    );
+    assert_eq!(output(&source), "[98, 99, 100, 100, 99, 98]\nBCD\n201");
 }
 
 #[test]
@@ -446,8 +501,12 @@ fn byte_index_and_iteration_misuse_is_rejected() {
         assert!(error.contains(expected), "{body}\n{error}");
     };
     check(
-        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    pass",
-        "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
+        "buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    pass",
+        "mutable borrowing requires a mut binding",
+    );
+    check(
+        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    buffer.push(1u8)?",
+        "conflicting borrow",
     );
     check(
         "buffer = std.bytes.from_text(\"abc\")?\nbuffer[0] = 1u8",

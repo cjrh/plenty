@@ -18,87 +18,89 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 103-175
-- [`std.actor.net`](#stdactornet): 177-240
-- [`std.actor.tls`](#stdactortls): 242-271
-- [`std.archive`](#stdarchive): 273-339
-- [`std.atomic`](#stdatomic): 341-350
-- [`std.bytes`](#stdbytes): 352-447
-- [`std.cache.lru`](#stdcachelru): 449-471
-- [`std.channel`](#stdchannel): 473-477
-- [`std.cli`](#stdcli): 479-509
-- [`std.cli.fileinput`](#stdclifileinput): 511-520
-- [`std.cli.progress`](#stdcliprogress): 522-546
-- [`std.collections`](#stdcollections): 548-575
-- [`std.complex`](#stdcomplex): 577-603
-- [`std.compress`](#stdcompress): 605-635
-- [`std.concurrent`](#stdconcurrent): 637-641
-- [`std.crypto`](#stdcrypto): 643-724
-- [`std.csv`](#stdcsv): 726-789
-- [`std.dataframe`](#stddataframe): 791-990
-- [`std.db.kv`](#stddbkv): 992-1024
-- [`std.db.sqlite`](#stddbsqlite): 1026-1090
-- [`std.deque`](#stddeque): 1092-1106
-- [`std.diff`](#stddiff): 1108-1137
-- [`std.encoding`](#stdencoding): 1139-1200
-- [`std.env`](#stdenv): 1202-1216
-- [`std.error`](#stderror): 1218-1238
-- [`std.fmt`](#stdfmt): 1240-1293
-- [`std.fs`](#stdfs): 1295-1378
-- [`std.fs.dirs`](#stdfsdirs): 1380-1390
-- [`std.fs.watch`](#stdfswatch): 1392-1427
-- [`std.graph`](#stdgraph): 1429-1517
-- [`std.http`](#stdhttp): 1519-1588
-- [`std.http.body`](#stdhttpbody): 1590-1625
-- [`std.http.client`](#stdhttpclient): 1627-1737
-- [`std.http.cookie`](#stdhttpcookie): 1739-1771
-- [`std.http.files`](#stdhttpfiles): 1773-1786
-- [`std.http.https`](#stdhttphttps): 1788-1802
-- [`std.http.proxy`](#stdhttpproxy): 1804-1825
-- [`std.http.server`](#stdhttpserver): 1827-1912
-- [`std.http.sse`](#stdhttpsse): 1914-1933
-- [`std.http.tls`](#stdhttptls): 1935-1952
-- [`std.http.typed`](#stdhttptyped): 1954-1987
-- [`std.http.websocket`](#stdhttpwebsocket): 1989-2024
-- [`std.http.wss`](#stdhttpwss): 2026-2032
-- [`std.io`](#stdio): 2034-2114
-- [`std.io.typed`](#stdiotyped): 2116-2154
-- [`std.json`](#stdjson): 2156-2220
-- [`std.jwt`](#stdjwt): 2222-2269
-- [`std.log`](#stdlog): 2271-2338
-- [`std.markdown`](#stdmarkdown): 2340-2374
-- [`std.template`](#stdtemplate): 2376-2397
-- [`std.math`](#stdmath): 2399-2465
-- [`std.net`](#stdnet): 2467-2549
-- [`std.path`](#stdpath): 2551-2568
-- [`std.process`](#stdprocess): 2570-2616
-- [`std.random`](#stdrandom): 2618-2639
-- [`std.ready`](#stdready): 2641-2671
-- [`std.regex`](#stdregex): 2673-2726
-- [`std.report`](#stdreport): 2728-2751
-- [`std.secrets`](#stdsecrets): 2753-2779
-- [`std.shlex`](#stdshlex): 2781-2790
-- [`std.sketch`](#stdsketch): 2792-2830
-- [`std.sketch.xor`](#stdsketchxor): 2832-2843
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2845-2860
-- [`std.signal`](#stdsignal): 2862-2879
-- [`std.simd`](#stdsimd): 2881-2982
-- [`std.stat`](#stdstat): 2984-3017
-- [`std.plot`](#stdplot): 3019-3108
-- [`std.linalg`](#stdlinalg): 3110-3151
-- [`std.sync`](#stdsync): 3153-3162
-- [`std.system`](#stdsystem): 3164-3222
-- [`std.tempfile`](#stdtempfile): 3224-3256
-- [`std.test`](#stdtest): 3258-3300
-- [`std.text`](#stdtext): 3302-3321
-- [`std.thread`](#stdthread): 3323-3327
-- [`std.time`](#stdtime): 3329-3373
-- [`std.tls`](#stdtls): 3375-3457
-- [`std.toml`](#stdtoml): 3459-3508
-- [`std.unicode`](#stdunicode): 3510-3522
-- [`std.url`](#stdurl): 3524-3552
-- [`std.uuid`](#stduuid): 3554-3577
-- [`std.xml`](#stdxml): 3579-3612
+- [`std.actor`](#stdactor): 105-177
+- [`std.actor.net`](#stdactornet): 179-242
+- [`std.actor.tls`](#stdactortls): 244-273
+- [`std.archive`](#stdarchive): 275-341
+- [`std.atomic`](#stdatomic): 343-352
+- [`std.bytes`](#stdbytes): 354-449
+- [`std.cache.lru`](#stdcachelru): 451-473
+- [`std.channel`](#stdchannel): 475-479
+- [`std.cli`](#stdcli): 481-511
+- [`std.cli.fileinput`](#stdclifileinput): 513-522
+- [`std.cli.progress`](#stdcliprogress): 524-548
+- [`std.collections`](#stdcollections): 550-577
+- [`std.complex`](#stdcomplex): 579-605
+- [`std.compress`](#stdcompress): 607-637
+- [`std.concurrent`](#stdconcurrent): 639-643
+- [`std.crypto`](#stdcrypto): 645-726
+- [`std.csv`](#stdcsv): 728-791
+- [`std.dataframe`](#stddataframe): 793-992
+- [`std.db.kv`](#stddbkv): 994-1026
+- [`std.db.sqlite`](#stddbsqlite): 1028-1092
+- [`std.deque`](#stddeque): 1094-1108
+- [`std.diff`](#stddiff): 1110-1139
+- [`std.encoding`](#stdencoding): 1141-1202
+- [`std.env`](#stdenv): 1204-1218
+- [`std.error`](#stderror): 1220-1240
+- [`std.fmt`](#stdfmt): 1242-1301
+- [`std.fs`](#stdfs): 1303-1386
+- [`std.fs.dirs`](#stdfsdirs): 1388-1398
+- [`std.fs.watch`](#stdfswatch): 1400-1435
+- [`std.graph`](#stdgraph): 1437-1525
+- [`std.http`](#stdhttp): 1527-1596
+- [`std.http.body`](#stdhttpbody): 1598-1633
+- [`std.http.client`](#stdhttpclient): 1635-1745
+- [`std.http.cookie`](#stdhttpcookie): 1747-1779
+- [`std.http.files`](#stdhttpfiles): 1781-1794
+- [`std.http.https`](#stdhttphttps): 1796-1810
+- [`std.http.proxy`](#stdhttpproxy): 1812-1833
+- [`std.http.server`](#stdhttpserver): 1835-1920
+- [`std.http.sse`](#stdhttpsse): 1922-1941
+- [`std.http.tls`](#stdhttptls): 1943-1960
+- [`std.http.typed`](#stdhttptyped): 1962-1995
+- [`std.http.websocket`](#stdhttpwebsocket): 1997-2032
+- [`std.http.wss`](#stdhttpwss): 2034-2040
+- [`std.image`](#stdimage): 2042-2088
+- [`std.io`](#stdio): 2090-2170
+- [`std.io.typed`](#stdiotyped): 2172-2210
+- [`std.json`](#stdjson): 2212-2276
+- [`std.jwt`](#stdjwt): 2278-2325
+- [`std.log`](#stdlog): 2327-2394
+- [`std.markdown`](#stdmarkdown): 2396-2430
+- [`std.template`](#stdtemplate): 2432-2453
+- [`std.math`](#stdmath): 2455-2521
+- [`std.mime`](#stdmime): 2523-2547
+- [`std.net`](#stdnet): 2549-2631
+- [`std.path`](#stdpath): 2633-2650
+- [`std.process`](#stdprocess): 2652-2698
+- [`std.random`](#stdrandom): 2700-2721
+- [`std.ready`](#stdready): 2723-2753
+- [`std.regex`](#stdregex): 2755-2808
+- [`std.report`](#stdreport): 2810-2833
+- [`std.secrets`](#stdsecrets): 2835-2861
+- [`std.shlex`](#stdshlex): 2863-2872
+- [`std.sketch`](#stdsketch): 2874-2912
+- [`std.sketch.xor`](#stdsketchxor): 2914-2925
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2927-2942
+- [`std.signal`](#stdsignal): 2944-2961
+- [`std.simd`](#stdsimd): 2963-3064
+- [`std.stat`](#stdstat): 3066-3099
+- [`std.plot`](#stdplot): 3101-3190
+- [`std.linalg`](#stdlinalg): 3192-3233
+- [`std.sync`](#stdsync): 3235-3244
+- [`std.system`](#stdsystem): 3246-3304
+- [`std.tempfile`](#stdtempfile): 3306-3338
+- [`std.test`](#stdtest): 3340-3382
+- [`std.text`](#stdtext): 3384-3403
+- [`std.thread`](#stdthread): 3405-3409
+- [`std.time`](#stdtime): 3411-3455
+- [`std.tls`](#stdtls): 3457-3539
+- [`std.toml`](#stdtoml): 3541-3590
+- [`std.unicode`](#stdunicode): 3592-3604
+- [`std.url`](#stdurl): 3606-3634
+- [`std.uuid`](#stduuid): 3636-3659
+- [`std.xml`](#stdxml): 3661-3694
 
 ## `std.actor`
 
@@ -1263,14 +1265,17 @@ class Formatter[W]
     writer: W
     def completed(self) -> i64
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]
     def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64) -> Result[(), FormatError]
     def integer(self: &mut Formatter[W], value: i64, width: i64) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]
     def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]
+    def substr_spec(self: &mut Formatter[W], value: &substr, spec: &Spec) -> Result[(), FormatError]
     def signed_spec(self: &mut Formatter[W], value: i64, spec: &Spec) -> Result[(), FormatError]
     def unsigned_spec(self: &mut Formatter[W], value: u64, spec: &Spec) -> Result[(), FormatError]
     def float_spec(self: &mut Formatter[W], value: f64, spec: &Spec) -> Result[(), FormatError]
@@ -1286,7 +1291,10 @@ def to_string[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, Forma
 def to_debug[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
 def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_string[T](value: &T) -> Result[str, FormatError]
+def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]
+def repr_view_string[T](value: &[T]) -> Result[str, FormatError]
 def debug_string(value: &str) -> Result[str, FormatError]
+def repr_substr_string(value: &substr) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]
@@ -2031,6 +2039,54 @@ def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &Cancellati
 def connect(url: &str, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]
 ```
 
+## `std.image`
+
+Owned 8-bit pixel buffers, bounded PNG decoding and encoding, cropping, colour conversion and resizing. Errors: `ImageError`. [Reference](image.md).
+
+```text
+enum ImageError
+    OutOfRange | Corrupt | Checksum | Truncated | Unsupported | LimitExceeded | Allocation(AllocError)
+enum ColorType
+    Gray | GrayAlpha | Rgb | Rgba
+    def channels(self) -> i64
+    def has_alpha(self) -> bool
+enum Format
+    Png | Jpeg | Gif | WebP
+enum Filter
+    Nearest | Bilinear
+class Limits
+    max_width: i64
+    max_height: i64
+    max_bytes: i64
+    def check(self, width: i64, height: i64, color: ColorType) -> Result[(), ImageError]
+def limits() -> Limits
+class Info
+    format: Format
+    width: i64
+    height: i64
+    color: ColorType
+    depth: i64
+    interlaced: bool
+class Image
+    def width(self) -> i64
+    def height(self) -> i64
+    def color(self) -> ColorType
+    def pixels(self) -> &Bytes
+    def into_pixels(self: Image) -> Bytes
+    def copy(self) -> Result[Image, ImageError]
+    def get(self, x: i64, y: i64, channel: i64) -> Result[u8, ImageError]
+    def set(self: &mut Image, x: i64, y: i64, channel: i64, value: u8) -> Result[(), ImageError]
+    def crop(self, x: i64, y: i64, width: i64, height: i64) -> Result[Image, ImageError]
+    def convert(self, color: ColorType) -> Result[Image, ImageError]
+    def resize(self, width: i64, height: i64, filter: Filter) -> Result[Image, ImageError]
+def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]
+def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) -> Result[Image, ImageError]
+def detect(data: &Bytes) -> Option[Format]
+def info(data: &Bytes) -> Result[Info, ImageError]
+def decode(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]
+def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]
+```
+
 ## `std.io`
 
 Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters. Errors: `StreamError`, `Partial`, `CopyError`, `CloseError`. [Reference](io.md).
@@ -2462,6 +2518,32 @@ def sum[T](items: &list[T], start: T) -> T
 def prod[T](items: &list[T], start: T) -> T
 def sum_iter[I, T](items: &I, start: T) -> T
 def prod_iter[I, T](items: &I, start: T) -> T
+```
+
+## `std.mime`
+
+Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table. Errors: `ParseError`, `AllocError`. [Reference](mime.md).
+
+```text
+class Param
+    name: str
+    value: str
+class MediaType
+    def type_name(self) -> &str
+    def subtype(self) -> &str
+    def params(self) -> &list[Param]
+    def param(self, name: &str) -> Option[str]
+    def suffix(self) -> Result[Option[str], AllocError]
+    def essence(self) -> Result[str, AllocError]
+    def is_wildcard(self) -> bool
+    def matches(self, pattern: &MediaType) -> bool
+    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
+    def remove_param(self: &mut MediaType, name: &str) -> bool
+    def format(self) -> Result[str, AllocError]
+def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
+def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
+def from_extension(extension: &str) -> Option[str]
+def from_file_name(name: &str) -> str
 ```
 
 ## `std.net`

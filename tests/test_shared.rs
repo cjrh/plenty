@@ -160,7 +160,7 @@ fn the_content_is_shared_only() {
 }
 
 #[test]
-fn handles_have_no_equality_formatting_or_copy() {
+fn handles_have_no_equality_formatting_or_top_level_copy() {
     for (body, message) in [
         (
             "b = h == g",
@@ -175,7 +175,7 @@ fn handles_have_no_equality_formatting_or_copy() {
         ("s = str.repr(h)?", "Shared owners cannot be formatted"),
         (
             "c = copy(h)?",
-            "values containing Shared owners cannot be copied; call share()",
+            "copy() does not take a Shared owner; call handle.share() for another owner of the same value",
         ),
     ] {
         rejects_body(
@@ -353,6 +353,15 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
         "a = Mutex(1)\nb = Mutex(2)\nwith a.lock() as x, b.lock() as y:\n    *x = *x + *y\ncells = [Mutex(3), Mutex(4)]?\nwith cells[0].lock() as x, cells[1].lock() as y:\n    *x = *x + *y\nprint(a.into_inner())?\nwith cells[0].lock() as x:\n    print(*x)?",
     );
     assert_eq!(output(&source), "3\n7");
+    // A negative tuple index names its resolved component (issue #583).
+    rejects_body(
+        "pair = (Mutex(1), Mutex(2))\nwith pair[1].lock() as x:\n    with pair[-1].lock() as y:\n        pass",
+        "`pair[1]` is already locked by an enclosing `with` block",
+    );
+    let source = program(
+        "pair = (Mutex(1), Mutex(2))\nwith pair[-2].lock() as x, pair[-1].lock() as y:\n    *x = *x + *y\nwith pair[0].lock() as x:\n    print(*x)?",
+    );
+    assert_eq!(output(&source), "3");
     // Distinct guarded types may nest.
     let source = program(
         "a = Shared(Mutex(1))?\nb = Shared(Mutex[str](\"s\"))?\nwith a.lock() as x, b.lock() as y:\n    *x = *x + len(*y)\nwith a.lock() as x:\n    print(*x)?",
@@ -492,4 +501,180 @@ print("__test_small_live_heap__")?
         "\nclass Counted:\n    drops: Shared[Atomic[u64]]\n\n    def __del__(self: &mut Counted) -> ():\n        self.drops.fetch_add(1, Ordering.Relaxed)\n        pass\n\ndef main()",
     );
     assert_eq!(output(&source), "6\nfailed\n1");
+}
+
+/// `copy()` of a value that holds handles copies its owned parts and gives
+/// each nested handle another owner, as `share()` would (issue #582).
+const COPIES: &str = "
+class Holder:
+    name: str
+    hits: Shared[Atomic[u64]]
+
+enum Slot:
+    Empty
+    Held(Shared[Atomic[u64]])
+
+class Node:
+    value: i64
+    next: Option[Shared[Node]]
+
+def bump(hits: &Shared[Atomic[u64]]) -> ():
+    drop(hits.fetch_add(1, Ordering.Relaxed))
+";
+
+fn copies(body: &str) -> String {
+    program(body).replace("\ndef main()", &format!("\n{COPIES}\ndef main()"))
+}
+
+#[test]
+fn copy_shares_nested_handles_and_copies_owned_parts() {
+    let source = copies(
+        r#"
+hits = Shared[Atomic[u64]](Atomic(0))?
+pair = (["a"]?, hits.share())
+mut pair_copy = copy(pair)?
+pair_copy[0].append("b")?
+bump(&pair_copy[1])
+holder = Holder("h", hits.share())
+holder_copy = copy(holder)?
+bump(&holder_copy.hits)
+slot = Slot.Held(hits.share())
+slot_copy = copy(slot)?
+match &slot_copy:
+    case Slot.Held(h):
+        bump(h)
+    case Slot.Empty:
+        pass
+handles = [hits.share(), hits.share()]?
+handles_copy = copy(handles)?
+bump(&handles_copy[1])
+by_name = {"x": hits.share()}?
+by_name_copy = copy(by_name)?
+bump(&by_name_copy["x"])
+print(len(pair[0]), len(pair_copy[0]))?
+print(holder_copy.name)?
+print(hits.load(Ordering.Relaxed))?
+print(pair[1].load(Ordering.Relaxed))?
+"#,
+    );
+    assert_eq!(output(&source), "1 2\nh\n5\n5");
+}
+
+#[test]
+fn copied_handles_count_as_owners_of_one_value() {
+    // The destructor runs once, when the last of the original's and the
+    // copy's owners drops; the content was never duplicated.
+    let source = program(
+        r#"
+drops = Shared[Atomic[u64]](Atomic(0))?
+pair = (1, Shared(Noisy("one", drops.share()))?)
+copied = copy(pair)?
+drop(pair)
+print("original gone")?
+print(copied[1].label)?
+drop(copied)
+print(drops.load(Ordering.Relaxed))?
+"#,
+    );
+    assert_eq!(output(&source), "original gone\none\ndropped one\n1");
+}
+
+#[test]
+fn copy_stops_at_handles_in_recursive_shared_data() {
+    let source = copies(
+        r#"
+tail = Shared(Node(2, Nothing))?
+head = Node(1, Some(tail.share()))
+copied = copy(head)?
+match &copied.next:
+    case Some(next):
+        print(copied.value, next.value)?
+    case Nothing:
+        pass
+"#,
+    );
+    assert_eq!(output(&source), "1 2");
+}
+
+#[test]
+fn slices_share_handles_in_elements() {
+    let source = copies(
+        r#"
+hits = Shared[Atomic[u64]](Atomic(0))?
+handles = [hits.share(), hits.share(), hits.share()]?
+stepped = handles[::2]?
+tail = handles[1:]?
+bump(&stepped[1])
+bump(&tail[0])
+rows = [("a", hits.share()), ("b", hits.share())]?
+reversed = rows[::-1]?
+bump(&reversed[0][1])
+holders = [Holder("x", hits.share())]?
+copied = holders[:]?
+bump(&copied[0].hits)
+print(len(stepped), len(tail), reversed[0][0], copied[0].name)?
+print(hits.load(Ordering.Relaxed))?
+"#,
+    );
+    assert_eq!(output(&source), "2 2 b x\n4");
+}
+
+#[test]
+fn copy_rejections_still_apply_outside_handles() {
+    // A handle to content that copy() rejects is still shared: the content is
+    // not reached. Owned parts beside it are still checked.
+    let source = copies(
+        "drops = Shared[Atomic[u64]](Atomic(0))?\npair = (1, Shared(Noisy(\"n\", drops.share()))?)\nc = copy(pair)?\nprint(c[0])?",
+    );
+    assert_eq!(output(&source), "1\ndropped n");
+    rejects_body(
+        "drops = Shared[Atomic[u64]](Atomic(0))?\npair = (Noisy(\"n\", drops.share()), 1)\nc = copy(pair)?",
+        "this resource cannot be copied",
+    );
+    rejects_body(
+        "h = Shared(1)?\nr = &h\nc = copy(r)?",
+        "copy() does not take a Shared owner; call handle.share()",
+    );
+    rejects(
+        &format!(
+            "{HEADER}\n@copy\nclass Tagged:\n    hits: Shared[Atomic[u64]]\n\ndef main() -> ():\n    pass\n"
+        ),
+        "every field of a `@copy` class must copy",
+    );
+}
+
+/// Sharing a nested handle allocates nothing; a copy allocates only for its
+/// owned parts, and a failed copy releases the shares it took.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn copying_handles_allocates_only_owned_parts() {
+    let source = program(
+        r#"
+drops = Shared[Atomic[u64]](Atomic(0))?
+counted = Shared(Counted(drops.share()))?
+pair = (7, counted.share())
+print("__test_begin_no_allocations__")?
+c = copy(pair)?
+drop(c)
+print("__test_end_no_allocations__")?
+handles = [counted.share(), counted.share()]?
+print("__test_fail_allocations_after_0__")?
+match copy(handles):
+    case Ok(_):
+        print("copied")?
+    case Err(_):
+        print("failed")?
+print("__test_restore_allocations__")?
+drop(handles)
+drop(pair)
+drop(counted)
+print(drops.load(Ordering.Relaxed))?
+print("__test_small_live_heap__")?
+"#,
+    )
+    .replace(
+        "\ndef main()",
+        "\nclass Counted:\n    drops: Shared[Atomic[u64]]\n\n    def __del__(self: &mut Counted) -> ():\n        self.drops.fetch_add(1, Ordering.Relaxed)\n        pass\n\ndef main()",
+    );
+    assert_eq!(output(&source), "failed\n1");
 }

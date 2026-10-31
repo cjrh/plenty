@@ -197,6 +197,38 @@ print(word).unwrap()
 }
 
 #[test]
+fn unpacking_a_tuple_reference_borrows_each_field() {
+    native(
+        r#"
+def show(p: &(i64, str)) -> ():
+    n, s = p
+    print(*n, s).unwrap()
+def bump(p: &mut (i64, str)) -> ():
+    n, _ = p
+    *n += 1
+def swap(a: &mut i64, b: &mut i64) -> ():
+    t = *a
+    *a = *b
+    *b = t
+mut pair = (5, "five")
+a, b = &pair
+print(*a, b).unwrap()
+c, d = &mut pair
+*c += 1
+print(pair).unwrap()
+show(&pair)
+bump(&mut pair)
+print(pair).unwrap()
+mut both = (1, 2)
+x, y = &mut both
+swap(x, y)
+print(both).unwrap()
+"#,
+        "5 five\n(6, \"five\")\n6 five\n(7, \"five\")\n(2, 1)",
+    );
+}
+
+#[test]
 fn a_missing_index_traps_after_earlier_targets_are_assigned() {
     let output =
         support::run("mut items = [1].unwrap()\nmut a = 0\na, items[3] = 5, 6\nprint(a).unwrap()");
@@ -235,6 +267,20 @@ const SETUP: &str = "mut items = [1, 2, 3].unwrap()\nmut rows = [[1].unwrap(), [
 #[case(
     "loan = &items\nitems[0], items[1] = 1, 2\nprint(loan).unwrap()",
     "borrow"
+)]
+// A tuple reference unpacks into new reference bindings, never into
+// existing or reassignable ones.
+#[case(
+    "pair = (1, 2)\na, b = &pair",
+    "`a` is already bound; unpacking a tuple reference binds new names"
+)]
+#[case(
+    "pair = (1, 2)\nmut x, y = &pair",
+    "unpacking a tuple reference binds references that cannot be reassigned"
+)]
+#[case(
+    "mut pair = (1, 2)\nx, y = &mut pair\nprint(pair).unwrap()\n*x += 1",
+    "conflicting borrow"
 )]
 #[case(
     "mut f = def [&mut a, &mut items]() -> ():\n    a, items[0] = 2, 3",

@@ -786,6 +786,7 @@ impl TypeAliases {
                 facts: std::sync::OnceLock::new(),
                 variants,
                 restricted_storage: false,
+                redacted: declaration.redacted,
                 managed: true,
                 inline_range: false,
                 payload_bytes: std::sync::OnceLock::new(),

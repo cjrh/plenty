@@ -13,10 +13,45 @@ observes the receiver, takes constant time, and allocates nothing; use it to
 enforce a size limit before copying or encoding text. `str` has no `len`
 method, so the two counts cannot be confused at a call site.
 
+`s[a:b]?` copies the scalars from `a` to `b` into a new `str`;
+`&s[a:b]` borrows them in place as a `&substr`, which loops, compares, and
+searches without allocating. Both count bounds in scalars; see
+[substring views](../../language/04-expressions/slices.md#substring-views).
+
 String literals require no allocation. Results of at most seven UTF-8 bytes,
 including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does
 not change the public type or the result type of an operation.
+
+## Escapes
+
+String literals and f-string text accept the escapes `\0`, `\n`, `\r`, `\t`,
+`\\`, `\'`, `\"`, and `\u{H...}`. The last names one Unicode scalar by code
+point with 1 to 6 hexadecimal digits of either case, so invisible and combining
+scalars stay visible in source:
+
+```plenty
+def main() -> Result[(), IoError]:
+    print(len("e\u{301}"), "e\u{301}" == "é", "\u{1F600}".byte_len())?
+    Ok(())
+```
+```output
+2 False 4
+```
+
+It is the spelling the [`!a` conversion](../../language/04-expressions/format-strings.md)
+writes, so `!a` output pastes back into source as the same text. A surrogate
+(`\u{d800}` to `\u{dfff}`) or a value above `\u{10ffff}` is not a scalar and is
+rejected, as are `\u` without braces, an empty or longer digit run, and every
+other escape, including Python's `\x`, `\uXXXX`, `\U`, and `\N{...}`. A
+[byte literal](../../language/03-types/bytes.md) rejects `\u{...}`: it holds
+bytes, so write the UTF-8 encoding with `\xHH`.
+
+| Source | Diagnostic |
+| --- | --- |
+| `"\u200d"` | `` `\u` needs 1 to 6 hexadecimal digits in braces, as in `\u{200d}` `` |
+| `"\u{d800}"` | `` `\u{d800}` is a surrogate code point, not a Unicode scalar value `` |
+| `"\u{110000}"` | `` `\u{110000}` is beyond the largest Unicode scalar value, `\u{10ffff}` `` |
 
 ## Character lookup
 

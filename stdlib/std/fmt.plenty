@@ -146,6 +146,12 @@ pub class Formatter[W]:
                 self.emit(4)?
         Ok(())
 
+    # The text of a borrowed substring, `&s[a:b]`, written without a copy.
+    pub def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]:
+        for scalar in value:
+            self.text(&scalar)?
+        Ok(())
+
     pub def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]:
         if value:
             self.text("True")
@@ -219,25 +225,35 @@ pub class Formatter[W]:
     pub def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
         self.text("\"")?
         for scalar in value:
-            if scalar == "\"":
-                self.text("\\\"")?
-            elif scalar == "\\":
-                self.text("\\\\")?
-            elif scalar == "\n":
-                self.text("\\n")?
-            elif scalar == "\r":
-                self.text("\\r")?
-            elif scalar == "\t":
-                self.text("\\t")?
-            else:
-                code = ord(scalar).unwrap()
-                if code < 32u32 or (code >= 127u32 and code <= 159u32):
-                    self.text("\\u{")?
-                    self.unsigned(u64(code), 16, 0)?
-                    self.text("}")?
-                else:
-                    self.text(scalar)?
+            self.debug_scalar(&scalar)?
         self.text("\"")
+
+    # `debug_text` for a borrowed substring.
+    pub def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]:
+        self.text("\"")?
+        for scalar in value:
+            self.debug_scalar(&scalar)?
+        self.text("\"")
+
+    def debug_scalar(self: &mut Formatter[W], scalar: &str) -> Result[(), FormatError]:
+        if scalar == "\"":
+            self.text("\\\"")
+        elif scalar == "\\":
+            self.text("\\\\")
+        elif scalar == "\n":
+            self.text("\\n")
+        elif scalar == "\r":
+            self.text("\\r")
+        elif scalar == "\t":
+            self.text("\\t")
+        else:
+            code = ord(scalar).unwrap()
+            if code < 32u32 or (code >= 127u32 and code <= 159u32):
+                self.text("\\u{")?
+                self.unsigned(u64(code), 16, 0)?
+                self.text("}")
+            else:
+                self.text(scalar)
 
     # `!a`: the text with every non-ASCII scalar spelled `\u{hex}`, as
     # `debug_text` spells controls.
@@ -312,6 +328,31 @@ pub class Formatter[W]:
                 if taken == shown:
                     break
                 self.text(scalar)?
+                taken += 1
+        self.repeat_fill(&spec.fill, padding - before)
+
+    # `text_spec` for a borrowed substring.
+    pub def substr_spec(self: &mut Formatter[W], value: &substr, spec: &Spec) -> Result[(), FormatError]:
+        if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
+            return Err(FormatError.InvalidSpec)
+        mut shown = len(value)
+        if spec.precision >= 0 and spec.precision < shown:
+            shown = spec.precision
+        padding = spec.width - shown
+        mut before = 0
+        if spec.align == ">":
+            before = padding
+        elif spec.align == "^":
+            before = padding // 2
+        self.repeat_fill(&spec.fill, before)?
+        if shown == len(value):
+            self.substr(value)?
+        else:
+            mut taken = 0
+            for scalar in value:
+                if taken == shown:
+                    break
+                self.text(&scalar)?
                 taken += 1
         self.repeat_fill(&spec.fill, padding - before)
 
@@ -582,9 +623,30 @@ pub def repr_string[T](value: &T) -> Result[str, FormatError]:
         case Err(error):
             Err(FormatError.Bytes(BytesError.Allocation(error)))
 
+# The same spellings for a slice view, which a `&T` parameter cannot take:
+# a `&[u8]` as a `bytes` literal, any other view as a list.
+pub def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            output.text(&text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
+pub def repr_view_string[T](value: &[T]) -> Result[str, FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?
     output.debug_text(value)?
+    finish(&output)
+
+pub def repr_substr_string(value: &substr) -> Result[str, FormatError]:
+    mut output = string_formatter(9223372036854775807, 0)?
+    output.debug_substr(value)?
     finish(&output)
 
 pub def ascii_string(value: &str) -> Result[str, FormatError]:

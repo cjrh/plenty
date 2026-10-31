@@ -80,10 +80,11 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
         )));
     }
     if let Some(output) = sig.output.as_ref().filter(|ty| ty.carries_loan()) {
-        let Some(origin) = sig.inputs.iter().find(|ty| matches!(ty, Ty::Ref(..))) else {
+        let Some(origin) = sig.inputs.iter().find(|ty| references::lends(ty)) else {
             return Err(at.error(super::no_origin(output)));
         };
-        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true)) {
+        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true) | Ty::View(_, true))
+        {
             return Err(at.error(super::immutable_origin(output)));
         }
     }

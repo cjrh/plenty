@@ -1,8 +1,10 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
-//! above a declaration, such as `@copy` or `@newtype`. The set is closed; there are no user
-//! decorators. Names live after `@`, outside the value namespace, so `@copy`
-//! does not reserve the builtin `copy` function's name. See
-//! book/src/design/language/03-types/classes.md#copy-classes and
+//! above a declaration, such as `@copy`, `@newtype` or `@redacted`. The set
+//! is closed; there are no user decorators. Names live after `@`, outside the
+//! value namespace, so `@copy` does not reserve the builtin `copy` function's
+//! name. See
+//! book/src/design/language/03-types/classes.md#copy-classes,
+//! book/src/design/language/03-types/classes.md#redacted-types and
 //! book/src/design/language/04-expressions/operators.md#newtype-forwarding.
 use super::*;
 
@@ -12,6 +14,7 @@ use super::*;
 pub(super) enum Annotation {
     Copy,
     Newtype,
+    Redacted,
 }
 
 impl Annotation {
@@ -19,6 +22,7 @@ impl Annotation {
         match name {
             "copy" => Some(Self::Copy),
             "newtype" => Some(Self::Newtype),
+            "redacted" => Some(Self::Redacted),
             _ => None,
         }
     }
@@ -26,6 +30,14 @@ impl Annotation {
         match self {
             Self::Copy => "copy",
             Self::Newtype => "newtype",
+            Self::Redacted => "redacted",
+        }
+    }
+    /// The declarations this annotation applies to, for diagnostics.
+    pub(super) fn targets(self) -> &'static str {
+        match self {
+            Self::Redacted => "class and enum declarations",
+            Self::Copy | Self::Newtype => "class declarations",
         }
     }
 }
@@ -43,7 +55,7 @@ impl Parser {
             };
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the annotations are `@copy` and `@newtype`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype` and `@redacted`"
                 )));
             };
             if self.peek().kind != Kind::Newline {
@@ -66,8 +78,9 @@ impl Parser {
     pub(super) fn misplaced_annotations(&mut self, place: &str) -> Result<()> {
         if let Some((at, annotation)) = self.annotations()?.into_iter().next() {
             return Err(at.error(format!(
-                "`@{}` applies only to class declarations, not {place}",
-                annotation.name()
+                "`@{}` applies only to {}, not {place}",
+                annotation.name(),
+                annotation.targets()
             )));
         }
         Ok(())

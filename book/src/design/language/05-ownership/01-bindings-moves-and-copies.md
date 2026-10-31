@@ -15,7 +15,11 @@ A moved-from binding cannot be read until a permitted reassignment initializes i
 
 `copy(value)` observes its argument and returns `Result[T, AllocError]` containing
 an independent value. It recursively duplicates owned mutable contents;
-immutable strings can share storage. Copying does not supply mutable aliases.
+immutable strings can share storage. A nested
+[`Shared`](../../facilities/01-builtins/shared.md) handle is not duplicated:
+the copy holds another owner of the same content, as `share()` would.
+`copy(handle)` on a handle itself is rejected in favour of `handle.share()`.
+Copying does not supply mutable aliases.
 Generators, captured closures, recursive data, and types containing custom
 destruction cannot be copied. [Allocation](../08-errors/02-allocation-and-traps.md)
 and [destruction](07-destruction.md) describe failure and cleanup.

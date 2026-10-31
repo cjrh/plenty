@@ -88,9 +88,9 @@ result storage once, before copying; allocation failure returns
 
 A list element type that `copy()` rejects, such as `std.bytes.Bytes`, is a
 compile error. Transfer such elements out of an owned temporary with the
-[`slice()` method](../../facilities/01-builtins/lists.md#slices) instead. Element
-types that contain `Shared` fields are also rejected until `copy()` shares
-nested handles (issue #582).
+[`slice()` method](../../facilities/01-builtins/lists.md#slices) instead. A
+`Shared` handle in an element, as in `list[(str, Shared[T])]`, gains another
+owner, as [`copy()`](../05-ownership/01-bindings-moves-and-copies.md) does.
 
 A `bytes` literal slice gives an owned `std.bytes.Bytes`. Slice syntax makes the
 `Bytes` type available without an `import std.bytes` line; naming the type in a
@@ -107,6 +107,182 @@ copy the components instead.
 A clist receiver must be a named place, and the slice is subject to the same
 borrow checks as other [clist](../../facilities/01-builtins/clists.md) reads.
 
+## Slice views
+
+`&xs[a:b]` borrows the selected elements in place, and `&mut xs[a:b]` borrows
+them exclusively (issue #581). A view copies nothing and allocates nothing, so it
+needs no `?`. Use one to pass part of a list or buffer to a function:
+
+```plenty
+def total(values: &[i64]) -> i64:
+    mut sum = 0
+    for x in values:
+        sum += *x
+    sum
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4, 5]?
+    print(total(&xs[1:4]))?
+    tail = &mut xs[-2:]
+    tail[0] = 40
+    for x in &mut xs[:2]:
+        *x *= 10
+    print(xs)?
+    Ok(())
+```
+
+```output
+9
+[10, 20, 3, 40, 5]
+```
+
+The bounds clamp as for a copying slice, so a view is empty rather than out of
+range. A view selects adjacent elements, so it takes no step; copy every k-th
+element with `xs[a:b:k]?`.
+
+| Viewed value | Shared view | Exclusive view |
+| --- | --- | --- |
+| `list[T]` | `&[T]` | `&mut [T]` |
+| `std.bytes.Bytes` | `&[u8]` | `&mut [u8]` |
+| `bytes` | `&[u8]` | rejected: a literal is read-only |
+| A view | A narrower view | A narrower view of an exclusive view |
+| `Shared[list[T]]` | `&[T]` of the content | rejected: the content is shared |
+
+`&[T]` and `&mut [T]` are types: parameters and local annotations may name
+them. A list of `u8`, a `Bytes` buffer, and a `bytes` literal all give `&[u8]`,
+so one `&[u8]` parameter reads any of them. The viewed value must be a named
+place, such as `xs`, `self.items`, or `rows[0]`.
+
+| Operation | Meaning |
+| --- | --- |
+| `len(v)` | Number of elements in the view |
+| `v[i]` | Element `i` of the view, with list index rules: a negative index counts from the end, and an index outside the view traps |
+| `v[i] = x` | Replace element `i`; needs an exclusive view in a `mut` binding |
+| `&v[i]`, `&mut v[i]` | Reference to element `i` |
+| `&v[a:b]`, `&mut v[a:b]` | Narrower view; bounds count from the start of `v` |
+| `for x in v` | `&T` per element, or `&mut T` for an exclusive view; `reversed(v)` and `enumerate(v)` also work |
+| `iter(v)` | A [pipeline](../09-iteration/06-pipelines.md) over the elements, with the items of `for x in v` |
+| `v == w`, `v != w` | Equal lengths and equal elements; both sides are views of one element type |
+| `print(v)`, `str.repr(v)`, `f"{v}"` | The elements as a list, `[2, 3]`; a `&[u8]` as a `bytes` literal, `b"bc"` |
+
+```plenty
+def even(x: &i64) -> bool:
+    *x % 2 == 0
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2, 3, 4, 5]?
+    middle = &xs[1:4]
+    print(middle, iter(middle).filter(even).count())?
+    data = b"abc"
+    print(&data[1:])?
+    Ok(())
+```
+
+```output
+[2, 3, 4] 2
+b"bc"
+```
+
+A view prints as a reference does, through to its elements; a `Bytes` buffer
+itself keeps its own spelling. Other list operations, such as methods, `in`,
+`list(v)`, and copying slices of a view, are rejected. Copy from the owner,
+`xs[a:b]?`, for an owned value.
+
+### Views borrow their owner
+
+A view holds a loan of its run of elements in its owner: a shared view a
+shared loan, and an exclusive view an exclusive one, under the
+[borrowing rules](../05-ownership/02-borrowing.md). While a view is live, its
+owner cannot grow, shrink, move, or be reassigned, and `len(xs)` and `&xs`
+conflict with an exclusive view. Two views are disjoint when one stops where
+the other starts, at one literal or non-`mut` `i64` name, so `&mut xs[:m]` and
+`&mut xs[m:]` can both be live. Overlapping or unprovable ranges, such as
+`&mut xs[:3]` with `&xs[2:]`, conflict.
+[Disjoint slice views](../05-ownership/02-borrowing.md#disjoint-slice-views)
+states the full rule and why it is sound.
+
+A `&[T]` or `&mut [T]` parameter takes a view, `&xs[a:b]` or a view binding.
+A list is not converted to a view implicitly; pass the whole list as `&xs[:]`.
+A function with a view parameter may return a reference into it: the first
+reference or view parameter is the
+[origin](../05-ownership/04-returned-references.md) of a returned reference.
+Views may be passed to [scoped workers](../../facilities/03-concurrency/index.md).
+
+Views are local until stored references land (backlog B11). A view cannot be
+returned, stored in a class field, tuple, collection, or enum payload, or
+captured by an anonymous function. Return or store the bounds, or an owned copy.
+
+### Substring views
+
+`&s[a:b]` on a `str` borrows the selected text in place as a `&substr`
+(issue #595). Like other views it copies nothing, allocates nothing, and takes
+no `?`. Its bounds are those of the copying slice `s[a:b]?`: they count
+Unicode scalars, a negative bound counts from the end, and bounds outside the
+text clamp. A view therefore always starts and ends on a scalar boundary, and
+`s[a:b]? == &s[a:b]` for any `a` and `b`.
+
+```plenty
+def vowels(text: &substr) -> i64:
+    mut n = 0
+    for c in text:
+        if c in "aeiouéö":
+            n += 1
+    n
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "héllo, wörld"
+    word = &s[7:]
+    print(word, len(word), word.byte_len(), vowels(&s[:5]))?
+    print(word == "wörld", &s[:1] < word, "ör" in word, word.find("l"))?
+    for c in reversed(&word[1:3]):
+        print(c)?
+    owned = word[:2]?
+    print(owned)?
+    Ok(())
+```
+
+```output
+wörld 5 6 2
+True True True Option[i64].Some(3)
+r
+ö
+wö
+```
+
+`&substr` is a separate type from `&str`. A `&str` refers to a whole `str`,
+whose [representation](../../toolchain/02-architecture/values.md#strings)
+stores its byte length and scalar count ahead of the text, and every `str`
+operation reads them. A run inside a string has no such prefix, so a view
+holds the run's address and byte length instead. `substr` is only written as
+`&substr`; there is no owned `substr` and no `&mut substr`, since a `str` is
+immutable. A `&substr` parameter takes a view, `&s[a:b]` or a view binding;
+pass a whole string as `&s[:]`.
+
+| Operation | Meaning |
+| --- | --- |
+| `len(v)` | Number of scalars; scans the view's text, as positions do |
+| `v.byte_len()` | Number of UTF-8 bytes; constant time |
+| `v[i]` | Scalar `i` as a one-scalar `str`; a negative index counts from the end, and an index outside the view traps |
+| `&v[a:b]` | Narrower view; bounds count scalars from the start of `v` |
+| `v[a:b]?` | An owned copy of part of the view, `Result[str, AllocError]` |
+| `for c in v` | Each scalar as a one-scalar `str`; `reversed(v)`, `enumerate(v)`, and `iter(v)` also work |
+| `v == w`, `v != w`, `<`, `<=`, `>`, `>=` | Compare by Unicode scalar value, as `str` does; either side may be a `str` or a `&substr` |
+| `needle in v`, `needle not in v` | Substring membership; the needle is a `str` or a `&substr` |
+| `v.startswith(x)`, `v.endswith(x)` | Exact prefix or suffix; `x` is a `str` or a `&substr` |
+| `v.find(x)` | First matching scalar position within the view, or `Nothing` |
+| `print(v)`, `f"{v}"` | The text itself; `str.repr(v)` and `f"{v!r}"` quote it as a `str` |
+
+Each scalar a loop or index yields fits in a string's inline form, so these
+operations allocate nothing. Finding a bound, `len(v)`, `v[i]`, and `v.find(x)`
+scan the text before the position, as they do on a `str`. `str` methods other
+than those listed are not available on a view; copy it with `v[:]?` to use one.
+A `str` method does not take a `&substr` argument, and `v in s` for a `str`
+`s` is written `v in &s[:]`.
+
+A substring view borrows its string as other views borrow their owner: while
+it is live, the string cannot be reassigned or moved, and the view stays local
+until stored references land (backlog B11).
+
 ## Limits
 
 | Source | Diagnostic |
@@ -114,24 +290,27 @@ borrow checks as other [clist](../../facilities/01-builtins/clists.md) reads.
 | `ys: list[i64] = xs[1:]` | ``slice returns Result[list[i64], AllocError]; use `?` to propagate allocation failure`` |
 | `xs[::0]` | `slice step cannot be zero` |
 | `xs[::k]` with `k: i64` | ``slice step must be `NonZero[i64]`, not `i64` `` |
-| `&xs[1:3]`, `&mut xs[1:3]` | `borrowed slice views are not implemented yet; bind the copy first` |
+| `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
+| `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
+| `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
+| `total(&xs)` for `total(v: &[i64])` | ``this parameter takes a slice view, `&xs[a:b]`; pass a whole list or buffer as `&xs[:]` `` |
+| `x in v` for a view `v` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |
 | `t[n:]` on a tuple | `tuple slice bounds must be integer literals; the result type depends on them` |
 | `d[1:]` on a dict | `dict does not support slicing` |
 
 ```plenty-error
-def main() -> Result[(), AllocError]:
-    xs = [1, 2, 3]?
-    view = &xs[1:3]
-    Ok(())
+class Window:
+    rows: &[i64]
+
+def main() -> ():
+    pass
 ```
 
 ```error
-borrowed slice views are not implemented yet
+slice views cannot be stored in class fields yet (backlog B11)
 ```
 
-Borrowed views spelled `&xs[a:b]` are planned (issue #581, backlog B39); they
-need stored references (B11). First-class `slice(...)` values are not
-implemented. The [slice syntax proposal](../../../proposals/completed/slice-syntax.md)
+First-class `slice(...)` values are not implemented. The [slice syntax proposal](../../../proposals/completed/slice-syntax.md)
 records the design and alternatives.

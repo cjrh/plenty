@@ -495,6 +495,8 @@ mod tests {
         drop: None,
         wrapper: None,
         plan: None,
+        redacted: false,
+        transparent: false,
     };
 
     #[test]

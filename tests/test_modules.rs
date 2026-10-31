@@ -940,6 +940,64 @@ fn an_alias_cannot_enclose_a_module_path() {
     }
 }
 
+/// `from` imports declarations, never a module, and a module path is not a
+/// value (issue #587). The module is looked for only after an import fails;
+/// a name that is no module keeps the original diagnostic.
+#[test]
+fn from_cannot_import_a_module() {
+    let helpers = ("util/helpers.plenty", "pub def f() -> i64:\n    1\n");
+    let deep = ("a/b/c.plenty", "pub def g() -> i64:\n    2\n");
+    let module = |path: &str, binding: &str| {
+        format!(
+            "`from` imports declarations, and `{path}` is a module; use `import {path}` or `import {path} as {binding}`"
+        )
+    };
+    for (main, message) in [
+        (
+            "from util import helpers\n",
+            module("util.helpers", "helpers"),
+        ),
+        (
+            "from util import helpers as h\n",
+            module("util.helpers", "h"),
+        ),
+        ("from a.b import c\n", module("a.b.c", "c")),
+        ("from a import b\n", "loading `a`".to_string()),
+        ("from util import missing\n", "loading `util`".to_string()),
+        (
+            "from util.helpers import missing\n",
+            "`util.helpers.missing` is private or is not a declared export".to_string(),
+        ),
+    ] {
+        reject(
+            &[
+                helpers,
+                deep,
+                (
+                    "main.plenty",
+                    &format!("{main}def main() -> ():\n    pass\n"),
+                ),
+            ],
+            &message,
+        );
+    }
+    for (source, message) in [
+        ("from std import json\n", module("std.json", "json")),
+        ("from std.http import server\n", module("std.http.server", "server")),
+        ("from std import missing\n", "unknown standard library module `std`".to_string()),
+        ("from std.http import missing\n", "`std.http.missing` is private or is not a declared export".to_string()),
+        (
+            "import std.http\nimport std.http.server\ndef f() -> ():\n    x = std.http.server\n",
+            "`std.http.server` is a module, not a declaration; name one of its declarations, such as `std.http.server.".to_string(),
+        ),
+    ] {
+        let error = plenty::check_source(&format!("{source}def main() -> ():\n    pass\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&message), "expected {message:?}: {error}");
+    }
+}
+
 #[test]
 fn in_memory_api_never_searches_the_filesystem_for_imports() {
     for source in [

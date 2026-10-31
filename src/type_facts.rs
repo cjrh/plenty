@@ -21,7 +21,7 @@ pub struct Facts {
     /// Reaches an `Atomic`, which has no equality and no formatting: its
     /// value is only what one `load` observed.
     pub atomic: bool,
-    /// Reaches a `Shared` owner, which has no equality, formatting, or copy:
+    /// Reaches a `Shared` owner, which has no equality or formatting:
     /// several owners observe one value.
     pub shared: bool,
 }
@@ -42,7 +42,10 @@ impl Ty {
             return Facts {
                 affine: resource || matches!(self, Self::Atomic(_)),
                 copyable: !resource
-                    && !matches!(self, Self::Ref(..) | Self::KeyView(_) | Self::Atomic(_)),
+                    && !matches!(
+                        self,
+                        Self::Ref(..) | Self::KeyView(_) | Self::View(..) | Self::Atomic(_)
+                    ),
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
@@ -146,11 +149,28 @@ impl Ty {
         facts.depth = if facts.recursive { 1 } else { 1 + facts.depth };
         facts
     }
+    fn walk(&self) -> Facts {
+        self.walk_from(false)
+    }
+    /// Facts of what `copy()` duplicates: owned parts are copied, and each
+    /// nested `Shared` owner gains another owner as `share()` would, so content
+    /// behind a handle is neither copied nor reached. `copyable` says whether
+    /// `copy()` accepts the type and `recursive` whether owned parts recurse.
+    /// A `Shared` value itself is copyable here; `copy()` still rejects it at
+    /// the top level, where `share()` states the intent. See
+    /// book/src/design/facilities/01-builtins/shared.md.
+    pub fn copy_facts(&self) -> Facts {
+        let facts = self.facts();
+        if !facts.shared {
+            return facts;
+        }
+        self.walk_from(true)
+    }
     #[expect(
         clippy::mutable_key_type,
         reason = "nominal identities exclude definition cells"
     )]
-    fn walk(&self) -> Facts {
+    fn walk_from(&self, share_handles: bool) -> Facts {
         let mut facts = Facts {
             copyable: true,
             complete: true,
@@ -223,6 +243,10 @@ impl Ty {
                 Self::List(t) | Self::Set(t) | Self::Box(t) => {
                     facts.affine = true;
                     vec![(**t).clone()]
+                }
+                Self::Shared(_) if share_handles => {
+                    facts.affine = true;
+                    vec![]
                 }
                 Self::Shared(t) => {
                     facts.affine = true;
@@ -371,6 +395,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: OnceLock::new(),
             managed: OnceLock::new(),
         }
@@ -379,6 +404,7 @@ mod tests {
         EnumType {
             facts: OnceLock::new(),
             restricted_storage: false,
+            redacted: false,
             name: name.into(),
             variants: variants
                 .into_iter()

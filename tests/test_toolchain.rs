@@ -623,6 +623,79 @@ fn outputs_are_stripped_unless_no_strip_is_given() {
     }
 }
 
+/// Global flags must be removed before checking the compilation mode (#590).
+#[test]
+fn release_and_no_strip_are_order_independent() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("main.plenty"),
+        "def main() -> i32:\n    0\n",
+    )
+    .unwrap();
+    let permutations = [
+        ["--release", "--no-strip", "--compile", "main.plenty"],
+        ["--no-strip", "--release", "--compile", "main.plenty"],
+        ["--release", "--compile", "--no-strip", "main.plenty"],
+        ["--no-strip", "--compile", "--release", "main.plenty"],
+        ["--release", "--compile", "main.plenty", "--no-strip"],
+        ["--no-strip", "--compile", "main.plenty", "--release"],
+        ["--compile", "--release", "--no-strip", "main.plenty"],
+        ["--compile", "--no-strip", "--release", "main.plenty"],
+        ["--compile", "--release", "main.plenty", "--no-strip"],
+        ["--compile", "--no-strip", "main.plenty", "--release"],
+        ["--compile", "main.plenty", "--release", "--no-strip"],
+        ["--compile", "main.plenty", "--no-strip", "--release"],
+    ];
+    for binary in [env!("CARGO_BIN_EXE_plenty"), env!("CARGO_BIN_EXE_plentyc")] {
+        for args in permutations {
+            let program = temp.path().join("program");
+            success(
+                Command::new(binary)
+                    .current_dir(temp.path())
+                    .args(args)
+                    .arg("-o")
+                    .arg(&program)
+                    .output()
+                    .unwrap(),
+            );
+            let (names, symbols) = sections(&program);
+            assert!(symbols, "{binary} {args:?}: {names:?}");
+            success(Command::new(&program).output().unwrap());
+            std::fs::remove_file(program).unwrap();
+        }
+        // Normalization must not weaken either flag's mode restrictions.
+        for flags in [["--release", "--no-strip"], ["--no-strip", "--release"]] {
+            for (mode, diagnostic) in [
+                (
+                    "--check",
+                    "--release requires FILE, --compile, --fuzz, or --dump",
+                ),
+                (
+                    "--shared-library",
+                    "--release requires FILE, --compile, --fuzz, or --dump",
+                ),
+                (
+                    "--dump",
+                    "--no-strip requires --compile or --shared-library",
+                ),
+            ] {
+                let output = Command::new(binary)
+                    .current_dir(temp.path())
+                    .args(flags)
+                    .args([mode, "main.plenty"])
+                    .output()
+                    .unwrap();
+                assert!(!output.status.success(), "{binary} {flags:?} {mode}");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                assert!(
+                    stderr.contains(diagnostic),
+                    "{binary} {flags:?} {mode}: {stderr}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn check_all_methods_flag_is_documented_and_parsed_by_both_binaries() {
     // Issue #517.

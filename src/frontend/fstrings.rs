@@ -205,6 +205,15 @@ impl Lexer<'_> {
                     let escaped = self
                         .advance()
                         .ok_or_else(|| start.error("unterminated escape"))?;
+                    if escaped == 'u' {
+                        let (scalar, length) = super::unicode_escape(&self.source[self.pos..])
+                            .map_err(|e| at.error(e))?;
+                        for _ in 0..length {
+                            self.advance();
+                        }
+                        text.push(scalar);
+                        continue;
+                    }
                     text.push(
                         escape(escaped)
                             .ok_or_else(|| at.error(format!("unsupported escape \\{escaped}")))?,
@@ -964,23 +973,40 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        // A slice view is passed as itself to a `&[T]` parameter, since a view
+        // cannot be lent again. Which fields are views is fixed per site: a
+        // type argument cannot be a view.
+        let views: Vec<Lent> = values
+            .iter()
+            .map(|value| {
+                if self.is_text_view(value) {
+                    Lent::Text
+                } else if self.is_view(value) {
+                    Lent::View
+                } else {
+                    Lent::Reference
+                }
+            })
+            .collect();
         let name = symbol(at, target.is_some());
         if !self.generics.templates.contains_key(&name) {
-            let function = format_function(&name, template, target.is_some(), at);
+            let function = format_function(&name, template, target.is_some(), &views, at);
             self.generics.validate_template(&function, self.aliases)?;
             self.generics.retention.keep(&function.body);
             self.generics
                 .templates
                 .insert(name.clone(), Arc::new(function));
         }
-        // Every field is lent; a reference value is lent again.
+        // Every other field is lent; a reference value is lent again.
         let args: Vec<Expr> = target
             .into_iter()
-            .chain(
-                values
-                    .iter()
-                    .map(|value| unary(&value.at, "&", value.clone())),
-            )
+            .chain(values.iter().zip(&views).map(|(value, &lent)| {
+                if lent != Lent::Reference {
+                    value.clone()
+                } else {
+                    unary(&value.at, "&", value.clone())
+                }
+            }))
             .collect();
         self.generic_call(&name, None, &args, at, ops)
     }
@@ -996,10 +1022,12 @@ impl Lower<'_> {
     }
 
     /// A generated parameter `&T` with any further reference levels of `T`
-    /// removed, and `T` itself.
+    /// removed, and `T` itself. A `&[T]` parameter is the view itself.
     fn field_value(&self, value: &Expr, at: &Token) -> (Expr, Ty) {
-        let Some(Ty::Ref(mut ty, _)) = self.expression_type_hint(value) else {
-            unreachable!("generated f-string parameters are references")
+        let mut ty = match self.expression_type_hint(value) {
+            Some(Ty::Ref(ty, _)) => ty,
+            Some(view @ Ty::View(..)) => return (value.clone(), view),
+            _ => unreachable!("generated f-string parameters are references or views"),
         };
         let mut value = value.clone();
         while let Ty::Ref(inner, _) = &*ty {
@@ -1060,6 +1088,11 @@ impl Lower<'_> {
             t if self.has_method(t, wanted) => Category::Method,
             _ => Category::Repr,
         };
+        let (represent, repr_string) = if matches!(ty, Ty::View(..)) {
+            ("represent_view", "repr_view_string")
+        } else {
+            ("represent", "repr_string")
+        };
         let out = name(at, OUT);
         let out_mut = || unary(at, "&mut", name(at, OUT));
         let temporary =
@@ -1074,6 +1107,9 @@ impl Lower<'_> {
                 vec![text_value, spec_value(spec)],
             )
         };
+        if ty == text_view() {
+            return text_view_field(field, value, spec.as_ref(), &ty, &nested);
+        }
         if field.conversion == Conversion::Ascii {
             // Python's `ascii()`: the `!r` text with non-ASCII scalars escaped.
             let repr = match category {
@@ -1082,7 +1118,7 @@ impl Lower<'_> {
                     "to_debug",
                     vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
                 ),
-                _ => temporary("repr_string", vec![value]),
+                _ => temporary(repr_string, vec![value]),
             };
             return Ok(match &spec {
                 None => method(at, out, "ascii_text", vec![repr]),
@@ -1153,7 +1189,7 @@ impl Lower<'_> {
                     vec![scalar(), unary(at, "&", call(at, &fmt("spec"), vec![]))],
                 ),
                 Category::Method => call(at, &fmt(wanted), vec![value, out_mut()]),
-                Category::Repr => call(at, &fmt("represent"), vec![value, out_mut()]),
+                Category::Repr => call(at, &fmt(represent), vec![value, out_mut()]),
             });
         };
         Ok(match category {
@@ -1208,16 +1244,80 @@ impl Lower<'_> {
                 ),
                 spec,
             ),
-            Category::Repr => padded(temporary("repr_string", vec![value]), spec),
+            Category::Repr => padded(temporary(repr_string, vec![value]), spec),
         })
     }
 }
 
+/// The call that writes a `&substr` field: its text, as a `str` field
+/// writes, or with `!r` or `!a` the quoted spelling `str.repr` makes.
+fn text_view_field(
+    field: &Field,
+    value: Expr,
+    spec: Option<&Spec>,
+    ty: &Ty,
+    nested: &[Expr],
+) -> Result<Expr> {
+    let at = &field.at;
+    let out = || name(at, OUT);
+    let quoted = || {
+        unary(
+            at,
+            "&",
+            try_(call(at, &fmt("repr_substr_string"), vec![value.clone()])),
+        )
+    };
+    if let Some(spec) = spec {
+        spec.check(&Category::Text, ty, at)?;
+    }
+    let spec_value =
+        |spec: &Spec| unary(at, "&", call(at, &fmt("Spec"), spec.arguments(at, nested)));
+    Ok(match (field.conversion, spec) {
+        (Conversion::Ascii, None) => method(at, out(), "ascii_text", vec![quoted()]),
+        (Conversion::Ascii, Some(spec)) => method(
+            at,
+            out(),
+            "text_spec",
+            vec![
+                unary(
+                    at,
+                    "&",
+                    try_(call(at, &fmt("ascii_string"), vec![quoted()])),
+                ),
+                spec_value(spec),
+            ],
+        ),
+        (Conversion::Repr, None) => method(at, out(), "text", vec![quoted()]),
+        (Conversion::Repr, Some(spec)) => {
+            method(at, out(), "text_spec", vec![quoted(), spec_value(spec)])
+        }
+        (_, None) => method(at, out(), "substr", vec![value]),
+        (_, Some(spec)) => method(at, out(), "substr_spec", vec![value, spec_value(spec)]),
+    })
+}
+
+/// How the generated function an f-string calls takes one value.
+#[derive(Clone, Copy, PartialEq)]
+enum Lent {
+    Reference,
+    /// A slice view, as a `&[T]`.
+    View,
+    /// A `&substr`.
+    Text,
+}
+
 /// The generic function an f-string calls. It takes each field value, and
-/// each nested spec field's value, by reference. With `write`, its first
+/// each nested spec field's value, by reference, or as a view where
+/// `views` marks one. With `write`, its first
 /// parameter is the caller's formatter and it returns `Result[(), FormatError]`;
 /// otherwise it builds and returns a new `str`.
-fn format_function(symbol: &str, template: &Arc<Template>, write: bool, at: &Token) -> Function {
+fn format_function(
+    symbol: &str,
+    template: &Arc<Template>,
+    write: bool,
+    views: &[Lent],
+    at: &Token,
+) -> Function {
     let out = || name(at, OUT);
     let mut inputs = Vec::new();
     let mut type_params = Vec::new();
@@ -1253,6 +1353,7 @@ fn format_function(symbol: &str, template: &Arc<Template>, write: bool, at: &Tok
         });
     }
     let mut index = 0;
+    let mut views = views.iter();
     for piece in &template.pieces {
         match piece {
             Piece::Literal(literal) => body.push(statement(try_(method(
@@ -1264,13 +1365,18 @@ fn format_function(symbol: &str, template: &Arc<Template>, write: bool, at: &Tok
             Piece::Field(field) => {
                 let mut values = Vec::new();
                 for _ in 0..=field.nested.len() {
-                    let parameter = format!("__plenty_v{}", type_params.len());
-                    let ty = format!("__plenty_T{}", type_params.len());
-                    inputs.push((
-                        parameter.clone(),
-                        type_ref(at, "&", vec![type_ref(at, &ty, vec![])]),
-                    ));
-                    type_params.push((ty, None));
+                    let parameter = format!("__plenty_v{}", inputs.len());
+                    let ty = format!("__plenty_T{}", inputs.len());
+                    let lent = views.next().copied().unwrap_or(Lent::Reference);
+                    let input = match lent {
+                        Lent::Text => type_ref(at, "&", vec![type_ref(at, SUBSTR, vec![])]),
+                        Lent::View => type_ref(at, VIEW_TYPE, vec![type_ref(at, &ty, vec![])]),
+                        Lent::Reference => type_ref(at, "&", vec![type_ref(at, &ty, vec![])]),
+                    };
+                    inputs.push((parameter.clone(), input));
+                    if lent != Lent::Text {
+                        type_params.push((ty, None));
+                    }
                     values.push(name(&field.at, &parameter));
                 }
                 body.push(statement(try_(expr(

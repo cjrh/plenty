@@ -47,7 +47,18 @@ name both, so the later import is rejected with a diagnostic naming both
 imports; `import tz.zones as zones` binds the module without the clash. The
 same holds for a deeper path such as `tz.rules.dst` and a library member
 `rules`. `from tz import zones` imports only a declaration of the library,
-never the module beside it, since imports do not re-export.
+never the module beside it, since imports do not re-export. When the library
+declares no `zones` and `tz.zones` is a module, the diagnostic says that
+`from` imports declarations and suggests `import tz.zones` or
+`import tz.zones as zones`. The same applies to a local namespace directory
+(`from util import helpers`) and to `std` (`from std import json`).
+
+A module path is not a value. Using `tz.zones` (or `tz`) in an expression or
+type reports that it is a module and names one of its declarations, such as
+`tz.zones.offset`; a path that encloses an imported module, such as
+`tz.rules` with `import tz.rules.dst`, is reported as a module namespace. A
+missing member of an imported module, such as `tz.missing`, reports that it
+is private or is not a declared export.
 
 Canonical paths identify modules, so imports through different aliases or diamond
 dependencies preserve the same nominal types. Private declarations remain private
@@ -161,7 +172,8 @@ editing it rebuilds the program.
 
 Imports and aliases bind constants as values: `import std.math as math` permits
 `math.pi`, while `from std.math import pi` permits `pi`. Constants are not
-callables or mutable places. Private constants follow the same visibility
+callables or mutable places; brackets on a constant index it, as in `TABLE[n]`
+or `tables.TABLE[n:]`. Private constants follow the same visibility
 rules as private functions. A local binding may shadow an imported constant.
 Constant names share the declaration namespace with functions and types.
 

@@ -21,16 +21,26 @@ pub(super) fn lock_expression(manager: &Expr) -> Option<(&Expr, &[Expr])> {
 
 /// The written place a lock names, compared to find a relock in its own block.
 /// Dereferences are dropped: `*r` and `r` lock the same mutex. A computed
-/// index is `[?]`, which matches no other place.
-fn place_key(e: &Expr) -> Option<String> {
+/// index is `[?]`, which matches no other place; a tuple index is its resolved
+/// position, so `t[-1]` and `t[1]` of a pair match.
+fn place_key(lower: &Lower<'_>, e: &Expr) -> Option<String> {
     match &ungroup(e).kind {
         Expression::Name(name) => Some(name.clone()),
-        Expression::Member(base, field, _) => Some(format!("{}.{field}", place_key(base)?)),
-        Expression::Index(base, index) => match &ungroup(index).kind {
-            Expression::Number(n) => Some(format!("{}[{n}]", place_key(base)?)),
-            _ => Some(format!("{}[?]", place_key(base)?)),
-        },
-        Expression::Unary(op, base) if op == "*" => place_key(base),
+        Expression::Member(base, field, _) => Some(format!("{}.{field}", place_key(lower, base)?)),
+        Expression::Index(base, index) => {
+            let tuple = match lower.place_type(base) {
+                Some(Ty::Enum(t)) if t.tuple() => {
+                    slices::tuple_position(index, t.get().variants[0].fields.len()).ok()
+                }
+                _ => None,
+            };
+            match (tuple, &ungroup(index).kind) {
+                (Some(i), _) => Some(format!("{}[{i}]", place_key(lower, base)?)),
+                (None, Expression::Number(n)) => Some(format!("{}[{n}]", place_key(lower, base)?)),
+                _ => Some(format!("{}[?]", place_key(lower, base)?)),
+            }
+        }
+        Expression::Unary(op, base) if op == "*" => place_key(lower, base),
         _ => None,
     }
 }
@@ -59,7 +69,11 @@ impl Lower<'_> {
                 .is_none_or(|local| matches!(local.ty, Ty::Ref(..) | Ty::Shared(_))),
             Expression::Member(base, _, _) => self.aliasable(base),
             Expression::Index(base, index) => {
-                !matches!(ungroup(index).kind, Expression::Number(_)) || self.aliasable(base)
+                let literal = match self.place_type(base) {
+                    Some(Ty::Enum(t)) if t.tuple() => true,
+                    _ => matches!(ungroup(index).kind, Expression::Number(_)),
+                };
+                !literal || self.aliasable(base)
             }
             Expression::Unary(op, base) if op == "*" => {
                 matches!(self.place_type(base), Some(Ty::Shared(_))) || self.aliasable(base)
@@ -93,7 +107,7 @@ impl Lower<'_> {
                 "yield inside a mutex lock block would keep the lock held while the generator is suspended; release the lock before yielding",
             ));
         }
-        let place = place_key(base).ok_or_else(|| {
+        let place = place_key(self, base).ok_or_else(|| {
             base.at
                 .error("lock() requires a named mutex or a field of one")
         })?;

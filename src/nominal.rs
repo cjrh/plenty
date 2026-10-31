@@ -333,6 +333,7 @@ impl Clone for Ty {
             Self::Clist(t) => Self::Clist(Self::clone_child(t)),
             Self::Set(t) => Self::Set(Self::clone_child(t)),
             Self::KeyView(t) => Self::KeyView(Self::clone_child(t)),
+            Self::View(t, mutable) => Self::View(Self::clone_child(t), *mutable),
             Self::Dict(k, v) => Self::Dict(Self::clone_child(k), Self::clone_child(v)),
             Self::Box(t) => Self::Box(Self::clone_child(t)),
             Self::Shared(t) => Self::Shared(Self::clone_child(t)),
@@ -355,6 +356,7 @@ impl Clone for Ty {
             Self::F64 => Self::F64,
             Self::Unit => Self::Unit,
             Self::Str => Self::Str,
+            Self::Text => Self::Text,
             Self::ByteStr => Self::ByteStr,
             Self::File => Self::File,
             Self::Bool => Self::Bool,
@@ -390,6 +392,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -421,6 +424,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -446,6 +450,7 @@ mod tests {
             fallible_init: false,
             copy: false,
             forwards_operators: false,
+            redacted: false,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

@@ -183,3 +183,73 @@ for number, text in [(1, "one"), (2, "two")].unwrap():
         assert!(support::check_source(source).is_err(), "{source}");
     }
 }
+
+#[test]
+fn negative_tuple_indices_count_from_the_end() {
+    // Issue #583: `t[-k]` resolves at compile time to `t[len - k]`, and
+    // `t[-0]` is `t[0]` as in Python.
+    support::assert_stdout(
+        r#"
+t = (1, "two", 3.5)
+print(t[-1], t[-2], t[-3], t[-0], t[(-1)]).unwrap()
+nested = ((1, 2), ("a", (True, 9)))
+print(nested[-1][-1][-1], nested[0][-2], nested[-1][1][0]).unwrap()
+r = &t[-2]
+print(*r, len(t[-2])).unwrap()
+mut m = (10, [1, 2].unwrap())
+first = &mut m[-2]
+*first += 5
+items = &mut m[-1]
+items.append(3).unwrap()
+print(m, len(m[-1])).unwrap()
+"#,
+        "3.5 two 1 1 3.5\n9 1 True\ntwo 3\n(15, [1, 2, 3]) 3\n",
+    );
+}
+
+#[test]
+fn negative_tuple_index_loans_name_the_resolved_component() {
+    // `m[-1]` and `m[1]` are the same component of a pair; `m[-1]` and `m[0]`
+    // are distinct.
+    support::assert_stdout(
+        "mut m = ([1].unwrap(), [2].unwrap())\na = &mut m[-1]\nb = &mut m[0]\na.append(3).unwrap()\nb.append(4).unwrap()\nprint(m).unwrap()",
+        "([1, 4], [2, 3])\n",
+    );
+    let error = support::check_error(
+        "mut m = ([1].unwrap(), [2].unwrap())\na = &mut m[-1]\nb = &mut m[1]\na.append(3).unwrap()\nb.append(4).unwrap()",
+    );
+    assert!(error.contains("borrow"), "{error}");
+}
+
+#[test]
+fn tuple_index_errors_state_the_length() {
+    for (source, expected) in [
+        (
+            "t = (1, 2)\nprint(t[-3]).unwrap()",
+            "tuple index -3 is out of range for a tuple of length 2; valid indices are 0 to 1 and -1 to -2",
+        ),
+        (
+            "t = (1, 2)\nprint(t[2]).unwrap()",
+            "tuple index 2 is out of range for a tuple of length 2",
+        ),
+        (
+            "mut t = (1, 2)\nr = &mut t[-3]\n*r += 1",
+            "tuple index -3 is out of range for a tuple of length 2",
+        ),
+        (
+            "t = (1, 2)\nr = &t[-5]\nprint(*r).unwrap()",
+            "tuple index -5 is out of range for a tuple of length 2",
+        ),
+        (
+            "t = (1, 2)\ni = 1\nprint(t[-i]).unwrap()",
+            "tuple index must be an integer literal",
+        ),
+        (
+            "def pair() -> (i64, i64):\n    (1, 2)\nprint(pair()[-3]).unwrap()",
+            "tuple index -3 is out of range for a tuple of length 2",
+        ),
+    ] {
+        let error = support::check_error(source);
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}

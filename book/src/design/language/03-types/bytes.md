@@ -40,7 +40,8 @@ strings. Each rule has one form:
   character never stands for its UTF-8 encoding.
 - Escapes are those of string literals (`\0`, `\n`, `\r`, `\t`, `\\`, `\'`,
   `\"`) plus `\xHH`, exactly two hexadecimal digits of either case, for any
-  byte. `\u`, `\N`, and every other escape are errors.
+  byte. `\u{...}` is rejected with a hint to write the scalar's UTF-8 bytes
+  as `\xHH`; `\N` and every other escape are errors.
 - There are no other prefixes: no raw form (`rb`, `br`) because there are no raw
   strings, and no formatted form (`bf`, `fb`). Build formatted text with a
   string and convert it with `std.bytes.from_text`.
@@ -59,10 +60,11 @@ contents cannot change.
 | `len(value)`, `value.len()` | Number of bytes, `i64` |
 | `value[i]` | The byte at `i`, `u8`; list index rules: negative counts from the end, a missing index stops the program with `index out of bounds` |
 | `value[a:b:c]` | A [slice](../04-expressions/slices.md): `Result[std.bytes.Bytes, AllocError]`, a new owned buffer; no import needed |
+| `&value[a:b]` | A shared [slice view](../04-expressions/slices.md#slice-views), `&[u8]`, of the selected bytes; no copy |
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
 | `x in value` | Whether the `u8` `x` occurs |
 | `==`, `!=` | Content equality with another `bytes` |
-| `print(value)` | The literal spelling, printable ASCII with `\xhh` for every other byte |
+| `print(value)` | The literal spelling, which reads back as the same bytes: printable ASCII, `\\`, `\"`, `\n`, `\r`, `\t`, and `\xhh` for every other byte; see [printing bytes](../../stdlib/bytes.md#printing) |
 
 `bytes` values can be elements, set members, dictionary keys, class fields, and
 enum payloads, and can be captured and passed to scoped threads. `len` is the

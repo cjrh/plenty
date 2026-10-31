@@ -250,7 +250,7 @@ impl Lower<'_> {
     ) -> Result<String> {
         if actual
             .iter()
-            .any(|ty| !matches!(ty, Ty::Ref(..)) && ty.contains_reference())
+            .any(|ty| !matches!(ty, Ty::Ref(..) | Ty::View(..)) && ty.contains_reference())
         {
             return Err(at.error("pass a borrowing closure by reference"));
         }
@@ -368,11 +368,16 @@ impl Lower<'_> {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 loans.push(loan);
                 ty
+            } else if let Ty::View(_, mutable) = expected {
+                let text = *expected == text_view();
+                let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;
+                loans.push(loan);
+                ty
             } else {
                 self.expr_expected(arg, Some(expected.clone()), ops)?
                     .ok_or_else(|| arg.at.error("expected a generator argument, got ()"))?
             };
-            if !matches!(ty, Ty::Ref(..)) && ty.contains_reference() {
+            if !matches!(ty, Ty::Ref(..) | Ty::View(..)) && ty.contains_reference() {
                 return Err(arg.at.error("pass a borrowing closure by reference"));
             }
             self.same(Some(ty.clone()), Some(expected.clone()), &arg.at)?;

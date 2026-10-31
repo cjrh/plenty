@@ -233,14 +233,6 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     let mut check = plenty::CheckOptions::default();
     if let Some(index) = args.iter().position(|a| a == "--check-all-methods") {
         args.remove(index);
-        // Compiling would need the unused bodies' code or a separate cache
-        // entry; checking is where a library author asks for this.
-        if !args
-            .first()
-            .is_some_and(|a| a == "--check" || a == "--check-module")
-        {
-            return Err("--check-all-methods requires --check or --check-module".into());
-        }
         check.all_methods = true;
     }
     let mut dump = plenty::DumpOptions::default();
@@ -260,6 +252,24 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     }
     if let Some(index) = args.iter().position(|a| a == "--release") {
         args.remove(index);
+        options.optimize = true;
+    }
+    if let Some(index) = args.iter().position(|a| a == "--no-strip") {
+        args.remove(index);
+        options.strip = false;
+    }
+    // Validate modes only after removing standalone options, so their order
+    // cannot hide the selected mode (issue #590).
+    if check.all_methods
+        && !args
+            .first()
+            .is_some_and(|a| a == "--check" || a == "--check-module")
+    {
+        // Compiling would need the unused bodies' code or a separate cache
+        // entry; checking is where a library author asks for this.
+        return Err("--check-all-methods requires --check or --check-module".into());
+    }
+    if options.optimize {
         let compiles = match args.as_slice() {
             [source] => !source.starts_with('-'),
             [flag, ..] => flag == "--compile" || flag == "--fuzz" || flag == "--dump",
@@ -268,17 +278,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         if !compiles {
             return Err("--release requires FILE, --compile, --fuzz, or --dump".into());
         }
-        options.optimize = true;
     }
-    if let Some(index) = args.iter().position(|a| a == "--no-strip") {
-        args.remove(index);
-        if !args
+    if !options.strip
+        && !args
             .first()
             .is_some_and(|a| a == "--compile" || a == "--shared-library")
-        {
-            return Err("--no-strip requires --compile or --shared-library".into());
-        }
-        options.strip = false;
+    {
+        return Err("--no-strip requires --compile or --shared-library".into());
     }
     if dump_options && !args.first().is_some_and(|a| a == "--dump") {
         return Err("--dump-std and --dump-filter require --dump".into());

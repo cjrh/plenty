@@ -630,6 +630,10 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         Ty::Range(t) => (Some("range".into()), vec![t]),
         Ty::Generator(t) => (Some("Generator".into()), vec![&t.element]),
         Ty::Ref(t, mutable) => (Some(if *mutable { "&mut" } else { "&" }.into()), vec![t]),
+        Ty::View(t, mutable) => (
+            Some(if *mutable { MUT_VIEW_TYPE } else { VIEW_TYPE }.into()),
+            vec![t],
+        ),
         Ty::Enum(t) if t.is_option() => (
             Some("Option".into()),
             vec![&t.local().variants[1].fields[0]],
@@ -814,6 +818,9 @@ fn infer_inner(
         }
         (Some("dict"), Ty::Dict(k, v)) => Some(vec![k, v]),
         (Some("&"), Ty::Ref(t, false)) | (Some("&mut"), Ty::Ref(t, true)) => Some(vec![t]),
+        (Some(VIEW_TYPE), Ty::View(t, false)) | (Some(MUT_VIEW_TYPE), Ty::View(t, true)) => {
+            Some(vec![t])
+        }
         (Some("Option"), Ty::Enum(t)) if t.is_option() => {
             Some(vec![&t.local().variants[1].fields[0]])
         }
@@ -1091,6 +1098,16 @@ impl Lower<'_> {
                     ops,
                 )?);
                 expected
+            } else if matches!(pattern.name.as_deref(), Some(VIEW_TYPE | MUT_VIEW_TYPE)) {
+                let mutable = pattern.name.as_deref() == Some(MUT_VIEW_TYPE);
+                let (ty, loan) = self.view_argument(arg, mutable, false, ops)?;
+                if ty == text_view() {
+                    return Err(arg.at.error(
+                        "a `&[T]` parameter takes a list or buffer view; `&s[a:b]` is a `&substr`, which a `&substr` parameter takes",
+                    ));
+                }
+                loans.push(loan);
+                ty
             } else if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
                 let (ty, loan) =
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;

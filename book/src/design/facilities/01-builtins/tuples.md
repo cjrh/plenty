@@ -1,6 +1,7 @@
 # Tuple operations
 
-Tuples provide fixed component access with a nonnegative integer literal index.
+Tuples provide fixed component access with an integer literal index; negative
+literals count from the end, so `t[-1]` is the last component.
 Construction, indexing, unpacking, and component-loan rules are defined in
 [tuple types](../../language/03-types/tuples.md).
 

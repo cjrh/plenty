@@ -24,6 +24,8 @@ mod test_arithmetic_errors;
 
 #[path = "test_record_walks.rs"]
 mod test_record_walks;
+#[path = "test_redacted.rs"]
+mod test_redacted;
 #[path = "test_std_dataframe.rs"]
 mod test_std_dataframe;
 #[path = "test_std_linalg.rs"]
@@ -164,6 +166,8 @@ mod test_dictionary_removal;
 mod test_dictionary_snapshots;
 #[path = "test_dictionary_views.rs"]
 mod test_dictionary_views;
+#[path = "test_disjoint_views.rs"]
+mod test_disjoint_views;
 #[path = "test_distribution.rs"]
 mod test_distribution;
 #[path = "test_dump.rs"]
@@ -289,6 +293,8 @@ mod test_list_ordering;
 mod test_list_queries;
 #[path = "test_list_removal.rs"]
 mod test_list_removal;
+#[path = "test_literal_forms.rs"]
+mod test_literal_forms;
 #[path = "test_loop_counter_ranges.rs"]
 mod test_loop_counter_ranges;
 #[path = "test_loops.rs"]
@@ -418,6 +424,8 @@ mod test_slicing;
 
 #[path = "test_slice_syntax.rs"]
 mod test_slice_syntax;
+#[path = "test_slice_views.rs"]
+mod test_slice_views;
 #[path = "test_small_conveniences.rs"]
 mod test_small_conveniences;
 #[path = "test_stack_overflow.rs"]
@@ -492,6 +500,8 @@ mod test_std_http_shared_client;
 mod test_std_http_sse;
 #[path = "test_std_http_websocket.rs"]
 mod test_std_http_websocket;
+#[path = "test_std_image.rs"]
+mod test_std_image;
 #[path = "test_std_io.rs"]
 mod test_std_io;
 #[path = "test_std_json.rs"]
@@ -506,6 +516,8 @@ mod test_std_log;
 mod test_std_markdown;
 #[path = "test_std_math.rs"]
 mod test_std_math;
+#[path = "test_std_mime.rs"]
+mod test_std_mime;
 #[path = "test_std_net.rs"]
 mod test_std_net;
 #[path = "test_std_plot.rs"]
@@ -561,6 +573,8 @@ mod test_stdlib_index;
 mod test_storage_diagnostics;
 #[path = "test_stored_closures.rs"]
 mod test_stored_closures;
+#[path = "test_str_views.rs"]
+mod test_str_views;
 #[path = "test_symbol_references.rs"]
 mod test_symbol_references;
 #[path = "test_tail_abi.rs"]

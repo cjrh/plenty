@@ -5,8 +5,8 @@
 sequence; the [slices reference](../../design/language/04-expressions/slices.md)
 owns the contract. Shipped differently: tuple slices of affine components and
 slices of temporary clists are rejected; Python-style `copy()` of such
-components is not implemented. Element types containing `Shared` fields wait on
-issue #582. Remaining: borrowed views `&xs[a:b]` (issue #581, B39/B11),
+components is not implemented. Element types containing `Shared` fields copy
+with their handles shared since issue #582. Remaining: borrowed views `&xs[a:b]` (issue #581, B39/B11),
 negative tuple indices (issue #583), and first-class `slice(...)` values. The
 original text below was researched against local `main` at `f681a0d5` on
 2026-10-30; the [implementation and documentation plan](slice-syntax/plan.md)
@@ -322,10 +322,9 @@ length:
 An empty selection has the unit type `()`, which is also how Python spells the
 empty tuple. Components are duplicated with `copy()` semantics, so the
 `list[i64]` component is deep-copied and the source tuple is unchanged.
-Today tuple indexing accepts only nonnegative literals (`t[-1]` is rejected
-with `tuple index must be a nonnegative integer literal`); issue #583 makes
-indexing accept negative literals too, so indices and slice bounds follow the
-same rule.
+Tuple indexing originally accepted only nonnegative literals; issue #583 made
+it accept negative literals too, so indices and slice bounds follow the same
+rule.
 
 ### Columnar lists
 

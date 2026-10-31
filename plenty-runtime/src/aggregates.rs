@@ -34,6 +34,7 @@ mod record_tests;
 mod removal_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
+mod text_views;
 mod tls;
 mod watch;
 
@@ -64,6 +65,13 @@ pub(crate) struct Type {
     /// Layout facts the compiler records for a class with a record, so
     /// release and relocation can skip their field walks (issue #550).
     pub(crate) plan: Option<&'static Plan>,
+    /// A `@redacted` class or enum: rendering writes `name(@redacted)` and reads
+    /// nothing from the value. See
+    /// book/src/design/language/03-types/classes.md#redacted-types.
+    pub(crate) redacted: bool,
+    /// A wrapper that renders as its field alone: `std.bytes.Bytes` prints
+    /// as a byte literal. See book/src/design/stdlib/bytes.md#printing.
+    pub(crate) transparent: bool,
 }
 /// What releasing and moving a class record involves, precomputed from its
 /// field types. Mirrors `codegen::metadata::plan`.
@@ -81,8 +89,10 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 80);
+    assert!(size_of::<Type>() == 88);
     assert!(std::mem::offset_of!(Type, plan) == 72);
+    assert!(std::mem::offset_of!(Type, redacted) == 80);
+    assert!(std::mem::offset_of!(Type, transparent) == 81);
     assert!(size_of::<Plan>() == 24);
     assert!(std::mem::offset_of!(Plan, only_strings) == 16);
     assert!(std::mem::offset_of!(Plan, fixed) == 17);
@@ -94,6 +104,11 @@ const _: () = {
     assert!(size_of::<Variant>() == 32);
 };
 impl Type {
+    /// A plain string, whose bytes are its `print` spelling. A class over
+    /// `str` formats as the class instead.
+    fn raw_text(&self) -> bool {
+        self.kind == b's' && self.wrapper.is_none() && !self.redacted
+    }
     fn managed(&self) -> bool {
         self.kind == b'B'
             || matches!(
@@ -116,6 +131,7 @@ impl Type {
                     | b'Z'
                     | b'K'
                     | b'O'
+                    | b'W'
                     | b'J'
             )
     }
@@ -1043,7 +1059,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'U' => byte_storage::equal(a, b),
             b'Q' => clist::equal(a, b, ty),
-            b'O' => {
+            b'O' | b'W' => {
                 let (a, b) = (a as *const Boxed, b as *const Boxed);
                 let slot =
                     |boxed: *const Boxed| std::ptr::addr_of!((*boxed).slot).cast::<u128>().read();
@@ -1477,6 +1493,7 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             },
             b'L' | b'S' | b'D' => try_copy_collection(*value, ty),
             b'O' => try_copy_box(*value as *const Boxed, ty),
+            // A `Shared` owner (`W`) gains another owner, as `share()` would.
             _ => return try_copy_shared(value, ty),
         };
         match copied {
@@ -1639,7 +1656,16 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     if out.failed() {
         return;
     }
+    if ty.redacted {
+        out.extend_from_slice(ty.name.as_bytes());
+        out.extend_from_slice(b"(@redacted)");
+        return;
+    }
     if let Some(wrapper) = ty.wrapper {
+        if ty.transparent {
+            unsafe { render(value, wrapper.fields[0], out) };
+            return;
+        }
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
         out.extend_from_slice(wrapper.name.as_bytes());
@@ -1681,9 +1707,9 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                     None => out.extend_from_slice(b"()"),
                 }
             }
-            b'O' => {
+            b'O' | b'W' => {
                 let boxed = value as *const Boxed;
-                out.extend_from_slice(b"Box(");
+                out.extend_from_slice(if ty.kind == b'O' { b"Box(" } else { b"Shared(" });
                 render(
                     std::ptr::addr_of!((*boxed).slot).cast::<u128>().read(),
                     ty.key(),
@@ -1737,6 +1763,17 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'U' => byte_storage::render(value, out),
             b'Q' => write!(out, "clist(len={})", clist::len(value)).unwrap(),
             b'y' => byte_storage::render_slice(strings::bytes(&(value as *const Text)), out),
+            // A `&[u8]` view: the low word addresses its first byte and the
+            // high word counts them. An empty view's address may be dangling.
+            b'T' => byte_storage::render_slice(
+                match (value >> 64) as usize {
+                    0 => &[],
+                    count => std::slice::from_raw_parts(value as u64 as *const u8, count),
+                },
+                out,
+            ),
+            b'V' => render_view(value, ty.key(), out),
+            b't' => crate::io::repr_text(text_views::text(value), false, out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1781,6 +1818,37 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     }
 }
 
+/// A slice view other than `&[u8]` prints as a list of its rows. The low word
+/// addresses the first row and the high word counts the rows.
+unsafe fn render_view(value: u128, element: &Type, out: &mut crate::render_buffer::Buffer) {
+    let rows = value as u64 as *const u8;
+    let count = (value >> 64) as usize;
+    // SAFETY: the compiler holds the view's loan through the call, so every
+    // named row is live; dense rows of `element` are `stride` bytes apart.
+    unsafe {
+        let stride = crate::list_layout::row_bytes(
+            element.kind,
+            element.inline_bytes as usize,
+            element.has_inline_range(),
+        );
+        out.push(b'[');
+        for i in 0..count {
+            if out.failed() {
+                break;
+            }
+            if i != 0 {
+                out.extend_from_slice(b", ");
+            }
+            render(
+                crate::entries::dense_element(rows.add(i * stride), element),
+                element,
+                out,
+            );
+        }
+        out.push(b']');
+    }
+}
+
 /// Narrow ABI: a live borrowed list owner, with no ownership transfer. Besides
 /// these helpers, generated code reads only the dense row fields named in
 /// `list_layout`, to index scalar lists inline.
@@ -1805,6 +1873,35 @@ pub(crate) unsafe extern "C" fn plenty_list_rows(owner: *mut u8) -> *mut u128 {
 pub(crate) unsafe extern "C" fn plenty_list_row_bytes(owner: *const u8) -> u64 {
     // SAFETY: the compiler keeps the list's owner alive through the call.
     unsafe { (*(owner.cast::<Collection>())).entries.row_bytes() as u64 }
+}
+
+/// Narrow ABI: whether two slice views of dense rows of `descriptor`'s type
+/// hold equal elements, compared as list equality compares rows. A view is the
+/// address of its first row and a row count; neither changes ownership.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_equal(
+    a: *const u8,
+    a_len: u64,
+    b: *const u8,
+    b_len: u64,
+    descriptor: *const Type,
+) -> u64 {
+    // SAFETY: the compiler holds both views' loans through the call, so every
+    // named row is live, and passes the element's static descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        let stride =
+            crate::list_layout::row_bytes(ty.kind, ty.inline_bytes as usize, ty.has_inline_range());
+        let same = a_len == b_len
+            && (0..a_len as usize).all(|i| {
+                equal(
+                    crate::entries::dense_element(a.add(i * stride), ty),
+                    crate::entries::dense_element(b.add(i * stride), ty),
+                    ty,
+                )
+            });
+        u64::from(same)
+    }
 }
 
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
@@ -1933,7 +2030,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
@@ -2078,6 +2175,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
         if matches!(op, 170..=183 | 188..=191 | 230..=239 | 248 | 280..=283) {
             let operands = read_operands::<5>(op, args);
             out.write(byte_storage::call(op, operands, descriptor, site));
+            return;
+        }
+        if (TEXT_VIEW_SUBVIEW..=TEXT_VIEW_SEARCH).contains(&op) {
+            let operands = read_operands::<5>(op, args);
+            out.write(text_views::call(op, operands, site));
             return;
         }
         if matches!(op, LIST_SLICE | TEXT_SLICE) {
@@ -2264,7 +2366,18 @@ pub(crate) unsafe fn collection_at(
                     crate::io::plenty_println(a as *const Text);
                     return wrap(0, 0);
                 }
-                if op == 111 && (*descriptor).kind == b's' && (*descriptor).wrapper.is_none() {
+                if op == 111 && (*descriptor).kind == b't' {
+                    // A `&substr` prints its text, as a string does.
+                    let mut stdout = std::io::stdout().lock();
+                    return crate::text_io::result(
+                        stdout
+                            .write_all(text_views::bytes(a))
+                            .and_then(|()| stdout.write_all(b"\n"))
+                            .map(|()| 0)
+                            .map_err(crate::text_io::Error::from),
+                    );
+                }
+                if op == 111 && (*descriptor).raw_text() {
                     // A string already has its final byte representation. Printing
                     // it needs no formatting buffer, including inside destructors. A
                     // newtype over str formats as the class instead.
@@ -2284,8 +2397,10 @@ pub(crate) unsafe fn collection_at(
                         if i != 0 {
                             out.push(b' ');
                         }
-                        if field.kind == b's' && field.wrapper.is_none() {
+                        if field.raw_text() {
                             out.extend_from_slice(strings::bytes(&(value as *const Text)));
+                        } else if field.kind == b't' {
+                            out.extend_from_slice(text_views::bytes(value));
                         } else {
                             render(value, field, &mut out);
                         }

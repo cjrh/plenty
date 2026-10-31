@@ -572,6 +572,28 @@ Result[str, std.jwt.JwtError].Err(Malformed)
 }
 
 #[test]
+fn keys_format_redacted() {
+    // `SigningKey` and `VerifyingKey` are `@redacted` (issue #586): no
+    // automatic formatting reveals an HMAC secret or private key, including
+    // inside a Result or list, or through an f-string conversion.
+    native(
+        r#"
+key = hs256()?
+print(key)?
+print(str.repr(std.jwt.hmac_verifying_key(Algorithm.Hs256, &secret()?))?)?
+print([es256_public()?]?)?
+print(f"{key!r} {key:>14}"?)?
+"#,
+        r#"
+std.jwt.SigningKey(@redacted)
+Result[std.jwt.VerifyingKey, std.jwt.JwtError].Ok(std.jwt.VerifyingKey(@redacted))
+[std.jwt.VerifyingKey(@redacted)]
+std.jwt.SigningKey(@redacted) std.jwt.SigningKey(@redacted)
+"#,
+    );
+}
+
+#[test]
 fn errors_format_through_std_report() {
     native(
         r#"

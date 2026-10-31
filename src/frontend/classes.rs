@@ -16,6 +16,8 @@ pub(super) struct ClassDecl {
     /// operators are lowered as if written at this token, in the class's
     /// own module; see `operators::Lower::forward_binary`.
     pub(super) newtype: Option<Token>,
+    /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
+    pub(super) redacted: bool,
 }
 
 impl ClassDecl {
@@ -36,6 +38,7 @@ impl ClassDecl {
             public_members: self.public_members.clone(),
             copy: self.copy.clone(),
             newtype: self.newtype.clone(),
+            redacted: self.redacted,
         }
     }
 }
@@ -132,6 +135,7 @@ impl Parser {
             public_members,
             copy: None,
             newtype: None,
+            redacted: false,
         })
     }
 }
@@ -166,6 +170,7 @@ impl ClassDecl {
             destructor,
             copy: self.copy.is_some(),
             forwards_operators: self.newtype.is_some(),
+            redacted: self.redacted,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         })))
@@ -1037,15 +1042,13 @@ impl Lower<'_> {
                     at: e.at.clone(),
                     kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
                 }),
-                Ty::List(element) | Ty::Dict(_, element) => Some((*element).clone()),
+                Ty::List(element) | Ty::Dict(_, element) | Ty::View(element, _) => {
+                    Some((*element).clone())
+                }
                 Ty::Enum(t) if t.tuple() => {
-                    let Expression::Number(n) = &ungroup(index).kind else {
-                        return None;
-                    };
-                    t.get().variants[0]
-                        .fields
-                        .get(n.parse::<usize>().ok()?)
-                        .cloned()
+                    let fields = &t.get().variants[0].fields;
+                    let i = slices::tuple_position(index, fields.len()).ok()?;
+                    Some(fields[i].clone())
                 }
                 _ => None,
             },
@@ -1305,6 +1308,11 @@ impl Lower<'_> {
         {
             return self.class_method(base, owner, name, Some(types), args, ops);
         }
+        if let Some((receiver, root)) = self.hold_receiver_root(base, ops)? {
+            let result = self.generic_method(&receiver, name, types, args, ops);
+            self.names.remove(&root);
+            return result;
+        }
         let observed = self.observe(base, ops)?;
         self.temporary_class_method(base, name, Some(types), args, observed, ops)
     }
@@ -1374,15 +1382,103 @@ impl Lower<'_> {
             kind: Expression::Name(receiver.clone()),
         };
         let result = self.class_method(&expr, owner, name, types, args, ops)?;
-        if matches!(result, Some(Ty::Ref(..))) {
-            return Err(base
-                .at
-                .error("reference-returning methods require a named receiver or class field"));
-        }
         self.names.remove(&receiver);
         self.expression_temps.push(slot);
+        // The result borrows the receiver slot, a full-expression temporary,
+        // so binding or returning it is rejected as for a temporary argument
+        // (issue #597). A receiver viewing other storage would end that loan
+        // here while the result still aliases it, so only receivers wholly
+        // held by full-expression temporaries may return references.
+        if result.as_ref().is_some_and(Ty::carries_loan)
+            && loans
+                .iter()
+                .any(|&loan| !self.expression_temps.contains(&self.loans[loan].root))
+        {
+            return Err(base.at.error(
+                "a temporary receiver that borrows other storage cannot lend a returned \
+                 reference; bind the receiver to a name first",
+            ));
+        }
         Self::end_reads(loans, ops);
         Ok(result)
+    }
+
+    /// Holds the temporary a method receiver projects from, such as the list
+    /// in `[Point(1, "a")]?[0].get()`, in a hidden binding, and returns the
+    /// receiver rewritten to project from that binding with the binding's
+    /// name. The method then borrows the element or field in place, as for a
+    /// named owner. An element view read out of the temporary and held in a
+    /// slot of its own would copy inline storage, splitting the instance so
+    /// its destructor never runs (issue #599).
+    ///
+    /// An owned temporary is dropped at the end of the full expression. A
+    /// reference result (`holder.items()[0]`) is bound like a named reference.
+    pub(super) fn hold_receiver_root(
+        &mut self,
+        base: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<(Expr, String)>> {
+        if self.place_type(base).is_some() {
+            return Ok(None);
+        }
+        let mut root = ungroup(base);
+        loop {
+            root = match &root.kind {
+                Expression::Index(inner, _) => ungroup(inner),
+                Expression::Member(inner, _, _) if self.qualified_type(inner)?.is_none() => {
+                    ungroup(inner)
+                }
+                _ => break,
+            };
+        }
+        if std::ptr::eq(root, ungroup(base))
+            || matches!(root.kind, Expression::Name(_) | Expression::Slice(..))
+            || self.place_type(root).is_some()
+            || self.is_pipeline(root)
+        {
+            return Ok(None);
+        }
+        let (ty, origin) = self.binding_value(root, None, ops)?;
+        let slot = self.slot(ty.clone(), &root.at)?;
+        let name = format!("__plenty_receiver_root_{slot}");
+        self.bind(
+            name.clone(),
+            Local {
+                slot,
+                ty,
+                mutable: origin.is_none(),
+            },
+        );
+        match origin {
+            Some(origin) => self.bind_reference(slot, origin, false, ops),
+            None => self.expression_temps.push(slot),
+        }
+        ops.push(Op::StoreLocal(slot));
+        Ok(Some((rebase(base, root, &name), name)))
+    }
+}
+
+/// `e` with the subexpression `root` replaced by the name `name`.
+fn rebase(e: &Expr, root: &Expr, name: &str) -> Expr {
+    if std::ptr::eq(e, root) {
+        return Expr {
+            at: e.at.clone(),
+            kind: Expression::Name(name.into()),
+        };
+    }
+    let kind = match &e.kind {
+        Expression::Group(inner) => Expression::Group(Box::new(rebase(inner, root, name))),
+        Expression::Index(inner, index) => {
+            Expression::Index(Box::new(rebase(inner, root, name)), index.clone())
+        }
+        Expression::Member(inner, field, at) => {
+            Expression::Member(Box::new(rebase(inner, root, name)), field.clone(), *at)
+        }
+        _ => unreachable!("receiver projection"),
+    };
+    Expr {
+        at: e.at.clone(),
+        kind,
     }
 }
 

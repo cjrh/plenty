@@ -48,7 +48,8 @@ Each key type is an opaque class for one algorithm. There is no conversion
 between them, no way to read a private key's material back out, and no way to
 use one as an HMAC key or Ed25519 seed. The constructors are private: a key
 exists only after an import function validated it. Keys cannot be copied.
-Printing a private key shows only an empty storage marker, never key material.
+Private keys are [redacted](../language/03-types/classes.md#redacted-types): printing one shows
+`std.crypto.RsaPrivateKey(@redacted)` or `std.crypto.P256PrivateKey(@redacted)`.
 
 | Type | Holds | Methods |
 |---|---|---|

@@ -13,7 +13,12 @@ single, double, or triple quotes; triple quotes permit physical newlines. The
 first standalone string in an indented function body is its documentation. Use
 `return "text"` when that first string should be the returned value. A `b`
 prefix makes a [byte literal](../03-types/bytes.md), `b"..."`, which holds ASCII
-characters and `\xHH` escapes.
+characters and `\xHH` escapes. Strings accept the
+[escapes](../../facilities/01-builtins/text.md#escapes) `\0`, `\n`, `\r`, `\t`,
+`\\`, `\'`, `\"`, and `\u{H...}` for a scalar by code point. Integer
+[literals](../03-types/numbers.md) are decimal, hexadecimal (`0xFF`), octal
+(`0o17`), or binary (`0b1010`), with optional `_` digit separators and width
+suffixes.
 
 Module scope contains functions, classes, enums, protocols, type aliases,
 [constants](modules.md#constants), static assertions, imports, and
@@ -25,7 +30,8 @@ Anonymous functions can appear in function bodies; see
 [functions](../06-functions/index.md).
 
 A line holding only `@name` annotates the declaration below it. The set of
-annotations is closed and compiler-known: `@copy` and `@newtype`, both on classes.
+annotations is closed and compiler-known: `@copy` and `@newtype` on classes,
+and `@redacted` on classes and enums.
 See [annotations](../03-types/classes.md#annotations).
 
 Names follow [lexical scope and prelude rules](names.md). Modules use

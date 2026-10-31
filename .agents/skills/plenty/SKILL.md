@@ -57,14 +57,21 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   (exclusive), or copy explicitly with `copy(x)?`. Iterating `&list[T]`
   yields `&T`; dereference with `*value`. `for x in owner` moves `owner`;
   write `for x in &self.items` to borrow.
-- Tuples: `pair = (3, "a")`, `pair[0]`, `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
+- Tuples: `pair = (3, "a")`, `pair[0]`, `pair[-1]` (literal indices only), `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
 - Methods that mutate declare `self: &mut ClassName`; bare `self` is a shared
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
   replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
   place. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
-  `NonZero.try_from(step)?`; `&xs[1:3]` and slice assignment are rejected.
+  `NonZero.try_from(step)?`. Slice assignment is rejected.
+- `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
+  `&mut [T]`, without copying: no `?`, no step. Pass a whole list to a
+  `&[T]` parameter as `&xs[:]`. `&s[1:3]` borrows part of a `str` as a
+  `&substr` (scalar positions, shared only); pass a whole string as `&s[:]`.
+  Views cannot be returned or stored.
+  `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
+  non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
 - No `**`, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an
@@ -82,6 +89,9 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
   value. Avoid `copy` unless two owners are needed.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
+- Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
+  and f-strings then show `ApiKey(@redacted)` at any depth, while field access is
+  unchanged. See [redacted types](../../../book/src/design/language/03-types/classes.md#redacted-types).
 
 See [errors](references/errors.md), [ownership](references/ownership.md), and
 [common diagnostics](references/diagnostics.md).

@@ -4,6 +4,23 @@ Unsuffixed integers default to `i64`; decimal or exponent literals default to
 `f64`. Width suffixes include `7u8`, `1f32`, `1.5f32`, and `1e-3f64`. Decimal forms
 such as `.5` and `1.` are accepted. Literals must fit their selected width.
 
+Integer literals may also be hexadecimal (`0x1F1E6`), octal (`0o755`), or
+binary (`0b1010`). The prefix letter and hexadecimal digits may be either case.
+These forms are always integers: they take the integer suffixes and range
+checks of decimal literals, as in `0xFFu8` and `-0x80i8`, and have no fraction,
+exponent, or float suffix, so `0x1f32` is the integer 7986. Any literal may
+separate digits with single underscores, as in `1_000_000` and `0xffff_ffff`;
+an underscore cannot lead, trail, repeat, or follow the prefix.
+
+| Source | Diagnostic |
+| --- | --- |
+| `0x` | `` `0x` needs at least one hexadecimal digit `` |
+| `0b102` | ``invalid digit `2` in a binary literal`` |
+| `0b1f32` | ``invalid digit `f` in a binary literal`` |
+| `0x1u7` | `invalid integer suffix` |
+| `0x_FF` | `invalid integer separator` |
+| `0x1FFu8` | `integer literal out of range for u8` |
+
 Annotations, parameters, returns, and typed arithmetic operands guide
 unsuffixed literals within an expression. Already typed values and suffixed
 literals must match exactly; no numeric widening occurs. Operands of different
