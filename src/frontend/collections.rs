@@ -451,8 +451,9 @@ impl Lower<'_> {
     /// `b = &r[1]`, or `&mut` ones for an exclusive `r`: each name borrows
     /// its element in place, as `for a, b in &pairs` needs.
     ///
-    /// A precise loan of `r` gives each name a loan of its own field. An
-    /// imprecise one, such as a loop element's, covers the whole owner, so
+    /// A precise loan of `r`, including a list or view loop element's, gives
+    /// each name a loan of its own field. An imprecise one, such as a
+    /// dictionary or set loop element's, covers the whole owner, so
     /// sibling field loans derived from it would conflict. The names then
     /// share one reborrow of `r`: their fields are disjoint, none of them can
     /// be retargeted, and the reborrow still conflicts with uses of `r`.
@@ -1776,6 +1777,17 @@ impl Lower<'_> {
         };
         if references {
             let loan = loans[0];
+            // Each element of a list or view borrows below the source loan at
+            // an unknown index, so distinct fields borrowed through one
+            // element are disjoint (issue #593). Other sources' elements
+            // cover the whole source.
+            let element = (self.loans[loan].precise && matches!(ty, Ty::List(_) | Ty::View(..)))
+                .then(|| {
+                    let (root, exclusive) = (self.loans[loan].root, self.loans[loan].mutable);
+                    let element = self.new_loan(root, exclusive, Some(loan), ops);
+                    self.refine_loan(element, crate::ownership::ANY_ELEMENT, ops);
+                    element
+                });
             self.loans[loan].precise = false;
             for op in ops.iter_mut() {
                 if let Op::Loan(fact) = op
@@ -1784,7 +1796,8 @@ impl Lower<'_> {
                     fact.precise = false;
                 }
             }
-            self.reference_locals.insert(plan.target, loan);
+            self.reference_locals
+                .insert(plan.target, element.unwrap_or(loan));
         } else if borrowed {
             // Text scalars and range elements are computed values. Their shared
             // reference points to an iteration-local slot, not into the source.

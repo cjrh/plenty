@@ -351,7 +351,7 @@ def main() -> Result[(), AllocError | IoError]:
     "conflicting borrow"
 )]
 #[case(
-    "mut xs = [1, 2].unwrap()\na = &mut xs[:1]\nb = &xs[1:]\na[0] = b[0]",
+    "mut xs = [1, 2].unwrap()\na = &mut xs[:2]\nb = &xs[1:]\na[0] = b[0]",
     "conflicting borrow"
 )]
 #[case(
