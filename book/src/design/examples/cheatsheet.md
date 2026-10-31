@@ -549,6 +549,11 @@ def main() -> Result[(), IoError]:
 | Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
 | A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `mut name` before the block and assign inside, or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
+| `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |
+| `"-" * 3` | `"-".repeat(3)?` |
+| `del xs[i]` | `xs.pop(i)`, which returns an `Option` |
+| `assert x` in a function | Return an error: `if not x: return Err(...)` |
+| `xs.sort(reverse=True)` | `xs.sort(True)` |
 
 Three of the most common rejections:
 

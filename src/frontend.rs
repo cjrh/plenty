@@ -2018,6 +2018,9 @@ impl Parser {
         let base = self.scratch_inputs.len();
         while !self.eat(")") {
             let param_at = self.peek().clone();
+            if param_at.is("*") {
+                return Err(param_at.error("variadic parameters (`*args`, `**kwargs`) are not supported; take a list parameter, such as `values: &list[i64]`"));
+            }
             let param = self.name()?;
             if captures.iter().any(|c| c.name == param) {
                 return Err(param_at.error("a parameter cannot shadow a closure capture"));
@@ -2234,12 +2237,39 @@ impl Parser {
             _ => None,
         }
     }
+    /// A Python statement keyword that Plenty does not reserve, recognized
+    /// only before another word on the same line, where no valid Plenty
+    /// statement could follow a name: `assert x`, `del xs[0]`, `global x`.
+    fn python_statement(&self) -> Option<&'static str> {
+        let Kind::Word(word) = &self.peek().kind else {
+            return None;
+        };
+        let next = self.token(self.pos + 1)?;
+        if !matches!(next.kind, Kind::Word(_)) || next.line != self.peek().line {
+            return None;
+        }
+        Some(match &**word {
+            "assert" => {
+                "Plenty has no run-time `assert` statement; return an error with `if not condition: return Err(...)`, or use `std.test.check(condition, message)?` in tests; a module-scope `assert` checks constants at compile time"
+            }
+            "del" => {
+                "`del` is not supported; remove a list element with `items.pop(index)` or a dictionary entry with `table.pop(key)`, and handle the returned Option"
+            }
+            "global" | "nonlocal" => {
+                "Plenty has no global variables; pass the value as a parameter, or declare a `const` at module scope"
+            }
+            _ => return None,
+        })
+    }
     fn statement(&mut self) -> Result<Stmt> {
         self.misplaced_annotations("statements")?;
         if let Some(keyword) = self.exception_statement() {
             return Err(self.peek().error(format!(
                 "`{keyword}` is not supported; Plenty has no exceptions: return `Result[T, E]`, propagate an error with `?`, and handle it with `match`"
             )));
+        }
+        if let Some(message) = self.python_statement() {
+            return Err(self.peek().error(message));
         }
         if self.peek().is("with") {
             let at = self.take();
@@ -2625,6 +2655,9 @@ impl Parser {
             }
             _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
             _ if at.is("None") => return Err(at.error(NONE_VALUE)),
+            Kind::Word(s) if unused_keyword(s).is_some() => {
+                return Err(at.error(unused_keyword(s).unwrap_or_default()));
+            }
             _ => return Err(at.error("expected an expression")),
         };
         let mut left = Expr { at, kind };
@@ -2765,6 +2798,9 @@ impl Parser {
                 self.peek().clone()
             };
             let Some((op, prec)) = binary(&token) else {
+                if token.is("is") && left.at.line == token.line {
+                    return Err(token.error(IS_OPERATOR));
+                }
                 break;
             };
             if prec < min {
@@ -3078,6 +3114,18 @@ fn bracketed(at: &Token, generic: Expression, index: Option<Expr>) -> Expression
         None => generic,
     }
 }
+/// The message for a reserved word that no Plenty construct uses yet.
+pub(crate) fn unused_keyword(word: &str) -> Option<&'static str> {
+    Some(match word {
+        "async" | "await" => {
+            "Plenty has no `async`/`await`; write an ordinary `def` and run concurrent work explicitly, such as on a `std.concurrent.ThreadPoolExecutor`"
+        }
+        "struct" => "Plenty has no `struct`; declare a `class` with typed fields",
+        "trait" => "Plenty has no `trait`; declare a `protocol`",
+        _ => return None,
+    })
+}
+const IS_OPERATOR: &str = "Plenty has no `is` operator; test an Option with `.is_none()` or `.is_some()`, or `match` it, and compare values with `==`";
 /// Defines the reserved-word list and a `reserved` test compiled to a match.
 /// The book's keyword list and the language server's completions are checked
 /// against `KEYWORDS`.
@@ -3466,6 +3514,9 @@ impl Lower<'_> {
         if op == "*" && matches!(a, Ty::List(_)) {
             return Err(left.at.error(LIST_REPETITION));
         }
+        if op == "*" && a == Ty::Str {
+            return Err(left.at.error(STR_REPETITION));
+        }
         self.same(Some(a), Some(ty.clone()), &left.at)?;
         let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
         if b.is_numeric() && b != ty && self.fixes_numeric_type(left, &ty) {
@@ -3473,6 +3524,9 @@ impl Lower<'_> {
         }
         if op == "*" && matches!(b, Ty::List(_)) {
             return Err(right.at.error(LIST_REPETITION));
+        }
+        if op == "*" && b == Ty::Str {
+            return Err(right.at.error(STR_REPETITION));
         }
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
@@ -3666,9 +3720,17 @@ impl Lower<'_> {
         let target = self.propagation_target(e)?;
         // A collection literal's error is always AllocError, so its context keeps
         // that error and the mismatch is reported below rather than as a missing `?`.
-        let literal = matches!(&ungroup(value).kind, Expression::Collection { kind, .. } if kind != "generator");
+        let literal = match &ungroup(value).kind {
+            Expression::Collection { kind, .. } if kind != "generator" => {
+                Some(FixedError::Collection)
+            }
+            Expression::Format(format) if matches!(**format, fstrings::Format::Literal(..)) => {
+                Some(FixedError::Format)
+            }
+            _ => None,
+        };
         let operand_context = expected.map(|ty| {
-            if literal {
+            if literal == Some(FixedError::Collection) {
                 crate::sum::result(ty, crate::sum::alloc_error())
             } else if target.is_option()
                 || matches!(&ungroup(value).kind, Expression::Call(name, _) if name == "Some")
@@ -3716,18 +3778,28 @@ impl Lower<'_> {
         }
     }
 
+    /// `literal` names an operand whose error type is fixed, such as a
+    /// collection literal's `AllocError`, so the diagnostic can say where the
+    /// error comes from.
     fn check_propagation(
         &mut self,
         e: &Expr,
         source: &crate::nominal::Nominal<crate::sum::EnumType>,
         target: crate::nominal::Nominal<crate::sum::EnumType>,
-        literal: bool,
+        literal: Option<FixedError>,
     ) -> Result<crate::nominal::Nominal<crate::sum::EnumType>> {
         if !source.propagatable() || source.is_option() != target.is_option() {
-            let note = if literal {
-                "; a collection literal returns Result[collection, AllocError]"
-            } else {
-                ""
+            if source.propagatable() && source.is_option() {
+                return Err(e.at.error(
+                    "`?` on an Option cannot propagate from a function returning Result; convert absence to an error with `.ok_or(error)?`",
+                ));
+            }
+            let note = match literal {
+                Some(FixedError::Collection) => {
+                    "; a collection literal returns Result[collection, AllocError]"
+                }
+                Some(FixedError::Format) => "; an f-string returns Result[str, FormatError]",
+                None => "",
             };
             return Err(e.at.error(format!(
                 "`?` operand and function return must use the same Result or Option family{note}"
@@ -3750,16 +3822,34 @@ impl Lower<'_> {
                 let hint = producer_conflict_hint(target_error, source_error);
                 return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}{hint}")));
             }
-            if literal {
-                let error = &target.get().variants[1].fields[0];
-                return Err(e.at.error(format!("`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as {error}; declare a sum that includes it, such as Result[_, AllocError | {error}], or match the literal and convert the error explicitly")));
+            let hint = producer_conflict_hint(target_error, source_error);
+            if !hint.is_empty() {
+                return Err(e.at.error(format!(
+                    "`?` operand error {source_error} cannot propagate as {target_error}; convert the error explicitly{hint}"
+                )));
             }
-            let hint = producer_conflict_hint(
-                &target.get().variants[1].fields[0],
-                &source.get().variants[1].fields[0],
-            );
+            let mut member = source_error.to_string();
+            let (origin, import) = match literal {
+                Some(FixedError::Collection) => {
+                    (format!("; a collection literal fails with {member}"), "")
+                }
+                Some(FixedError::Format) => {
+                    // The sum names the imported spelling the suggestion adds.
+                    member = "FormatError".into();
+                    (
+                        "; an f-string fails with FormatError".into(),
+                        " after `from std.fmt import FormatError`",
+                    )
+                }
+                None => (String::new(), ""),
+            };
+            let convert = if literal.is_some() {
+                "match the result"
+            } else {
+                "match the operand"
+            };
             return Err(e.at.error(format!(
-                "`?` requires identical Result error types; convert the error explicitly{hint}"
+                "`?` operand error {source_error} cannot propagate as {target_error}{origin}; the function's error type must include it: declare a sum such as Result[_, {member} | {target_error}]{import}, or {convert} and convert the error explicitly"
             )));
         }
         Ok(target)
@@ -3928,6 +4018,21 @@ impl Lower<'_> {
                     && let Some(ty) = self.format_method(base, args, &e.at, ops)
                 {
                     return ty;
+                }
+                if matches!(name.as_str(), "sort" | "sort_by_key")
+                    && let Some(named) = args.iter().find(
+                        |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
+                    )
+                    && self.place_type(base).is_some_and(|ty| match ty {
+                        Ty::Ref(inner, _) => matches!(&*inner, Ty::List(_)),
+                        other => matches!(other, Ty::List(_)),
+                    })
+                {
+                    return Err(named.at.error(if name == "sort" {
+                        "`sort` takes the descending flag positionally: `items.sort(True)`"
+                    } else {
+                        "`sort_by_key` takes the descending flag positionally: `items.sort_by_key(key, True)`"
+                    }));
                 }
                 ide::enter_method(*pos, name);
                 let ty = self.method(base, name, args, ops);
@@ -4288,6 +4393,12 @@ impl Lower<'_> {
                         (other, Ty::List(_)) if other.is_int() => {
                             return Err(right.at.error(LIST_REPETITION));
                         }
+                        (Ty::Str, other) if other.is_int() => {
+                            return Err(left.at.error(STR_REPETITION));
+                        }
+                        (other, Ty::Str) if other.is_int() => {
+                            return Err(right.at.error(STR_REPETITION));
+                        }
                         _ => {}
                     }
                 }
@@ -4413,6 +4524,14 @@ impl Lower<'_> {
                 ty
             }
             Expression::Call(name, args) => {
+                if name == "print"
+                    && !self.names.contains_key(name)
+                    && let Some(named) = args
+                        .iter()
+                        .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
+                {
+                    return Err(named.at.error("`print` takes no named arguments such as `end` or `sep`: it separates values with one space and ends the line; build the line first, such as with an f-string, and print it once"));
+                }
                 if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
                     && !self.names.contains_key(name)
                     && !self.sigs.contains_key(name)
@@ -5763,6 +5882,16 @@ impl Lower<'_> {
     }
 }
 
+/// An operand of `?` whose error type the language fixes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FixedError {
+    /// A collection literal: `AllocError`.
+    Collection,
+    /// An f-string: `FormatError`.
+    Format,
+}
+
+const STR_REPETITION: &str = "strings do not support `*` repetition; use `text.repeat(count)?`";
 const LIST_REPETITION: &str = "lists do not support `*` repetition; build the list with a comprehension, such as `[value for _ in range(count)]?`";
 
 /// The list display that `e` is, possibly parenthesized or followed by `?`.
