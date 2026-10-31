@@ -16,27 +16,36 @@ const HELLO: &str =
 /// Largest stripped file and `.text` section, in bytes, for small programs,
 /// as `(name, source, file budget, .text budget)`.
 ///
-/// Measured on 2026-10-26 at `89e5f826` on x86-64 Linux. Release and test
+/// Measured on 2026-10-31 at `b49d0c26` on x86-64 Linux. Release and test
 /// compilers give the same executables, since the runtime archive is always
 /// built at opt-level 2. The `runtime-checks` feature, which CI's
-/// `--all-features` suite enables, links a runtime with allocation accounting:
+/// `--all-features` suite enables, links a runtime with allocation accounting.
+/// CI runs only the checked budgets, and its runners produce larger files than
+/// a local Fedora build for the same `.text`:
 ///
-/// | Program | File | `.text` | File, checked | `.text`, checked |
-/// |---|---:|---:|---:|---:|
-/// | empty | 47,648 | 21,153 | 53,208 | 25,089 |
-/// | hello | 113,544 | 69,137 | 122,064 | 75,953 |
+/// | Program | File | `.text` | File, checked | `.text`, checked | File, checked, CI |
+/// |---|---:|---:|---:|---:|---:|
+/// | empty | 51,504 | 23,969 | 56,488 | 27,425 | 59,232 |
+/// | hello | 121,952 | 75,281 | 129,848 | 81,569 | 138,288 |
 ///
-/// Each budget allows about 13% growth. Raise one only as a deliberate,
-/// reviewed change that records the new measurement here and explains it.
+/// Since the first measurement (2026-10-26, `89e5f826`: hello 122,064 file and
+/// 75,953 `.text`, checked, locally), checked hello grew by 5.6 KB of `.text`:
+/// about 3 KB for per-actor heaps (the allocator wrappers and `Heap::take`)
+/// and about 3 KB for printing (slice views, `Bytes` literals, and narrow
+/// integer formatting that `render` reaches from every `print`).
+///
+/// Each budget allows about 13% growth over the largest measurement. Raise one
+/// only as a deliberate, reviewed change that records the new measurement here
+/// and explains it.
 #[cfg(not(feature = "runtime-checks"))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 54_000, 24_000),
-    ("hello", HELLO, 128_000, 78_000),
+    ("empty", EMPTY, 58_000, 27_000),
+    ("hello", HELLO, 138_000, 85_000),
 ];
 #[cfg(feature = "runtime-checks")]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 60_000, 28_500),
-    ("hello", HELLO, 138_000, 86_000),
+    ("empty", EMPTY, 67_000, 31_000),
+    ("hello", HELLO, 156_000, 92_000),
 ];
 
 #[test]
