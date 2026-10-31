@@ -420,23 +420,32 @@ fn missing_byte_index_traps_with_the_list_message() {
 }
 
 #[test]
-fn iteration_yields_bytes_and_references_to_copies() {
-    native(
+fn iteration_yields_bytes_and_references_into_the_buffer() {
+    // Issue #594: `&buffer` and `&mut buffer` loop over a view of the whole
+    // buffer, as `&buffer[:]` does, so `&mut u8` writes reach the buffer.
+    let source = program(
         r#"
-buffer = std.bytes.from_text("abc")?
+mut buffer = std.bytes.from_text("abc")?
+for value in &mut buffer:
+    *value += 1u8
 mut seen = list[u8]()?
 for value in &buffer:
     seen.append(*value)?
 for value in reversed(&buffer):
     seen.append(*value)?
 print(seen)?
+shout(&mut buffer)
+print(buffer.to_text()?)?
 mut total = 0
 for value in buffer:
     total += i64(value)
 print(total)?
 "#,
-        "[97, 98, 99, 99, 98, 97]\n294",
     );
+    let source = format!(
+        "{source}\ndef shout(text: &mut Bytes) -> ():\n    for value in text:\n        *value -= 32u8\n"
+    );
+    assert_eq!(output(&source), "[98, 99, 100, 100, 99, 98]\nBCD\n201");
 }
 
 #[test]
@@ -446,8 +455,12 @@ fn byte_index_and_iteration_misuse_is_rejected() {
         assert!(error.contains(expected), "{body}\n{error}");
     };
     check(
-        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    pass",
-        "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
+        "buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    pass",
+        "mutable borrowing requires a mut binding",
+    );
+    check(
+        "mut buffer = std.bytes.from_text(\"abc\")?\nfor value in &mut buffer:\n    buffer.push(1u8)?",
+        "conflicting borrow",
     );
     check(
         "buffer = std.bytes.from_text(\"abc\")?\nbuffer[0] = 1u8",

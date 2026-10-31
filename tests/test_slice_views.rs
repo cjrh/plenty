@@ -28,6 +28,102 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// `iter(v)` fuses into the view's loop, so items are `&T`, or `&mut T` for
+/// an exclusive view, as in `for x in v`.
+#[test]
+fn views_are_pipeline_sources() {
+    support::assert_stdout(
+        r#"
+import std.bytes as bytes_mod
+
+def even(x: &i64) -> bool:
+    return *x % 2 == 0
+
+def ten(x: &i64) -> i64:
+    return *x * 10
+
+def bump(x: &mut i64) -> ():
+    *x += 100
+
+def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
+    mut xs = [1, 2, 3, 4, 5, 6]?
+    view = &xs[1:5]
+    print(iter(view).filter(even).count(), iter(&xs[1:5]).map(ten).sum())?
+    tens: list[i64] = iter(&xs[:3]).map(ten).collect()?
+    print(tens, iter(reversed(&xs[:])).take(2).map(ten).sum())?
+    iter(&mut xs[4:]).for_each(bump)
+    print(xs)?
+    buffer = bytes_mod.from_text("abc")?
+    print(iter(&buffer[1:]).count())?
+    Ok(())
+"#,
+        "2 140\n[10, 20, 30] 110\n[1, 2, 3, 4, 105, 106]\n2\n",
+    );
+}
+
+/// A view prints as its target would: a `&[u8]` as a `bytes` literal, any
+/// other view as a list, in `print`, `str.repr`, and f-strings. A `Bytes`
+/// buffer itself keeps its own spelling.
+#[test]
+fn views_print_as_their_rows() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+import std.fmt as fmt
+from std.bytes import BytesError
+from std.fmt import FormatError
+
+class Point:
+    x: i64
+    y: i64
+
+def show[T](v: &[T]) -> Result[(), AllocError | IoError]:
+    print(v)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | FormatError | BytesError]:
+    mut xs = [1, 2, 3, 4]?
+    v = &xs[1:3]
+    print(v, &xs[:0], len(v))?
+    words = ["a", "b\n", "é"]?
+    points = [Point(1, 2), Point(3, 4)]?
+    pairs = [(1, "one"), (2, "two")]?
+    print(&words[1:], &points[1:], &pairs[:])?
+    nested = [[1, 2]?, [3]?]?
+    floats = [1.5, -0.0]?
+    print(&nested[:], &floats[:])?
+    buffer = std.bytes.from_bytes(b"abc\x00\xff")?
+    print(&buffer[1:3], &buffer[3:], &buffer[:0], buffer)?
+    raw = [104u8, 105u8]?
+    signed = [1i8, -2i8]?
+    print(&raw[:], &signed[:])?
+    show(&points[:1])?
+    m = &mut xs[:2]
+    m[0] = 9
+    print(m)?
+    print(str.repr(&xs[2:])?)?
+    print(f"{&xs[1:3]} {&xs[:1]!r} {&words[2:]!a} [{&xs[:2]:>8}] {&buffer[3:]!a}"?)?
+    mut out = fmt.string_formatter(100, 4)?
+    w = &mut xs[2:]
+    out.format(f"{w}|{w!s:<8}|")?
+    print(fmt.finish(&out)?)?
+    Ok(())
+"#,
+        concat!(
+            "[2, 3] [] 2\n",
+            "[\"b\\n\", \"é\"] [Point(x=3, y=4)] [(1, \"one\"), (2, \"two\")]\n",
+            "[[1, 2], [3]] [1.5, -0.0]\n",
+            "b\"bc\" b\"\\x00\\xff\" b\"\" std.bytes.Bytes(_owner=b\"abc\\x00\\xff\")\n",
+            "b\"hi\" [1, -2]\n",
+            "[Point(x=1, y=2)]\n",
+            "[9, 2]\n",
+            "[3, 4]\n",
+            "[2, 3] [9] [\"\\u{e9}\"] [  [9, 2]] b\"\\x00\\xff\"\n",
+            "[3, 4]|[3, 4]  |\n",
+        ),
+    );
+}
+
 /// Codegen addresses view rows with a compile-time row size, which must match
 /// the runtime's list layout for every element representation.
 #[test]
@@ -303,8 +399,8 @@ def main() -> Result[(), AllocError | IoError]:
     "slice views do not support `in` yet"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nprint(v).unwrap()",
-    "slice views cannot be formatted"
+    "xs = [1, 2].unwrap()\nt = f\"{&xs[:]:d}\".unwrap()",
+    "format spec `d` does not apply to &[i64]"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nw = v[1:].unwrap()",
@@ -366,6 +462,12 @@ def total(v: &[i64]) -> i64:
         sum += *x
     return sum
 
+def even(x: &i64) -> bool:
+    return *x % 2 == 0
+
+def ten(x: &i64) -> i64:
+    return *x * 10
+
 def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
     mut xs = [1, 2, 3, 4, 5]?
     mut buffer = bytes_mod.from_text("abc")?
@@ -381,6 +483,9 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
     tail = &mut buffer[1:]
     tail[0] = 66
     sum += i64(tail[1])
+    sum += iter(&xs[1:4]).filter(even).count() + iter(&xs[:]).map(ten).sum()
+    for b in &buffer:
+        sum += i64(*b)
     print("__test_end_no_allocations__")?
     print(sum, xs, buffer.to_text()?)?
     Ok(())
@@ -392,7 +497,7 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).ends_with("113 [2, 3, 3, 4, 5] aBc\n"),
+        String::from_utf8_lossy(&output.stdout).ends_with("546 [2, 3, 3, 4, 5] aBc\n"),
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );

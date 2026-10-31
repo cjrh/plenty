@@ -433,7 +433,6 @@ impl Ty {
                     work.push(inner)
                 }
                 Self::Ref(..) => return Some(FormatBlocker::Reference),
-                Self::View(..) => return Some(FormatBlocker::View),
                 Self::Enum(t) if t.get().restricted_storage && seen.insert(&*t.name) => {
                     work.extend(
                         t.local()
@@ -655,7 +654,6 @@ pub enum FormatBlocker {
     Closure,
     Task,
     Reference,
-    View,
 }
 
 impl FormatBlocker {
@@ -665,7 +663,6 @@ impl FormatBlocker {
             Self::Closure => "closures",
             Self::Task => "scoped tasks",
             Self::Reference => "references",
-            Self::View => "slice views",
         }
     }
     pub fn singular(self) -> &'static str {
@@ -674,17 +671,7 @@ impl FormatBlocker {
             Self::Closure => "a closure",
             Self::Task => "a scoped task",
             Self::Reference => "a reference",
-            Self::View => "a slice view",
         }
-    }
-    /// The diagnostic for formatting a value of this kind itself.
-    pub fn direct_message(self) -> String {
-        let advice = match self {
-            Self::Closure => "; call the closure and format its result",
-            Self::View => "; format the elements, or an owned copy `xs[a:b]?`",
-            _ => "",
-        };
-        format!("{} cannot be formatted{advice}", self.plural())
     }
     /// The diagnostic for formatting a value of type `ty` whose first
     /// unformattable part is this kind.
@@ -695,10 +682,13 @@ impl FormatBlocker {
                 | (Self::Closure, Ty::Closure(_))
                 | (Self::Task, Ty::Task(_))
                 | (Self::Reference, Ty::Ref(..))
-                | (Self::View, Ty::View(..))
         );
         if direct {
-            self.direct_message()
+            let advice = match self {
+                Self::Closure => "; call the closure and format its result",
+                _ => "",
+            };
+            format!("{} cannot be formatted{advice}", self.plural())
         } else {
             format!(
                 "`{ty}` holds {}, and {} cannot be formatted; match the value and format its parts instead",

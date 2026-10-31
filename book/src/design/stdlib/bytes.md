@@ -137,12 +137,11 @@ index once. Indexing works on named buffers, fields, references, and temporary
 values; it never grows the buffer and allocates nothing.
 
 `for b in buffer` consumes the buffer and yields each `u8`. `for b in &buffer`
-keeps it and yields `&u8`; as for strings and ranges, each reference is to an
-iteration-local copy, because single bytes are not addressable values.
-`reversed(&buffer)` walks from the end. `for b in &mut buffer` is rejected;
-assign through an index, or loop over an exclusive [slice view](#views),
-`for b in &mut buffer[:]`, which yields `&mut u8`. The loop holds a shared loan, so its body
-cannot change the buffer.
+and `for b in &mut buffer` keep it and loop over a [slice view](#views) of the
+whole buffer, as `&buffer[:]` does: each `&u8` or `&mut u8` points into the
+buffer, so `*b += 1u8` changes it. `reversed(&buffer)` walks from the end. The
+loop holds the view's loan, so its body cannot grow, shrink, or move the
+buffer, and the body of a shared loop cannot write to it.
 
 [Slice syntax](../language/04-expressions/slices.md) `buffer[a:b:c]?` copies the
 selected bytes into a new `Bytes` with Python's clamping and returns
@@ -228,8 +227,9 @@ A [slice view](../language/04-expressions/slices.md#slice-views),
 `&buffer[a:b]` or `&mut buffer[a:b]`, carries its own bounds: it is a `&[u8]`
 or `&mut [u8]` of the selected bytes, and holds the same whole-buffer loan as
 `&Bytes` or `&mut Bytes`. It supports `len`, index reads and writes, loops,
-narrower views, and `==`, and a `&[u8]` parameter also accepts views of
-`list[u8]` and `bytes` literals. It has no `Bytes` methods, so the scans and
+`iter` pipelines, narrower views, and `==`, and prints as a `bytes` literal,
+`b"bc"`. A `&[u8]` parameter also accepts views of `list[u8]` and `bytes`
+literals. It has no `Bytes` methods, so the scans and
 the I/O operations still take the reference with a `start`/`stop` pair. A view
 cannot be stored or returned yet; that needs stored references (backlog B11).
 

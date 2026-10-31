@@ -119,7 +119,8 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
-narrower views, loops, and `==` with another view. A list is not converted to a
+narrower views, loops, and `==` with another view, and prints as a list of its
+elements. A list is not converted to a
 view automatically: pass a whole list as `&scores[:]`. A view borrows its whole
 list, so the list cannot grow while the view is live, and two views of one list
 conflict when either is exclusive. Byte buffers have views too. A view cannot

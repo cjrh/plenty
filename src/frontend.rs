@@ -4452,11 +4452,6 @@ impl Lower<'_> {
                         if ty.key_view() {
                             return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
                         }
-                        if let Ty::View(..) = ty {
-                            return Err(argument
-                                .at
-                                .error(crate::op::FormatBlocker::View.direct_message()));
-                        }
                         if ty.prints_generator_frame() {
                             return Err(e.at.error("generators cannot be printed"));
                         }

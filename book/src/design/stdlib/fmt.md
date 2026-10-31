@@ -111,6 +111,9 @@ formatting allocation-free. `represent(&value, &mut out)` writes the `str.repr`
 spelling of any value `str.repr` accepts, which allocates a temporary string.
 `repr_string(&value)`, `debug_string(&text)`, and `ascii_string(&text)` return
 the `str.repr`, `debug_text`, and `ascii_text` spellings as fallible strings.
+A `&T` parameter cannot take a [slice view](../language/04-expressions/slices.md#slice-views),
+so `represent_view(v, &mut out)` and `repr_view_string(v)` do the same for a
+`&[T]`; f-strings call them for view fields.
 
 f-strings check the values of a spec's nested fields with three functions, each
 returning `InvalidSpec` for a value the spec cannot take: `spec_align(&align)`

@@ -9,7 +9,7 @@ use crate::collection_opcodes::{SLICE_START, SLICE_STOP};
 
 /// The operations a view supports, for diagnostics that reject others.
 pub(super) const OPERATIONS: &str =
-    "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, and `for x in v`";
+    "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`";
 
 pub(super) const RETURN: &str = "a function cannot return a slice view yet (backlog B11): a view borrows its owner only while the caller holds it; return the bounds, or an owned copy `xs[a:b]?`";
 
@@ -50,7 +50,7 @@ impl Lower<'_> {
             Some(Ty::ByteStr) => {}
             Some(Ty::Str) => {
                 return Err(base.at.error(
-                    "str has no slice views: its positions count Unicode scalars, so finding a bound scans the text; copy the part with `s[a:b]?`",
+                    "str has no slice views yet: a `&str` refers to a whole string value; copy the part with `s[a:b]?`",
                 ));
             }
             Some(other) => {
@@ -115,6 +115,22 @@ impl Lower<'_> {
             }
             _ => matches!(self.expression_type_hint(e), Some(Ty::View(..))),
         }
+    }
+
+    /// The named `Bytes` buffer that a loop over `&buffer`, `&mut buffer`, or
+    /// a `&Bytes` binding borrows, and whether the borrow is exclusive. A
+    /// temporary buffer is not a place, so it has no view.
+    pub(super) fn borrowed_byte_buffer<'e>(&self, e: &'e Expr) -> Option<(&'e Expr, bool)> {
+        let (base, mutable) = match &ungroup(e).kind {
+            Expression::Unary(op, inner) if op == "&" || op == "&mut" => (&**inner, op == "&mut"),
+            Expression::Name(n) => match self.names.get(n)?.ty {
+                Ty::Ref(_, mutable) => (e, mutable),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let owner = self.place_type(base).map(classes::unbox)?;
+        byte_buffers::byte_buffer(&owner).map(|_| (base, mutable))
     }
 
     /// Lowers a view operand `e` that [`Self::is_view`] accepts. A written

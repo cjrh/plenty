@@ -1754,6 +1754,16 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'U' => byte_storage::render(value, out),
             b'Q' => write!(out, "clist(len={})", clist::len(value)).unwrap(),
             b'y' => byte_storage::render_slice(strings::bytes(&(value as *const Text)), out),
+            // A `&[u8]` view: the low word addresses its first byte and the
+            // high word counts them. An empty view's address may be dangling.
+            b'T' => byte_storage::render_slice(
+                match (value >> 64) as usize {
+                    0 => &[],
+                    count => std::slice::from_raw_parts(value as u64 as *const u8, count),
+                },
+                out,
+            ),
+            b'V' => render_view(value, ty.key(), out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1795,6 +1805,37 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 out.push(if ty.kind == b'L' { b']' } else { b'}' });
             }
         }
+    }
+}
+
+/// A slice view other than `&[u8]` prints as a list of its rows. The low word
+/// addresses the first row and the high word counts the rows.
+unsafe fn render_view(value: u128, element: &Type, out: &mut crate::render_buffer::Buffer) {
+    let rows = value as u64 as *const u8;
+    let count = (value >> 64) as usize;
+    // SAFETY: the compiler holds the view's loan through the call, so every
+    // named row is live; dense rows of `element` are `stride` bytes apart.
+    unsafe {
+        let stride = crate::list_layout::row_bytes(
+            element.kind,
+            element.inline_bytes as usize,
+            element.has_inline_range(),
+        );
+        out.push(b'[');
+        for i in 0..count {
+            if out.failed() {
+                break;
+            }
+            if i != 0 {
+                out.extend_from_slice(b", ");
+            }
+            render(
+                crate::entries::dense_element(rows.add(i * stride), element),
+                element,
+                out,
+            );
+        }
+        out.push(b']');
     }
 }
 

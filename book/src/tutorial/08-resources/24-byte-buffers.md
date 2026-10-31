@@ -145,7 +145,8 @@ P....Y
 ```
 
 Use `get` and `set` instead when a missing index is an expected outcome to
-handle. `for b in &mut word` is rejected: write through an index. A
+handle. `for b in &mut word` yields `&mut u8` references into the buffer, so
+`*b = 0u8` in its body clears every byte in place. A
 [slice](../04-collections/slices.md) such as `word[1:3]?` copies with the list
 rules, clamping its bounds, and reports only `AllocError`. The `slice` method
 checks its range and reports `BytesError`, so `frame.slice(1, 3)?` suits a

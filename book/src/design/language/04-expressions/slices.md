@@ -161,11 +161,32 @@ place, such as `xs`, `self.items`, or `rows[0]`.
 | `&v[i]`, `&mut v[i]` | Reference to element `i` |
 | `&v[a:b]`, `&mut v[a:b]` | Narrower view; bounds count from the start of `v` |
 | `for x in v` | `&T` per element, or `&mut T` for an exclusive view; `reversed(v)` and `enumerate(v)` also work |
+| `iter(v)` | A [pipeline](../09-iteration/06-pipelines.md) over the elements, with the items of `for x in v` |
 | `v == w`, `v != w` | Equal lengths and equal elements; both sides are views of one element type |
+| `print(v)`, `str.repr(v)`, `f"{v}"` | The elements as a list, `[2, 3]`; a `&[u8]` as a `bytes` literal, `b"bc"` |
 
-Other list operations, such as methods, `in`, formatting, `list(v)`, and
-copying slices of a view, are rejected. Copy from the owner, `xs[a:b]?`, for an
-owned value.
+```plenty
+def even(x: &i64) -> bool:
+    *x % 2 == 0
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2, 3, 4, 5]?
+    middle = &xs[1:4]
+    print(middle, iter(middle).filter(even).count())?
+    data = b"abc"
+    print(&data[1:])?
+    Ok(())
+```
+
+```output
+[2, 3, 4] 2
+b"bc"
+```
+
+A view prints as a reference does, through to its elements; a `Bytes` buffer
+itself keeps its own spelling. Other list operations, such as methods, `in`,
+`list(v)`, and copying slices of a view, are rejected. Copy from the owner,
+`xs[a:b]?`, for an owned value.
 
 ### Views borrow their owner
 
@@ -186,9 +207,13 @@ Views are local until stored references land (backlog B11). A view cannot be
 returned, stored in a class field, tuple, collection, or enum payload, or
 captured by an anonymous function. Return or store the bounds, or an owned copy.
 
-`str` has no slice views. Its positions count Unicode scalars, so finding a
-bound scans the text, while a list or byte view finds its bounds in constant
-time. Copy part of a string with `s[a:b]?`.
+`str` has no slice views yet (issue #595). Finding the bounds is not the
+obstacle: the copying slice scans the text once, and a view could too. The
+[representation](../../toolchain/02-architecture/values.md#strings) is: a `str`
+addresses text that follows its byte length and scalar count, a `&str` refers
+to such a value, and every text operation reads that prefix. A run inside a
+string has no prefix, so it has no `&str` form. Copy part of a string with
+`s[a:b]?`.
 
 ## Limits
 
@@ -201,7 +226,6 @@ time. Copy part of a string with `s[a:b]?`.
 | `&s[1:3]` on a `str` | `str has no slice views` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `total(&xs)` for `total(v: &[i64])` | ``this parameter takes a slice view, `&xs[a:b]`; pass a whole list or buffer as `&xs[:]` `` |
-| `print(v)` for a view `v` | `slice views cannot be formatted` |
 | `x in v` for a view `v` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |

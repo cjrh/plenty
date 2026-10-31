@@ -44,10 +44,12 @@ Borrowed temporary iterable owners remain alive through the loop and drop
 when its scope exits, including on early exit.
 
 Borrowed dictionary and set iteration yields shared references to keys or
-elements. Borrowed range, string, `bytes`, and `Bytes` iteration also yields shared
+elements. Borrowed range, string, and `bytes` iteration also yields shared
 references; each refers to a computed value in an iteration-local slot and
-cannot escape that iteration. `for b in &mut buffer` is rejected for `Bytes`;
-write through an index instead. Comparisons and printing observe references uniformly;
+cannot escape that iteration. A `Bytes` buffer has addressable storage:
+`for b in &buffer` and `for b in &mut buffer` loop over a
+[slice view](../04-expressions/slices.md#slice-views) of the whole buffer and
+yield `&u8` or `&mut u8` into it. Comparisons and printing observe references uniformly;
 dereference explicitly when passing an element to a function that takes a value
 or storing it in a new collection. Other arithmetic observes numeric references
 as well.
@@ -73,7 +75,13 @@ use `keys_snapshot()` / `values_snapshot()` for owned lists and `into_keys()` /
 `into_values()` to consume the owner. See [dictionary views](../../facilities/01-builtins/dictionaries.md#snapshots-and-views)
 for the key view's set operations and storage restrictions.
 
-Loop targets permit flat tuple unpacking. Iteration itself, including string
+Loop targets permit flat tuple unpacking. Over borrowed elements, each name
+borrows its component in place: `for n, s in &pairs` binds `n` as `&item[0]`
+and `s` as `&item[1]`, and `for n, _ in &mut pairs` makes `n` a `&mut`
+reference, so `*n += 1` changes the list. The names share the element's loan,
+so they follow its rules; passing two of them to one call as `&mut` arguments
+is rejected, as `swap(&mut p[0], &mut p[1])` is for an element `p` of a
+`&mut` loop. Iteration itself, including string
 scalar production and generator `next`, adds no allocation; iterable creation
 and body expressions keep their own contracts. There is no arbitrary user
 iterator protocol, special-method dispatch, or async iteration.

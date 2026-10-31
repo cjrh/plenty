@@ -157,7 +157,8 @@ fn define_type(
         | Ty::Future(t)
         | Ty::Box(t)
         | Ty::Shared(t)
-        | Ty::Ref(t, _) => links.push((8, reserve(module, runtime, t, pending)?)),
+        | Ty::Ref(t, _)
+        | Ty::View(t, _) => links.push((8, reserve(module, runtime, t, pending)?)),
         Ty::Dict(k, v) => {
             links.push((8, reserve(module, runtime, k, pending)?));
             links.push((16, reserve(module, runtime, v, pending)?));
@@ -299,8 +300,12 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'r',
         Ty::KeyView(_) => b'v',
-        // A view owns nothing, as a reference does.
-        Ty::View(..) => b'r',
+        // A view owns nothing, as a reference does. Its key is the element,
+        // so formatting can walk the rows. A `&[u8]` prints as a `bytes`
+        // literal; a view of `NonZero[u8]`, which shares the rows' layout,
+        // prints as a list.
+        Ty::View(element, _) if **element == Ty::U8 => b'T',
+        Ty::View(..) => b'V',
         Ty::Atomic(_) => unreachable!("replaced by its element"),
     }
 }
