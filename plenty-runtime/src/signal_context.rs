@@ -11,6 +11,7 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub(crate) use macos::*;
 
+#[cfg(unix)]
 pub(crate) fn action(handler: usize, flags: i32) -> libc::sigaction {
     // SAFETY: zero initializes an empty signal mask and absent restorer.
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
@@ -20,6 +21,7 @@ pub(crate) fn action(handler: usize, flags: i32) -> libc::sigaction {
 }
 
 /// Unlike Linux, Darwin uses positive codes for user-generated signals too.
+#[cfg(unix)]
 pub(crate) fn hardware_fault(code: i32) -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -31,7 +33,7 @@ pub(crate) fn hardware_fault(code: i32) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     #[test]
     fn user_generated_signals_are_not_hardware_faults() {
@@ -42,3 +44,9 @@ mod tests {
         assert!(!super::hardware_fault(0x10001)); // Darwin SI_USER
     }
 }
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[path = "signal_context/windows.rs"]
+mod windows;
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub(crate) use windows::*;
