@@ -364,6 +364,7 @@
             - [Trusted loading primitives](design/facilities/04-interop/loading-primitives.md)
     - [Standard library](design/stdlib/index.md)
         - [Signature index](design/stdlib/signatures.md)
+        - [Conventions](design/stdlib/conventions.md)
         - [`std.actor`](design/stdlib/actor.md)
         - [`std.actor.net`](design/stdlib/actor-net.md)
         - [`std.actor.tls`](design/stdlib/actor-tls.md)
