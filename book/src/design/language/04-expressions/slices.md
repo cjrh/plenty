@@ -190,11 +190,16 @@ itself keeps its own spelling. Other list operations, such as methods, `in`,
 
 ### Views borrow their owner
 
-A view holds a loan of its whole owner: a shared view a shared loan, and an
-exclusive view an exclusive one, under the [borrowing rules](../05-ownership/02-borrowing.md).
-While a view is live, its owner cannot grow, shrink, move, or be reassigned.
-Two views of one list are never disjoint, so `&mut xs[:2]` and `&xs[2:]`
-conflict while both are live.
+A view holds a loan of its run of elements in its owner: a shared view a
+shared loan, and an exclusive view an exclusive one, under the
+[borrowing rules](../05-ownership/02-borrowing.md). While a view is live, its
+owner cannot grow, shrink, move, or be reassigned, and `len(xs)` and `&xs`
+conflict with an exclusive view. Two views are disjoint when one stops where
+the other starts, at one literal or non-`mut` `i64` name, so `&mut xs[:m]` and
+`&mut xs[m:]` can both be live. Overlapping or unprovable ranges, such as
+`&mut xs[:3]` with `&xs[2:]`, conflict.
+[Disjoint slice views](../05-ownership/02-borrowing.md#disjoint-slice-views)
+states the full rule and why it is sound.
 
 A `&[T]` or `&mut [T]` parameter takes a view, `&xs[a:b]` or a view binding.
 A list is not converted to a view implicitly; pass the whole list as `&xs[:]`.

@@ -112,8 +112,8 @@ fn literal_index(collection: &Ty, index: &Expr) -> Option<usize> {
     if !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    let value = digits.parse::<i64>().ok()?;
-    Some(crate::ownership::ELEMENT | value as usize)
+    let value = digits.parse::<usize>().ok()?;
+    (value < crate::ownership::ELEMENT_LIMIT).then_some(crate::ownership::ELEMENT | value)
 }
 
 impl Lower<'_> {
@@ -656,8 +656,13 @@ impl Lower<'_> {
                 return Ok((Ty::Ref(Arc::new(field), mutable), loan));
             }
             if let Ty::View(element, _) = &collection {
-                // A view's loan already covers its whole owner.
+                // A row's loan path extends its view's, so rows at distinct
+                // literal indices are disjoint, as are distinct fields
+                // borrowed through one row reference.
                 let (view, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+                let step = literal_index(&Ty::List(element.clone()), index)
+                    .unwrap_or(crate::ownership::ANY_ELEMENT);
+                self.refine_loan(loan, step, ops);
                 if let Some(indices) = indices {
                     let slot = *indices.next().expect("prepared assignment index");
                     ops.push(Op::MoveLocal(slot));

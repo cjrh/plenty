@@ -78,10 +78,11 @@ for the key view's set operations and storage restrictions.
 Loop targets permit flat tuple unpacking. Over borrowed elements, each name
 borrows its component in place: `for n, s in &pairs` binds `n` as `&item[0]`
 and `s` as `&item[1]`, and `for n, _ in &mut pairs` makes `n` a `&mut`
-reference, so `*n += 1` changes the list. The names share the element's loan,
-so they follow its rules; passing two of them to one call as `&mut` arguments
-is rejected, as `swap(&mut p[0], &mut p[1])` is for an element `p` of a
-`&mut` loop. Iteration itself, including string
+reference, so `*n += 1` changes the list. The names borrow distinct fields of
+the element, so `swap(n, s)` under `for n, s in &mut pairs` passes both as
+`&mut` arguments, as `swap(&mut p[0], &mut p[1])` does for an element `p` of a
+`&mut` loop. Borrowing the list or another element while they are live
+conflicts. Iteration itself, including string
 scalar production and generator `next`, adds no allocation; iterable creation
 and body expressions keep their own contracts. There is no arbitrary user
 iterator protocol, special-method dispatch, or async iteration.

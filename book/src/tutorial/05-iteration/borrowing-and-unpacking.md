@@ -70,3 +70,23 @@ def main() -> Result[(), AllocError | IoError]:
 20 two
 [(10, "one"), (20, "two")]
 ```
+
+The names borrow different components, so both can be passed as `&mut`
+arguments to one call:
+
+```plenty
+def swap(a: &mut i64, b: &mut i64) -> ():
+    t = *a
+    *a = *b
+    *b = t
+
+def main() -> Result[(), AllocError | IoError]:
+    mut pairs = [(1, 2), (3, 4)]?
+    for low, high in &mut pairs:
+        swap(low, high)
+    print(pairs)?
+    Ok(())
+```
+```output
+[(2, 1), (4, 3)]
+```
