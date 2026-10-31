@@ -217,6 +217,12 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if let Expression::Unary(star, call) = &ungroup(target).kind
+            && star == "*"
+            && references::reference_call(call)
+        {
+            return self.augment_returned_reference(target, call, op, value, ops);
+        }
         if self.overloaded_augment(target, op, value, ops)? {
             return Ok(());
         }
@@ -289,6 +295,36 @@ impl Lower<'_> {
             }
         }
         ops.push(Op::UseLoan(write));
+        Ok(())
+    }
+
+    /// `*f(...) op= value` calls `f` once and updates its returned referent
+    /// (issue #598). The call's loan stays live through the value, as for
+    /// `r = f(...); *r op= value`.
+    fn augment_returned_reference(
+        &mut self,
+        target: &Expr,
+        call: &Expr,
+        op: &str,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let (ty, loan) = self.returned_reference(target, call, ops)?;
+        if !ty.is_numeric() {
+            return Err(target
+                .at
+                .error("augmented assignment currently requires a numeric destination"));
+        }
+        ops.push(Op::Dup);
+        ops.push(Op::ReadRef(ty.clone()));
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        self.mark_arithmetic(op, &ty, &target.at, ops);
+        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
+        ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
+        ops.push(Op::Swap);
+        ops.push(Op::WriteRef(ty));
+        ops.push(Op::UseLoan(loan));
         Ok(())
     }
 

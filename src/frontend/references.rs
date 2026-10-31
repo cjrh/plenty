@@ -1231,33 +1231,96 @@ impl Lower<'_> {
         if op != "*" {
             return Err(target.at.error("invalid assignment target"));
         }
+        if reference_call(base) {
+            return self.write_returned_reference(target, base, value, ops);
+        }
         let local = self.named_place(base)?;
-        let Ty::Ref(ty, true) = &local.ty else {
-            return Err(target
-                .at
-                .error("assignment requires an exclusive reference"));
-        };
-        if matches!(&**ty, Ty::Class(_)) {
-            return Err(target.at.error(
-                "cannot replace a whole class through a reference; assign its fields instead",
-            ));
-        }
-        if matches!(&**ty, Ty::Atomic(_)) {
-            return Err(target
-                .at
-                .error("an atomic is written with store(), not through `*`"));
-        }
-        let expected = (**ty != Ty::Unit).then(|| (**ty).clone());
+        let ty = writable_referent(&local.ty, target)?;
+        let expected = (*ty != Ty::Unit).then(|| ty.clone());
         let got = self.expr_expected(value, expected.clone(), ops)?;
         self.same(got, expected, &value.at)?;
-        if **ty == Ty::Unit {
+        if *ty == Ty::Unit {
             ops.push(Op::PushUnit);
         }
         let loan = self.reference_locals[&local.slot];
         ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
         ops.push(Op::LoadLocal(local.slot));
-        ops.push(Op::WriteRef((**ty).clone()));
+        ops.push(Op::WriteRef(ty.clone()));
         ops.push(Op::UseLoan(loan));
         Ok(())
     }
+
+    /// `*f(...) = value` writes through the reference a call returns (issue
+    /// #598). The call runs first, as `r = f(...); *r = value` would, and its
+    /// loan stays live through the value and the write.
+    fn write_returned_reference(
+        &mut self,
+        target: &Expr,
+        call: &Expr,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let (ty, loan) = self.returned_reference(target, call, ops)?;
+        let expected = (ty != Ty::Unit).then(|| ty.clone());
+        let got = self.expr_expected(value, expected.clone(), ops)?;
+        self.same(got, expected, &value.at)?;
+        if ty == Ty::Unit {
+            ops.push(Op::PushUnit);
+        }
+        ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
+        ops.push(Op::Swap);
+        ops.push(Op::WriteRef(ty));
+        ops.push(Op::UseLoan(loan));
+        Ok(())
+    }
+
+    /// Evaluates `call`, which must return `&mut T`, leaving the reference on
+    /// the stack. Returns `T` and the loan the result holds; the caller ends
+    /// it after the write.
+    pub(super) fn returned_reference(
+        &mut self,
+        target: &Expr,
+        call: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
+        let result = self
+            .expr(call, ops)?
+            .ok_or_else(|| call.at.error("expected a value, got ()"))?;
+        let ty = writable_referent(&result, target)?.clone();
+        let loan = self.reference_origin(call, ops)?;
+        Ok((ty, loan))
+    }
+}
+
+/// Whether `e` is a call, whose result may be a reference to write through.
+pub(super) fn reference_call(e: &Expr) -> bool {
+    matches!(
+        &ungroup(e).kind,
+        Expression::Call(..)
+            | Expression::Invoke(..)
+            | Expression::GenericCall(..)
+            | Expression::Method(..)
+            | Expression::GenericMethod(..)
+            | Expression::Try(..)
+    )
+}
+
+/// The referent of `reference` that `*reference = value` may replace.
+fn writable_referent<'a>(reference: &'a Ty, target: &Expr) -> Result<&'a Ty> {
+    let Ty::Ref(ty, true) = reference else {
+        return Err(target
+            .at
+            .error("assignment requires an exclusive reference"));
+    };
+    if matches!(&**ty, Ty::Class(_)) {
+        return Err(target
+            .at
+            .error("cannot replace a whole class through a reference; assign its fields instead"));
+    }
+    if matches!(&**ty, Ty::Atomic(_)) {
+        return Err(target
+            .at
+            .error("an atomic is written with store(), not through `*`"));
+    }
+    Ok(ty)
 }
