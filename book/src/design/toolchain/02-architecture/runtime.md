@@ -61,6 +61,36 @@ without offering cross-compilation through an installed Plenty compiler.
 The admitted set remains the two GNU/Linux targets described in
 [platform support](support.md).
 
+## Runtime OS boundaries
+
+The runtime keeps its compiler-facing ABI independent of native handles.
+`threads` stores the native thread identity in one opaque word and delegates
+creation and joining to Unix pthread or Windows HANDLE implementations.
+Cancellation tokens keep their wake resource behind the native module; Linux
+uses eventfd. Other systems retain the existing unavailable-readiness-wake
+result, while ordinary token waiting uses the shared condition variable.
+
+The generated mutex fast path remains the same atomic state protocol. Its
+contended wait and wake operations use Linux futexes, Windows address waits,
+or public pthread primitives on macOS. The macOS implementation shares static
+parking storage and broadcasts on wake, avoiding private Darwin ulock APIs
+and per-mutex allocations. Unrelated contended mutexes can wake together;
+performance under heavy contention still needs native measurement.
+
+Signal register access is selected by OS and architecture. Darwin's machine
+context is a pointer to a separate record; Linux's is inline. The POSIX trap
+and stack-overflow handlers use native errno access and signal conventions.
+macOS stack exhaustion can arrive as SIGBUS or SIGSEGV, and its alternate
+stack reservation accounts for Darwin's larger minimum. Existing host handlers
+retain their signals. Windows exception handling remains unimplemented.
+
+These boundaries are implementation work toward new ports, not admission of
+macOS or Windows as supported compiler targets. The native qualification
+workflow tests synchronization separately so failures elsewhere in the runtime
+do not prevent exercising these primitives. Windows exception handling, object
+and linker support, actor recovery, OS services and full native execution
+remain qualification requirements in the [portability plan](../../../backlog.md#b18--macos-and-windows-implementation-sequence).
+
 ## Entry symbols
 
 A standard module's native code is reachable only through its own entry

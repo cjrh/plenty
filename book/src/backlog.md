@@ -443,7 +443,11 @@ object formats or OS services. This is a partial
 B18.1 gate: large frames, unwind, Rust boundaries and runtime dependencies still
 need qualification. Neither new OS is admitted by Plenty yet. The shared Apple archive-command
 fix addresses issue #600; native build-tool tests run before the OS port build
-and on both Linux architectures.
+and on both Linux architectures. The first B18.5 increment separates native
+mutex waiting and thread handles, hides cancellation wake storage, and adds
+Darwin signal-context and stack-handler support. Standalone native synchronization
+tests run before the complete compiler build. Windows exceptions and end-to-end
+macOS runtime behavior remain unqualified; this does not complete B18.5.
 
 B18.1 and B18.6 design research can run together; B18.3 and B18.4 can proceed in
 separate worktrees after the common description settles. Keep independent OS

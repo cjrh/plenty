@@ -21,3 +21,6 @@ path = "../runtime_sync_tests.rs"
 [[test]]
 name = "runtime_fault"
 path = "../runtime_fault_tests.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(plenty_runtime_embedded)'] }
