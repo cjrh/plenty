@@ -214,7 +214,7 @@ fn unescape(text: &str) -> Vec<u8> {
 }
 
 /// The corpus as (expected statuses, request bytes).
-fn corpus() -> Vec<(String, Vec<u8>)> {
+pub(super) fn corpus() -> Vec<(String, Vec<u8>)> {
     CORPUS
         .lines()
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
@@ -257,7 +257,7 @@ fn replay(inputs: &[&[u8]], step: usize) -> Vec<(String, String)> {
 }
 
 /// The status of every response head in `text`, space-separated, or `-`.
-fn statuses(text: &str) -> String {
+pub(super) fn statuses(text: &str) -> String {
     let mut found = Vec::new();
     for (at, _) in text.match_indices("HTTP/1.") {
         let rest = &text[at + "HTTP/1.".len()..];
@@ -311,10 +311,8 @@ impl Rng {
     }
 }
 
-/// Mutated corpus requests, delivered 7 bytes at a time, get only statuses
-/// the server documents and never trap, hang, or stop the connection loop.
-#[test]
-fn mutated_corpus_requests_fail_cleanly() {
+/// Identical deterministic mutations for the worker and actor servers.
+pub(super) fn mutations() -> Vec<Vec<u8>> {
     let cases = corpus();
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
     let alphabet = b"\r\n :;,/?%0123456789aAfFzZ-\t\x00\x7f\x80Hh";
@@ -341,6 +339,12 @@ fn mutated_corpus_requests_fail_cleanly() {
         }
         inputs.push(input);
     }
+    inputs
+}
+
+#[test]
+fn mutated_corpus_requests_fail_cleanly() {
+    let inputs = mutations();
     let refs: Vec<&[u8]> = inputs.iter().map(Vec::as_slice).collect();
     let allowed = [
         "100", "200", "400", "404", "405", "413", "431", "500", "501", "505",
