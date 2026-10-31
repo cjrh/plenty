@@ -75,10 +75,13 @@ Requests per second: 400.00 [#/sec] (mean)
         args = bench.arguments(base)
         self.assertEqual((args.implementation, args.workers, args.idle), ("worker", 4, 1000))
         args = bench.arguments(base + ["--implementation", "actor", "--server-cpus", "0", "--requests", "2"])
-        self.assertEqual((args.server_cpus, args.requests), ("0", 2))
+        self.assertEqual((args.server_cpus, args.requests, args.idle), ("0", 2, 984))
+        args = bench.arguments(base + ["--implementation", "actor", "--capacity", "2", "--requests", "2"])
+        self.assertEqual(args.capacity, 2)
         with contextlib.redirect_stderr(io.StringIO()):
-            for invalid in (["--runs", "0"], ["--implementation", "actor", "--capacity", "1024"],
-                            ["--implementation", "actor", "--idle", "1020"]):
+            for invalid in (["--runs", "0"], ["--implementation", "actor", "--capacity", "1001"],
+                            ["--implementation", "actor", "--idle", "985"],
+                            ["--implementation", "actor", "--capacity", "63"]):
                 with self.assertRaises(SystemExit):
                     bench.arguments(base + invalid)
 

@@ -22,7 +22,10 @@ CERT/KEY for TLS and answer /, /16k, /echo and /stop like the original fixture.
 
 For an equal-core comparison use `--workers 1 --server-cpus 0` for the worker
 server and `--implementation actor --server-cpus 0`; keep client affinity and
-all workload settings equal. Separately compare each server's default setup.
+all workload settings equal, including `--idle 984` (the actor default; worker
+keeps its historical 1000). Actor capacity must accommodate the highest workload
+concurrency; this driver measures admitted traffic, not deliberate overload.
+Separately compare each server's default setup.
 CPU defaults are 0,2,4,6 for the server and 8,10,12,14 for the client (physical
 cores on the reference machine); override them for your machine. Each workload
 runs `--runs` times against a fresh server; the summary reports the median
@@ -54,6 +57,9 @@ TLS_SOURCE = ROOT / "examples" / "https_server_bench.plenty"
 ACTOR_SOURCE = ROOT / "examples" / "actor_http_server_bench.plenty"
 ACTOR_TLS_SOURCE = ROOT / "examples" / "actor_https_server_bench.plenty"
 TLS_FIXTURES = ROOT / "tests" / "fixtures" / "tls"
+# The actor server's public Config limit, below the runtime's heap-slot limit.
+ACTOR_MAX_CONNECTIONS = 1000
+IDLE_HEADROOM = 16
 
 # name, path, keep-alive, concurrency, requests, POST body size
 WORKLOADS = [
@@ -240,7 +246,7 @@ def parse_curl(lines, requests, elapsed):
 
 def idle_memory(executable, count, tls, env=None, cpus=SERVER_CPUS):
     """Resident memory added by `count` parked keep-alive connections."""
-    settings = {**(env or {}), "IDLE": str(count + 16), "CAPACITY": str(count + 16)}
+    settings = {**(env or {}), "IDLE": str(count + IDLE_HEADROOM), "CAPACITY": str(count + IDLE_HEADROOM)}
     with Server(executable, settings, tls, cpus) as server:
         time.sleep(0.2)
         before = int(status_fields(server.process.pid)["VmRSS"].split()[0])
@@ -306,7 +312,7 @@ def arguments(argv=None):
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--runs", type=positive, default=3)
     parser.add_argument("--workers", type=positive, default=4)
-    parser.add_argument("--idle", type=positive, default=1000)
+    parser.add_argument("--idle", type=positive, help="idle connections to measure (worker: 1000, actor: 984)")
     parser.add_argument("--tls", action="store_true", help="serve HTTPS")
     parser.add_argument("--implementation", choices=("worker", "actor"), default="worker")
     parser.add_argument("--source", type=Path, help="override the benchmark server fixture")
@@ -315,8 +321,14 @@ def arguments(argv=None):
     parser.add_argument("--client-cpus", default=CLIENT_CPUS)
     parser.add_argument("--requests", type=positive, help="requests per workload (default: workload-specific)")
     args = parser.parse_args(argv)
-    if args.implementation == "actor" and (args.capacity > 1023 or args.idle + 16 > 1023):
-        parser.error("actor capacity and idle + 16 must fit below 1024 actor heaps")
+    if args.idle is None:
+        args.idle = ACTOR_MAX_CONNECTIONS - IDLE_HEADROOM if args.implementation == "actor" else 1000
+    if args.implementation == "actor":
+        if args.capacity > ACTOR_MAX_CONNECTIONS or args.idle + IDLE_HEADROOM > ACTOR_MAX_CONNECTIONS:
+            parser.error("actor capacity must be at most 1000 and idle connections at most 984")
+        concurrency = max(min(workload[3], args.requests or workload[4]) for workload in WORKLOADS)
+        if args.capacity < concurrency:
+            parser.error(f"actor capacity must be at least the highest workload concurrency ({concurrency})")
     return args
 
 
