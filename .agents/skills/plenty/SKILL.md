@@ -66,8 +66,10 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
   `NonZero.try_from(step)?`. Slice assignment is rejected.
 - `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
-  `&mut [T]`, without copying: no `?`, no step, no `str` views. Pass a whole
-  list to a `&[T]` parameter as `&xs[:]`. Views cannot be returned or stored.
+  `&mut [T]`, without copying: no `?`, no step. Pass a whole list to a
+  `&[T]` parameter as `&xs[:]`. `&s[1:3]` borrows part of a `str` as a
+  `&substr` (scalar positions, shared only); pass a whole string as `&s[:]`.
+  Views cannot be returned or stored.
 - No `**`, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an

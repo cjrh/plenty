@@ -655,6 +655,11 @@ impl Lower<'_> {
                 )));
                 return Ok((Ty::Ref(Arc::new(field), mutable), loan));
             }
+            if collection == text_view() {
+                return Err(e.at.error(
+                    "a `&substr` has no element slots to borrow; `v[i]` reads the scalar as a one-scalar `str`, and `&v[i:i + 1]` views it",
+                ));
+            }
             if let Ty::View(element, _) = &collection {
                 // A view's loan already covers its whole owner.
                 let (view, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;

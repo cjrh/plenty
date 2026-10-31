@@ -418,11 +418,10 @@ def main() -> Result[(), AllocError | IoError]:
     "xs = [1, 2, 3].unwrap()\nv = &xs[::2]",
     "a slice view selects adjacent elements, so it takes no step"
 )]
-#[case("s = \"hello\"\nv = &s[1:3]", "str has no slice views")]
 #[case("mut b = b\"abc\"\nv = &mut b[1:]", "a `bytes` literal is read-only")]
 #[case(
     "n = len(&[1, 2].unwrap()[:1])",
-    "a slice view borrows a named list, Bytes, or bytes value"
+    "a slice view borrows a named list, Bytes, bytes, or str value"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]?",

@@ -109,6 +109,7 @@ pub enum CollectionOp {
     Unicode(crate::unicode::UnicodeOp),
     Regex(crate::regex::RegexOp),
     Text(crate::text::TextOp),
+    TextView(crate::text::TextViewOp),
     Sqlite(crate::sqlite::SqliteOp),
     Tls(crate::tls::TlsOp),
     Net(crate::net::NetOp),
@@ -397,6 +398,7 @@ impl CollectionOp {
             Unicode(op) => op.signature(),
             Regex(op) => op.signature(),
             Text(op) => op.signature(),
+            TextView(op) => op.signature(),
             Sqlite(op) => op.signature(),
             Tls(op) => op.signature(),
             Net(op) => op.signature(),
@@ -816,6 +818,7 @@ impl CollectionOp {
                 | Self::TextTrySplit
                 | Self::QueryRef(Query::TextAt)
         ) || matches!(self, Self::Bytes(op) if op.traps())
+            || matches!(self, Self::TextView(op) if op.traps())
             || matches!(self, Self::Clist(op) if op.traps())
     }
 
@@ -832,6 +835,7 @@ impl CollectionOp {
             Self::Unicode(op) => op.opcode(),
             Self::Regex(op) => op.opcode(),
             Self::Text(op) => op.opcode(),
+            Self::TextView(op) => op.opcode(),
             Self::Sqlite(op) => op.opcode(),
             Self::Tls(op) => op.opcode(),
             Self::Net(op) => op.opcode(),

@@ -24,6 +24,25 @@ pub const CLIST_SLICE: i64 = 532;
 /// for it.
 pub const SLICE_START: i64 = 1;
 pub const SLICE_STOP: i64 = 2;
+/// `&substr` views of text (issue #595). A view is the address of its first
+/// byte and its byte count.
+pub const TEXT_VIEW_SUBVIEW: i64 = 592;
+pub const TEXT_VIEW_OF_STR: i64 = 593;
+pub const TEXT_VIEW_LEN: i64 = 594;
+/// Operands: two texts or views, then bit 0 (first) and bit 1 (second) set
+/// for each `str` operand. The result is -1, 0, or 1.
+pub const TEXT_VIEW_COMPARE: i64 = 595;
+pub const TEXT_VIEW_SCALAR: i64 = 596;
+pub const TEXT_VIEW_SCALAR_BEFORE: i64 = 597;
+pub const TEXT_VIEW_INDEX: i64 = 598;
+pub const TEXT_VIEW_COPY: i64 = 599;
+/// Operands: the view, the needle, and the mode shifted left once, with bit 0
+/// set for a `str` needle. Modes are `TEXT_SEARCH_*`.
+pub const TEXT_VIEW_SEARCH: i64 = 600;
+pub const TEXT_SEARCH_STARTS: i64 = 0;
+pub const TEXT_SEARCH_ENDS: i64 = 1;
+pub const TEXT_SEARCH_FIND: i64 = 2;
+pub const TEXT_SEARCH_CONTAINS: i64 = 3;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize
@@ -40,6 +59,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         179 | 231 | 234 | 281 | 416 | 417 => 2,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
+        // A text view's source, start, stop and the bound flags.
+        TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
         // Byte append, file/standard-stream output, scans, fill and copy_within.
         178 | 188 | 189 | 191 | 230 | 232 | 233 | 236 | 237 | 282
         // Digest/HMAC update/verification, AEAD and HKDF.

@@ -736,9 +736,12 @@ impl Lowerer<'_, '_> {
         // With only text and scalar operands, the dispatcher runs no Plenty
         // code and reads the texts without keeping them, so a text copy that
         // is still held by its source is read in place (issue #387).
-        let reads_in_place = inputs
-            .iter()
-            .all(|input| *input == Ty::Str || input.is_numeric() || *input == Ty::Bool);
+        let reads_in_place = inputs.iter().all(|input| {
+            *input == Ty::Str
+                || input.is_numeric()
+                || *input == Ty::Bool
+                || *input == crate::frontend::text_view()
+        });
         let mut values = Vec::new();
         let mut held = Vec::new();
         for input in inputs.iter().rev() {

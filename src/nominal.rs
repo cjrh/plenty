@@ -356,6 +356,7 @@ impl Clone for Ty {
             Self::F64 => Self::F64,
             Self::Unit => Self::Unit,
             Self::Str => Self::Str,
+            Self::Text => Self::Text,
             Self::ByteStr => Self::ByteStr,
             Self::File => Self::File,
             Self::Bool => Self::Bool,

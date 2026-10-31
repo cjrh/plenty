@@ -13,6 +13,11 @@ observes the receiver, takes constant time, and allocates nothing; use it to
 enforce a size limit before copying or encoding text. `str` has no `len`
 method, so the two counts cannot be confused at a call site.
 
+`s[a:b]?` copies the scalars from `a` to `b` into a new `str`;
+`&s[a:b]` borrows them in place as a `&substr`, which loops, compares, and
+searches without allocating. Both count bounds in scalars; see
+[substring views](../../language/04-expressions/slices.md#substring-views).
+
 String literals require no allocation. Results of at most seven UTF-8 bytes,
 including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does

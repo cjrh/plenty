@@ -127,3 +127,39 @@ conflict when either is exclusive. Byte buffers have views too. A view cannot
 be returned or stored yet; the
 [slice reference](../../design/language/04-expressions/slices.md#slice-views)
 lists its operations and limits.
+
+## Borrow part of a string
+
+`&text[a:b]` borrows part of a string the same way. Its type is `&substr`, and
+its positions count characters, as a [copying string slice](slices.md#text)'s
+do. Loop over it, compare it with a string, or search it without copying:
+
+```plenty
+def count(text: &substr, letter: &str) -> i64:
+    mut n = 0
+    for c in text:
+        if c == letter:
+            n += 1
+    n
+
+def main() -> Result[(), AllocError | IoError]:
+    line = "name: Ada Lovelace"
+    value = &line[6:]
+    print(value, len(value))?
+    print(&line[:4] == "name", "Love" in value, count(&line[:], "a"))?
+    first = value[:3]?
+    print(first)?
+    Ok(())
+```
+
+```output
+Ada Lovelace 12
+True True 3
+Ada
+```
+
+A function takes a substring as `&substr`; pass a whole string as
+`&line[:]`. Copy the text with `value[a:b]?` when you need an owned `str`,
+for example to call a `str` method or keep it after the string changes. The
+[substring view reference](../../design/language/04-expressions/slices.md#substring-views)
+lists every operation.

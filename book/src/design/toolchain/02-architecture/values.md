@@ -115,6 +115,11 @@ retain/release ignores them. Byte equality, hashing, and printing handle both
 representations identically. Source-visible text behavior belongs in
 [text operations](../../facilities/01-builtins/text.md).
 
+A [`&substr`](../../language/04-expressions/slices.md#substring-views) is two
+words, like a `&[u8]`: the address of its first UTF-8 byte and its byte count.
+It has no prefix, so it is not a `&str`. A view of an inline string addresses
+the bytes in the borrowed string's slot, which its loan keeps in place.
+
 ## Standard sums
 
 `Option` and `Result` use a 128-bit value: a 64-bit terminal payload and a 64-bit

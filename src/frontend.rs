@@ -761,6 +761,11 @@ struct TypeRef {
 impl TypeRef {
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
+        if ty == Some(Ty::Text) {
+            return Err(self.at.error(
+                "`substr` is only the borrowed form `&substr`, a view of part of a string such as `&s[a:b]`; an owned string is `str`",
+            ));
+        }
         if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
             return Err(self
                 .at
@@ -883,6 +888,17 @@ impl TypeRef {
             return view_type(element, name == MUT_VIEW_TYPE, &self.at).map(Some);
         }
         if matches!(name.as_str(), "&" | "&mut") {
+            if self.args[0].concrete.is_none()
+                && self.args[0].name.as_deref() == Some(SUBSTR)
+                && self.args[0].args.is_empty()
+            {
+                if name == "&mut" {
+                    return Err(self.at.error(
+                        "a `str` is immutable, so a substring view is shared only; write `&substr`",
+                    ));
+                }
+                return Ok(Some(text_view()));
+            }
             // `&()` is the type of a borrowed unit payload; spelling it lets
             // generic `&T` signatures instantiate with `T = ()`.
             let inner = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
@@ -2915,6 +2931,7 @@ fn named_type(name: &str) -> Type {
         "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
+        SUBSTR => Ty::Text,
         "bytes" => Ty::ByteStr,
         "File" => Ty::File,
         "FsReadDir" => Ty::FsReadDir,
@@ -4091,6 +4108,36 @@ impl Lower<'_> {
                 let (a, mut loans) = self.observe(left, ops)?;
                 let (b, other_loans) = self.observe(right, ops)?;
                 loans.extend(other_loans);
+                if b == text_view() {
+                    let needle_text = match a {
+                        Ty::Str => true,
+                        _ if a == text_view() => false,
+                        _ => {
+                            return Err(e.at.error(format!(
+                                "`{op}` on a `&substr` looks for a `str` or `&substr`, not {a}"
+                            )));
+                        }
+                    };
+                    ops.push(Op::Swap);
+                    let mode = crate::collection_opcodes::TEXT_SEARCH_CONTAINS << 1;
+                    ops.push(Op::PushInt(Value::I64(mode | i64::from(needle_text))));
+                    ops.push(Op::Collection(CollectionOp::TextView(
+                        crate::text::TextViewOp::Search {
+                            needle_text,
+                            find: false,
+                        },
+                    )));
+                    Self::end_reads(loans, ops);
+                    if op == "not in" {
+                        ops.push(Op::Not);
+                    }
+                    return Ok(Some(Ty::Bool));
+                }
+                if a == text_view() && b == Ty::Str {
+                    return Err(e.at.error(format!(
+                        "`{op}` on a `str` looks for a `str`; search for a `&substr` with `&s[:]`, as `v in &s[:]`"
+                    )));
+                }
                 if let Ty::View(..) = b {
                     return Err(e.at.error(format!(
                         "slice views do not support `{op}` yet; compare the elements in a loop"
@@ -4888,7 +4935,8 @@ impl Lower<'_> {
         let mut argument_loans = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
             if let Ty::View(_, mutable) = expected {
-                let (ty, loan) = self.view_argument(arg, *mutable, ops)?;
+                let text = *expected == text_view();
+                let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 argument_loans.push(loan);
                 continue;
@@ -5763,6 +5811,14 @@ fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
 }
 
 /// The type-reference names of `&[T]` and `&mut [T]`.
+/// The element name of `&substr`, a view of part of a string (issue #595).
+pub(crate) const SUBSTR: &str = "substr";
+
+/// `&substr`: a shared view of a run of a string's scalars.
+pub(crate) fn text_view() -> Ty {
+    Ty::View(Arc::new(Ty::Text), false)
+}
+
 pub(crate) const VIEW_TYPE: &str = "&[]";
 pub(crate) const MUT_VIEW_TYPE: &str = "&mut []";
 
