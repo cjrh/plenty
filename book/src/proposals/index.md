@@ -66,6 +66,7 @@ moved to `completed/`.
 | Columnar record storage | [Columnar lists](columnar-list.md) | [Ownership and API](columnar-list/contract.md), [chunks and deletion](columnar-list/chunks.md), [layout evidence](columnar-list/evidence.md), [Plenty implementation spike](columnar-list/implementation-spike.md) |
 | Analytical dataframes | [Polars embedding](polars-dataframes.md) | [Native interface and measured costs](polars-dataframes/evidence.md) |
 | Plotting and data visualisation | [std.plot](std-plot.md) | [Examples beside ggplot2 and plotnine](std-plot/examples.md) |
+| Exact decimal and financial arithmetic | [std.decimal](decimal.md) | [Polars embedding](polars-dataframes.md), [ordering](user-type-ordering.md), [dictionary keys](user-type-hashing.md), [checked arithmetic](completed/checked-arithmetic.md) |
 
 These families keep distinct contracts separate: a sorting algorithm does not
 define user equality, protocol defaults do not imply private access, and error
@@ -115,6 +116,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Flat class layout](flat-class-layout.md) — one-field classes without `__del__` are their field (implemented); flat nested records assessed, not adopted | B19 (issue #547); related B35 |
 | [Arbitrary-precision integers](bigint.md) — Plenty limbs with an inline small value; malachite rejected on allocation failure and LGPL | B38 (issue #481) |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
+| [Exact decimal arithmetic](decimal.md) — allocation-free 38-digit `Decimal` in Plenty, scale kept with numeric equality as in Python, exact operators under the integer trap and `checked:` rules, `NonZero[Decimal]` divisors, explicit rounding | None yet; related B76, B37, B74 |
 
 ## Completed investigations
 
