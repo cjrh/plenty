@@ -434,6 +434,8 @@ mod test_stack_overflow;
 mod test_std_actor;
 #[path = "test_std_actor_http_corpus.rs"]
 mod test_std_actor_http_corpus;
+#[path = "test_std_actor_http_interop.rs"]
+mod test_std_actor_http_interop;
 #[path = "test_std_actor_http_server.rs"]
 mod test_std_actor_http_server;
 #[path = "test_std_actor_net.rs"]

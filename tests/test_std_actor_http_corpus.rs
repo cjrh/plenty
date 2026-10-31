@@ -13,17 +13,21 @@ const SERVER: &str = include_str!("fixtures/actor_http/corpus.plenty");
 const WAIT: Duration = Duration::from_secs(5);
 const HEALTH: &[u8] = b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
 
-struct Server {
+pub(super) struct Server {
     child: Child,
     lines: Receiver<String>,
-    port: u16,
+    pub(super) port: u16,
     stderr: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
 impl Server {
     fn start() -> Self {
-        let (dir, executable) = support::build_file(SERVER);
+        Self::start_with(SERVER)
+    }
+
+    pub(super) fn start_with(source: &str) -> Self {
+        let (dir, executable) = support::build_file(source);
         let stderr = dir.path().join("stderr");
         let mut child = Command::new(executable)
             .stdin(Stdio::piped())
@@ -105,7 +109,7 @@ impl Server {
         );
     }
 
-    fn finish(mut self) {
+    pub(super) fn finish(mut self) {
         self.child.stdin.take().unwrap().write_all(b"x").unwrap();
         let deadline = Instant::now() + WAIT;
         let status = loop {

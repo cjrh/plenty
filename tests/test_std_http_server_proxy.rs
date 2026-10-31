@@ -39,7 +39,7 @@ unsafe extern "C" {
 }
 
 /// Whether to run: `PLENTY_DOCKER_TESTS=1` with Docker and curl usable.
-fn enabled(test: &str) -> bool {
+pub(super) fn enabled(test: &str) -> bool {
     if std::env::var("PLENTY_DOCKER_TESTS").as_deref() != Ok("1") {
         // Written past the test harness's capture, so the skip is visible.
         let _ = writeln!(
@@ -136,14 +136,14 @@ impl Drop for Server {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Kind {
+pub(super) enum Kind {
     Nginx,
     Caddy,
 }
 
 /// A proxy container in front of a server, removed when dropped (also when
 /// the test panics). Only this container is ever stopped or removed.
-struct Proxy {
+pub(super) struct Proxy {
     kind: Kind,
     name: String,
     http: u16,
@@ -153,7 +153,7 @@ struct Proxy {
 }
 
 impl Proxy {
-    fn start(kind: Kind, upstream: u16) -> Proxy {
+    pub(super) fn start(kind: Kind, upstream: u16) -> Proxy {
         static COUNT: AtomicUsize = AtomicUsize::new(0);
         let (image, template, config, command): (_, _, _, &[&str]) = match kind {
             Kind::Nginx => (
@@ -261,16 +261,16 @@ impl Proxy {
         std::fs::read_to_string(self.dir.path().join("log")).unwrap_or_default()
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn url(&self, path: &str) -> String {
         format!("http://127.0.0.1:{}{path}", self.http)
     }
 
-    fn tls_url(&self, path: &str) -> String {
+    pub(super) fn tls_url(&self, path: &str) -> String {
         format!("https://localhost:{}{path}", self.tls)
     }
 
     /// curl arguments that reach the TLS port and trust the test CA.
-    fn tls_args(&self) -> Vec<String> {
+    pub(super) fn tls_args(&self) -> Vec<String> {
         let ca = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls/ca.pem");
         vec![
             "--cacert".into(),
