@@ -26,8 +26,8 @@ agreement and acceptance checks.
 
 ### Next batches
 
-- **B76 — analytical workloads:** decimal columns should follow a separate
-  `std.decimal` design and implementation. Use the pinned Polars engine's
+- **B76 — analytical workloads:** decimal columns follow the
+  [std.decimal proposal](proposals/decimal.md) after its core module ships. Use the pinned Polars engine's
   Parquet capabilities; fixed-size arrays, dictionary semantics, nested casts
   and broader list operations need separate scope. Use the
   [daily sales application](tutorial/special-purpose/dataframe-application.md)
@@ -176,12 +176,13 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 | B73 | Arenas/linked data | Before `std.arena`, replace caller namespaces with a safe arena-identity contract covering copy/concurrency/exhaustion, review callbacks/movement cost, and qualify deletion/reuse, bad handles, affine cleanup, OOM preservation and tree/graph consumers. Keep linked lists/trees as examples until a workload justifies an API. Direct disjoint loans/worklists relate to B11; no intrusive-pointer extension implied. [Assessment/prototype](proposals/arenas.md). |
 | B74 | User-defined keys | [Structural hashing proposal](proposals/user-type-hashing.md): tuples/classes/enums with key-type fields, built-in `KeyType`, no user `__hash__`/`__eq__`. Stages: copyable enums, `KeyType`, classes. [Existing hash/traversal work](completed-work/performance.md#b74-collection-hashing). |
 | B75 | Pipeline extensions | Early stop for parallel `any`/`all` and integer range sources beyond `range[i64]`. Broader reusable iterator/view relationships are B12/B11. All four original stages are [delivered](completed-work/language-and-tooling.md#b75-fluent-pipelines); they are not outstanding tasks. |
-| B76 | Columnar extensions | Decimal design first; temporal/grouped/floating as-of keys, time-bucketed/rolling aggregations, fixed-size arrays, dictionary semantics, nested casts and broader list operations need workload evidence. Validate use cases before static-schema/zero-copy machinery. For `clist`: row views/method adaptation, field references, affine fields, chunks, statistics, tombstones/vacuum and interchange. Broader SIMD/parallel scans need legality/performance evidence (B23); borrowing B11/B12, pipelines B75. [Delivered dataframe/clist subsets](completed-work/libraries.md#b76-columnar-data). |
+| B76 | Columnar extensions | Decimal columns after the B86 core module; temporal/grouped/floating as-of keys, time-bucketed/rolling aggregations, fixed-size arrays, dictionary semantics, nested casts and broader list operations need workload evidence. Validate use cases before static-schema/zero-copy machinery. For `clist`: row views/method adaptation, field references, affine fields, chunks, statistics, tombstones/vacuum and interchange. Broader SIMD/parallel scans need legality/performance evidence (B23); borrowing B11/B12, pipelines B75. [Delivered dataframe/clist subsets](completed-work/libraries.md#b76-columnar-data). |
 | B77 | Derived serialization | Accepted [design](proposals/derived-serialization.md), not implementation: JSON-shaped `std.serial`; hooks/compiler-expanded entry points; class `@serial`; TOML; docs. `SerialError[E]` retains format error/field path. Measure compile time/throughput before derive. Relates to B29/B51; reuse the closed annotation mechanism. |
 | B84 | Generic copy classes | A copyable bound for generic `@copy` classes. Class dictionary keys stay B74. [Delivered non-generic subset](completed-work/language-and-tooling.md#b84-copy-classes). |
 | B85 | Actor extensions | `std.actor.httpserver` over `std.actor.net`; multi-thread stages; sliding-window/all-for-one restart, parent restart notices and an actor-specific `&mut self` spawn diagnostic. macOS heaps wait on B18. [Delivered actors/network/TLS](completed-work/libraries.md#b85-actors). |
 | B80 | Plotting | Finish the [accepted core milestone](proposals/std-plot.md): remaining scales, smoothing, broader facet controls and font-measured layout. Then broader geoms/PNG, dates, reflected records and a separate dataframe bridge. [Delivered subset](completed-work/libraries.md#b80-plotting). |
 | B83 | Value generics/arrays | Accepted [design](proposals/value-generics.md), not shipped: `const N`, inline `array[T, N]`, allocation-free literals at generic parameters, per-instance assertions; then `BoundedList` (B13) and measured internal SIMD rewrite (B23). Derived sizes in signatures remain deferred. |
+| B86 | Exact decimals | [std.decimal proposal](proposals/decimal.md): allocation-free 38-digit `Decimal` in Plenty with exact operators and explicit rounding. Stages: `u64.widening_mul`, std-only `@arithmetic` methods/hooks, `__cmp__` (B37) and a `ZeroTest` bound for `NonZero`; core module; `__key__` keys (B74) and a format-spec hook; Polars decimal columns (B76) and JSON/CSV interchange. Arbitrary precision only on evidence. |
 
 ### Standard library follow-ups
 
