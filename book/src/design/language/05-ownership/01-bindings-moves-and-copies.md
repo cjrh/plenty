@@ -2,15 +2,18 @@
 
 Bindings and mutable reassignment follow the
 [declaration and assignment rules](../04-expressions/assignment.md). Ordinary
-value use either copies or transfers ownership according to the value's type.
+value use (assignment, owned argument passing, and return) either copies or
+transfers ownership according to the value's type:
 
-Scalars, immutable strings, ranges, named function values, and aggregates of
-copyable components copy on ordinary value use. Strings may share immutable
-storage. Class instances are affine, including a record of integers, unless
-the class is declared [`@copy`](../03-types/classes.md#copy-classes).
-Collections, boxes, generators, captured closures, and aggregates containing
-affine components also move on assignment, owned argument passing, and return.
-Inserting an affine value into a collection or capturing it transfers ownership.
+Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
+tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
+its parts copy. A class copies only when it is declared [`@copy`](../03-types/classes.md#copy-classes).
+Every other value moves: collections, boxes, closures that capture,
+generators, and other class instances.
+
+A class of integers is still affine unless declared `@copy`. Copied strings may
+share immutable storage. Inserting an affine value into a collection or
+capturing it transfers ownership.
 A moved-from binding cannot be read until a permitted reassignment initializes it.
 
 `copy(value)` observes its argument and returns `Result[T, AllocError]` containing

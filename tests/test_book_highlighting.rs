@@ -16,6 +16,13 @@ fn item<'a>(source: &'a str, start: &str) -> &'a str {
     &rest[..rest.find("\n}\n").expect("item end")]
 }
 
+/// The words in the `keywords!` invocation that defines `reserved()`.
+fn reserved_words() -> BTreeSet<&'static str> {
+    let begin = FRONTEND.find("\nkeywords!(").expect("keywords! invocation");
+    let rest = &FRONTEND[begin..];
+    quoted(&rest[..rest.find("\n);").expect("keywords! end")])
+}
+
 fn quoted(text: &str) -> BTreeSet<&str> {
     text.split('"').skip(1).step_by(2).collect()
 }
@@ -46,7 +53,7 @@ fn missing<'a>(want: &BTreeSet<&'a str>, have: &BTreeSet<&str>) -> Vec<&'a str> 
 
 #[test]
 fn grammar_keywords_match_reserved_words() {
-    let reserved = quoted(item(FRONTEND, "pub(crate) fn reserved("));
+    let reserved = reserved_words();
     let keywords = grammar_list("KEYWORDS");
     let literals = grammar_list("LITERALS");
     let classified: BTreeSet<_> = keywords.union(&literals).copied().collect();
@@ -68,7 +75,7 @@ fn grammar_keywords_match_reserved_words() {
 
 #[test]
 fn grammar_literals_match_prelude_variants() {
-    let reserved = quoted(item(FRONTEND, "pub(crate) fn reserved("));
+    let reserved = reserved_words();
     let variants = quoted(item(ENUMS, "pub(super) fn prelude_variant("));
     let literals = grammar_list("LITERALS");
     assert_eq!(missing(&variants, &literals), Vec::<&str>::new());

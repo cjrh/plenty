@@ -10,7 +10,7 @@ calls transfer it into the body.
 - [Closure environments](03-closures.md)
 - [Consuming and stored closures](04-consuming-and-stored-closures.md)
 - [Boxed callable environments](05-boxed-callables.md)
-- [Recursion and tail calls](05-tail-calls.md)
+- [Recursion and tail calls](06-tail-calls.md)
 
 [Generic constraints](../07-generics/index.md) allow one callback API to accept
 different concrete callable representations without erasing their types.

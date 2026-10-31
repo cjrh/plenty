@@ -25,8 +25,9 @@ even when a particular value is shallow. Callable signatures do not constitute
 stored recursive values. Consuming matching transfers payloads;
 borrowed matching preserves the owner. See [ownership](../05-ownership/index.md).
 
-Partial moves from classes, stored references, multiple mutable owners of one
-node, and source ownership cycles are unsupported. A terminating variant,
+[Moving a field](../05-ownership/01-bindings-moves-and-copies.md#moving-fields)
+through a `Box`, stored references, multiple mutable owners of one node, and
+source ownership cycles are unsupported. A terminating variant,
 `Nothing`, or an empty collection supplies a construction base case. A list can
 own all nodes while integer IDs represent parent links, shared targets, or
 cycles: such graph edges do not carry ownership or create loans. Index stability,

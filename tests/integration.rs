@@ -148,6 +148,8 @@ mod test_contexts;
 mod test_conversion_errors;
 #[path = "test_copy_classes.rs"]
 mod test_copy_classes;
+#[path = "test_copy_rule.rs"]
+mod test_copy_rule;
 #[path = "test_copyable_tuple_mutation.rs"]
 mod test_copyable_tuple_mutation;
 #[path = "test_data_callable_bounds.rs"]

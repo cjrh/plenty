@@ -3078,51 +3078,65 @@ fn bracketed(at: &Token, generic: Expression, index: Option<Expr>) -> Expression
         None => generic,
     }
 }
-pub(crate) fn reserved(name: &str) -> bool {
-    matches!(
-        name,
-        "def"
-            | "extern"
-            | "export"
-            | "opaque"
-            | "try"
-            | "with"
-            | "type"
-            | "const"
-            | "return"
-            | "if"
-            | "elif"
-            | "else"
-            | "mut"
-            | "pass"
-            | "and"
-            | "or"
-            | "not"
-            | "True"
-            | "False"
-            | "None"
-            | "struct"
-            | "enum"
-            | "match"
-            | "case"
-            | "while"
-            | "for"
-            | "in"
-            | "yield"
-            | "async"
-            | "await"
-            | "class"
-            | "lambda"
-            | "trait"
-            | "protocol"
-            | "break"
-            | "continue"
-            | "import"
-            | "from"
-            | "as"
-            | "pub"
-    )
+/// Defines the reserved-word list and a `reserved` test compiled to a match.
+/// The book's keyword list and the language server's completions are checked
+/// against `KEYWORDS`.
+macro_rules! keywords {
+    ($($word:literal)|+) => {
+        /// Every word the parser reserves; none can be used as a name.
+        pub(crate) const KEYWORDS: &[&str] = &[$($word),+];
+        pub(crate) fn reserved(name: &str) -> bool {
+            matches!(name, $($word)|+)
+        }
+    };
 }
+keywords!(
+    "def"
+        | "extern"
+        | "export"
+        | "opaque"
+        | "try"
+        | "with"
+        | "type"
+        | "const"
+        | "return"
+        | "if"
+        | "elif"
+        | "else"
+        | "mut"
+        | "pass"
+        | "and"
+        | "or"
+        | "not"
+        | "True"
+        | "False"
+        | "None"
+        | "struct"
+        | "enum"
+        | "match"
+        | "case"
+        | "while"
+        | "for"
+        | "in"
+        | "yield"
+        | "async"
+        | "await"
+        | "class"
+        | "lambda"
+        | "trait"
+        | "protocol"
+        | "break"
+        | "continue"
+        | "import"
+        | "from"
+        | "as"
+        | "pub"
+);
+/// Reserved words with no meaning in Plenty. They stay reserved so a Python
+/// or Rust habit is rejected (with a specific diagnostic for `None`, `try` and
+/// `lambda`) instead of silently becoming a name.
+pub(crate) const REJECTED_KEYWORDS: &[&str] =
+    &["None", "async", "await", "lambda", "struct", "trait", "try"];
 fn is_comparison(op: &str) -> bool {
     matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in")
 }
