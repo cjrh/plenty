@@ -183,6 +183,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 | B80 | Plotting | Finish the [accepted core milestone](proposals/std-plot.md): remaining scales, smoothing, broader facet controls and font-measured layout. Then broader geoms/PNG, dates, reflected records and a separate dataframe bridge. [Delivered subset](completed-work/libraries.md#b80-plotting). |
 | B83 | Value generics/arrays | Accepted [design](proposals/value-generics.md), not shipped: `const N`, inline `array[T, N]`, allocation-free literals at generic parameters, per-instance assertions; then `BoundedList` (B13) and measured internal SIMD rewrite (B23). Derived sizes in signatures remain deferred. |
 | B86 | Exact decimals | [std.decimal proposal](proposals/decimal.md): allocation-free 38-digit `Decimal` in Plenty with exact operators and explicit rounding. Stages: `u64.widening_mul`, std-only `@arithmetic` methods/hooks, `__cmp__` (B37) and a `ZeroTest` bound for `NonZero`; core module; `__key__` keys (B74) and a format-spec hook; Polars decimal columns (B76) and JSON/CSV interchange. Arbitrary precision only on evidence. |
+| B87 | Std conventions | Public `std` APIs follow [Standard library conventions](design/stdlib/conventions.md). Align the listed deviations as their issues are scheduled (#630, #631, #633–#635; time units with B42, booleans with B36, byte inputs with B39); file issues for the untracked ones: `bounds:` vs `limits:`, `AllocError` unions, predicate names and `count()` sizes, `watch` shapes. |
 
 ### Standard library follow-ups
 
