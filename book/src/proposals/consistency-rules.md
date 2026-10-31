@@ -4,7 +4,7 @@
 > `main` at `b4580c2d` on 2026-10-31, with probes on the debug compiler built
 > that day. The evidence is the 2026-10-31 language consistency survey,
 > recorded as issues #612–#637. No backlog entry exists yet; the
-> [staged plan](#staged-plan-and-suggested-backlog-wording) proposes B87–B92.
+> [staged plan](#staged-plan-and-suggested-backlog-wording) proposes B88–B93.
 > A seventh rule from the same survey, a written convention page for the
 > standard library, is separate documentation work and is only referenced here.
 
@@ -666,9 +666,9 @@ become `proposals/consistency-rules.md#...`.
 
 | ID | Area | Suggested wording |
 | --- | --- | --- |
-| B87 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound. [Proposal](#rule-1-one-copy-rule); issue #636. |
-| B88 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook after issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
-| B89 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
-| B90 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
-| B91 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |
-| B92 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants as function values; one `checked:` callback behaviour. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
+| B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound. [Proposal](#rule-1-one-copy-rule); issue #636. |
+| B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook after issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
+| B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
+| B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
+| B92 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |
+| B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants as function values; one `checked:` callback behaviour. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
