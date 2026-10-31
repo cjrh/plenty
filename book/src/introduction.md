@@ -1,7 +1,10 @@
 # Introduction
 
-Plenty is a statically typed language with Python-shaped syntax and
-Rust-influenced behaviors. It compiles ahead of time to native code.
+Plenty is a programming language that answers the question,
+"Is it possible to build a language with Python syntax but Rust
+performance and guarantees?".
+
+Plenty is statically-typed and compiles ahead of time to native code.
 
 ## Why the name "Plenty"?
 
@@ -26,7 +29,7 @@ There are multiple goals for Plenty:
 - **Fallible memory allocation**: All operations that allocate memory can report allocation failure without exceptions.
 - **Simple FFI interop with C**: In both directions. There is an interface file format to specify lifetime information for resources from a C library so that Plenty can manage them safely.
 - **No inheritance**: Classes and enums have fixed declarations rather than dynamic attributes or inheritance.
-- **Protocol-based interfaces**: A native version of Python's `typing.Protocol`. Something like Go interfaces, or a simpler version of Rust's traits.
+- **Generics and Protocols**: A native version of Python's `typing.Protocol`. Something like Go interfaces, or a simpler version of Rust's traits.
 - **Batteries included**: A standard library so stuffed to the gills with awesome that many programs can be written using the standard library alone.
 - **Simple package management**: No central package repo. Use golang-inspired git links for dependencies.
 
@@ -42,18 +45,14 @@ for some tasks, but a simpler language with different trade-offs can
 be appropriate for others. Rust is a great language for writing a
 compiler.
 
+## Getting Started
+
 This book provides:
 
 - **[Learn Plenty](tutorial/index.md)** teaches the language with runnable
   examples. Start here.
 - **[Reference](design/index.md)** defines language rules, built-in facilities,
   and compiler/runtime architecture in separate areas.
-- **[Proposals](proposals/index.md)** record the reasons for past and future
-  design decisions. They are not the current contract.
-- **[Backlog](backlog.md)** is the single maintained list of future work and
-  proposed priorities. Start here when choosing the next task.
-- **[Completed work](completed-work.md)** records delivered milestones and retired
-  backlog entries, separate from outstanding work.
 
 ## Tested examples
 
