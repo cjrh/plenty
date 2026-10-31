@@ -10,7 +10,6 @@ pub fn build(native: &Path, out: &Path) {
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
     let cc = crate::native_tools::tool("CC");
-    let ar = crate::native_tools::tool("AR");
     let mut objects = Vec::new();
     for section in ["common", "dec", "enc"] {
         let mut files: Vec<PathBuf> = std::fs::read_dir(source.join("c").join(section))
@@ -55,8 +54,7 @@ pub fn build(native: &Path, out: &Path) {
     }
     let archive = out.join(format!("lib{ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
-    let result = Command::new(ar)
-        .arg("crsD")
+    let result = crate::native_tools::archive_command()
         .arg(archive)
         .args(objects)
         .output()

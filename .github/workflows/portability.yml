@@ -44,6 +44,11 @@ jobs:
           rustc -vV | tee artifacts/toolchain.txt
           rustc -vV | grep -Fx "host: $EXPECTED_HOST"
           python -c 'import platform; print(platform.platform()); print(platform.machine())' | tee artifacts/host.txt
+      - name: Check native build-tool boundary
+        run: |
+          set -o pipefail
+          rustc --edition 2024 --test plenty-runtime/native/tools.rs -o artifacts/native-tools-tests.exe
+          artifacts/native-tools-tests.exe --nocapture 2>&1 | tee artifacts/native-tools-tests.log
       - name: Build actual compiler and runtime
         run: |
           set -o pipefail

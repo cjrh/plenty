@@ -441,7 +441,9 @@ passes on macOS ARM64, Windows x86-64 MSVC and Linux x86-64. The first B18.2 inc
 target facts and compiler-host/runtime validation; it does not implement new
 object formats or OS services. This is a partial
 B18.1 gate: large frames, unwind, Rust boundaries and runtime dependencies still
-need qualification. Neither new OS is admitted by Plenty yet.
+need qualification. Neither new OS is admitted by Plenty yet. The shared Apple archive-command
+fix addresses issue #600; native build-tool tests run before the OS port build
+and on both Linux architectures.
 
 B18.1 and B18.6 design research can run together; B18.3 and B18.4 can proceed in
 separate worktrees after the common description settles. Keep independent OS

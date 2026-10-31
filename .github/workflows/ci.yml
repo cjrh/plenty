@@ -208,6 +208,11 @@ jobs:
           cache-bin: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --all -- --check
+      - name: Check native build tools
+        run: |
+          mkdir -p target/native-tools
+          rustc --edition 2024 --test plenty-runtime/native/tools.rs -o target/native-tools/tests
+          target/native-tools/tests --nocapture
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: python3 -B scripts/check_links.py book/src
 

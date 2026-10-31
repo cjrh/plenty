@@ -18,6 +18,14 @@ ThinLTO, abort-on-panic static archives and embeds them with native link require
 Program compilation extracts the archive and links through a `cc` driver. Runtime
 source and the Rust toolchain are not needed by an installed compiler.
 
+Direct native dependency builds share the archive command in
+`plenty-runtime/native/tools.rs`. GNU/Linux retains deterministic `ar crsD`;
+Apple targets use `ar crs` with `ZERO_AR_DATE=1`, because Apple's archiver does
+not accept GNU's `D` option. The native build-tool tests compile, archive and
+link a C fixture and check archive reproducibility after input timestamps
+change. This build-tool boundary does not establish macOS runtime support or
+MSVC-compatible dependency objects.
+
 Standard library Plenty sources are embedded in the compiler as well. `std.math`
 is parsed and checked as an ordinary module, with a stable toolchain identity;
 it is never loaded from the user's source root. Its algorithms and error policy

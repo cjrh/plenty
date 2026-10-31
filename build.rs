@@ -299,9 +299,7 @@ fn build_sqlite(dir: &Path) {
     );
     let archive = dir.join(format!("lib{SQLITE_ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
-    let ar = native_tools::tool("AR");
-    let output = Command::new(&ar)
-        .arg("crsD")
+    let output = native_tools::archive_command()
         .arg(&archive)
         .arg(&object)
         .output()
@@ -417,9 +415,7 @@ fn build_ring(dir: &Path) {
     }
     let archive = dir.join(format!("lib{RING_ARCHIVE}.a"));
     let _ = std::fs::remove_file(&archive);
-    let ar = native_tools::tool("AR");
-    let output = Command::new(&ar)
-        .arg("crsD")
+    let output = native_tools::archive_command()
         .arg(&archive)
         .args(&objects)
         .output()
