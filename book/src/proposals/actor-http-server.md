@@ -16,7 +16,7 @@ Applications choose the execution and failure model that suits their work.
 The actor server should make ordinary bounded request/response handlers simple.
 A separate event handler interface handles streaming input/output, timer wakes,
 actor messages and shutdown without blocking the stage. Request heads are
-borrowed only during a callback; persistent application state obeys the existing
+owned transient callback inputs; persistent application state obeys the existing
 actor heap rules. Factory and connection initialization run in the child heap.
 No compiler heap-boundary relaxation is part of this design.
 

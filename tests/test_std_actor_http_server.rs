@@ -676,9 +676,7 @@ fn actor_http_sigterm_finishes_an_inflight_response_before_exit() {
     assert_eq!(counter(&summary, "trapped"), 0);
 }
 
-#[test]
-fn actor_https_shutdown_request_survives_peer_omitting_close_notify() {
-    let server = Server::start(SIMPLE, &[("secure", "True")]);
+fn request_https_shutdown(server: &Server) {
     let code = r#"import socket, ssl, sys
 context = ssl.create_default_context(cafile=sys.argv[2])
 stream = context.wrap_socket(socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=5), server_hostname='localhost')
@@ -710,6 +708,12 @@ stream.close()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn actor_https_shutdown_request_survives_peer_omitting_close_notify() {
+    let server = Server::start(SIMPLE, &[("secure", "True")]);
+    request_https_shutdown(&server);
     // A report proves serve returned before stdin cancellation. The fixture
     // deliberately joins its stdin reader only after printing these lines.
     assert_eq!(
@@ -752,6 +756,47 @@ fn actor_http_connection_churn_reclaims_admission_slots_while_mail_keeps_arrivin
     assert_eq!(server.ask("/").body, b"home");
     let summary = server.finish();
     assert_eq!(counter(&summary, "requests"), 5121);
+    assert_eq!(counter(&summary, "rejected"), 0);
+    assert_eq!(counter(&summary, "trapped"), 0);
+}
+
+#[test]
+fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
+    if Command::new("curl").arg("--version").output().is_err() {
+        eprintln!("curl unavailable; HTTPS connection churn test skipped");
+        return;
+    }
+    let server = Server::start(
+        SIMPLE,
+        &[
+            ("secure", "True"),
+            ("capacity", "256"),
+            ("timeout_ms", "5000u32"),
+        ],
+    );
+    let url = format!("https://127.0.0.1:{}/?[1-5000]", server.port);
+    let output = Command::new("python3")
+        .args(["-c", "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[1:], timeout=40).returncode)",
+            "curl", "-sS", "-k", "-Z", "--parallel-max", "16", "--max-time", "5",
+            "-H", "Connection: close", "-o", "/dev/null", "-w", "%{http_code}\n", &url])
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let statuses = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(statuses.lines().count(), 5000);
+    assert!(statuses.lines().all(|line| line == "200"));
+    request_https_shutdown(&server);
+    assert_eq!(
+        server
+            .lines
+            .recv_timeout(Duration::from_secs(4))
+            .expect("shutdown stalled after HTTPS churn"),
+        "requests 5001"
+    );
+    let summary = server.finish();
     assert_eq!(counter(&summary, "rejected"), 0);
     assert_eq!(counter(&summary, "trapped"), 0);
 }

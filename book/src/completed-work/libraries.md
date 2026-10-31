@@ -185,7 +185,8 @@ handlers, resumable TCP/TLS streaming, deadlines and draining. The shared
 [`std.http.decoder`](../design/stdlib/http-decoder.md) supplies byte-feed
 request framing. Stage observations, isolated spawning and immediate/destructor
 shutdown support its lifecycle; runnable deadline and live-stage cleanup fixes
-address issues #638 and #639. The [qualification record](../design/stdlib/actor-http-qualification.md)
+address issues #638 and #639. Fair child-exit delivery and safe runnable-slot
+reuse under connection churn address issues #640 and #642. The [qualification record](../design/stdlib/actor-http-qualification.md)
 separates implementation delivery from production readiness and comparative
 measurements. The worker HTTP server remains independently supported.
 Remaining stages stay **B85** in the [backlog](../backlog.md).

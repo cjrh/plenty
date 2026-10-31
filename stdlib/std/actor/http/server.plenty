@@ -469,6 +469,7 @@ class Client[F, H]:
     lingering: i64
     reported: bool
     resuming: bool
+    completing: bool
 
 
     def set_deadline[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
@@ -506,6 +507,43 @@ class Client[F, H]:
         Ok(())
 
     def receive[M](self: &mut Client[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
+        # A peer may close abruptly as soon as it sees its response. Preserve
+        # an already requested shutdown across that transport failure until
+        # admission has accepted the control message.
+        mut shutdown_waiting = False
+        match &mut self.response:
+            case Some(reply):
+                if reply._shutdown:
+                    match context.send(self.parent, Notice[M].Drain):
+                        case Ok(_):
+                            reply._shutdown = False
+                        case Err(_):
+                            shutdown_waiting = True
+            case Nothing:
+                pass
+        if self.completing:
+            match context.send(self.parent, Notice[M].Completed):
+                case Ok(_):
+                    self.completing = False
+                    self.reported = True
+                case Err(_):
+                    shutdown_waiting = True
+        if shutdown_waiting:
+            # A consumed continuation must be rearmed for this retry.
+            match mail:
+                case Mail.Message(Notice.Resume):
+                    self.resuming = False
+                case Mail.Timer(timer):
+                    match &self.wake:
+                        case Some(wake):
+                            if timer.key() == wake.key():
+                                self.wake = Nothing
+                        case Nothing:
+                            pass
+                case _:
+                    pass
+            self.resume(context)?
+            return Ok(())
         mut wire = replace(self.wire, Nothing).unwrap()
         mut decoder = replace(self.decoder, Nothing).unwrap()
         mut reply = replace(self.response, Nothing).unwrap()
@@ -697,6 +735,9 @@ class Client[F, H]:
         if self.phase == 1 and not wire.reading():
             self.close_after_flush(wire, context)?
             return Ok(())
+        if reply._shutdown:
+            self.resume(context)?
+            return Ok(())
         before = reply.pending()
         if before > 0:
             mut stop = reply._output.len()
@@ -718,6 +759,7 @@ class Client[F, H]:
                     case Ok(_):
                         self.reported = True
                     case Err(_):
+                        self.completing = True
                         self.resume(context)?
                         return Ok(())
             if not reply._keep or self.draining:
@@ -799,7 +841,7 @@ pub class Node[F, H]:
                 # TLS configs cannot be copied. The session is constructed in
                 # the child heap under isolated admission; any failure retires
                 # this child. User factory and socket buffers run in started.
-                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False, False)))))
+                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False, False, False)))))
             case State.Serving(_):
                 Ok(Nothing)
 
