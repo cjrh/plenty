@@ -18,88 +18,89 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 104-176
-- [`std.actor.net`](#stdactornet): 178-241
-- [`std.actor.tls`](#stdactortls): 243-272
-- [`std.archive`](#stdarchive): 274-340
-- [`std.atomic`](#stdatomic): 342-351
-- [`std.bytes`](#stdbytes): 353-448
-- [`std.cache.lru`](#stdcachelru): 450-472
-- [`std.channel`](#stdchannel): 474-478
-- [`std.cli`](#stdcli): 480-510
-- [`std.cli.fileinput`](#stdclifileinput): 512-521
-- [`std.cli.progress`](#stdcliprogress): 523-547
-- [`std.collections`](#stdcollections): 549-576
-- [`std.complex`](#stdcomplex): 578-604
-- [`std.compress`](#stdcompress): 606-636
-- [`std.concurrent`](#stdconcurrent): 638-642
-- [`std.crypto`](#stdcrypto): 644-725
-- [`std.csv`](#stdcsv): 727-790
-- [`std.dataframe`](#stddataframe): 792-991
-- [`std.db.kv`](#stddbkv): 993-1025
-- [`std.db.sqlite`](#stddbsqlite): 1027-1091
-- [`std.deque`](#stddeque): 1093-1107
-- [`std.diff`](#stddiff): 1109-1138
-- [`std.encoding`](#stdencoding): 1140-1201
-- [`std.env`](#stdenv): 1203-1217
-- [`std.error`](#stderror): 1219-1239
-- [`std.fmt`](#stdfmt): 1241-1294
-- [`std.fs`](#stdfs): 1296-1379
-- [`std.fs.dirs`](#stdfsdirs): 1381-1391
-- [`std.fs.watch`](#stdfswatch): 1393-1428
-- [`std.graph`](#stdgraph): 1430-1518
-- [`std.http`](#stdhttp): 1520-1589
-- [`std.http.body`](#stdhttpbody): 1591-1626
-- [`std.http.client`](#stdhttpclient): 1628-1738
-- [`std.http.cookie`](#stdhttpcookie): 1740-1772
-- [`std.http.files`](#stdhttpfiles): 1774-1787
-- [`std.http.https`](#stdhttphttps): 1789-1803
-- [`std.http.proxy`](#stdhttpproxy): 1805-1826
-- [`std.http.server`](#stdhttpserver): 1828-1913
-- [`std.http.sse`](#stdhttpsse): 1915-1934
-- [`std.http.tls`](#stdhttptls): 1936-1953
-- [`std.http.typed`](#stdhttptyped): 1955-1988
-- [`std.http.websocket`](#stdhttpwebsocket): 1990-2025
-- [`std.http.wss`](#stdhttpwss): 2027-2033
-- [`std.io`](#stdio): 2035-2115
-- [`std.io.typed`](#stdiotyped): 2117-2155
-- [`std.json`](#stdjson): 2157-2221
-- [`std.jwt`](#stdjwt): 2223-2270
-- [`std.log`](#stdlog): 2272-2339
-- [`std.markdown`](#stdmarkdown): 2341-2375
-- [`std.template`](#stdtemplate): 2377-2398
-- [`std.math`](#stdmath): 2400-2466
-- [`std.mime`](#stdmime): 2468-2492
-- [`std.net`](#stdnet): 2494-2576
-- [`std.path`](#stdpath): 2578-2595
-- [`std.process`](#stdprocess): 2597-2643
-- [`std.random`](#stdrandom): 2645-2666
-- [`std.ready`](#stdready): 2668-2698
-- [`std.regex`](#stdregex): 2700-2753
-- [`std.report`](#stdreport): 2755-2778
-- [`std.secrets`](#stdsecrets): 2780-2806
-- [`std.shlex`](#stdshlex): 2808-2817
-- [`std.sketch`](#stdsketch): 2819-2857
-- [`std.sketch.xor`](#stdsketchxor): 2859-2870
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2872-2887
-- [`std.signal`](#stdsignal): 2889-2906
-- [`std.simd`](#stdsimd): 2908-3009
-- [`std.stat`](#stdstat): 3011-3044
-- [`std.plot`](#stdplot): 3046-3135
-- [`std.linalg`](#stdlinalg): 3137-3178
-- [`std.sync`](#stdsync): 3180-3189
-- [`std.system`](#stdsystem): 3191-3249
-- [`std.tempfile`](#stdtempfile): 3251-3283
-- [`std.test`](#stdtest): 3285-3327
-- [`std.text`](#stdtext): 3329-3348
-- [`std.thread`](#stdthread): 3350-3354
-- [`std.time`](#stdtime): 3356-3400
-- [`std.tls`](#stdtls): 3402-3484
-- [`std.toml`](#stdtoml): 3486-3535
-- [`std.unicode`](#stdunicode): 3537-3549
-- [`std.url`](#stdurl): 3551-3579
-- [`std.uuid`](#stduuid): 3581-3604
-- [`std.xml`](#stdxml): 3606-3639
+- [`std.actor`](#stdactor): 105-177
+- [`std.actor.net`](#stdactornet): 179-242
+- [`std.actor.tls`](#stdactortls): 244-273
+- [`std.archive`](#stdarchive): 275-341
+- [`std.atomic`](#stdatomic): 343-352
+- [`std.bytes`](#stdbytes): 354-449
+- [`std.cache.lru`](#stdcachelru): 451-473
+- [`std.channel`](#stdchannel): 475-479
+- [`std.cli`](#stdcli): 481-511
+- [`std.cli.fileinput`](#stdclifileinput): 513-522
+- [`std.cli.progress`](#stdcliprogress): 524-548
+- [`std.collections`](#stdcollections): 550-577
+- [`std.complex`](#stdcomplex): 579-605
+- [`std.compress`](#stdcompress): 607-637
+- [`std.concurrent`](#stdconcurrent): 639-643
+- [`std.crypto`](#stdcrypto): 645-726
+- [`std.csv`](#stdcsv): 728-791
+- [`std.dataframe`](#stddataframe): 793-992
+- [`std.db.kv`](#stddbkv): 994-1026
+- [`std.db.sqlite`](#stddbsqlite): 1028-1092
+- [`std.deque`](#stddeque): 1094-1108
+- [`std.diff`](#stddiff): 1110-1139
+- [`std.encoding`](#stdencoding): 1141-1202
+- [`std.env`](#stdenv): 1204-1218
+- [`std.error`](#stderror): 1220-1240
+- [`std.fmt`](#stdfmt): 1242-1295
+- [`std.fs`](#stdfs): 1297-1380
+- [`std.fs.dirs`](#stdfsdirs): 1382-1392
+- [`std.fs.watch`](#stdfswatch): 1394-1429
+- [`std.graph`](#stdgraph): 1431-1519
+- [`std.http`](#stdhttp): 1521-1590
+- [`std.http.body`](#stdhttpbody): 1592-1627
+- [`std.http.client`](#stdhttpclient): 1629-1739
+- [`std.http.cookie`](#stdhttpcookie): 1741-1773
+- [`std.http.files`](#stdhttpfiles): 1775-1788
+- [`std.http.https`](#stdhttphttps): 1790-1804
+- [`std.http.proxy`](#stdhttpproxy): 1806-1827
+- [`std.http.server`](#stdhttpserver): 1829-1914
+- [`std.http.sse`](#stdhttpsse): 1916-1935
+- [`std.http.tls`](#stdhttptls): 1937-1954
+- [`std.http.typed`](#stdhttptyped): 1956-1989
+- [`std.http.websocket`](#stdhttpwebsocket): 1991-2026
+- [`std.http.wss`](#stdhttpwss): 2028-2034
+- [`std.image`](#stdimage): 2036-2082
+- [`std.io`](#stdio): 2084-2164
+- [`std.io.typed`](#stdiotyped): 2166-2204
+- [`std.json`](#stdjson): 2206-2270
+- [`std.jwt`](#stdjwt): 2272-2319
+- [`std.log`](#stdlog): 2321-2388
+- [`std.markdown`](#stdmarkdown): 2390-2424
+- [`std.template`](#stdtemplate): 2426-2447
+- [`std.math`](#stdmath): 2449-2515
+- [`std.mime`](#stdmime): 2517-2541
+- [`std.net`](#stdnet): 2543-2625
+- [`std.path`](#stdpath): 2627-2644
+- [`std.process`](#stdprocess): 2646-2692
+- [`std.random`](#stdrandom): 2694-2715
+- [`std.ready`](#stdready): 2717-2747
+- [`std.regex`](#stdregex): 2749-2802
+- [`std.report`](#stdreport): 2804-2827
+- [`std.secrets`](#stdsecrets): 2829-2855
+- [`std.shlex`](#stdshlex): 2857-2866
+- [`std.sketch`](#stdsketch): 2868-2906
+- [`std.sketch.xor`](#stdsketchxor): 2908-2919
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2921-2936
+- [`std.signal`](#stdsignal): 2938-2955
+- [`std.simd`](#stdsimd): 2957-3058
+- [`std.stat`](#stdstat): 3060-3093
+- [`std.plot`](#stdplot): 3095-3184
+- [`std.linalg`](#stdlinalg): 3186-3227
+- [`std.sync`](#stdsync): 3229-3238
+- [`std.system`](#stdsystem): 3240-3298
+- [`std.tempfile`](#stdtempfile): 3300-3332
+- [`std.test`](#stdtest): 3334-3376
+- [`std.text`](#stdtext): 3378-3397
+- [`std.thread`](#stdthread): 3399-3403
+- [`std.time`](#stdtime): 3405-3449
+- [`std.tls`](#stdtls): 3451-3533
+- [`std.toml`](#stdtoml): 3535-3584
+- [`std.unicode`](#stdunicode): 3586-3598
+- [`std.url`](#stdurl): 3600-3628
+- [`std.uuid`](#stduuid): 3630-3653
+- [`std.xml`](#stdxml): 3655-3688
 
 ## `std.actor`
 
@@ -2030,6 +2031,54 @@ def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &Cancellati
 
 ```text
 def connect(url: &str, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]
+```
+
+## `std.image`
+
+Owned 8-bit pixel buffers, bounded PNG decoding and encoding, cropping, colour conversion and resizing. Errors: `ImageError`. [Reference](image.md).
+
+```text
+enum ImageError
+    OutOfRange | Corrupt | Checksum | Truncated | Unsupported | LimitExceeded | Allocation(AllocError)
+enum ColorType
+    Gray | GrayAlpha | Rgb | Rgba
+    def channels(self) -> i64
+    def has_alpha(self) -> bool
+enum Format
+    Png | Jpeg | Gif | WebP
+enum Filter
+    Nearest | Bilinear
+class Limits
+    max_width: i64
+    max_height: i64
+    max_bytes: i64
+    def check(self, width: i64, height: i64, color: ColorType) -> Result[(), ImageError]
+def limits() -> Limits
+class Info
+    format: Format
+    width: i64
+    height: i64
+    color: ColorType
+    depth: i64
+    interlaced: bool
+class Image
+    def width(self) -> i64
+    def height(self) -> i64
+    def color(self) -> ColorType
+    def pixels(self) -> &Bytes
+    def into_pixels(self: Image) -> Bytes
+    def copy(self) -> Result[Image, ImageError]
+    def get(self, x: i64, y: i64, channel: i64) -> Result[u8, ImageError]
+    def set(self: &mut Image, x: i64, y: i64, channel: i64, value: u8) -> Result[(), ImageError]
+    def crop(self, x: i64, y: i64, width: i64, height: i64) -> Result[Image, ImageError]
+    def convert(self, color: ColorType) -> Result[Image, ImageError]
+    def resize(self, width: i64, height: i64, filter: Filter) -> Result[Image, ImageError]
+def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]
+def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) -> Result[Image, ImageError]
+def detect(data: &Bytes) -> Option[Format]
+def info(data: &Bytes) -> Result[Info, ImageError]
+def decode(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]
+def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]
 ```
 
 ## `std.io`

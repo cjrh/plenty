@@ -51,7 +51,7 @@ DEFAULT_MAX_HITS = 80
 # to the first `-` or `/` (`http-client.md`, `fs/walking.md`).
 STD_THEMES = {
     "std-net": "http https net tls actor sse websocket wss url channel concurrent thread ready signal",
-    "std-formats": "json toml xml csv encoding markdown template uuid mime report",
+    "std-formats": "json toml xml csv encoding markdown template uuid mime report image",
     "std-crypto": "crypto jwt secrets random",
     "std-text": "text unicode regex fmt shlex diff bytes",
     "std-system": "io fs path tempfile env system process cli log archive compress error",

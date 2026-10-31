@@ -425,6 +425,7 @@
         - [`std.http.sse`](design/stdlib/sse.md)
         - [`std.http.typed`](design/stdlib/http-typed.md)
         - [`std.http.websocket`](design/stdlib/websocket.md)
+        - [`std.image`](design/stdlib/image.md)
         - [`std.io`](design/stdlib/io.md)
         - [`std.io.typed`](design/stdlib/io-typed.md)
         - [`std.json`](design/stdlib/json.md)
