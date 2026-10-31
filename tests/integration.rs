@@ -375,6 +375,8 @@ mod test_protocol_defaults;
 mod test_protocols;
 #[path = "test_python_habit_diagnostics.rs"]
 mod test_python_habit_diagnostics;
+#[path = "test_python_habit_statements.rs"]
+mod test_python_habit_statements;
 #[path = "test_query_methods.rs"]
 mod test_query_methods;
 #[path = "test_range_loops.rs"]
