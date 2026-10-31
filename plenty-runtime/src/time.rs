@@ -67,13 +67,15 @@ mod tests {
     #[test]
     fn wall_readings_use_floor_seconds_on_both_sides_of_the_epoch() {
         assert_eq!(split(UNIX_EPOCH), (0, 0));
-        assert_eq!(split(UNIX_EPOCH + Duration::new(5, 7)), (5, 7));
+        // Windows SystemTime uses 100 ns FILETIME ticks. Keep fractional
+        // inputs representable on every host while checking floor semantics.
+        assert_eq!(split(UNIX_EPOCH + Duration::new(5, 700)), (5, 700));
         assert_eq!(
             split(UNIX_EPOCH - Duration::from_millis(500)),
             (-1, 500_000_000)
         );
         assert_eq!(split(UNIX_EPOCH - Duration::from_secs(3)), (-3, 0));
-        assert_eq!(split(UNIX_EPOCH - Duration::new(3, 1)), (-4, 999_999_999));
+        assert_eq!(split(UNIX_EPOCH - Duration::new(3, 100)), (-4, 999_999_900));
     }
 
     #[test]
