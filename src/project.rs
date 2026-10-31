@@ -1956,27 +1956,39 @@ mod tests {
 
     #[test]
     fn graph_files_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
         let graph = SourceGraph {
             packages: vec![
                 SourcePackage {
                     identity: "app".into(),
-                    root: "/p/app/src".into(),
+                    root: dir.path().join("app/src"),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
                 },
                 SourcePackage {
                     identity: "shapes".into(),
-                    root: "/p/shapes/src".into(),
-                    library: Some("/p/shapes/src/lib.plenty".into()),
+                    root: dir.path().join("shapes/src"),
+                    library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
                 },
             ],
         };
-        let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("graph.toml");
         std::fs::write(&path, graph.to_toml()).unwrap();
         let read = SourceGraph::read(&path).unwrap();
         assert_eq!(read.to_toml(), graph.to_toml());
+
+        std::fs::write(
+            &path,
+            "graph-version = 1\n[[package]]\nidentity = \"app\"\nroot = \"src\"\nlibrary = \"src/lib.plenty\"\n",
+        )
+        .unwrap();
+        let relative = SourceGraph::read(&path).unwrap();
+        assert_eq!(relative.packages[0].root, dir.path().join("src"));
+        assert_eq!(
+            relative.packages[0].library,
+            Some(dir.path().join("src/lib.plenty"))
+        );
 
         std::fs::write(
             &path,
