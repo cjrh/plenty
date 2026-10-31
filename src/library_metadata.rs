@@ -81,8 +81,8 @@ impl LibraryInterface {
     }
 }
 
-/// Extract all Plenty interfaces from an ELF object/shared object/executable or
-/// a regular static archive. Never executes the input or follows archive paths.
+/// Extract all Plenty interfaces from a native object/shared library/executable
+/// or a regular static archive. Never executes the input or follows archive paths.
 pub fn read_library_interfaces(path: &Path) -> Result<Vec<LibraryInterface>> {
     let data = read_bounded(path, MAX_BINARY)?;
     inspect(&data)
@@ -207,7 +207,7 @@ fn read_object(
     let object = object::File::parse(data)?;
     let target = crate::target::target_description(crate::native_target())
         .ok_or("unsupported packaged runtime target")?;
-    if object.format() != target.object_format
+    if !compatible_object_format(target.object_format, object.format())
         || object.architecture() != target.object_arch
         || object.is_little_endian() != (target.endian == "little")
     {
@@ -265,6 +265,37 @@ fn read_object(
         }
     }
     Ok(())
+}
+
+fn compatible_object_format(expected: object::BinaryFormat, actual: object::BinaryFormat) -> bool {
+    expected == actual
+        || (expected == object::BinaryFormat::Coff && actual == object::BinaryFormat::Pe)
+}
+
+#[cfg(test)]
+mod native_format_tests {
+    use super::*;
+    use object::BinaryFormat::{Coff, Elf, MachO, Pe};
+
+    #[test]
+    fn native_metadata_accepts_windows_objects_and_images_without_crossing_platforms() {
+        for target in crate::target::NATIVE_TARGETS {
+            for format in [Elf, MachO, Coff, Pe] {
+                let accepted = compatible_object_format(target.object_format, format);
+                assert_eq!(
+                    accepted,
+                    match target.os {
+                        "linux" => format == Elf,
+                        "macos" => format == MachO,
+                        "windows" => matches!(format, Coff | Pe),
+                        _ => unreachable!(),
+                    },
+                    "{} {format:?}",
+                    target.triple,
+                );
+            }
+        }
+    }
 }
 
 fn macho_interface_records(mut bytes: &[u8]) -> Result<Vec<&[u8]>> {
