@@ -86,11 +86,17 @@ retain their signals. Windows uses vectored exception handlers and a per-thread 
 Only registered checked-trap addresses are redirected; unrelated exceptions
 continue through the host chain. Library threads do not install these handlers.
 
+Resident-library loading also has native backends. POSIX uses libc's native
+loader flags; Windows uses UTF-16 paths, native symbol lookup and module pinning.
+The Windows byte-path boundary accepts UTF-8 and rejects invalid byte sequences;
+it does not yet represent filenames containing unpaired UTF-16 surrogates.
+Closing a lookup lease preserves the resident-code contract.
+
 These boundaries are implementation work toward new ports, not admission of
 macOS or Windows as supported compiler targets. The native qualification
 workflow tests synchronization separately so failures elsewhere in the runtime
-do not prevent exercising these primitives. Native Windows exception tests, object
-and linker support, actor recovery, OS services and full native execution
+do not prevent exercising these primitives. Native Windows exception subprocess tests pass in CI. Object
+and linker support, actor recovery, OS services and end-to-end Plenty execution
 remain qualification requirements in the [portability plan](../../../backlog.md#b18--macos-and-windows-implementation-sequence).
 
 ## Entry symbols
