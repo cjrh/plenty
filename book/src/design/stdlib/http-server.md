@@ -10,6 +10,11 @@ shows a complete server. [Qualification](http-qualification.md) records
 which production gates the server passes, its measured baselines, and
 deployment guidance; the server is production-ready.
 
+The separate [`std.actor.http.server`](actor-http-server.md) uses supervised
+connection actors and nonblocking callbacks. Its
+[qualification](actor-http-qualification.md) is independent; the two modules
+offer different execution and failure models and remain separate public APIs.
+
 ```plenty
 import std.bytes
 import std.http

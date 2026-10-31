@@ -283,4 +283,5 @@ configuration and the spawn hook may borrow it, as in the example; other
 - A trapped connection leaks one reference to its configuration; see
   [Memory](#memory).
 - No session resumption, as in `std.tls`.
-- `std.http` has no actor HTTPS server yet.
+- [`std.actor.http.server`](actor-http-server.md) builds HTTP/1.1 over these
+  sessions; its [qualification](actor-http-qualification.md) is separate.

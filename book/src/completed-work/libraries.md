@@ -178,4 +178,14 @@ idle/stall/read deadlines and nonblocking dial/lookup (issue #538, local PR #660
 (issue #543, local PR #664). General Watchable handles, named readiness,
 spawn tags on Down and in-place connection-buffer compaction shipped
 (issues #540–#542/#545, local PRs #661/#662).
+
+[`std.actor.http.server`](../design/stdlib/actor-http-server.md) adds a second
+HTTP/1.1 server with isolated connection construction, bounded complete-request
+handlers, resumable TCP/TLS streaming, deadlines and draining. The shared
+[`std.http.decoder`](../design/stdlib/http-decoder.md) supplies byte-feed
+request framing. Stage observations, isolated spawning and immediate/destructor
+shutdown support its lifecycle; runnable deadline and live-stage cleanup fixes
+address issues #638 and #639. The [qualification record](../design/stdlib/actor-http-qualification.md)
+separates implementation delivery from production readiness and comparative
+measurements. The worker HTTP server remains independently supported.
 Remaining stages stay **B85** in the [backlog](../backlog.md).

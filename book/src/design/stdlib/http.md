@@ -7,6 +7,11 @@ framing layer only. [`std.http.server`](http-server.md) builds a server on
 it and [`std.http.client`](http-client.md) a client; their HTTPS adapters use
 [`std.tls`](tls.md).
 
+[`std.http.decoder`](http-decoder.md) exposes the same request grammar as a
+bounded byte-feed state machine without I/O. The
+[`actor HTTP server`](actor-http-server.md) uses it to suspend between
+readiness events while keeping parsing state in its connection heap.
+
 For body transfers that must preserve a concrete transport error type, the
 additive [`std.http.typed`](http-typed.md) readers support fixed-length, chunked
 and close-delimited framing over `std.io.typed`. They assume validated heads;
@@ -193,6 +198,13 @@ fails as soon as a chunk size would pass `max_body`, and an `UntilClose` body
 as soon as a byte arrives past it. Chunk sizes are hexadecimal without signs
 or leading spaces. Chunk extensions after `;` are checked for control bytes
 and ignored. Each chunk's data must be followed by CRLF.
+
+`parse_chunk_size(&line, size)` exposes that chunk-size grammar for custom
+framed readers. It accepts any `ByteSource`, reads the first `size` bytes
+excluding CRLF, and returns `Result[i64, HttpError]` without allocating.
+Extensions are checked and ignored. Invalid syntax or a size exceeding
+`i64` returns `InvalidChunk`; an invalid input prefix range returns
+`Stream(OutOfRange)`. Callers enforce their own line and body limits.
 
 Through `read`, a body is an ordinary `Reader` for `std.io.copy_all` and
 similar helpers. Stream and allocation errors keep their `StreamError`;

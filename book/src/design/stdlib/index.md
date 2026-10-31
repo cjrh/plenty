@@ -18,6 +18,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.actor`](actor.md) | Supervised actors on one thread, each with its own heap, bounded mailbox and copied messages; a trap discards only that actor's heap and files; timers, request-reply and restart | `StartError`, `Undelivered[M]`, `TimerError`, `RequestError[M]` |
 | [`std.actor.net`](actor-net.md) | TCP for actors: a listener that starts one actor per connection with admission limits, connections with bounded buffers, back-pressure and deadlines, and nonblocking connect and lookup | `NetError`, `TimerError`, `BytesError` |
 | [`std.actor.tls`](actor-tls.md) | TLS for actor connections: a std.tls session over a `std.actor.net` connection, with plaintext back-pressure and the session in the connection actor's heap | `TlsError`, `TimerError` |
+| [`std.actor.http.server`](actor-http-server.md) | HTTP/1.1 and HTTPS on isolated connection actors, bounded request/response handlers or resumable streaming events, deadlines and draining | `ServerError` |
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
@@ -46,6 +47,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.graph`](graph.md) | Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees | `AllocError`, `GraphError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
+| [`std.http.decoder`](http-decoder.md) | Resumable bounded HTTP/1.x request framing over caller-supplied bytes, without I/O | `HttpError` |
 | [`std.http.body`](http-body.md) | Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uploads into unnamed temporary files | `BodyError` |
 | [`std.http.client`](http-client.md) | HTTP/1.1 client: pooled connections, deadlines and cancellation, bounded redirects, an explicit proxy, and replay of idempotent requests only | `ClientError` |
 | [`std.http.cookie`](http-cookie.md) | Cookie fields read leniently and `Set-Cookie` fields validated against injection, with secure defaults | `CookieError` |
