@@ -18,9 +18,9 @@ use std::sync::atomic::AtomicUsize;
 
 // Includes the fixed ARM context and extended register records. Refuse to
 // install if the kernel advertises a larger minimum signal frame.
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_os = "macos"))]
 const RESERVED: usize = 64 * 1024;
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(target_os = "macos")))]
 const RESERVED: usize = 16 * 1024;
 #[cfg(target_arch = "aarch64")]
 const HANDLER_MARGIN: usize = 8 * 1024;
@@ -40,13 +40,12 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 #[cfg_attr(not(plenty_runtime_embedded), allow(dead_code))]
 pub(crate) fn install() {
     // SAFETY: these queries take no pointers and run outside signal handlers.
-    let (page, minimum) = unsafe {
-        (
-            libc::sysconf(libc::_SC_PAGESIZE),
-            libc::getauxval(libc::AT_MINSIGSTKSZ),
-        )
-    };
-    if page <= 0 || minimum as usize > RESERVED - HANDLER_MARGIN {
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    #[cfg(target_os = "linux")]
+    let minimum = unsafe { libc::getauxval(libc::AT_MINSIGSTKSZ) } as usize;
+    #[cfg(target_os = "macos")]
+    let minimum = libc::MINSIGSTKSZ;
+    if page <= 0 || minimum > RESERVED - HANDLER_MARGIN {
         return;
     }
     PAGE_BYTES.store(page as usize, Ordering::Relaxed);
@@ -54,12 +53,19 @@ pub(crate) fn install() {
     let mut previous = MaybeUninit::<libc::sigaction>::uninit();
     // SAFETY: both records have the ABI layout and outlive the calls.
     unsafe {
-        // A handler present before `main`, such as a sanitizer's, keeps the signal.
-        if sigaction(SIGSEGV, null(), previous.as_mut_ptr()) == 0
-            && previous.assume_init().sa_sigaction == libc::SIG_DFL
-            && sigaction(SIGSEGV, &action, null_mut()) == 0
-        {
-            INSTALLED.store(true, Ordering::Relaxed);
+        // Darwin reports guard-page protection faults as SIGBUS. Keep any
+        // handler installed by the host, independently for each signal.
+        #[cfg(target_os = "linux")]
+        let signals = &[SIGSEGV];
+        #[cfg(target_os = "macos")]
+        let signals = &[SIGSEGV, libc::SIGBUS];
+        for &signal in signals {
+            if sigaction(signal, null(), previous.as_mut_ptr()) == 0
+                && previous.assume_init().sa_sigaction == libc::SIG_DFL
+                && sigaction(signal, &action, null_mut()) == 0
+            {
+                INSTALLED.store(true, Ordering::Relaxed);
+            }
         }
     }
 }
@@ -101,14 +107,13 @@ fn exhausted(address: usize, stack_pointer: usize, top: usize, instruction: bool
         && address >= stack_pointer.saturating_sub(PAGE_BYTES.load(Ordering::Relaxed))
 }
 
-unsafe extern "C" fn on_fault(_signal: i32, info: *const Info, context: *const c_void) {
+unsafe extern "C" fn on_fault(signal: i32, info: *const Info, context: *const c_void) {
     // Only async-signal-safe calls are made here: no allocation and no locks.
     // SAFETY: the kernel passes live records with the declared layouts.
     unsafe {
         let context = &*context.cast::<libc::ucontext_t>();
-        // The kernel reports its own faults with a positive code. A signal
-        // sent by a process carries no fault address.
-        let fault = (*info).si_code > 0;
+        // A signal sent by a process carries no hardware fault address.
+        let fault = signal_context::hardware_fault((*info).si_code);
         let mut stack = MaybeUninit::<SignalStack>::uninit();
         // Running on an alternate stack shows this thread reserved one in
         // `guarded`, so its base is the top of the stack that code runs on.
@@ -128,10 +133,10 @@ unsafe extern "C" fn on_fault(_signal: i32, info: *const Info, context: *const c
         }
         // Any other fault reruns its instruction under the default action.
         let default = signal_context::action(libc::SIG_DFL, 0);
-        sigaction(SIGSEGV, &default, null_mut());
+        sigaction(signal, &default, null_mut());
         if !fault {
             // Nothing reruns, so deliver the signal again once this returns.
-            raise(SIGSEGV);
+            raise(signal);
         }
     }
 }

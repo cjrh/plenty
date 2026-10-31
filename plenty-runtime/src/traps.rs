@@ -173,12 +173,19 @@ unsafe fn forward(
     }
     // The kernel applied our action's mask. Reconstruct the saved action's
     // mask from the pre-signal context before calling it, including NODEFER.
-    // Linux exposes signal numbers 1..=64 on both supported architectures.
+    // Rebuild the union using the native signal-number range.
     unsafe {
+        #[cfg(target_os = "linux")]
         let errno = libc::__errno_location();
+        #[cfg(target_os = "macos")]
+        let errno = libc::__error();
         let saved_errno = *errno;
         let mut mask = context.uc_sigmask;
-        for signal in 1..=64 {
+        #[cfg(target_os = "linux")]
+        let last_signal = 64;
+        #[cfg(target_os = "macos")]
+        let last_signal = 31;
+        for signal in 1..=last_signal {
             if libc::sigismember(&previous.sa_mask, signal) == 1 {
                 libc::sigaddset(&mut mask, signal);
             }
@@ -217,9 +224,9 @@ unsafe extern "C" fn on_illegal(_signal: i32, info: *const Info, context: *mut c
     // `TABLE` is the compiler's table once set.
     unsafe {
         let context = &mut *context.cast::<libc::ucontext_t>();
-        // The kernel reports its own faults with a positive code; a signal
-        // sent by a process reruns nothing.
-        let fault = (*info).si_code > 0;
+        // Only hardware faults identify an instruction to retry; user-sent
+        // signals have OS-specific codes and rerun nothing.
+        let fault = signal_context::hardware_fault((*info).si_code);
         let table = TABLE.load(Ordering::Acquire);
         if fault
             && !table.is_null()
