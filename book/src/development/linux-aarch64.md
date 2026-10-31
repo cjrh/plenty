@@ -177,8 +177,12 @@ weak-memory concurrency behavior by itself. Full-system TCG adds kernel coverage
 but is still emulation. Native hardware stress, additional page sizes and
 release-baseline clean-container execution must each be recorded before claiming
 them as supported. Native ARM CI is configured for the compiler/runtime suite,
-both optional engines and the Docker reverse-proxy tests; configuring those jobs
-is not evidence that they have run.
+both optional engines and the Docker reverse-proxy tests. Run `41210234842`
+on 2026-10-31 passed all of those jobs at revision `4c07ea01`, including all four
+ARM integration shards, default-feature build/doctests and strict lint checks.
+These native results supplement the emulation evidence above; they do not
+establish minimum deployment versions, additional page sizes or release-package
+compatibility.
 
 For the complete developer gate, run the locked workspace suite with all
 features, default-feature tests, formatting, clippy and tutorial/reference

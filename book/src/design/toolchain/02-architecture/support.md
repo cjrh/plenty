@@ -34,8 +34,10 @@ Experimental native emission for `aarch64-apple-darwin` and
 Mach-O/COFF objects and native linker invocation, but is not yet a qualified
 release platform. Runtime and standard-library capabilities remain incomplete,
 including actor recovery and several OS services; optional engines and
-end-to-end packaging still need qualification. Native compiler builds and
-boundary tests are separate evidence from compiling and running Plenty programs.
+end-to-end packaging still need qualification. Native CI passes compiler/runtime
+builds and unit tests, platform-boundary checks, and compilation and execution
+of generated Plenty callback/result probes on both operating systems. These
+checks do not establish full standard-library parity.
 
 There is no interpreter, REPL, JIT, async/await, inheritance, dynamic attributes,
 or exception unwinding. Future work and priorities remain in the
