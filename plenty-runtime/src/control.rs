@@ -1,8 +1,9 @@
 //! Explicitly shared cooperative cancellation; dropping a handle does not cancel.
 //!
 //! A readiness wait (`std.ready`, `std.net`) also polls the token's wake
-//! descriptor, an eventfd created on the first such wait and written once by
-//! `cancel`, so a blocked wait ends as soon as the token is cancelled.
+//! descriptor on Linux, an eventfd created on the first such wait and written
+//! by `cancel`. Other platforms retain bounded polling for readiness; direct
+//! cancellation waits use the condition variable on every platform.
 use crate::aggregates;
 use crate::deadline::Deadline;
 use crate::memory::{self, AllocError, Header};
@@ -14,7 +15,7 @@ struct Token {
     header: Header,
     cancelled: AtomicBool,
     /// Also guards the wake descriptor, which `cancel` writes under the lock.
-    gate: Mutex<Option<std::os::fd::OwnedFd>>,
+    gate: Mutex<Option<native::Event>>,
     changed: Condvar,
 }
 
@@ -49,7 +50,7 @@ pub(crate) unsafe fn wake(pointer: u128) -> Wake {
         return Wake::Cancelled;
     }
     match guard.as_ref() {
-        Some(fd) => Wake::Descriptor(std::os::fd::AsRawFd::as_raw_fd(fd)),
+        Some(fd) => Wake::Descriptor(native::descriptor(fd)),
         None => Wake::Unavailable,
     }
 }
@@ -64,6 +65,12 @@ mod native {
     unsafe extern "C" {
         fn eventfd(initial: u32, flags: i32) -> i32;
         fn write(fd: i32, data: *const std::ffi::c_void, length: usize) -> isize;
+    }
+
+    pub(super) type Event = OwnedFd;
+
+    pub(super) fn descriptor(fd: &Event) -> i32 {
+        std::os::fd::AsRawFd::as_raw_fd(fd)
     }
 
     pub(super) fn event() -> Option<OwnedFd> {
@@ -84,13 +91,22 @@ mod native {
 
 #[cfg(not(target_os = "linux"))]
 mod native {
-    use std::os::fd::OwnedFd;
+    // Readiness already falls back to bounded polling when no descriptor is
+    // available. Keep that behavior on non-Linux targets without importing
+    // Unix descriptor types on Windows or pretending to signal an event.
+    pub(super) type Event = std::convert::Infallible;
 
-    pub(super) fn event() -> Option<OwnedFd> {
+    pub(super) fn event() -> Option<Event> {
         None
     }
 
-    pub(super) fn signal(_: &OwnedFd) {}
+    pub(super) fn descriptor(event: &Event) -> i32 {
+        match *event {}
+    }
+
+    pub(super) fn signal(event: &Event) {
+        match *event {}
+    }
 }
 
 fn create() -> Result<*mut Token, AllocError> {
@@ -206,6 +222,19 @@ mod tests {
             assert!((*token).is_cancelled());
             assert!((*token).wait(Some(Deadline::from_millis(0))));
             assert!((*token).wait(Some(Deadline::from_millis(u64::MAX))));
+            plenty_release(token.cast());
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn cancellation_retains_bounded_polling_without_a_descriptor() {
+        // SAFETY: the token's owned reference stays live until final release.
+        unsafe {
+            let token = create().unwrap();
+            assert!(matches!(wake(token as u128), Wake::Unavailable));
+            (*token).cancel();
+            assert!(matches!(wake(token as u128), Wake::Cancelled));
             plenty_release(token.cast());
         }
     }

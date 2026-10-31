@@ -1,0 +1,23 @@
+[package]
+name = "plenty-runtime-native-tests"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Deliberately independent: these tests exercise production platform modules
+# before the complete runtime and its native dependencies support each host.
+[workspace]
+
+[features]
+allocation-checks = []
+
+[dependencies]
+libc = "=0.2.186"
+
+[[test]]
+name = "runtime_sync"
+path = "../runtime_sync_tests.rs"
+
+[[test]]
+name = "runtime_fault"
+path = "../runtime_fault_tests.rs"

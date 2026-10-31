@@ -2,26 +2,30 @@
 //!
 //! The compiler keeps arguments and result slots alive until join. There is no
 //! Rust closure box or infallible allocation on the submission path. The OS owns
-//! the thread stack; pthread_create reports resource exhaustion to the caller.
+//! the thread stack; native creation reports resource exhaustion to the caller.
 use std::ffi::c_void;
 
 pub(crate) type Entry = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
 
-// Keep pthread_t opaque to generated code: Linux GNU uses one machine word
-// on both supported architectures. Assert the storage contract against libc.
-const _: () = {
-    assert!(size_of::<usize>() == size_of::<libc::pthread_t>());
-    assert!(align_of::<usize>() == align_of::<libc::pthread_t>());
-};
-#[link(name = "pthread")]
-unsafe extern "C" {
-    fn pthread_create(
-        thread: *mut usize,
-        attributes: *const c_void,
-        entry: Entry,
-        argument: *mut c_void,
-    ) -> i32;
-    fn pthread_join(thread: usize, result: *mut *mut c_void) -> i32;
+#[cfg(unix)]
+#[path = "threads/unix.rs"]
+mod native;
+
+#[cfg(windows)]
+#[path = "threads/windows.rs"]
+mod native;
+
+#[cfg(not(any(unix, windows)))]
+mod native {
+    use super::*;
+
+    pub(super) unsafe fn start(_: *mut usize) -> i32 {
+        crate::fail("native threads are unsupported on this platform");
+    }
+
+    pub(super) unsafe fn join(_: *const usize) -> bool {
+        crate::fail("native threads are unsupported on this platform");
+    }
 }
 
 #[cfg(any(test, feature = "allocation-checks"))]
@@ -60,14 +64,14 @@ pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: 
         }
         None => false,
     }) {
-        return 11; // EAGAIN on the supported target.
+        return 11; // Stable injected failure; callers test only for nonzero.
     }
     // SAFETY: generated code provides pinned, initialized task storage and a
     // matching C entry adapter. Only the parent accesses the thread-id word;
-    // the worker owns its argument/result slots until pthread_join completes.
+    // the worker owns its argument/result slots until native join completes.
     unsafe {
         storage.cast::<Entry>().add(1).write(entry);
-        pthread_create(storage, std::ptr::null(), run, storage.cast())
+        native::start(storage)
     }
 }
 
@@ -75,8 +79,8 @@ pub(crate) unsafe extern "C" fn plenty_thread_start(storage: *mut usize, entry: 
 pub(crate) unsafe extern "C" fn plenty_thread_join(storage: *const usize) {
     // SAFETY: exactly one parent joins this successfully started native thread.
     // The task cannot escape, self-join, be detached, or be canceled from Plenty.
-    let status = unsafe { pthread_join(*storage, std::ptr::null_mut()) };
-    if status != 0 {
+    let joined = unsafe { native::join(storage) };
+    if !joined {
         // Returning would permit the caller to reclaim storage still used by a
         // worker. This indicates a compiler/runtime contract violation.
         crate::fail("native thread join contract violated");
