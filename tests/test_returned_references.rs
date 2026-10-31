@@ -202,27 +202,67 @@ print(view(&left) if True else view(&right)).unwrap()
 }
 
 #[test]
-fn projected_temporary_receivers_cannot_hide_returned_loan_origins() {
-    reject(
+fn temporary_receivers_lend_returned_references_for_their_full_expression() {
+    // Issue #597: the temporary receiver lives to the end of the statement.
+    run(
         r#"
 class Point:
     x: i64
+    name: str
     def view(self) -> &i64:
         &self.x
-print(Point(1).view()).unwrap()
+    def label(self) -> &str:
+        &self.name
+    def slot(self: &mut Point) -> &mut i64:
+        &mut self.x
+    def maybe(self) -> Option[&i64]:
+        Some(&self.x)
+    def __del__(self: &mut Point) -> ():
+        print("drop", self.name).unwrap()
+def make(n: i64, name: str) -> Point:
+    Point(n, name)
+print("value", *Point(1, "a").view()).unwrap()
+print("after").unwrap()
+total = *make(2, "b").view() + len(make(3, "cd").label())
+print(total).unwrap()
+print(make(4, "e").label()).unwrap()
+print(*Point(5, "f").slot()).unwrap()
+print(Point(6, "g").maybe().is_some()).unwrap()
 "#,
-        "require a named receiver",
+        "value 1\ndrop a\nafter\ndrop cd\ndrop b\n4\ne\ndrop e\n5\ndrop f\nTrue\ndrop g\n",
     );
-    reject(
-        r#"
-class Point:
-    x: i64
-    def view(self) -> &i64:
-        &self.x
-print([Point(1)].unwrap()[0].view()).unwrap()
-"#,
-        "require a named receiver",
+    // A receiver viewing a temporary collection lends its result too. Kept
+    // without a destructor: issue #599 tracks the element drop it skips.
+    run(
+        "class Point:\n    x: i64\n    def view(self) -> &i64:\n        &self.x\nprint(*[Point(7)].unwrap()[0].view()).unwrap()\n",
+        "7\n",
     );
+}
+
+#[test]
+fn references_from_temporary_receivers_cannot_outlive_the_statement() {
+    let class = "class Point:\n    x: i64\n    def view(self) -> &i64:\n        &self.x\n    def maybe(self) -> Option[&i64]:\n        Some(&self.x)\n";
+    for (body, expected) in [
+        (
+            "r = Point(1).view()\nprint(*r).unwrap()\n",
+            "temporary cannot be stored",
+        ),
+        (
+            "r = Point(1).maybe()\nprint(r.is_some()).unwrap()\n",
+            "temporary cannot be stored",
+        ),
+        (
+            "def bad(p: &Point) -> &i64:\n    Point(1).view()\n",
+            "must originate",
+        ),
+        // The receiver views `a`; its loan would end before the result's use.
+        (
+            "def pick(p: &Point) -> &Point:\n    p\na = Point(1)\nprint(*pick(&a).view()).unwrap()\n",
+            "bind the receiver to a name",
+        ),
+    ] {
+        reject(&format!("{class}{body}"), expected);
+    }
 }
 
 #[test]

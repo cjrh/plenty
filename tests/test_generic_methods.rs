@@ -93,7 +93,7 @@ fn method_generics_preserve_borrow_and_declaration_rules() {
         ),
         (
             "class Cell:\n    value: i64\n    def borrow[T](self, unused: T) -> &i64:\n        &self.value\ndef main() -> ():\n    value = Cell(1).borrow(2)\n    print(*value).unwrap()\n",
-            "named receiver",
+            "temporary cannot be stored",
         ),
         (
             "class Cell:\n    value: i64\n    def add[T: IntType](self: &mut Cell, x: T) -> ():\n        self.value = self.value + i64(x)\ndef main() -> ():\n    cell = Cell(1)\n    cell.add(2u8)\n",

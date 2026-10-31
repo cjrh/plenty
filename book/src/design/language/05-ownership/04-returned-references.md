@@ -71,11 +71,40 @@ field loan; the original call still requires access to its whole argument.
 Indexed origins, control-dependent returns, and other bodies conservatively
 protect the whole argument, even after further projection.
 
-A caller may bind a result from named storage and reborrow it. Methods returning
-references require a named receiver or a field/indexed place in named storage;
-temporary receivers are rejected. A shared temporary passed to an ordinary
-function survives only its full expression: `len(view("text"))` can use a
-returned `&str`, but `r = view("text")` is rejected even when `r` is unused.
+A caller may bind a result from named storage and reborrow it. A temporary
+origin survives only its full expression, the statement or condition that
+evaluates it. A shared temporary passed to an ordinary function follows this
+rule: `len(view("text"))` can use a returned `&str`, but `r = view("text")` is
+rejected even when `r` is unused. A temporary method receiver, such as
+`make().label()`, follows the same rule: the result may be used within the
+statement, and the receiver drops at its end. Binding the result, or returning
+it, is rejected:
+
+```plenty
+class Point:
+    x: i64
+    name: str
+
+    def label(self) -> &str:
+        &self.name
+
+def make(name: str) -> Point:
+    Point(0, name)
+
+def main() -> Result[(), IoError]:
+    print(make("origin").label())?
+    print(len(make("east").label()))?
+    Ok(())
+```
+```output
+origin
+4
+```
+
+A temporary receiver that itself borrows other storage, such as a returned
+`&Point` in `pick(&a).view()`, cannot lend a returned reference: its loan of
+that storage would end before the result is used. Bind the receiver first,
+`p = pick(&a)`, then call `p.view()`.
 Returned references cannot enter aggregates, scoped workers with temporary
 origins, or generator suspension. No lifetime annotation or callee-body
 inference changes the signature's first-reference origin.
