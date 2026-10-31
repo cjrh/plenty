@@ -4,7 +4,7 @@
 import std.bytes
 import std.http
 import std.io
-from std.bytes import Bytes, BytesError
+from std.bytes import ByteSource, Bytes, BytesError
 from std.http import Framing, Header, HttpError, Limits, RequestHead, RequestTarget
 from std.io import StreamError
 
@@ -40,16 +40,16 @@ pub class Decoder:
     _total: i64
 
     # True once nonblank request input has arrived, including a partial line.
-    pub def started(self) -> bool:
+    pub def is_started(self) -> bool:
         self._started
 
     # True after Head, including while the body is pending or complete.
-    pub def head_complete(self) -> bool:
+    pub def has_head(self) -> bool:
         self._state != head and self._state != failed
 
     # True only after End was emitted. No next-request byte is consumed until
     # reset, allowing the server to finish its response before reusing input.
-    pub def finished(self) -> bool:
+    pub def is_done(self) -> bool:
         self._state == done
 
     pub def total(self) -> i64:
@@ -93,7 +93,7 @@ pub class Decoder:
     # The count is relative to start. Nothing means no event was produced;
     # it may still consume bytes. An empty feed can emit End, but never EOF.
     # Any framing/allocation failure poisons the decoder until it is dropped.
-    pub def feed(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
+    pub def feed[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
         if start < 0 or stop < start or stop > source.len():
             return Err(HttpError.Stream(StreamError.OutOfRange))
         match self.step(source, start, stop):
@@ -103,7 +103,7 @@ pub class Decoder:
                 self._state = failed
                 Err(error)
 
-    def step(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
+    def step[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
         if self._state == failed:
             return Err(HttpError.Broken)
         if self._state == done:
@@ -120,7 +120,8 @@ pub class Decoder:
                 count = self._remaining
             if count == 0:
                 return Ok((0, Nothing))
-            body = mapped_bytes(source.slice(start, start + count))?
+            mut body = mapped_bytes(std.bytes.with_capacity(count))?
+            mapped_bytes(body.extend_range(source, start, start + count))?
             self._remaining -= count
             self._total += count
             if self._remaining == 0:
@@ -179,7 +180,7 @@ pub class Decoder:
 
     # One CRLF line. Reserve/check the section and line budgets before
     # copying input; valid CRLF at exactly the limit remains valid.
-    def gather(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(i64, bool), HttpError]:
+    def gather[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, bool), HttpError]:
         mut limit = self._limits.max_line
         mut overflow = HttpError.LineTooLong
         if self._state == chunk_end:
@@ -197,15 +198,19 @@ pub class Decoder:
         if end - start > room:
             end = start + room
         mut complete = False
-        match mapped_bytes(source.find(10u8, start, end))?:
-            case Some(found):
-                end = found + 1
+        # Read either Bytes or a literal in place. The scan is bounded by
+        # feed_budget and avoids materializing a temporary input buffer.
+        mut at = start
+        while at < end:
+            byte = source[at]
+            if self._state == head and byte != 13u8 and byte != 10u8:
+                self._started = True
+            if byte == 10u8:
+                end = at + 1
                 complete = True
-            case Nothing:
-                pass
+                break
+            at += 1
         mapped_bytes(self._line.extend_range(source, start, end))?
-        if self._state == head and not self._started:
-            self._started = mapped_bytes(source.find_not_in(b"\r\n", start, end))?.is_some()
         if complete:
             length = self._line.len()
             if length < 2 or self._line[length - 2] != 13u8:

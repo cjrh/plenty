@@ -25,7 +25,7 @@ def run(step: i64) -> ():
     mut at = 0
     mut bodies = std.bytes.empty().unwrap()
     mut ends = 0
-    while at < input.len() or parser.head_complete():
+    while at < input.len() or parser.has_head():
         mut stop = at + step
         if stop > input.len():
             stop = input.len()
@@ -67,12 +67,12 @@ def main() -> ():
     mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
     blank = std.bytes.from_text("\r\n").unwrap()
     drop(parser.feed(&blank, 0, blank.len()).unwrap())
-    ensure(not parser.started())
+    ensure(not parser.is_started())
     parser.finish().unwrap()
     ensure(parser.reset().is_err())
     data = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
     drop(parser.feed(&data, 0, 4).unwrap())
-    ensure(parser.started())
+    ensure(parser.is_started())
     consumed, event = parser.feed(&data, 4, 4).unwrap()
     ensure(consumed == 0 and event.is_none())
     print(str.repr(parser.finish()).unwrap()).unwrap()
@@ -114,7 +114,7 @@ def incremental(input: &Bytes, limits: &std.http.Limits, step: i64) -> Result[(i
     mut at = 0
     mut requests = 0
     mut total = 0
-    while at < input.len() or parser.head_complete():
+    while at < input.len() or parser.has_head():
         mut stop = at + step
         if stop > input.len():
             stop = input.len()
@@ -294,5 +294,48 @@ def main() -> ():
 "#
         ),
         "0 0\n",
+    );
+}
+
+#[test]
+fn byte_source_literals_and_owned_buffers_share_the_decoder_contract() {
+    support::assert_stdout(
+        &format!(
+            r#"{IMPORTS}
+from std.bytes import ByteSource
+
+def run[S: ByteSource](source: &S) -> ():
+    mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
+    ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
+    mut at = 0
+    mut body = std.bytes.empty().unwrap()
+    while not parser.is_done():
+        consumed, event = parser.feed(source, at, source.len()).unwrap()
+        at += consumed
+        match event:
+            case Some(Event.Head(_, _, _)):
+                ensure(parser.is_started() and parser.has_head())
+            case Some(Event.Body(part)):
+                body.extend(&part).unwrap()
+            case _:
+                pass
+    ensure(at == source.len())
+    print(body.to_text().unwrap()).unwrap()
+    parser.reset().unwrap()
+    ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
+    ensure(parser.feed(source, -1, 0).is_err())
+    ensure(not parser.is_started())
+
+def main() -> ():
+    literal = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc"
+    run(literal)
+    owned = std.bytes.from_bytes(literal).unwrap()
+    run(&owned)
+    ensure(std.http.parse_chunk_size(b"a;ext=yes", 9).unwrap() == 10)
+    ensure(std.http.parse_chunk_size(b"a;ext=\x7f", 7).is_err())
+    ensure(std.http.parse_chunk_size(b"a", 2).is_err())
+"#
+        ),
+        "abc\nabc\n",
     );
 }
