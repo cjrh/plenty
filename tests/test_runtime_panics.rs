@@ -45,13 +45,27 @@ fn hello_links_no_backtrace_symbolizer() {
         .collect();
     assert!(linked.is_empty(), "{linked:?}");
     let panic_entry = |part: &str| {
-        file.symbols()
-            .find(|symbol| {
+        // mold 2.30 emits an AArch64 `rust_begin_unwind$thunk` before the
+        // actual entry. Its branch target is the handler, but its own address
+        // differs. Match the entry itself, accepting Rust's v0 mangling.
+        let entries: Vec<_> = file
+            .symbols()
+            .filter(|symbol| {
                 symbol.kind() == SymbolKind::Text
-                    && symbol.name().is_ok_and(|name| name.contains(part))
+                    && symbol.name().is_ok_and(|name| {
+                        name == part
+                            || (name.starts_with("_R")
+                                && name.contains("7___rustc")
+                                && name.ends_with(part))
+                    })
             })
-            .unwrap_or_else(|| panic!("missing panic entry {part}"))
-            .address()
+            .collect();
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected one panic entry {part}: {entries:?}"
+        );
+        entries[0].address()
     };
     assert_eq!(
         panic_entry("rust_begin_unwind"),
