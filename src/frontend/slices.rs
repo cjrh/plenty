@@ -111,6 +111,15 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let alloc = crate::sum::alloc_error;
+        if self.place_type(base) == Some(text_view()) {
+            // Narrow in place, then copy only the selected bytes.
+            let (_, loan) = self.slice_view(base, bounds, false, ops)?;
+            ops.push(Op::Collection(CollectionOp::TextView(
+                crate::text::TextViewOp::Copy,
+            )));
+            Self::end_reads(vec![loan], ops);
+            return Ok(crate::sum::result(Ty::Str, alloc()));
+        }
         if let Some(ty @ Ty::Clist(_)) = self.place_type(base) {
             // Copying rows exposes every field, as `copy_row` does.
             self.check_clist_access(&ty, &base.at)?;

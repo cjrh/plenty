@@ -571,6 +571,8 @@ mod test_stdlib_index;
 mod test_storage_diagnostics;
 #[path = "test_stored_closures.rs"]
 mod test_stored_closures;
+#[path = "test_str_views.rs"]
+mod test_str_views;
 #[path = "test_symbol_references.rs"]
 mod test_symbol_references;
 #[path = "test_tail_abi.rs"]

@@ -155,6 +155,7 @@ fn define_type(
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
     match ty {
+        Ty::View(t, _) if **t == Ty::Text => {}
         Ty::List(t)
         | Ty::Clist(t)
         | Ty::Set(t)
@@ -311,6 +312,10 @@ fn kind_code(ty: &Ty) -> u8 {
         // literal; a view of `NonZero[u8]`, which shares the rows' layout,
         // prints as a list.
         Ty::View(element, _) if **element == Ty::U8 => b'T',
+        // A `&substr` prints as text: the low word addresses its first byte
+        // and the high word counts its bytes (issue #595).
+        Ty::View(element, _) if **element == Ty::Text => b't',
+        Ty::Text => unreachable!("text appears only inside a `&substr` view"),
         Ty::View(..) => b'V',
         Ty::Atomic(_) => unreachable!("replaced by its element"),
     }

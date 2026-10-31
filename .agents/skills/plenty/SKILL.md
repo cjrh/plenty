@@ -66,8 +66,10 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
   `NonZero.try_from(step)?`. Slice assignment is rejected.
 - `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
-  `&mut [T]`, without copying: no `?`, no step, no `str` views. Pass a whole
-  list to a `&[T]` parameter as `&xs[:]`. Views cannot be returned or stored.
+  `&mut [T]`, without copying: no `?`, no step. Pass a whole list to a
+  `&[T]` parameter as `&xs[:]`. `&s[1:3]` borrows part of a `str` as a
+  `&substr` (scalar positions, shared only); pass a whole string as `&s[:]`.
+  Views cannot be returned or stored.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
 - No `**`, truthiness, chained comparisons, or inheritance. Use

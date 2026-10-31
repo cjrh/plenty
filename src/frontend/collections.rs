@@ -1689,7 +1689,8 @@ impl Lower<'_> {
             (view, vec![loan])
         } else if self.is_view(iterable) {
             let (view, loan) = self.view_source(iterable, ops)?;
-            borrowed = true;
+            // A `&substr` yields one-scalar `str` values, as a `str` does.
+            borrowed = view != text_view();
             mutable = matches!(view, Ty::View(_, true));
             (view, vec![loan])
         } else if let Some((_, element)) = &counted {
@@ -1781,6 +1782,7 @@ impl Lower<'_> {
         }
         let element = match &ty {
             _ if bytes => Some(Ty::U8),
+            Ty::View(element, _) if **element == Ty::Text => Some(Ty::Str),
             Ty::View(element, _) => Some((**element).clone()),
             _ => ty.element(),
         };
@@ -1791,7 +1793,8 @@ impl Lower<'_> {
             && matches!(
                 ty,
                 Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_) | Ty::View(..)
-            );
+            )
+            && ty != text_view();
         if mutable && !matches!(ty, Ty::List(_) | Ty::View(..)) {
             return Err(iterable.at.error(
                 "mutable iteration requires a list; use items for mutable dictionary values",
@@ -2993,6 +2996,9 @@ impl Lower<'_> {
                 ))
         {
             return self.pipeline_terminal(base, name, args, ops);
+        }
+        if self.is_text_view(base) {
+            return self.text_view_method(base, name, args, ops);
         }
         if self.is_view(base) {
             return Err(base.at.error(format!(
@@ -4421,7 +4427,12 @@ impl Lower<'_> {
             }
             let (ty, loans) = self.observe(&args[0], ops)?;
             if let Ty::View(..) = ty {
-                ops.push(Op::Collection(CollectionOp::ViewLen(ty)));
+                ops.push(Op::Collection(if ty == text_view() {
+                    // Scalars, as for `str`; `v.byte_len()` is the stored count.
+                    CollectionOp::TextView(crate::text::TextViewOp::Len)
+                } else {
+                    CollectionOp::ViewLen(ty)
+                }));
                 Self::end_reads(loans, ops);
                 return Ok(Ty::I64);
             }
