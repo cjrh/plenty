@@ -6,8 +6,8 @@ import std.http
 import std.net
 import std.time
 import std.tls
-from std.actor import Context, heap_bytes_used, heaps_live
-from std.actor.http.server import Event, Fault, Notice, Request, Response
+from std.actor import Context, Mail, heap_bytes_used, heaps_live
+from std.actor.http.server import Event, ServerError, Notice, Request, Response
 from std.bytes import Bytes, BytesError
 from std.http import Header, HttpError, ResponseHead
 from std.sync import CancellationToken
@@ -18,8 +18,10 @@ const heap_limit: i64 = 1048576
 const timeout_ms: u32 = 1000u32
 const factory_fails: bool = False
 const secure: bool = False
+const max_line: i64 = 8192
+const max_head: i64 = 32768
 
-type AppError = HttpError | BytesError | AllocError | std.fmt.FormatError
+type AppError = ServerError | HttpError | BytesError | AllocError | std.fmt.FormatError
 
 # Blocking stdin is confined to a separate ordinary thread. It lets the
 # harness cancel even when every factory fails, without an HTTP control route.
@@ -39,6 +41,8 @@ def main() -> ():
     config.input_buffer = 256
     config.output_buffer = 256
     config.limits.max_body = 65536
+    config.limits.max_line = max_line
+    config.limits.max_head = max_head
     config.idle_timeout = std.time.milliseconds(timeout_ms)
     config.head_timeout = std.time.milliseconds(timeout_ms)
     config.body_timeout = std.time.milliseconds(timeout_ms)

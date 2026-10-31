@@ -1,0 +1,58 @@
+# A request starts an outbound connection without blocking the HTTP stage.
+import std.actor.net
+from std.actor import TimerError
+from std.actor.net import Connection, Dialing
+
+const upstream_port: u16 = 1u16
+
+pub class App:
+    pub dialing: Option[Dialing]
+    pub upstream: Option[Connection]
+    pub body: Bytes
+
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], ServerError]) -> Result[(), AppError | std.net.NetError | TimerError]:
+        match event:
+            case Event.End:
+                self.body.clear()
+                self.dialing = Some(std.actor.net.dial(&std.net.loopback_v4(upstream_port), &std.time.seconds(2u32), context)?)
+            case Event.Actor(mail):
+                match &mut self.dialing:
+                    case Some(attempt):
+                        match attempt.handle(&mail, context)?:
+                            case Some(socket):
+                                limits = std.actor.net.Limits(256, 256, std.time.seconds(2u32), std.time.seconds(2u32))
+                                mut connection = std.actor.net.connection(socket, &limits)?
+                                connection.start(context)?
+                                connection.write(b"ping", 0, 4, context)?
+                                self.upstream = Some(connection)
+                            case Nothing:
+                                pass
+                    case Nothing:
+                        pass
+                if self.upstream.is_some():
+                    self.dialing = Nothing
+                mut done = False
+                match &mut self.upstream:
+                    case Some(connection):
+                        drop(connection.handle(&mail, context)?)
+                        count = connection.available()
+                        if count > 0:
+                            self.body.extend_range(connection.input(), connection.input_start(), connection.input_stop())?
+                            connection.consume(count, context)?
+                        if self.body.len() == 8:
+                            response.send(200, "text/plain", &self.body)?
+                            connection.close(context)?
+                            done = True
+                    case Nothing:
+                        pass
+                if done:
+                    self.upstream = Nothing
+            case _:
+                pass
+        Ok(())
+
+def factory() -> Result[App, AppError]:
+    Ok(App(Nothing, Nothing, std.bytes.empty()?))
+
+def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
+    std.actor.http.server.serve_events(listener, factory, config, stop).unwrap()

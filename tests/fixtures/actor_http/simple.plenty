@@ -8,6 +8,10 @@ pub class App:
         if path == "/stop":
             response.shutdown_server()
             response.send_text(200, "stopping")?
+        elif path == "/empty204":
+            response.send(204, "text/plain", b"")?
+        elif path == "/empty304":
+            response.send(304, "text/plain", b"")?
         elif path == "/echo":
             response.send(200, "application/octet-stream", &request.body)?
         elif path == "/trailers":

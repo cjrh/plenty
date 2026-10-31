@@ -14,11 +14,11 @@ pub class App:
             self.remaining -= accepted
             if accepted == 0:
                 return Ok(())
-        response.end()?
+        response.finish()?
         self.mode = 0
         Ok(())
 
-    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], Fault]) -> Result[(), AppError]:
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], ServerError]) -> Result[(), AppError]:
         match event:
             case Event.Head(_, target):
                 if target.path == "/stop":
@@ -51,10 +51,14 @@ pub class App:
             case Event.Writable:
                 if self.mode == 3:
                     self.pump(response)?
-            case Event.Wake(7):
-                response.write(b"last", 0, 4)?
-                response.end()?
-                self.mode = 0
+            case Event.Actor(mail):
+                match mail:
+                    case Mail.Timer(timer):
+                        response.write(b"last", 0, 4)?
+                        response.finish()?
+                        self.mode = 0
+                    case _:
+                        pass
             case _:
                 pass
         Ok(())

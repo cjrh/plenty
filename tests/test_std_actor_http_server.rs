@@ -508,3 +508,101 @@ fn actor_http_stalled_reader_expires_while_other_clients_progress() {
     let summary = server.finish();
     assert_eq!(counter(&summary, "trapped"), 0);
 }
+
+#[test]
+fn actor_http_handlers_can_drive_nonblocking_outbound_connections() {
+    let upstream = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = upstream.local_addr().unwrap().port();
+    upstream.set_nonblocking(true).unwrap();
+    let upstream_task = std::thread::spawn(move || {
+        let deadline = Instant::now() + WAIT;
+        let mut received = 0;
+        while received < 2 {
+            match upstream.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_read_timeout(Some(WAIT)).unwrap();
+                    stream.set_write_timeout(Some(WAIT)).unwrap();
+                    let mut ping = [0; 4];
+                    stream.read_exact(&mut ping).unwrap();
+                    assert_eq!(&ping, b"ping");
+                    std::thread::sleep(Duration::from_millis(25));
+                    stream.write_all(b"upstream").unwrap();
+                    received += 1;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "outbound dial did not arrive");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("upstream accept: {error}"),
+            }
+        }
+    });
+    let handler = include_str!("fixtures/actor_http/outbound.plenty");
+    let server = Server::start(handler, &[("upstream_port", &format!("{port}u16"))]);
+    // Both admission and readiness continue while the first upstream delays.
+    let mut first = server.connect();
+    let mut second = server.connect();
+    for client in [&mut first, &mut second] {
+        client
+            .get_mut()
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .unwrap();
+    }
+    assert_eq!(response(&mut first, false).body, b"upstream");
+    assert_eq!(response(&mut second, false).body, b"upstream");
+    upstream_task.join().unwrap();
+    drop((first, second));
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 2);
+    assert_eq!(counter(&summary, "trapped"), 0);
+}
+
+#[test]
+fn actor_http_whole_response_limits_are_atomic_and_bodyless_statuses_have_no_length() {
+    let server = Server::start(SIMPLE, &[]);
+    for (path, status) in [("/empty204", 204), ("/empty304", 304)] {
+        let reply = server.ask(path);
+        assert_eq!(reply.status, status);
+        assert_eq!(reply.header("content-length"), None);
+        assert_eq!(reply.header("transfer-encoding"), None);
+    }
+    let mut client = server.connect();
+    client
+        .get_mut()
+        .write_all(b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 4000\r\n\r\n")
+        .unwrap();
+    client.get_mut().write_all(&vec![b'x'; 4000]).unwrap();
+    // Body alone fits pending_output; encoded head plus body does not.
+    // Failure must still permit a complete500, without a partial200 prefix.
+    assert_eq!(response(&mut client, false).status, 500);
+    closed(&mut client);
+    assert_eq!(server.ask("/").status, 200);
+    assert_eq!(counter(&server.finish(), "trapped"), 0);
+}
+
+#[test]
+fn actor_http_custom_head_limits_http10_expect_and_blank_eof() {
+    let server = Server::start(SIMPLE, &[("max_line", "16384"), ("max_head", "65536")]);
+    let mut client = server.connect();
+    write!(
+        client.get_mut(),
+        "GET / HTTP/1.1\r\nHost: x\r\nX-Large: {}\r\nConnection: close\r\n\r\n",
+        "v".repeat(9000)
+    )
+    .unwrap();
+    assert_eq!(response(&mut client, false).body, b"home");
+    closed(&mut client);
+    let mut old = server.connect();
+    old.get_mut()
+        .write_all(b"POST /echo HTTP/1.0\r\nContent-Length: 2\r\nExpect: 100-continue\r\n\r\nhi")
+        .unwrap();
+    let reply = response(&mut old, false);
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.body, b"hi");
+    closed(&mut old);
+    let mut blank = server.connect();
+    blank.get_mut().write_all(b"\r\n\r\n").unwrap();
+    blank.get_mut().shutdown(Shutdown::Write).unwrap();
+    closed(&mut blank);
+    assert_eq!(counter(&server.finish(), "trapped"), 0);
+}
