@@ -126,6 +126,12 @@ A temporary receiver that itself borrows other storage, such as a returned
 `&Point` in `pick(&a).view()`, cannot lend a returned reference: its loan of
 that storage would end before the result is used. Bind the receiver first,
 `p = pick(&a)`, then call `p.view()`.
+
+A method on an element or field of a temporary, as in
+`[make("a")]?[0].label()` or `holder.items()[0].view()`, borrows that element
+in place. An owned temporary lives to the end of the statement, as a
+temporary receiver does; a returned reference lends as a named reference does.
+
 Returned references cannot enter aggregates, scoped workers with temporary
 origins, or generator suspension. No lifetime annotation or callee-body
 inference changes the signature's first-reference origin.

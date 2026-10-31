@@ -3386,6 +3386,11 @@ impl Lower<'_> {
             ops.push(Op::UseLoan(loan));
             return Ok(Some(Ty::KeyView(key)));
         }
+        if let Some((receiver, root)) = self.hold_receiver_root(base, ops)? {
+            let result = self.method(&receiver, name, args, ops);
+            self.names.remove(&root);
+            return result;
+        }
         let (ty, loans) = if matches!(self.place_type(base), Some(Ty::Box(_))) {
             let (reference, loan) = self.borrow(base, false, ops)?;
             let Ty::Ref(content, _) = self.unbox_reference(reference, ops) else {
