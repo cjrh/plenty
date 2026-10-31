@@ -62,16 +62,19 @@ impl Bundle {
     }
 
     pub(super) fn publish(self) -> Result<()> {
-        // Plain rename can replace an empty directory created by another build.
-        // Linux is the only supported native target; NOREPLACE closes that race.
-        rustix::fs::renameat_with(
+        // Unix rename may replace an empty directory created by another build.
+        // Windows rename fails when the destination is an existing directory.
+        #[cfg(windows)]
+        let publication = std::fs::rename(self.path(), &self.destination);
+        #[cfg(not(windows))]
+        let publication = rustix::fs::renameat_with(
             rustix::fs::CWD,
             self.path(),
             rustix::fs::CWD,
             &self.destination,
             rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(|e| {
+        );
+        publication.map_err(|e| {
             format!(
                 "cannot publish distribution {} (destination must not exist): {e}",
                 self.destination.display()

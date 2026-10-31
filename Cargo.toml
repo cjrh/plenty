@@ -85,3 +85,6 @@ test = true
 [[example]]
 name = "rust_source_spike"
 required-features = ["rust-source-spike"]
+
+[build-dependencies]
+cc = "1"
