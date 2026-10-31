@@ -86,7 +86,7 @@ impl Table {
         Ok((data, base))
     }
 
-    /// ELF AArch64 GOT relocations address a symbol's GOT slot, not a pointer
+    /// AArch64 GOT relocations address a symbol's GOT slot, not a pointer
     /// plus an arbitrary addend. Give each placed function's base its own
     /// symbol so the backend's GOT load receives the exact record address.
     pub(super) fn address(
@@ -175,7 +175,7 @@ pub(super) struct Placed {
 impl Placed {
     /// Define offset aliases in the same read-only section as the source table.
     pub(super) fn resolve(self, product: &mut cranelift_object::ObjectProduct) -> Result<()> {
-        use cranelift_object::object::{SymbolScope, write::SymbolSection};
+        use cranelift_object::object::{SymbolFlags, SymbolScope, macho, write::SymbolSection};
         let Some(table) = self.table else {
             return Ok(());
         };
@@ -184,12 +184,22 @@ impl Placed {
             return Err("the source-site table has no section".into());
         };
         let base = table.value;
+        let macho = product.object.format() == object::BinaryFormat::MachO;
         for (alias, offset) in self.aliases {
             let symbol = product.data_symbol(alias);
             let symbol = product.object.symbol_mut(symbol);
             symbol.section = SymbolSection::Section(section);
             symbol.value = base + offset;
             symbol.scope = SymbolScope::Compilation;
+            if macho {
+                // These are interior addresses, not independent linker atoms.
+                // Splitting the table at an alias lets dead stripping or atom
+                // reordering invalidate its record and file-name offsets.
+                symbol.flags = SymbolFlags::MachO {
+                    n_type: macho::N_SECT.into(),
+                    n_desc: macho::N_ALT_ENTRY,
+                };
+            }
         }
         Ok(())
     }
