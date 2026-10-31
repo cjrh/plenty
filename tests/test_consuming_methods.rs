@@ -187,9 +187,11 @@ fn consumed_receivers_cannot_be_reused_or_moved_through_live_loans() {
             "items = [State(1)].unwrap()\ndrop(items[0].finish())",
             "cannot move out of indexed storage",
         ),
+        // A temporary's element is borrowed in place, as a named one is
+        // (issue #599).
         (
             "drop([State(1)].unwrap()[0].finish())",
-            "cannot consume a borrowed",
+            "cannot move out of indexed storage",
         ),
     ] {
         let source = format!("{STATE}\n{body}");

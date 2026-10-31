@@ -289,11 +289,21 @@ print(Point(6, "g").maybe().is_some()).unwrap()
 "#,
         "value 1\ndrop a\nafter\ndrop cd\ndrop b\n4\ne\ndrop e\n5\ndrop f\nTrue\ndrop g\n",
     );
-    // A receiver viewing a temporary collection lends its result too. Kept
-    // without a destructor: issue #599 tracks the element drop it skips.
+    // A receiver viewing a temporary collection lends its result too, and
+    // the collection still destroys the element (issue #599).
     run(
-        "class Point:\n    x: i64\n    def view(self) -> &i64:\n        &self.x\nprint(*[Point(7)].unwrap()[0].view()).unwrap()\n",
-        "7\n",
+        r#"
+class Point:
+    x: i64
+    name: str
+    def view(self) -> &i64:
+        &self.x
+    def __del__(self: &mut Point) -> ():
+        print("drop", self.name).unwrap()
+print(*[Point(7, "h")].unwrap()[0].view()).unwrap()
+print("after").unwrap()
+"#,
+        "7\ndrop h\nafter\n",
     );
 }
 
