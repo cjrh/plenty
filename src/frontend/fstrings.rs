@@ -886,12 +886,119 @@ impl Spec {
 /// generic function that contains it. `write` names the form that writes to
 /// a caller's formatter.
 fn symbol(at: &Token, write: bool) -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in at.location().bytes() {
-        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
-    }
+    let hash = fnv(&at.location());
     let form = if write { "write_" } else { "" };
     format!("__plenty_fstring_{form}{hash:016x}")
+}
+
+fn fnv(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in text.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
+
+/// The generated function that calls a field's `display` or `debug` method,
+/// one per method, form and field. It is defined in the f-string's
+/// module rather than `std.fmt`, so the method is looked up with that module's
+/// access: a private class formats in its own module, as a direct call would.
+/// With `write`, it writes to the caller's formatter, as `std.fmt.display`
+/// does; otherwise it builds a string, as `std.fmt.to_string` does.
+fn method_symbol(at: &Token, method: &str, write: bool) -> String {
+    let hash = fnv(&at.location());
+    let form = if write { "write" } else { "string" };
+    format!("__plenty_fstring_{method}_{form}_{hash:016x}")
+}
+
+fn method_function(symbol: &str, method_name: &str, write: bool, at: &Token) -> Function {
+    const VALUE: &str = "__plenty_v";
+    const VALUE_TYPE: &str = "__plenty_T";
+    const WRITER: &str = "__plenty_W";
+    const RESULT: &str = "__plenty_r";
+    let formatter = |writer: TypeRef| type_ref(at, &fmt("Formatter"), vec![writer]);
+    let mut type_params = vec![(VALUE_TYPE.into(), None)];
+    let mut inputs = vec![(
+        VALUE.into(),
+        type_ref(at, "&", vec![type_ref(at, VALUE_TYPE, vec![])]),
+    )];
+    let mut body = Vec::new();
+    // `out` is the formatter itself in the string form, a `&mut` in the
+    // write form; method calls reach it either way.
+    let target = if write {
+        type_params.push((WRITER.into(), None));
+        inputs.push((
+            OUT.into(),
+            type_ref(at, "&mut", vec![formatter(type_ref(at, WRITER, vec![]))]),
+        ));
+        name(at, OUT)
+    } else {
+        inputs.push(("__plenty_bytes".into(), type_ref(at, "i64", vec![])));
+        inputs.push(("__plenty_depth".into(), type_ref(at, "i64", vec![])));
+        body.push(Stmt {
+            at: at.clone(),
+            kind: Statement::Assign {
+                name: OUT.into(),
+                mutable: true,
+                annotation: None,
+                value: try_(call(
+                    at,
+                    &fmt("string_formatter"),
+                    vec![name(at, "__plenty_bytes"), name(at, "__plenty_depth")],
+                )),
+            },
+        });
+        unary(at, "&mut", name(at, OUT))
+    };
+    // The same depth accounting as `std.fmt.display` and `std.fmt.debug`.
+    body.push(statement(try_(method(at, name(at, OUT), "enter", vec![]))));
+    body.push(Stmt {
+        at: at.clone(),
+        kind: Statement::Assign {
+            name: RESULT.into(),
+            mutable: false,
+            annotation: None,
+            value: method(at, name(at, VALUE), method_name, vec![target]),
+        },
+    });
+    body.push(statement(method(at, name(at, OUT), "leave", vec![])));
+    let output = if write {
+        body.push(statement(name(at, RESULT)));
+        TypeRef {
+            concrete: None,
+            parameter: false,
+            at: at.clone(),
+            name: None,
+            args: vec![],
+        }
+    } else {
+        body.push(statement(try_(name(at, RESULT))));
+        body.push(statement(call(
+            at,
+            &fmt("finish"),
+            vec![unary(at, "&", name(at, OUT))],
+        )));
+        type_ref(at, "str", vec![])
+    };
+    Function {
+        once: false,
+        captures: vec![],
+        foreign: None,
+        export: None,
+        name: symbol.into(),
+        type_params,
+        at: at.clone(),
+        defaults: vec![None; inputs.len()],
+        inputs,
+        output: type_ref(
+            at,
+            "Result",
+            vec![output, type_ref(at, &fmt("FormatError"), vec![])],
+        ),
+        doc: String::new(),
+        doc_at: None,
+        body,
+    }
 }
 
 /// Whether `ty` is a `std.fmt.Formatter`, directly or through a reference.
@@ -1011,6 +1118,21 @@ impl Lower<'_> {
         self.generic_call(&name, None, &args, at, ops)
     }
 
+    /// The name of the generated function calling `method_name`, registered
+    /// on first use; see [`method_symbol`].
+    fn method_caller(&mut self, method_name: &str, write: bool, at: &Token) -> Result<String> {
+        let name = method_symbol(at, method_name, write);
+        if !self.generics.templates.contains_key(&name) {
+            let function = method_function(&name, method_name, write, at);
+            self.generics.validate_template(&function, self.aliases)?;
+            self.generics.retention.keep(&function.body);
+            self.generics
+                .templates
+                .insert(name.clone(), Arc::new(function));
+        }
+        Ok(name)
+    }
+
     fn has_method(&self, ty: &Ty, name: &str) -> bool {
         let owner = match ty {
             Ty::Class(class) => &class.name,
@@ -1110,14 +1232,16 @@ impl Lower<'_> {
         if ty == text_view() {
             return text_view_field(field, value, spec.as_ref(), &ty, &nested);
         }
+        let budget = || vec![number(at, NO_BUDGET), number(at, DEPTH)];
         if field.conversion == Conversion::Ascii {
             // Python's `ascii()`: the `!r` text with non-ASCII scalars escaped.
             let repr = match category {
                 Category::Text => temporary("debug_string", vec![value]),
-                Category::Method => temporary(
-                    "to_debug",
-                    vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
-                ),
+                Category::Method => {
+                    let caller = self.method_caller("debug", false, at)?;
+                    let args = std::iter::once(value).chain(budget()).collect();
+                    unary(at, "&", try_(call(at, &caller, args)))
+                }
                 _ => temporary(repr_string, vec![value]),
             };
             return Ok(match &spec {
@@ -1188,7 +1312,10 @@ impl Lower<'_> {
                     if single { "float32_spec" } else { "float_spec" },
                     vec![scalar(), unary(at, "&", call(at, &fmt("spec"), vec![]))],
                 ),
-                Category::Method => call(at, &fmt(wanted), vec![value, out_mut()]),
+                Category::Method => {
+                    let caller = self.method_caller(wanted, true, at)?;
+                    call(at, &caller, vec![value, out_mut()])
+                }
                 Category::Repr => call(at, &fmt(represent), vec![value, out_mut()]),
             });
         };
@@ -1233,17 +1360,11 @@ impl Lower<'_> {
                 if single { "float32_spec" } else { "float_spec" },
                 vec![scalar(), spec_value(spec)],
             ),
-            Category::Method => padded(
-                temporary(
-                    if wanted == "debug" {
-                        "to_debug"
-                    } else {
-                        "to_string"
-                    },
-                    vec![value, number(at, NO_BUDGET), number(at, DEPTH)],
-                ),
-                spec,
-            ),
+            Category::Method => {
+                let caller = self.method_caller(wanted, false, at)?;
+                let args = std::iter::once(value).chain(budget()).collect();
+                padded(unary(at, "&", try_(call(at, &caller, args))), spec)
+            }
             Category::Repr => padded(temporary(repr_string, vec![value]), spec),
         })
     }

@@ -134,7 +134,7 @@ impl Instantiation {
     /// caller must establish the value's parameter provenance first; otherwise
     /// it uses `report` even if the concrete type happens to match.
     pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
-        if self.requested.starts_with("__plenty_fstring_") {
+        if internal(&self.requested) || internal(&self.instance) {
             return None;
         }
         let ty = match demand {
@@ -173,13 +173,31 @@ impl Instantiation {
     /// Render a body diagnostic at the requiring use. `body` is the body
     /// position including its `: ` separator, or empty when there is none.
     pub fn report(&self, body: &str, message: &str) -> String {
-        // An f-string's generated function is not code the reader wrote; its
-        // body positions are the fields themselves.
-        if self.requested.starts_with("__plenty_fstring_") && self.requested == self.instance {
+        // An f-string's generated functions are not code the reader wrote;
+        // their body positions are the fields themselves.
+        if internal(&self.requested) && internal(&self.instance) {
             if body.is_empty() {
                 return format!("{}: {message}", self.at);
             }
             return format!("{body}{message}");
+        }
+        if internal(&self.instance) {
+            return format!(
+                "{}: cannot instantiate `{}`: its definition is rejected\n  {body}note: {message}{}",
+                self.at,
+                short(&self.requested),
+                self.unused_note()
+            );
+        }
+        if internal(&self.requested) {
+            return format!(
+                "{}: cannot instantiate `{}`: its definition is rejected\n  \
+                 {body}note: in instantiation `{}`: {message}{}",
+                self.at,
+                short(&self.instance),
+                short(&self.instance),
+                self.unused_note()
+            );
         }
         format!(
             "{}: cannot instantiate `{}`: its definition is rejected\n  \
@@ -202,6 +220,12 @@ impl Instantiation {
             None => String::new(),
         }
     }
+}
+
+/// Whether `name` is a function the compiler generated, such as an f-string's.
+/// Source cannot spell `__plenty_` names, so they never belong in a diagnostic.
+fn internal(name: &str) -> bool {
+    name.starts_with("__plenty_")
 }
 
 /// Expanding recursion nests type arguments up to the implementation limits.

@@ -145,6 +145,116 @@ item 1"
 }
 
 #[test]
+fn private_types_and_methods_format_in_their_own_module() {
+    // Issue #615: the field's method call is checked from the f-string's
+    // module, not from `std.fmt`.
+    assert_eq!(
+        run(r#"
+from std.fmt import Formatter, FormatError
+
+class Point:
+    x: i64
+
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.format(f"<{self.x}>")
+
+    def debug[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.format(f"Point#{self.x}")
+
+enum Mode:
+    Fast
+
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.text("fast")
+
+def wrap[T](value: &T) -> Result[str, FormatError]:
+    f"({value})"
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    p = Point(x=3)
+    print(f"{p} [{p:>5}] {p!r} {p!a} [{p!r:<8}] {p=}"?)?
+    print(f"{Mode.Fast} {wrap(&p)?}"?)?
+    Ok(())
+"#),
+        "<3> [  <3>] Point#3 Point#3 [Point#3 ] p=Point#3\nfast (<3>)"
+    );
+}
+
+/// The diagnostic for a `main.plenty` that imports `geo`.
+fn module_error(geo: &str, main: &str) -> String {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("geo.plenty"), geo).unwrap();
+    let path = directory.path().join("main.plenty");
+    std::fs::write(&path, main).unwrap();
+    match plenty::check_file(&path, None) {
+        Ok(()) => panic!("accepted:\n{main}"),
+        Err(error) => error.to_string(),
+    }
+}
+
+#[test]
+fn inaccessible_format_methods_report_the_field_without_internal_names() {
+    // Issue #615: diagnostics named `__plenty_fstring_...` functions.
+    let geo = r#"from std.fmt import Formatter, FormatError
+
+pub class Hidden:
+    x: i64
+
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.text("hidden")
+
+pub def make() -> Hidden:
+    Hidden(x=1)
+
+pub def show[T](value: &T) -> Result[str, FormatError]:
+    f"({value})"
+"#;
+    let error = module_error(
+        geo,
+        r#"import geo
+from std.fmt import FormatError
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    h = geo.make()
+    print(f"{h}"?)?
+    Ok(())
+"#,
+    );
+    assert!(!error.contains("__plenty_"), "{error}");
+    assert!(
+        error.ends_with(
+            "main.plenty:6:14: `geo.Hidden.display` is private to its defining module; declare the member public to allow access from another module"
+        ),
+        "{error}"
+    );
+    let error = module_error(
+        geo,
+        r#"import geo
+from std.fmt import Formatter, FormatError
+
+class Local:
+    x: i64
+
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.text("local")
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    print(geo.show(&Local(x=1))?)?
+    Ok(())
+"#,
+    );
+    assert!(!error.contains("__plenty_"), "{error}");
+    assert!(
+        error.contains("main.plenty:11:11: cannot instantiate `geo.show[Local]`"),
+        "{error}"
+    );
+    assert!(
+        error.contains("geo.plenty:13:9: note: class `Local` is private to its defining module"),
+        "{error}"
+    );
+}
+
+#[test]
 fn byte_values_use_their_print_spelling() {
     assert_eq!(
         run(r#"
