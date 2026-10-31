@@ -21,12 +21,16 @@ pub class App:
     pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], Fault]) -> Result[(), AppError]:
         match event:
             case Event.Head(_, target):
-                self.mode = if target.path == "/stop":
-                    1
+                if target.path == "/stop":
+                    self.mode = 1
                 elif target.path == "/delay":
-                    2
+                    self.mode = 2
+                elif target.path == "/health":
+                    self.mode = 4
+                elif target.path == "/blocked":
+                    self.mode = 5
                 else:
-                    3
+                    self.mode = 3
             case Event.End:
                 if self.mode == 1:
                     response.shutdown_server()
@@ -35,9 +39,14 @@ pub class App:
                     response.start(ResponseHead(1, 200, "OK", []?))?
                     response.write(b"first", 0, 5)?
                     drop(context.after(&std.time.milliseconds(300u32), 7).unwrap())
+                elif self.mode == 4:
+                    response.send_text(200, "healthy")?
                 else:
                     response.start(ResponseHead(1, 200, "OK", []?))?
                     self.remaining = 262144
+                    if self.mode == 5:
+                        self.remaining = 16777216
+                        self.mode = 3
                     self.pump(response)?
             case Event.Writable:
                 if self.mode == 3:

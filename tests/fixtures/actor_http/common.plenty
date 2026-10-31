@@ -1,6 +1,7 @@
 # Real-socket server harness. Tests replace constants before compilation.
 import std.actor.http.server
 import std.bytes
+import std.fmt
 import std.http
 import std.net
 import std.time
@@ -18,7 +19,7 @@ const timeout_ms: u32 = 1000u32
 const factory_fails: bool = False
 const secure: bool = False
 
-type AppError = HttpError | BytesError | AllocError
+type AppError = HttpError | BytesError | AllocError | std.fmt.FormatError
 
 # Blocking stdin is confined to a separate ordinary thread. It lets the
 # harness cancel even when every factory fails, without an HTTP control route.

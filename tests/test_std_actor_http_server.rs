@@ -434,6 +434,8 @@ fn actor_http_tls_handshake_timeouts_and_close_notify() {
         Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => (),
         other => panic!("plaintext TLS probe did not terminate: {other:?}"),
     }
+    #[cfg(target_os = "linux")]
+    let before = server.fds();
     let source = include_str!("fixtures/actor_http/tls_client.plenty")
         .replace("PORT", &server.port.to_string())
         .replace("FIXTURES", &support::tls_fixtures());
@@ -462,8 +464,47 @@ fn actor_http_tls_handshake_timeouts_and_close_notify() {
     };
     let output = std::fs::read_to_string(output_path).unwrap();
     assert!(status.success(), "{status}: {output}");
-    assert_eq!(output, "True\nTrue\nTrue\nTrue\n");
+    assert_eq!(output, "True\n".repeat(12));
+    #[cfg(target_os = "linux")]
+    {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while server.fds() > before && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            server.fds() <= before,
+            "TLS descriptors leaked across traps"
+        );
+    }
     let summary = server.finish();
     assert_eq!(counter(&summary, "requests"), 4);
+    assert_eq!(counter(&summary, "trapped"), 8);
+}
+
+#[test]
+fn actor_http_stalled_reader_expires_while_other_clients_progress() {
+    let server = Server::start(EVENTS, &[("timeout_ms", "200u32")]);
+    let mut blocked = server.connect();
+    blocked
+        .get_mut()
+        .write_all(b"GET /blocked HTTP/1.1\r\nHost: x\r\n\r\n")
+        .unwrap();
+    // Sixteen MiB exceeds the socket send window. Not reading forces the
+    // actor to wait for writable readiness under its write deadline.
+    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(server.ask("/health").body, b"healthy");
+    let mut partial = Vec::new();
+    match blocked.read_to_end(&mut partial) {
+        Ok(_) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => (),
+        other => panic!("stalled response did not terminate: {other:?}"),
+    }
+    assert!(partial.starts_with(b"HTTP/1.1 200"));
+    assert!(
+        partial.len() < 16777216,
+        "write deadline did not cut stalled response"
+    );
+    drop(blocked);
+    let summary = server.finish();
     assert_eq!(counter(&summary, "trapped"), 0);
 }
