@@ -69,6 +69,9 @@ pub(crate) struct Type {
     /// nothing from the value. See
     /// book/src/design/language/03-types/classes.md#redacted-types.
     pub(crate) redacted: bool,
+    /// A wrapper that renders as its field alone: `std.bytes.Bytes` prints
+    /// as a byte literal. See book/src/design/stdlib/bytes.md#printing.
+    pub(crate) transparent: bool,
 }
 /// What releasing and moving a class record involves, precomputed from its
 /// field types. Mirrors `codegen::metadata::plan`.
@@ -89,6 +92,7 @@ const _: () = {
     assert!(size_of::<Type>() == 88);
     assert!(std::mem::offset_of!(Type, plan) == 72);
     assert!(std::mem::offset_of!(Type, redacted) == 80);
+    assert!(std::mem::offset_of!(Type, transparent) == 81);
     assert!(size_of::<Plan>() == 24);
     assert!(std::mem::offset_of!(Plan, only_strings) == 16);
     assert!(std::mem::offset_of!(Plan, fixed) == 17);
@@ -1658,6 +1662,10 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
         return;
     }
     if let Some(wrapper) = ty.wrapper {
+        if ty.transparent {
+            unsafe { render(value, wrapper.fields[0], out) };
+            return;
+        }
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
         out.extend_from_slice(wrapper.name.as_bytes());

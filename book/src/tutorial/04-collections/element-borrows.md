@@ -121,9 +121,27 @@ def main() -> Result[(), AllocError | IoError]:
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
 elements. A list is not converted to a
-view automatically: pass a whole list as `&scores[:]`. A view borrows its whole
-list, so the list cannot grow while the view is live, and two views of one list
-conflict when either is exclusive. Byte buffers have views too. A view cannot
+view automatically: pass a whole list as `&scores[:]`. A view borrows its
+run of the list, and the list cannot grow while the view is live. Two exclusive
+views of one list can be live together when one stops where the other starts:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [70, 85, 90, 65, 88]?
+    half = len(scores) // 2
+    low = &mut scores[:half]
+    high = &mut scores[half:]
+    low[0] = high[0]
+    print(scores)?
+    Ok(())
+```
+
+```output
+[90, 85, 90, 65, 88]
+```
+
+Views whose ranges may overlap, such as `&mut scores[:3]` and `&scores[2:]`,
+conflict. Byte buffers have views too. A view cannot
 be returned or stored yet; the
 [slice reference](../../design/language/04-expressions/slices.md#slice-views)
 lists its operations and limits.

@@ -12,7 +12,9 @@ use std::sync::Arc;
 mod calls;
 mod cancel;
 mod futures;
+mod paths;
 pub use calls::{Program, future_results};
+pub use paths::{ANY_ELEMENT, Bound, ELEMENT_LIMIT, range_step};
 
 /// Source position of the operations that follow an `Op::Site` marker in the
 /// same sequence. Nested blocks inherit it until they place their own marker.
@@ -572,7 +574,8 @@ enum Slot {
 type State = Vec<Slot>;
 
 /// Marks a loan path step as a list element rather than a field. Distinct
-/// literal indices denote distinct elements, so their paths diverge.
+/// literal indices denote distinct elements, so their paths diverge. View
+/// ranges and elements at unknown indices are element steps too (`paths`).
 pub const ELEMENT: usize = 1 << (usize::BITS - 1);
 
 #[derive(Clone, Debug, PartialEq)]
@@ -580,7 +583,8 @@ pub struct Loan {
     pub id: usize,
     pub root: u8,
     /// Statically known field projections; an empty path covers the whole root.
-    /// A list element at a nonnegative literal index `k` is `ELEMENT | k`.
+    /// A list element at a nonnegative literal index `k` is `ELEMENT | k`;
+    /// see `paths` for elements at unknown indices and view ranges.
     pub fields: Vec<usize>,
     /// Calls expose an origin, not a field mapping. Descendants must retain its footprint.
     pub precise: bool,
@@ -1092,8 +1096,26 @@ impl Checker<'_, '_> {
             while let Some(Ty::Ref(inner, _) | Ty::Box(inner) | Ty::Shared(inner)) = &ty {
                 ty = Some((**inner).clone());
             }
+            if let Some((start, stop)) = paths::range_bounds(index) {
+                let bound = |bound| match bound {
+                    Bound::Open => String::new(),
+                    Bound::Literal(v) => v.to_string(),
+                    Bound::Binding(slot) | Bound::Mutable(slot) => self
+                        .origins
+                        .names
+                        .get(slot as usize)
+                        .cloned()
+                        .flatten()
+                        .map_or_else(|| "_".into(), |name| name.to_string()),
+                    Bound::Computed => "_".into(),
+                };
+                path.push_str(&format!("[{}:{}]", bound(start), bound(stop)));
+                continue;
+            }
             ty = match &ty {
-                Some(Ty::List(element)) if index & ELEMENT != 0 => {
+                // An element at an unknown index has no source path.
+                _ if index == ANY_ELEMENT => break,
+                Some(Ty::List(element) | Ty::View(element, _)) if index & ELEMENT != 0 => {
                     path.push_str(&format!("[{}]", index & !ELEMENT));
                     Some((**element).clone())
                 }
@@ -2190,6 +2212,23 @@ impl Checker<'_, '_> {
                     None => return false,
                 }
             };
+            // The path steps two loans share through their nearest common
+            // ancestor, which denote one place even when not static.
+            let shared = |a: &Loan, b: &Loan| {
+                let mut candidate = Some(b.id);
+                while let Some(id) = candidate {
+                    if ancestor(id, a.id) {
+                        let common = &loans[&id].fields;
+                        return if a.fields.starts_with(common) && b.fields.starts_with(common) {
+                            common.len()
+                        } else {
+                            0
+                        };
+                    }
+                    candidate = loans.get(&id).and_then(|l| l.parent);
+                }
+                0
+            };
             // The nearest operation that keeps `loan` live after node `from`, and
             // whether reaching it re-enters a loop that contains `from`.
             let later_use = |from: usize, loan: usize| -> Option<(Site, bool)> {
@@ -2279,8 +2318,10 @@ impl Checker<'_, '_> {
                         }
                         let accessed = defining.or(via).map(|id| &loans[&id]);
                         let fields = accessed.map(|l| l.fields.as_slice()).unwrap_or(&[]);
-                        let overlaps =
-                            loan.fields.starts_with(fields) || fields.starts_with(&loan.fields);
+                        let overlaps = paths::overlap(&loan.fields, fields, 0)
+                            && accessed.is_none_or(|a| {
+                                paths::overlap(&loan.fields, fields, shared(a, loan))
+                            });
                         if loan.root == root && overlaps && (write || loan.mutable) {
                             let place =
                                 self.place(root, fields, accessed.is_none_or(|l| l.precise));
@@ -2300,10 +2341,35 @@ impl Checker<'_, '_> {
                                 borrowed: borrowed.clone().filter(|b| Some(b) != place.as_ref()),
                                 exclusive: loan.mutable,
                             };
-                            found = Some((self.error(kind, place, site), *id));
+                            let mut error = self.error(kind, place, site);
+                            if paths::has_range(fields)
+                                && paths::has_range(&loan.fields)
+                                && let Some(at) = site
+                            {
+                                error.notes.push((at, paths::DISJOINT_VIEWS.into()));
+                            }
+                            found = Some((error, *id));
                             break;
                         }
                     }
+                }
+                // Views bounded by one binding are disjoint only while they
+                // read one value of it (issue #593).
+                if found.is_none()
+                    && let Some(Op::StoreLocal(slot)) = &nodes[i].op
+                    && let Some(&id) = after
+                        .0
+                        .iter()
+                        .find(|id| paths::bounded_by(&loans[*id].fields, *slot))
+                {
+                    let loan = &loans[&id];
+                    let kind = Kind::Conflict {
+                        action: "assign to",
+                        through: None,
+                        borrowed: self.place(loan.root, &loan.fields, loan.precise),
+                        exclusive: loan.mutable,
+                    };
+                    found = Some((self.error(kind, self.place(*slot, &[], false), site), id));
                 }
                 let Some((mut error, id)) = found else {
                     continue;

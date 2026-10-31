@@ -67,6 +67,7 @@ mod views;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Type = Option<Ty>; // Unit expressions have no operand; enum slots use Ty::Unit.
+pub(crate) use byte_buffers::BYTES_CLASS;
 pub(crate) use data::TypeAliases;
 
 /// A checked binary's source entrypoint determines the native process result.

@@ -1,13 +1,16 @@
 //! Slice views, `&xs[a:b]` and `&mut xs[a:b]` (issue #581): borrowed runs
 //! of list or byte rows, typed `&[T]` and `&mut [T]`. A view holds a loan of
-//! its whole owner, so the owner cannot grow, shrink, or move while the view
-//! is used; codegen addresses its rows directly (src/codegen/views.rs). Views
-//! are local-only until stored references land (backlog B11). See
+//! its owner, so the owner cannot grow, shrink, or move while the view is
+//! used. The loan path records the range, so views with provably disjoint
+//! ranges coexist (issue #593, `ownership::paths`). Codegen addresses its
+//! rows directly (src/codegen/views.rs). Views are local-only until stored
+//! references land (backlog B11). See
 //! book/src/design/language/04-expressions/slices.md.
 use super::*;
 use crate::collection_opcodes::{
     SLICE_START, SLICE_STOP, TEXT_SEARCH_ENDS, TEXT_SEARCH_FIND, TEXT_SEARCH_STARTS,
 };
+use crate::ownership::{Bound, range_step};
 use crate::text::TextViewOp;
 
 /// The operations a view supports, for diagnostics that reject others.
@@ -73,6 +76,10 @@ impl Lower<'_> {
         }
         let mut flags = 0;
         let mut operands = Vec::new();
+        let range = range_step(
+            self.view_bound(&bounds.start),
+            self.view_bound(&bounds.stop),
+        );
         for (bound, flag) in [(&bounds.start, SLICE_START), (&bounds.stop, SLICE_STOP)] {
             let Some(bound) = bound else {
                 operands.push(Op::PushInt(Value::I64(0)));
@@ -121,10 +128,47 @@ impl Lower<'_> {
             }
             (None, None) => unreachable!("checked owner"),
         };
+        self.refine_loan(loan, range, ops);
         ops.extend(operands);
         ops.push(Op::PushInt(Value::I64(flags)));
         ops.push(Op::Collection(CollectionOp::ViewNew(source, mutable)));
         Ok((Ty::View(Arc::new(element), mutable), loan))
+    }
+
+    /// A view bound as its loan path records it (issue #593). A non-`mut`
+    /// binding stands for its value: the checker rejects assigning it while
+    /// a view it bounds is live.
+    fn view_bound(&self, bound: &Option<Expr>) -> Bound {
+        let Some(bound) = bound else {
+            return Bound::Open;
+        };
+        if let Some(value) = slices::literal_bound(bound) {
+            return Bound::Literal(value);
+        }
+        match &ungroup(bound).kind {
+            Expression::Name(name) => match self.names.get(name) {
+                Some(local) if local.ty == Ty::I64 && !local.mutable => Bound::Binding(local.slot),
+                Some(local) if local.ty == Ty::I64 => Bound::Mutable(local.slot),
+                _ => Bound::Computed,
+            },
+            _ => Bound::Computed,
+        }
+    }
+
+    /// Narrow a precise loan to `step`, a place inside the one it covers.
+    /// An imprecise loan keeps covering its whole origin.
+    pub(super) fn refine_loan(&mut self, loan: usize, step: usize, ops: &mut [Op]) {
+        if !self.loans[loan].precise {
+            return;
+        }
+        self.loans[loan].fields.push(step);
+        if let Some(Op::Loan(fact)) = ops
+            .iter_mut()
+            .rev()
+            .find(|op| matches!(op, Op::Loan(l) if l.id == loan))
+        {
+            *fact = self.loans[loan].clone();
+        }
     }
 
     /// Whether `e` is a slice view, `&xs[a:b]`, a view binding, or a borrow

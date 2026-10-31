@@ -1377,13 +1377,23 @@ impl Lower<'_> {
             kind: Expression::Name(receiver.clone()),
         };
         let result = self.class_method(&expr, owner, name, types, args, ops)?;
-        if matches!(result, Some(Ty::Ref(..))) {
-            return Err(base
-                .at
-                .error("reference-returning methods require a named receiver or class field"));
-        }
         self.names.remove(&receiver);
         self.expression_temps.push(slot);
+        // The result borrows the receiver slot, a full-expression temporary,
+        // so binding or returning it is rejected as for a temporary argument
+        // (issue #597). A receiver viewing other storage would end that loan
+        // here while the result still aliases it, so only receivers wholly
+        // held by full-expression temporaries may return references.
+        if result.as_ref().is_some_and(Ty::carries_loan)
+            && loans
+                .iter()
+                .any(|&loan| !self.expression_temps.contains(&self.loans[loan].root))
+        {
+            return Err(base.at.error(
+                "a temporary receiver that borrows other storage cannot lend a returned \
+                 reference; bind the receiver to a name first",
+            ));
+        }
         Self::end_reads(loans, ops);
         Ok(result)
     }
