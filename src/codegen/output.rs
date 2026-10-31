@@ -218,7 +218,9 @@ impl Output {
         // GNU ld honours SHF_GNU_RETAIN, which keeps a library's interface
         // section through `--gc-sections`, only in GNU OSABI objects, as GNU
         // as marks them. Cranelift writes the System V OSABI.
-        if let FileFlags::None = product.object.flags {
+        if product.object.format() == object::BinaryFormat::Elf
+            && matches!(product.object.flags, FileFlags::None)
+        {
             product.object.flags = FileFlags::Elf {
                 os_abi: elf::ELFOSABI_GNU,
                 abi_version: 0,
@@ -619,6 +621,62 @@ mod tests {
     use cranelift_codegen::ir::condcodes::IntCC;
     use cranelift_codegen::ir::{self, AbiParam, InstBuilder, Signature, UserFuncName, types};
     use cranelift_frontend::FunctionBuilder;
+
+    #[test]
+    fn native_formats_emit_functions_source_aliases_and_relative_trap_tables() {
+        use object::{Object, ObjectSection};
+        for target in crate::target::NATIVE_TARGETS {
+            let isa =
+                super::super::baseline_isa(target.triple, "backtracking", "none", false).unwrap();
+            let mut output = Output::new(
+                Targets {
+                    ordinary: isa.clone(),
+                    single_pass: isa,
+                },
+                None,
+            )
+            .unwrap();
+            output.declare_traps().unwrap();
+            let signature = output.module.make_signature();
+            let id = output
+                .module
+                .declare_function(
+                    "native_fixture",
+                    cranelift_module::Linkage::Export,
+                    &signature,
+                )
+                .unwrap();
+            let mut function =
+                Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+            let mut builder = FunctionBuilder::new(&mut function, &mut output.builder);
+            let block = builder.create_block();
+            builder.switch_to_block(block);
+            builder.seal_block(block);
+            builder.ins().return_(&[]);
+            builder.finalize(super::super::FRONTEND);
+            output.define(id, function).unwrap();
+            let (table, _) = output
+                .sites
+                .append(
+                    &mut output.module,
+                    &[(None, 1, 1, false), (None, 2, 1, false)],
+                )
+                .unwrap();
+            output.sites.address(&mut output.module, table, 16).unwrap();
+            output.traps.as_mut().unwrap().add_stack_probes(id, [0]);
+            let bytes = output.finish().unwrap().emit().unwrap();
+            let object = object::File::parse(bytes.as_slice()).unwrap();
+            assert_eq!(object.format(), target.object_format);
+            assert_eq!(object.architecture(), target.object_arch);
+            assert!(
+                object
+                    .sections()
+                    .any(|section| section.relocations().next().is_some()),
+                "{} trap relocations",
+                target.triple
+            );
+        }
+    }
 
     fn targets() -> Targets {
         Targets {

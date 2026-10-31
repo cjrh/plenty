@@ -4144,14 +4144,14 @@ impl Lowerer<'_, '_> {
 }
 
 #[cfg(test)]
-mod linux_target_tests {
+mod native_target_tests {
     use super::*;
     use cranelift_codegen::ir::{AtomicRmwOp, MemFlagsData};
 
     #[test]
-    fn both_baselines_lower_native_i128_and_tail_stack_arguments() {
+    fn all_baselines_lower_native_i128_and_tail_stack_arguments() {
         for target in crate::target::NATIVE_TARGETS {
-            for convention in [CallConv::SystemV, CallConv::Tail] {
+            for convention in [target.call_conv, CallConv::Tail] {
                 let isa = baseline_isa(target.triple, "backtracking", "none", false).unwrap();
                 let mut signature = Signature::new(convention);
                 signature.params.push(AbiParam::new(types::I64));
