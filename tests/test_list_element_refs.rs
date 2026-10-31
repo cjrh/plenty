@@ -133,6 +133,97 @@ fn element_references_keep_reference_semantics() {
     assert_eq!(stdout(dir.path(), &["--release", "refs.plenty"]), EXPECTED);
 }
 
+#[test]
+fn scalar_backed_class_references_preserve_adjacent_rows() {
+    let cases = [
+        ("i8", "-11i8", "-22i8", "-33i8"),
+        ("i16", "-111i16", "-222i16", "-333i16"),
+        ("i32", "-111i32", "-222i32", "-333i32"),
+        ("i64", "-4294967297", "-8589934594", "-12884901891"),
+        ("u8", "11u8", "222u8", "133u8"),
+        ("u16", "111u16", "222u16", "333u16"),
+        ("u32", "111u32", "222u32", "333u32"),
+        ("u64", "4294967297u64", "8589934594u64", "12884901891u64"),
+        ("f32", "1.5f32", "2.5f32", "3.5f32"),
+        ("f64", "1.5", "2.5", "3.5"),
+        ("bool", "False", "True", "False"),
+    ];
+    let mut source = String::new();
+    for (ty, a, b, c) in cases {
+        source.push_str(&format!(r#"
+@copy
+class Atom_{ty}:
+    value: {ty}
+@copy
+class Nested_{ty}:
+    value: Atom_{ty}
+class Owned_{ty}:
+    value: {ty}
+
+def check_{ty}() -> Result[(), AllocError | IoError]:
+    mut values = [Atom_{ty}({a}), Atom_{ty}({b}), Atom_{ty}({c})]?
+    values[0] = values[-1]
+    print(values[0].value == {c}, values[1].value == {b}, values[2].value == {c})?
+    reference = &mut values[1]
+    reference.value = {a}
+    print(values[0].value == {c}, values[1].value == {a}, values[2].value == {c})?
+    old = replace(values[-1], Atom_{ty}({b}))
+    print(old.value == {c}, values[1].value == {a}, values[2].value == {b})?
+    mut nested = [Nested_{ty}(Atom_{ty}({a})), Nested_{ty}(Atom_{ty}({b})), Nested_{ty}(Atom_{ty}({c}))]?
+    nested[0] = nested[-1]
+    print(nested[0].value.value == {c}, nested[1].value.value == {b}, nested[2].value.value == {c})?
+    mut owned = [Owned_{ty}({a}), Owned_{ty}({b}), Owned_{ty}({c})]?
+    owned[0] = Owned_{ty}({c})
+    print(owned[0].value == {c}, owned[1].value == {b}, owned[2].value == {c})?
+    mut maybe = Some(Nested_{ty}(Atom_{ty}({a})))
+    match &mut maybe:
+        case Some(holder):
+            previous = replace(holder.value, Atom_{ty}({b}))
+            print(previous.value == {a}, holder.value.value == {b}, True)?
+        case Nothing:
+            print(False, False, False)?
+    print(maybe.is_some(), maybe.unwrap().value.value == {b}, True)?
+    Ok(())
+"#));
+    }
+    source.push_str("\ndef main() -> Result[(), AllocError | IoError]:\n");
+    for (ty, _, _, _) in cases {
+        source.push_str(&format!("    check_{ty}()?\n"));
+    }
+    source.push_str("    Ok(())\n");
+    let dir = setup(&source);
+    let expected = "True True True\n".repeat(cases.len() * 7);
+    for args in [&["refs.plenty"][..], &["--release", "refs.plenty"]] {
+        assert_eq!(stdout(dir.path(), args), expected);
+    }
+}
+
+#[test]
+fn parallel_owned_scalar_wrappers_do_not_clear_neighboring_rows() {
+    let source = r#"
+class Byte:
+    value: u8
+class Number:
+    value: f64
+class Nested:
+    value: Byte
+
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        print(iter([Byte(11u8), Byte(22u8), Byte(33u8), Byte(44u8)]?).par(&pool, chunks=2).map(def(item: Byte) -> u8: item.value).collect()?)?
+        print(iter([Number(1.5), Number(2.5), Number(3.5), Number(4.5)]?).par(&pool, chunks=2).map(def(item: Number) -> f64: item.value).collect()?)?
+        print(iter([Nested(Byte(11u8)), Nested(Byte(22u8)), Nested(Byte(33u8)), Nested(Byte(44u8))]?).par(&pool, chunks=2).map(def(item: Nested) -> u8: item.value.value).collect()?)?
+    Ok(())
+"#;
+    let dir = setup(source);
+    for args in [&["refs.plenty"][..], &["--release", "refs.plenty"]] {
+        assert_eq!(
+            stdout(dir.path(), args),
+            "[11, 22, 33, 44]\n[1.5, 2.5, 3.5, 4.5]\n[11, 22, 33, 44]\n"
+        );
+    }
+}
+
 /// The generic dispatcher reported these messages and sites; the narrow
 /// helper must report the same ones.
 #[test]

@@ -66,8 +66,9 @@ impl Lowerer<'_, '_> {
     /// record may be a flat field with no value word, so its value is the
     /// address of the record that follows the (possibly virtual) slot.
     pub(super) fn read_typed_reference(&mut self, reference: NativeValue, ty: &Ty) -> NativeValue {
-        if ty.is_numeric() || *ty == Ty::Bool {
-            return self.scalar_reference_word(reference, ty);
+        let base = ty.newtype_base();
+        if base.is_numeric() || *base == Ty::Bool {
+            return self.scalar_reference_word(reference, &base);
         }
         if ty.flat_field() {
             let (address, _) = self.reference_parts(reference);
@@ -101,9 +102,17 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn write_reference(&mut self, reference: NativeValue, value: NativeValue, ty: &Ty) {
         let (address, shift) = self.reference_parts(reference);
-        if ty.is_numeric() || *ty == Ty::Bool {
+        let base = ty.newtype_base();
+        if base.is_numeric() || *base == Ty::Bool {
             // A projected scalar keeps its ancestor tags untouched. Locals and
             // record fields likewise need only their declared payload bytes.
+            // Scalar-backed classes keep a wide nominal SSA value, but their
+            // list rows use the underlying scalar's width.
+            let value = if ty.newtype_field().is_some() {
+                self.unpack(value, &base)
+            } else {
+                value
+            };
             self.bcx
                 .ins()
                 .store(MemFlagsData::trusted(), value, address, 0);
