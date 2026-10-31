@@ -52,7 +52,7 @@ jobs:
       - name: Check native runtime boundaries
         run: |
           set -o pipefail
-          cargo test --locked --manifest-path plenty-runtime/native/runtime-tests/Cargo.toml -- --nocapture 2>&1 | tee artifacts/runtime-boundary-tests.log
+          cargo test --locked --manifest-path plenty-runtime/platform-tests/Cargo.toml -- --nocapture 2>&1 | tee artifacts/runtime-boundary-tests.log
       - name: Build actual compiler and runtime
         run: |
           set -o pipefail
