@@ -789,3 +789,64 @@ def main() -> ():
         + "True 9 0\n";
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
+
+#[test]
+fn retired_slots_keep_one_runnable_ticket_when_reused_before_polling() {
+    let source = r#"
+from std.actor import Address, Context, Mail, heaps_live, stage
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+pub enum Fault:
+    Failed
+
+pub class Node:
+    pub kind: i64
+
+    pub def started(self: &mut Node, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        context.send(context.address(), 1).unwrap()
+        if self.kind == 0:
+            context.stop()
+        elif self.kind == 1:
+            return Err(Fault.Failed)
+        elif self.kind == 2:
+            empty: Option[i64] = Nothing
+            empty.unwrap()
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        print("observer").unwrap()
+        context.stop()
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Node], Fault]:
+        Ok(Nothing)
+
+def main() -> ():
+    mut actors = stage[Node, i64, Fault](2, 2, 1).unwrap()
+    drop(actors.start(Node(-1), 65536).unwrap())
+    # Reuse the other slot before the queued observer or retired actors run.
+    # Its existing scheduling ticket must not be appended a second time.
+    for index in range(128):
+        drop(actors.start(Node(index % 3), 65536).unwrap())
+    result = actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap())
+    stats = actors.stats()
+    print(result.is_ok(), actors.live(), stats.started, stats.stopped, stats.failed, stats.trapped, heaps_live()).unwrap()
+    actors.shutdown()
+    # Shutdown discards any remaining retired-slot ticket and its queued flag.
+    drop(actors.start(Node(-1), 65536).unwrap())
+    again = actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap())
+    print(again.is_ok(), actors.live(), heaps_live()).unwrap()
+"#;
+    let (_dir, executable) = support::build_file(source);
+    let output = support::output_within(&mut Command::new(executable), &[], Duration::from_secs(5));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "observer\nTrue 0 129 44 43 42 0\nobserver\nTrue 0 0\n"
+    );
+}

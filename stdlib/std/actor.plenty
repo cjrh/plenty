@@ -843,6 +843,8 @@ pub class Stage[N, M, E]:
         self._context._run_head = 0
         self._context._run_count = 0
         self._context._spawn_count = 0
+        for index in range(len(self._context._queued)):
+            self._context._queued[index] = False
 
     # Starts a root actor with a heap of `limit` bytes. `node` was built
     # outside that heap: what it already owns stays outside, and a trap
@@ -1390,7 +1392,9 @@ pub class Stage[N, M, E]:
                 box.items = empty
             case Err(_):
                 box.items.clear()
-        self._context._queued[index] = False
+        # A callback may have queued its own slot before stopping or trapping.
+        # Keep that ticket until round consumes it, even if the slot is reused:
+        # clearing the flag here would let reuse overflow the bounded ring.
         if not zombie:
             self._context._free.append(index).unwrap()
 
