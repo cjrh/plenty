@@ -163,11 +163,11 @@ fn erasure_is_only_for_result_propagation_and_requires_explicit_success() {
     for (source, expected) in [
         (
             "def f() -> Result[i64, Failure]:\n    Ok(Some(1)?)",
-            "same Result or Option family",
+            "`?` on an Option cannot propagate from a function returning Result",
         ),
         (
             "def f() -> Result[(), IoError]:\n    r: Result[(), Failure] = Err(Failure.Unspecified)\n    r?\n    Ok(())",
-            "identical Result error types",
+            "cannot propagate as",
         ),
         (
             "def f() -> Result[(), Failure]:\n    Err(\"details\")",

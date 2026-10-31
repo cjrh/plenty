@@ -594,6 +594,9 @@ pub struct Loan {
     pub through: Option<u8>,
     /// Diagnostic-only named reference holding this loan, if any.
     pub binding: Option<u8>,
+    /// Diagnostic-only: held by a `mut` reference binding, which widens the
+    /// loan so the binding can be retargeted within its first place.
+    pub retargetable: bool,
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
 }
@@ -2303,6 +2306,8 @@ impl Checker<'_, '_> {
                     _ => None,
                 };
                 let mut found = None;
+                // A hint naming the cause, reported after the borrow's notes.
+                let mut hint = None;
                 if let Some(Op::Yield(_)) = &nodes[i].op
                     && let Some(&id) = after.0.first()
                 {
@@ -2341,7 +2346,46 @@ impl Checker<'_, '_> {
                                 borrowed: borrowed.clone().filter(|b| Some(b) != place.as_ref()),
                                 exclusive: loan.mutable,
                             };
-                            let mut error = self.error(kind, place, site);
+                            let mut error = self.error(kind, place.clone(), site);
+                            let widened = accessed.and_then(|a| {
+                                let mut ancestor = Some(a.id);
+                                while let Some(id) = ancestor {
+                                    let l = &loans[&id];
+                                    if l.retargetable
+                                        && let Some(slot) = l.binding
+                                    {
+                                        return Some(slot);
+                                    }
+                                    ancestor = l.parent;
+                                }
+                                None
+                            });
+                            if let Some(at) = site
+                                && let Some(name) =
+                                    widened.and_then(|slot| self.place(slot, &[], false))
+                            {
+                                hint = Some((
+                                    at,
+                                    format!(
+                                        "`{name}` is a `mut` reference binding, so a borrow through it covers all of {}; if `{name}` is never retargeted, declare it without `mut` to borrow separate fields",
+                                        place
+                                            .as_ref()
+                                            .map_or("its target".into(), |p| format!("`{p}`"))
+                                    ),
+                                ));
+                            } else if let Some(at) = site
+                                && !write
+                                && loan.mutable
+                                && loan.binding.is_none()
+                                && created[id].is_some_and(|start| {
+                                    start.line == at.line && start.column < at.column
+                                })
+                            {
+                                hint = Some((
+                                    at,
+                                    "an exclusive borrow passed as an argument lasts until the call returns; if this argument needs only a value read from it, such as a length, compute it before the call".into(),
+                                ));
+                            }
                             if paths::has_range(fields)
                                 && paths::has_range(&loan.fields)
                                 && let Some(at) = site
@@ -2410,6 +2454,7 @@ impl Checker<'_, '_> {
                         },
                     ));
                 }
+                error.notes.extend(hint);
                 first = Some(error);
             }
             first.map_or(Ok(()), Err)

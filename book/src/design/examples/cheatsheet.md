@@ -546,6 +546,11 @@ def main() -> Result[(), IoError]:
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
 | Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
+| `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |
+| `"-" * 3` | `"-".repeat(3)?` |
+| `del xs[i]` | `xs.pop(i)`, which returns an `Option` |
+| `assert x` in a function | Return an error: `if not x: return Err(...)` |
+| `xs.sort(reverse=True)` | `xs.sort(True)` |
 
 Three of the most common rejections:
 

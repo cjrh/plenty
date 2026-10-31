@@ -91,7 +91,7 @@ def main() -> ():
 ```
 
 ```error
-`?` requires identical Result error types
+`?` operand error str cannot propagate as i64; the function's error type must include it
 ```
 
 `Option` and `Result` wrappers do not allocate. Their payloads can:
