@@ -7,7 +7,7 @@ pub(super) fn pack_value(
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
-    if ty.wide() || matches!(ty, Ty::Ref(..)) {
+    if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
         return value;
     }
     let word = if ty.is_float() {
@@ -496,7 +496,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
         let target = clif_type(ty.clone());
-        if ty.wide() || matches!(ty, Ty::Ref(..)) {
+        if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
             return if self.bcx.func.dfg.value_type(value) == types::I128 {
                 value
             } else {

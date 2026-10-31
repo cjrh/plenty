@@ -582,6 +582,22 @@ pub def repr_string[T](value: &T) -> Result[str, FormatError]:
         case Err(error):
             Err(FormatError.Bytes(BytesError.Allocation(error)))
 
+# The same spellings for a slice view, which a `&T` parameter cannot take:
+# a `&[u8]` as a `bytes` literal, any other view as a list.
+pub def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            output.text(&text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
+pub def repr_view_string[T](value: &[T]) -> Result[str, FormatError]:
+    match str.repr(value):
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            Err(FormatError.Bytes(BytesError.Allocation(error)))
+
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?
     output.debug_text(value)?

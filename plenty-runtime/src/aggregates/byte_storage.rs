@@ -403,6 +403,22 @@ pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
     unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
 }
 
+/// The address of the first byte of a live buffer or `bytes` literal, for a
+/// slice view. Its loan keeps the storage from growing while the view exists;
+/// a shared view of a literal only reads it.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *const u8 {
+    // SAFETY: the compiler keeps the owner alive through the call.
+    unsafe { source(owner as usize as u128).as_ptr() }
+}
+
+/// The byte count of a live buffer or `bytes` literal, for a slice view.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_len(owner: *const u8) -> u64 {
+    // SAFETY: the compiler keeps the owner alive through the call.
+    unsafe { source(owner as usize as u128).len() as u64 }
+}
+
 /// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar
 /// of `text` that is (`member` 1) or is not (0) an ASCII byte of `set`, or
 /// -1. `set` is a buffer's storage or a `bytes` literal (issue #383).

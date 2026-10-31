@@ -115,6 +115,7 @@ mod tail_tests;
 mod threading;
 mod threads;
 mod traps;
+mod views;
 use crate::op::{self, ElifArm, FnSig, IntegerOp, MatchArm, Op, Pattern, Ty};
 use crate::value::{Heap, StrId, Value};
 use generators::GeneratorContext;
@@ -952,6 +953,13 @@ struct Runtime {
     list_sort_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
     order_compare: FuncId,
+    /// `plenty_view_equal(a_rows, a_len, b_rows, b_len, descriptor) -> bool`.
+    view_equal: FuncId,
+    /// `plenty_byte_view_rows(owner) -> first byte address` and
+    /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
+    /// buffer or `bytes` literal.
+    byte_view_rows: FuncId,
+    byte_view_len: FuncId,
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
@@ -1222,6 +1230,14 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_order_compare", Linkage::Import, &sig)?
         },
+        view_equal: helper(
+            module,
+            "plenty_view_equal",
+            &[PTR_TY, types::I64, PTR_TY, types::I64, PTR_TY],
+            Some(types::I64),
+        )?,
+        byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
+        byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
         bytes_item: helper(

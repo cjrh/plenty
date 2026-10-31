@@ -1,7 +1,8 @@
 # Returned references
 
 A function or method returning `&T` or `&mut T` borrows its result from its
-first reference parameter, the *origin*. A function without a reference
+first reference parameter, the *origin*. A [slice view](../04-expressions/slices.md#slice-views)
+parameter, `&[T]` or `&mut [T]`, counts as a reference parameter. A function without a reference
 parameter cannot return a reference, and a mutable result requires an `&mut`
 origin. Every return path must originate in the origin; later reference
 parameters, local owners, and owned parameters cannot escape. Direct parameter

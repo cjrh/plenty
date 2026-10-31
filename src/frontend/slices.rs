@@ -35,7 +35,7 @@ fn positions(len: usize, start: Option<i64>, stop: Option<i64>, step: i64) -> Ve
 }
 
 /// The value of an integer literal bound, possibly negated.
-fn literal_bound(e: &Expr) -> Option<i64> {
+pub(super) fn literal_bound(e: &Expr) -> Option<i64> {
     let (negative, inner) = match &ungroup(e).kind {
         Expression::Unary(sign, inner) if sign == "-" => (true, ungroup(inner)),
         _ => (false, ungroup(e)),
@@ -325,6 +325,7 @@ impl Lower<'_> {
 fn unsliceable(ty: &Ty) -> String {
     match ty {
         Ty::Dict(..) => "dict does not support slicing".into(),
+        Ty::View(..) => "a copying slice does not take a slice view; take a narrower view, `&v[a:b]`, or copy from the owner, `xs[a:b]?`".into(),
         Ty::Shared(_) => {
             format!("{ty} does not support slicing; index the handle, or copy its contents first")
         }

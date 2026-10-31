@@ -1754,6 +1754,16 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'U' => byte_storage::render(value, out),
             b'Q' => write!(out, "clist(len={})", clist::len(value)).unwrap(),
             b'y' => byte_storage::render_slice(strings::bytes(&(value as *const Text)), out),
+            // A `&[u8]` view: the low word addresses its first byte and the
+            // high word counts them. An empty view's address may be dangling.
+            b'T' => byte_storage::render_slice(
+                match (value >> 64) as usize {
+                    0 => &[],
+                    count => std::slice::from_raw_parts(value as u64 as *const u8, count),
+                },
+                out,
+            ),
+            b'V' => render_view(value, ty.key(), out),
             b's' => crate::io::repr(value as *const Text, false, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
@@ -1798,6 +1808,37 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
     }
 }
 
+/// A slice view other than `&[u8]` prints as a list of its rows. The low word
+/// addresses the first row and the high word counts the rows.
+unsafe fn render_view(value: u128, element: &Type, out: &mut crate::render_buffer::Buffer) {
+    let rows = value as u64 as *const u8;
+    let count = (value >> 64) as usize;
+    // SAFETY: the compiler holds the view's loan through the call, so every
+    // named row is live; dense rows of `element` are `stride` bytes apart.
+    unsafe {
+        let stride = crate::list_layout::row_bytes(
+            element.kind,
+            element.inline_bytes as usize,
+            element.has_inline_range(),
+        );
+        out.push(b'[');
+        for i in 0..count {
+            if out.failed() {
+                break;
+            }
+            if i != 0 {
+                out.extend_from_slice(b", ");
+            }
+            render(
+                crate::entries::dense_element(rows.add(i * stride), element),
+                element,
+                out,
+            );
+        }
+        out.push(b']');
+    }
+}
+
 /// Narrow ABI: a live borrowed list owner, with no ownership transfer. Besides
 /// these helpers, generated code reads only the dense row fields named in
 /// `list_layout`, to index scalar lists inline.
@@ -1822,6 +1863,35 @@ pub(crate) unsafe extern "C" fn plenty_list_rows(owner: *mut u8) -> *mut u128 {
 pub(crate) unsafe extern "C" fn plenty_list_row_bytes(owner: *const u8) -> u64 {
     // SAFETY: the compiler keeps the list's owner alive through the call.
     unsafe { (*(owner.cast::<Collection>())).entries.row_bytes() as u64 }
+}
+
+/// Narrow ABI: whether two slice views of dense rows of `descriptor`'s type
+/// hold equal elements, compared as list equality compares rows. A view is the
+/// address of its first row and a row count; neither changes ownership.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_equal(
+    a: *const u8,
+    a_len: u64,
+    b: *const u8,
+    b_len: u64,
+    descriptor: *const Type,
+) -> u64 {
+    // SAFETY: the compiler holds both views' loans through the call, so every
+    // named row is live, and passes the element's static descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        let stride =
+            crate::list_layout::row_bytes(ty.kind, ty.inline_bytes as usize, ty.has_inline_range());
+        let same = a_len == b_len
+            && (0..a_len as usize).all(|i| {
+                equal(
+                    crate::entries::dense_element(a.add(i * stride), ty),
+                    crate::entries::dense_element(b.add(i * stride), ty),
+                    ty,
+                )
+            });
+        u64::from(same)
+    }
 }
 
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as

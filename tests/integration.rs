@@ -420,6 +420,8 @@ mod test_slicing;
 
 #[path = "test_slice_syntax.rs"]
 mod test_slice_syntax;
+#[path = "test_slice_views.rs"]
+mod test_slice_views;
 #[path = "test_small_conveniences.rs"]
 mod test_small_conveniences;
 #[path = "test_stack_overflow.rs"]

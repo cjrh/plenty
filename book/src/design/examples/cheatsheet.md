@@ -536,7 +536,7 @@ def main() -> Result[(), IoError]:
 | `abs(x)`, `min`, `max`, `sum(xs)` | `std.math.abs`, `min`, `max`, `sum(&xs, 0)` |
 | `if items:` | `if len(items) > 0:` |
 | `a < b < c` | `a < b and b < c` |
-| `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy |
+| `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy; `&xs[1:3]` borrows a list view in place |
 | `lambda x: x + 1` | `def(x: i64) -> i64: x + 1` inside brackets |
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |

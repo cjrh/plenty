@@ -350,6 +350,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if let Some((base, exclusive)) = self.borrowed_tuple(value) {
+            return self.unpack_borrowed_tuple(names, mutable, base, exclusive, &value.at, ops);
+        }
         Self::check_unpacked_arity(names.len(), value)?;
         // Reassigned bindings already have types that literals should take.
         let expected = names
@@ -429,6 +432,132 @@ impl Lower<'_> {
         ops.push(Op::DropLocal(source));
         Ok(())
     }
+    /// The tuple that unpacking a reference borrows: the place in `&t` or
+    /// `&mut t`, or a `&T` or `&mut T` binding of a tuple, and whether the
+    /// borrow is exclusive.
+    fn borrowed_tuple<'e>(&self, value: &'e Expr) -> Option<(&'e Expr, bool)> {
+        let (base, exclusive) = match &ungroup(value).kind {
+            Expression::Unary(op, inner) if op == "&" || op == "&mut" => (&**inner, op == "&mut"),
+            Expression::Name(n) => match self.names.get(n)?.ty {
+                Ty::Ref(_, exclusive) => (value, exclusive),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        matches!(self.place_type(base)?, Ty::Enum(t) if t.tuple()).then_some((base, exclusive))
+    }
+
+    /// `a, b = r` for a reference `r` to a tuple binds `a = &r[0]` and
+    /// `b = &r[1]`, or `&mut` ones for an exclusive `r`: each name borrows
+    /// its element in place, as `for a, b in &pairs` needs.
+    ///
+    /// A precise loan of `r` gives each name a loan of its own field. An
+    /// imprecise one, such as a loop element's, covers the whole owner, so
+    /// sibling field loans derived from it would conflict. The names then
+    /// share one reborrow of `r`: their fields are disjoint, none of them can
+    /// be retargeted, and the reborrow still conflicts with uses of `r`.
+    fn unpack_borrowed_tuple(
+        &mut self,
+        names: &[String],
+        mutable: bool,
+        base: &Expr,
+        exclusive: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let Some(Ty::Enum(tuple)) = self.place_type(base) else {
+            unreachable!("checked by borrowed_tuple")
+        };
+        if mutable {
+            return Err(at.error(
+                "unpacking a tuple reference binds references that cannot be reassigned; remove `mut`",
+            ));
+        }
+        let fields = tuple.get().variants[0].fields.clone();
+        if fields.len() != names.len() {
+            return Err(at.error("unpacking arity does not match tuple"));
+        }
+        let imprecise = match &ungroup(base).kind {
+            Expression::Name(name) => self
+                .reference_locals
+                .get(&self.names[name].slot)
+                .is_some_and(|&parent| !self.loans[parent].precise),
+            _ => false,
+        };
+        let shared = if imprecise {
+            let (reference, loan) = self.borrow(base, exclusive, ops)?;
+            let source = self.slot(reference, at)?;
+            ops.push(Op::StoreLocal(source));
+            self.reference_locals.insert(source, loan);
+            Some((source, loan))
+        } else {
+            None
+        };
+        let borrow = if exclusive { "&mut" } else { "&" };
+        let node = |kind| Expr {
+            at: at.clone(),
+            kind,
+        };
+        let mut seen = HashSet::default();
+        for (position, (name, field)) in names.iter().zip(&fields).enumerate() {
+            if name == "_" {
+                continue;
+            }
+            if !seen.insert(name) {
+                return Err(at.error("duplicate unpacking binding"));
+            }
+            if *field == Ty::Unit {
+                return Err(at.error("unit bindings are not supported yet; use _"));
+            }
+            if self.names.contains_key(name) {
+                return Err(at.error(format!(
+                    "`{name}` is already bound; unpacking a tuple reference binds new names"
+                )));
+            }
+            let ty = Ty::Ref(Arc::new(field.clone()), exclusive);
+            let loan = if let Some((source, loan)) = shared {
+                ops.extend([
+                    Op::LoadLocal(source),
+                    Op::Enum(crate::sum::EnumOp::FieldRef(
+                        tuple.clone(),
+                        0,
+                        position,
+                        exclusive,
+                    )),
+                ]);
+                loan
+            } else {
+                let element = node(Expression::Unary(
+                    borrow.into(),
+                    Box::new(node(Expression::Index(
+                        Box::new(base.clone()),
+                        Box::new(node(Expression::Number(position.to_string()))),
+                    ))),
+                ));
+                let (_, origin) = self.binding_value(&element, None, ops)?;
+                let origin = origin.expect("a borrow has a loan");
+                self.check_stored_reference(origin, at)?;
+                origin
+            };
+            let slot = self.slot(ty.clone(), at)?;
+            self.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty,
+                    mutable: false,
+                },
+            );
+            if shared.is_some() {
+                self.reference_locals.insert(slot, loan);
+            } else {
+                self.bind_reference(slot, loan, false, ops);
+            }
+            ops.push(Op::StoreLocal(slot));
+        }
+        Ok(())
+    }
+
     /// Report a literal of the wrong length as an unpacking error before a
     /// type hint built from the targets can describe it as an annotation.
     fn check_unpacked_arity(targets: usize, value: &Expr) -> Result<()> {
@@ -1507,7 +1636,26 @@ impl Lower<'_> {
         let counted = range_args
             .zip(range_element.clone())
             .filter(|(_, element)| std::ptr::eq(range_expr, iterable) && element.is_int());
-        let (ty, mut loans) = if let Some((_, element)) = &counted {
+        let (ty, mut loans) = if let Some((buffer, exclusive)) = self.borrowed_byte_buffer(iterable)
+        {
+            // Issue #594: a borrowed Bytes buffer loops over a view of all of
+            // it, as `for b in &buffer[:]` does, so each `&u8` or `&mut u8`
+            // points into the buffer rather than at an iteration-local copy.
+            let whole = SliceBounds {
+                start: None,
+                stop: None,
+                step: None,
+            };
+            let (view, loan) = self.slice_view(buffer, &whole, exclusive, ops)?;
+            borrowed = true;
+            mutable = exclusive;
+            (view, vec![loan])
+        } else if self.is_view(iterable) {
+            let (view, loan) = self.view_source(iterable, ops)?;
+            borrowed = true;
+            mutable = matches!(view, Ty::View(_, true));
+            (view, vec![loan])
+        } else if let Some((_, element)) = &counted {
             (Ty::Range(Arc::new(element.clone())), vec![])
         } else if let Some(element) = range_element {
             (
@@ -1576,25 +1724,38 @@ impl Lower<'_> {
             }
         }
         let bytes = byte_buffers::byte_buffer(&ty).is_some();
-        if reverse && !matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_)) && !bytes {
+        if reverse
+            && !matches!(
+                ty,
+                Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) | Ty::View(..)
+            )
+            && !bytes
+        {
             return Err(iterable
                 .at
                 .error("reversed requires a list, str, bytes, range, or Bytes"));
         }
-        // Bytes are not addressable, so `for x in &b` yields a reference to an
-        // iteration-local copy as text and range iteration do.
+        // A named buffer was viewed above; a temporary one has no place for
+        // the `&mut u8` rows to point into.
         if mutable && bytes {
             return Err(iterable.at.error(
-                "mutable iteration over Bytes is not supported; assign through an index with `b[i] = value`",
+                "mutable iteration over Bytes borrows a named buffer; bind the value to a name first",
             ));
         }
-        let element = if bytes { Some(Ty::U8) } else { ty.element() };
+        let element = match &ty {
+            _ if bytes => Some(Ty::U8),
+            Ty::View(element, _) => Some((**element).clone()),
+            _ => ty.element(),
+        };
         if borrowed && matches!(ty, Ty::Generator(_)) {
             return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
         }
-        let references =
-            borrowed && matches!(ty, Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_));
-        if mutable && !matches!(ty, Ty::List(_)) {
+        let references = borrowed
+            && matches!(
+                ty,
+                Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_) | Ty::View(..)
+            );
+        if mutable && !matches!(ty, Ty::List(_) | Ty::View(..)) {
             return Err(iterable.at.error(
                 "mutable iteration requires a list; use items for mutable dictionary values",
             ));
@@ -1604,6 +1765,8 @@ impl Lower<'_> {
         }
         let mut plan = if let Some((args, element)) = counted {
             self.counted_range_iteration(args, element, reverse, &iterable.at, ops)?
+        } else if let Ty::View(..) = ty {
+            self.view_iteration(ty.clone(), reverse, &iterable.at, ops)?
         } else if references && matches!(ty, Ty::List(_)) {
             self.borrowed_list_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else if references {
@@ -2458,6 +2621,17 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Ty::U8);
         }
+        if let Ty::View(element, _) = &ty {
+            if element.affine() {
+                return Err(e.at.error(
+                    "cannot move an element out of a slice view; borrow it with `&v[i]`, or copy it with `copy(v[i])?`",
+                ));
+            }
+            let (value, reads) = self.view_get(&ty, index, &e.at, ops)?;
+            Self::end_reads(reads, ops);
+            Self::end_reads(loans, ops);
+            return Ok(value);
+        }
         let (key, value) = match &ty {
             Ty::List(v) => (Ty::I64, (**v).clone()),
             Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
@@ -2771,6 +2945,12 @@ impl Lower<'_> {
         {
             return self.pipeline_terminal(base, name, args, ops);
         }
+        if self.is_view(base) {
+            return Err(base.at.error(format!(
+                "a slice view has no method `{name}`; {}",
+                views::OPERATIONS
+            )));
+        }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops);
         }
@@ -2943,7 +3123,9 @@ impl Lower<'_> {
                 if source.key_view() {
                     return Err(args[0].at.error("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()"));
                 }
+                // A view formats as its rows do, like the reference it is.
                 if source.restricted_storage()
+                    && !matches!(source, Ty::View(..))
                     && (source.carried_reference().is_none() || source.format_blocker().is_some())
                 {
                     let message = source
@@ -4189,12 +4371,22 @@ impl Lower<'_> {
                 return Ok(Ty::I64);
             }
             let (ty, loans) = self.observe(&args[0], ops)?;
+            if let Ty::View(..) = ty {
+                ops.push(Op::Collection(CollectionOp::ViewLen(ty)));
+                Self::end_reads(loans, ops);
+                return Ok(Ty::I64);
+            }
             if ty.element().is_none() || ty.restricted_storage() && !matches!(ty, Ty::KeyView(_)) {
                 return Err(at.error("len requires an iterable"));
             }
             Self::push_query(CollectionOp::Len(ty), ops);
             Self::end_reads(loans, ops);
             return Ok(Ty::I64);
+        }
+        if self.is_view(&args[0]) {
+            return Err(args[0].at.error(format!(
+                "{name}() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`"
+            )));
         }
         let ty = self.value(&args[0], ops)?;
         if ty.key_view() {

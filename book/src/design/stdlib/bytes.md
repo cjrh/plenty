@@ -137,18 +137,18 @@ index once. Indexing works on named buffers, fields, references, and temporary
 values; it never grows the buffer and allocates nothing.
 
 `for b in buffer` consumes the buffer and yields each `u8`. `for b in &buffer`
-keeps it and yields `&u8`; as for strings and ranges, each reference is to an
-iteration-local copy, because single bytes are not addressable values.
-`reversed(&buffer)` walks from the end. `for b in &mut buffer` is rejected;
-assign through an index instead. The loop holds a shared loan, so its body
-cannot change the buffer.
+and `for b in &mut buffer` keep it and loop over a [slice view](#views) of the
+whole buffer, as `&buffer[:]` does: each `&u8` or `&mut u8` points into the
+buffer, so `*b += 1u8` changes it. `reversed(&buffer)` walks from the end. The
+loop holds the view's loan, so its body cannot grow, shrink, or move the
+buffer, and the body of a shared loop cannot write to it.
 
 [Slice syntax](../language/04-expressions/slices.md) `buffer[a:b:c]?` copies the
 selected bytes into a new `Bytes` with Python's clamping and returns
 `Result[Bytes, AllocError]`; it also slices `bytes` literals. The `slice(start,
 stop)` method keeps the [range rule](#the-range-rule) and reports `BytesError`,
-which suits functions that already return it. Passing the buffer with a range
-gives a view without a copy.
+which suits functions that already return it. A [slice view](#views),
+`&buffer[a:b]`, borrows the bytes without a copy.
 
 ## Scanning
 
@@ -220,13 +220,18 @@ The existing loan rules therefore define what may happen while a view exists:
   move a range inside one buffer, or copy the range first.
 
 These are compile-time `conflicting borrow` errors. Growth may relocate the
-storage, but no address into it is ever exposed to a program, so relocation
-cannot invalidate anything a program holds.
+storage, but only a live loan can hold an address into it, and growth conflicts
+with every live loan, so relocation cannot invalidate anything a program holds.
 
-A first-class sub-range view value, one that carries its own bounds and can be
-stored or returned, is not provided. It needs references stored in values,
-which the language does not have yet; see the
-[limits of returned references](../language/05-ownership/04-returned-references.md).
+A [slice view](../language/04-expressions/slices.md#slice-views),
+`&buffer[a:b]` or `&mut buffer[a:b]`, carries its own bounds: it is a `&[u8]`
+or `&mut [u8]` of the selected bytes, and holds the same whole-buffer loan as
+`&Bytes` or `&mut Bytes`. It supports `len`, index reads and writes, loops,
+`iter` pipelines, narrower views, and `==`, and prints as a `bytes` literal,
+`b"bc"`. A `&[u8]` parameter also accepts views of `list[u8]` and `bytes`
+literals. It has no `Bytes` methods, so the scans and
+the I/O operations still take the reference with a `start`/`stop` pair. A view
+cannot be stored or returned yet; that needs stored references (backlog B11).
 
 ## Costs
 

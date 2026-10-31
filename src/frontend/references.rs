@@ -26,13 +26,23 @@ pub(super) fn loan_free(e: &Expr) -> bool {
     }
 }
 
+/// Whether a parameter of type `ty` lends a borrow the call's result may
+/// keep: a reference or a slice view. The first such parameter is the origin
+/// of a returned reference.
+pub(super) fn lends(ty: &Ty) -> bool {
+    matches!(ty, Ty::Ref(..) | Ty::View(..))
+}
+
 /// Summarize only a single direct returned projection. More complicated bodies
 /// keep the conservative whole-argument footprint until flow summaries exist.
 pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> {
     if !matches!(sig.outputs.first(), Some(Ty::Ref(..))) {
         return None;
     }
-    let (root, ty) = sig.inputs.iter().find(|(_, t)| matches!(t, Ty::Ref(..)))?;
+    let (root, ty) = sig.inputs.iter().find(|(_, t)| lends(t))?;
+    if matches!(ty, Ty::View(..)) {
+        return None;
+    }
     let [stmt] = body else {
         return None;
     };
@@ -79,6 +89,10 @@ pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> 
 /// add, replace, or update without trapping.
 pub(super) const DICT_INDEX_ASSIGNMENT: &str =
     "dictionaries have no indexed assignment; use `d.insert(k, v)?`, which adds or replaces";
+pub(super) const SHARED_VIEW_MUTATION: &str =
+    "cannot borrow a shared slice view as mutable; take an exclusive view with `&mut xs[a:b]`";
+pub(super) const VIEW_PROJECTION: &str =
+    "a slice view has no fields and is not dereferenced; index its elements, as `v[i]`";
 pub(super) const DICT_INDEX_BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`";
 pub(super) fn dict_index_augment(op: &str) -> String {
     format!(
@@ -192,7 +206,7 @@ impl Lower<'_> {
             }
             Expression::Name(name) if !self.captures.contains(name) => match self.names.get(name) {
                 Some(Local {
-                    ty: Ty::Ref(_, mutable),
+                    ty: Ty::Ref(_, mutable) | Ty::View(_, mutable),
                     ..
                 }) => Some((value, *mutable)),
                 _ => None,
@@ -569,7 +583,7 @@ impl Lower<'_> {
                     // Tuple indices are compile-time projections, not consumed
                     // runtime keys. borrow_with_indices validates the literal.
                     Some(Ty::Enum(t)) if !mutating && t.tuple() => return Ok(()),
-                    Some(Ty::List(_)) => Ty::I64,
+                    Some(Ty::List(_) | Ty::View(..)) => Ty::I64,
                     Some(Ty::Dict(key, _)) => (*key).clone(),
                     _ => return Err(e.at.error("indexed assignment requires list or dict")),
                 };
@@ -602,6 +616,9 @@ impl Lower<'_> {
         indices: &mut Option<std::slice::Iter<'_, u8>>,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if let Expression::Slice(base, bounds) = &ungroup(e).kind {
+            return self.slice_view(base, bounds, mutable, ops);
+        }
         if let Expression::Index(base, index) = &ungroup(e).kind {
             if matches!(self.place_type(base), Some(Ty::Shared(_))) {
                 let element = Expr {
@@ -637,6 +654,20 @@ impl Lower<'_> {
                     mutable,
                 )));
                 return Ok((Ty::Ref(Arc::new(field), mutable), loan));
+            }
+            if let Ty::View(element, _) = &collection {
+                // A view's loan already covers its whole owner.
+                let (view, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+                if let Some(indices) = indices {
+                    let slot = *indices.next().expect("prepared assignment index");
+                    ops.push(Op::MoveLocal(slot));
+                } else {
+                    let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
+                    self.same(actual, Some(Ty::I64), &index.at)?;
+                }
+                self.mark(&e.at, ops);
+                ops.push(Op::Collection(CollectionOp::ViewRow(view, mutable)));
+                return Ok((Ty::Ref(element.clone(), mutable), loan));
             }
             let key = match &collection {
                 Ty::List(_) => Ty::I64,
@@ -685,6 +716,9 @@ impl Lower<'_> {
             }
             let reference_binding = self.reference_binding(base);
             let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+            if matches!(reference, Ty::View(..)) {
+                return Err(e.at.error(VIEW_PROJECTION));
+            }
             let Ty::Ref(inner, _) = &reference else {
                 unreachable!()
             };
@@ -723,6 +757,9 @@ impl Lower<'_> {
                 );
             }
             let (reference, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+            if matches!(reference, Ty::View(..)) {
+                return Err(e.at.error(VIEW_PROJECTION));
+            }
             let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(inner, _) = reference else {
                 unreachable!()
@@ -763,6 +800,18 @@ impl Lower<'_> {
         };
         self.mark(&e.at, ops);
         self.use_carried(&local, ops);
+        if let Ty::View(element, writable) = &local.ty {
+            // Borrowing a view reborrows it rather than referring to it, so
+            // `&v[i]` and `&v[a:b]` work through the view's own loan.
+            if mutable && !writable {
+                return Err(e.at.error(SHARED_VIEW_MUTATION));
+            }
+            let parent = self.reference_locals[&local.slot];
+            let loan = self.new_loan(self.loans[parent].root, mutable, Some(parent), ops);
+            let view = Ty::View(element.clone(), mutable);
+            ops.extend([Op::LoadLocal(local.slot), Op::Reborrow(view.clone())]);
+            return Ok((view, loan));
+        }
         if matches!(local.ty, Ty::KeyView(_)) {
             if mutable {
                 return Err(e.at.error("dictionary key views are shared borrows"));
@@ -928,6 +977,13 @@ impl Lower<'_> {
     ) -> Result<(Ty, Vec<usize>)> {
         match &e.kind {
             Expression::Group(inner) => self.observe_inner(inner, expected, ops),
+            Expression::Unary(op, inner)
+                if (op == "&" || op == "&mut")
+                    && matches!(ungroup(inner).kind, Expression::Slice(..)) =>
+            {
+                let (view, loan) = self.borrow(inner, op == "&mut", ops)?;
+                Ok((view, vec![loan]))
+            }
             Expression::Unary(op, inner) if op == "&" => {
                 let (ty, loan) = self.shared_argument(inner, expected, ops)?;
                 let Ty::Ref(inner, _) = ty else {
@@ -947,7 +1003,7 @@ impl Lower<'_> {
                 let local = self.named_place(e)?;
                 self.mark(&e.at, ops);
                 self.use_carried(&local, ops);
-                if matches!(local.ty, Ty::KeyView(_)) {
+                if matches!(local.ty, Ty::KeyView(_) | Ty::View(..)) {
                     let loan = self.reference_locals[&local.slot];
                     ops.push(Op::LoadLocal(local.slot));
                     return Ok((local.ty, vec![loan]));
@@ -1048,6 +1104,12 @@ impl Lower<'_> {
                     loans.extend(reads);
                     return Ok((Ty::U8, loans));
                 }
+                if let Ty::View(..) = ty {
+                    let (value, reads) = self.view_get(&ty, index, &e.at, ops)?;
+                    let mut loans = loans;
+                    loans.extend(reads);
+                    return Ok((value, loans));
+                }
                 let (key, value) = match &ty {
                     Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
                     Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) => {
@@ -1098,13 +1160,16 @@ impl Lower<'_> {
         if name == "drop" {
             if let Expression::Name(_) = &arg.kind {
                 let local = self.named_place(arg)?;
-                if matches!(local.ty, Ty::Ref(..) | Ty::KeyView(_)) {
+                if matches!(local.ty, Ty::Ref(..) | Ty::KeyView(_) | Ty::View(..)) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
                 self.mark(&arg.at, ops);
                 ops.push(Op::MoveLocal(local.slot));
             } else {
-                if matches!(self.value(arg, ops)?, Ty::Ref(..) | Ty::KeyView(_)) {
+                if matches!(
+                    self.value(arg, ops)?,
+                    Ty::Ref(..) | Ty::KeyView(_) | Ty::View(..)
+                ) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
             }
@@ -1112,6 +1177,11 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
+        if matches!(ty, Ty::View(..)) {
+            return Err(at.error(
+                "copy() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`",
+            ));
+        }
         // A nested handle is shared, as `share()` would; a bare handle is
         // rejected so that taking another owner is written as `share()`.
         if matches!(ty, Ty::Shared(_)) {

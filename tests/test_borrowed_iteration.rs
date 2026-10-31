@@ -95,6 +95,71 @@ def main() -> ():
 }
 
 #[test]
+fn tuple_targets_borrow_each_field_in_place() {
+    let output = support::run(
+        r#"
+def first_above(pairs: &list[(i64, str)], floor: i64) -> &str:
+    for n, s in pairs:
+        if *n > floor:
+            return s
+    return &pairs[0][1]
+def main() -> ():
+    mut pairs = [(1, "one"), (2, "two"), (3, "three")].unwrap()
+    for n, s in &pairs:
+        print(*n, s).unwrap()
+    for n, _ in &mut pairs:
+        *n *= 10
+    for n, s in &mut pairs[1:]:
+        *n += len(s)
+    for n, s in reversed(&pairs):
+        print(*n, s).unwrap()
+    print(first_above(&pairs, 15)).unwrap()
+    points = {(2, 3)}.unwrap()
+    for x, y in &points:
+        print(*x * *y).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "1 one\n2 two\n3 three\n35 three\n23 two\n10 one\ntwo\n6\n"
+    );
+}
+
+#[test]
+fn tuple_target_borrows_follow_the_element_borrow() {
+    for (source, expected) in [
+        (
+            "mut pairs = [(1, 2)].unwrap()\nfor n, s in &mut pairs:\n    pairs.append((3, 4)).unwrap()\n    *n += 1",
+            "conflicting borrow",
+        ),
+        (
+            "mut pairs = [(1, 2)].unwrap()\nfor n, s in &mut pairs:\n    print(pairs[0]).unwrap()\n    *n += 1",
+            "conflicting borrow",
+        ),
+        (
+            "pairs = [(1, 2)].unwrap()\nfor n, s in &pairs:\n    *n += 1",
+            "cannot borrow shared reference as mutable",
+        ),
+        (
+            "mut pairs = [(1, 2)].unwrap()\nfor p in &mut pairs:\n    n, s = p\n    print(p).unwrap()\n    *n += 1",
+            "conflicting borrow",
+        ),
+        (
+            "pairs = [(1, 2)].unwrap()\nfor n, s, t in &pairs:\n    pass",
+            "unpacking arity does not match tuple",
+        ),
+    ] {
+        let error = support::check_diagnostic(source);
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
+#[test]
 fn element_borrows_prevent_mutation_and_cannot_escape_temporary_slots() {
     for source in [
         "mut xs = [1].unwrap()\nfor value in &xs:\n    xs.append(2).unwrap()\n    print(value).unwrap()",

@@ -248,6 +248,7 @@ fn check_type(
             return Err("generator worker eligibility is not implemented yet".into())
         }
         Ty::Ref(t, _)
+        | Ty::View(t, _)
         | Ty::Clist(t)
         | Ty::List(t)
         | Ty::Set(t)
@@ -312,6 +313,7 @@ pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
         | Ty::List(t)
         | Ty::Set(t)
         | Ty::Ref(t, _)
+        | Ty::View(t, _)
         | Ty::Box(t)
         | Ty::Shared(t) => pending.push((**t).clone()),
         Ty::Dict(k, v) => pending.extend([(**k).clone(), (**v).clone()]),
@@ -341,7 +343,7 @@ pub fn endpoints(roots: impl IntoIterator<Item = Ty>, sender: bool, borrowed: bo
     let mut seen = HashSet::default();
     let mut found = Vec::new();
     while let Some(ty) = pending.pop() {
-        if matches!(ty, Ty::Ref(..)) && !borrowed || !seen.insert(ty.clone()) {
+        if matches!(ty, Ty::Ref(..) | Ty::View(..)) && !borrowed || !seen.insert(ty.clone()) {
             continue;
         }
         if let Ty::Channel(message, side) = &ty
@@ -392,7 +394,7 @@ pub fn owns_executor(ty: &Ty) -> bool {
     while let Some(ty) = pending.pop() {
         match ty {
             Ty::Executor => return true,
-            Ty::Ref(..) => continue,
+            Ty::Ref(..) | Ty::View(..) => continue,
             _ => {}
         }
         if seen.insert(ty.clone()) {

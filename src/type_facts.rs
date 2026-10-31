@@ -42,7 +42,10 @@ impl Ty {
             return Facts {
                 affine: resource || matches!(self, Self::Atomic(_)),
                 copyable: !resource
-                    && !matches!(self, Self::Ref(..) | Self::KeyView(_) | Self::Atomic(_)),
+                    && !matches!(
+                        self,
+                        Self::Ref(..) | Self::KeyView(_) | Self::View(..) | Self::Atomic(_)
+                    ),
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
