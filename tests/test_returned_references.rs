@@ -57,6 +57,64 @@ print(r).unwrap()
     );
 }
 
+#[test]
+fn assignment_writes_through_a_returned_reference() {
+    // Issue #598: `*f(...) = v` and `*f(...) op= v` need no named binding.
+    run(
+        r#"
+def first(xs: &mut list[i64]) -> &mut i64:
+    &mut xs[0]
+def head(xs: &mut [i64]) -> &mut i64:
+    &mut xs[0]
+def name(xs: &mut list[str]) -> &mut str:
+    &mut xs[1]
+def bump(xs: &mut list[i64]) -> ():
+    *first(xs) += 100
+class Counter:
+    calls: i64
+    n: i64
+    def slot(self: &mut Counter) -> &mut i64:
+        self.calls += 1
+        &mut self.n
+mut xs = [1, 2, 3].unwrap()
+*first(&mut xs) = 9
+*first(&mut xs) += 1
+*head(&mut xs[1:]) = 7
+*head(&mut xs[2:]) *= 4
+*(head(&mut xs[:2])) -= 1
+print(xs).unwrap()
+bump(&mut xs)
+print(xs).unwrap()
+mut names = ["a", "b"].unwrap()
+*name(&mut names) = "zed"
+print(names).unwrap()
+mut c = Counter(0, 1)
+*c.slot() = 5
+*c.slot() += 2
+print(c.n, c.calls).unwrap()
+"#,
+        "[9, 7, 12]\n[109, 7, 12]\n[\"a\", \"zed\"]\n7 2\n",
+    );
+}
+
+#[test]
+fn a_returned_reference_keeps_its_argument_borrowed_through_the_assignment() {
+    for op in ["=", "+="] {
+        reject(
+            &format!(
+                "def first(xs: &mut list[i64]) -> &mut i64:\n    &mut xs[0]\nmut xs = [1, 2].unwrap()\n*first(&mut xs) {op} xs[1]\n"
+            ),
+            "conflicting borrow",
+        );
+        reject(
+            &format!(
+                "def first(xs: &list[i64]) -> &i64:\n    &xs[0]\nxs = [1, 2].unwrap()\n*first(&xs) {op} 3\n"
+            ),
+            "assignment requires an exclusive reference",
+        );
+    }
+}
+
 fn run(source: &str, expected: &str) {
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("program");
