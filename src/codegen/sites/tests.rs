@@ -168,10 +168,5 @@ fn arm_source_table_bases_are_local_symbols_with_zero_relocation_addends() {
     // Resolving aliases requires no writable pointer table or runtime fixups.
     let bytes = product.emit().unwrap();
     let object = object::File::parse(bytes.as_slice()).unwrap();
-    assert_eq!(
-        object.format(),
-        crate::target::target_description(crate::native_target())
-            .unwrap()
-            .object_format
-    );
+    assert_eq!(object.format(), object::BinaryFormat::Elf);
 }

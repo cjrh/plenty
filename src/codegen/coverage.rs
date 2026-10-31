@@ -51,7 +51,7 @@ pub(super) fn instrument(func: &mut Function, symbols: &mut symbols::Symbols) {
 pub(super) fn define(module: &mut ObjectModule, function: FuncId, counters: u32) -> Result<DataId> {
     let mut description = DataDescription::new();
     description.define(vec![0; counters as usize].into_boxed_slice());
-    description.set_custom_section(COUNTERS);
+    description.set_custom_section(&section_name(module, COUNTERS));
     description.set_used(true);
     let data = module.declare_anonymous_data(true, false)?;
     module.define_data(data, &description)?;
@@ -60,7 +60,7 @@ pub(super) fn define(module: &mut ObjectModule, function: FuncId, counters: u32)
     let mut flags = vec![0; counters as usize * 16];
     flags[8] = 1;
     table.define(flags.into_boxed_slice());
-    table.set_custom_section(PCS);
+    table.set_custom_section(&section_name(module, PCS));
     table.set_align(8);
     table.set_used(true);
     let reference = table.import_function(cranelift_module::ModuleRelocTarget::user(
@@ -73,4 +73,12 @@ pub(super) fn define(module: &mut ObjectModule, function: FuncId, counters: u32)
     let pcs = module.declare_anonymous_data(false, false)?;
     module.define_data(pcs, &table)?;
     Ok(data)
+}
+
+fn section_name(module: &ObjectModule, name: &str) -> String {
+    if module.isa().triple().binary_format == target_lexicon::BinaryFormat::Macho {
+        format!("__DATA,{name}")
+    } else {
+        name.into()
+    }
 }

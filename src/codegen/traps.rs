@@ -268,7 +268,8 @@ impl Placed {
     pub(super) fn relocate(self, product: &mut cranelift_object::ObjectProduct) -> Result<()> {
         use cranelift_object::object::write::{Relocation, SymbolSection};
         use cranelift_object::object::{RelocationEncoding, RelocationFlags, RelocationKind};
-        let table = product.object.symbol(product.data_symbol(self.data));
+        let table_symbol = product.data_symbol(self.data);
+        let table = product.object.symbol(table_symbol);
         let SymbolSection::Section(section) = table.section else {
             return Err("the check table has no section".into());
         };
@@ -285,15 +286,36 @@ impl Placed {
             .map(|(field, function, offset)| (field, product.function_symbol(function), offset));
         let relocations: Vec<_> = sites.into_iter().chain(addresses).collect();
         for (field, symbol, addend) in relocations {
-            product.object.add_relocation(
-                section,
-                Relocation {
-                    offset: base + field,
-                    symbol,
-                    addend,
-                    flags,
-                },
-            )?;
+            if product.object.format() == object::BinaryFormat::MachO {
+                // The automatic relative-data translation uses an `ltmp`
+                // section symbol. Apple's linker does not retain that label
+                // as an atom for SUBTRACTOR relocations. Anchor the difference
+                // at our named table symbol, as clang's assembler does.
+                product.object.add_relocation_with_subtractor(
+                    section,
+                    Relocation {
+                        offset: base + field,
+                        symbol,
+                        addend: addend - i64::try_from(field)?,
+                        flags: RelocationFlags::Generic {
+                            kind: RelocationKind::Absolute,
+                            encoding: RelocationEncoding::Generic,
+                            size: 32,
+                        },
+                    },
+                    Some(table_symbol),
+                )?;
+            } else {
+                product.object.add_relocation(
+                    section,
+                    Relocation {
+                        offset: base + field,
+                        symbol,
+                        addend,
+                        flags,
+                    },
+                )?;
+            }
         }
         Ok(())
     }
