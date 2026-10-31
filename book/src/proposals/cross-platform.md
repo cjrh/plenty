@@ -1,12 +1,11 @@
 # Native macOS, Windows, and AArch64 support
 
-> **Status: Investigation complete (2026-10-19).** This is a proposed direction,
-> not a support announcement. No platform port is implemented by this document.
-> Current contracts remain in [runtime packaging](../design/toolchain/02-architecture/runtime.md),
-> [linking](../design/toolchain/01-building/linking.md), and the
-> [standard library reference](../design/stdlib/index.md).
-> Future work remains **B18**, with packaging under **B17** and path semantics
-> coordinated with **B12** in the [backlog](../backlog.md).
+> **Status: Research and design update (2026-10-31).** Linux AArch64 is
+> implemented in the ARM feature branch, with qualification limits recorded in
+> [the development guide](../development/linux-aarch64.md). macOS and Windows
+> remain proposed. This document does not announce their support.
+> Priorities and implementation work packages live in **B18** of the
+> [backlog](../backlog.md), with B17 delivery and B12 path-contract dependencies.
 
 Related design records cover [FFI and dynamic libraries](ffi-and-dynamic-libraries.md),
 [generated export contracts](ffi-export-contracts.md), and the independent
@@ -26,51 +25,39 @@ feature until native ports are qualified.
 | Native host and generated-program target | Present evidence | Proposed treatment |
 | --- | --- | --- |
 | `x86_64-unknown-linux-gnu` | Explicitly admitted, tested and released | Preserve existing baseline throughout |
-| `aarch64-unknown-linux-gnu` | Rejected today; retains Linux APIs but changes native ABI/layout and assembly | First port; qualify GNU/Linux separately from other ARM systems |
-| `aarch64-apple-darwin` | Rejected today; backend has Apple AArch64 calling convention and Mach-O support | First macOS port after common target/build work |
-| `x86_64-apple-darwin` | Rejected today; different OS despite familiar ISA | Companion macOS port with its own native tests and deployment baseline |
-| `x86_64-pc-windows-msvc` | Rejected today; Windows ABI, runtime and linker changes required | First Windows port; prefer one MSVC/SDK ecosystem initially |
+| `aarch64-unknown-linux-gnu` | Implemented; extensive QEMU execution, native/release gates outstanding | Preserve alongside x86-64 Linux during refactoring |
+| `aarch64-apple-darwin` | Rejected by Plenty; native Cranelift/C ABI smoke tests pass in CI | First macOS port after common target/build work |
+| `x86_64-apple-darwin` | Not admitted | Deferred; no automatic promise from the ARM macOS port |
+| `x86_64-pc-windows-msvc` / `x86_64-pc-windows-gnu` | Neither admitted; native MSVC Cranelift/C smoke tests pass, GNU remains separate | Compare SDK/CRT/dependency feasibility before choosing one initial Windows ABI |
 | `aarch64-pc-windows-msvc` | Rejected today; ARM64 COFF relocation coverage is an additional backend risk | Separate feasibility gate before committing to a release |
 
 All proposed targets are 64-bit little-endian. ARM32, big-endian AArch64, Android,
-iOS, Linux musl, Windows GNU/MinGW, ARM64EC, and universal macOS binaries are
+iOS, Linux musl, ARM64EC, and universal macOS binaries are
 outside this initial scope. AArch64 support is not a promise to support every
 ARM board, OS or ABI. WSL runs the Linux build; it is not native Windows support.
 Minimum OS/kernel versions and CPU baselines must be chosen and tested per
 target; do not inherit Rust's support tiers as Plenty's own guarantees.
 
-## What the audit established
+## Evidence baseline
 
-The Plenty baseline inspected is `0ec8057`; this assessment is source-based,
-without macOS/Windows/ARM execution. Important implementation evidence:
+This update inspects Plenty `869e1cb8087c126ec26a620149bd74d2290c4ca7` and
+Cranelift **0.137.0**. The October 19 assessment described an older x86-only
+checkout; its assumptions about hard-coded native calling conventions and
+x86-only crypto assembly are superseded by the ARM implementation.
 
-| Location | Consequence |
-| --- | --- |
-| `src/toolchain.rs::validate_target_pair` | Only x86-64 Linux GNU is allowed, and requested target must match the embedded runtime |
-| `src/codegen.rs::optimized_isa` | Native ISA, fixed pointer ABI, PIC and inline stack probes; runtime, entry and adapter signatures frequently hard-code `CallConv::SystemV` |
-| `build.rs` | Direct `rustc --target TARGET` builds runtime dependencies; native C commands independently use `CC`/`AR` and GNU arguments; ring source list contains x86-64 ELF assembly |
-| `plenty-runtime/src/stack_overflow.rs` | Unconditional x86-64 Linux signal/ucontext layouts and register indices |
-| `plenty-runtime/src/aggregates/{filesystem,process,readiness,net}.rs` | Linux-specific implementations, native constants/layouts, and unsupported fallbacks in several paths |
-| `src/library_metadata.rs`, `src/library.rs` | ELF/x86-64 interface inspection and GNU shared-library/export conventions |
-| `stdlib/std/{path,env,net,report}.plenty` | Public byte-path semantics and numeric Linux error assumptions also live in Plenty source |
-| `scripts/release/`, `.github/workflows/release.yml` | Linux GNU toolchain, ELF audit, container smoke tests and fixed target archive names |
+The current compiler has a two-target description, derives native C calling
+conventions through Cranelift, and builds matching ARM runtime dependencies.
+The target foundation centralizes frontend facts and binary identity in
+`src/target.rs`, and checks the compiler host against the packaged runtime.
+Metadata layout and object handling still implement ELF, and runtime services
+remain Linux-specific. This is a useful starting point, not a finished OS
+abstraction.
 
-Some runtime modules already use Rust's portable filesystem, clocks, locks and
-containers internally. That is useful leverage, not evidence that the complete
-runtime builds or behaves correctly on another system. Some fallback branches
-return unsupported errors; others still import Unix-only types. A successful
-`cargo check` alone would miss generated-program linking and ABI failures.
-
-The pinned Cranelift **0.131.1** sources were inspected locally through
-`cargo agents crate-info`: `cranelift-codegen/src/isa/call_conv.rs`,
-`src/isa/aarch64/abi.rs`, and `cranelift-object/src/backend.rs`. They contain
-Tail and Apple AArch64 conventions, AArch64 inline stack probing, and ELF,
-Mach-O and COFF object selection. However, several AArch64 GOT/page relocations
-in the object backend handle only ELF/Mach-O and otherwise panic. Object-format
-selection alone therefore does not establish Windows ARM64 viability. Probe
-actual Plenty-generated code before deciding whether an upstream backend update
-or targeted contribution is needed. The separate out-of-line AArch64 probe
-routine is unimplemented; Plenty currently requests **inline** probes.
+The immediate experimental scope is **ARM64 macOS and x86-64 Windows**. Preserve
+the Linux milestone in Git; perform independent work in child worktrees and
+merge validated increments into the portability branch. No local Mac or Windows
+machine is assumed: actual OS execution requires CI runners. Configuring a job
+or cross-linking an artifact is not execution evidence.
 
 ## Recommended architecture and decision boundaries
 
@@ -90,13 +77,14 @@ security-sensitive operations must fail closed rather than silently weaken.
 
 The detailed assessment is split into:
 
+- [Interface boundaries and source mapping](cross-platform/boundaries.md).
 - [Compiler, runtime build, and native ABI](cross-platform/compiler.md).
 - [Standard library and OS semantics](cross-platform/stdlib.md).
 - [Qualification, delivery, and reference implementations](cross-platform/delivery.md).
+- [Native ABI and Zig toolchain experiments](cross-platform/experiments.md).
 
-The recommended order is common target/build boundaries, Linux AArch64, macOS,
-then Windows. Release engineering can be designed in parallel, but publishing
-must depend on the runtime and stdlib qualification gates. Windows path and
-readiness design should be resolved early enough to avoid baking Unix-only
-assumptions into those common boundaries. No implementation schedule or support
-promise is created here; B18 remains the scheduling authority.
+Study both OS ports before fixing shared interfaces, then establish a minimal
+macOS path and the selected Windows path. Port OS services against explicit
+contracts before claiming parity. Keep Cranelift as the production backend;
+Zig is a candidate C/dependency compiler and linker driver. User-facing Plenty
+cross-compilation remains a separate admission decision.

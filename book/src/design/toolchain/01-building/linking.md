@@ -1,6 +1,8 @@
 # Native linking and targets
 
-Native emission supports **`x86_64-unknown-linux-gnu` only**. `--target TRIPLE`
+Native emission implements **`x86_64-unknown-linux-gnu`** and
+**`aarch64-unknown-linux-gnu`**. ARM deployment qualification is described in
+[Linux AArch64 development](../../../development/linux-aarch64.md). `--target TRIPLE`
 requires an exact match between the requested target, packaged runtime, and
 Cranelift ISA before emission. Unsupported explicit targets fail before source
 loading. This flag does not enable cross-compilation. Checking is independent of
@@ -63,12 +65,12 @@ quarters of a hello-world executable:
 | empty `main` | 2,727,008 bytes | 302,280 bytes |
 | `print("hello")` | 3,289,728 bytes | 789,776 bytes |
 
-Measured with mold. Stripping leaves the loaded segments unchanged (`size`
+Measured on x86-64 with mold. Stripping leaves the loaded segments unchanged (`size`
 reports the same `text`, `data` and `bss`), so it affects file size, not
 memory use or speed.
 
 Nothing reads these sections at run time. Trap reports find the failed check
-through the compiler's site and `ud2` tables, which the linker resolves as
+through the compiler's site and trap-instruction tables, which the linker resolves as
 relocations, not through symbols; the runtime prints no backtraces. A shared
 library keeps its dynamic symbol table (`.dynsym`), so its exports and
 `--verify-interface` are unaffected, and its embedded `.plenty.interface.*`
@@ -101,7 +103,7 @@ reproducibility contract below; package build fingerprints include it.
 ## Size budgets
 
 `tests/test_executable_size.rs` fails when a small program grows past its
-budget. Measured with the runtime from issues #500, #501 and #503:
+budget. These x86-64 measurements use the runtime from issues #500, #501 and #503:
 
 | Program | Stripped file | `.text` | Budget (file, `.text`) |
 |---|---:|---:|---:|
@@ -122,8 +124,11 @@ measurement beside `BUDGETS`.
 
 ## Reproducible artifacts
 
-Generated code uses the original x86-64/SSE2 baseline, regardless of the
-compiler machine's CPU extensions. `--print-target` reports this baseline.
+Generated code uses the original x86-64/SSE2 baseline or generic ARMv8-A,
+regardless of the compiler machine's CPU extensions. ARM does not require
+optional LSE, SVE or crypto instructions. `--print-target` reports the native
+triple and CPU baseline. Reproducibility applies within one target and fixed
+toolchain; artifacts from different architectures have different bytes.
 With the same compiler binary, source tree, module contents, and options,
 application objects and extracted runtime artifacts are independent of source
 directory, output name, time, user, and code-generation worker count. Static

@@ -1,6 +1,5 @@
 //! The same pinned C codec for Cargo runtime tests and the embedded runtime.
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub const ARCHIVE: &str = "plenty_brotli";
 
@@ -9,9 +8,19 @@ pub fn build(native: &Path, out: &Path) {
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
-    let mut objects = Vec::new();
+    let mut build = crate::native_tools::build(out);
+    // MSVC exposes its C99 features through the supported C11 mode.
+    let standard = if build.get_compiler().is_like_msvc() {
+        "c11"
+    } else {
+        "c99"
+    };
+    build
+        .std(standard)
+        .define("BROTLI_HAVE_LOG2", "1")
+        // Upstream's recoverable allocator must unwind encoder state on OOM.
+        .define("BROTLI_ENCODER_CLEANUP_ON_OOM", None)
+        .include(source.join("c/include"));
     for section in ["common", "dec", "enc"] {
         let mut files: Vec<PathBuf> = std::fs::read_dir(source.join("c").join(section))
             .expect("read pinned Brotli sources")
@@ -20,50 +29,8 @@ pub fn build(native: &Path, out: &Path) {
             .collect();
         files.sort();
         for file in files {
-            let stem = file.file_stem().unwrap().to_str().unwrap();
-            let object = out.join(format!("brotli_{section}_{stem}.o"));
-            let result = Command::new(&cc)
-                .args(["-c", "-O2", "-fPIC", "-g0", "-std=c99", "-w"])
-                .args([
-                    "-ffunction-sections",
-                    "-fdata-sections",
-                    "-fvisibility=hidden",
-                ])
-                .arg(format!(
-                    "-ffile-prefix-map={}=/plenty/brotli",
-                    source.display()
-                ))
-                .arg("-DBROTLI_HAVE_LOG2=1")
-                // Upstream defaults to exit(EXIT_FAILURE) on allocation
-                // failure unless this recoverable memory manager is selected.
-                .arg("-DBROTLI_ENCODER_CLEANUP_ON_OOM")
-                .arg("-I")
-                .arg(source.join("c/include"))
-                .arg(&file)
-                .arg("-o")
-                .arg(&object)
-                .output()
-                .expect("invoke C compiler for Brotli");
-            assert!(
-                result.status.success(),
-                "compiling {} failed:\n{}",
-                file.display(),
-                String::from_utf8_lossy(&result.stderr)
-            );
-            objects.push(object);
+            build.file(file);
         }
     }
-    let archive = out.join(format!("lib{ARCHIVE}.a"));
-    let _ = std::fs::remove_file(&archive);
-    let result = Command::new(ar)
-        .arg("crsD")
-        .arg(archive)
-        .args(objects)
-        .output()
-        .expect("archive Brotli");
-    assert!(
-        result.status.success(),
-        "archiving Brotli failed:\n{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    build.compile(ARCHIVE);
 }

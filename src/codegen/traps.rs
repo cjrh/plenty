@@ -2,10 +2,10 @@
 //!
 //! In an executable, a check whose site is fixed at lowering time branches to
 //! a block holding only a CLIF `trap`, so its code is a conditional jump to a
-//! two-byte `ud2`, rather than to a block that loads the site and calls a
-//! runtime helper. Each such block has its own trap code, numbered per
-//! function. Cranelift reports where each code's `ud2` landed, and the object
-//! gains one [`Table`] mapping those addresses to the check's kind and site.
+//! trap instruction (x86 `ud2`, ARM64 `udf`), rather than a block that calls
+//! a runtime helper. Each such block has its own trap code, numbered per
+//! function. Cranelift reports the instructions' offsets, and the object gains
+//! one [`Table`] mapping those addresses to the check's kind and site.
 //! `plenty_main` hands the table to the runtime, whose handler moves a
 //! faulting thread into the helper the call would have reached, so messages
 //! and exit status are unchanged (issue #425).
@@ -21,13 +21,14 @@
 //! dispositions to its host, and libFuzzer claims `SIGILL` itself.
 //!
 //! Layout, matching `Table` in the runtime's `traps.rs`: a `u32` entry count,
-//! the object's site table (or zero), each entry's `ud2`, then each entry's
-//! `u32` site record offset in the site table ([`NO_SITE`] for none) with its
+//! the object's site table (or zero), each entry's trap instruction address, then
+//! its `u32` site record offset in the site table ([`NO_SITE`] for none) with its
 //! [`kind`] in the low four bits, which a record's sixteen-byte alignment
-//! leaves free. The site table and `ud2` fields are `i32` offsets from the
-//! field itself. Eight bytes per `ud2`, never read unless a check fails.
-//! Release builds give each conditional trap its own `ud2`, so checks that
-//! share a block in CLIF can have several entries.
+//! leaves free. The site table and instruction addresses are `i32` offsets
+//! from the field itself. Eight bytes per entry, read only when a check fails.
+//! Release builds can give checks that share a CLIF block separate instructions.
+//! AArch64 loop-probe stores additionally use kind 6 with `NO_SITE`, allowing
+//! the SIGSEGV handler to recognize their temporary stack frontier precisely.
 use super::*;
 use crate::hash::HashSet;
 use cranelift_codegen::MachTrap;
@@ -103,10 +104,10 @@ pub(crate) fn checks(traps: &[MachTrap]) -> Vec<(u32, u8)> {
         .collect()
 }
 
-/// The object's one table of every check's `ud2`.
+/// The object's one table of every check's trap instruction.
 pub(super) struct Table {
     data: DataId,
-    /// `(function, ud2 offset in it, site offset in the site table | kind)`.
+    /// `(function, trap offset in it, site offset in the site table | kind)`.
     entries: Vec<(FuncId, u32, u32)>,
     /// The functions each placed function's code refers to.
     references: HashMap<FuncId, Vec<FuncId>>,
@@ -200,6 +201,21 @@ impl Table {
         Ok(())
     }
 
+    /// Registers AArch64 loop-probe stores, which use the temporary address
+    /// register rather than SP. Kind 6 is shared with the runtime's SIGSEGV
+    /// classifier; SIGILL lookup deliberately does not dispatch it as a check.
+    pub(super) fn add_stack_probes(
+        &mut self,
+        function: FuncId,
+        offsets: impl IntoIterator<Item = u32>,
+    ) {
+        self.entries.extend(
+            offsets
+                .into_iter()
+                .map(|offset| (function, offset, NO_SITE | 6)),
+        );
+    }
+
     /// Defines the table, once every function is placed. `sites` is the
     /// object's site table, if it has one.
     /// Writes the table's bytes; [`Placed::relocate`] fills in its
@@ -240,7 +256,7 @@ impl Table {
 pub(super) struct Placed {
     data: DataId,
     sites: Option<DataId>,
-    /// `(field offset, function, ud2 offset in it)`.
+    /// `(field offset, function, trap offset in it)`.
     addresses: Vec<(u64, FuncId, i64)>,
 }
 
@@ -252,7 +268,8 @@ impl Placed {
     pub(super) fn relocate(self, product: &mut cranelift_object::ObjectProduct) -> Result<()> {
         use cranelift_object::object::write::{Relocation, SymbolSection};
         use cranelift_object::object::{RelocationEncoding, RelocationFlags, RelocationKind};
-        let table = product.object.symbol(product.data_symbol(self.data));
+        let table_symbol = product.data_symbol(self.data);
+        let table = product.object.symbol(table_symbol);
         let SymbolSection::Section(section) = table.section else {
             return Err("the check table has no section".into());
         };
@@ -269,15 +286,36 @@ impl Placed {
             .map(|(field, function, offset)| (field, product.function_symbol(function), offset));
         let relocations: Vec<_> = sites.into_iter().chain(addresses).collect();
         for (field, symbol, addend) in relocations {
-            product.object.add_relocation(
-                section,
-                Relocation {
-                    offset: base + field,
-                    symbol,
-                    addend,
-                    flags,
-                },
-            )?;
+            if product.object.format() == object::BinaryFormat::MachO {
+                // The automatic relative-data translation uses an `ltmp`
+                // section symbol. Apple's linker does not retain that label
+                // as an atom for SUBTRACTOR relocations. Anchor the difference
+                // at our named table symbol, as clang's assembler does.
+                product.object.add_relocation_with_subtractor(
+                    section,
+                    Relocation {
+                        offset: base + field,
+                        symbol,
+                        addend: addend - i64::try_from(field)?,
+                        flags: RelocationFlags::Generic {
+                            kind: RelocationKind::Absolute,
+                            encoding: RelocationEncoding::Generic,
+                            size: 32,
+                        },
+                    },
+                    Some(table_symbol),
+                )?;
+            } else {
+                product.object.add_relocation(
+                    section,
+                    Relocation {
+                        offset: base + field,
+                        symbol,
+                        addend,
+                        flags,
+                    },
+                )?;
+            }
         }
         Ok(())
     }

@@ -410,3 +410,17 @@ pub fn output_within(command: &mut Command, input: &[u8], limit: std::time::Dura
         stderr: stderr.join().unwrap(),
     }
 }
+
+/// A native call in the final assembly listing, on either supported ISA.
+/// Match instruction fields so symbol names/comments cannot masquerade as calls.
+pub fn native_call(line: &str) -> bool {
+    let instruction = line.split('#').next().unwrap_or(line);
+    let mnemonic = if cfg!(target_arch = "aarch64") {
+        "bl"
+    } else {
+        "call"
+    };
+    instruction
+        .split_whitespace()
+        .any(|field| field == mnemonic)
+}

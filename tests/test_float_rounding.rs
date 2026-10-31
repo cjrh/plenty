@@ -1,4 +1,4 @@
-//! `floor`, `ceil`, `trunc` and `round` on floats are inline SSE2 sequences
+//! `floor`, `ceil`, `trunc` and `round` on floats are inline SSE2 or ARMv8-A sequences
 //! instead of `plenty_f64_math` calls (issue #386). Every result must equal
 //! Rust's `floor`, `ceil`, `trunc` and `round_ties_even` bit for bit: the
 //! program prints each input and result with its sign (through `copysign`,
@@ -217,24 +217,52 @@ fn rounding_is_inline_and_branch_free() {
     );
     for name in ["fl", "ce", "tr", "ro", "fl32", "ce32", "tr32", "ro32"] {
         let body = section(dir.path(), "asm.txt", name);
+        let instructions: Vec<_> = body
+            .lines()
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .collect();
         assert!(
-            !body.contains("call") && !body.contains("movabs"),
+            instructions
+                .iter()
+                .all(|instruction| !matches!(*instruction, "call" | "callq" | "bl" | "blr")),
             "{name}:\n{body}"
         );
-        // One branch only, for magnitudes too large to have a fraction.
-        let jumps = body
-            .lines()
-            .filter(|line| {
-                line.split_whitespace()
-                    .nth(1)
-                    .is_some_and(|i| i.starts_with('j'))
-            })
+        #[cfg(target_arch = "x86_64")]
+        assert!(!body.contains("movabs"), "{name}:\n{body}");
+        // The x86 guard branches for magnitudes without a fractional part;
+        // A64 implements that same guard with FCSEL.
+        let jumps = instructions
+            .iter()
+            .filter(|instruction| instruction.starts_with('j'))
             .count();
+        #[cfg(target_arch = "x86_64")]
         assert_eq!(jumps, 1, "{name}:\n{body}");
+        #[cfg(target_arch = "aarch64")]
+        {
+            assert_eq!(jumps, 0, "{name}:\n{body}");
+            assert_eq!(
+                instructions
+                    .iter()
+                    .filter(|instruction| **instruction == "fcsel")
+                    .count(),
+                1,
+                "{name}:\n{body}"
+            );
+            assert!(
+                instructions
+                    .iter()
+                    .all(|instruction| !instruction.starts_with("b.")
+                        && !matches!(*instruction, "b" | "cbz" | "cbnz" | "tbz" | "tbnz")),
+                "{name}:\n{body}"
+            );
+        }
     }
     for name in ["fl", "ce", "tr", "fl32", "ce32", "tr32"] {
         let body = section(dir.path(), "asm.txt", name);
+        #[cfg(target_arch = "x86_64")]
         assert!(body.contains("cmplt"), "{name}:\n{body}");
+        #[cfg(target_arch = "aarch64")]
+        assert!(body.contains("fcmgt"), "{name}:\n{body}");
     }
     let body = section(dir.path(), "clif-opt.txt", "folded");
     assert!(

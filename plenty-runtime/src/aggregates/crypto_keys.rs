@@ -363,11 +363,17 @@ mod tests {
         assert_eq!(p256_point(&[2; 33]), INVALID_KEY);
     }
 
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures/crypto/rsa/");
 
     /// The high-water mark of `job` in an arena larger than any bound.
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     fn peak<R>(job: impl FnOnce() -> R) -> (usize, R) {
         let mut arena = Arena::new(1 << 20).unwrap();
         let result = within(&mut arena, job).unwrap();
@@ -376,7 +382,10 @@ mod tests {
 
     // Measures each operation at the largest size it accepts. The arenas
     // must leave at least the margin their comment claims.
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     #[test]
     fn arena_bounds_cover_the_largest_keys() {
         let pkcs8 = std::fs::read(format!("{FIXTURES}rsa4096.pk8")).unwrap();

@@ -81,8 +81,8 @@ impl LibraryInterface {
     }
 }
 
-/// Extract all Plenty interfaces from an ELF object/shared object/executable or
-/// a regular static archive. Never executes the input or follows archive paths.
+/// Extract all Plenty interfaces from a native object/shared library/executable
+/// or a regular static archive. Never executes the input or follows archive paths.
 pub fn read_library_interfaces(path: &Path) -> Result<Vec<LibraryInterface>> {
     let data = read_bounded(path, MAX_BINARY)?;
     inspect(&data)
@@ -205,15 +205,27 @@ fn read_object(
     total: &mut usize,
 ) -> Result<()> {
     let object = object::File::parse(data)?;
-    if object.format() != object::BinaryFormat::Elf
-        || object.architecture() != object::Architecture::X86_64
-        || !object.is_little_endian()
+    let target = crate::target::target_description(crate::native_target())
+        .ok_or("unsupported packaged runtime target")?;
+    if !compatible_object_format(target.object_format, object.format())
+        || object.architecture() != target.object_arch
+        || object.is_little_endian() != (target.endian == "little")
     {
-        return Err("interface inspection requires an x86_64 little-endian ELF object".into());
+        let format = format!("{:?}", target.object_format).to_uppercase();
+        return Err(format!(
+            "interface inspection requires a {} {}-endian {format} object",
+            target.triple, target.endian
+        )
+        .into());
     }
     for section in object.sections() {
-        if let Some(name) = section.name()?.strip_prefix(".plenty.interface.") {
-            if interfaces.len() >= MAX_CONTRACTS || section.size() > MAX_CONTRACT as u64 {
+        let section_name = section.name()?;
+        let named = section_name.strip_prefix(".plenty.interface.");
+        let macho = object.format() == object::BinaryFormat::MachO
+            && section_name == "__plenty_iface"
+            && section.segment_name()? == Some("__TEXT");
+        if named.is_some() || macho {
+            if interfaces.len() >= MAX_CONTRACTS || section.size() > MAX_TOTAL as u64 {
                 return Err("embedded interface count or size exceeds inspection limits".into());
             }
             if matches!(section.flags(), object::SectionFlags::Elf { sh_flags, .. } if sh_flags.contains(object::elf::SHF_COMPRESSED))
@@ -225,16 +237,90 @@ fn read_object(
             if *total > MAX_TOTAL {
                 return Err("embedded interfaces exceed the 16 MiB total limit".into());
             }
-            let interface = LibraryInterface::parse(name, bytes)?;
-            if interfaces
-                .insert(interface.name.clone(), interface)
-                .is_some()
-            {
-                return Err(format!("duplicate embedded library interface `{name}`").into());
+            let records = if macho {
+                macho_interface_records(bytes)?
+            } else {
+                vec![bytes]
+            };
+            for bytes in records {
+                if interfaces.len() >= MAX_CONTRACTS || bytes.len() > MAX_CONTRACT {
+                    return Err("embedded interface count or size exceeds inspection limits".into());
+                }
+                let name = match named {
+                    Some(name) => name,
+                    None => std::str::from_utf8(bytes)?
+                        .lines()
+                        .nth(1)
+                        .and_then(|line| line.strip_prefix("# library: "))
+                        .ok_or("missing embedded library name")?,
+                };
+                let interface = LibraryInterface::parse(name, bytes)?;
+                if interfaces
+                    .insert(interface.name.clone(), interface)
+                    .is_some()
+                {
+                    return Err(format!("duplicate embedded library interface `{name}`").into());
+                }
             }
         }
     }
     Ok(())
+}
+
+fn compatible_object_format(expected: object::BinaryFormat, actual: object::BinaryFormat) -> bool {
+    expected == actual
+        || (expected == object::BinaryFormat::Coff && actual == object::BinaryFormat::Pe)
+}
+
+#[cfg(test)]
+mod native_format_tests {
+    use super::*;
+    use object::BinaryFormat::{Coff, Elf, MachO, Pe};
+
+    #[test]
+    fn native_metadata_accepts_windows_objects_and_images_without_crossing_platforms() {
+        for target in crate::target::NATIVE_TARGETS {
+            for format in [Elf, MachO, Coff, Pe] {
+                let accepted = compatible_object_format(target.object_format, format);
+                assert_eq!(
+                    accepted,
+                    match target.os {
+                        "linux" => format == Elf,
+                        "macos" => format == MachO,
+                        "windows" => matches!(format, Coff | Pe),
+                        _ => unreachable!(),
+                    },
+                    "{} {format:?}",
+                    target.triple,
+                );
+            }
+        }
+    }
+}
+
+fn macho_interface_records(mut bytes: &[u8]) -> Result<Vec<&[u8]>> {
+    let mut records = Vec::new();
+    while !bytes.is_empty() {
+        let length = bytes
+            .get(..8)
+            .ok_or("truncated embedded interface length")?;
+        let length = usize::try_from(u64::from_le_bytes(length.try_into()?))?;
+        bytes = &bytes[8..];
+        if length > MAX_CONTRACT || records.len() >= MAX_CONTRACTS {
+            return Err("embedded interface count or size exceeds inspection limits".into());
+        }
+        let record = bytes.get(..length).ok_or("truncated embedded interface")?;
+        records.push(record);
+        let padded = length.next_multiple_of(8);
+        let padding = bytes
+            .get(length..padded)
+            .ok_or("truncated embedded interface padding")?;
+        if padding.iter().any(|byte| *byte != 0) {
+            return Err("invalid embedded interface padding".into());
+        }
+        bytes = &bytes[padded..];
+    }
+    Ok(records)
 }
 
 /// Write one named source interface only after validating all embedded metadata.
@@ -255,4 +341,25 @@ pub fn extract_library_interface(path: &Path, name: &str, output: &Path) -> Resu
     let staged = workspace.path().join("interface");
     std::fs::write(&staged, &interface.source)?;
     crate::library::publication::publish(workspace, &[(staged, output.to_owned())])
+}
+
+#[cfg(test)]
+mod macho_record_tests {
+    use super::*;
+
+    #[test]
+    fn combined_sections_preserve_each_contract_and_reject_truncation() {
+        let mut bytes = Vec::new();
+        for record in [b"first".as_slice(), b"second".as_slice()] {
+            bytes.extend_from_slice(&(record.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(record);
+            bytes.resize(bytes.len().next_multiple_of(8), 0);
+        }
+        assert_eq!(
+            macho_interface_records(&bytes).unwrap(),
+            [b"first".as_slice(), b"second".as_slice()]
+        );
+        assert!(macho_interface_records(&bytes[..bytes.len() - 1]).is_err());
+        assert!(macho_interface_records(&[0; 7]).is_err());
+    }
 }

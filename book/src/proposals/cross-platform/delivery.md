@@ -9,7 +9,7 @@
 | Gate | Prerequisites and acceptance evidence |
 | --- | --- |
 | Native backend experiment | Build an object, link and execute C/runtime calls, aggregate returns, indirect Tail calls, large frames and library metadata on the exact OS/ISA. Probe ARM64 COFF relocations before promising Windows ARM64. |
-| Target/build boundary | Compiler and both embedded runtimes report matching target/ABI; target-aware native dependencies and drivers work offline; incompatible targets are rejected early. Linux x86-64 remains green. |
+| Target/build boundary | Compiler and both embedded runtimes report matching target/ABI; target-aware native dependencies and drivers work offline; incompatible targets are rejected early. Both Linux architectures remain green. |
 | Runtime core | Allocation failures, reporting, stack guards/overflow, thread start failure/join, channels, atomics, files and foreign ABI round trips pass natively. No unsafe success stubs. |
 | OS and stdlib | Native paths and resources, rooted filesystem guarantees, process cleanup, cancellation/readiness, DNS, TLS and HTTP pass the platform capability contract. |
 | User tooling | Package build/run/test, cache races, LSP path round trips, static/dynamic libraries and supported fuzz tooling are exercised from an extracted release. |
@@ -29,7 +29,9 @@ Add native test runners for each admitted tuple, with explicit toolchain/SDK and
 minimum-version policy. Emulators and cross-compilation can supplement coverage
 but do not replace real OS execution for thread scheduling, sockets, file races,
 signals, DLL loading or installer behavior. Runner availability and cost are
-implementation-time decisions; this assessment did not provision machines.
+implementation-time decisions. Plan for CI runners; the user confirmed no local
+Mac or Windows machines should be assumed. This assessment did not provision
+runners or publish any workflow.
 
 Inventory Linux-specific fixtures: `/proc/self/fd`, `/tmp`, shell scripts,
 descriptor counts, errno numbers, ELF tooling, chmod, signals, executable suffixes
@@ -51,8 +53,8 @@ than tied to incidental toolchain output.
 
 Extend the existing tag-verified, locked, draft-then-publish workflow to build
 one archive per admitted tuple. Preserve tag/version checks, immutable published
-artifacts, checksums, licenses and third-party notices; the notice generator
-currently fixes its dependency target to Linux x86-64. **No crates.io publishing**
+artifacts, checksums, licenses and third-party notices; the ARM work already parameterizes Linux compiler and engine artifacts and
+notices by target. **No crates.io publishing**
 is needed or proposed. Keep build, test and publication permissions separated.
 
 Retain `.tar.gz` on Unix; use `.zip` on Windows, with `plenty.exe` and
@@ -61,14 +63,19 @@ archive glob. Every archive must contain target-specific installation guidance
 and the same required resources/notices. Test extraction and PATH setup as an
 ordinary user; `.exe` naming must propagate into packages and test runners.
 
-For Linux AArch64 select and verify a glibc baseline and dynamic-loader/dependency
-allowlist, rather than reusing x86-64 ELF paths. For macOS choose deployment
+For Linux AArch64 preserve and qualify the configured glibc 2.28 baseline and
+ARM dynamic-loader/dependency allowlist. Minimum-baseline release execution
+remains outstanding; configuration alone is not qualification. For macOS choose deployment
 targets, audit Mach-O architectures/install names and linked libraries, and
 test Apple Command Line Tools/SDK discovery. For Windows choose supported OS,
 SDK and CRT requirements; audit PE imports and run from a clean environment
 with only the documented native tools. The compiler still needs a native
 linker to build programs; bundling a compiler driver/SDK would be a distinct
 distribution/licensing decision.
+
+The user-facing support promise must distinguish a full native port from a
+preview with explicit unavailable modules. A successful compiler build must not
+silently turn skipped actor/engine/watch tests into parity evidence.
 
 Decide macOS Developer ID signing/notarization and Windows Authenticode policy
 before public downloads. Credentials, account access and signing runners are
@@ -126,6 +133,7 @@ capacity can be arranged in parallel, but are required before qualified releases
 
 The highest uncertainty is Windows resource/security semantics and backend
 coverage, followed by maintaining fallible allocation across portable helpers.
-The lowest-risk first increment is Linux AArch64 after target-aware dependency
-builds and signal/stack ABI corrections. No effort estimate is reliable until
+Linux AArch64 now supplies the shared-baseline regression target; its native
+hardware and release gates remain open. The immediate port experiments are
+ARM macOS and x86-64 Windows, with MSVC versus GNU still a decision gate. No effort estimate is reliable until
 those focused experiments establish the actual backend and SDK constraints.

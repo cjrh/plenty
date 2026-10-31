@@ -7,11 +7,17 @@
 //! program has closed its end, the send fails and the handler re-raises the
 //! signal under the default action: the process ends as if it had never
 //! listened. See book/src/design/stdlib/signal.md.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 use crate::aggregates::Type;
 use crate::files;
 use crate::text_io::Error;
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod native {
     use super::*;
     use std::os::fd::{FromRawFd, OwnedFd};
@@ -31,22 +37,7 @@ mod native {
     const EBUSY: i32 = 16;
     const SIG_DFL: usize = 0;
 
-    /// The glibc `struct sigaction` layout on x86_64 Linux.
-    #[repr(C)]
-    struct Action {
-        handler: usize,
-        mask: [u64; 16],
-        flags: i32,
-        restorer: usize,
-    }
-
-    unsafe extern "C" {
-        fn sigaction(signal: i32, action: *const Action, previous: *mut Action) -> i32;
-        fn socketpair(domain: i32, kind: i32, protocol: i32, pair: *mut i32) -> i32;
-        fn send(fd: i32, data: *const u8, length: usize, flags: i32) -> isize;
-        fn raise(signal: i32) -> i32;
-        fn __errno_location() -> *mut i32;
-    }
+    use libc::{__errno_location, raise, sigaction as Action, sigaction, socketpair};
 
     /// The runtime's end of the pair, or -1. It is never closed once
     /// published, so the handler cannot send to a reused descriptor number.
@@ -55,12 +46,11 @@ mod native {
     static CLAIMED: AtomicBool = AtomicBool::new(false);
 
     fn action(handler: usize, flags: i32) -> Action {
-        Action {
-            handler,
-            mask: [0; 16],
-            flags,
-            restorer: 0,
-        }
+        // SAFETY: an all-zero sigaction has an empty mask and no restorer.
+        let mut action: Action = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = handler;
+        action.sa_flags = flags;
+        action
     }
 
     fn restore_defaults() {
@@ -83,8 +73,9 @@ mod native {
         let fd = WRITER.load(Ordering::Acquire);
         // SAFETY: a one-byte send from a live local; a closed peer is an
         // error return, not SIGPIPE.
-        let sent =
-            fd >= 0 && unsafe { send(fd, &raw const byte, 1, MSG_DONTWAIT | MSG_NOSIGNAL) } == 1;
+        let sent = fd >= 0
+            && unsafe { libc::send(fd, (&raw const byte).cast(), 1, MSG_DONTWAIT | MSG_NOSIGNAL) }
+                == 1;
         restore_defaults();
         if !sent {
             // The signal is blocked while this handler runs, so it is
@@ -136,19 +127,23 @@ mod native {
         }
         Ok(file)
     }
-
-    const _: () = assert!(size_of::<Action>() == 152);
 }
 
 /// Starts catching `SIGINT` and `SIGTERM` and returns the readable end on
 /// which each caught signal arrives as one byte. A second call fails with
 /// `EBUSY`.
 pub(crate) fn listen(ty: &'static Type) -> Result<u128, Error> {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     {
         native::listen(ty)
     }
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
     {
         let _ = (ty, files::adopt_socket);
         Err(crate::text_io::Kind::Unsupported.into())

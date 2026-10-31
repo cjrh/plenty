@@ -1,6 +1,9 @@
 //! Linux directory streams with detached entries and fallible owned buffers.
 //! Rust's read_dir/scandir contracts, without Rust DirEntry's retained descriptor
 //! or its infallible Arc/PathBuf allocations. Native records never cross the ABI.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 use super::{Collection, OwnedValue, Type};
 use crate::memory::{self, AllocError, Header};
 use crate::text_io::{self, Error, Kind};
@@ -100,6 +103,16 @@ mod native {
         kind: u8,
         name: [c_char; 256],
     }
+    const _: () = {
+        assert!(size_of::<Dirent>() == size_of::<libc::dirent64>());
+        assert!(align_of::<Dirent>() == align_of::<libc::dirent64>());
+        assert!(std::mem::offset_of!(Dirent, name) == std::mem::offset_of!(libc::dirent64, d_name));
+        assert!(size_of::<Stat>() == size_of::<libc::statx>());
+        assert!(
+            std::mem::offset_of!(Stat, accessed) == std::mem::offset_of!(libc::statx, stx_atime)
+        );
+    };
+
     unsafe extern "C" {
         fn opendir(path: *const c_char) -> *mut c_void;
         fn readdir64(dir: *mut c_void) -> *const Dirent;
@@ -194,9 +207,9 @@ mod native {
         terminated(bytes)
     }
 
-    const DIRECTORY: i32 = 0o200000;
-    const NOFOLLOW: i32 = 0o400000;
-    const CLOEXEC: i32 = 0o2000000;
+    const DIRECTORY: i32 = libc::O_DIRECTORY;
+    const NOFOLLOW: i32 = libc::O_NOFOLLOW;
+    const CLOEXEC: i32 = libc::O_CLOEXEC;
 
     fn open_at(fd: i32, path: &[u8], flags: i32) -> Result<std::fs::File, Error> {
         // SAFETY: callers provide a terminated buffer; ownership transfers once.
@@ -313,7 +326,12 @@ mod native {
                     let file = open_at(
                         fd,
                         &name,
-                        NOFOLLOW | if op == 261 { DIRECTORY } else { 0o4000 },
+                        NOFOLLOW
+                            | if op == 261 {
+                                DIRECTORY
+                            } else {
+                                libc::O_NONBLOCK
+                            },
                     )?;
                     if op == 262 && !file.metadata()?.is_file() {
                         return Err(Kind::InvalidInput.into());
@@ -341,7 +359,7 @@ mod native {
                 }
                 267 => directory_entries(fd),
                 268 => {
-                    let file = open_at(fd, b".\0", 0o20000000 | DIRECTORY | 0o2)?;
+                    let file = open_at(fd, b".\0", libc::O_TMPFILE | libc::O_RDWR)?;
                     crate::files::adopt_read_write(file, ty.variants[0].fields[0])
                 }
                 269 => {
@@ -789,7 +807,7 @@ mod native {
             std::os::unix::fs::symlink("directory", fixture.0.join("link")).unwrap();
             assert!(open_at(parent.as_raw_fd(), b"link\0", DIRECTORY | NOFOLLOW).is_err());
             let temporary =
-                open_at(parent.as_raw_fd(), b".\0", 0o20000000 | DIRECTORY | 0o2).unwrap();
+                open_at(parent.as_raw_fd(), b".\0", libc::O_TMPFILE | libc::O_RDWR).unwrap();
             std::fs::write(fixture.0.join("collision"), b"keep").unwrap();
             assert!(
                 matches!(publish(temporary.as_raw_fd(), parent.as_raw_fd(), b"collision\0"), Err(Error::System(error)) if error.raw_os_error() == Some(17))

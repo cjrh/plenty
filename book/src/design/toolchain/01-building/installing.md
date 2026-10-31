@@ -39,9 +39,21 @@ uses the separately installed shared engine.
 | CPU | Any x86-64 CPU; the compiler and generated programs use the original x86-64 (SSE2) instruction set |
 | Linking | A `cc` driver, linker, startup files, and C library development files |
 
-musl distributions such as Alpine are not supported. Other targets, including
-macOS, Windows, and ARM, have no release archive; see
-[native linking and targets](linking.md).
+These requirements describe the established x86-64 release contract. Native
+AArch64 GNU/Linux compilation is implemented in the source tree and is under
+[ARM qualification](../../../development/linux-aarch64.md). ARM release tooling
+uses target-labelled archives such as `plenty-VERSION-aarch64-unknown-linux-gnu.tar.gz`;
+the minimum ARM glibc/kernel floor and native hardware execution still need
+qualification before those artifacts carry the same guarantee. Rust's
+[AArch64 Linux target](https://doc.rust-lang.org/rustc/platform-support/aarch64-unknown-linux-gnu.html)
+requires at least kernel 4.1, compared with x86-64's 3.2; the ARM environment
+validated here uses kernel 6.12.113, not that minimum. Check each
+release's published assets and tested requirements rather than substituting an
+architecture into an x86 archive name. Optional ARM engines have an independent
+validation gate.
+
+musl distributions such as Alpine, macOS and Windows remain outside the native
+target set; see [native linking and targets](linking.md).
 
 Plenty generates machine code itself and runs `cc` only to link it with the
 embedded runtime and the system C library, as described in

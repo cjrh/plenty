@@ -11,7 +11,11 @@ fn contract(name: &str) -> String {
 fn object(sections: &[(&str, &[u8])]) -> Vec<u8> {
     let mut object = object::write::Object::new(
         object::BinaryFormat::Elf,
-        object::Architecture::X86_64,
+        if cfg!(target_arch = "aarch64") {
+            object::Architecture::Aarch64
+        } else {
+            object::Architecture::X86_64
+        },
         object::Endianness::Little,
     );
     for (name, data) in sections {
@@ -266,4 +270,24 @@ fn verification_rejects_unfingerprinted_and_modified_source_interfaces() {
         .unwrap();
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("regenerate"));
+}
+
+#[test]
+fn rejects_other_architecture_even_when_contract_matches() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("wrong.o");
+    let contract = contract("calc");
+    let mut bytes = object(&[(".plenty.interface.calc", contract.as_bytes())]);
+    // ELF64 e_machine; leave the embedded target declaration untouched.
+    let machine = if cfg!(target_arch = "aarch64") {
+        object::elf::EM_X86_64
+    } else {
+        object::elf::EM_AARCH64
+    };
+    bytes[18..20].copy_from_slice(&machine.0.to_le_bytes());
+    std::fs::write(&path, bytes).unwrap();
+    let error = plenty::read_library_interfaces(&path)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("little-endian ELF object"), "{error}");
 }

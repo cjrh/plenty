@@ -5,12 +5,11 @@
 
 ## Build the compiler and the runtime for the same machine
 
-`build.rs` currently emits two embedded Rust static archives (application and
-library runtimes), native test hooks, and a fuzz driver. Its Rust invocations
-honor Cargo's `TARGET`; its manual C compiler/archive commands do not implement
-Cargo's target-specific tool discovery. The vendored ring files omit other
-platforms' pregenerated assembly, and the selected sources explicitly target
-x86-64 ELF. Merely setting `CC` or `cargo build --target` is insufficient.
+`build.rs` emits application and library runtime archives, native test hooks
+and a fuzz driver. The ARM work added target-aware C/archive tool discovery,
+matching Linux ARM ring assembly and dependency settings. Darwin/Windows
+selection still needs implementation: the current ring lists select ELF/Linux
+assembly, and direct Rust builds reproduce dependency build-script behavior.
 
 Introduce one checked native-toolchain description consumed by runtime and
 native dependency builds. Distinguish Cargo **HOST** (build scripts run here),
@@ -80,7 +79,7 @@ Audit startup, system libraries, minimum OS flags, executable naming, object
 archive determinism and diagnostics for missing toolchains. LibFuzzer and
 sanitizers may initially be explicitly unavailable where not qualified.
 
-`src/library_metadata.rs` explicitly requires x86-64 ELF and
+`src/library_metadata.rs` requires ELF for the admitted Linux architectures and
 `.plenty.interface.*` sections. Define target-specific metadata sections and
 validate architecture, endianness, bounds and contract identity for Mach-O and
 COFF, including archive members. Mach-O naming constraints make simply reusing

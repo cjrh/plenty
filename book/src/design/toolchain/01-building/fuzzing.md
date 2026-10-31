@@ -12,10 +12,17 @@ plenty --fuzz main.plenty -o fuzzer
 ```
 
 `--release` before `--fuzz` optimizes the generated code. `--libfuzzer PATH`
-names libFuzzer's archive; the default is the one `clang
--print-file-name=libclang_rt.fuzzer_no_main.a` reports, which LLVM's
-compiler-rt installs (on Fedora, the `compiler-rt` package). The build fails
-with a message when there is none. `--linker` and `--link-arg` apply as for
+names libFuzzer's archive. Discovery asks `clang
+-print-file-name=libclang_rt.fuzzer_no_main.a` first, then the native target's
+suffixed name (`libclang_rt.fuzzer_no_main-aarch64.a` or
+`libclang_rt.fuzzer_no_main-x86_64.a`). It accepts only a successful query naming
+an existing absolute file. LLVM's compiler-rt supplies the archive: install
+`compiler-rt` on Fedora, or `clang` and `libclang-rt-dev` on Debian/Ubuntu.
+The build fails with a message when neither name resolves. When clang ships a
+separate `libclang_rt.fuzzer_interceptors` archive beside the selected runtime,
+Plenty links its matching generic or target-suffixed companion so libFuzzer can
+learn the strings compared by the program. It never substitutes another target's
+companion. `--linker` and `--link-arg` apply as for
 `--compile`. The libFuzzer flags are LLVM's; `-help=1` lists them.
 
 ## Writing a target
@@ -121,4 +128,7 @@ Without AddressSanitizer libFuzzer has no leak checking or stack traces.
 Plenty code needs neither for memory safety; a trap prints its source
 position before libFuzzer's report.
 
-The target is x86-64 Linux, as for every build (see [linking](linking.md)).
+The target is the installed compiler's GNU/Linux architecture (see
+[linking](linking.md)). ARM libFuzzer/tool discovery and sanitizers require
+separate qualification; a successful ordinary ARM build does not prove their
+availability.

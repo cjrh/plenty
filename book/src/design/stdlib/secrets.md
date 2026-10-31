@@ -7,14 +7,17 @@ Use it for session tokens, keys, nonces, and password-reset links. For
 repeatable simulation and sampling use [`std.random`](random.md); the two
 modules share no state and no code path.
 
-> **Entropy comes from the kernel.** Plenty implements no random generator
-> for secrets: every byte comes from `getrandom(2)`, deliberately leaving
-> entropy collection and the generator to the operating system.
+> **Entropy comes from the operating system.** Plenty implements no random
+> generator for secrets: native OS services supply every byte.
 
 Policy is checked Plenty code over one native primitive,
 [`Bytes.read_os_entropy`](bytes.md#transport), which makes a single
-`getrandom(2)` request. The module is available on the supported x86-64 Linux
-GNU target and needs glibc 2.25 or later and Linux 3.17 or later.
+OS request. Linux uses `getrandom(2)` (glibc 2.25 or later, Linux 3.17 or later).
+The macOS runtime uses `getentropy`, with at most 256 bytes per request;
+Windows uses the system-preferred `BCryptGenRandom` generator, with at most
+`u32::MAX` bytes per request. Short counts are normal and the Plenty layer
+retries until its requested range is full. See [platform support](../toolchain/02-architecture/support.md)
+for compiler qualification; an entropy backend alone does not qualify a port.
 
 ```plenty
 import std.secrets
@@ -54,9 +57,8 @@ forms use the [`std.encoding`](encoding.md) codecs.
 - **No fallback.** If the system cannot supply entropy, the operation returns
   `SecretsError.Entropy`. It never substitutes the clock, an address, a seeded
   generator, or `/dev/urandom`.
-- **Blocking.** A request waits until the kernel generator has been
-  initialized, which matters only very early in boot. There is no nonblocking
-  form.
+- **Blocking.** Linux waits until its kernel generator has been initialized,
+  which matters only very early in boot. The API has no nonblocking form.
 - **Short and interrupted requests are retried** until the range is full. A
   request that reports zero bytes for a nonempty range is `UnexpectedEof`; a
   count larger than the request is `InvalidProgress`.

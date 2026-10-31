@@ -47,6 +47,8 @@ mod test_anonymous_functions;
 mod test_anonymous_sums;
 #[path = "test_aot.rs"]
 mod test_aot;
+#[path = "test_arm_stack_probes.rs"]
+mod test_arm_stack_probes;
 #[path = "test_augmented_assignment.rs"]
 mod test_augmented_assignment;
 #[path = "test_binary_io.rs"]
@@ -654,3 +656,6 @@ mod test_nonzero;
 mod test_std_cli_fileinput;
 #[path = "test_str_match.rs"]
 mod test_str_match;
+
+#[path = "test_signal_host.rs"]
+mod test_signal_host;

@@ -5,47 +5,39 @@ use std::process::Command;
 
 mod distribution;
 
-/// Target of the compiler and its embedded runtime. Native code generation
-/// currently supports x86_64-unknown-linux-gnu only.
-pub fn native_target() -> &'static str {
-    env!("PLENTY_RUNTIME_TARGET")
-}
-
-/// Reject unsupported or mismatched targets before native lowering or linking.
-/// Selecting a linker does not make cross-compilation possible.
-pub fn validate_target(requested: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    validate_target_pair(requested.unwrap_or(native_target()), native_target())
-}
-
-fn validate_target_pair(requested: &str, packaged: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if requested != "x86_64-unknown-linux-gnu" {
-        return Err(format!("unsupported native target `{requested}`; supported target: x86_64-unknown-linux-gnu (64-bit little-endian System V)").into());
-    }
-    if requested != packaged {
-        return Err(format!("target `{requested}` does not match packaged runtime `{packaged}`; cross-compilation is not supported").into());
-    }
-    Ok(())
-}
+use crate::target::{native_target, target_description, validate_target};
 
 /// libFuzzer's archive without its `main`, as `clang` reports it: the
 /// default `--libfuzzer` of `--fuzz` builds.
 pub fn find_libfuzzer() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    const ARCHIVE: &str = "libclang_rt.fuzzer_no_main.a";
+    let target = target_description(native_target()).ok_or("unsupported native target")?;
+    find_libfuzzer_with(Path::new("clang"), target.arch)
+}
+
+fn find_libfuzzer_with(clang: &Path, arch: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let names = [
+        "libclang_rt.fuzzer_no_main.a".to_string(),
+        format!("libclang_rt.fuzzer_no_main-{arch}.a"),
+    ];
     let missing = || {
         format!(
-            "libFuzzer not found: `clang -print-file-name={ARCHIVE}` names no file; install clang's compiler-rt or pass --libfuzzer PATH"
+            "libFuzzer not found: clang did not resolve an installed {} or {}; install clang's compiler-rt or pass --libfuzzer PATH",
+            names[0], names[1],
         )
     };
-    let output = Command::new("clang")
-        .arg(format!("-print-file-name={ARCHIVE}"))
-        .output()
-        .map_err(|error| format!("{}: {error}", missing()))?;
-    // clang echoes the bare name when it has no such file.
-    let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
-    if !output.status.success() || !path.is_absolute() || !path.is_file() {
-        return Err(missing().into());
+    for archive in &names {
+        let output = Command::new(clang)
+            .arg(format!("-print-file-name={archive}"))
+            .output()
+            .map_err(|error| format!("{}: {error}", missing()))?;
+        // Clang echoes a bare filename when it cannot find it. Debian uses
+        // target suffixes, while other distributions expose the generic name.
+        let path = PathBuf::from(String::from_utf8(output.stdout)?.trim());
+        if output.status.success() && path.is_absolute() && path.is_file() {
+            return Ok(path);
+        }
     }
-    Ok(path)
+    Err(missing().into())
 }
 
 /// The exact runtime embedded in this compiler and its native dependencies.
@@ -80,9 +72,9 @@ pub fn emit_runtime(directory: &Path) -> Result<RuntimeArtifacts, Box<dyn std::e
     })
 }
 
-/// Options for native compilation. Linkers must accept the Unix C compiler
-/// driver interface (object/archive inputs, native `-l` flags, and `-o OUT`).
-/// Use a wrapper for drivers with another interface; this is not a raw `ld` API.
+/// Options for native compilation. Unix hosts use a C compiler driver;
+/// Windows MSVC hosts use the Microsoft linker interface (including `/OUT:`).
+/// The linker must target the same platform as the packaged runtime.
 #[derive(Clone, Debug)]
 pub struct CompileOptions {
     /// Optional explicit target; it must match the supported packaged runtime.
@@ -135,7 +127,7 @@ impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             target: None,
-            linker: "cc".into(),
+            linker: if cfg!(windows) { "link.exe" } else { "cc" }.into(),
             auto_linker: true,
             verbose: false,
             link_args: Vec::new(),
@@ -334,6 +326,18 @@ fn executable(path: &Path) -> bool {
     path.is_file()
 }
 
+fn linker_command(options: &CompileOptions) -> Command {
+    // Discover the Visual Studio tools and Windows SDK even outside a
+    // developer shell, just as Cargo does when linking the compiler itself.
+    #[cfg(windows)]
+    if options.linker == Path::new("link.exe") {
+        if let Some(tool) = cc::windows_registry::find_tool(native_target(), "link.exe") {
+            return tool.to_command();
+        }
+    }
+    Command::new(&options.linker)
+}
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn link(
     object: &Path,
@@ -355,7 +359,8 @@ pub(crate) fn link(
     let staged_output = bundle.as_ref().map(|bundle| bundle.executable(output));
     let output = staged_output.as_deref().unwrap_or(output);
     let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()))?;
-    let mut command = Command::new(&options.linker);
+    let mut command = linker_command(options);
+    let msvc = native_target().ends_with("-windows-msvc");
     if let Some(linker) = options.automatic_linker() {
         command.arg(format!("-fuse-ld={linker}"));
         let threads = std::env::var("PLENTY_LINKER_THREADS").ok();
@@ -372,10 +377,24 @@ pub(crate) fn link(
         .args(engines)
         .args(native_args.split_whitespace());
     // Last before `-o`, so wrapper drivers still see the inputs first.
-    if options.strip {
-        command.arg("-Wl,--strip-all");
+    if msvc {
+        command.args(["/NOLOGO", "/SUBSYSTEM:CONSOLE", "/OPT:REF"]);
+        let mut argument = OsString::from("/OUT:");
+        argument.push(output);
+        command.arg(argument);
+    } else {
+        if cfg!(target_os = "macos") {
+            command.arg("-Wl,-dead_strip");
+        }
+        if options.strip {
+            command.arg(if cfg!(target_os = "macos") {
+                "-Wl,-S,-x"
+            } else {
+                "-Wl,--strip-all"
+            });
+        }
+        command.arg("-o").arg(output);
     }
-    command.arg("-o").arg(output);
     if options.verbose {
         eprintln!("link: {command:?}");
     }
@@ -477,6 +496,11 @@ fn reached_engines<'a>(
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
     let object = object::File::parse(bytes)?;
     let engine_of = |name: &str| {
+        let name = if object.format() == object::BinaryFormat::MachO {
+            name.strip_prefix('_').unwrap_or(name)
+        } else {
+            name
+        };
         engines
             .iter()
             .position(|e| name.starts_with(e.symbol_prefix))
@@ -486,31 +510,53 @@ fn reached_engines<'a>(
     }) {
         return Ok(Vec::new());
     }
+    let atom = |symbol: object::Symbol<'_, '_>| {
+        let index = symbol.section_index()?;
+        let section = object.section_by_index(index).ok()?;
+        if object.format() != object::BinaryFormat::MachO {
+            return Some((index, 0, section.size()));
+        }
+        // Mach-O keeps functions and data in shared sections. Its linker
+        // collects symbol-delimited atoms under MH_SUBSECTIONS_VIA_SYMBOLS,
+        // so scanning a whole section would reach unused facade functions.
+        let start = symbol.address().checked_sub(section.address())?;
+        let end = object
+            .symbols()
+            .filter(|next| next.section_index() == Some(index) && next.address() > symbol.address())
+            .map(|next| next.address() - section.address())
+            .min()
+            .unwrap_or(section.size());
+        Some((index, start, end))
+    };
     let mut pending: Vec<_> = object
         .symbols()
-        .filter(|symbol| symbol.is_global() && !symbol.is_undefined())
-        .filter_map(|symbol| symbol.section_index())
+        .filter(|symbol| {
+            (symbol.is_global() && !symbol.is_undefined())
+                || matches!(symbol.flags(), object::SymbolFlags::MachO { n_desc, .. }
+                    if n_desc.contains(object::macho::N_NO_DEAD_STRIP))
+        })
+        .filter_map(atom)
         .collect();
-    // Exported library interfaces are explicitly retained even without a
-    // global symbol. Their relocations are roots too.
+    // Exported ELF interfaces are retained even without a global symbol.
     pending.extend(
         object
             .sections()
             .filter(|section| {
-                matches!(
-                    section.flags(), SectionFlags::Elf { sh_flags, .. }
-                    if sh_flags.0 & object::elf::SHF_GNU_RETAIN.0 != 0
-                )
+                matches!(section.flags(), SectionFlags::Elf { sh_flags, .. }
+            if sh_flags.0 & object::elf::SHF_GNU_RETAIN.0 != 0)
             })
-            .map(|section| section.index()),
+            .map(|section| (section.index(), 0, section.size())),
     );
     let mut reached = vec![false; engines.len()];
     let mut seen = std::collections::HashSet::new();
-    while let Some(index) = pending.pop() {
-        if !seen.insert(index) {
+    while let Some((index, start, end)) = pending.pop() {
+        if !seen.insert((index, start, end)) {
             continue;
         }
-        for (_, relocation) in object.section_by_index(index)?.relocations() {
+        for (offset, relocation) in object.section_by_index(index)?.relocations() {
+            if offset < start || offset >= end {
+                continue;
+            }
             match relocation.target() {
                 RelocationTarget::Symbol(index) => {
                     let symbol = object.symbol_by_index(index)?;
@@ -518,11 +564,14 @@ fn reached_engines<'a>(
                         if let Some(engine) = engine_of(symbol.name()?) {
                             reached[engine] = true;
                         }
-                    } else if let Some(section) = symbol.section_index() {
-                        pending.push(section);
+                    } else if let Some(range) = atom(symbol) {
+                        pending.push(range);
                     }
                 }
-                RelocationTarget::Section(section) => pending.push(section),
+                RelocationTarget::Section(index) => {
+                    let section = object.section_by_index(index)?;
+                    pending.push((index, 0, section.size()));
+                }
                 _ => {}
             }
         }
@@ -599,6 +648,91 @@ fn engine_link_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::target::NATIVE_TARGETS;
+
+    #[cfg(unix)]
+    fn fake_clang(root: &Path, cases: &[(&str, &Path, i32)]) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let quote = |path: &Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"));
+        let mut script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> {}\ncase \"$1\" in\n",
+            quote(&root.join("queries"))
+        );
+        for (name, path, status) in cases {
+            script.push_str(&format!(
+                "-print-file-name={name}) printf '%s\\n' {}; exit {status} ;;\n",
+                quote(path)
+            ));
+        }
+        script.push_str("*) printf '%s\\n' \"${1#-print-file-name=}\" ;;\nesac\n");
+        let clang = root.join("clang");
+        std::fs::write(&clang, script).unwrap();
+        std::fs::set_permissions(&clang, std::fs::Permissions::from_mode(0o755)).unwrap();
+        clang
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn libfuzzer_discovery_uses_clang_native_suffix_after_generic_miss() {
+        for target in NATIVE_TARGETS {
+            let temp = tempfile::tempdir().unwrap();
+            let runtime = temp.path().join("resource directory");
+            std::fs::create_dir(&runtime).unwrap();
+            let name = format!("libclang_rt.fuzzer_no_main-{}.a", target.arch);
+            let archive = runtime.join(&name);
+            std::fs::write(&archive, "fixture").unwrap();
+            let clang = fake_clang(temp.path(), &[(&name, &archive, 0)]);
+            assert_eq!(find_libfuzzer_with(&clang, target.arch).unwrap(), archive);
+            assert_eq!(
+                std::fs::read_to_string(temp.path().join("queries")).unwrap(),
+                format!("-print-file-name=libclang_rt.fuzzer_no_main.a\n-print-file-name={name}\n")
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn libfuzzer_discovery_prefers_generic_and_rejects_failed_or_missing_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive = temp.path().join("generic.a");
+        std::fs::write(&archive, "fixture").unwrap();
+        let clang = fake_clang(
+            temp.path(),
+            &[("libclang_rt.fuzzer_no_main.a", &archive, 0)],
+        );
+        assert_eq!(find_libfuzzer_with(&clang, "aarch64").unwrap(), archive);
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("queries"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+        // A path printed with failure status is not a usable tool response.
+        let clang = fake_clang(
+            temp.path(),
+            &[("libclang_rt.fuzzer_no_main.a", &archive, 1)],
+        );
+        assert!(
+            find_libfuzzer_with(&clang, "aarch64")
+                .unwrap_err()
+                .to_string()
+                .contains("libFuzzer not found")
+        );
+        // Missing files, bare names, and the opposite architecture's installed
+        // archive cannot satisfy either native query.
+        let absent = temp.path().join("absent.a");
+        let other = temp.path().join("libclang_rt.fuzzer_no_main-x86_64.a");
+        std::fs::write(&other, "fixture").unwrap();
+        let clang = fake_clang(
+            temp.path(),
+            &[
+                ("libclang_rt.fuzzer_no_main.a", &absent, 0),
+                ("libclang_rt.fuzzer_no_main-x86_64.a", &other, 0),
+            ],
+        );
+        assert!(find_libfuzzer_with(&clang, "aarch64").is_err());
+    }
 
     #[cfg(unix)]
     #[test]
@@ -714,32 +848,6 @@ mod tests {
         assert!(thread_args("mold", Some("many")).is_err());
     }
 
-    #[test]
-    fn rejects_runtime_mismatch_and_unsupported_layouts() {
-        let native = "x86_64-unknown-linux-gnu";
-        assert!(validate_target_pair(native, native).is_ok());
-        assert!(
-            validate_target_pair(native, "aarch64-unknown-linux-gnu")
-                .unwrap_err()
-                .to_string()
-                .contains("does not match")
-        );
-        for target in [
-            "i686-unknown-linux-gnu",
-            "aarch64-unknown-linux-gnu",
-            "x86_64-pc-windows-msvc",
-            "not-a-target",
-            "x86_64-unknown-linux-musl",
-        ] {
-            assert!(
-                validate_target_pair(target, target)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("unsupported native target")
-            );
-        }
-    }
-
     fn fake_engine(module: &'static str, symbol_prefix: &'static str) -> Engine {
         Engine {
             module,
@@ -786,6 +894,68 @@ mod tests {
             .collect();
         assert_eq!(reached, ["std.a"]);
         assert!(reached_engines(&bytes, ENGINES).unwrap().is_empty());
+    }
+
+    #[test]
+    fn engine_reachability_follows_native_linker_atoms() {
+        use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
+        use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+        use cranelift_module::{Linkage, Module};
+        for target in crate::target::NATIVE_TARGETS {
+            let isa =
+                crate::codegen::baseline_isa(target.triple, "backtracking", "none", false).unwrap();
+            let mut builder = cranelift_object::ObjectBuilder::new(
+                isa,
+                "engine-atoms",
+                cranelift_module::default_libcall_names(),
+            )
+            .unwrap();
+            builder.per_function_section(true);
+            let mut module = cranelift_object::ObjectModule::new(builder);
+            let mut signature = module.make_signature();
+            signature.returns.push(AbiParam::new(types::I64));
+            let used = module
+                .declare_function("plfa_v1_used", Linkage::Import, &signature)
+                .unwrap();
+            let unused = module
+                .declare_function("plfb_v1_unused", Linkage::Import, &signature)
+                .unwrap();
+            let first = module
+                .declare_function("first", Linkage::Local, &signature)
+                .unwrap();
+            let second = module
+                .declare_function("second", Linkage::Local, &signature)
+                .unwrap();
+            let main = module
+                .declare_function("plenty_main", Linkage::Export, &signature)
+                .unwrap();
+            for (caller, callee) in [(first, used), (second, unused), (main, first)] {
+                let mut context = module.make_context();
+                context.func.signature = signature.clone();
+                let reference = module.declare_func_in_func(callee, &mut context.func);
+                let mut scratch = FunctionBuilderContext::new();
+                let mut body = FunctionBuilder::new(&mut context.func, &mut scratch);
+                let block = body.create_block();
+                body.switch_to_block(block);
+                body.seal_block(block);
+                let call = body.ins().call(reference, &[]);
+                let result = body.inst_results(call)[0];
+                body.ins().return_(&[result]);
+                body.finalize(crate::codegen::FRONTEND);
+                module.define_function(caller, &mut context).unwrap();
+            }
+            let bytes = module.finish().emit().unwrap();
+            let engines = [
+                fake_engine("std.a", "plfa_v1_"),
+                fake_engine("std.b", "plfb_v1_"),
+            ];
+            let reached: Vec<_> = reached_engines(&bytes, &engines)
+                .unwrap()
+                .into_iter()
+                .map(|engine| engine.module)
+                .collect();
+            assert_eq!(reached, ["std.a"], "{}", target.triple);
+        }
     }
 
     #[test]

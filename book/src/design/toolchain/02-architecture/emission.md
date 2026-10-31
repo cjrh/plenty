@@ -59,6 +59,14 @@ step, including checks of bodies subsequently omitted. This saves native work
 and object space; it does not avoid parsing or lowering imported modules.
 See the [edit-build measurements](../../../development/module-edits.md).
 
+Each function's trap records are merged into one read-only source-site table.
+On AArch64, functions after the table's first record address their own base
+through a local symbol alias into that same table. Their GOT relocations have
+zero addends: an ARM GOT relocation selects a GOT slot, so a placement-time
+offset on that relocation would not add to the pointer loaded from the slot.
+Aliases are finalized before object emission, preserving the same source records
+for cold, cached, and cache-disabled compilation without runtime pointer fixups.
+
 Native emission builds and compiles each retained function on any available core. The
 main thread places finished functions in the object in declaration order,
 preserving byte-for-byte output across core counts. There is no worker-count

@@ -1,5 +1,7 @@
 #[path = "native/brotli_build.rs"]
 mod brotli_build;
+#[path = "native/cc_build.rs"]
+mod native_tools;
 
 fn main() {
     let root = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());

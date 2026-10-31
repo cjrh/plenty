@@ -342,6 +342,7 @@ fn symbol(
 pub(super) fn resolve(
     module: &mut ObjectModule,
     sites: &mut sites::Table,
+    coverage: &mut coverage::Table,
     runtime: &Runtime,
     function: FuncId,
     requests: &[Request],
@@ -360,6 +361,7 @@ pub(super) fn resolve(
             }
             Request::Sites(records) => {
                 let (id, base) = sites.append(module, records)?;
+                let (id, base) = sites.address(module, id, base)?;
                 addends[number] = base;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
@@ -368,7 +370,7 @@ pub(super) fn resolve(
                 ModuleRelocTarget::user(0, id.as_u32())
             }
             Request::Coverage(counters) => {
-                let id = coverage::define(module, function, *counters)?;
+                let id = coverage.append(module, function, *counters)?;
                 ModuleRelocTarget::user(1, id.as_u32())
             }
         });

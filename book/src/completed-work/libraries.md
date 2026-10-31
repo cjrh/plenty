@@ -166,7 +166,7 @@ BFS/DFS, topological sort, SCC/components, Dijkstra, A*, Bellman–Ford and Krus
 ## B85: Actors
 
 [Actors](../design/stdlib/actor.md) deliver supervised single-thread execution,
-per-actor heaps on x86-64 Linux, bounded copied-message mailboxes and trap
+per-actor heaps on x86-64 and AArch64 GNU/Linux, bounded copied-message mailboxes and trap
 containment (issue #536, local PR #657). Typed trap exits, heap-safe spawn
 checks, allocation-free timers, timeout/gone request-reply and opt-in one-for-one
 fixed-window restart shipped (issue #537, local PR #658).

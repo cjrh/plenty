@@ -62,16 +62,20 @@ impl Bundle {
     }
 
     pub(super) fn publish(self) -> Result<()> {
-        // Plain rename can replace an empty directory created by another build.
-        // Linux is the only supported native target; NOREPLACE closes that race.
-        rustix::fs::renameat_with(
+        // Refuse replacement in the rename itself, including an empty directory
+        // created after staging began. std::fs::rename allows replacement on
+        // Windows too (its fallback uses POSIX rename semantics).
+        #[cfg(windows)]
+        let publication = rename_directory_noreplace(self.path(), &self.destination);
+        #[cfg(not(windows))]
+        let publication = rustix::fs::renameat_with(
             rustix::fs::CWD,
             self.path(),
             rustix::fs::CWD,
             &self.destination,
             rustix::fs::RenameFlags::NOREPLACE,
-        )
-        .map_err(|e| {
+        );
+        publication.map_err(|e| {
             format!(
                 "cannot publish distribution {} (destination must not exist): {e}",
                 self.destination.display()
@@ -79,6 +83,54 @@ impl Bundle {
         })?;
         // The directory now has its final name; do not clean up the old name.
         let _ = self.stage.keep();
+        Ok(())
+    }
+}
+
+/// MoveFileExW with no replacement flag fails atomically if any destination
+/// already exists. Unlike std::fs::rename, do not retry with replacement flags.
+#[cfg(windows)]
+fn rename_directory_noreplace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
+    }
+
+    // Canonicalize existing directories to obtain absolute, verbatim Windows
+    // paths. This supports long paths without requiring a process manifest.
+    let source = std::fs::canonicalize(source)?;
+    let parent = destination
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = destination.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "destination needs a filename",
+        )
+    })?;
+    let destination = std::fs::canonicalize(parent)?.join(name);
+    let wide = |path: &Path| -> std::io::Result<Vec<u16>> {
+        let mut path: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if path.contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "path contains a NUL character",
+            ));
+        }
+        path.push(0);
+        Ok(path)
+    };
+    let source = wide(&source)?;
+    let destination = wide(&destination)?;
+    // SAFETY: Both pointers refer to live, NUL-terminated UTF-16 strings. The
+    // API retains neither pointer; flags=0 forbids replacement and cross-volume
+    // copying, so publication remains a single no-replace rename.
+    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
         Ok(())
     }
 }
@@ -224,6 +276,63 @@ pub(super) fn validate_executable(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publication_moves_the_complete_stage() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("app");
+        let bundle = Bundle::new(&destination.join("main")).unwrap();
+        let stage = bundle.path().to_owned();
+        std::fs::write(stage.join("main"), b"application").unwrap();
+        std::fs::create_dir(stage.join("licenses")).unwrap();
+        std::fs::write(stage.join("licenses/notice"), b"notice").unwrap();
+
+        bundle.publish().unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("main")).unwrap(),
+            b"application"
+        );
+        assert_eq!(
+            std::fs::read(destination.join("licenses/notice")).unwrap(),
+            b"notice"
+        );
+        assert!(!stage.exists());
+    }
+
+    #[test]
+    fn publication_preserves_a_file_created_during_build() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("app");
+        let bundle = Bundle::new(&destination.join("main")).unwrap();
+        let stage = bundle.path().to_owned();
+        std::fs::write(stage.join("main"), b"application").unwrap();
+        std::fs::write(&destination, b"other build").unwrap();
+
+        assert!(bundle.publish().is_err());
+        assert_eq!(std::fs::read(&destination).unwrap(), b"other build");
+        assert!(!stage.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn publication_supports_long_unicode_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut parent = temp.path().to_owned();
+        for _ in 0..8 {
+            parent.push("distribution-with-a-long-name-λ");
+        }
+        std::fs::create_dir_all(&parent).unwrap();
+        let destination = parent.join("app");
+        assert!(destination.as_os_str().len() > 260);
+        let bundle = Bundle::new(&destination.join("main")).unwrap();
+        std::fs::write(bundle.path().join("main"), b"application").unwrap();
+
+        bundle.publish().unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("main")).unwrap(),
+            b"application"
+        );
+    }
 
     #[test]
     fn publication_does_not_replace_a_destination_created_during_build() {

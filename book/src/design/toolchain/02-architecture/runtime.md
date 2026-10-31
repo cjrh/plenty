@@ -18,6 +18,14 @@ ThinLTO, abort-on-panic static archives and embeds them with native link require
 Program compilation extracts the archive and links through a `cc` driver. Runtime
 source and the Rust toolchain are not needed by an installed compiler.
 
+Direct native dependency builds use the pinned `cc` crate through
+`plenty-runtime/native/cc_build.rs` for target compiler and archive selection.
+SQLite and Brotli use native C options; ring selects its upstream assembly for
+the target OS and architecture, including pregenerated COFF objects on Windows
+x86-64. The GNU archive-symbol parser and panic-symbol redirects are Linux-only.
+The standalone build-tool and source-selection tests do not by themselves
+establish a working native compiler port.
+
 Standard library Plenty sources are embedded in the compiler as well. `std.math`
 is parsed and checked as an ordinary module, with a stable toolchain identity;
 it is never loaded from the user's source root. Its algorithms and error policy
@@ -28,11 +36,73 @@ The application archive supplies C `main`, calling `plenty_main`. A separate
 library archive omits both startup and that dependency; shared-library export
 maps hide runtime symbols. Both archives are built with the compiler.
 
-Native emission validates `x86_64-unknown-linux-gnu`, Cranelift's ISA and pointer
-type, and the packaged runtime target. Current layouts depend on 64-bit pointers,
-128-bit slots, little-endian metadata, System V callbacks, and fixed descriptor
-offsets. Layout assertions and native tests protect these boundaries; selecting
-a linker does not validate a new platform.
+Native emission validates the native target triple,
+Cranelift's ISA and pointer type, and the packaged runtime target. Current layouts
+depend on 64-bit pointers, 128-bit slots, little-endian metadata, the native C ABI
+and fixed descriptor offsets. Cranelift names both Linux C conventions SystemV;
+on AArch64 this implements AAPCS64, including aligned `u128` register pairs.
+Ordinary Plenty functions keep the private Tail convention, with native adapters
+at foreign boundaries. Layout assertions and native tests protect these
+boundaries; selecting a linker does not validate a new platform.
+
+## Target identities
+
+The compiler's private `src/target.rs` module owns the admitted target table:
+triple, architecture, OS, object format, pointer width, byte order and CPU
+baseline. Frontend target facts and binary compatibility checks consume that
+description. Tool discovery and command execution remain in `toolchain`;
+target facts do not own compiler state or runtime OS services.
+
+Cargo's `HOST` runs the build script; Cargo's `TARGET` identifies the compiler
+executable's host. Those may differ when cross-building the compiler. Native
+Plenty compilation requires the compiler host, packaged runtime and requested
+program target to match. That check preserves cross-building the compiler
+without offering cross-compilation through an installed Plenty compiler.
+The target table includes both GNU/Linux targets plus experimental
+`aarch64-apple-darwin` and `x86_64-pc-windows-msvc` paths. Experimental emission
+uses AppleAarch64 or WindowsFastcall at C boundaries, Mach-O or COFF objects,
+and native linker syntax. Mach-O interface records have aligned length frames
+so combined metadata sections retain each library. These paths are being
+qualified in native CI; they are not new release guarantees. See
+[platform support](support.md).
+
+## Runtime OS boundaries
+
+The runtime keeps its compiler-facing ABI independent of native handles.
+`threads` stores the native thread identity in one opaque word and delegates
+creation and joining to Unix pthread or Windows HANDLE implementations.
+Cancellation tokens keep their wake resource behind the native module; Linux
+uses eventfd. Other systems retain the existing unavailable-readiness-wake
+result, while ordinary token waiting uses the shared condition variable.
+
+The generated mutex fast path remains the same atomic state protocol. Its
+contended wait and wake operations use Linux futexes, Windows address waits,
+or public pthread primitives on macOS. The macOS implementation shares static
+parking storage and broadcasts on wake, avoiding private Darwin ulock APIs
+and per-mutex allocations. Unrelated contended mutexes can wake together;
+performance under heavy contention still needs native measurement.
+
+Signal register access is selected by OS and architecture. Darwin's machine
+context is a pointer to a separate record; Linux's is inline. The POSIX trap
+and stack-overflow handlers use native errno access and signal conventions.
+macOS stack exhaustion can arrive as SIGBUS or SIGSEGV, and its alternate
+stack reservation accounts for Darwin's larger minimum. Existing host handlers
+retain their signals. Windows uses vectored exception handlers and a per-thread stack guarantee.
+Only registered checked-trap addresses are redirected; unrelated exceptions
+continue through the host chain. Library threads do not install these handlers.
+
+Resident-library loading also has native backends. POSIX uses libc's native
+loader flags; Windows uses UTF-16 paths, native symbol lookup and module pinning.
+The Windows byte-path boundary accepts UTF-8 and rejects invalid byte sequences;
+it does not yet represent filenames containing unpaired UTF-16 surrogates.
+Closing a lookup lease preserves the resident-code contract.
+
+These boundaries and experimental output paths do not establish macOS or
+Windows standard-library parity or release support. The native qualification
+workflow tests synchronization separately so failures elsewhere in the runtime
+do not prevent exercising these primitives. Native Windows exception subprocess tests pass in CI. Object
+and linker support, actor recovery, OS services and end-to-end Plenty execution
+remain qualification requirements in the [portability plan](../../../backlog.md#b18--macos-and-windows-implementation-sequence).
 
 ## Entry symbols
 
@@ -88,13 +158,21 @@ context exits. Libraries leave signal handling to their host and register no
 alternate signal stack on threads they create.
 
 Executable startup installs a `SIGSEGV` handler unless one already exists. Each
-thread registers a 16 KiB alternate signal stack reserved in its own entry frame
-and removes it when Plenty code returns, with no heap allocation or mapping.
-Generated frames larger than a page probe
-each page. The handler recognizes a data fault below the entry frame and no more
-than one page below the faulting stack pointer; other faults retain the default
-action. Foreign code skipping stack pages is outside this detection. Stack sizes
-remain the system's limits, and core-file policy follows the system.
+thread reserves an alternate signal stack in its own entry frame: 16 KiB on
+x86-64 and 64 KiB on AArch64, which has larger saved register contexts. It removes
+the stack when Plenty code returns, with no heap allocation or mapping. Startup
+checks the runtime page size and kernel minimum signal-stack requirement before
+installing the handler; an inadequate reserved stack leaves the default signal
+behavior in place. ARM qualification currently covers 4 KiB pages.
+Generated frames larger than a page probe each page. The handler recognizes a
+data fault below the entry frame and no more than one page below the faulting
+stack pointer. AArch64 loop probes leave SP unchanged, so the compiler also
+registers their exact store addresses in the read-only trap table. At those
+addresses only, the handler checks the negative probe offset in x16 against the
+frame size in x17 and uses the resulting probe address as the stack frontier.
+Other faults retain the default action. Foreign code skipping stack pages is
+outside this detection. Stack sizes remain the system's limits, and core-file
+policy follows the system.
 
 ## Rust panics
 
@@ -134,19 +212,24 @@ its own.
 
 Inline checks (integer overflow, division by zero, shift counts, float-to-integer
 casts, `unwrap`) branch to a cold trap block; checks of one kind at one
-position share the block. In an executable the block is a single `ud2`
-with its own Cranelift trap code, and the object holds a trap table mapping
+position share the block. In an executable the block is a single x86 `ud2` or
+AArch64 `udf`, with its own Cranelift trap code, and the object holds a trap table mapping
 each such address to the check's kind and site record. Its addresses are
 32-bit offsets the linker resolves, so a PIE applies no relocations to it
 and its pages stay unread until a check fails. `plenty_main`
-registers the table, and startup installs a `SIGILL` handler on the
-alternate signal stack. On a kernel-raised `SIGILL` at a listed address the
+registers the table, and startup installs a `SIGILL` handler. It uses the
+alternate signal stack by default; if a custom `SIGILL` action was already
+installed, its `SA_ONSTACK` and `SA_RESTART` choices and signal mask are retained.
+Unrelated signals invoke that saved action without removing Plenty's
+checked-trap handler. On a kernel-raised `SIGILL` at a listed check address the
 handler resumes the thread in the check's helper with the site as its
 argument, so the report, exit status and thread behaviour match a direct
-call; any other `SIGILL` goes to the previous action. The table lists only
+call. x86 restores a call-compatible stack; AArch64 restores PC, aligned SP and
+argument registers for a native C helper entry. Any other
+`SIGILL` goes to the previous action. The table lists only
 functions reachable from exported functions and destructors, so linker
 garbage collection still removes the rest. A function has 247 trap codes;
-later checks, and every check in a library, `--fuzz` or `--coverage` build,
+later checks, and every check in a library or `--fuzz` build,
 compute the pointer in the cold block and call the helper. Either way the
 passing path gains nothing. A check whose
 condition the compiler computes from constants and finds false, such as the

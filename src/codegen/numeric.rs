@@ -321,7 +321,7 @@ impl Lowerer<'_, '_> {
             "plenty_f64_math"
         };
         let mut signature = self.module.make_signature();
-        signature.call_conv = CallConv::SystemV;
+        signature.call_conv = crate::target::native_call_conv();
         signature.params.extend([
             AbiParam::new(types::I64),
             AbiParam::new(float),
@@ -390,7 +390,7 @@ impl Lowerer<'_, '_> {
         let base = self.cast(base, ty.clone(), wide.clone());
         let exponent = self.cast(exponent, ty.clone(), wide);
         let mut signature = self.module.make_signature();
-        signature.call_conv = CallConv::SystemV;
+        signature.call_conv = crate::target::native_call_conv();
         signature.params.extend([
             AbiParam::new(types::I64),
             AbiParam::new(types::I64),

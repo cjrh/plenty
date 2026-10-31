@@ -61,7 +61,7 @@ binary/text console I/O and SIGPIPE suppression.
 | --- | --- | --- |
 | `std.ready`, cancellation | epoll/poll and Linux eventfd | Darwin kqueue or qualified poll/wakeup implementation; Windows design for sockets **and** pipes/files plus wakeable cancellation |
 | `std.net`, DNS | Linux socket constants and hand-written structs; pthread resolver helper | OS bindings, Winsock initialization/error mapping, bounded resolver lifetime and platform address conversion |
-| `std.signal` | x86-64 Linux signal delivery | Darwin signal backend; explicitly define Windows console/service shutdown capabilities instead of pretending POSIX signals exist |
+| `std.signal` | Linux signal delivery on both admitted architectures | Darwin signal backend; explicitly define Windows console/service shutdown capabilities instead of pretending POSIX signals exist |
 | `std.process` | Linux implementation, Unix status/signals and pipes | Native argument-vector spawn, inheritance control, Windows quoting/handle lists, termination/reaping and bounded output |
 | `std.secrets` | Linux `getrandom`; unsupported elsewhere | Fallible OS entropy primitive per platform, preserving no-weak-fallback guarantee |
 | `std.time` | Rust clocks plus deadline contracts | Verify monotonicity, precision, overflow, suspend behavior and timed waits per backend |

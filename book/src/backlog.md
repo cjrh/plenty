@@ -99,7 +99,7 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 | B14 | Typed error composition | Additional Option/Result conveniences, typed composition of parsing/conversion errors, checked shifts and casts. Preserve precise errors and use `Failure` only as a last resort. Human-readable reporting extensions are B71. [Delivered subset](completed-work/language-and-tooling.md#b14-errors). |
 | B16 | Inference and value conveniences | Expected-result inference, partial explicit type arguments, contextual literals across generic arguments; `NonZero[T]` module constants; saturating conversion; standalone unit bindings/parameters/storage and nested unpacking. Require concrete use cases/contracts, not automatic extensions of today's inference. Parsing/conversion error composition is B14. [Delivered subset](completed-work/language-and-tooling.md#b16-values-and-syntax). |
 | B17 | Modules, tooling and packaging | Shared per-user Git cache; semver selection over tags; per-module incremental objects (B19); re-exports and import-cycle policy. LSP: find references, document symbols, signature help, `case` pattern variants and incremental module re-checking. Preserve deterministic lookup, standalone compilation and [reproducibility](design/toolchain/01-building/linking.md). Further targets need runtime/linker/artifact tests (B18); std breadth is B38. Exploratory workflows are listed under [tooling investigations](#tooling-investigations). [Delivered subset](completed-work/language-and-tooling.md#b17-tooling-and-packaging). |
-| B18 | Windows and additional targets | Target-specific runtime, linker conventions, artifact naming, native CI and stdlib path/handle/error/readiness/security semantics. The [assessment](proposals/cross-platform.md) recommends native Linux AArch64, then macOS, then Windows after shared build boundaries; Windows ARM64 needs a backend feasibility gate. Packaging is B17, paths B12. The [Cosmopolitan proposal](proposals/cosmopolitan.md) requires a bounded x86-64 compatibility experiment and identical-artifact non-Linux qualification before adoption. Linker changes alone do not provide a port. Each target needs a trap handler (Unix saved-PC signals or Windows vectored exceptions), or may start with helper-call checks. |
+| B18 | Windows and additional targets | Native GNU/Linux AArch64 compiler/runtime implementation is present alongside x86-64: baseline ARMv8-A code generation, target-aware native dependencies, Linux bindings, UDF traps, stack handling and AAPCS64 actor recovery. Qualification includes host SIGILL coexistence (issue #588), first actor-heap ownership (issue #589), and native libFuzzer discovery (issue #591). [Development and emulated qualification](development/linux-aarch64.md) records the reproducible harness; B17 owns artifact delivery. Native ARM CI passes the compiler/runtime suites, both optional engines and Docker proxy tests. Remaining admission gates: dedicated native hardware concurrency/signal stress, minimum glibc/kernel and page-size qualification, and clean release/engine smoke tests. Packaged linalg integration and tutorial tests pass under the ARM guest; that local artifact does not qualify the release libc floor. The updated [cross-platform assessment](proposals/cross-platform.md), [interface/source map](proposals/cross-platform/boundaries.md) and [toolchain experiments](proposals/cross-platform/experiments.md) guide ARM macOS and x86-64 Windows; Windows ARM64 remains deferred. Changing the linker alone does not add cross-compilation. The [Cosmopolitan/APE proposal](proposals/cosmopolitan.md) recommends a bounded x86-64 compatibility experiment and identical-artifact non-Linux qualification before deciding on a restricted profile or broader port. |
 | B19 | Measured codegen and storage | See the [remaining performance work](#remaining-performance-work); completed measurements and optimizations are in the [performance record](completed-work/performance.md). |
 | B20 | Optional backends | Evaluate the [GCC proposal](proposals/codegen-gcc.md) before adopting another backend/common IR. The [Rust-source investigation](proposals/rust-source-backend.md) includes a [checked scalar emitter](proposals/rust-source-backend/checked-emitter.md); ownership-bearing APIs remain hand-lowered probes and need emitted semantic parity. Cranelift stays the production backend. Rust dependencies are B17. |
 | B22 | Native concurrency extensions | User-facing scoped pool jobs borrowing the submitting scope; broader iterator/closure mapping, streaming results, richer certified effects/types, rendezvous and broader selection. Mutable, one-shot, borrowed, generator-containing and indirect map callbacks need separate scope. Preserve fallible submission and deterministic shutdown. Task-model gates are under [follow-on scope](#scope-of-follow-on-work). [Delivered subset](completed-work/language-and-tooling.md#b22-native-concurrency). |
@@ -179,7 +179,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 | B76 | Columnar extensions | Decimal design first; temporal/grouped/floating as-of keys, time-bucketed/rolling aggregations, fixed-size arrays, dictionary semantics, nested casts and broader list operations need workload evidence. Validate use cases before static-schema/zero-copy machinery. For `clist`: row views/method adaptation, field references, affine fields, chunks, statistics, tombstones/vacuum and interchange. Broader SIMD/parallel scans need legality/performance evidence (B23); borrowing B11/B12, pipelines B75. [Delivered dataframe/clist subsets](completed-work/libraries.md#b76-columnar-data). |
 | B77 | Derived serialization | Accepted [design](proposals/derived-serialization.md), not implementation: JSON-shaped `std.serial`; hooks/compiler-expanded entry points; class `@serial`; TOML; docs. `SerialError[E]` retains format error/field path. Measure compile time/throughput before derive. Relates to B29/B51; reuse the closed annotation mechanism. |
 | B84 | Generic copy classes | A copyable bound for generic `@copy` classes. Class dictionary keys stay B74. [Delivered non-generic subset](completed-work/language-and-tooling.md#b84-copy-classes). |
-| B85 | Actor extensions | `std.actor.httpserver` over `std.actor.net`; multi-thread stages; sliding-window/all-for-one restart, parent restart notices and an actor-specific `&mut self` spawn diagnostic. AArch64/macOS heaps wait on B18. [Delivered actors/network/TLS](completed-work/libraries.md#b85-actors). |
+| B85 | Actor extensions | `std.actor.httpserver` over `std.actor.net`; multi-thread stages; sliding-window/all-for-one restart, parent restart notices and an actor-specific `&mut self` spawn diagnostic. macOS heaps wait on B18. [Delivered actors/network/TLS](completed-work/libraries.md#b85-actors). |
 | B80 | Plotting | Finish the [accepted core milestone](proposals/std-plot.md): remaining scales, smoothing, broader facet controls and font-measured layout. Then broader geoms/PNG, dates, reflected records and a separate dataframe bridge. [Delivered subset](completed-work/libraries.md#b80-plotting). |
 | B83 | Value generics/arrays | Accepted [design](proposals/value-generics.md), not shipped: `const N`, inline `array[T, N]`, allocation-free literals at generic parameters, per-instance assertions; then `BoundedList` (B13) and measured internal SIMD rewrite (B23). Derived sizes in signatures remain deferred. |
 
@@ -248,3 +248,53 @@ appear as work to select here.
 
 A JIT and an interpreter remain out of scope, not waiting at the bottom of this
 backlog. Async/await remains unadopted and unscheduled under B22's investigation gates.
+
+## B18 — macOS and Windows implementation sequence
+
+The [portability design](proposals/cross-platform.md) records rationale and
+[toolchain evidence](proposals/cross-platform/experiments.md); this section owns
+the work sequence. Target ARM64 macOS and x86-64 Windows, preserving both Linux
+architectures. Use isolated child worktrees based on the portability branch,
+with component ownership agreed before concurrent edits. No local Mac/Windows
+machine is assumed; provision CI execution before treating either port as tested.
+
+| Work package | Dependency / owned components | Completion evidence |
+| --- | --- | --- |
+| B18.1 — backend and toolchain decisions | Standalone probes; pinned Cranelift, Zig/cargo-zigbuild, C/Rust adapters; compare Windows MSVC and GNU | Real Mach-O/COFF output and native CI execution of mixed ABI/Tail/large-frame fixtures; record SDK/CRT/deployment choice and unwind strategy. Cross-link success alone is insufficient. |
+| B18.2 — target and host separation | B18.1 findings; `toolchain`, frontend facts, cache/runtime identity | One target description, explicit build-host/compiler-host/output-target identities; incompatible combinations rejected; existing Linux suites pass. |
+| B18.3 — object and linking interfaces | B18.2; object metadata/exports/source/trap/coverage records, drivers/distribution | ELF implementation preserved; Mach-O/COFF metadata, retention, exports and relocation round trips pass; no GNU options leak into other drivers. |
+| B18.4 — dependency and runtime builds | B18.1–2; `build.rs`, native sources, test hooks, engine helper | Both runtime modes and native dependencies match target; Cargo and embedded builds agree; choose direct-build versus orchestrated Cargo using a measured prototype; no recursive Cargo lock contention. |
+| B18.5 — runtime core | B18.3–4; memory, errors, entropy, threads, mutex/parking, signals/exceptions, actor recovery | Minimal native Plenty program, C callbacks, fallible allocation, secure randomness, stack protection and recovery tests pass on each OS; no success stubs or hidden allocation regressions. |
+| B18.6 — OS contracts and services | Design decisions begin alongside B18.1; implementations depend on B18.5; paths/resources/files/process/readiness/watch | Lossless names, full process status, rooted filesystem security and resource-aware cancellation tests; explicit watch/shutdown capabilities; separate compatible portable contracts from Linux-only APIs. |
+| B18.7 — library parity | B18.6; networking/DNS/TLS/HTTP, SQLite/KV, crypto/compression, dataframe/linalg | Real native execution, including both optional engines and CPU fallbacks; count skipped/early-return opt-ins separately; publish exact capability gaps before any preview. |
+| B18.8 — developer workflows | B18.3–6; package CLI/cache/LSP/fuzz/export tools and tests | Extracted installation handles spaces/Unicode, literal arguments, replacement races, diagnostics and library hosts; explicitly report unqualified fuzz/sanitizer paths. |
+| B18.9 — release admission | B18.7–8; native CI, packaging, notices, minimum-version audits, signing policy | Offline clean-machine compilation with documented prerequisites; tested target/engine artifacts, baseline OS/SDK/CRT evidence and signing/unsigned-preview policy. Preserve Linux ARM's outstanding hardware/release gates. |
+
+Current evidence: the [native CI smoke suite](proposals/cross-platform/experiments.md#native-cranelift-ci-smoke-tests)
+passes on macOS ARM64, Windows x86-64 MSVC and Linux x86-64. The first B18.2 increment centralizes
+target facts and compiler-host/runtime validation; it does not implement new
+object formats or OS services. This is a partial
+B18.1 gate: large frames, unwind, Rust boundaries and runtime dependencies still
+need qualification. Both new OS targets are experimental; neither is release-qualified. The shared Apple archive-command
+fix addresses issue #600; native build-tool tests run before the OS port build
+and on both Linux architectures. The first B18.5 increment separates native
+mutex waiting and thread handles, hides cancellation wake storage, and adds
+Darwin signal-context and stack-handler support. Standalone native synchronization
+tests run before the complete compiler build. Windows exception dispatch and per-thread stack guarantees are implemented with
+standalone subprocess tests that pass on the native Windows runner. Native OS
+entropy fixes dictionary initialization on non-Linux hosts (issue #604); Windows
+no-replace bundle publication and portable graph fixtures address issues #605
+and #606. The initial B18.3 increment enables experimental Mach-O/COFF
+application output, native C conventions and linker syntax, with framed Mach-O
+interface metadata. Native qualification now passes full compiler/runtime builds,
+unit tests, platform-boundary checks and generated-program callback/result probes
+on macOS ARM64 and Windows x86-64. Linux x86-64 and ARM64 CI also passes all
+integration shards, both optional engines and Docker proxy tests. Full new-OS
+standard-library parity and release admission remain gates; these results do not
+complete B18.5–9.
+
+B18.1 and B18.6 design research can run together; B18.3 and B18.4 can proceed in
+separate worktrees after the common description settles. Keep independent OS
+implementations separate after their contracts are agreed. A failing native
+probe changes the design before target admission. User-facing cross-compilation,
+Intel macOS and Windows ARM64 remain separate decisions, not implied outcomes.

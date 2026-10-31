@@ -528,3 +528,41 @@ fn checks_past_a_functions_trap_codes_still_name_their_site(
         format!("error: main.plenty:{line}:5: integer overflow\n")
     );
 }
+
+#[rstest]
+#[case::debug(false)]
+#[case::release(true)]
+fn generic_helper_sites_survive_cold_warm_and_disabled_function_caches(#[case] optimize: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("picking.plenty"),
+        "pub def pick[T](items: &list[T], index: i64) -> T:\n    items[index]\n",
+    )
+    .unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(&source, "from picking import pick\ndef main() -> Result[(), AllocError | IoError]:\n    xs = [1, 2, 3]?\n    print(pick(&xs, 9))?\n    Ok(())\n").unwrap();
+    let cache = plenty::cache::CacheMode::Directory(dir.path().join("cache"));
+    let executable = dir.path().join("program");
+    for mode in [cache.clone(), cache, plenty::cache::CacheMode::Off] {
+        let options = plenty::CompileOptions {
+            optimize,
+            cache: mode.clone(),
+            program_cache: false,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(
+            &source,
+            &executable,
+            Some(dir.path()),
+            &options,
+        )
+        .unwrap();
+        let output = Command::new(&executable).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{optimize}, {mode:?}");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            "error: picking.plenty:2:5: index out of bounds: index 9, length 3\n",
+            "{optimize}, {mode:?}"
+        );
+    }
+}

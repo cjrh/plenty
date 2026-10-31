@@ -6,14 +6,16 @@ use std::path::{Path, PathBuf};
 
 #[path = "plenty-runtime/native/brotli_build.rs"]
 mod brotli_build;
+#[path = "plenty-runtime/native/cc_build.rs"]
+mod native_tools;
 use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC, BLAKE3 and
 /// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
 /// rustls with its ring provider for `std.tls`, and SipHash for collections,
 /// copied unmodified from
-/// crates.io into `plenty-runtime/vendor` (tests, benchmarks and other
-/// platforms' pregenerated assembly omitted). Versions match `Cargo.lock`,
+/// crates.io into `plenty-runtime/vendor` (tests and benchmarks omitted).
+/// Versions match `Cargo.lock`,
 /// which the Cargo build of the same crate uses; `tests/test_std_crypto.rs`
 /// checks they agree.
 /// Each entry: directory, crate name, edition, features, extra cfgs, externs.
@@ -64,7 +66,15 @@ const VENDORED: &[Vendored] = &[
         &[],
         &["crypto_common", "block_buffer", "subtle"],
     ),
-    ("cpufeatures-0.2.17", "cpufeatures", "2018", &[], &[], &[]),
+    ("libc-0.2.186", "libc", "2021", &["std"], &[], &[]),
+    (
+        "cpufeatures-0.2.17",
+        "cpufeatures",
+        "2018",
+        &[],
+        &[],
+        &["libc"],
+    ),
     (
         "sha2-0.10.9",
         "sha2",
@@ -99,7 +109,7 @@ const VENDORED: &[Vendored] = &[
         "2024",
         &[],
         &[],
-        &[],
+        &["libc"],
     ),
     (
         "blake3-1.8.7",
@@ -125,8 +135,6 @@ const VENDORED: &[Vendored] = &[
         &[],
         &[],
     ),
-    // `std.tls`. libc's build script sets no cfg for x86_64 Linux GNU.
-    ("libc-0.2.186", "libc", "2021", &[], &[], &[]),
     (
         "getrandom-0.2.17",
         "getrandom",
@@ -151,7 +159,7 @@ const VENDORED: &[Vendored] = &[
         "2021",
         &["alloc", "default", "dev_urandom_fallback"],
         &[],
-        &["cfg_if", "getrandom", "untrusted"],
+        &["cfg_if", "getrandom", "untrusted", "libc"],
     ),
     (
         "rustls-pki-types-1.15.1",
@@ -195,6 +203,7 @@ const RUNTIME_EXTERNS: &[&str] = &[
     "rustls",
     "ring",
     "siphasher",
+    "libc",
 ];
 
 fn main() {
@@ -206,14 +215,25 @@ fn main() {
         "cargo:rustc-env=PLENTY_RUNTIME_TARGET={}",
         std::env::var("TARGET").unwrap()
     );
+    // Cargo TARGET is the machine running the resulting compiler, not HOST
+    // (the machine running this build script). Cross-building the compiler
+    // remains valid; its embedded runtime and emitted programs must match it.
+    println!(
+        "cargo:rustc-env=PLENTY_COMPILER_HOST={}",
+        std::env::var("TARGET").unwrap()
+    );
     let vendor = build_vendored(&out);
     build_sqlite(&vendor);
     brotli_build::build(Path::new("plenty-runtime/native"), &vendor);
     build_ring(&vendor);
     build_runtime(&out, &vendor, true);
     build_runtime(&out, &vendor, false);
-    build_native_object(&out, TEST_HOOKS, "plenty_test_hooks.o");
-    build_native_object(&out, FUZZ_DRIVER, "plenty_fuzz_driver.o");
+    // These objects implement GNU ld --wrap interposition; target admission
+    // rejects their use on other hosts before linking.
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" {
+        build_native_object(&out, TEST_HOOKS, "plenty_test_hooks.o");
+        build_native_object(&out, FUZZ_DRIVER, "plenty_fuzz_driver.o");
+    }
 }
 
 /// The libFuzzer entry linked only into `plenty --fuzz` executables.
@@ -226,8 +246,9 @@ const TEST_HOOKS: &str = "plenty-runtime/native/test_hooks.c";
 fn build_native_object(out: &Path, source: &str, object: &str) {
     println!("cargo:rerun-if-changed={source}");
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let output = Command::new(&cc)
+    let cc = native_tools::build(out).get_compiler();
+    let output = cc
+        .to_command()
         .args(["-c", "-O2", "-fPIC", "-g0", "-Wall", "-Werror"])
         .args(["-ffunction-sections", "-fdata-sections"])
         .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
@@ -263,129 +284,44 @@ fn build_sqlite(dir: &Path) {
     println!("cargo:rerun-if-changed={SQLITE}");
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=AR");
-    let object = dir.join("sqlite3.o");
-    let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let output = Command::new(&cc)
-        .args(["-c", "-O2", "-fPIC", "-g0", "-w"])
-        .args(["-ffunction-sections", "-fdata-sections"])
-        .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
-        .args(SQLITE_OPTIONS)
-        .arg(format!("{SQLITE}/sqlite3.c"))
-        .arg("-o")
-        .arg(&object)
-        .output()
-        .expect("invoke the C compiler for SQLite; std.db.sqlite needs `cc`");
-    assert!(
-        output.status.success(),
-        "compiling SQLite failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let archive = dir.join(format!("lib{SQLITE_ARCHIVE}.a"));
-    let _ = std::fs::remove_file(&archive);
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
-    let output = Command::new(&ar)
-        .arg("crsD")
-        .arg(&archive)
-        .arg(&object)
-        .output()
-        .expect("invoke `ar` to archive SQLite");
-    assert!(
-        output.status.success(),
-        "archiving SQLite failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let mut build = native_tools::build(dir);
+    build.file(format!("{SQLITE}/sqlite3.c"));
+    for option in SQLITE_OPTIONS {
+        let (name, value) = option
+            .trim_start_matches("-D")
+            .split_once('=')
+            .map_or((option.trim_start_matches("-D"), None), |(name, value)| {
+                (name, Some(value))
+            });
+        build.define(name, value);
+    }
+    build.compile(SQLITE_ARCHIVE);
 }
 
-/// ring's C and assembly for x86_64 Linux, as its build script selects them,
-/// with the pregenerated `-elf.S` files its crates.io package ships in place
-/// of the Perl generators. The archive name is the `links` value ring's
+/// ring's C and ABI-specific pregenerated assembly, as its upstream build
+/// script selects them. The archive name is the `links` value ring's
 /// symbol prefix expects.
 const RING: &str = "plenty-runtime/vendor/ring-0.17.14";
 const RING_ARCHIVE: &str = "ring_core_0_17_14_";
-const RING_SOURCES: &[&str] = &[
-    "crypto/curve25519/curve25519.c",
-    "crypto/fipsmodule/aes/aes_nohw.c",
-    "crypto/fipsmodule/bn/montgomery.c",
-    "crypto/fipsmodule/bn/montgomery_inv.c",
-    "crypto/fipsmodule/ec/ecp_nistz.c",
-    "crypto/fipsmodule/ec/gfp_p256.c",
-    "crypto/fipsmodule/ec/gfp_p384.c",
-    "crypto/fipsmodule/ec/p256.c",
-    "crypto/limbs/limbs.c",
-    "crypto/mem.c",
-    "crypto/poly1305/poly1305.c",
-    "crypto/crypto.c",
-    "crypto/cpu_intel.c",
-    "crypto/curve25519/curve25519_64_adx.c",
-    "crypto/fipsmodule/ec/p256-nistz.c",
-    "third_party/fiat/asm/fiat_curve25519_adx_mul.S",
-    "third_party/fiat/asm/fiat_curve25519_adx_square.S",
-    "pregenerated/chacha-x86_64-elf.S",
-    "pregenerated/aes-gcm-avx2-x86_64-elf.S",
-    "pregenerated/aesni-gcm-x86_64-elf.S",
-    "pregenerated/aesni-x86_64-elf.S",
-    "pregenerated/ghash-x86_64-elf.S",
-    "pregenerated/vpaes-x86_64-elf.S",
-    "pregenerated/x86_64-mont-elf.S",
-    "pregenerated/x86_64-mont5-elf.S",
-    "pregenerated/p256-x86_64-asm-elf.S",
-    "pregenerated/sha512-x86_64-elf.S",
-    "pregenerated/sha256-x86_64-elf.S",
-    "pregenerated/chacha20_poly1305_x86_64-elf.S",
-];
+#[path = "plenty-runtime/native/ring_sources.rs"]
+mod ring_sources;
 
 fn build_ring(dir: &Path) {
-    let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let objects: Vec<PathBuf> = RING_SOURCES
-        .iter()
-        .map(|source| dir.join(format!("ring-{}.o", source.replace('/', "-"))))
-        .collect();
-    // A few compilers at a time: the build shares the machine with Cargo's jobs.
-    for (sources, objects) in RING_SOURCES.chunks(4).zip(objects.chunks(4)) {
-        let children: Vec<_> = sources
-            .iter()
-            .zip(objects)
-            .map(|(source, object)| {
-                Command::new(&cc)
-                    .args(["-c", "-O2", "-fPIC", "-g0", "-w"])
-                    .args(["-ffunction-sections", "-fdata-sections"])
-                    .args(["-fvisibility=hidden", "-std=c1x", "-DNDEBUG"])
-                    .arg(format!("-ffile-prefix-map={}=/plenty", manifest.display()))
-                    .arg(format!("-I{RING}/include"))
-                    .arg(format!("-I{RING}/pregenerated"))
-                    .arg(format!("{RING}/{source}"))
-                    .arg("-o")
-                    .arg(object)
-                    .stderr(std::process::Stdio::piped())
-                    .spawn()
-                    .expect("invoke the C compiler for ring; std.tls needs `cc`")
-            })
-            .collect();
-        for (child, source) in children.into_iter().zip(sources) {
-            let output = child.wait_with_output().expect("wait for the C compiler");
-            assert!(
-                output.status.success(),
-                "compiling ring's {source} failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+    let mut build = native_tools::build(dir);
+    build
+        .include(format!("{RING}/include"))
+        .include(format!("{RING}/pregenerated"))
+        .define("NDEBUG", None)
+        .flag_if_supported("-std=c1x");
+    for source in ring_sources::ring_sources() {
+        let source = Path::new(RING).join(source);
+        if source.extension().is_some_and(|ext| ext == "o") {
+            build.object(source);
+        } else {
+            build.file(source);
         }
     }
-    let archive = dir.join(format!("lib{RING_ARCHIVE}.a"));
-    let _ = std::fs::remove_file(&archive);
-    let ar = std::env::var_os("AR").unwrap_or_else(|| "ar".into());
-    let output = Command::new(&ar)
-        .arg("crsD")
-        .arg(&archive)
-        .args(&objects)
-        .output()
-        .expect("invoke `ar` to archive ring");
-    assert!(
-        output.status.success(),
-        "archiving ring failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    build.compile(RING_ARCHIVE);
 }
 
 /// The rustc sysroot, queried once: `remap` runs for every vendored crate and
@@ -470,7 +406,9 @@ fn build_vendored(out: &Path) -> PathBuf {
             rustc.args(["--cfg", &format!("feature=\"{feature}\"")]);
         }
         for cfg in *cfgs {
-            rustc.args(["--cfg", cfg]);
+            if *name != "blake3" || std::env::var("CARGO_CFG_TARGET_ARCH").unwrap() == "x86_64" {
+                rustc.args(["--cfg", cfg]);
+            }
         }
         for name in *externs {
             rustc.arg(extern_arg(&dir, name));
@@ -591,7 +529,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         .expect("rustc must report the runtime's native link dependencies");
     // Unreferenced runtime sections, such as `std.crypto`'s hashing code
     // behind its own `plenty_op_<N>` entries, stay out of programs.
-    let libs = if application {
+    let libs = if application && std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" {
         let panic = rust_symbol(&archive, "rust_begin_unwind");
         let oom = rust_symbol(&archive, "__rust_alloc_error_handler");
         // Executables take the runtime's panic handlers instead of std's, which

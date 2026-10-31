@@ -20,6 +20,9 @@
 //!
 //! Programs that never create a heap pay one load of `BASE` per allocation and
 //! one compare per free; `BASE` stays null and every call goes to System.
+//!
+//! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
+//! licensed MIT OR Apache-2.0.
 
 /// `plenty_actor_heap` operations; `stdlib/std/actor.plenty` mirrors them.
 const CREATE: i64 = 0;
@@ -59,7 +62,7 @@ const UNSUPPORTED: i64 = -4;
 
 #[cfg(all(
     target_os = "linux",
-    target_arch = "x86_64",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
     feature = "allocation-checks"
 ))]
 pub(crate) use native::Router;
@@ -69,7 +72,10 @@ pub(crate) use native::{
     Arena, abandon_arena_call, foreign, outside, recover, running, track_file, untrack_file, within,
 };
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod native {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
@@ -81,6 +87,7 @@ mod native {
     pub(super) const MAX_HEAPS: usize = 1024;
     /// Pages are made writable in steps of this many bytes.
     const COMMIT_STEP: usize = 1 << 16;
+    static PAGE_BYTES: AtomicUsize = AtomicUsize::new(4096);
     const MIN_SHIFT: u32 = 4;
     /// Power-of-two size classes 16 B ..= SLOT_BYTES.
     const CLASSES: usize = (SLOT_BYTES.trailing_zeros() - MIN_SHIFT + 1) as usize;
@@ -176,9 +183,20 @@ mod native {
         OWNER.load(Ordering::Acquire) == token()
     }
 
-    /// Stops a thread other than the owner from reaching the table.
+    fn claim_owner(owner: &AtomicUsize, claimant: usize) -> bool {
+        let observed = owner.load(Ordering::Acquire);
+        if observed != 0 {
+            return observed == claimant;
+        }
+        match owner.compare_exchange(0, claimant, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => true,
+            Err(owner) => owner == claimant,
+        }
+    }
+
+    /// Claim ownership before any shared table access, including initialization.
     fn check_owner() {
-        if !BASE.load(Ordering::Acquire).is_null() && !owning() {
+        if !claim_owner(&OWNER, token()) {
             crate::fail("std.actor: actor heaps belong to the thread that created the first one");
         }
     }
@@ -257,9 +275,10 @@ mod native {
                 return std::ptr::null_mut();
             };
             if end > self.committed {
-                let target = end
-                    .next_multiple_of(COMMIT_STEP)
-                    .min(self.limit.next_multiple_of(4096));
+                let target = end.next_multiple_of(COMMIT_STEP).min(
+                    self.limit
+                        .next_multiple_of(PAGE_BYTES.load(Ordering::Relaxed)),
+                );
                 // SAFETY: the range lies inside this heap's reservation.
                 let status = unsafe {
                     mprotect(
@@ -611,7 +630,7 @@ mod native {
             job: Some(job),
             result: None,
         };
-        let mut resume = Resume([0; 8]);
+        let mut resume = Resume([0; RESUME_WORDS]);
         ARENAS.store(true, Ordering::Relaxed);
         ARENA.with(|slot| slot.set(arena));
         ARENA_RESUME.with(|slot| slot.set(&mut resume));
@@ -690,7 +709,12 @@ mod native {
     /// Callee-saved registers, stack pointer and return address of the
     /// `plenty_actor_enter` call that `plenty_actor_run` makes.
     #[repr(C)]
-    struct Resume([u64; 8]);
+    struct Resume([u64; RESUME_WORDS]);
+    #[cfg(target_arch = "x86_64")]
+    const RESUME_WORDS: usize = 8;
+    // x19-x30, SP, padding, and the preserved low halves of v8-v15.
+    #[cfg(target_arch = "aarch64")]
+    const RESUME_WORDS: usize = 22;
 
     unsafe extern "C" {
         /// Saves the caller's state in `resume`, then calls `entry(storage)`.
@@ -709,6 +733,7 @@ mod native {
     // SysV x86-64: rbx, rbp and r12-r15 are callee-saved, and the call that
     // enters leaves rsp 8 below a 16-byte boundary. Resuming restores those
     // registers and returns to the caller of `enter` exactly as `ret` would.
+    #[cfg(target_arch = "x86_64")]
     std::arch::global_asm!(
         ".text",
         ".p2align 4",
@@ -747,6 +772,59 @@ mod native {
         "mov rsp, qword ptr [rdi + 48]",
         "mov rax, rsi",
         "jmp qword ptr [rdi + 56]",
+        ".size plenty_actor_resume, . - plenty_actor_resume",
+    );
+
+    // AAPCS64 preserves x19-x29, SP and the low 64 bits of v8-v15.
+    // Save LR too: BLR overwrites it even on the ordinary return path.
+    #[cfg(target_arch = "aarch64")]
+    std::arch::global_asm!(
+        ".text",
+        ".p2align 2",
+        ".globl plenty_actor_enter",
+        ".hidden plenty_actor_enter",
+        ".type plenty_actor_enter,%function",
+        "plenty_actor_enter:",
+        "stp x19, x20, [x0, #0]",
+        "stp x21, x22, [x0, #16]",
+        "stp x23, x24, [x0, #32]",
+        "stp x25, x26, [x0, #48]",
+        "stp x27, x28, [x0, #64]",
+        "stp x29, x30, [x0, #80]",
+        "mov x9, sp",
+        "str x9, [x0, #96]",
+        "stp d8, d9, [x0, #112]",
+        "stp d10, d11, [x0, #128]",
+        "stp d12, d13, [x0, #144]",
+        "stp d14, d15, [x0, #160]",
+        // A real frame keeps the ordinary return independent of actor memory.
+        "stp x29, x30, [sp, #-16]!",
+        "mov x29, sp",
+        "mov x0, x2",
+        "blr x1",
+        "ldp x29, x30, [sp], #16",
+        "mov x0, #0",
+        "ret",
+        ".size plenty_actor_enter, . - plenty_actor_enter",
+        ".p2align 2",
+        ".globl plenty_actor_resume",
+        ".hidden plenty_actor_resume",
+        ".type plenty_actor_resume,%function",
+        "plenty_actor_resume:",
+        "ldp x19, x20, [x0, #0]",
+        "ldp x21, x22, [x0, #16]",
+        "ldp x23, x24, [x0, #32]",
+        "ldp x25, x26, [x0, #48]",
+        "ldp x27, x28, [x0, #64]",
+        "ldp x29, x30, [x0, #80]",
+        "ldr x9, [x0, #96]",
+        "ldp d8, d9, [x0, #112]",
+        "ldp d10, d11, [x0, #128]",
+        "ldp d12, d13, [x0, #144]",
+        "ldp d14, d15, [x0, #160]",
+        "mov sp, x9",
+        "mov x0, x1",
+        "ret",
         ".size plenty_actor_resume, . - plenty_actor_resume",
     );
 
@@ -790,7 +868,7 @@ mod native {
         }
         let caller = crate::CALLER.with(Cell::get);
         let queue = crate::memory::save_queue();
-        let mut resume = Resume([0; 8]);
+        let mut resume = Resume([0; RESUME_WORDS]);
         CURRENT.with(|current| current.set(index + 1));
         RECOVERY.with(|recovery| recovery.set(&mut resume));
         // SAFETY: the adapter reads its arguments from `storage` and writes
@@ -821,10 +899,19 @@ mod native {
     /// first use are initialized here, outside every heap: one created by a
     /// handler would live in a heap that is later discarded.
     pub(super) fn prepare() -> i64 {
+        check_owner();
         if !BASE.load(Ordering::Acquire).is_null() {
-            check_owner();
             return 0;
         }
+        // Linux supports 4, 16 and 64 KiB pages on AArch64. Both slot
+        // boundaries and commit increments must be multiples of a page.
+        // SAFETY: sysconf has no pointer arguments.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page <= 0 || !COMMIT_STEP.is_multiple_of(page as usize) {
+            OWNER.store(0, Ordering::Release);
+            return RESERVE_FAILED;
+        }
+        PAGE_BYTES.store(page as usize, Ordering::Relaxed);
         drop(std::io::stdout().lock());
         drop(std::io::stderr().lock());
         drop(std::io::stdin().lock());
@@ -840,9 +927,10 @@ mod native {
             )
         };
         if base as isize == -1 {
+            // No heap/table state was published. A later caller may retry.
+            OWNER.store(0, Ordering::Release);
             return RESERVE_FAILED;
         }
-        OWNER.store(token(), Ordering::Release);
         BASE.store(base, Ordering::Release);
         0
     }
@@ -903,6 +991,24 @@ mod native {
     }
 
     pub(super) fn operate(op: i64, argument: i64) -> i64 {
+        // Libraries lack the router and must remain safely unsupported on
+        // every caller thread, without acquiring a process-wide actor owner.
+        if !cfg!(plenty_runtime_embedded) && matches!(op, CREATE | PREPARE) {
+            return UNSUPPORTED;
+        }
+        if op == TRAP_KIND {
+            return LAST_TRAP.with(Cell::get);
+        }
+        if BASE.load(Ordering::Acquire).is_null() {
+            // Queries before initialization need no owner and must not read
+            // TABLE while another thread may be publishing its first heap.
+            match op {
+                USED_TOTAL | COMMITTED_TOTAL | LIVE_COUNT => return 0,
+                USED | DISCARD => return -1,
+                SWITCH if argument < 0 => return -1,
+                _ => {}
+            }
+        }
         check_owner();
         // SAFETY (each table read): owning thread, checked above.
         let heaps = || unsafe { &(*table()).heaps };
@@ -947,9 +1053,231 @@ mod native {
             _ => crate::fail("std.actor: unknown heap operation"),
         }
     }
+    #[cfg(test)]
+    mod initialization_tests {
+        use super::*;
+
+        #[test]
+        fn unsupported_entries_neither_claim_nor_require_an_owner() {
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        assert_eq!(operate(CREATE, 4096), UNSUPPORTED);
+                        assert_eq!(operate(PREPARE, 0), UNSUPPORTED);
+                    });
+                }
+            });
+        }
+
+        #[test]
+        fn concurrent_first_calls_grant_exactly_one_owner() {
+            let owner = AtomicUsize::new(0);
+            let start = std::sync::Barrier::new(16);
+            std::thread::scope(|scope| {
+                let results = (1..=16)
+                    .map(|token| {
+                        let (owner, start) = (&owner, &start);
+                        scope.spawn(move || {
+                            start.wait();
+                            claim_owner(owner, token)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    results
+                        .into_iter()
+                        .map(|result| result.join().unwrap())
+                        .filter(|claimed| *claimed)
+                        .count(),
+                    1
+                );
+            });
+            let winner = owner.load(Ordering::Acquire);
+            assert!(claim_owner(&owner, winner));
+            assert!(!claim_owner(&owner, winner + 1));
+        }
+    }
+
+    #[cfg(test)]
+    mod recovery_tests {
+        use super::*;
+
+        unsafe extern "C" fn returns(_: *mut u8) -> *mut u8 {
+            std::ptr::null_mut()
+        }
+
+        unsafe extern "C" fn resumes(storage: *mut u8) -> *mut u8 {
+            // SAFETY: the test passes the live enter call's recovery frame.
+            unsafe { plenty_actor_resume(storage.cast(), 37) }
+        }
+
+        // The callback deliberately violates the normal return convention,
+        // then jumps directly to recovery. The wrapper verifies every AAPCS64
+        // preserved GP/FP value while preserving the Rust caller's own state.
+        #[cfg(target_arch = "aarch64")]
+        std::arch::global_asm!(
+            ".text",
+            ".p2align 2",
+            ".globl plenty_test_actor_registers",
+            ".hidden plenty_test_actor_registers",
+            ".type plenty_test_actor_registers,%function",
+            "plenty_test_actor_registers:",
+            "sub sp, sp, #176",
+            "stp x19, x20, [sp, #0]",
+            "stp x21, x22, [sp, #16]",
+            "stp x23, x24, [sp, #32]",
+            "stp x25, x26, [sp, #48]",
+            "stp x27, x28, [sp, #64]",
+            "stp x29, x30, [sp, #80]",
+            "stp d8, d9, [sp, #96]",
+            "stp d10, d11, [sp, #112]",
+            "stp d12, d13, [sp, #128]",
+            "stp d14, d15, [sp, #144]",
+            "str x3, [sp, #160]",
+            "mov x19, #100",
+            "mov x20, #101",
+            "mov x21, #102",
+            "mov x22, #103",
+            "mov x23, #104",
+            "mov x24, #105",
+            "mov x25, #106",
+            "mov x26, #107",
+            "mov x27, #108",
+            "mov x28, #109",
+            "mov x29, #110",
+            "mov x9, #200",
+            "fmov d8, x9",
+            "mov x9, #201",
+            "fmov d9, x9",
+            "mov x9, #202",
+            "fmov d10, x9",
+            "mov x9, #203",
+            "fmov d11, x9",
+            "mov x9, #204",
+            "fmov d12, x9",
+            "mov x9, #205",
+            "fmov d13, x9",
+            "mov x9, #206",
+            "fmov d14, x9",
+            "mov x9, #207",
+            "fmov d15, x9",
+            "bl plenty_actor_enter",
+            "ldr x9, [sp, #160]",
+            "str x19, [x9, #0]",
+            "str x20, [x9, #8]",
+            "str x21, [x9, #16]",
+            "str x22, [x9, #24]",
+            "str x23, [x9, #32]",
+            "str x24, [x9, #40]",
+            "str x25, [x9, #48]",
+            "str x26, [x9, #56]",
+            "str x27, [x9, #64]",
+            "str x28, [x9, #72]",
+            "str x29, [x9, #80]",
+            "str d8, [x9, #88]",
+            "str d9, [x9, #96]",
+            "str d10, [x9, #104]",
+            "str d11, [x9, #112]",
+            "str d12, [x9, #120]",
+            "str d13, [x9, #128]",
+            "str d14, [x9, #136]",
+            "str d15, [x9, #144]",
+            "ldp x19, x20, [sp, #0]",
+            "ldp x21, x22, [sp, #16]",
+            "ldp x23, x24, [sp, #32]",
+            "ldp x25, x26, [sp, #48]",
+            "ldp x27, x28, [sp, #64]",
+            "ldp x29, x30, [sp, #80]",
+            "ldp d8, d9, [sp, #96]",
+            "ldp d10, d11, [sp, #112]",
+            "ldp d12, d13, [sp, #128]",
+            "ldp d14, d15, [sp, #144]",
+            "add sp, sp, #176",
+            "ret",
+            ".size plenty_test_actor_registers, .-plenty_test_actor_registers",
+            ".p2align 2",
+            ".globl plenty_test_actor_clobber",
+            ".hidden plenty_test_actor_clobber",
+            ".type plenty_test_actor_clobber,%function",
+            "plenty_test_actor_clobber:",
+            "mov x19, #0",
+            "mov x20, #0",
+            "mov x21, #0",
+            "mov x22, #0",
+            "mov x23, #0",
+            "mov x24, #0",
+            "mov x25, #0",
+            "mov x26, #0",
+            "mov x27, #0",
+            "mov x28, #0",
+            "mov x29, #0",
+            "fmov d8, xzr",
+            "fmov d9, xzr",
+            "fmov d10, xzr",
+            "fmov d11, xzr",
+            "fmov d12, xzr",
+            "fmov d13, xzr",
+            "fmov d14, xzr",
+            "fmov d15, xzr",
+            "mov x1, #37",
+            "b plenty_actor_resume",
+            ".size plenty_test_actor_clobber, .-plenty_test_actor_clobber",
+        );
+
+        #[cfg(target_arch = "aarch64")]
+        #[test]
+        fn nonlocal_recovery_restores_aapcs64_preserved_registers() {
+            unsafe extern "C" {
+                fn plenty_test_actor_registers(
+                    resume: *mut Resume,
+                    entry: unsafe extern "C" fn(*mut u8) -> *mut u8,
+                    storage: *mut u8,
+                    observed: *mut u64,
+                ) -> u64;
+                fn plenty_test_actor_clobber(storage: *mut u8) -> *mut u8;
+            }
+            for _ in 0..128 {
+                let mut resume = Resume([0; RESUME_WORDS]);
+                let mut observed = [0; 19];
+                // SAFETY: the wrapper's callback only resumes this live frame.
+                let status = unsafe {
+                    plenty_test_actor_registers(
+                        &mut resume,
+                        plenty_test_actor_clobber,
+                        (&raw mut resume).cast(),
+                        observed.as_mut_ptr(),
+                    )
+                };
+                assert_eq!(status, 37);
+                assert_eq!(&observed[..11], &(100..111).collect::<Vec<_>>());
+                assert_eq!(&observed[11..], &(200..208).collect::<Vec<_>>());
+            }
+        }
+
+        #[test]
+        fn normal_return_and_repeated_nonlocal_recovery() {
+            for _ in 0..128 {
+                let mut frame = Resume([0; RESUME_WORDS]);
+                // SAFETY: each adapter either returns or resumes this enter.
+                unsafe {
+                    assert_eq!(
+                        plenty_actor_enter(&mut frame, returns, std::ptr::null_mut()),
+                        0
+                    );
+                    assert_eq!(
+                        plenty_actor_enter(&mut frame, resumes, (&raw mut frame).cast()),
+                        37
+                    );
+                }
+            }
+        }
+    }
 }
 
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 mod native {
     use super::*;
 
@@ -1014,7 +1342,11 @@ pub extern "C" fn plenty_actor_heap(op: i64, argument: i64) -> i64 {
     native::operate(op, argument)
 }
 
-#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod tests {
     use super::native::*;
     use super::*;

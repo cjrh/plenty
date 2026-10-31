@@ -268,5 +268,10 @@ fn constant_add_compares_instead_of_materializing_the_flag() {
     );
     let asm = String::from_utf8(output.stdout).unwrap();
     assert!(!asm.contains("seto"), "{asm}");
-    assert!(asm.contains("jl "), "{asm}");
+    let branch = if cfg!(target_arch = "aarch64") {
+        "b.lt "
+    } else {
+        "jl "
+    };
+    assert!(asm.contains(branch), "{asm}");
 }

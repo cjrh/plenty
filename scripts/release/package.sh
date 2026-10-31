@@ -42,10 +42,10 @@ if [ "$report" != "plenty $version ($target)" ]; then
     echo "package.sh: $bin_dir/plenty reports '$report', expected version $version" >&2
     exit 1
 fi
-if [ "$target" != "x86_64-unknown-linux-gnu" ]; then
-    echo "package.sh: unsupported release target $target" >&2
-    exit 1
-fi
+PLENTY_RELEASE_TARGET="$target"
+# shellcheck source=target.sh
+. "$here/target.sh"
+"$here/check-elf.sh" "$bin_dir/plenty" "$bin_dir/plentyc"
 
 name="plenty-$version-$target"
 mkdir -p "$out_dir"
@@ -59,7 +59,7 @@ install -m 0755 "$bin_dir/plenty" "$bin_dir/plentyc" "$root/bin/"
 sed -e "s/@VERSION@/$version/g" -e "s/@TARGET@/$target/g" \
     "$here/README.dist.md" > "$root/README.md"
 install -m 0644 "$repo/LICENSE-MIT" "$repo/LICENSE-APACHE" "$root/"
-python3 -B "$here/third_party_notices.py" --repo "$repo" --out "$root/THIRD-PARTY-NOTICES.md"
+python3 -B "$here/third_party_notices.py" --repo "$repo" --target "$target" --out "$root/THIRD-PARTY-NOTICES.md"
 rust_docs="$sysroot/share/doc/rust"
 if [ ! -f "$rust_docs/COPYRIGHT-library.html" ]; then
     echo "package.sh: $rust_docs/COPYRIGHT-library.html not found; install the rustc component's docs" >&2

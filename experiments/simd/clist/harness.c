@@ -11,8 +11,36 @@
 #include <time.h>
 #include <unistd.h>
 
+// The fixture calls internal Tail code, not Plenty's public C ABI. ARM Tail
+// reserves x0/x1 even for a scalar return. These test-only adapters translate
+// the AAPCS64 arguments to x2..x5 and return x2 through the native x0 register.
+#ifdef __aarch64__
+extern int64_t plenty_test_simd_count(unsigned __int128, int32_t, int32_t);
+extern int64_t plenty_test_scalar_count(unsigned __int128, int32_t, int32_t);
+#define SIMD_COUNT plenty_test_simd_count
+#define SCALAR_COUNT plenty_test_scalar_count
+#define TAIL_ADAPTER(name, target) \
+    __asm__(".text\n.p2align 2\n.globl " #name "\n.type " #name ",%function\n" \
+            #name ":\n" \
+            "stp x29, x30, [sp, #-16]!\n" \
+            "mov x29, sp\n" \
+            "mov w5, w3\n" \
+            "mov w4, w2\n" \
+            "mov x2, x0\n" \
+            "mov x3, x1\n" \
+            "bl " #target "\n" \
+            "mov x0, x2\n" \
+            "ldp x29, x30, [sp], #16\n" \
+            "ret\n.size " #name ", .-" #name "\n")
+TAIL_ADAPTER(plenty_test_simd_count, __plenty_fn_simd_count);
+TAIL_ADAPTER(plenty_test_scalar_count, __plenty_fn_scalar_count);
+#undef TAIL_ADAPTER
+#else
 extern int64_t __plenty_fn_simd_count(unsigned __int128, int32_t, int32_t);
 extern int64_t __plenty_fn_scalar_count(unsigned __int128, int32_t, int32_t);
+#define SIMD_COUNT __plenty_fn_simd_count
+#define SCALAR_COUNT __plenty_fn_scalar_count
+#endif
 
 #ifdef SCAN_RANGE
 static const int32_t low = -1073741824, high = 1073741824;
@@ -47,8 +75,8 @@ static int64_t fill(unsigned char *owner, size_t length) {
 static int64_t call(unsigned char *owner, int scalar) {
     unsigned __int128 slot = (uintptr_t)owner;
     unsigned __int128 reference = (uintptr_t)&slot;
-    return scalar ? __plenty_fn_scalar_count(reference, low, high)
-                  : __plenty_fn_simd_count(reference, low, high);
+    return scalar ? SCALAR_COUNT(reference, low, high)
+                  : SIMD_COUNT(reference, low, high);
 }
 
 static void guarded(void) {

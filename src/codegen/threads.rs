@@ -266,7 +266,7 @@ impl Lowerer<'_, '_> {
         let callback = self.module.declare_func_in_func(id, self.bcx.func);
         let callback = self.bcx.ins().func_addr(PTR_TY, callback);
         let mut signature = self.module.make_signature();
-        signature.call_conv = CallConv::SystemV;
+        signature.call_conv = crate::target::native_call_conv();
         signature.params.extend([
             AbiParam::new(types::I64),
             AbiParam::new(PTR_TY),

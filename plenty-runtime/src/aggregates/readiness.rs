@@ -66,6 +66,16 @@ mod native {
         data: u64,
     }
 
+    const _: () = {
+        assert!(size_of::<PollFd>() == size_of::<libc::pollfd>());
+        assert!(size_of::<Timespec>() == size_of::<libc::timespec>());
+        assert!(size_of::<EpollEvent>() == size_of::<libc::epoll_event>());
+        assert!(align_of::<EpollEvent>() == align_of::<libc::epoll_event>());
+        assert!(
+            std::mem::offset_of!(EpollEvent, data) == std::mem::offset_of!(libc::epoll_event, u64)
+        );
+    };
+
     unsafe extern "C" {
         fn ppoll(
             fds: *mut PollFd,

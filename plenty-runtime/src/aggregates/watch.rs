@@ -3,7 +3,10 @@
 use super::Type;
 use crate::text_io::{self, Error, Kind};
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod native {
     use super::*;
     use crate::{files, memory::AllocError};
@@ -69,12 +72,18 @@ mod native {
 
 #[inline(always)]
 pub(super) unsafe fn call(op: i64, a: u128, b: u128, descriptor: *const Type) -> u128 {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
     {
         // SAFETY: codegen supplies live borrowed operands and output metadata.
         text_io::result(unsafe { native::call(op, a, b, &*descriptor) })
     }
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
     {
         let _ = (op, a, b, descriptor);
         text_io::result(Err(Kind::Unsupported.into()))

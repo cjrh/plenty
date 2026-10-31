@@ -7,6 +7,7 @@ book/src/development/releasing.md.
 """
 
 import os
+import json
 import hashlib
 import importlib.util
 import re
@@ -14,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+import tarfile
 import unittest
 from pathlib import Path
 
@@ -138,6 +140,15 @@ class ThirdPartyNotices(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.notices.render([self.package])
 
+    def test_direct_vendor_inputs_keep_notices_when_cargo_filters_an_architecture_edge(self):
+        vendor = self.root / "plenty-runtime/vendor/cpufeatures-0.3.1"
+        vendor.mkdir(parents=True)
+        (vendor / "Cargo.toml").write_text('[package]\nname = "cpufeatures"\nversion = "0.3.1"\nlicense = "MIT OR Apache-2.0"\n')
+        (vendor / "LICENSE-MIT").write_text("Vendored CPU feature license")
+        packages = self.notices.embedded_vendor_packages(self.root, [])
+        self.assertEqual([(p["name"], p["version"]) for p in packages], [("cpufeatures", "0.3.1")])
+        self.assertIn("Vendored CPU feature license", self.notices.render(packages))
+
     def test_compiler_bundles_brotli_license_but_dataframe_does_not(self):
         license_text = (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text().rstrip()
         compiler = self.notices.render([self.package])
@@ -167,6 +178,7 @@ class InstallMold(unittest.TestCase):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.script = self.root / "install-mold.sh"
         shutil.copy(RELEASE / "install-mold.sh", self.script)
+        shutil.copy(RELEASE / "target.sh", self.root / "target.sh")
         package = self.root / "mold-test-x86_64-linux"
         (package / "bin").mkdir(parents=True)
         mold = package / "bin" / "mold"
@@ -182,7 +194,7 @@ class InstallMold(unittest.TestCase):
         curl.write_text('#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\ncp "$MOLD_TEST_ARCHIVE" "$2"\n')
         curl.chmod(0o755)
         self.env = {**os.environ, "PATH": f"{commands}:{os.environ['PATH']}",
-                    "MOLD_TEST_ARCHIVE": str(self.archive)}
+                    "MOLD_TEST_ARCHIVE": str(self.archive), "PLENTY_RELEASE_TARGET": "x86_64-unknown-linux-gnu"}
         self.destination = self.root / "installed linker"
 
     def test_verified_archive_installs_without_root(self):
@@ -352,6 +364,28 @@ class Publish(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
 
+    def test_all_target_archives_are_required_and_published_together(self):
+        import io
+        for component in ("plenty", "plenty-dataframe", "plenty-linalg"):
+            name = f"{component}-0.4.0-aarch64-unknown-linux-gnu"
+            archive = self.dist / f"{name}.tar.gz"
+            with tarfile.open(archive, "w:gz") as package:
+                text = b"# ARM release fixture\n"
+                entry = tarfile.TarInfo(f"{name}/README.md")
+                entry.size = len(text)
+                package.addfile(entry, io.BytesIO(text))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
+        self.env["PLENTY_RELEASE_TARGETS"] = "x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu"
+        result, calls = self.publish("missing")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("plenty-0.4.0-aarch64-unknown-linux-gnu.tar.gz", calls[1])
+        self.assertIn("plenty-0.4.0-x86_64-unknown-linux-gnu.tar.gz", calls[1])
+        (self.dist / "plenty-linalg-0.4.0-aarch64-unknown-linux-gnu.tar.gz").unlink()
+        result, calls = self.publish("missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
     def test_notes_include_optional_engine_and_both_checksums(self):
         result = run([RELEASE / "release-notes.sh", self.dist])
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -402,6 +436,58 @@ class Prerequisites(unittest.TestCase):
                 self.assertIn(names[name], text, doc)
                 if version != "latest":
                     self.assertRegex(text, rf"{names[name]} [^.]*{re.escape(version.split('.')[0])}", doc)
+
+
+
+class TargetElfAudit(unittest.TestCase):
+    """Exercise target identity independently of host binutils support."""
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        readelf = self.root / "readelf"
+        readelf.write_text('''#!/bin/sh
+case "$1" in
+-h) printf "Class: %s\\nData: 2's complement, %s endian\\nMachine: %s\\nType: DYN\\n" "${TEST_CLASS:-ELF64}" "${TEST_ENDIAN:-little}" "${TEST_MACHINE:-AArch64}" ;;
+-l) echo "[Requesting program interpreter: ${TEST_LOADER:-/lib/ld-linux-aarch64.so.1}]" ;;
+-d) echo '(NEEDED) Shared library: [libc.so.6]' ;;
+-V) echo "GLIBC_2.17 GCC_${TEST_GCC:-4.2.0}" ;;
+esac
+''')
+        readelf.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
+                    "PLENTY_RELEASE_TARGET": "aarch64-unknown-linux-gnu"}
+
+    def audit(self, **changes):
+        return run([RELEASE / "check-elf.sh", "fixture"], env={**self.env, **changes})
+
+    def test_arm_loader_and_machine_are_accepted(self):
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mixed_architecture_loader_word_size_endian_and_gcc_are_rejected(self):
+        for changes, message in [({"TEST_MACHINE": "Advanced Micro Devices X86-64"}, "not a aarch64"),
+                                 ({"TEST_LOADER": "/lib64/ld-linux-x86-64.so.2"}, "interpreter"),
+                                 ({"TEST_CLASS": "ELF32"}, "ELF64"),
+                                 ({"TEST_ENDIAN": "big"}, "little-endian"),
+                                 ({"TEST_GCC": "4.8.0"}, "newer than GCC_4.2.0")]:
+            with self.subTest(changes=changes):
+                result = self.audit(**changes)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(message, result.stderr)
+
+
+class ReleaseMatrices(unittest.TestCase):
+    def test_two_native_targets_and_arm_baseline_current_smokes(self):
+        result = run(["python3", "-B", RELEASE / "matrix.py"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+        builds = json.loads(values["build_matrix"])["include"]
+        self.assertEqual({row["runner"] for row in builds}, {"ubuntu-24.04", "ubuntu-24.04-arm"})
+        self.assertEqual(len({row["target"] for row in builds}), 2)
+        self.assertTrue(all("@sha256:" in row["image"] for row in builds))
+        smokes = json.loads(values["smoke_matrix"])["include"]
+        arm = [row for row in smokes if row["target"].startswith("aarch64")]
+        self.assertEqual({row["image"].split("@", 1)[0] for row in arm}, {"almalinux:8", "debian:13"})
+        self.assertTrue(all(row["runner"] == "ubuntu-24.04-arm" for row in arm))
 
 
 if __name__ == "__main__":
