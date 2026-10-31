@@ -83,6 +83,7 @@ pub(super) struct Output {
     pub dumped: Vec<Entry>,
     /// Every placed function's trap-site records, defined by [`Self::finish`].
     sites: sites::Table,
+    coverage_tables: super::coverage::Table,
     /// Every placed function's checks that trap through the runtime's
     /// handler, in an executable ([`traps`]).
     traps: Option<traps::Table>,
@@ -157,6 +158,7 @@ impl Output {
             dump: None,
             dumped: Vec::new(),
             sites: sites::Table::default(),
+            coverage_tables: super::coverage::Table::default(),
             traps: None,
         })
     }
@@ -195,7 +197,9 @@ impl Output {
             capture.as_deref_mut(),
         );
         let checks = traps::Checks::default();
-        self.place(id, code, (&[], &checks), capture, |_, _, _| Ok(Vec::new()))
+        self.place(id, code, (&[], &checks), capture, |_, _, _, _| {
+            Ok(Vec::new())
+        })
     }
 
     #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -210,7 +214,9 @@ impl Output {
             Some(traps) => Some(traps.define(&mut self.module, sites)?),
             None => None,
         };
+        let coverage = self.coverage_tables.define(&mut self.module)?;
         let mut product = self.module.finish();
+        coverage.resolve(&mut product)?;
         site_aliases.resolve(&mut product)?;
         if let Some(traps) = traps {
             traps.relocate(&mut product)?;
@@ -319,8 +325,16 @@ impl Output {
                     built.code,
                     (&built.requests, &built.checks),
                     built.capture,
-                    |module, sites, relocs| {
-                        symbols::resolve(module, sites, runtime, built.id, &built.requests, relocs)
+                    |module, sites, coverage, relocs| {
+                        symbols::resolve(
+                            module,
+                            sites,
+                            coverage,
+                            runtime,
+                            built.id,
+                            &built.requests,
+                            relocs,
+                        )
                     },
                 )?;
             }
@@ -340,6 +354,7 @@ impl Output {
         relocate: impl FnOnce(
             &mut ObjectModule,
             &mut sites::Table,
+            &mut super::coverage::Table,
             &mut [ModuleReloc],
         ) -> Result<Vec<ModuleRelocTarget>>,
     ) -> Result<()> {
@@ -351,7 +366,12 @@ impl Output {
         })?;
         // `relocate` appends the function's site records here.
         let site_base = self.sites.next_offset();
-        let targets = relocate(&mut self.module, &mut self.sites, &mut code.relocs)?;
+        let targets = relocate(
+            &mut self.module,
+            &mut self.sites,
+            &mut self.coverage_tables,
+            &mut code.relocs,
+        )?;
         if let Some(table) = &mut self.traps {
             table.refer(id, &code.relocs);
             table.add(id, checks, &code.traps, site_base)?;
@@ -655,7 +675,10 @@ mod tests {
             builder.ins().return_(&[]);
             builder.finalize(super::super::FRONTEND);
             output.define(id, function).unwrap();
-            super::super::coverage::define(&mut output.module, id, 2).unwrap();
+            output
+                .coverage_tables
+                .append(&mut output.module, id, 2)
+                .unwrap();
             let (table, _) = output
                 .sites
                 .append(
