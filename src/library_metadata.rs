@@ -205,16 +205,16 @@ fn read_object(
     total: &mut usize,
 ) -> Result<()> {
     let object = object::File::parse(data)?;
-    if object.format() != object::BinaryFormat::Elf
-        || object.architecture()
-            != crate::toolchain::target_description(crate::native_target())
-                .ok_or("unsupported packaged runtime target")?
-                .object_arch
-        || !object.is_little_endian()
+    let target = crate::target::target_description(crate::native_target())
+        .ok_or("unsupported packaged runtime target")?;
+    if object.format() != target.object_format
+        || object.architecture() != target.object_arch
+        || object.is_little_endian() != (target.endian == "little")
     {
+        let format = format!("{:?}", target.object_format).to_uppercase();
         return Err(format!(
-            "interface inspection requires a {} little-endian ELF object",
-            crate::native_target()
+            "interface inspection requires a {} {}-endian {format} object",
+            target.triple, target.endian
         )
         .into());
     }

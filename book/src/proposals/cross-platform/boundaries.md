@@ -1,6 +1,7 @@
 # Interface boundaries and source mapping
 
-> Proposed organization, based on Plenty `869e1cb8`. No new target is admitted
+> Proposed organization, based on Plenty `869e1cb8`, with the shared target
+> foundation now extracted into `src/target.rs`. No new target is admitted
 > by this design. Work packages and priorities belong to [B18](../../backlog.md).
 
 ## Separate three identities
@@ -46,7 +47,7 @@ interfaces. Protocols do not supply missing OS behavior or dynamic dispatch.
 
 | Current location | Dependency to hide | Acceptance evidence |
 | --- | --- | --- |
-| `src/frontend/target.rs::fact`, `src/toolchain.rs::NATIVE_TARGETS` | Linux is returned directly; table omits OS/object/link facts | Frontend facts agree with runtime manifest and emitted object for every admitted target |
+| `src/target.rs`, `src/frontend/target.rs::fact` | Shared facts now cover the two Linux targets; OS admission and linker policy remain separate work | Frontend facts agree with runtime manifest and emitted object for every admitted target |
 | `src/codegen/output.rs::finish`, `src/library_metadata.rs` | GNU ELF flags and ELF-only metadata reading | Format-aware objects; metadata survives executable/static/shared library dead stripping |
 | `src/codegen/exports.rs`, `sites.rs`, `traps.rs`, `coverage.rs` | Section names, relocation and linker retention assumptions | Source/trap/coverage lookup and exported contracts after relocation and installation |
 | `src/toolchain.rs`, `src/library.rs`, `src/toolchain/distribution.rs` | GNU options, ELF SONAME/RUNPATH and `.so` names | Driver argument tests plus real link/load/relocation tests with spaces in paths |

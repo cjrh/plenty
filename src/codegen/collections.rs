@@ -458,7 +458,7 @@ impl Lowerer<'_, '_> {
             );
         }
         let mut sig = self.module.make_signature();
-        sig.call_conv = crate::toolchain::native_call_conv();
+        sig.call_conv = crate::target::native_call_conv();
         // Arguments, descriptor, trap site.
         sig.params.extend([AbiParam::new(PTR_TY); 3]);
         let callee =

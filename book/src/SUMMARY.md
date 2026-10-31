@@ -558,7 +558,7 @@
         - [Compiler, runtime build, and native ABI](proposals/cross-platform/compiler.md)
         - [Standard library and OS semantics](proposals/cross-platform/stdlib.md)
         - [Qualification, delivery, and reference implementations](proposals/cross-platform/delivery.md)
-        - [Zig toolchain experiments](proposals/cross-platform/experiments.md)
+        - [Native ABI and Zig toolchain experiments](proposals/cross-platform/experiments.md)
     - [Standard library scope](proposals/standard-library-scope.md)
     - [Recursive owned data](proposals/recursive-data.md)
     - [Owned structures and checked node identities](proposals/arenas.md)

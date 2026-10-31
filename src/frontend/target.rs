@@ -31,15 +31,15 @@ const FACTS: &[(&str, &[Fact])] = &[
 ];
 
 /// The value of fact `name` for the compilation target. Plenty compiles only
-/// for its native target (see `toolchain::validate_target`), so the facts
+/// for its native target (see `target::validate_target`), so the facts
 /// are the packaged runtime's.
 fn fact(name: &str) -> Option<Fact> {
-    let target = crate::toolchain::target_description(crate::toolchain::native_target())?;
+    let target = crate::target::target_description(crate::native_target())?;
     Some(match name {
-        "os" => Fact::Text("linux"),
+        "os" => Fact::Text(target.os),
         "arch" => Fact::Text(target.arch),
-        "pointer_width" => Fact::Number(64),
-        "endian" => Fact::Text("little"),
+        "pointer_width" => Fact::Number(u64::from(target.pointer_width)),
+        "endian" => Fact::Text(target.endian),
         _ => return None,
     })
 }

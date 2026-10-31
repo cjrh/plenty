@@ -215,6 +215,13 @@ fn main() {
         "cargo:rustc-env=PLENTY_RUNTIME_TARGET={}",
         std::env::var("TARGET").unwrap()
     );
+    // Cargo TARGET is the machine running the resulting compiler, not HOST
+    // (the machine running this build script). Cross-building the compiler
+    // remains valid; its embedded runtime and emitted programs must match it.
+    println!(
+        "cargo:rustc-env=PLENTY_COMPILER_HOST={}",
+        std::env::var("TARGET").unwrap()
+    );
     let vendor = build_vendored(&out);
     build_sqlite(&vendor);
     brotli_build::build(Path::new("plenty-runtime/native"), &vendor);

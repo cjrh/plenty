@@ -436,6 +436,13 @@ machine is assumed; provision CI execution before treating either port as tested
 | B18.8 — developer workflows | B18.3–6; package CLI/cache/LSP/fuzz/export tools and tests | Extracted installation handles spaces/Unicode, literal arguments, replacement races, diagnostics and library hosts; explicitly report unqualified fuzz/sanitizer paths. |
 | B18.9 — release admission | B18.7–8; native CI, packaging, notices, minimum-version audits, signing policy | Offline clean-machine compilation with documented prerequisites; tested target/engine artifacts, baseline OS/SDK/CRT evidence and signing/unsigned-preview policy. Preserve Linux ARM's outstanding hardware/release gates. |
 
+Current evidence: the [native CI smoke suite](proposals/cross-platform/experiments.md#native-cranelift-ci-smoke-tests)
+passes on macOS ARM64, Windows x86-64 MSVC and Linux x86-64. The first B18.2 increment centralizes
+target facts and compiler-host/runtime validation; it does not implement new
+object formats or OS services. This is a partial
+B18.1 gate: large frames, unwind, Rust boundaries and runtime dependencies still
+need qualification. Neither new OS is admitted by Plenty yet.
+
 B18.1 and B18.6 design research can run together; B18.3 and B18.4 can proceed in
 separate worktrees after the common description settles. Keep independent OS
 implementations separate after their contracts are agreed. A failing native

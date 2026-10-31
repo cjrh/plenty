@@ -26,9 +26,9 @@ feature until native ports are qualified.
 | --- | --- | --- |
 | `x86_64-unknown-linux-gnu` | Explicitly admitted, tested and released | Preserve existing baseline throughout |
 | `aarch64-unknown-linux-gnu` | Implemented; extensive QEMU execution, native/release gates outstanding | Preserve alongside x86-64 Linux during refactoring |
-| `aarch64-apple-darwin` | Rejected today; backend has Apple AArch64 calling convention and Mach-O support | First macOS port after common target/build work |
+| `aarch64-apple-darwin` | Rejected by Plenty; native Cranelift/C ABI smoke tests pass in CI | First macOS port after common target/build work |
 | `x86_64-apple-darwin` | Not admitted | Deferred; no automatic promise from the ARM macOS port |
-| `x86_64-pc-windows-msvc` / `x86_64-pc-windows-gnu` | Neither admitted | Compare SDK/CRT/dependency feasibility before choosing one initial Windows ABI |
+| `x86_64-pc-windows-msvc` / `x86_64-pc-windows-gnu` | Neither admitted; native MSVC Cranelift/C smoke tests pass, GNU remains separate | Compare SDK/CRT/dependency feasibility before choosing one initial Windows ABI |
 | `aarch64-pc-windows-msvc` | Rejected today; ARM64 COFF relocation coverage is an additional backend risk | Separate feasibility gate before committing to a release |
 
 All proposed targets are 64-bit little-endian. ARM32, big-endian AArch64, Android,
@@ -47,9 +47,11 @@ x86-only crypto assembly are superseded by the ARM implementation.
 
 The current compiler has a two-target description, derives native C calling
 conventions through Cranelift, and builds matching ARM runtime dependencies.
-It still hard-codes Linux in frontend target facts, assumes ELF in metadata and
-object handling, and uses Linux runtime services. This is a useful starting
-point, not a finished OS abstraction.
+The target foundation centralizes frontend facts and binary identity in
+`src/target.rs`, and checks the compiler host against the packaged runtime.
+Metadata layout and object handling still implement ELF, and runtime services
+remain Linux-specific. This is a useful starting point, not a finished OS
+abstraction.
 
 The immediate experimental scope is **ARM64 macOS and x86-64 Windows**. Preserve
 the Linux milestone in Git; perform independent work in child worktrees and
@@ -79,7 +81,7 @@ The detailed assessment is split into:
 - [Compiler, runtime build, and native ABI](cross-platform/compiler.md).
 - [Standard library and OS semantics](cross-platform/stdlib.md).
 - [Qualification, delivery, and reference implementations](cross-platform/delivery.md).
-- [Zig toolchain experiments](cross-platform/experiments.md).
+- [Native ABI and Zig toolchain experiments](cross-platform/experiments.md).
 
 Study both OS ports before fixing shared interfaces, then establish a minimal
 macOS path and the selected Windows path. Port OS services against explicit

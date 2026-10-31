@@ -37,6 +37,22 @@ Ordinary Plenty functions keep the private Tail convention, with native adapters
 at foreign boundaries. Layout assertions and native tests protect these
 boundaries; selecting a linker does not validate a new platform.
 
+## Target identities
+
+The compiler's private `src/target.rs` module owns the admitted target table:
+triple, architecture, OS, object format, pointer width, byte order and CPU
+baseline. Frontend target facts and binary compatibility checks consume that
+description. Tool discovery and command execution remain in `toolchain`;
+target facts do not own compiler state or runtime OS services.
+
+Cargo's `HOST` runs the build script; Cargo's `TARGET` identifies the compiler
+executable's host. Those may differ when cross-building the compiler. Native
+Plenty compilation requires the compiler host, packaged runtime and requested
+program target to match. That check preserves cross-building the compiler
+without offering cross-compilation through an installed Plenty compiler.
+The admitted set remains the two GNU/Linux targets described in
+[platform support](support.md).
+
 ## Entry symbols
 
 A standard module's native code is reachable only through its own entry

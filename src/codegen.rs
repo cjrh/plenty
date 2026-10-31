@@ -720,7 +720,7 @@ fn object_module(
             .module
             .declare_function("plenty_traps_register", Linkage::Import, &{
                 let mut sig = out.module.make_signature();
-                sig.call_conv = crate::toolchain::native_call_conv();
+                sig.call_conv = crate::target::native_call_conv();
                 sig.params.push(AbiParam::new(PTR_TY));
                 sig
             })?;
@@ -891,9 +891,9 @@ fn optimized_isa(
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
-    let compiler_target = target_lexicon::Triple::host().to_string();
+    let compiler_target = crate::target::compiler_host();
     let isa = baseline_isa(
-        &compiler_target,
+        compiler_target,
         regalloc_algorithm,
         opt_level,
         check_cache_hits,
@@ -912,7 +912,7 @@ fn baseline_isa(
     opt_level: &str,
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
-    crate::toolchain::target_description(triple).ok_or("unsupported native target")?;
+    crate::target::target_description(triple).ok_or("unsupported native target")?;
     let mut flags = settings::builder();
     flags.set("regalloc_algorithm", regalloc_algorithm)?;
     flags.set("opt_level", opt_level)?;
@@ -1095,7 +1095,7 @@ struct Runtime {
 fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtime> {
     fn one_arg(module: &mut ObjectModule, name: &str, arg: types::Type) -> Result<FuncId> {
         let mut sig = module.make_signature();
-        sig.call_conv = crate::toolchain::native_call_conv();
+        sig.call_conv = crate::target::native_call_conv();
         sig.params.push(AbiParam::new(arg));
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
@@ -1107,7 +1107,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         ret: types::Type,
     ) -> Result<FuncId> {
         let mut sig = module.make_signature();
-        sig.call_conv = crate::toolchain::native_call_conv();
+        sig.call_conv = crate::target::native_call_conv();
         sig.params.push(AbiParam::new(a));
         sig.params.push(AbiParam::new(b));
         sig.returns.push(AbiParam::new(ret));
@@ -1115,7 +1115,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
     }
     fn nullary(module: &mut ObjectModule, name: &str) -> Result<FuncId> {
         let mut sig = module.make_signature();
-        sig.call_conv = crate::toolchain::native_call_conv();
+        sig.call_conv = crate::target::native_call_conv();
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     fn helper(
@@ -1125,7 +1125,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         ret: Option<types::Type>,
     ) -> Result<FuncId> {
         let mut sig = module.make_signature();
-        sig.call_conv = crate::toolchain::native_call_conv();
+        sig.call_conv = crate::target::native_call_conv();
         sig.params
             .extend(params.iter().map(|ty| AbiParam::new(*ty)));
         sig.returns.extend(ret.map(AbiParam::new));
@@ -1135,7 +1135,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         standard_calls: false,
         caller_enter: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(PTR_TY));
             module.declare_function("plenty_caller_enter", Linkage::Import, &sig)?
@@ -1143,7 +1143,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         caller_leave: one_arg(module, "plenty_caller_leave", PTR_TY)?,
         control: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([
                 AbiParam::new(types::I64),
                 AbiParam::new(PTR_TY),
@@ -1153,7 +1153,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         executor: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([
                 AbiParam::new(types::I64),
                 AbiParam::new(PTR_TY),
@@ -1164,7 +1164,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         channel: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([
                 AbiParam::new(types::I64),
                 AbiParam::new(PTR_TY),
@@ -1186,7 +1186,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         thread_adapters: Default::default(),
         generator_init: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([AbiParam::new(types::I64); 6]);
             module.declare_function("plenty_generator_init", Linkage::Import, &sig)?
         },
@@ -1197,28 +1197,28 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         release: one_arg(module, "plenty_release", PTR_TY)?,
         list_len: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_len", Linkage::Import, &sig)?
         },
         list_rows: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(PTR_TY));
             module.declare_function("plenty_list_rows", Linkage::Import, &sig)?
         },
         list_row_bytes: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_row_bytes", Linkage::Import, &sig)?
         },
         list_scalar_get: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             // List, index, trap site.
             sig.params.extend([
                 AbiParam::new(PTR_TY),
@@ -1230,7 +1230,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         list_row: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             // List, index, trap site.
             sig.params.extend([
                 AbiParam::new(PTR_TY),
@@ -1242,7 +1242,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         list_sort_by: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([
                 AbiParam::new(PTR_TY),
                 AbiParam::new(PTR_TY),
@@ -1253,7 +1253,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         order_compare: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([AbiParam::new(types::I64); 4]);
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
@@ -1382,7 +1382,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         trap_div_zero: one_arg(module, "plenty_trap_div_zero", PTR_TY)?,
         trap_unwrap: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params
                 .extend([AbiParam::new(PTR_TY), AbiParam::new(types::I64)]);
             module.declare_function("plenty_trap_unwrap", Linkage::Import, &sig)?
@@ -1391,7 +1391,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         trap_clist_index: one_arg(module, "plenty_trap_clist_index", PTR_TY)?,
         trap_list_index: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             // Index as written, length, trap site.
             sig.params.extend([
                 AbiParam::new(types::I64),
@@ -1403,7 +1403,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         signal_traps: None,
         readline: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.returns.push(AbiParam::new(PTR_TY));
             module.declare_function("plenty_readline", Linkage::Import, &sig)?
         },
@@ -1411,13 +1411,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         println: one_arg(module, "plenty_println", PTR_TY)?,
         caller_location: {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.returns.push(AbiParam::new(types::I8));
             module.declare_function("plenty_write_caller_location", Linkage::Import, &sig)?
         },
         test_fault: if test_hooks {
             let mut sig = module.make_signature();
-            sig.call_conv = crate::toolchain::native_call_conv();
+            sig.call_conv = crate::target::native_call_conv();
             sig.params.extend([
                 AbiParam::new(types::I64),
                 AbiParam::new(types::I64),
@@ -1971,7 +1971,7 @@ fn build_user_function(
 /// runtime) speaks the host's C ABI; user functions use `CallConv::Tail` and
 /// can still be invoked from here via a regular `call`.
 fn main_signature() -> Signature {
-    let mut signature = Signature::new(crate::toolchain::native_call_conv());
+    let mut signature = Signature::new(crate::target::native_call_conv());
     signature.returns.push(AbiParam::new(types::I32));
     signature
 }
@@ -4124,7 +4124,7 @@ mod linux_target_tests {
 
     #[test]
     fn both_baselines_lower_native_i128_and_tail_stack_arguments() {
-        for target in crate::toolchain::NATIVE_TARGETS {
+        for target in crate::target::NATIVE_TARGETS {
             for convention in [CallConv::SystemV, CallConv::Tail] {
                 let isa = baseline_isa(target.triple, "backtracking", "none", false).unwrap();
                 let mut signature = Signature::new(convention);

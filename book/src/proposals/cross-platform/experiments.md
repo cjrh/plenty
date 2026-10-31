@@ -1,8 +1,43 @@
-# Zig toolchain experiments
+# Native ABI and Zig toolchain experiments
 
 > Evidence from 2026-10-31. These are small toolchain probes, not Plenty port
 > qualification. Decisions and implementation sequence belong to
 > [B18](../../backlog.md); [interface boundaries](boundaries.md) describe the design.
+
+## Native Cranelift CI smoke tests
+
+The standalone [platform-probes repository](https://github.com/plentylang/platform-probes)
+now runs push-triggered native jobs on macOS ARM64, Windows x86-64 MSVC and
+Linux x86-64. At probe commit `ded48e7d6570dba951a954d0de09e1e93749fc14`,
+[all three jobs passed](https://github.com/plentylang/platform-probes/actions/runs/41163832486).
+The fixture uses Rust 1.99.1 and Cranelift 0.137.0; each job checks its host
+triple, emits a native object, links a C harness using the platform compiler,
+and executes seven assertions. Objects, executables and logs are CI artifacts.
+
+The assertions cover ten integer arguments, mixed integer/f64 arguments,
+signed/unsigned narrow arguments, generated-to-C calls for those signatures,
+and a native entry calling an internal `Tail` function. Native CI confirms
+these paths execute on Apple AArch64 and WindowsFastcall, rather than merely
+producing a Mach-O or PE file. This fixture does not compile Plenty itself.
+
+The initial run exposed two harness configuration errors. Enabling Cranelift
+`is_pic=true` removed Darwin's rejected absolute text relocations; Plenty
+already enables that setting. Replacing filesystem canonicalization with
+ordinary absolute output paths avoided MSVC driver mishandling of Windows
+verbatim path prefixes. Both corrections were verified by the successful run.
+
+This is partial B18.1 evidence. Indirect/tail-return calls, large frames and
+stack probes, u128/aggregates, Rust ABI boundaries, unwind/exception handling,
+minimum OS versions and full runtime/dependency builds remain unqualified.
+Windows GNU is not covered by this native suite; MSVC is the working probe
+baseline, not yet a qualified Plenty release contract.
+
+The Plenty repository's `portability.yml` workflow additionally builds the actual
+workspace on these macOS and Windows runners and runs unit tests if compilation
+succeeds. It preserves build logs and reports failures while the ports are
+incomplete. Existing `ci.yml` jobs exercise Linux x86-64 and ARM64, including
+optional engines and Docker proxy tests. A successful standalone probe is not
+substituted for any of these compiler/runtime checks.
 
 ## Two independent uses
 

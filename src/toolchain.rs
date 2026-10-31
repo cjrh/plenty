@@ -5,73 +5,7 @@ use std::process::Command;
 
 mod distribution;
 
-/// The deliberately small native Linux target set. CPU features are never
-/// inferred from the build host: x86 uses SSE2; ARM uses generic ARMv8-A.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct NativeTarget {
-    pub triple: &'static str,
-    pub arch: &'static str,
-    pub object_arch: object::Architecture,
-    pub baseline: &'static str,
-}
-
-pub(crate) const NATIVE_TARGETS: [NativeTarget; 2] = [
-    NativeTarget {
-        triple: "x86_64-unknown-linux-gnu",
-        arch: "x86_64",
-        object_arch: object::Architecture::X86_64,
-        baseline: "x86-64/SSE2",
-    },
-    NativeTarget {
-        triple: "aarch64-unknown-linux-gnu",
-        arch: "aarch64",
-        object_arch: object::Architecture::Aarch64,
-        baseline: "ARMv8-A",
-    },
-];
-
-pub(crate) fn target_description(triple: &str) -> Option<&'static NativeTarget> {
-    NATIVE_TARGETS.iter().find(|target| target.triple == triple)
-}
-
-/// Target of the compiler and its embedded runtime. Code generation is native;
-/// choosing a linker cannot select another architecture.
-pub fn native_target() -> &'static str {
-    env!("PLENTY_RUNTIME_TARGET")
-}
-
-/// Reproducible CPU baseline used by this compiler's native code generator.
-pub fn native_cpu_baseline() -> &'static str {
-    target_description(native_target()).map_or("unknown", |target| target.baseline)
-}
-
-/// Convention used only at native C/Rust boundaries. Plenty calls retain Tail.
-/// Cranelift calls both Linux C conventions SystemV, including AAPCS64.
-pub(crate) fn native_call_conv() -> cranelift_codegen::isa::CallConv {
-    static CONVENTION: std::sync::OnceLock<cranelift_codegen::isa::CallConv> =
-        std::sync::OnceLock::new();
-    *CONVENTION.get_or_init(|| {
-        let triple = native_target()
-            .parse()
-            .expect("packaged runtime target triple");
-        cranelift_codegen::isa::CallConv::triple_default(&triple)
-    })
-}
-
-/// Reject unsupported or mismatched targets before native lowering or linking.
-pub fn validate_target(requested: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    validate_target_pair(requested.unwrap_or(native_target()), native_target())
-}
-
-fn validate_target_pair(requested: &str, packaged: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if target_description(requested).is_none() {
-        return Err(format!("unsupported native target `{requested}`; supported targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu (64-bit little-endian GNU/Linux)").into());
-    }
-    if requested != packaged {
-        return Err(format!("target `{requested}` does not match packaged runtime `{packaged}`; cross-compilation is not supported").into());
-    }
-    Ok(())
-}
+use crate::target::{native_target, target_description, validate_target};
 
 /// libFuzzer's archive without its `main`, as `clang` reports it: the
 /// default `--libfuzzer` of `--fuzz` builds.
@@ -657,6 +591,7 @@ fn engine_link_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::target::NATIVE_TARGETS;
 
     #[cfg(unix)]
     fn fake_clang(root: &Path, cases: &[(&str, &Path, i32)]) -> PathBuf {
@@ -854,38 +789,6 @@ mod tests {
         );
         assert!(thread_args("mold", Some("0")).is_err());
         assert!(thread_args("mold", Some("many")).is_err());
-    }
-
-    #[test]
-    fn rejects_runtime_mismatch_and_unsupported_layouts() {
-        let native = "x86_64-unknown-linux-gnu";
-        for target in NATIVE_TARGETS {
-            assert!(validate_target_pair(target.triple, target.triple).is_ok());
-            let triple = target.triple.parse().unwrap();
-            assert_eq!(
-                cranelift_codegen::isa::CallConv::triple_default(&triple),
-                cranelift_codegen::isa::CallConv::SystemV
-            );
-        }
-        assert!(
-            validate_target_pair(native, "aarch64-unknown-linux-gnu")
-                .unwrap_err()
-                .to_string()
-                .contains("does not match")
-        );
-        for target in [
-            "i686-unknown-linux-gnu",
-            "x86_64-pc-windows-msvc",
-            "not-a-target",
-            "x86_64-unknown-linux-musl",
-        ] {
-            assert!(
-                validate_target_pair(target, target)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("unsupported native target")
-            );
-        }
     }
 
     fn fake_engine(module: &'static str, symbol_prefix: &'static str) -> Engine {
