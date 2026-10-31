@@ -816,6 +816,25 @@ pub class Stage[N, M, E]:
     _context: Context[M, E]
     _live: i64
 
+    def __del__(self) -> ():
+        self.shutdown()
+
+    # Immediate teardown between runs: neither mailbox room nor a timer is
+    # needed, and no receive callback or restart hook runs. Destructors run
+    # under containment before each heap is discarded.
+    pub def shutdown(self: &mut Stage[N, M, E]) -> ():
+        for index in range(len(self._context._boxes)):
+            self._context._boxes[index].has_parent = False
+            self._context._boxes[index].restart_limit = 0
+        for index in range(len(self._context._boxes)):
+            if self._context._boxes[index].heap >= 0:
+                self.finish(index)
+                self._context._stats.stopped += 1
+                self.retire(index, Exit[E].Stopped)
+        self._context._run_head = 0
+        self._context._run_count = 0
+        self._context._spawn_count = 0
+
     # Starts a root actor with a heap of `limit` bytes. `node` was built
     # outside that heap: what it already owns stays outside, and a trap
     # leaks it. Build anything large in `started` instead.

@@ -126,6 +126,16 @@ switch heaps or run actor code.
 queued. It does not preempt a running handler: a blocking call or an infinite
 loop still prevents the stage from making progress.
 
+`Stage.shutdown()` immediately stops every live actor, releases queued mail,
+timers and tracked handles, and discards their heaps. It does not deliver
+`Stop` or `Down` callbacks or restart actors, and does not need mailbox space
+or timer capacity. Node destructors run under containment.
+It is idempotent; the empty stage can start new actors afterward, with its
+statistics retained and old addresses invalidated. Dropping a stage calls
+`shutdown` automatically, including on early returns after cancellation or
+errors. Application-level draining belongs before this final cleanup. Like
+other actor code, a destructor that blocks or loops is not preempted.
+
 A `Stage[N, M, E]` runs actors of one node type `N`, message type `M` and error
 type `E`. `N` is a public class or enum with three public methods:
 

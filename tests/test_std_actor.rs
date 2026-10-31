@@ -424,6 +424,7 @@ fn borrowed_node_prevents_stage_mutation_or_destruction() {
     for action in [
         "drop(actors.stop_actor(first))",
         "drop(actors.send(first, 1))",
+        "actors.shutdown()",
         "drop(actors.start(Node(0, list[i64].new().unwrap()), 65536))",
         "drop(actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap()))",
         "drop(actors)",
@@ -631,5 +632,93 @@ fn ordinary_constructor_failure_still_ends_parent() {
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
         "True\n1 0 1 0\n0 0 0\nTrue\n"
+    );
+}
+
+#[test]
+fn shutdown_ignores_full_mailboxes_is_idempotent_and_allows_stage_reuse() {
+    let source = OBSERVED_NODE
+        .replace("Mail, stage", "Mail, heaps_live, stage")
+        .replace(
+            "    BODY",
+            r#"    for _ in range(4):
+        actors.send(first, 1).unwrap()
+    print(actors.stop_actor(first)).unwrap()
+    actors.shutdown()
+    print(actors.live(), heaps_live(), actors.node(first).is_none()).unwrap()
+    actors.shutdown()
+    second = actors.start(Node(9, list[i64].new().unwrap()), 65536).unwrap()
+    print(actors.node(second).unwrap().count, actors.node(first).is_none()).unwrap()
+    actors.shutdown()
+    print(actors.stats().stopped, heaps_live()).unwrap()"#,
+        );
+    let (_dir, executable) = support::build_file(&source);
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "False\n0 0 True\n10 True\n2 0\n"
+    );
+}
+
+#[test]
+fn stage_drop_releases_live_heaps_and_contains_node_destructor_traps() {
+    let source = r#"
+import std.fs
+import std.path
+from std.actor import Address, Context, Mail, heaps_live, heap_bytes_used, heap_bytes_committed, stage
+from std.net import TcpListener, listen, loopback_v4
+
+def descriptors() -> Result[i64, IoError]:
+    mut count = 0
+    for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
+        entry?
+        count += 1
+    Ok(count)
+
+pub class Node:
+    pub bad: bool
+    pub values: list[i64]
+    pub socket: Option[TcpListener]
+
+    def __del__(self) -> ():
+        if self.bad:
+            absent: Option[i64] = Nothing
+            drop(absent.unwrap())
+
+    pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        self.values = [1, 2, 3]?
+        self.socket = Some(listen(&loopback_v4(0u16), 1).unwrap())
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+        Ok(Nothing)
+
+def main() -> ():
+    before = descriptors().unwrap()
+    for _ in range(3):
+        mut actors = stage[Node, i64, AllocError](2, 2, 1).unwrap()
+        first = actors.start(Node(True, list[i64].new().unwrap(), Nothing), 65536).unwrap()
+        actors.send(first, 1).unwrap()
+        actors.send(first, 2).unwrap()
+        drop(actors.start(Node(False, list[i64].new().unwrap(), Nothing), 65536).unwrap())
+        drop(actors)
+        print(heaps_live(), heap_bytes_used(), heap_bytes_committed(), descriptors().unwrap() == before).unwrap()
+"#;
+    let (_dir, executable) = support::build_file(source);
+    let output = support::output_within(&mut Command::new(executable), &[], Duration::from_secs(5));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr.matches("unwrap on Nothing").count(), 3, "{stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "0 0 0 True\n0 0 0 True\n0 0 0 True\n"
     );
 }
