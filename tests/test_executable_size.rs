@@ -6,8 +6,11 @@
 
 mod support;
 
-use object::{Object, ObjectSection, ObjectSymbol, SymbolKind};
+use object::{Object, ObjectSection, ObjectSegment, ObjectSymbol, SymbolKind};
+use std::fmt::Write;
 use std::ops::Range;
+use std::path::Path;
+use std::process::Command;
 
 const EMPTY: &str = "def main() -> ():\n    pass\n";
 const HELLO: &str =
@@ -84,28 +87,177 @@ const BUDGETS: [(&str, &str, u64, u64); 2] = [
 
 #[test]
 fn small_programs_stay_within_size_budgets() {
+    let artifact_root = std::env::var_os("PLENTY_SIZE_ARTIFACT_DIR");
     let mut over = Vec::new();
     for (name, source, file_budget, text_budget) in BUDGETS {
-        let (_dir, executable) = support::build_file(source);
-        let data = std::fs::read(&executable).unwrap();
-        let file = object::File::parse(&*data).unwrap();
-        let text = file.section_by_name(".text").unwrap().size();
-        let size = data.len() as u64;
-        eprintln!(
-            "{name}: file {size} (budget {file_budget}), .text {text} (budget {text_budget})"
-        );
-        if size > file_budget {
-            over.push(format!("{name}: file {size} bytes > budget {file_budget}"));
-        }
-        if text > text_budget {
-            over.push(format!("{name}: .text {text} bytes > budget {text_budget}"));
-        }
+        over.extend(measure_program(
+            name,
+            source,
+            file_budget,
+            text_budget,
+            artifact_root.as_deref().map(Path::new),
+        ));
     }
     assert!(
         over.is_empty(),
         "{}\nsee BUDGETS in tests/test_executable_size.rs",
         over.join("\n")
     );
+}
+
+// Issue #601 lost the failing runner ELF when its temporary directory dropped.
+// Keep evidence before asserting, without changing the measured link options.
+fn measure_program(
+    name: &str,
+    source: &str,
+    file_budget: u64,
+    text_budget: u64,
+    artifact_root: Option<&Path>,
+) -> Vec<String> {
+    let prefix = format!("plenty-size-{name}-");
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix);
+    let dir = match artifact_root {
+        Some(root) => {
+            std::fs::create_dir_all(root).unwrap();
+            builder.tempdir_in(root).unwrap()
+        }
+        None => builder.tempdir().unwrap(),
+    };
+    let executable = support::compile_file(dir.path(), source);
+    let data = std::fs::read(&executable).unwrap();
+    let file = object::File::parse(&*data).unwrap();
+    let text = file.section_by_name(".text").unwrap().size();
+    let size = data.len() as u64;
+    eprintln!("{name}: file {size} (budget {file_budget}), .text {text} (budget {text_budget})");
+    let mut over = Vec::new();
+    if size > file_budget {
+        over.push(format!("{name}: file {size} bytes > budget {file_budget}"));
+    }
+    if text > text_budget {
+        over.push(format!("{name}: .text {text} bytes > budget {text_budget}"));
+    }
+    if !over.is_empty() || artifact_root.is_some() {
+        // Keep the measured ELF before collecting diagnostics: a missing tool
+        // or a report-writing failure must not destroy the primary evidence.
+        let directory = dir.keep();
+        eprintln!("{name}: size evidence retained at {}", directory.display());
+        if !over.is_empty() {
+            over.push(format!("{name}: size evidence: {}", directory.display()));
+        }
+        let mut report = format!(
+            "program: {name}\narchitecture: {}\nruntime-checks: {}\nfile: {size} (budget {file_budget})\n.text: {text} (budget {text_budget})\n",
+            std::env::consts::ARCH,
+            cfg!(feature = "runtime-checks"),
+        );
+        writeln!(
+            report,
+            "\nSegments (file offset/size, memory address/size, alignment, flags):"
+        )
+        .unwrap();
+        for segment in file.segments() {
+            writeln!(
+                report,
+                "{:x?} {:#x}/{:#x} {:#x} {:?}",
+                segment.file_range(),
+                segment.address(),
+                segment.size(),
+                segment.align(),
+                segment.flags()
+            )
+            .unwrap();
+        }
+        writeln!(
+            report,
+            "\nSections (name, file offset/size, memory size, alignment, flags):"
+        )
+        .unwrap();
+        for section in file.sections() {
+            writeln!(
+                report,
+                "{} {:x?} {:#x} {:#x} {:?}",
+                section.name().unwrap_or("<invalid name>"),
+                section.file_range(),
+                section.size(),
+                section.align(),
+                section.flags()
+            )
+            .unwrap();
+        }
+        if let Some(comment) = file.section_by_name(".comment") {
+            writeln!(
+                report,
+                "\nELF producer comments: {}",
+                String::from_utf8_lossy(comment.data().unwrap()).replace('\0', "\n")
+            )
+            .unwrap();
+        }
+        // Candidate versions are context, not proof of which linker ran;
+        // mold and lld record their actual versions in the ELF producer comment.
+        for (program, args) in [
+            ("git", &["rev-parse", "HEAD"][..]),
+            ("rustc", &["-Vv"]),
+            ("cc", &["--version"]),
+            ("cc", &["-print-prog-name=ld"]),
+            ("mold", &["--version"]),
+            ("ld.lld", &["--version"]),
+            ("ld", &["--version"]),
+        ] {
+            writeln!(report, "\n$ {program} {}", args.join(" ")).unwrap();
+            match Command::new(program).args(args).output() {
+                Ok(output) => {
+                    writeln!(
+                        report,
+                        "status: {}\n{}{}",
+                        output.status,
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    )
+                    .unwrap();
+                }
+                Err(error) => writeln!(report, "unavailable: {error}").unwrap(),
+            }
+        }
+        for variable in ["COMPILER_PATH", "PLENTY_LINKER_THREADS"] {
+            writeln!(report, "{variable}: {:?}", std::env::var_os(variable)).unwrap();
+        }
+        std::fs::write(directory.join("layout.txt"), report).unwrap();
+    }
+    over
+}
+
+#[test]
+fn size_evidence_preserves_the_measured_elf_and_source() {
+    let root = tempfile::tempdir().unwrap();
+    // Exercise both a real exceeded budget and CI's passing-baseline capture.
+    for budget in [0, u64::MAX] {
+        let over = measure_program("empty", EMPTY, budget, budget, Some(root.path()));
+        assert_eq!(over.is_empty(), budget != 0);
+    }
+    let samples: Vec<_> = std::fs::read_dir(root.path()).unwrap().collect();
+    assert_eq!(samples.len(), 2);
+    for sample in samples {
+        let directory = sample.unwrap().path();
+        assert_eq!(
+            std::fs::read_to_string(directory.join("main.plenty")).unwrap(),
+            EMPTY
+        );
+        let data = std::fs::read(directory.join("program")).unwrap();
+        let file = object::File::parse(&*data).unwrap();
+        let text = file.section_by_name(".text").unwrap().size();
+        let report = std::fs::read_to_string(directory.join("layout.txt")).unwrap();
+        assert!(report.contains(&format!("file: {} (budget", data.len())));
+        assert!(report.contains(&format!(".text: {text} (budget")));
+        assert!(report.contains("Segments (file offset/size"));
+        assert!(report.contains("Sections (name, file offset/size"));
+        assert!(report.contains("$ cc --version"));
+        assert!(
+            Command::new(directory.join("program"))
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
 }
 
 /// Evidence that a module's native code is linked.

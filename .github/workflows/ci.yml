@@ -109,6 +109,8 @@ jobs:
         run: scripts/ci_fn_cache.sh mark "$FN_CACHE"
       # The proxy tests run in proxy_tests; here they would only skip.
       - name: Run tests
+        env:
+          PLENTY_SIZE_ARTIFACT_DIR: target/executable-size
         run: >-
           cargo nextest run --locked --workspace --all-features
           --cargo-profile ci --profile ci
@@ -128,6 +130,14 @@ jobs:
         with:
           name: cargo-timings-tests-${{ runner.arch }}
           path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload executable size evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: executable-size-${{ runner.arch }}-shard-${{ matrix.shard }}
+          path: target/executable-size/
           if-no-files-found: ignore
           retention-days: 7
       # Keep only what this run read or wrote, so the saved cache is this
