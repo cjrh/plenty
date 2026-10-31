@@ -200,7 +200,6 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.native_matrix) }}
     env:
       PLENTY_RELEASE_TARGET: ${{ matrix.target }}
-      PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
     timeout-minutes: 120
     permissions:
       contents: read
@@ -220,6 +219,8 @@ jobs:
           . scripts/release/toolchain.env
           rustup toolchain install "$RUST_VERSION" --profile minimal
       - name: Build, test, audit, package
+        env:
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
         run: |
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
