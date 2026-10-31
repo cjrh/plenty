@@ -36,7 +36,7 @@ The application archive supplies C `main`, calling `plenty_main`. A separate
 library archive omits both startup and that dependency; shared-library export
 maps hide runtime symbols. Both archives are built with the compiler.
 
-Native emission validates the native GNU/Linux triple (`x86_64` or `aarch64`),
+Native emission validates the native target triple,
 Cranelift's ISA and pointer type, and the packaged runtime target. Current layouts
 depend on 64-bit pointers, 128-bit slots, little-endian metadata, the native C ABI
 and fixed descriptor offsets. Cranelift names both Linux C conventions SystemV;
@@ -58,7 +58,12 @@ executable's host. Those may differ when cross-building the compiler. Native
 Plenty compilation requires the compiler host, packaged runtime and requested
 program target to match. That check preserves cross-building the compiler
 without offering cross-compilation through an installed Plenty compiler.
-The admitted set remains the two GNU/Linux targets described in
+The target table includes both GNU/Linux targets plus experimental
+`aarch64-apple-darwin` and `x86_64-pc-windows-msvc` paths. Experimental emission
+uses AppleAarch64 or WindowsFastcall at C boundaries, Mach-O or COFF objects,
+and native linker syntax. Mach-O interface records have aligned length frames
+so combined metadata sections retain each library. These paths are being
+qualified in native CI; they are not new release guarantees. See
 [platform support](support.md).
 
 ## Runtime OS boundaries
@@ -92,8 +97,8 @@ The Windows byte-path boundary accepts UTF-8 and rejects invalid byte sequences;
 it does not yet represent filenames containing unpaired UTF-16 surrogates.
 Closing a lookup lease preserves the resident-code contract.
 
-These boundaries are implementation work toward new ports, not admission of
-macOS or Windows as supported compiler targets. The native qualification
+These boundaries and experimental output paths do not establish macOS or
+Windows standard-library parity or release support. The native qualification
 workflow tests synchronization separately so failures elsewhere in the runtime
 do not prevent exercising these primitives. Native Windows exception subprocess tests pass in CI. Object
 and linker support, actor recovery, OS services and end-to-end Plenty execution

@@ -254,7 +254,7 @@ fn unsupported_target_fails_before_source_or_codegen() {
     let output = temp.path().join("untouched");
     std::fs::write(&output, "original").unwrap();
     let options = plenty::CompileOptions {
-        target: Some("x86_64-pc-windows-msvc".into()),
+        target: Some("x86_64-unknown-linux-musl".into()),
         ..Default::default()
     };
     assert!(

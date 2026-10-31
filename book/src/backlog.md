@@ -456,7 +456,12 @@ and on both Linux architectures. The first B18.5 increment separates native
 mutex waiting and thread handles, hides cancellation wake storage, and adds
 Darwin signal-context and stack-handler support. Standalone native synchronization
 tests run before the complete compiler build. Windows exception dispatch and per-thread stack guarantees are implemented with
-standalone subprocess tests that pass on the native Windows runner. Full compiler
+standalone subprocess tests that pass on the native Windows runner. Native OS
+entropy fixes dictionary initialization on non-Linux hosts (issue #604); Windows
+no-replace bundle publication and portable graph fixtures address issues #605
+and #606. The initial B18.3 increment enables experimental Mach-O/COFF
+application output, native C conventions and linker syntax, with framed Mach-O
+interface metadata. Native program execution and library parity remain gates. Full compiler
 and runtime builds pass on macOS ARM64 and Windows x86-64; end-to-end Plenty
 program execution remains unqualified; this does not complete B18.5.
 

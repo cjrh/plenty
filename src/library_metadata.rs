@@ -292,6 +292,26 @@ fn macho_interface_records(mut bytes: &[u8]) -> Result<Vec<&[u8]>> {
     Ok(records)
 }
 
+/// Write one named source interface only after validating all embedded metadata.
+pub fn extract_library_interface(path: &Path, name: &str, output: &Path) -> Result<()> {
+    let interfaces = read_library_interfaces(path)?;
+    let interface = interfaces
+        .iter()
+        .find(|i| i.name == name)
+        .ok_or_else(|| format!("library has no embedded interface `{name}`"))?;
+    crate::library::publication::validate(&[output], &[path.canonicalize()?])?;
+    let directory = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let workspace = tempfile::Builder::new()
+        .prefix(".plenty-extract-")
+        .tempdir_in(directory)?;
+    let staged = workspace.path().join("interface");
+    std::fs::write(&staged, &interface.source)?;
+    crate::library::publication::publish(workspace, &[(staged, output.to_owned())])
+}
+
 #[cfg(test)]
 mod macho_record_tests {
     use super::*;
@@ -311,24 +331,4 @@ mod macho_record_tests {
         assert!(macho_interface_records(&bytes[..bytes.len() - 1]).is_err());
         assert!(macho_interface_records(&[0; 7]).is_err());
     }
-}
-
-/// Write one named source interface only after validating all embedded metadata.
-pub fn extract_library_interface(path: &Path, name: &str, output: &Path) -> Result<()> {
-    let interfaces = read_library_interfaces(path)?;
-    let interface = interfaces
-        .iter()
-        .find(|i| i.name == name)
-        .ok_or_else(|| format!("library has no embedded interface `{name}`"))?;
-    crate::library::publication::validate(&[output], &[path.canonicalize()?])?;
-    let directory = output
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let workspace = tempfile::Builder::new()
-        .prefix(".plenty-extract-")
-        .tempdir_in(directory)?;
-    let staged = workspace.path().join("interface");
-    std::fs::write(&staged, &interface.source)?;
-    crate::library::publication::publish(workspace, &[(staged, output.to_owned())])
 }
