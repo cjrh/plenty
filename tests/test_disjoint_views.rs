@@ -98,10 +98,14 @@ def main() -> Result[(), AllocError | IoError]:
     for point in &mut points:
         swap(&mut point.x, &mut point.y)
     print(points[0].x, points[0].y)?
+    mut rows = [[1, 2]?, [3, 4]?]?
+    for row in &mut rows:
+        swap(&mut row[0], &mut row[1])
+    print(rows)?
     Ok(())
 "#
         ),
-        "[(2, 1), (4, 3)]\n[(1, 2), (3, 4)]\n[(2, 1), (3, 4)]\n2 1\n",
+        "[(2, 1), (4, 3)]\n[(1, 2), (3, 4)]\n[(2, 1), (3, 4)]\n2 1\n[[2, 1], [4, 3]]\n",
     );
 }
 
