@@ -1,0 +1,59 @@
+# A response larger than either output buffer resumes on Writable; /delay
+# schedules a timer and remains live while another request initiates drain.
+pub class App:
+    pub mode: i64
+    pub remaining: i64
+    pub block: Bytes
+
+    pub def pump(self: &mut App, response: &mut Response) -> Result[(), AppError]:
+        while self.remaining > 0:
+            mut count = self.block.len()
+            if count > self.remaining:
+                count = self.remaining
+            accepted = response.write(&self.block, 0, count)?
+            self.remaining -= accepted
+            if accepted == 0:
+                return Ok(())
+        response.end()?
+        self.mode = 0
+        Ok(())
+
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], Fault]) -> Result[(), AppError]:
+        match event:
+            case Event.Head(_, target):
+                self.mode = if target.path == "/stop":
+                    1
+                elif target.path == "/delay":
+                    2
+                else:
+                    3
+            case Event.End:
+                if self.mode == 1:
+                    response.shutdown_server()
+                    response.send_text(200, "stopping")?
+                elif self.mode == 2:
+                    response.start(ResponseHead(1, 200, "OK", []?))?
+                    response.write(b"first", 0, 5)?
+                    drop(context.after(&std.time.milliseconds(300u32), 7).unwrap())
+                else:
+                    response.start(ResponseHead(1, 200, "OK", []?))?
+                    self.remaining = 262144
+                    self.pump(response)?
+            case Event.Writable:
+                if self.mode == 3:
+                    self.pump(response)?
+            case Event.Wake(7):
+                response.write(b"last", 0, 4)?
+                response.end()?
+                self.mode = 0
+            case _:
+                pass
+        Ok(())
+
+def factory() -> Result[App, AppError]:
+    mut block = std.bytes.empty()?
+    block.resize(1024, 120u8)?
+    Ok(App(0, 0, block))
+
+def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
+    std.actor.http.server.serve_events(listener, factory, config, stop).unwrap()
