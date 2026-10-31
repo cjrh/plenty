@@ -601,6 +601,32 @@ const chunk_end: i64 = 4
 const until_close: i64 = 5
 const failed: i64 = 6
 
+# Parses a chunk-size line without CRLF. Shared by stream readers and the
+# nonblocking decoder so their extension and overflow rules cannot diverge.
+pub def parse_chunk_size(line: &Bytes, size: i64) -> Result[i64, HttpError]:
+    if size < 0 or size > line.len():
+        return Err(HttpError.Stream(StreamError.OutOfRange))
+    mut index = 0
+    mut value = 0
+    while index < size:
+        code = hex_value(i64(line[index]))
+        if code < 0:
+            break
+        if value > (i64.MAX - code) // 16:
+            return Err(HttpError.InvalidChunk)
+        value = value * 16 + code
+        index += 1
+    if index == 0:
+        return Err(HttpError.InvalidChunk)
+    if index < size:
+        # Extensions follow `;`; they are checked for control bytes and
+        # otherwise ignored.
+        while index < size and blank(line[index]):
+            index += 1
+        if index == size or line[index] != 59u8 or run(line, index, size, 1) != size:
+            return Err(HttpError.InvalidChunk)
+    Ok(value)
+
 # Reads one body from a connection it owns until `finish` hands it back
 # positioned at the next message, or `release` hands it back after a failure.
 # `read` makes it a std.io Reader; a framing fault then surfaces as
@@ -664,25 +690,7 @@ pub class BodyReader[R]:
         size = self.line(self._max_line, HttpError.LineTooLong)?
         if size < 0:
             return Err(HttpError.Truncated)
-        mut index = 0
-        mut value = 0
-        while index < size:
-            code = hex_value(i64(self._line[index]))
-            if code < 0:
-                break
-            if value > (i64.MAX - code) // 16:
-                return Err(HttpError.InvalidChunk)
-            value = value * 16 + code
-            index += 1
-        if index == 0:
-            return Err(HttpError.InvalidChunk)
-        if index < size:
-            # Extensions follow `;`; they are checked for control bytes and
-            # otherwise ignored.
-            while index < size and blank(self._line[index]):
-                index += 1
-            if index == size or self._line[index] != 59u8 or run(&self._line, index, size, 1) != size:
-                return Err(HttpError.InvalidChunk)
+        value = parse_chunk_size(&self._line, size)?
         if value > self._max_body - self._total:
             return Err(HttpError.BodyTooLarge)
         if value == 0:

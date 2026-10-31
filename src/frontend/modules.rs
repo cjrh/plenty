@@ -159,6 +159,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.tls", include_str!("../../stdlib/std/tls.plenty")),
     ("std.http", include_str!("../../stdlib/std/http.plenty")),
     (
+        "std.http.decoder",
+        include_str!("../../stdlib/std/http/decoder.plenty"),
+    ),
+    (
         "std.http.server",
         include_str!("../../stdlib/std/http/server.plenty"),
     ),
