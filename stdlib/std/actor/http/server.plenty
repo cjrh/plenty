@@ -416,8 +416,9 @@ class Acceptor[F]:
                     case Some(children):
                         for index in range(len(children)):
                             if children[index].key() == child.key():
-                                children[index] = children[len(children) - 1]
-                                drop(children.pop())
+                                last = children.pop().unwrap()
+                                if index < len(children):
+                                    children[index] = last
                                 break
                     case Nothing:
                         pass
@@ -464,12 +465,14 @@ class Client[F, H]:
     requests: i64
     phase: i64
     timer: Option[Timer]
-    wake: Option[Timer]
     draining: bool
     lingering: i64
     reported: bool
     resuming: bool
     completing: bool
+    shutdown_pending: bool
+    retiring: bool
+    failure: Option[ServerError]
 
 
     def set_deadline[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
@@ -496,54 +499,75 @@ class Client[F, H]:
         Ok(())
 
     def resume[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        if not self.resuming and self.wake.is_none():
-            # A bounded continuation yields to other actors without imposing
-            # a millisecond of artificial latency per transport-sized chunk.
+        if not self.resuming:
+            # A bounded continuation yields without a timer. A full mailbox
+            # already makes this actor runnable, so it needs no extra wakeup.
             match context.send(context.address(), Notice[M].Resume):
                 case Ok(_):
                     self.resuming = True
                 case Err(_):
-                    self.wake = Some(network(context.after(&milliseconds(1u32), -2))?)
+                    pass
         Ok(())
 
-    def receive[M](self: &mut Client[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        # A peer may close abruptly as soon as it sees its response. Preserve
-        # an already requested shutdown across that transport failure until
-        # admission has accepted the control message.
-        mut shutdown_waiting = False
-        match &mut self.response:
-            case Some(reply):
-                if reply._shutdown:
-                    match context.send(self.parent, Notice[M].Drain):
-                        case Ok(_):
-                            reply._shutdown = False
-                        case Err(_):
-                            shutdown_waiting = True
-            case Nothing:
-                pass
+    def has_control(self) -> bool:
+        self.shutdown_pending or self.completing
+
+    def flush_control[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> ():
+        if self.shutdown_pending:
+            match context.send(self.parent, Notice[M].Drain):
+                case Ok(_):
+                    self.shutdown_pending = False
+                case Err(_):
+                    pass
         if self.completing:
             match context.send(self.parent, Notice[M].Completed):
                 case Ok(_):
                     self.completing = False
                     self.reported = True
                 case Err(_):
-                    shutdown_waiting = True
-        if shutdown_waiting:
-            # A consumed continuation must be rearmed for this retry.
-            match mail:
-                case Mail.Message(Notice.Resume):
-                    self.resuming = False
-                case Mail.Timer(timer):
-                    match &self.wake:
-                        case Some(wake):
-                            if timer.key() == wake.key():
-                                self.wake = Nothing
-                        case Nothing:
-                            pass
-                case _:
                     pass
+
+    def stop[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
+        self.retiring = True
+        if self.has_control():
             self.resume(context)?
-            return Ok(())
+        else:
+            context.stop()
+        Ok(())
+
+    def receive[M](self: &mut Client[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
+        match &mail:
+            case Mail.Message(Notice.Resume):
+                self.resuming = False
+            case _:
+                pass
+        self.flush_control(context)
+        if self.retiring:
+            # The connection has already ended. Keep only its bounded control
+            # notifications alive; application mail no longer has a recipient.
+            if self.has_control():
+                self.resume(context)?
+                return Ok(())
+            match replace(self.failure, Nothing):
+                case Some(error):
+                    return Err(error)
+                case Nothing:
+                    context.stop()
+                    return Ok(())
+        # A full parent mailbox never discards live application messages or
+        # one-shot timers. Only final retirement waits for control delivery.
+        match self.drive(mail, context):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                if not self.has_control():
+                    return Err(error)
+                self.retiring = True
+                self.failure = Some(error)
+                self.resume(context)?
+                Ok(())
+
+    def drive[M](self: &mut Client[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
         mut wire = replace(self.wire, Nothing).unwrap()
         mut decoder = replace(self.decoder, Nothing).unwrap()
         mut reply = replace(self.response, Nothing).unwrap()
@@ -551,7 +575,7 @@ class Client[F, H]:
         events = wire.handle(&mail, context)?
         if events.expired.is_some():
             wire.close(context)?
-            context.stop()
+            self.stop(context)?
         else:
             match mail:
                 case Mail.Timer(timer):
@@ -564,14 +588,8 @@ class Client[F, H]:
                                     self.set_deadline(context)?
                                 else:
                                     wire.close(context)?
-                                    context.stop()
+                                    self.stop(context)?
                                     return Ok(())
-                        case Nothing:
-                            pass
-                    match &self.wake:
-                        case Some(wake):
-                            if timer.key() == wake.key():
-                                self.wake = Nothing
                         case Nothing:
                             pass
                     if timer.tag() >= 0 and not events.mine:
@@ -597,7 +615,8 @@ class Client[F, H]:
                     return Ok(())
                 case _ as other:
                     self.call(&mut handler, Event[M].Actor(other), &mut reply, context)?
-            self.advance(&mut wire, &mut decoder, &mut reply, &mut handler, context)?
+            if not self.retiring:
+                self.advance(&mut wire, &mut decoder, &mut reply, &mut handler, context)?
         self.wire = Some(wire)
         self.decoder = Some(decoder)
         self.response = Some(reply)
@@ -605,21 +624,18 @@ class Client[F, H]:
         Ok(())
 
     def call[M](self: &mut Client[F, H], handler: &mut H, event: Event[M], reply: &mut Response, context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        match handler.receive(event, reply, context):
+        outcome = handler.receive(event, reply, context)
+        if reply._shutdown:
+            self.shutdown_pending = True
+            reply._shutdown = False
+        self.flush_control(context)
+        match outcome:
             case Ok(_):
                 pass
             case Err(_):
                 if reply.is_started():
                     return Err(ServerError.Handler)
                 self.refuse(reply, 500)?
-        # Relay shutdown before transport I/O can observe an unclean peer
-        # close. If admission is busy, keep the response actor alive to retry.
-        if reply._shutdown:
-            match context.send(self.parent, Notice[M].Drain):
-                case Ok(_):
-                    reply._shutdown = False
-                case Err(_):
-                    self.resume(context)?
         Ok(())
 
     def refuse(self: &mut Client[F, H], reply: &mut Response, status: i64) -> Result[(), ServerError]:
@@ -636,19 +652,15 @@ class Client[F, H]:
         self.phase = 5
         self.set_deadline(context)?
         if not wire.reading() and wire.pending() == 0:
-            context.stop()
+            self.stop(context)?
         else:
             self.resume(context)?
         Ok(())
 
     def advance[M](self: &mut Client[F, H], wire: &mut Wire, decoder: &mut Decoder, reply: &mut Response, handler: &mut H, context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        if reply._shutdown:
-            match context.send(self.parent, Notice[M].Drain):
-                case Ok(_):
-                    reply._shutdown = False
-                case Err(_):
-                    self.resume(context)?
-                    return Ok(())
+        if self.shutdown_pending:
+            self.resume(context)?
+            return Ok(())
         if self.phase == 0:
             if not wire.established():
                 return Ok(())
@@ -660,7 +672,7 @@ class Client[F, H]:
             wire.consume(count, context)?
             if (not wire.reading() or self.lingering >= 16777216) and wire.pending() == 0:
                 wire.close(context)?
-                context.stop()
+                self.stop(context)?
             elif wire.available() > 0:
                 self.resume(context)?
             return Ok(())
@@ -735,7 +747,7 @@ class Client[F, H]:
         if self.phase == 1 and not wire.reading():
             self.close_after_flush(wire, context)?
             return Ok(())
-        if reply._shutdown:
+        if self.shutdown_pending:
             self.resume(context)?
             return Ok(())
         before = reply.pending()
@@ -750,7 +762,7 @@ class Client[F, H]:
                 reply._start = 0
             if count > 0 and not reply.is_done() and reply.is_started():
                 self.call(handler, Event[M].Writable, reply, context)?
-        if reply._shutdown:
+        if self.shutdown_pending:
             self.resume(context)?
             return Ok(())
         if reply.is_done() and reply.pending() == 0 and wire.pending() == 0:
@@ -841,7 +853,7 @@ pub class Node[F, H]:
                 # TLS configs cannot be copied. The session is constructed in
                 # the child heap under isolated admission; any failure retires
                 # this child. User factory and socket buffers run in started.
-                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, Nothing, False, 0, False, False, False)))))
+                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, False, 0, False, False, False, False, False, Nothing)))))
             case State.Serving(_):
                 Ok(Nothing)
 

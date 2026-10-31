@@ -21,6 +21,8 @@ pub class Bench:
             case "/":
                 response.send(200, "text/plain", &self.small)?
             case "/16k":
+                if self.large.len() == 0:
+                    self.large.resize(16384, 120u8)?
                 response.send(200, "application/octet-stream", &self.large)?
             case "/echo":
                 response.send(200, "application/octet-stream", &request.body)?
@@ -35,9 +37,8 @@ pub class Bench:
         Ok(())
 
 def make() -> Result[Bench, Error]:
-    mut large = std.bytes.with_capacity(16384)?
-    large.resize(16384, 120u8)?
-    Ok(Bench(std.bytes.from_text("hello, world\n")?, large))
+    # Idle/small-response measurements do not allocate the unused large body.
+    Ok(Bench(std.bytes.from_text("hello, world\n")?, std.bytes.empty()?))
 
 def setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:
     match std.env.get(name)?:

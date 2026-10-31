@@ -800,3 +800,88 @@ fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
     assert_eq!(counter(&summary, "rejected"), 0);
     assert_eq!(counter(&summary, "trapped"), 0);
 }
+
+#[test]
+fn actor_http_mixed_traps_and_stalled_heads_preserve_healthy_admission() {
+    let server = Server::start(SIMPLE, &[("capacity", "64"), ("timeout_ms", "30000u32")]);
+    let mut stalled: Vec<_> = (0..32).map(|_| server.connect()).collect();
+    for client in &mut stalled {
+        client
+            .get_mut()
+            .write_all(b"GET / HTTP/1.1\r\nHost:")
+            .unwrap();
+    }
+    let port = server.port;
+    std::thread::scope(|scope| {
+        let mut clients = Vec::new();
+        for _ in 0..8 {
+            clients.push(scope.spawn(move || {
+                for turn in 0..64 {
+                    if turn % 8 == 0 {
+                        let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                        stream.set_read_timeout(Some(WAIT)).unwrap();
+                        stream.set_write_timeout(Some(WAIT)).unwrap();
+                        let mut trapped = BufReader::new(stream);
+                        trapped
+                            .get_mut()
+                            .write_all(b"GET /trap HTTP/1.1\r\nHost: x\r\n\r\n")
+                            .unwrap();
+                        closed(&mut trapped);
+                    }
+                    let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                    stream.set_read_timeout(Some(WAIT)).unwrap();
+                    stream.set_write_timeout(Some(WAIT)).unwrap();
+                    let mut client = BufReader::new(stream);
+                    client
+                        .get_mut()
+                        .write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                        .unwrap();
+                    assert_eq!(response(&mut client, false).body, b"home");
+                    closed(&mut client);
+                }
+            }));
+        }
+        for client in clients {
+            client.join().unwrap();
+        }
+    });
+    // Keep incomplete heads alive through cancellation; the force deadline
+    // must reclaim them while completed healthy responses remain counted.
+    let summary = server.finish();
+    drop(stalled);
+    assert_eq!(counter(&summary, "requests"), 512);
+    assert_eq!(counter(&summary, "rejected"), 0);
+    assert_eq!(counter(&summary, "trapped"), 64);
+}
+
+#[test]
+fn actor_http_completion_pressure_preserves_application_messages_and_timers() {
+    let server = Server::start(
+        include_str!("fixtures/actor_http/notices.plenty"),
+        &[("capacity", "128"), ("timeout_ms", "5000u32")],
+    );
+    let mut clients: Vec<_> = (0..64).map(|_| server.connect()).collect();
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+    }
+    for client in &mut clients {
+        assert_eq!(response(client, false).body, b"scheduled");
+    }
+    std::thread::sleep(Duration::from_millis(20));
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET /count HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+    }
+    for client in &mut clients {
+        assert_eq!(response(client, false).body, b"2");
+    }
+    drop(clients);
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 128);
+    assert_eq!(counter(&summary, "trapped"), 0);
+}

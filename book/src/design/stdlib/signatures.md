@@ -18,89 +18,91 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 105-177
-- [`std.actor.net`](#stdactornet): 179-242
-- [`std.actor.tls`](#stdactortls): 244-273
-- [`std.archive`](#stdarchive): 275-341
-- [`std.atomic`](#stdatomic): 343-352
-- [`std.bytes`](#stdbytes): 354-449
-- [`std.cache.lru`](#stdcachelru): 451-473
-- [`std.channel`](#stdchannel): 475-479
-- [`std.cli`](#stdcli): 481-511
-- [`std.cli.fileinput`](#stdclifileinput): 513-522
-- [`std.cli.progress`](#stdcliprogress): 524-548
-- [`std.collections`](#stdcollections): 550-577
-- [`std.complex`](#stdcomplex): 579-605
-- [`std.compress`](#stdcompress): 607-637
-- [`std.concurrent`](#stdconcurrent): 639-643
-- [`std.crypto`](#stdcrypto): 645-726
-- [`std.csv`](#stdcsv): 728-791
-- [`std.dataframe`](#stddataframe): 793-992
-- [`std.db.kv`](#stddbkv): 994-1026
-- [`std.db.sqlite`](#stddbsqlite): 1028-1092
-- [`std.deque`](#stddeque): 1094-1108
-- [`std.diff`](#stddiff): 1110-1139
-- [`std.encoding`](#stdencoding): 1141-1202
-- [`std.env`](#stdenv): 1204-1218
-- [`std.error`](#stderror): 1220-1240
-- [`std.fmt`](#stdfmt): 1242-1301
-- [`std.fs`](#stdfs): 1303-1386
-- [`std.fs.dirs`](#stdfsdirs): 1388-1398
-- [`std.fs.watch`](#stdfswatch): 1400-1435
-- [`std.graph`](#stdgraph): 1437-1525
-- [`std.http`](#stdhttp): 1527-1596
-- [`std.http.body`](#stdhttpbody): 1598-1633
-- [`std.http.client`](#stdhttpclient): 1635-1745
-- [`std.http.cookie`](#stdhttpcookie): 1747-1779
-- [`std.http.files`](#stdhttpfiles): 1781-1794
-- [`std.http.https`](#stdhttphttps): 1796-1810
-- [`std.http.proxy`](#stdhttpproxy): 1812-1833
-- [`std.http.server`](#stdhttpserver): 1835-1920
-- [`std.http.sse`](#stdhttpsse): 1922-1941
-- [`std.http.tls`](#stdhttptls): 1943-1960
-- [`std.http.typed`](#stdhttptyped): 1962-1995
-- [`std.http.websocket`](#stdhttpwebsocket): 1997-2032
-- [`std.http.wss`](#stdhttpwss): 2034-2040
-- [`std.image`](#stdimage): 2042-2088
-- [`std.io`](#stdio): 2090-2170
-- [`std.io.typed`](#stdiotyped): 2172-2210
-- [`std.json`](#stdjson): 2212-2276
-- [`std.jwt`](#stdjwt): 2278-2325
-- [`std.log`](#stdlog): 2327-2394
-- [`std.markdown`](#stdmarkdown): 2396-2430
-- [`std.template`](#stdtemplate): 2432-2453
-- [`std.math`](#stdmath): 2455-2521
-- [`std.mime`](#stdmime): 2523-2547
-- [`std.net`](#stdnet): 2549-2631
-- [`std.path`](#stdpath): 2633-2650
-- [`std.process`](#stdprocess): 2652-2698
-- [`std.random`](#stdrandom): 2700-2721
-- [`std.ready`](#stdready): 2723-2753
-- [`std.regex`](#stdregex): 2755-2808
-- [`std.report`](#stdreport): 2810-2833
-- [`std.secrets`](#stdsecrets): 2835-2861
-- [`std.shlex`](#stdshlex): 2863-2872
-- [`std.sketch`](#stdsketch): 2874-2912
-- [`std.sketch.xor`](#stdsketchxor): 2914-2925
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2927-2942
-- [`std.signal`](#stdsignal): 2944-2961
-- [`std.simd`](#stdsimd): 2963-3064
-- [`std.stat`](#stdstat): 3066-3099
-- [`std.plot`](#stdplot): 3101-3190
-- [`std.linalg`](#stdlinalg): 3192-3233
-- [`std.sync`](#stdsync): 3235-3244
-- [`std.system`](#stdsystem): 3246-3304
-- [`std.tempfile`](#stdtempfile): 3306-3338
-- [`std.test`](#stdtest): 3340-3382
-- [`std.text`](#stdtext): 3384-3403
-- [`std.thread`](#stdthread): 3405-3409
-- [`std.time`](#stdtime): 3411-3455
-- [`std.tls`](#stdtls): 3457-3539
-- [`std.toml`](#stdtoml): 3541-3590
-- [`std.unicode`](#stdunicode): 3592-3604
-- [`std.url`](#stdurl): 3606-3634
-- [`std.uuid`](#stduuid): 3636-3659
-- [`std.xml`](#stdxml): 3661-3694
+- [`std.actor`](#stdactor): 107-182
+- [`std.actor.net`](#stdactornet): 184-247
+- [`std.actor.tls`](#stdactortls): 249-278
+- [`std.actor.http.server`](#stdactorhttpserver): 280-343
+- [`std.archive`](#stdarchive): 345-411
+- [`std.atomic`](#stdatomic): 413-422
+- [`std.bytes`](#stdbytes): 424-519
+- [`std.cache.lru`](#stdcachelru): 521-543
+- [`std.channel`](#stdchannel): 545-549
+- [`std.cli`](#stdcli): 551-581
+- [`std.cli.fileinput`](#stdclifileinput): 583-592
+- [`std.cli.progress`](#stdcliprogress): 594-618
+- [`std.collections`](#stdcollections): 620-647
+- [`std.complex`](#stdcomplex): 649-675
+- [`std.compress`](#stdcompress): 677-707
+- [`std.concurrent`](#stdconcurrent): 709-713
+- [`std.crypto`](#stdcrypto): 715-796
+- [`std.csv`](#stdcsv): 798-861
+- [`std.dataframe`](#stddataframe): 863-1062
+- [`std.db.kv`](#stddbkv): 1064-1096
+- [`std.db.sqlite`](#stddbsqlite): 1098-1162
+- [`std.deque`](#stddeque): 1164-1178
+- [`std.diff`](#stddiff): 1180-1209
+- [`std.encoding`](#stdencoding): 1211-1272
+- [`std.env`](#stdenv): 1274-1288
+- [`std.error`](#stderror): 1290-1310
+- [`std.fmt`](#stdfmt): 1312-1371
+- [`std.fs`](#stdfs): 1373-1456
+- [`std.fs.dirs`](#stdfsdirs): 1458-1468
+- [`std.fs.watch`](#stdfswatch): 1470-1505
+- [`std.graph`](#stdgraph): 1507-1595
+- [`std.http`](#stdhttp): 1597-1667
+- [`std.http.decoder`](#stdhttpdecoder): 1669-1686
+- [`std.http.body`](#stdhttpbody): 1688-1723
+- [`std.http.client`](#stdhttpclient): 1725-1835
+- [`std.http.cookie`](#stdhttpcookie): 1837-1869
+- [`std.http.files`](#stdhttpfiles): 1871-1884
+- [`std.http.https`](#stdhttphttps): 1886-1900
+- [`std.http.proxy`](#stdhttpproxy): 1902-1923
+- [`std.http.server`](#stdhttpserver): 1925-2010
+- [`std.http.sse`](#stdhttpsse): 2012-2031
+- [`std.http.tls`](#stdhttptls): 2033-2050
+- [`std.http.typed`](#stdhttptyped): 2052-2085
+- [`std.http.websocket`](#stdhttpwebsocket): 2087-2122
+- [`std.http.wss`](#stdhttpwss): 2124-2130
+- [`std.image`](#stdimage): 2132-2178
+- [`std.io`](#stdio): 2180-2260
+- [`std.io.typed`](#stdiotyped): 2262-2300
+- [`std.json`](#stdjson): 2302-2366
+- [`std.jwt`](#stdjwt): 2368-2415
+- [`std.log`](#stdlog): 2417-2484
+- [`std.markdown`](#stdmarkdown): 2486-2520
+- [`std.template`](#stdtemplate): 2522-2543
+- [`std.math`](#stdmath): 2545-2611
+- [`std.mime`](#stdmime): 2613-2637
+- [`std.net`](#stdnet): 2639-2721
+- [`std.path`](#stdpath): 2723-2740
+- [`std.process`](#stdprocess): 2742-2788
+- [`std.random`](#stdrandom): 2790-2811
+- [`std.ready`](#stdready): 2813-2843
+- [`std.regex`](#stdregex): 2845-2898
+- [`std.report`](#stdreport): 2900-2923
+- [`std.secrets`](#stdsecrets): 2925-2951
+- [`std.shlex`](#stdshlex): 2953-2962
+- [`std.sketch`](#stdsketch): 2964-3002
+- [`std.sketch.xor`](#stdsketchxor): 3004-3015
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3017-3032
+- [`std.signal`](#stdsignal): 3034-3051
+- [`std.simd`](#stdsimd): 3053-3154
+- [`std.stat`](#stdstat): 3156-3189
+- [`std.plot`](#stdplot): 3191-3280
+- [`std.linalg`](#stdlinalg): 3282-3323
+- [`std.sync`](#stdsync): 3325-3334
+- [`std.system`](#stdsystem): 3336-3394
+- [`std.tempfile`](#stdtempfile): 3396-3428
+- [`std.test`](#stdtest): 3430-3472
+- [`std.text`](#stdtext): 3474-3493
+- [`std.thread`](#stdthread): 3495-3499
+- [`std.time`](#stdtime): 3501-3545
+- [`std.tls`](#stdtls): 3547-3629
+- [`std.toml`](#stdtoml): 3631-3680
+- [`std.unicode`](#stdunicode): 3682-3694
+- [`std.url`](#stdurl): 3696-3724
+- [`std.uuid`](#stduuid): 3726-3749
+- [`std.xml`](#stdxml): 3751-3784
 
 ## `std.actor`
 
@@ -156,6 +158,7 @@ class Context[M, E]
     def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Context[M, E], to: Address) -> bool
     def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
+    def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
     def restart(self: &mut Context[M, E], child: Address, limit: i64, window: &Duration) -> bool
     def after(self: &mut Context[M, E], delay: &Duration, tag: i64) -> Result[Timer, TimerError]
     def every(self: &mut Context[M, E], period: &Duration, tag: i64) -> Result[Timer, TimerError]
@@ -165,12 +168,14 @@ class Context[M, E]
     def watch[H: Watchable](self: &mut Context[M, E], handle: &H, interest: Interest) -> Result[Watch, WaitError]
     def unwatch[H: Watchable](self: &mut Context[M, E], handle: &H) -> Result[(), WaitError]
 class Stage[N, M, E]
+    def shutdown(self: &mut Stage[N, M, E]) -> ()
     def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool
     def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]
     def live(self) -> i64
     def stats(self) -> Stats
+    def node(self, actor: Address) -> Option[&N]
     def heap_used(self, actor: Address) -> Option[i64]
     def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
 def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]
@@ -270,6 +275,71 @@ class TlsConnection
 def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]
 def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]
 def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]
+```
+
+## `std.actor.http.server`
+
+HTTP/1.1 and HTTPS on isolated connection actors, bounded request/response handlers or resumable streaming events, deadlines and draining. Errors: `ServerError`. [Reference](actor-http-server.md).
+
+```text
+enum ServerError
+    InvalidConfig | AdmissionStopped | Allocation(AllocError) | Bytes(BytesError) | Http(HttpError) | Net(NetError) | Tls(TlsError) | Timer(TimerError) | Wait(WaitError) | Actor(std.actor.StartError) | Range(RangeError) | Handler
+enum Notice[M]
+    Message(M) | Drain | Resume | Completed | Rejected
+enum Event[M]
+    Head(RequestHead, RequestTarget) | Body(Bytes) | Trailers(list[std.http.Header]) | End | Writable | Actor(Mail[Notice[M], ServerError]) | Message(M) | Stopping
+class Config
+    capacity: i64
+    heap_limit: i64
+    input_buffer: i64
+    output_buffer: i64
+    pending_output: i64
+    limits: Limits
+    idle_timeout: Duration
+    head_timeout: Duration
+    body_timeout: Duration
+    write_timeout: Duration
+    response_timeout: Duration
+    handshake_timeout: Duration
+    drain_timeout: Duration
+    max_requests: i64
+class Report
+    actors: Stats
+    requests: u64
+    rejected: u64
+    protocol_errors: u64
+protocol Handler[M, E]
+    def receive(self: &mut Handler[M, E], event: Event[M], response: &mut Response, context: &mut Context[Notice[M], ServerError]) -> Result[(), E]
+class Response
+    def is_stopping(self) -> bool
+    def close_after(self: &mut Response) -> ()
+    def shutdown_server(self: &mut Response) -> ()
+    def is_started(self) -> bool
+    def is_done(self) -> bool
+    def pending(self) -> i64
+    def space(self) -> i64
+    def start(self: &mut Response, head: ResponseHead) -> Result[(), ServerError]
+    def write[S: ByteSource](self: &mut Response, source: &S, start: i64, stop: i64) -> Result[i64, ServerError]
+    def finish(self: &mut Response) -> Result[(), ServerError]
+    def respond[S: ByteSource](self: &mut Response, head: ResponseHead, body: &S) -> Result[(), ServerError]
+    def send[S: ByteSource](self: &mut Response, status: i64, content_type: &str, body: &S) -> Result[(), ServerError]
+    def send_text(self: &mut Response, status: i64, text: &str) -> Result[(), ServerError]
+def config() -> Config
+class Node[F, H]
+    def started[M](self: &mut Node[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]
+    def receive[M](self: &mut Node[F, H], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]
+    def spawn[M](self, tag: i64, child: Address, context: &mut Context[Notice[M], ServerError]) -> Result[Option[Node[F, H]], ServerError]
+class Request
+    head: RequestHead
+    target: RequestTarget
+    body: Bytes
+    trailers: list[std.http.Header]
+protocol RequestHandler[E]
+    def handle(self: &mut RequestHandler[E], request: Request, response: &mut Response) -> Result[(), E]
+def serve[F: Callable[[], Result[H, FE]], H: RequestHandler[HE], FE, HE](listener: TcpListener, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
+def serve_tls[F: Callable[[], Result[H, FE]], H: RequestHandler[HE], FE, HE](listener: TcpListener, tls: ServerConfig, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
+def serve_events[F: Callable[[], Result[H, FE]], H: Handler[M, HE], M, FE, HE](listener: TcpListener, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
+def serve_tls_events[F: Callable[[], Result[H, FE]], H: Handler[M, HE], M, FE, HE](listener: TcpListener, tls: ServerConfig, factory: F, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]
 ```
 
 ## `std.archive`
@@ -1572,6 +1642,7 @@ class RequestTarget
     query: str
 def request_target(head: &RequestHead) -> Result[RequestTarget, HttpError]
 def response_keeps_alive(head: &ResponseHead, framing: &Framing) -> bool
+def parse_chunk_size[S: ByteSource](line: &S, size: i64) -> Result[i64, HttpError]
 class BodyReader[R]
     trailers: list[Header]
     def total(self) -> i64
@@ -1593,6 +1664,25 @@ def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
+```
+
+## `std.http.decoder`
+
+Resumable bounded HTTP/1.x request framing over caller-supplied bytes, without I/O. Errors: `HttpError`. [Reference](http-decoder.md).
+
+```text
+const feed_budget: i64 = 4096
+enum Event
+    Head(RequestHead, RequestTarget, Framing) | Body(Bytes) | Trailers(list[Header]) | End
+class Decoder
+    def is_started(self) -> bool
+    def has_head(self) -> bool
+    def is_done(self) -> bool
+    def total(self) -> i64
+    def reset(self: &mut Decoder) -> Result[(), HttpError]
+    def finish(self: &mut Decoder) -> Result[(), HttpError]
+    def feed[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]
+def decoder(limits: &Limits) -> Result[Decoder, HttpError]
 ```
 
 ## `std.http.body`
