@@ -496,6 +496,8 @@ mod test_std_http_shared_client;
 mod test_std_http_sse;
 #[path = "test_std_http_websocket.rs"]
 mod test_std_http_websocket;
+#[path = "test_std_image.rs"]
+mod test_std_image;
 #[path = "test_std_io.rs"]
 mod test_std_io;
 #[path = "test_std_json.rs"]
@@ -510,6 +512,8 @@ mod test_std_log;
 mod test_std_markdown;
 #[path = "test_std_math.rs"]
 mod test_std_math;
+#[path = "test_std_mime.rs"]
+mod test_std_mime;
 #[path = "test_std_net.rs"]
 mod test_std_net;
 #[path = "test_std_plot.rs"]

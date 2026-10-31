@@ -97,6 +97,29 @@ fn run(source: &str) -> String {
 }
 
 #[test]
+fn brackets_on_a_constant_index_it() {
+    // A bare name inside the brackets also reads as a type argument; a
+    // constant is never generic, so it indexes (issue #562).
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("words.plenty"),
+        "pub const WORD: bytes = b\"xyz\"\npub const NAME: str = \"world\"\n",
+    )
+    .unwrap();
+    let main = dir.path().join("main.plenty");
+    std::fs::write(
+        &main,
+        "import words\nfrom words import WORD, NAME\nconst TABLE: bytes = b\"abc\"\nconst GREETING: str = \"hello\"\nconst IDX: i64 = 2\ndef main() -> Result[(), AllocError | IoError]:\n    n = 1\n    print(TABLE[n])?\n    print(TABLE[IDX])?\n    print(GREETING[n:]?)?\n    print(GREETING[:n]?)?\n    print(words.WORD[n])?\n    print(WORD[n])?\n    print(NAME[n:]?)?\n    print(words.NAME[:n]?)?\n    Ok(())\n",
+    )
+    .unwrap();
+    let executable = dir.path().join("program");
+    plenty::compile_file_to_executable(&main, &executable, None).unwrap();
+    let output = Command::new(executable).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"98\n99\nello\nh\n121\n121\norld\nw\n");
+}
+
+#[test]
 fn constant_expressions_fold_with_the_runtime_operator_rules() {
     let output = run("\
 const KIB: i64 = 1024

@@ -95,7 +95,7 @@ choice with a measurement or allocation check before implementation.
 | #473 | SHA-1 | Native | Cryptography; RustCrypto `sha1` allocates nothing, like `sha2` |
 | #474 | `Bytes.find_bytes` | Native | SIMD search the compiler cannot match; `memchr` allocates nothing |
 | #475 | `std.toml` edits | Plenty | `std.toml` is Plenty; `toml_edit` allocates infallibly |
-| #476 | `std.image` | Decide | Codecs are large engines, but `image` allocates infallibly; separate engine if native |
+| #476 | [`std.image`](../design/stdlib/image.md) | Plenty | Implemented: PNG decoding and encoding over `std.compress`, crop, conversion and resize, with limits checked before allocating; `image` allocates infallibly. JPEG, GIF and WebP deferred |
 | #477 | Progress bar | Plenty | Terminal drawing over `std.io` |
 | #478 | `std.shlex` | Plenty | Small tokenizer |
 | #480 | `std.memmap` | Plenty | A few system calls behind small runtime entries |

@@ -1,7 +1,7 @@
 # Static files for std.http.server handlers, confined to one directory. The
 # request path is opened one segment at a time through std.fs Root handles,
 # whose opens refuse symbolic links, so no path or link inside the directory
-# leads out of it. Responses carry a Content-Type from a fixed table, a weak
+# leads out of it. Responses carry a Content-Type from std.mime's table, a weak
 # ETag and Last-Modified, answer If-None-Match and If-Modified-Since, and
 # stream the file through one fixed buffer.
 # See book/src/design/stdlib/http-files.md.
@@ -10,6 +10,7 @@ import std.fs
 import std.http
 import std.http.server
 import std.io
+import std.mime
 import std.path
 from std.bytes import Bytes, BytesError
 from std.fs import Root
@@ -137,48 +138,9 @@ pub def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesEr
     Ok(Nothing)
 
 # The media type for `name`'s extension, compared without case;
-# application/octet-stream for any other.
+# application/octet-stream for any other. The table is std.mime's.
 pub def media_type(name: &str) -> str:
-    lower = match name.lower():
-        case Ok(text):
-            text
-        case Err(_):
-            return "application/octet-stream"
-    if lower.endswith(".html") or lower.endswith(".htm"):
-        return "text/html; charset=utf-8"
-    if lower.endswith(".css"):
-        return "text/css; charset=utf-8"
-    if lower.endswith(".js") or lower.endswith(".mjs"):
-        return "text/javascript; charset=utf-8"
-    if lower.endswith(".json"):
-        return "application/json"
-    if lower.endswith(".txt"):
-        return "text/plain; charset=utf-8"
-    if lower.endswith(".csv"):
-        return "text/csv; charset=utf-8"
-    if lower.endswith(".xml"):
-        return "application/xml"
-    if lower.endswith(".svg"):
-        return "image/svg+xml"
-    if lower.endswith(".png"):
-        return "image/png"
-    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
-        return "image/jpeg"
-    if lower.endswith(".gif"):
-        return "image/gif"
-    if lower.endswith(".webp"):
-        return "image/webp"
-    if lower.endswith(".ico"):
-        return "image/vnd.microsoft.icon"
-    if lower.endswith(".wasm"):
-        return "application/wasm"
-    if lower.endswith(".pdf"):
-        return "application/pdf"
-    if lower.endswith(".woff2"):
-        return "font/woff2"
-    if lower.endswith(".woff"):
-        return "font/woff"
-    "application/octet-stream"
+    std.mime.from_file_name(name)
 
 # Dates
 

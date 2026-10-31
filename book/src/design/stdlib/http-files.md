@@ -9,7 +9,7 @@ with files below one directory. The module is checked Plenty in
 |---|---|
 | `serve(exchange, &root, path)` | `Result[i64, FilesError]`: answer the request with the file at `path` below `root`; the status sent |
 | `open_file(&root, path)` | `Result[Option[FileStream], FilesError]`: the regular file at `path`, or `Nothing` when it is refused or missing |
-| `media_type(name)` | `str`: the `Content-Type` for `name`'s extension |
+| `media_type(name)` | `str`: the `Content-Type` for `name`'s extension, from [`std.mime`](mime.md) |
 | `http_date(seconds)` | `Result[Option[str], FilesError]`: an IMF-fixdate such as `Sun, 06 Nov 1994 08:49:37 GMT`; `Nothing` before 1970 or after 9999 |
 | `parse_http_date(text)` | `Result[Option[i64], FilesError]`: seconds since the epoch, or `Nothing` unless `text` is an exact IMF-fixdate |
 | `max_path` | `4096`: longest accepted `path`, in bytes |
@@ -105,23 +105,10 @@ read, so memory does not depend on the file's size. Exactly the size seen at
 open is sent. A file that shrinks while it is sent is `Truncated` after the
 head has gone out; the server then closes the connection.
 
-`media_type` compares the extension without case:
-
-| Extension | Type |
-|---|---|
-| `html`, `htm` | `text/html; charset=utf-8` |
-| `css` | `text/css; charset=utf-8` |
-| `js`, `mjs` | `text/javascript; charset=utf-8` |
-| `json` | `application/json` |
-| `txt` | `text/plain; charset=utf-8` |
-| `csv` | `text/csv; charset=utf-8` |
-| `xml` | `application/xml` |
-| `svg` | `image/svg+xml` |
-| `png`, `jpg`, `jpeg`, `gif`, `webp`, `ico` | `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/vnd.microsoft.icon` |
-| `wasm` | `application/wasm` |
-| `pdf` | `application/pdf` |
-| `woff2`, `woff` | `font/woff2`, `font/woff` |
-| Anything else | `application/octet-stream` |
+`media_type(name)` is [`std.mime.from_file_name(name)`](mime.md#file-extensions):
+it compares the extension after the last `.` without case, allocates
+nothing, and returns `application/octet-stream` for an extension not in the
+table.
 
 ## Errors
 
@@ -145,4 +132,4 @@ A refused or missing path is not an error.
 
 ## Acknowledgements
 
-- `media_type` returns types registered in the [IANA Media Types registry](https://www.iana.org/assignments/media-types/media-types.xhtml).
+- `media_type` returns types registered in the [IANA Media Types registry](https://www.iana.org/assignments/media-types/media-types.xhtml), through [`std.mime`](mime.md).
