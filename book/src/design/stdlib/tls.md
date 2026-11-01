@@ -441,6 +441,12 @@ certificates and application protocols.
   framing.
 - One target, x86-64 Linux GNU.
 
+Read ranges follow the [Reader contract](io.md): invalid buffer bounds trap
+with `read: start/stop outside buffer` before I/O or handshake work. The
+nonblocking session `take` operation also validates its caller buffer first
+and traps with `take: start/stop outside buffer`. Empty ranges must still
+be within the buffer.
+
 ## Acknowledgements
 
 - Wraps [rustls](https://github.com/rustls/rustls) 0.23.46 with the [ring](https://github.com/briansmith/ring) 0.17.14 crypto provider and [rustls-webpki](https://github.com/rustls/webpki) 0.103.15, vendored in the runtime; see [Supply](#supply) for licences.

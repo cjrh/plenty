@@ -796,12 +796,16 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnE
 
 #[test]
 fn caller_cancellation_is_checked_during_partial_payload_reads_and_writes() {
-    // Exercise the private construction path with an unchanged module. The
+    // Exercise the private construction path with the module flattened into main.
+    // The std-only named trap becomes an equivalent builtin bounds trap. The
     // transport requests cancellation from inside a wait, deterministically
     // reaching both the direct payload path and the frame-header path.
     let source = format!(
         "{}\n{}",
-        include_str!("../stdlib/std/http/websocket.plenty"),
+        include_str!("../stdlib/std/http/websocket.plenty").replace(
+            "__trap(\"read: start/stop outside buffer\")",
+            "drop(buffer[buffer.len()])",
+        ),
         r#"
 class CancelInWait:
     caller: CancellationToken
