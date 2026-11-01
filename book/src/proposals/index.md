@@ -1,17 +1,15 @@
 # Proposals
 
-Proposals record why a design was chosen and what was rejected. They do not
-specify the language. The [reference](../design/index.md) defines current
-behavior, and the [backlog](../backlog.md) is the only list of future work.
-Where a proposal and the reference disagree, the reference is correct.
+Proposals record design rationale and rejected alternatives. The
+[reference](../design/index.md) defines current behavior; the
+[backlog](../backlog.md) tracks future work. If a proposal disagrees with the
+reference, follow the reference.
 
 ## Status
 
-Each main proposal opens with a status note; companion evidence and example
-pages identify their parent and whether their code is hypothetical. The note gives
-the reference
-pages that own the contract, what shipped differently from the text, and what
-remains with its backlog ID.
+Each main proposal opens with a status note linking to the governing reference,
+identifying differences in what shipped, and naming remaining backlog items.
+Companion pages identify their parent and whether their examples are hypothetical.
 
 | Status | Meaning |
 | --- | --- |
@@ -20,28 +18,22 @@ remains with its backlog ID.
 | Not implemented | Nothing shipped. The page is the design record for future work. |
 | Investigation complete | An assessment reached a decision; it does not imply feature implementation. |
 
-Below its status block a proposal keeps its original wording. It may say
-"should" or "add" about things that now exist, and its code blocks may show
-syntax that never shipped. Proposal code is not compiled by the test suite.
+Proposal text retains its original wording: it may describe shipped features as
+future work or show syntax that never shipped. Proposal code is not compiled by
+the test suite.
 
-A change that implements or alters a proposed design updates that proposal's
-status block in the same change. Move proposals whose agreed scope has shipped
-into [completed/](completed/index.md), preserving their rationale and updating
-links and the book navigation. Completion does not require implementing every
-alternative or future extension discussed in the original text.
+When a change implements or alters a design, update its status note. Move a
+proposal to [completed/](completed/index.md) when its agreed scope ships;
+retain its rationale and update links and book navigation. Alternatives and
+future extensions need not ship for the agreed scope to be complete. Keep
+partly implemented and unimplemented proposals here; retain superseded or
+abandoned designs separately in `archived/` when needed.
 
-Partly implemented and not implemented proposals stay in this folder. Keep their
-status blocks explicit about what shipped and what remains. Superseded or
-abandoned proposals can be retained separately in `archived/` when needed; they
-are not completed implementations. The reference and tutorial remain authoritative
-for current behavior. Statuses were last scanned against local `main` at
-`74fa81d8` on 2026-10-20, using the reference, implementation, and regression
-coverage. This is a status review, not a fresh execution of every feature test.
-HTTP acceptance, error composition and anonymous sums were reconciled separately
-against local `main` at `4e40c4fc` on 2026-10-23 and moved to `completed/`.
-Entry points and modules, with the executable-lessons decision, and the next
-language phase review were reconciled against `161e1c63` on 2026-10-24 and
-moved to `completed/`.
+The status scan used reference, implementation, and regression coverage at
+local `main` commit `74fa81d8` on 2026-10-20; it did not rerun every feature
+test. Later reviews reconciled HTTP acceptance, error composition, and anonymous
+sums at `4e40c4fc` on 2026-10-23, and entry points, modules, executable
+lessons, and the next language phase at `161e1c63` on 2026-10-24.
 
 ## Find a design by topic
 
@@ -53,7 +45,6 @@ moved to `completed/`.
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Optional and fallible borrows | [Returned enums that carry references](returned-reference-enums.md) | [Returned references](../design/language/05-ownership/04-returned-references.md), [borrowed matching](../design/language/05-ownership/06-borrowed-matching.md) |
-| [Value generic parameters](value-generics.md) — `const N: i64` parameters with literal, constant or forwarded arguments, shipped with an inline `array[T, N]` | None yet; related B13, B23 |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md), [slice syntax](completed/slice-syntax.md) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
@@ -69,10 +60,7 @@ moved to `completed/`.
 | Exact decimal and financial arithmetic | [std.decimal](decimal.md) | [Polars embedding](polars-dataframes.md), [ordering](user-type-ordering.md), [dictionary keys](user-type-hashing.md), [checked arithmetic](completed/checked-arithmetic.md) |
 | Language consistency: copying, formatting, views, iteration, errors, callbacks | [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
 
-These families keep distinct contracts separate: a sorting algorithm does not
-define user equality, protocol defaults do not imply private access, and error
-formatting does not determine recovery. Companion pages hold examples or
-evidence; they are not additional implementation commitments.
+Companion examples and evidence do not imply additional implementation commitments.
 
 ## Completed
 
@@ -100,6 +88,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
 | [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |
 | [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
+| [Value generic parameters](value-generics.md) — accepted design for `const N` and inline arrays | B83; related B13, B23 |
 | [Using Rust crates in Plenty](rust-crate-dependencies.md) — three prototypes favor generated C adapters over a Cargo/rustc graph; production integration remains | B17, related B20 |
 | [Compiling Plenty to Rust source](rust-source-backend.md) — checked-IR scalar emitter, native companion round-trip and Rust build-cost measurements; ownership probes remain hand-lowered, no production backend | B20, related B17 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
