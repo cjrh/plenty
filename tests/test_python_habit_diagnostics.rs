@@ -32,10 +32,36 @@ fn power_operator_names_the_pow_method() {
 }
 
 #[test]
-fn multiplying_by_a_dereference_is_still_valid() {
+fn power_operator_with_a_reference_operand_is_rejected() {
+    // Before issue #612, `n ** r` compiled as `n * (*r)` whenever `r` was a
+    // reference, so the Python power habit silently produced a product.
+    for (setup, expression, column) in [
+        ("n = 3\n    r = &n", "n ** r", 11),
+        ("n = 3\n    r = &n", "r ** 2", 11),
+        ("n = 3\n    r = &n", "r**r", 10),
+        ("x = 2.0\n    r = &x", "x ** r", 11),
+        ("x = 2.0\n    r = &x", "r ** x", 11),
+        ("n: u8 = 3\n    r = &n", "n ** r", 11),
+        ("x: f32 = 2.0\n    r = &x", "x ** r", 11),
+        ("n = 3\n    m = 2", "n ** missing", 11),
+    ] {
+        let source = format!("def main() -> ():\n    {setup}\n    m = {expression}\n");
+        let line = 2 + setup.matches('\n').count() + 1;
+        assert_eq!(diagnostic(&source), format!("{line}:{column}: {POWER}"));
+    }
+    assert_eq!(
+        diagnostic(
+            "def main() -> Result[(), AllocError | IoError]:\n    xs = [3]?\n    for e in &xs:\n        print(2 ** e)?\n    Ok(())\n"
+        ),
+        format!("4:17: {POWER}")
+    );
+}
+
+#[test]
+fn multiplying_by_a_dereference_needs_a_space() {
     assert_eq!(
         output(
-            "def main() -> Result[(), IoError]:\n    n = 3\n    r = &n\n    print(n ** r)?\n    print(n * *r)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError]:\n    n = 3\n    r = &n\n    print(n * *r)?\n    print(n * * r)?\n    Ok(())\n"
         ),
         "9\n9\n"
     );
@@ -43,10 +69,6 @@ fn multiplying_by_a_dereference_is_still_valid() {
     assert_eq!(
         diagnostic("def main() -> ():\n    n = 3\n    m = n * * 2\n"),
         "3:15: dereference requires a reference, a Box, or a Shared handle"
-    );
-    assert_eq!(
-        diagnostic("def main() -> ():\n    n = 3\n    m = n ** missing\n"),
-        "3:14: unknown binding `missing`"
     );
 }
 

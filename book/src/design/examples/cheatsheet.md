@@ -359,8 +359,8 @@ inheritance. Bare `self` is a shared borrow; mutating methods declare
 `self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
 method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. `@copy` before `class` makes instances copy like integers; every
-field must copy, and the class cannot define `__del__` or take type parameters
-([copy classes](../language/03-types/classes.md#copy-classes)). `@newtype` on a one-field class forwards the field's operators between two values of that class ([newtype forwarding](../language/04-expressions/operators.md#newtype-forwarding)). A field can move out of an owned binding or receiver, after
+field must copy, the class cannot define `__del__`, and each type parameter
+needs an `IntType` or `FloatType` bound ([copy classes](../language/03-types/classes.md#copy-classes)). `@newtype` on a one-field class forwards the field's operators between two values of that class ([newtype forwarding](../language/04-expressions/operators.md#newtype-forwarding)). A field can move out of an owned binding or receiver, after
 which the object cannot be used as a whole until that field is assigned again;
 see [moving fields](../language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Variants are always qualified (`Shape.Dot`), and matching a
@@ -449,10 +449,12 @@ def main() -> Result[(), AllocError | IoError]:
 [2, 4, 6] [2, 4, 6]
 ```
 
-Scalars, `str`, tuples of copyable values, and instances of
-[`@copy` classes](../language/03-types/classes.md#copy-classes) copy.
-Collections, boxes, and other class instances move: after `moved = values`,
-`values` is unusable.
+Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
+tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
+its parts copy. A class copies only when it is declared [`@copy`](../language/03-types/classes.md#copy-classes).
+Every other value moves: collections, boxes, closures that capture,
+generators, and other class instances.
+After `moved = values`, `values` is unusable.
 `copy(x)?` is the explicit, fallible deep copy. `&x` lends shared access and
 `&mut x` exclusive access; a `&T` parameter borrows an owner implicitly, but
 `&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
@@ -546,6 +548,7 @@ def main() -> Result[(), IoError]:
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
 | Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
+| A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `mut name` before the block and assign inside, or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
 | `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |
 | `"-" * 3` | `"-".repeat(3)?` |
 | `del xs[i]` | `xs.pop(i)`, which returns an `Option` |

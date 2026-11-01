@@ -266,7 +266,7 @@ exit and assigns nothing.
 
 `return match value:` returns the final expression of the selected case, exactly
 as if that case ended with `return expression`. Every case therefore exits, a
-call there is a [source-tail call](../06-functions/05-tail-calls.md), and a
+call there is a [source-tail call](../06-functions/06-tail-calls.md), and a
 statement after the block is unreachable. A case that ends without a value
 returns unit, which is an error unless the function returns unit. A returned
 reference follows the rules of any other [returned

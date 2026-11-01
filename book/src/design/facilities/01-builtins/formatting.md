@@ -24,8 +24,9 @@ invokes user-defined formatting methods. Their Results must be handled or explic
 dropped, following the [error rules](../../language/08-errors/index.md).
 
 [f-strings](../../language/04-expressions/format-strings.md) build a `str`
-from fields, with Python format specs checked at compile time; fields without
-a spec use the same spellings as `print`.
+from fields, with Python format specs checked at compile time. A field without
+a spec uses the same spelling as `print`, except that a field of a class or
+enum with a `display` method calls it.
 
 A [`@redacted`](../../language/03-types/classes.md#redacted-types) class or
 enum formats as its type name followed by `(@redacted)` in `str.repr`, `print`,

@@ -2816,21 +2816,20 @@ impl Parser {
             if not_in {
                 self.take();
             }
-            self.deepen()?;
-            // `a ** b` parses as `a * (*b)`, which is valid when `b` is a
-            // reference. Mark the dereference so that its failure reports
-            // the missing operator rather than a dereference.
-            let power = op == "*"
+            // Adjacent stars are always rejected: reading them as `a * (*b)`
+            // compiled the Python power habit to a product whenever `b` was
+            // a reference (issue #612). Multiplying by a dereference needs a
+            // space, `a * *b`.
+            if op == "*"
                 && self.peek().is("*")
                 && self.peek().line == token.line
-                && self.peek().column == token.column + 1;
-            let mut right = self.expr(prec + 1)?;
-            if power && matches!(&right.kind, Expression::Unary(op, _) if op == "*") {
-                right.at = Token {
-                    kind: Kind::Symbol("**"),
-                    ..token.clone()
-                };
+                && self.peek().column == token.column + 1
+            {
+                return Err(token
+                    .error("exponentiation with `**` is not supported; use `base.pow(exponent)`"));
             }
+            self.deepen()?;
+            let right = self.expr(prec + 1)?;
             let at = left.at.clone();
             left = Expr {
                 at,
@@ -3126,51 +3125,65 @@ pub(crate) fn unused_keyword(word: &str) -> Option<&'static str> {
     })
 }
 const IS_OPERATOR: &str = "Plenty has no `is` operator; test an Option with `.is_none()` or `.is_some()`, or `match` it, and compare values with `==`";
-pub(crate) fn reserved(name: &str) -> bool {
-    matches!(
-        name,
-        "def"
-            | "extern"
-            | "export"
-            | "opaque"
-            | "try"
-            | "with"
-            | "type"
-            | "const"
-            | "return"
-            | "if"
-            | "elif"
-            | "else"
-            | "mut"
-            | "pass"
-            | "and"
-            | "or"
-            | "not"
-            | "True"
-            | "False"
-            | "None"
-            | "struct"
-            | "enum"
-            | "match"
-            | "case"
-            | "while"
-            | "for"
-            | "in"
-            | "yield"
-            | "async"
-            | "await"
-            | "class"
-            | "lambda"
-            | "trait"
-            | "protocol"
-            | "break"
-            | "continue"
-            | "import"
-            | "from"
-            | "as"
-            | "pub"
-    )
+/// Defines the reserved-word list and a `reserved` test compiled to a match.
+/// The book's keyword list and the language server's completions are checked
+/// against `KEYWORDS`.
+macro_rules! keywords {
+    ($($word:literal)|+) => {
+        /// Every word the parser reserves; none can be used as a name.
+        pub(crate) const KEYWORDS: &[&str] = &[$($word),+];
+        pub(crate) fn reserved(name: &str) -> bool {
+            matches!(name, $($word)|+)
+        }
+    };
 }
+keywords!(
+    "def"
+        | "extern"
+        | "export"
+        | "opaque"
+        | "try"
+        | "with"
+        | "type"
+        | "const"
+        | "return"
+        | "if"
+        | "elif"
+        | "else"
+        | "mut"
+        | "pass"
+        | "and"
+        | "or"
+        | "not"
+        | "True"
+        | "False"
+        | "None"
+        | "struct"
+        | "enum"
+        | "match"
+        | "case"
+        | "while"
+        | "for"
+        | "in"
+        | "yield"
+        | "async"
+        | "await"
+        | "class"
+        | "lambda"
+        | "trait"
+        | "protocol"
+        | "break"
+        | "continue"
+        | "import"
+        | "from"
+        | "as"
+        | "pub"
+);
+/// Reserved words with no meaning in Plenty. They stay reserved so a Python
+/// or Rust habit is rejected (with a specific diagnostic for `None`, `try` and
+/// `lambda`) instead of silently becoming a name.
+pub(crate) const REJECTED_KEYWORDS: &[&str] =
+    &["None", "async", "await", "lambda", "struct", "trait", "try"];
 fn is_comparison(op: &str) -> bool {
     matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not in")
 }
@@ -4132,11 +4145,6 @@ impl Lower<'_> {
                                 "a temporary Shared owner has no place to borrow from; bind it to a name first",
                             ))
                         }
-                        // The parser marks a `*` written directly after a
-                        // multiplication `*`; see the binary operator loop.
-                        _ if e.at.is("**") => return Err(e.at.error(
-                            "exponentiation with `**` is not supported; use `base.pow(exponent)`",
-                        )),
                         _ => {
                             return Err(value
                                 .at
