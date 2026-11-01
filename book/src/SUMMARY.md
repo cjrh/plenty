@@ -684,6 +684,7 @@
     - [Search the repository](development/semantic-search-corpus.md)
 - [Profiling the compiler](development/profiling.md)
 - [Measuring module edits](development/module-edits.md)
+  - [Module-edit emission measurements](development/module-edits-emission-results.md)
 - [Per-module cache investigation](development/module-cache-investigation.md)
 - [The Plenty agent skill](development/agent-skill.md)
 - [Releasing Plenty](development/releasing.md)

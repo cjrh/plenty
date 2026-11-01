@@ -226,7 +226,8 @@ settings, and the interface hashes of its direct imports. A body edit then
 rebuilds only the edited module; dependents rebuild only when an interface
 they import changes. An instance of a generic depends on the generic's body,
 not just its interface, so an instance would be keyed by the defining
-module's body hash as well. A program build would combine the modules'
+module's body hash as well. Native call-site substitution also creates body
+dependencies that invalidation must cover. A program build would combine the modules'
 bodies and instances in a fixed order, deduplicating instances and
 renumbering strings, so the object stays byte-identical to an uncached build.
 
