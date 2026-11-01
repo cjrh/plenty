@@ -221,6 +221,11 @@ remainder as `False`. The same rule applies to the range arguments of
 [`read_file` and `read_stdin`](#transport) and of
 `to_text_range`.
 
+Caller buffer ranges in stream reads, encoding offsets, UUID writes, crypto
+output offsets, and CSV field positions also trap; see the [invalid-argument
+convention](conventions.md#invalid-arguments). `BytesError.OutOfRange` remains
+for actor networking connection limits, pending [integer domain types](../../proposals/domain-types.md).
+
 ## Errors
 
 ```text
@@ -380,10 +385,6 @@ The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
 
-Caller buffer ranges in stream reads, encoding offsets, UUID writes, crypto
-output offsets, and CSV field positions also trap; see the [invalid-argument
-convention](conventions.md#invalid-arguments). `BytesError.OutOfRange` remains
-for actor networking connection limits, pending [integer domain types](../../proposals/domain-types.md).
 
 ## Acknowledgements
 

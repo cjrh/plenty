@@ -51,8 +51,9 @@ its listed exceptions.
 
 - Ownership on failure: an operation that consumes a value and can fail
   before using it returns the value in its error.
-- Invalid run-time arguments produce a named `Err` variant, never a clamp or
-  silent no-op.
+- Invalid positions computed against a held buffer/container trap with a message
+  naming the operation and argument; results name only the remaining failures.
+  Invalid limits/configuration return a named `Err`, never a clamp or silent no-op.
 - Every input-driven allocation has a cap, and allocation failure reaches the
   caller.
 - The module page documents ownership, allocation, errors and limits for each
