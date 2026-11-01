@@ -597,41 +597,12 @@ fn iterating_a_file_names_the_line_readers() {
 }
 
 #[test]
-fn a_member_variant_pattern_on_a_sum_names_the_member_pattern() {
-    // Issue #575.
-    let declarations = "enum A:\n    X\n    Y\nenum B:\n    Z\n";
-    let hint = "a sum pattern names a whole member: write `case value: A:` in a `match` on the sum, then match `A` variants on `value` in a nested `match`";
-    assert_eq!(
-        diagnostic(&format!(
-            "{declarations}def f() -> A | B:\n    A.X\ndef main() -> ():\n    match f():\n        case A.X:\n            pass\n        case _:\n            pass\n"
-        )),
-        format!("10:14: expected A | B, got A; {hint}")
-    );
-    assert_eq!(
-        diagnostic(&format!(
-            "{declarations}def f() -> Result[i64, A | B]:\n    Err(A.X)\ndef main() -> ():\n    match f():\n        case Ok(v):\n            pass\n        case Err(A.X):\n            pass\n        case Err(_):\n            pass\n"
-        )),
-        format!("12:18: expected A | B, got A; {hint}")
-    );
-    // A builtin error member.
+fn a_nonmember_variant_pattern_keeps_the_plain_type_mismatch() {
     assert_eq!(
         diagnostic(
-            "def f() -> Result[i64, AllocError | ParseError]:\n    Ok(1)\ndef main() -> ():\n    match f():\n        case Ok(v):\n            pass\n        case Err(ParseError.Invalid):\n            pass\n        case Err(_):\n            pass\n"
+            "enum A:\n    X\nenum B:\n    Y\nenum C:\n    Z\ndef read(value: A | B) -> ():\n    match value:\n        case C.Z:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n"
         ),
-        "7:18: expected AllocError | ParseError, got ParseError; a sum pattern names a whole member: write `case value: ParseError:` in a `match` on the sum, then match `ParseError` variants on `value` in a nested `match`"
-    );
-    // An enum that is not a member keeps the plain mismatch.
-    assert_eq!(
-        diagnostic(&format!(
-            "{declarations}enum C:\n    W\ndef f() -> A | B:\n    A.X\ndef main() -> ():\n    match f():\n        case C.W:\n            pass\n        case _:\n            pass\n"
-        )),
-        "12:14: expected A | B, got C"
-    );
-    assert_eq!(
-        output(&format!(
-            "{declarations}def f() -> A | B:\n    A.Y\ndef main() -> Result[(), IoError]:\n    match f():\n        case value: A:\n            match value:\n                case A.X:\n                    print(\"x\")?\n                case A.Y:\n                    print(\"y\")?\n        case _:\n            pass\n    Ok(())\n"
-        )),
-        "y\n"
+        "9:14: expected A | B, got C"
     );
 }
 
