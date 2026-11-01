@@ -104,8 +104,9 @@ references, generators, and closure environments. Fields, inheritance, multiple
 bounds, defaults, associated types, and lifecycle requirements are unsupported.
 
 Generic bodies are checked per concrete instance. Requirements express the
-minimum interface rather than a separately checked abstract body. `IntType` and
-`FloatType` remain separate built-in numeric constraints.
+minimum interface rather than a separately checked abstract body. `IntType`,
+`FloatType`, and [`CopyType`](index.md#copytype) remain separate built-in
+constraints.
 
 [`std.report.Formattable`](../../stdlib/report.md) additionally accepts an
 anonymous sum when every normalized member satisfies its contract. The compiler

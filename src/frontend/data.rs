@@ -603,7 +603,7 @@ impl TypeAliases {
                 // Instances named by this one's fields and methods have the same cause.
                 *self.data.requiring.borrow_mut() = Some(Requiring::Instance(required.clone()));
                 let ty = self.data.instances.borrow()[&(name.clone(), actual.clone())].clone();
-                defined.push((name.clone(), ty.clone()));
+                defined.push((name.clone(), ty.clone(), actual.clone()));
                 let concrete_name = ty.identity_name();
                 // Diagnostics show the display name, not the linking identity.
                 *self.data.requirer.borrow_mut() = Some(Arc::new(Requirer {
@@ -636,13 +636,10 @@ impl TypeAliases {
                                     self,
                                     &at,
                                 )?;
-                            } else if generics::numeric_bound(bound)
+                            } else if generics::builtin_bound(bound)
                                 .is_some_and(|satisfies| !satisfies(ty))
                             {
-                                return Err(at.error(format!(
-                                    "{ty} does not satisfy {}",
-                                    bound.name.as_deref().unwrap()
-                                )));
+                                return Err(at.error(generics::unsatisfied_builtin(bound, ty)));
                             }
                         }
                     }
@@ -708,7 +705,7 @@ impl TypeAliases {
             for (row, at) in std::mem::take(&mut *self.data.pending_clists.borrow_mut()) {
                 super::clists::check_row(&row, &at)?;
             }
-            for (name, ty) in &defined {
+            for (name, ty, actual) in &defined {
                 let at = || {
                     self.data
                         .enums
@@ -725,7 +722,7 @@ impl TypeAliases {
                     return Err(at().error("type nesting exceeds the implementation limit of 64"));
                 }
                 if let Ty::Class(class) = ty {
-                    self.check_copy_class(class, &self.data.classes[name])?;
+                    self.check_copy_class(class, &self.data.classes[name], actual)?;
                 }
             }
             Ok(())
@@ -834,11 +831,11 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
         return Err(at.error("a data parameter cannot shadow its declaration name"));
     }
     for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
-        if !(generics::numeric_bound(bound).is_some() && bound.args.is_empty()
+        if !(generics::builtin_bound(bound).is_some() && bound.args.is_empty()
             || generics::callable_bound(bound))
         {
             return Err(bound.at.error(
-                "generic data constraints currently require IntType, FloatType, Callable, or OnceCallable",
+                "generic data constraints currently require IntType, FloatType, CopyType, Callable, or OnceCallable",
             ));
         }
     }

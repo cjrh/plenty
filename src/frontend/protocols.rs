@@ -47,7 +47,7 @@ impl Parser {
                     ));
                 }
                 if bound.as_ref().is_some_and(|b| {
-                    generics::callable_bound(b) || generics::numeric_bound(b).is_some()
+                    generics::callable_bound(b) || generics::builtin_bound(b).is_some()
                 }) {
                     return Err(f
                         .at

@@ -200,11 +200,102 @@ class Bad:
     );
 }
 
+const PAIR: &str = r#"
+@copy
+class Pair[T]:
+    left: T
+    right: T
+"#;
+
+/// A generic `@copy` class copies when its type arguments copy, as
+/// `#[derive(Copy)]` does (B84).
 #[test]
-fn rejects_type_parameters() {
+fn generic_copy_class_copies_when_its_arguments_copy() {
+    runs(
+        &format!(
+            r#"{PAIR}
+def first[T](pair: Pair[T]) -> T:
+    pair.left
+
+def main() -> Result[(), IoError]:
+    numbers = Pair(1, 2)
+    texts = Pair("a", "b")
+    nested = Pair(numbers, Pair(3, 4))
+    a = numbers
+    b = texts
+    c = nested
+    print(first(numbers), numbers, a)?
+    print(first(texts), b, c.right)?
+    Ok(())
+"#
+        ),
+        "1 Pair[i64](left=1, right=2) Pair[i64](left=1, right=2)\n\
+         a Pair[str](left=\"a\", right=\"b\") Pair[i64](left=3, right=4)\n",
+    );
+}
+
+#[test]
+fn generic_copy_class_moves_with_a_moving_argument() {
+    for value in [
+        "Pair([1]?, [2]?)",
+        "Pair(Pair([1]?, [2]?), Pair([3]?, [4]?))",
+    ] {
+        rejects(
+            &format!(
+                "{PAIR}\ndef main() -> Result[(), AllocError | IoError]:\n    \
+                 value = {value}\n    moved = value\n    print(value)?\n    Ok(())\n"
+            ),
+            "use of moved binding `value`",
+        );
+    }
+    runs(
+        &format!(
+            "{PAIR}\ndef main() -> Result[(), AllocError | IoError]:\n    \
+             value = Pair([1]?, [2]?)\n    moved = value\n    print(moved)?\n    Ok(())\n"
+        ),
+        "Pair[list[i64]](left=[1], right=[2])\n",
+    );
+}
+
+/// A field that moves for every argument is reported once an instance with
+/// copying arguments exists, naming that instance.
+#[test]
+fn rejects_generic_fields_that_always_move() {
     rejects(
-        "@copy\nclass Pair[T]:\n    a: T\n",
-        "`@copy` class type parameters need an `IntType` or `FloatType` bound",
+        "@copy\nclass Bag[T]:\n    items: list[T]\n\
+         def main() -> Result[(), AllocError]:\n    bag = Bag([1]?)\n    Ok(())\n",
+        "`@copy` class `Bag[i64]` cannot have field `items` of type `list[i64]`, \
+         which moves even when every type argument copies",
+    );
+}
+
+#[test]
+fn numeric_and_copy_bounds_remain_accepted() {
+    runs(
+        r#"
+@copy
+class Cell[T: IntType]:
+    value: T
+@copy
+class Ratio[T: FloatType]:
+    value: T
+@copy
+class Slot[T: CopyType]:
+    value: T
+def main() -> Result[(), IoError]:
+    a = Cell(i32(1))
+    b = Ratio(0.5)
+    c = Slot("s")
+    d = c
+    print(a, b, c, d)?
+    Ok(())
+"#,
+        "Cell[i32](value=1) Ratio[f64](value=0.5) Slot[str](value=\"s\") Slot[str](value=\"s\")\n",
+    );
+    rejects(
+        "@copy\nclass Slot[T: CopyType]:\n    value: T\n\
+         def main() -> Result[(), AllocError]:\n    slot = Slot([1]?)\n    Ok(())\n",
+        "list[i64] does not satisfy CopyType: it moves on ordinary use",
     );
 }
 
@@ -270,7 +361,7 @@ fn the_copy_builtin_keeps_its_name() {
 fn copying_needs_no_allocation() {
     runs(
         &format!(
-            r#"{POINT}
+            r#"{POINT}{PAIR}
 @copy
 class Labelled:
     name: str
@@ -285,15 +376,17 @@ def main() -> Result[(), AllocError | IoError]:
     b.at.x = 4
     c = pass_through(b)
     d = (a, c)
+    e = Pair(a, c)
+    f = e
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?
-    print(a, d)?
+    print(a, d, e.left == f.left)?
     Ok(())
 "#
         ),
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n\
          __test_restore_allocations__\n__test_end_no_allocations__\n\
          Labelled(name=\"origin\", at=Point(x=0, y=0)) \
-         (Labelled(name=\"origin\", at=Point(x=0, y=0)), Labelled(name=\"origin\", at=Point(x=4, y=0)))\n",
+         (Labelled(name=\"origin\", at=Point(x=0, y=0)), Labelled(name=\"origin\", at=Point(x=4, y=0))) True\n",
     );
 }

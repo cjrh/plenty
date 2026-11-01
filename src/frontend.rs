@@ -3093,6 +3093,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "tuple"
                 | "IntType"
                 | "FloatType"
+                | "CopyType"
                 | "next"
                 | "copy"
                 | "drop"

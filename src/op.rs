@@ -264,8 +264,11 @@ impl Ty {
                 | Self::FsMetadata
                 | Self::ByteStorage
         ) || matches!(self, Self::Enum(_) if self.facts().affine)
-            // An undefined forward reference is conservatively affine.
+            // An undefined forward reference is conservatively affine. An
+            // instance of a generic `@copy` class moves when a field does,
+            // and the facts walk is cycle-safe where a field recursion is not.
             || matches!(self, Self::Class(t) if t.try_get().is_none_or(|t| !t.copy))
+            || matches!(self, Self::Class(_) if self.facts().affine)
     }
     pub fn restricted_storage(&self) -> bool {
         match self {

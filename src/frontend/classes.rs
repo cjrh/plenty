@@ -180,20 +180,29 @@ impl ClassDecl {
 impl TypeAliases {
     /// Every field of a `@copy` class must itself copy on ordinary use, so
     /// copying the instance copies its inline fields and retains shared
-    /// strings, and never allocates or runs a destructor.
+    /// strings, and never allocates or runs a destructor. A generic `@copy`
+    /// class copies conditionally, as `#[derive(Copy)]` does: an instance
+    /// whose type arguments all copy must copy, and one with a moving
+    /// argument moves (`actual` holds the instance's type arguments).
     pub(super) fn check_copy_class(
         &self,
         class: &crate::nominal::Nominal<ClassType>,
         declaration: &ClassDecl,
+        actual: &[Ty],
     ) -> Result<()> {
         let definition = class.get();
-        if !definition.copy {
+        if !definition.copy || actual.iter().any(Ty::affine) {
             return Ok(());
         }
         for ((name, ty), (_, written)) in definition.fields.iter().zip(&declaration.fields) {
             if ty.affine() {
+                let reason = if actual.is_empty() {
+                    ""
+                } else {
+                    " even when every type argument copies"
+                };
                 return Err(written.at.error(format!(
-                    "`@copy` class `{}` cannot have field `{name}` of type `{ty}`, which moves; every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those",
+                    "`@copy` class `{}` cannot have field `{name}` of type `{ty}`, which moves{reason}; every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those",
                     class.display_name()
                 )));
             }
