@@ -76,16 +76,45 @@ impl Lower<'_> {
         let Ty::List(element) = list else {
             unreachable!()
         };
+        // A closure literal is lowered into a hidden local first, so it
+        // passes the same way as a stored closure.
+        let mut args = args.to_vec();
+        if let Expression::Anonymous(function) = &ungroup(&args[0]).kind {
+            let ty = self.closure_value(function, &args[0].at, ops)?;
+            let slot = self.slot(ty.clone(), &args[0].at)?;
+            ops.push(Op::StoreLocal(slot));
+            let name = format!("<sort key {slot}>");
+            self.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty,
+                    mutable: false,
+                },
+            );
+            args[0] = Expr {
+                at: args[0].at.clone(),
+                kind: Expression::Name(name),
+            };
+        }
+        let args = &args[..];
         let mut callback = self
             .expression_type_hint(&args[0])
             .or_else(|| self.place_type(&args[0]))
             .ok_or_else(|| {
                 args[0]
                     .at
-                    .error("sort_by_key requires a named function or reusable closure")
+                    .error("sort_by_key requires a key callback: a function or closure")
             })?;
         while let Ty::Ref(inner, _) = callback {
             callback = (*inner).clone();
+        }
+        if let Ty::Closure(closure) = &callback
+            && closure.mutable
+        {
+            return Err(args[0].at.error(
+                "sort_by_key requires a shared-call key; this closure is mutable because it changes a `mut` capture",
+            ));
         }
         let sig = callables::signature(&callback)
             .ok_or_else(|| args[0].at.error("sort_by_key requires a key callback"))?;

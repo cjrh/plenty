@@ -482,6 +482,15 @@ unsafe extern "C" fn destroy_job(header: *mut Header) {
     }
 }
 
+/// A parallel pipeline's `chunks=` count below 1.
+#[unsafe(no_mangle)]
+extern "C" fn plenty_trap_par_chunks(count: i64, site: *const crate::Site) -> ! {
+    crate::fail_at(
+        site,
+        format_args!("par chunks must be positive, got chunks={count}"),
+    )
+}
+
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_executor(
     op: i64,

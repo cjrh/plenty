@@ -19,6 +19,8 @@ def main() -> Result[(), AllocError | IoError]:
         print(point.x)?
     points.sort_by_key(horizontal, True)
     print(points[0].x)?
+    points.sort_by_key(def(point: &Point) -> i64: -point.y)
+    print(points[0].x)?
     Ok(())
 ```
 
@@ -27,12 +29,14 @@ def main() -> Result[(), AllocError | IoError]:
 2
 3
 3
+2
 ```
 
 The operation allocates no key buffer. It calls the key repeatedly, so use a
 consistent key without side effects. Equal keys may change relative order;
-include a tie breaker in a tuple key when the order matters. A reusable
-shared-call closure can be bound to a name and passed as the key too.
+include a tie breaker in a tuple key when the order matters. The key can also
+be an anonymous function written in place, as the last call shows, or a
+reusable shared-call closure.
 
 `sorted` creates a copy in natural order, leaving its source available. Copying
 is fallible and therefore needs `?`:

@@ -2,7 +2,8 @@
 
 A subscript whose brackets contain a top-level `:` is a slice. It copies the
 selected elements into a new value and returns `Result[_, AllocError]`, so the
-copy is visible as a `?` (issue #579):
+copy is visible as a `?` (issue #579). A tuple slice allocates nothing and
+returns the tuple itself (see [tuple slices](#tuple-slices)):
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
@@ -78,7 +79,7 @@ def main() -> Result[(), AllocError | IoError | RangeError]:
 | `std.bytes.Bytes` | `Result[std.bytes.Bytes, AllocError]` | Bytes |
 | `bytes` | `Result[std.bytes.Bytes, AllocError]` | Bytes; no import needed |
 | `clist[T]` | `Result[clist[T], AllocError]` | Rows copied column by column |
-| Tuple | `Result[(...), AllocError]` | Components selected at compile time |
+| Tuple | The selected tuple, or `()`; no `Result` | Components selected at compile time |
 
 A list slice of a nested list copies each selected inner list, so later changes
 to the source do not reach the slice. A step-1 slice of a list whose elements
@@ -99,8 +100,25 @@ when some module of the program could produce a `bytes` value: one with a
 `b"..."` literal, `include_bytes`, or the word `bytes`. A program that slices
 only lists or text does not load it.
 
+### Tuple slices
+
 Tuple slice bounds and step must be integer literals, because the result type
-depends on them: `(1, "two", 3.0)[1:]?` has type `Result[(str, f64), AllocError]`.
+depends on them: `(1, "two", 3.0)[1:]` has type `(str, f64)`. A slice that
+selects no component is `()`. A tuple slice copies components inline and
+allocates nothing, so it returns no `Result` and takes no `?` (issue #625):
+
+```plenty
+def main() -> Result[(), IoError]:
+    t = (1, "two", 3.0)
+    tail: (str, f64) = t[1:]
+    print(tail, t[::-1])?
+    Ok(())
+```
+
+```output
+("two", 3.0) (3.0, "two", 1)
+```
+
 A tuple whose selected components are affine is rejected for now; unpack it and
 copy the components instead.
 
@@ -328,6 +346,7 @@ until stored references land (backlog B11).
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |
 | `t[n:]` on a tuple | `tuple slice bounds must be integer literals; the result type depends on them` |
+| `t[1:]?` on a tuple | ``a tuple slice `t[a:b]` does not allocate, so it takes no `?`; write `t[a:b]` `` |
 | `d[1:]` on a dict | `dict does not support slicing` |
 
 ```plenty-error

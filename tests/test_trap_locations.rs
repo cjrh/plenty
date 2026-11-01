@@ -147,8 +147,8 @@ fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &s
     "2:14: range length exceeds i64"
 )]
 #[case::split_separator(
-    "    parts = \"a,b\".split(\"\")?\n    print(len(parts))?\n",
-    "2:13: string split requires a nonempty separator"
+    "    separator = \"\"\n    parts = \"a,b\".split(separator)?\n    print(len(parts))?\n",
+    "3:13: string split requires a nonempty separator"
 )]
 fn other_traps_name_the_operation(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(main_trap(body), format!("error: main.plenty:{expected}\n"));

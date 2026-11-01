@@ -17,8 +17,9 @@ formatter instead. The
 compiler parses the template and checks every spec while compiling. It lowers
 the literal to calls on a [`std.fmt`](../../stdlib/fmt.md) string formatter,
 with no format-string interpreter at run time. A module that uses an f-string
-loads `std.fmt` without an `import`; naming `FormatError` in a signature still
-needs `from std.fmt import FormatError`.
+loads `std.fmt` without an `import`. `FormatError` is a
+[prelude name](../02-source/names.md), so a signature names it without an
+import too (issue #632).
 
 ## Fields
 

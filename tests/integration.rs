@@ -19,6 +19,9 @@ mod test_pipelines;
 #[path = "test_clist.rs"]
 mod test_clist;
 
+#[path = "test_callable_forms.rs"]
+mod test_callable_forms;
+
 #[path = "test_arithmetic_errors.rs"]
 mod test_arithmetic_errors;
 

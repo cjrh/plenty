@@ -24,12 +24,9 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn named_functions_require_a_mutable_binding_for_exclusive_borrows() {
-    let error = check_source("def double(x: i64) -> i64:\n    x * 2\ndef apply[F: Callable[[i64], i64]](f: &mut F) -> i64:\n    f(4)\napply(&mut double)").unwrap_err().to_string();
-    assert!(
-        error.contains("named function declarations are immutable"),
-        "{error}"
-    );
+fn named_functions_can_be_borrowed_exclusively() {
+    // A named function has no state, so `&mut F` accepts it (issue #619).
+    check_source("def double(x: i64) -> i64:\n    x * 2\ndef apply[F: Callable[[i64], i64]](f: &mut F) -> i64:\n    f(4)\napply(&mut double)").unwrap();
 }
 
 #[test]
