@@ -84,7 +84,7 @@ def line(text: &str) -> Result[str, AllocError]:
     "error: ".concat(text)?.concat("\n")
 
 def displayed(path: &Path) -> Result[str, AllocError]:
-    match path.display():
+    match path.to_string():
         case Ok(text):
             Ok(text)
         case Err(error):

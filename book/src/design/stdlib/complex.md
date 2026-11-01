@@ -24,7 +24,7 @@ def main() -> Result[(), IoError | FormatError]:
 0.4461538461538462-0.4307692307692308i
 -0.5-4.0i 5.0 25.0
 True True 1.5 2.0
-std.complex.Complex(re=1.5, im=2.0)
+1.5+2.0i
 ```
 
 `Complex(re, im)` is the generated constructor, and `re` and `im` are public
@@ -169,12 +169,13 @@ Equality is the language's structural class equality, not a hook: `0.0` equals
 
 ## Formatting
 
-`Complex` has a public `display` method, so
+`Complex` has a public `display` method, so `print`,
 [f-strings](../language/04-expressions/format-strings.md) and
 [`std.fmt.to_string`](fmt.md) write `re+imi` or `re-imi`, each part in the
 `f64` print spelling: `1.5+2.0i`, `1.0-0.5i`, `NaN+infi`. A negative zero
-imaginary part is written `-0.0i`. Builtin `print` does not use `display` and
-writes the structural spelling `std.complex.Complex(re=1.5, im=2.0)`. A format
+imaginary part is written `-0.0i`. It has no `debug` method, so `str.repr`,
+`!r` and list elements use the structural spelling
+`std.complex.Complex(re=1.5, im=2.0)`. A format
 spec applies to the whole text; format the parts directly, as in
 `f"{z.re:.3f}{z.im:+.3f}i"`, to control precision.
 

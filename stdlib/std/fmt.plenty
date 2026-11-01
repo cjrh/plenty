@@ -609,6 +609,7 @@ pub def to_debug[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, Fo
     finish(&output)
 
 # Writes the `str.repr` spelling, which `print` also uses for aggregates.
+# A value whose spelling runs a `debug` method uses `repr_text`.
 pub def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]:
     match str.repr(value):
         case Ok(text):
@@ -638,6 +639,24 @@ pub def repr_view_string[T](value: &[T]) -> Result[str, FormatError]:
             Ok(text)
         case Err(error):
             Err(FormatError.Bytes(BytesError.Allocation(error)))
+
+# The `str.repr` result of a value whose spelling runs a `debug` method,
+# which can fail with that method's error. The compiler calls `str.repr` at
+# the f-string's site, so a private type's method is reachable.
+pub def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Formatter[W]) -> Result[(), FormatError]:
+    text = repr_result(spelled)?
+    output.text(&text)
+
+pub def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]:
+    match spelled:
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case cause: AllocError:
+                    Err(FormatError.Bytes(BytesError.Allocation(cause)))
+                case cause: FormatError:
+                    Err(cause)
 
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?

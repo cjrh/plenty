@@ -96,7 +96,7 @@ pub(super) fn reject_unsupported_hook(f: &Function) -> Result<()> {
     }
     let advice = match name {
         "__str__" | "__repr__" | "__format__" => {
-            "f-string fields call `display` and `debug` methods; define those instead (see std.fmt)"
+            "`print`, `str.repr` and f-strings call `display` and `debug` methods; define those instead (see std.fmt)"
         }
         "__pow__" | "__rpow__" | "__ipow__" => {
             "there is no `**` operator; define a `pow` method and call `base.pow(exponent)`"

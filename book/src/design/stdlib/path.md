@@ -14,12 +14,12 @@ def main() -> Result[(), AllocError | IoError]:
     base = path.from_text("data/reports")?
     child = path.from_text("2024/summary.csv")?
     full = base.join(&child)?
-    print(full.display()?, full.is_absolute())?
-    print(full.file_name()?.ok_or(IoError.InvalidInput)?.display()?)?
-    print(full.parent()?.ok_or(IoError.InvalidInput)?.display()?)?
+    print(full.to_string()?, full.is_absolute())?
+    print(full.file_name()?.ok_or(IoError.InvalidInput)?.to_string()?)?
+    print(full.parent()?.ok_or(IoError.InvalidInput)?.to_string()?)?
     print(len(full.components()?))?
     raw = path.from_bytes([110u8, 111u8, 255u8]?)
-    print(raw.display()?, raw.to_text().is_err())?
+    print(raw.to_string()?, raw.to_text().is_err())?
     Ok(())
 ```
 ```output
@@ -34,7 +34,7 @@ no\xff True
 | --- | --- |
 | `path.as_bytes()` | Shared borrow of the existing `list[u8]`; no allocation |
 | `path.to_text()` | Checked `Result[str, IoError]`; never replacement-decodes |
-| `path.display()` | Escaped ASCII `Result[str, IoError]` for diagnostics |
+| `path.to_string()` | Escaped ASCII `Result[str, IoError]` for diagnostics |
 | `path.copy()` | Detached `Result[Path, AllocError]` |
 | `path.join(&child)` | `Result[Path, IoError]`; absolute child replaces the base |
 | `path.is_absolute()` | Whether its Linux spelling begins with `/` |
@@ -49,12 +49,15 @@ existence, or change the working directory. A root has no parent or filename;
 `a` has the empty relative path as its parent. All owned output buffers are
 fallible. OS ABI details stay private.
 
-Display is explicit: `display()` preserves printable ASCII, escapes backslash
+Display is explicit: `to_string()` preserves printable ASCII, escapes backslash
 and double quote, and emits other bytes as `\xhh`. This representation keeps
 invalid UTF-8 and control bytes visible without replacement decoding; it is not
 an input parser. `to_text()` validates, while `as_bytes()` allows exact binary
-transport. Automatic record formatting is diagnostic list formatting, not a
-round-trippable filesystem spelling. Use NUL framing with
+transport. Automatic record formatting (`print(path)`, `str.repr(path)`) is
+diagnostic list formatting, not a round-trippable filesystem spelling. The
+method is `to_string()` rather than `display()` because `print` and f-strings
+call a `display` method only in its
+[formatter form](../facilities/01-builtins/formatting.md). Use NUL framing with
 [binary transport](../facilities/02-io/bytes-paths.md) when passing arbitrary Linux paths.
 
 The Rust implementation baseline is `library/std/src/path.rs`; Python's

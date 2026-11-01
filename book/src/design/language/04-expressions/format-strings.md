@@ -49,9 +49,8 @@ as with `!r`, so `{name=}` gives `name="Ada"`.
 
 ## Values and conversions
 
-Without a conversion, a field is written as `print` writes it, except that a
-class or enum with a `display` method uses that method; `print` and
-`str.repr` never call user methods:
+Without a conversion, a field is written as `print` writes it, including its
+user [formatting methods](../../facilities/01-builtins/formatting.md#user-formatting-methods):
 
 | Type | Spelling |
 | --- | --- |
@@ -60,17 +59,20 @@ class or enum with a `display` method uses that method; `print` and
 | Integers | Decimal |
 | `f32`, `f64` | Shortest round-trip, as [`str.from`](../../facilities/01-builtins/numbers.md#formatting) |
 | A class or enum with a `display` method | That method, with the depth accounting of `std.fmt.display` |
-| Anything else, including `bytes` | The [`str.repr`](../../facilities/01-builtins/formatting.md) spelling, as `print` shows aggregates and `b"..."` values |
+| A class or enum with only a `debug` method | That method |
+| Anything else, including `bytes` | The [`str.repr`](../../facilities/01-builtins/formatting.md) spelling, as `print` shows aggregates and `b"..."` values; elements with a `debug` method use it |
 
-A field calls `display` or `debug` from the module where the f-string is
-written, as a direct call there would. A private class, or a private method,
-formats in its own module. In another module, including through a generic
-function defined there, the class and the method must be public; otherwise the
-field is rejected with the ordinary private-access diagnostic.
+A field calls a top-level `display` or `debug` from the module where the
+f-string is written, as a direct call there would. A private class, or a
+private method, formats in its own module. In another module, including through
+a generic function defined there, the class and the method must be public;
+otherwise the field is rejected with the ordinary private-access diagnostic.
+Methods of aggregate elements run as `str.repr` runs them, with their own
+module's access.
 
 `!s` is the same spelling. `!r` writes `str` quoted and escaped as
 `Formatter.debug_text` does, uses a type's `debug` method when it has
-one, and otherwise the `str.repr` spelling. `!a`, like Python's `ascii()`,
+one, and otherwise the `str.repr` spelling, including element `debug` methods. `!a`, like Python's `ascii()`,
 takes the `!r` text and spells each non-ASCII scalar as `\u{hex}` with
 lowercase digits, the escape `debug_text` uses for controls:
 `f"{'café'!a}"` is `"caf\u{e9}"`, which is also a valid string literal. Python spells the same escapes `\xe9`,

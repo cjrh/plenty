@@ -218,8 +218,11 @@ appear in diagnostics.
   decision, and the meaning of a method named `format`, belong to the std
   conventions page (rule 7); this rule only fixes which hook core
   formatting calls.
-- Recursion and budgets are unchanged: aggregates enter `std.fmt`'s depth
-  limit as f-strings already do.
+- Automatic formatting still rejects recursive types. Each user method an
+  aggregate element calls gets its own `std.fmt` formatter with a fresh depth
+  of 32 and no byte budget of its own; the methods do not share one depth
+  count across the aggregate. The `print` or `str.repr` buffer grows with
+  checked allocation as before.
 
 ### What a learner no longer has to learn
 

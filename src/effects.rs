@@ -138,6 +138,7 @@ impl CollectionOp {
         match self {
             Filesystem(op) => op.effect(),
             Stream(op) => op.effect(),
+            Formatted(formatted) => formatted.operation.effect(),
             Process(op) => op.effect(),
             Sqlite(op) => op.effect(),
             Tls(op) => op.effect(),

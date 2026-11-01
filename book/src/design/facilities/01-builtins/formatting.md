@@ -19,17 +19,76 @@ use a checked formatting buffer, even when all arguments are strings.
 
 Print rejects a direct or borrowed Result in any argument: handle it first, or intentionally
 format the wrapper with `str.repr(result)` and handle that formatting Result.
-Option and printable aggregates containing Results are allowed. Neither operation
-invokes user-defined formatting methods. Their Results must be handled or explicitly
-dropped, following the [error rules](../../language/08-errors/index.md).
+Option and printable aggregates containing Results are allowed. Their Results
+must be handled or explicitly dropped, following the
+[error rules](../../language/08-errors/index.md).
+
+## User formatting methods
+
+`print`, `str.repr` and f-strings share one formatting path. A class or enum
+controls its spelling with two methods that write to a `std.fmt.Formatter`:
+
+- `display` writes the text `print(x)` and `f"{x}"` produce at the top level;
+- `debug` writes the text `str.repr(x)` and `f"{x!r}"` produce, and the
+  spelling of `x` as an element of any formatted aggregate.
+
+A type without `display` uses its `debug`; a type without `debug` uses its
+structure. Strings are raw at the top level and quoted inside aggregates, so
+`print(["a"])` writes `["a"]`.
+
+```plenty
+from std.fmt import Formatter, FormatError
+
+class P:
+    n: i64
+
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.format(f"<{self.n}>")
+
+    def debug[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.format(f"P#{self.n}")
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    p = P(3)
+    print(p)?
+    print(str.repr(p)?)?
+    print([P(3)]?)?
+    print(f"{p} {p!r}"?)?
+    Ok(())
+```
+
+```output
+<3>
+P#3
+[P#3]
+<3> P#3
+```
+
+When a value's type, or any type it holds, has one of these methods, the
+method can fail, so the operation's error widens with `std.fmt.FormatError`:
+`print` returns `Result[(), IoError | FormatError]` and `str.repr` returns
+`Result[str, AllocError | FormatError]`. Other values keep the narrower types.
+A method's error is returned unchanged and nothing is printed. The method
+runs with no byte budget beyond the operation's own and the nesting depth of
+an f-string field (32); a private type's method runs with its own module's
+access, so an aggregate holding another module's private type still formats.
+
+`display` and `debug` are reserved for this form. Formatting a type whose
+method of either name has another signature is a compile error that names
+the type, the method and the required signature; rename the method if it
+serves another purpose. `std.log.Logger` (a `debug` that logs) and
+`std.cli.Progress` (a `display` that draws) are such types, so they cannot be
+printed.
+
+`main`'s error report and runtime trap messages do not call these methods;
+they use structure (issue #634).
 
 [f-strings](../../language/04-expressions/format-strings.md) build a `str`
 from fields, with Python format specs checked at compile time. A field without
-a spec uses the same spelling as `print`, except that a field of a class or
-enum with a `display` method calls it.
+a spec uses the same spelling as `print`.
 
 A [`@redacted`](../../language/03-types/classes.md#redacted-types) class or
-enum formats as its type name followed by `(@redacted)` in `str.repr`, `print`,
+enum without the method in use formats as its type name followed by `(@redacted)` in `str.repr`, `print`,
 f-string fields with any conversion or spec, and `main`'s error report, at any
 nesting depth. The marker uses the same checked buffer as ordinary formatting.
 

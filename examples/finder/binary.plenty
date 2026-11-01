@@ -111,7 +111,7 @@ def advance(walker: &mut fs.Walk) -> Result[bool, IoError]:
                     write_stderr("finder: ")?
                     write_stderr(operation)?
                     write_stderr(" \"")?
-                    write_stderr(at.display()?)?
+                    write_stderr(at.to_string()?)?
                     write_stderr("\"\n")?
                     Err(cause)
                 case fs.WalkError.Allocation(cause):

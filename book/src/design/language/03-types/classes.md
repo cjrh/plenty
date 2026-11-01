@@ -43,8 +43,9 @@ such as `__add__` and `__neg__`, compiled as direct method calls. Any other
 [rejected](../04-expressions/operators.md#reserved-method-names), so Python
 special methods such as `__str__` and `__len__` cannot be silently ignored.
 
-Class identity is nominal. Structural equality compares fields and printing uses
-`Point(x=3, y=4)`; neither invokes user-defined methods. Comparison and hashing
+Class identity is nominal. Structural equality compares fields without calling
+user methods. Printing uses `Point(x=3, y=4)` unless the class defines
+[`display` or `debug`](../../facilities/01-builtins/formatting.md#user-formatting-methods). Comparison and hashing
 hooks such as `__eq__`, `__lt__` and `__hash__` are rejected; see
 [equality, ordering and hashing](../04-expressions/operators.md#equality-ordering-and-hashing).
 Automatic equality and formatting reject recursive data. Instance moves, field access, and explicit
@@ -204,7 +205,8 @@ The rules:
   `ApiKey(@redacted)`; there is no conversion that reveals the contents. Padding and
   alignment apply to the marker.
 - Explicit formatting is unaffected: a `display` or `debug` method the
-  type defines still formats its f-string fields, and a
+  type defines is used by `print`, `str.repr` and f-strings as for any other
+  type, and a
   [`std.report`](../../stdlib/report.md) `Formattable` implementation still
   writes what it chooses.
 - Field access, equality, hashing, ordering, matching, moves, and layout are

@@ -431,6 +431,10 @@ fn inspect(
             if let crate::collection::CollectionOp::ListSortBy(sort) = op {
                 calls.push(sort.key_of.clone());
             }
+            // The runtime calls these formatting methods through adapters.
+            if let crate::collection::CollectionOp::Formatted(formatted) = op {
+                calls.extend(formatted.hooks.iter().map(|hook| hook.function.clone()));
+            }
             if let Some(reason) = op.effect().worker_denial() {
                 error = Some(reason);
             }
@@ -616,6 +620,11 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
         }
         Op::Collection(crate::collection::CollectionOp::ListSortBy(sort)) => {
             require(&sort.key_of);
+        }
+        Op::Collection(crate::collection::CollectionOp::Formatted(formatted)) => {
+            for hook in &formatted.hooks {
+                require(&hook.function);
+            }
         }
         Op::Class(crate::record::ClassOp::ArmDrop(t)) => {
             if let Some(destructor) = &t.get().destructor {

@@ -744,6 +744,31 @@ impl Lowerer<'_, '_> {
             self.stack.push((result, output));
             return Ok(());
         }
+        let formatted = match operation {
+            CollectionOp::Formatted(formatted) => Some(formatted.clone()),
+            _ => None,
+        };
+        let operation = formatted.as_ref().map_or(operation, |f| &f.operation);
+        // A method's error goes to this cell; see `Formatted`.
+        let cell = formatted.as_ref().map(|_| {
+            let slot = self
+                .bcx
+                .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    16,
+                    4,
+                ));
+            let address = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+            let zero = self.bcx.ins().iconst(types::I64, 0);
+            let zero = self.bcx.ins().uextend(types::I128, zero);
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                zero,
+                address,
+                0,
+            );
+            address
+        });
         let (inputs, output) = operation.signature();
         // With only text and scalar operands, the dispatcher runs no Plenty
         // code and reads the texts without keeping them, so a text copy that
@@ -781,8 +806,15 @@ impl Lowerer<'_, '_> {
                 );
             }
             let metadata = crate::sum::tuple(types.clone());
-            let result = self.collection_call(operation.opcode(), &[address], Some(&metadata))?;
+            let arguments: Vec<_> = std::iter::once(address).chain(cell).collect();
+            let result = self.collection_call(operation.opcode(), &arguments, Some(&metadata))?;
             let result = self.unpack(result, &output);
+            let (result, output) = match (&formatted, cell) {
+                (Some(formatted), Some(cell)) => {
+                    self.formatted_result(formatted, result, &output, cell)
+                }
+                _ => (result, output),
+            };
             for ((value, ty), held) in values.iter().zip(&inputs).zip(held) {
                 if !held {
                     self.release(*value, ty);
@@ -871,8 +903,15 @@ impl Lowerer<'_, '_> {
         } else {
             None
         };
+        arguments.extend(cell);
         let result = self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?;
         let result = self.unpack(result, &output);
+        let (result, output) = match (&formatted, cell) {
+            (Some(formatted), Some(cell)) => {
+                self.formatted_result(formatted, result, &output, cell)
+            }
+            _ => (result, output),
+        };
         // An affine element read is a retained view into the borrowed
         // collection. Copying its storage would split the instance in two.
         let result = if matches!(operation, CollectionOp::Get(_)) && output.affine() {
@@ -893,6 +932,38 @@ impl Lowerer<'_, '_> {
         }
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// The `Result` of a formatting operation whose methods may fail: the
+    /// method's error from `cell` if one failed, otherwise the runtime's
+    /// `result` with its error widened. On failure the runtime's result owns
+    /// nothing.
+    fn formatted_result(
+        &mut self,
+        formatted: &crate::collection::Formatted,
+        result: cranelift_codegen::ir::Value,
+        output: &Ty,
+        cell: cranelift_codegen::ir::Value,
+    ) -> (cranelift_codegen::ir::Value, Ty) {
+        let widened = formatted.widen(output);
+        let Ty::Enum(sum) = output else {
+            unreachable!("formatting returns a Result")
+        };
+        let success = sum.get().variants[0].fields[0].clone();
+        let ok = self.widen_sum(result, output, &widened);
+        let error = self.bcx.ins().load(
+            types::I128,
+            cranelift_codegen::ir::MemFlagsData::trusted(),
+            cell,
+            0,
+        );
+        // The adapter's `Result[str, FormatError]`; an `Err` is laid out the
+        // same whatever the success type.
+        let method = crate::sum::result(success, formatted.error.clone());
+        let failed = self.sum_tag(error);
+        let error = self.widen_sum(error, &method, &widened);
+        let value = self.bcx.ins().select(failed, error, ok);
+        (value, widened)
     }
 
     fn lower_clist(&mut self, op: &crate::clist::ClistOp) -> Result<()> {

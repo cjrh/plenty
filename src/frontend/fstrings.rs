@@ -1143,6 +1143,188 @@ impl Lower<'_> {
         self.generics.templates.contains_key(&symbol) || self.sigs.contains_key(&symbol)
     }
 
+    /// Whether `ty` has a formatting method `name`, rejecting one without the
+    /// signature formatting calls: lookup is by name only, so a `display` or
+    /// `debug` with another purpose cannot be formatted with.
+    fn formats_with(&self, ty: &Ty, name: &str, at: &Token) -> Result<bool> {
+        if !self.has_method(ty, name) {
+            return Ok(false);
+        }
+        let owner = match ty {
+            Ty::Class(class) => &class.name,
+            Ty::Enum(sum) => &sum.name,
+            _ => unreachable!(),
+        };
+        let symbol = crate::record::method(owner, name);
+        let last = |t: &TypeRef| {
+            t.name
+                .as_deref()
+                .map(|n| n.rsplit('.').next().unwrap_or(n).to_owned())
+        };
+        let valid = if let Some(template) = self.generics.templates.get(&symbol) {
+            template.inputs.len() == 2
+                && template.inputs[1].1.name.as_deref() == Some("&mut")
+                && template.inputs[1]
+                    .1
+                    .args
+                    .first()
+                    .is_some_and(|t| last(t).as_deref() == Some("Formatter"))
+                && last(&template.output).as_deref() == Some("Result")
+        } else {
+            let sig = &self.sigs[&symbol];
+            sig.inputs.len() == 2
+                && matches!(&sig.inputs[1].1, t @ Ty::Ref(_, true) if formatter(t).is_some())
+                && matches!(sig.outputs.first(), Some(Ty::Enum(t)) if t.is_result())
+        };
+        if valid {
+            return Ok(true);
+        }
+        Err(at.error(format!(
+            "cannot format `{ty}`: formatting calls its `{name}` method, which must be `def {name}[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]`; rename the method if it has another purpose"
+        )))
+    }
+
+    /// The types whose methods formatting `ty` automatically runs, with
+    /// whether each is the top-level `display` (only with `top_display`, as
+    /// for `print`) rather than a `debug`. A type's own method replaces its
+    /// structure, so the walk stops there.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn hooked_types(&self, ty: &Ty, top_display: bool, at: &Token) -> Result<Vec<(Ty, bool)>> {
+        let ty = referent(ty);
+        let mut hooked = Vec::new();
+        if top_display && self.formats_with(ty, "display", at)? {
+            return Ok(vec![(ty.clone(), true)]);
+        }
+        let mut seen = HashSet::default();
+        self.debug_types(ty, &mut seen, &mut hooked, at)?;
+        Ok(hooked)
+    }
+
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn debug_types(
+        &self,
+        ty: &Ty,
+        seen: &mut HashSet<Ty>,
+        hooked: &mut Vec<(Ty, bool)>,
+        at: &Token,
+    ) -> Result<()> {
+        if !seen.insert(ty.clone()) {
+            return Ok(());
+        }
+        let children: Vec<Ty> = match ty {
+            Ty::Class(_) | Ty::Enum(_) if self.formats_with(ty, "debug", at)? => {
+                hooked.push((ty.clone(), false));
+                return Ok(());
+            }
+            Ty::Class(class) => {
+                let class = class.get();
+                if class.redacted {
+                    return Ok(());
+                }
+                class.fields.iter().map(|(_, t)| t.clone()).collect()
+            }
+            Ty::Enum(sum) => {
+                let sum = sum.get();
+                if sum.redacted {
+                    return Ok(());
+                }
+                sum.variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().cloned())
+                    .collect()
+            }
+            Ty::List(t) | Ty::Set(t) | Ty::Box(t) | Ty::Ref(t, _) | Ty::View(t, _) => {
+                vec![(**t).clone()]
+            }
+            Ty::Dict(k, v) => vec![(**k).clone(), (**v).clone()],
+            _ => return Ok(()),
+        };
+        for child in children {
+            self.debug_types(&child, seen, hooked, at)?;
+        }
+        Ok(())
+    }
+
+    /// The hook calling `ty`'s formatting method. A `top` value's method is
+    /// called with the access of `at`, as `f"{x}"` calls it. An element's
+    /// method runs as if called where it is declared: the runtime formats any
+    /// type's structure, so an aggregate holding another module's private type
+    /// still prints.
+    fn format_hook(
+        &mut self,
+        ty: &Ty,
+        display: bool,
+        top: bool,
+        at: &Token,
+    ) -> Result<crate::collection::FormatHook> {
+        let method = if display { "display" } else { "debug" };
+        let owner = match ty {
+            Ty::Class(class) => &class.name,
+            Ty::Enum(sum) => &sum.name,
+            _ => unreachable!("only classes and enums have formatting methods"),
+        };
+        let site = match self
+            .generics
+            .templates
+            .get(&crate::record::method(owner, method))
+        {
+            Some(template) if !top => template.at.clone(),
+            _ => at.clone(),
+        };
+        let caller = self.method_caller(method, false, &site)?;
+        let function = self.specialize(&caller, vec![ty.clone()], &site)?;
+        Ok(crate::collection::FormatHook {
+            ty: ty.clone(),
+            display,
+            function,
+        })
+    }
+
+    /// `operation`, run with the formatting methods `ty` needs.
+    pub(super) fn formatted(
+        &mut self,
+        operation: CollectionOp,
+        types: &[Ty],
+        top_display: bool,
+        at: &Token,
+    ) -> Result<CollectionOp> {
+        self.sync_data()?;
+        let mut hooked = Vec::new();
+        for ty in types {
+            for found in self.hooked_types(ty, top_display, at)? {
+                if !hooked.contains(&found) {
+                    hooked.push(found);
+                }
+            }
+        }
+        let tops: Vec<&Ty> = types.iter().map(referent).collect();
+        let hooks = hooked
+            .iter()
+            .map(|(ty, display)| self.format_hook(ty, *display, tops.contains(&ty), at))
+            .collect::<Result<Vec<_>>>()?;
+        if hooks.is_empty() {
+            return Ok(operation);
+        }
+        // Each hook returns `Result[str, FormatError]`.
+        let error = match self.sigs[&hooks[0].function].outputs.first() {
+            Some(Ty::Enum(result)) => result.get().variants[1].fields[0].clone(),
+            _ => unreachable!("formatting hooks return a Result"),
+        };
+        Ok(CollectionOp::Formatted(Arc::new(
+            crate::collection::Formatted {
+                operation,
+                hooks,
+                error,
+            },
+        )))
+    }
+
     /// A generated parameter `&T` with any further reference levels of `T`
     /// removed, and `T` itself. A `&[T]` parameter is the view itself.
     fn field_value(&self, value: &Expr, at: &Token) -> (Expr, Ty) {
@@ -1183,11 +1365,7 @@ impl Lower<'_> {
             Some(FieldSpec::Static(spec)) => Some(spec.clone()),
             Some(FieldSpec::Nested(text, spec_at)) => Some(parse_spec(text, spec_at, &kinds)?),
         };
-        let wanted = if matches!(field.conversion, Conversion::Repr | Conversion::Ascii) {
-            "debug"
-        } else {
-            "display"
-        };
+        let debug = matches!(field.conversion, Conversion::Repr | Conversion::Ascii);
         if ty.facts().shared {
             return Err(at.error(super::shared::FORMAT));
         }
@@ -1200,6 +1378,16 @@ impl Lower<'_> {
         // `NonZero[T]` formats as its integer.
         let nonzero = ty.nonzero_element().is_some();
         let ty = ty.nonzero_element().unwrap_or(ty);
+        // A generic type's instance methods exist once its data is expanded.
+        self.sync_data()?;
+        // A type without `display` formats with its `debug`.
+        let wanted = if !debug && self.formats_with(&ty, "display", at)? {
+            Some("display")
+        } else if self.formats_with(&ty, "debug", at)? {
+            Some("debug")
+        } else {
+            None
+        };
         let category = match &ty {
             Ty::Str => Category::Text,
             Ty::Bool => Category::Bool,
@@ -1207,14 +1395,20 @@ impl Lower<'_> {
             t if t.is_int() => Category::Unsigned,
             Ty::F32 => Category::Float(true),
             Ty::F64 => Category::Float(false),
-            t if self.has_method(t, wanted) => Category::Method,
+            _ if wanted.is_some() => Category::Method,
             _ => Category::Repr,
         };
+        let wanted = wanted.unwrap_or("debug");
+        // The spelling of a value whose `str.repr` runs a `debug` method can
+        // fail with that method's error, which the hooked forms return.
+        let hooked =
+            matches!(category, Category::Repr) && !self.hooked_types(&ty, false, at)?.is_empty();
         let (represent, repr_string) = if matches!(ty, Ty::View(..)) {
             ("represent_view", "repr_view_string")
         } else {
             ("represent", "repr_string")
         };
+        let spelled = || method(at, name(at, "str"), "repr", vec![value.clone()]);
         let out = name(at, OUT);
         let out_mut = || unary(at, "&mut", name(at, OUT));
         let temporary =
@@ -1242,6 +1436,7 @@ impl Lower<'_> {
                     let args = std::iter::once(value).chain(budget()).collect();
                     unary(at, "&", try_(call(at, &caller, args)))
                 }
+                _ if hooked => temporary("repr_result", vec![spelled()]),
                 _ => temporary(repr_string, vec![value]),
             };
             return Ok(match &spec {
@@ -1316,6 +1511,7 @@ impl Lower<'_> {
                     let caller = self.method_caller(wanted, true, at)?;
                     call(at, &caller, vec![value, out_mut()])
                 }
+                Category::Repr if hooked => call(at, &fmt("repr_text"), vec![spelled(), out_mut()]),
                 Category::Repr => call(at, &fmt(represent), vec![value, out_mut()]),
             });
         };
@@ -1365,6 +1561,7 @@ impl Lower<'_> {
                 let args = std::iter::once(value).chain(budget()).collect();
                 padded(unary(at, "&", try_(call(at, &caller, args))), spec)
             }
+            Category::Repr if hooked => padded(temporary("repr_result", vec![spelled()]), spec),
             Category::Repr => padded(temporary(repr_string, vec![value]), spec),
         })
     }
@@ -1544,4 +1741,13 @@ fn format_function(
         doc_at: None,
         body,
     }
+}
+
+/// `ty` without its reference levels: formatting a reference formats its
+/// referent.
+fn referent(mut ty: &Ty) -> &Ty {
+    while let Ty::Ref(inner, _) = ty {
+        ty = inner;
+    }
+    ty
 }

@@ -72,7 +72,17 @@ pub(crate) struct Type {
     /// A wrapper that renders as its field alone: `std.bytes.Bytes` prints
     /// as a byte literal. See book/src/design/stdlib/bytes.md#printing.
     pub(crate) transparent: bool,
+    /// The adapter calling the type's `debug` method, which `print` and
+    /// `str.repr` use for this type inside an aggregate. See
+    /// book/src/design/facilities/01-builtins/formatting.md.
+    pub(crate) debug: Option<Format>,
+    /// The adapter calling the type's `display` method, which `print` uses
+    /// for a top-level argument of this type.
+    pub(crate) display: Option<Format>,
 }
+/// A formatting adapter: it takes a reference to the value, as Plenty code
+/// passes one, and stores the method's `Result[str, FormatError]`.
+pub(crate) type Format = unsafe extern "C" fn(*const u128, *mut u128);
 /// What releasing and moving a class record involves, precomputed from its
 /// field types. Mirrors `codegen::metadata::plan`.
 #[repr(C)]
@@ -89,7 +99,9 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 88);
+    assert!(size_of::<Type>() == 104);
+    assert!(std::mem::offset_of!(Type, debug) == 88);
+    assert!(std::mem::offset_of!(Type, display) == 96);
     assert!(std::mem::offset_of!(Type, plan) == 72);
     assert!(std::mem::offset_of!(Type, redacted) == 80);
     assert!(std::mem::offset_of!(Type, transparent) == 81);
@@ -1652,8 +1664,73 @@ unsafe fn render_fields(
     out.push(b')');
 }
 
+/// Append the text a formatting adapter makes for `value`, or record its
+/// error. The adapter takes a reference, as Plenty code passes one: the
+/// address of a slot holding the value, followed by the value's inline
+/// storage if it has any. A flat class's record is its value, so the 16
+/// bytes before it serve as the slot; any other value is copied into such a
+/// slot here, which is enough for a method that only reads it.
+unsafe fn format(adapter: Format, value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer) {
+    const STACK_WORDS: usize = 32;
+    let mut stack = [0u128; STACK_WORDS];
+    let mut heap = Vec::new();
+    let reference = if ty.flat_field() {
+        (value as u64 as *const u128).wrapping_sub(1)
+    } else {
+        let storage = value as u64 as *const u8;
+        let inline = if storage.is_null() {
+            0
+        } else {
+            ty.inline_bytes as usize
+        };
+        let words = 1 + inline.div_ceil(16);
+        let slot: &mut [u128] = if words <= STACK_WORDS {
+            &mut stack[..words]
+        } else {
+            if heap.try_reserve_exact(words).is_err() {
+                out.fail_alloc(crate::memory::AllocError::OutOfMemory);
+                return;
+            }
+            heap.resize(words, 0u128);
+            &mut heap
+        };
+        if inline == 0 {
+            slot[0] = value;
+        } else {
+            // SAFETY: a value with inline storage addresses `inline` bytes,
+            // which stay borrowed for the call.
+            unsafe {
+                std::ptr::copy_nonoverlapping(storage, slot[1..].as_mut_ptr().cast::<u8>(), inline)
+            };
+            let copy = slot[1..].as_ptr() as u64 as u128;
+            slot[0] = (value & !(u64::MAX as u128)) | copy;
+        }
+        slot.as_ptr()
+    };
+    let mut result = 0u128;
+    // SAFETY: the compiler emits the adapter for this type's values; the
+    // value stays borrowed for the call.
+    unsafe { adapter(reference, &raw mut result) };
+    // `Result[str, FormatError]`: the tag is the high word's low bit.
+    if (result >> 64) & 1 == 0 {
+        let text = result as u64 as *mut Text;
+        unsafe {
+            out.extend_from_slice(strings::bytes(&(text as *const Text)));
+            strings::release_leaf(text);
+        }
+    } else {
+        out.fail_hook(result);
+    }
+}
+
 unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer) {
     if out.failed() {
+        return;
+    }
+    if let Some(debug) = ty.debug
+        && out.hooks()
+    {
+        unsafe { format(debug, value, ty, out) };
         return;
     }
     if ty.redacted {
@@ -2390,7 +2467,16 @@ pub(crate) unsafe fn collection_at(
                             .map_err(crate::text_io::Error::from),
                     );
                 }
-                let mut out = crate::render_buffer::Buffer::default();
+                // With formatting adapters, `b` is the cell for a method's
+                // error, and the compiler reads the result from it on failure.
+                let mut out = crate::render_buffer::Buffer::hooked(b as *mut u128);
+                // A top-level `print` argument uses its type's `display`.
+                let top = |value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer| match ty
+                    .display
+                {
+                    Some(display) if op != 110 && out.hooks() => format(display, value, ty, out),
+                    _ => render(value, ty, out),
+                };
                 if op == 166 {
                     let ty = &*descriptor;
                     let mut item = |i: usize, value: u128, field: &Type| {
@@ -2402,14 +2488,17 @@ pub(crate) unsafe fn collection_at(
                         } else if field.kind == b't' {
                             out.extend_from_slice(text_views::bytes(value));
                         } else {
-                            render(value, field, &mut out);
+                            top(value, field, &mut out);
                         }
                     };
                     for (i, field) in ty.variants[0].fields.iter().enumerate() {
                         item(i, (a as *const u128).add(i).read(), field);
                     }
                 } else {
-                    render(a, &*descriptor, &mut out);
+                    top(a, &*descriptor, &mut out);
+                }
+                if out.hook_failed() {
+                    return 0;
                 }
                 if op == 111 || op == 166 {
                     out.push(b'\n');

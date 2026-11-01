@@ -27,7 +27,7 @@ def run() -> Result[i32, AllocError | IoError | CliError]:
                     case Value.Path(path):
                         match path_context(read_bytes(path.as_bytes()), "read", path):
                             case Ok(bytes):
-                                print(len(bytes), path.display()?)?
+                                print(len(bytes), path.to_string()?)?
                                 total += len(bytes)
                             case Err(error):
                                 error.report()

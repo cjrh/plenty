@@ -25,6 +25,9 @@ count=  12, label="one\ntwo"
 
 Your type chooses separate display and debug methods. Both can be generic over
 the output writer; callers need no trait object or format-string parser.
+`print` and `f"{x}"` call `display`; `str.repr`, `f"{x!r}"` and the elements
+of a printed list or other aggregate call `debug`. `std.fmt.to_string` and
+`to_debug` call the same methods within a byte budget and depth you choose.
 
 ```plenty
 import std.fmt
@@ -43,7 +46,9 @@ pub class Label:
 
 def main() -> Result[(), AllocError | IoError | FormatError]:
     label = Label("ready")
-    print(std.fmt.to_string(&label, 80, 8)?)?
+    print(label)?
+    print(str.repr(label)?)?
+    print([Label("a"), Label("b")]?)?
     print(std.fmt.to_debug(&label, 80, 8)?)?
     Ok(())
 ```
@@ -51,7 +56,14 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
 ```output
 ready
 Label("ready")
+[Label("a"), Label("b")]
+Label("ready")
 ```
+
+Because these methods can fail, printing such a value returns
+`Result[(), IoError | FormatError]`, and `str.repr` adds `FormatError` to
+`AllocError`. A type without `display` prints with its `debug`; one without
+either prints its fields.
 
 Enums use the same methods. Match the shared receiver to format a payload
 without consuming it:
@@ -74,7 +86,7 @@ pub enum ReadError:
 
 def main() -> Result[(), FormatError | IoError]:
     error = ReadError.Invalid(12)
-    print(std.fmt.to_string(&error, 80, 8)?)?
+    print(error)?
     print(std.fmt.to_string(&error, 80, 8)?)?
     Ok(())
 ```
@@ -84,7 +96,7 @@ invalid reading on line 12
 invalid reading on line 12
 ```
 
-`std.fmt` calls this method explicitly. Returning the enum from `main` still
+Returning the enum from `main` does not call the method yet: the report still
 uses the [structural entrypoint report](../../design/toolchain/01-building/entry-report.md).
 
 Inside such a method, `out.format(f"...")` writes an f-string straight to the

@@ -87,6 +87,7 @@ mod executors;
 mod exits;
 mod exports;
 mod foreign;
+mod formatting;
 mod generators;
 mod induction;
 mod inline;
@@ -764,6 +765,8 @@ fn object_module(
         executors::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
     let sorts =
         sorting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.sort_adapters)?;
+    let formats =
+        formatting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.format_hooks)?;
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between
@@ -825,6 +828,7 @@ fn object_module(
                 .map(|(job, id)| Job::Executor(job, id)),
         )
         .chain(sorts.into_iter().map(|(sort, id)| Job::Sort(sort, id)))
+        .chain(formats.into_iter().map(|(hook, id)| Job::Format(hook, id)))
         .chain(
             bodies
                 .into_iter()
@@ -846,6 +850,9 @@ fn object_module(
             }
             Job::Sort(sort, id) => {
                 sorting::build_adapter(&sort, id, fns, str_data, eof_empty_str, runtime, worker)
+            }
+            Job::Format(hook, id) => {
+                formatting::build_adapter(&hook, id, fns, str_data, eof_empty_str, runtime, worker)
             }
             Job::Function(name, body) => {
                 build_user_function(&name, &body, fns, str_data, eof_empty_str, runtime, worker)
@@ -872,6 +879,7 @@ enum Job {
     Thread(Arc<crate::threading::Task>, FuncId),
     Executor(Arc<crate::executor::Job>, FuncId),
     Sort(Arc<crate::collection::KeySort>, FuncId),
+    Format(crate::collection::FormatHook, FuncId),
     /// A user function, with its drop callback or, for a generator, its
     /// resume function.
     Function(String, Arc<[Op]>),
@@ -1032,6 +1040,9 @@ struct Runtime {
     text_find_in: FuncId,
     /// Generated key-sort comparators, by adapter name.
     sort_adapters: HashMap<String, FuncId>,
+    /// Formatting adapters, by type and whether they call `display` rather
+    /// than `debug`; the type metadata links them.
+    format_hooks: HashMap<(Ty, bool), FuncId>,
     channel: FuncId,
     control: FuncId,
     executor: FuncId,
@@ -1382,6 +1393,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I64),
         )?,
         sort_adapters: Default::default(),
+        format_hooks: Default::default(),
         print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
         print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
         print_i32: one_arg(module, "plenty_print_i32", types::I32)?,

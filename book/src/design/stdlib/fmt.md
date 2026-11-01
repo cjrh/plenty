@@ -120,6 +120,10 @@ so `represent_view(v, &mut out)` and `repr_view_string(v)` do the same for a
 `&[T]`; f-strings call them for view fields. For a `&substr`, f-strings call
 `substr`, `substr_spec(v, &spec)` (the `text_spec` options), and
 `repr_substr_string(v)`, the `debug_substr` spelling as a fallible string.
+When a field's `str.repr` spelling runs a `debug` method, the f-string calls
+`str.repr` at its own site and passes the result to `repr_text(spelled, &mut
+out)` or `repr_result(spelled)`, which turn `AllocError | FormatError` into a
+`FormatError`.
 
 f-strings check the values of a spec's nested fields with three functions, each
 returning `InvalidSpec` for a value the spec cannot take: `spec_align(&align)`
@@ -146,8 +150,11 @@ signatures, moves, conflicting loans and worker effects get ordinary compiler
 diagnostics. `to_string`/`to_debug` use these user methods; primitive scalars use
 the explicit methods in the table instead of acquiring hidden methods.
 An enum method can match its borrowed receiver to render the active payload.
-These methods do not change builtin printing or entrypoint error reports, and
-anonymous sums do not automatically forward them to members.
+`print`, `str.repr` and f-strings call the same methods, as
+[user formatting methods](../facilities/01-builtins/formatting.md#user-formatting-methods)
+describe; each call there starts a fresh depth of 32. Entrypoint error reports
+do not call them, and anonymous sums do not automatically forward them to
+members.
 
 `list_with(&values, &mut out, render)` writes `[a, b]` using a statically typed
 callback `(&T, &mut Formatter[W]) -> Result[(), FormatError]` for each borrowed

@@ -12,6 +12,53 @@ pub struct KeySetOperation {
     pub opcode: i64,
 }
 
+/// `print` or `str.repr` of a value whose formatting runs user methods: a
+/// top-level `print` argument's `display`, or the `debug` of a type inside
+/// the value. The runtime calls one generated adapter per hook through the
+/// type's metadata and stops at the first error, which the operation
+/// returns. See book/src/design/facilities/01-builtins/formatting.md.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Formatted {
+    /// `FormatValue`, `TryPrint`, or `TryPrintMany`.
+    pub operation: CollectionOp,
+    pub hooks: Vec<FormatHook>,
+    /// `std.fmt.FormatError`, which widens the operation's error.
+    pub error: Ty,
+}
+
+/// A generated function `(value: &T, max_bytes: i64, max_depth: i64) ->
+/// Result[str, FormatError]` calling `T`'s `display` or `debug` method.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormatHook {
+    pub ty: Ty,
+    pub display: bool,
+    pub function: String,
+}
+
+impl Formatted {
+    /// `Result[T, E | FormatError]` for the operation's `Result[T, E]`.
+    pub fn widen(&self, output: &Ty) -> Ty {
+        let Ty::Enum(result) = output else {
+            unreachable!("formatting returns a Result")
+        };
+        let result = result.get();
+        crate::sum::result(
+            result.variants[0].fields[0].clone(),
+            crate::sum::anonymous(vec![
+                result.variants[1].fields[0].clone(),
+                self.error.clone(),
+            ]),
+        )
+    }
+}
+
+impl FormatHook {
+    /// The native adapter the runtime calls; see `codegen::formatting`.
+    pub fn adapter(&self) -> String {
+        format!("{}_adapter", self.function)
+    }
+}
+
 /// A key sort the runtime drives. It calls `adapter`, a generated native
 /// comparator, with the callback reference and two borrowed rows; the adapter
 /// calls `key_of` once per row and compares the keys in the total sort order.
@@ -165,6 +212,7 @@ pub enum CollectionOp {
     FormatValue(Ty),
     TryPrint(Ty),
     TryPrintMany(Vec<Ty>),
+    Formatted(Arc<Formatted>),
     ListUnpack(Ty),
     /// Reports the error `main` returned on stderr, consumes it, and yields
     /// the process status.
@@ -366,6 +414,10 @@ impl CollectionOp {
         use CollectionOp::*;
         match self {
             Clist(op) => op.signature(),
+            Formatted(formatted) => {
+                let (inputs, output) = formatted.operation.signature();
+                (inputs, formatted.widen(&output))
+            }
             KeyView(t) => {
                 let Ty::Dict(key, _) = t else { unreachable!() };
                 (
@@ -825,6 +877,7 @@ impl CollectionOp {
     pub fn opcode(&self) -> i64 {
         match self {
             Self::Clist(op) => op.opcode(),
+            Self::Formatted(formatted) => formatted.operation.opcode(),
             Self::Filesystem(op) => op.opcode(),
             Self::Bytes(op) => op.opcode(),
             Self::Stream(op) => op.opcode(),

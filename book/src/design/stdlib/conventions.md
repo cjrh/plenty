@@ -59,13 +59,15 @@ not add it.
 | `to_string()` | Canonical text of a structured value, as an owned `str` |
 | `encode` / `encode_text` | Serialize to `Bytes` / to `str` |
 | `describe()` | One-line error description as `Result[str, AllocError]` |
-| `display[W](self, out)` | Write to a `std.fmt.Formatter[W]`; f-string fields call it |
+| `display[W](self, out)` | Write to a `std.fmt.Formatter[W]`; `print` and f-string fields call it |
+| `debug[W](self, out)` | Write a diagnostic form; `str.repr`, `!r` and aggregate elements call it |
 | `format(self, output)` | Write to a `std.report.Formatter`; the `Formattable` protocol for reports |
 
 `format` is reserved for the formatter protocol. `Url`, `MediaType`,
-`SocketAddress` and `SetCookie` instead have `format() -> Result[str, E]`, and
-`Path.display()` returns an escaped `str` rather than writing to a formatter
-(issue #634). See [Formatting](#formatting).
+`SocketAddress` and `SetCookie` instead have `format() -> Result[str, E]`
+(issue #634). `display` and `debug` are reserved for the formatter form:
+formatting a type whose method of either name has another signature is a
+compile error. See [Formatting](#formatting).
 
 A `_text` suffix names the `str` form of an operation whose main form takes
 bytes (`parse_text`, `encode_text`, `from_text`). A `_bytes` suffix names the
@@ -277,7 +279,14 @@ they are one family:
 - an error that renders into a report implements `format(self, output)`
   against `std.report.Formatter`;
 - an owned canonical string is `to_string() -> Result[str, E]`;
-- `print` and `str.repr` do not call `display` (issue #615).
+- `print` and f-strings call `display`; `str.repr`, `!r` and elements of
+  formatted aggregates call `debug`. A type without `display` uses its
+  `debug`, and one without `debug` uses its structure. When a user method can
+  run, `print` returns `Result[(), IoError | FormatError]` and `str.repr`
+  returns `Result[str, AllocError | FormatError]`. See
+  [formatting](../facilities/01-builtins/formatting.md).
+- `std.log.Logger.debug` and `std.cli.Progress.display` have other
+  signatures, so `print` rejects those types; call their methods instead.
 
 ## Deviations
 
