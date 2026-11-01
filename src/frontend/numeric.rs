@@ -199,6 +199,24 @@ impl Lower<'_> {
         Ok(Ty::Bool)
     }
 
+    pub(super) fn float_bits_call(
+        &mut self,
+        operation: crate::numeric::FloatBits,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [argument] = args else {
+            return Err(at.error("float representation conversion takes one argument"));
+        };
+        let (input, output) = operation.signature();
+        let (actual, loans) = self.observe_expected(argument, Some(input.clone()), ops)?;
+        self.same(Some(actual), Some(input), &argument.at)?;
+        ops.push(Op::Numeric(NumericOp::Bits(operation)));
+        Self::end_reads(loans, ops);
+        Ok(output)
+    }
+
     /// A method named by `method` on the numeric `receiver`, already lowered.
     pub(super) fn numeric_method(
         &mut self,

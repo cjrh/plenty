@@ -10,6 +10,16 @@ use cranelift_codegen::ir::{ConstantData, InstructionData, MemFlagsData, Opcode,
 impl Lowerer<'_, '_> {
     pub(super) fn lower_numeric(&mut self, operation: &NumericOp) -> Result<()> {
         match operation {
+            NumericOp::Bits(kind) => {
+                let (value, _) = self.stack.pop().ok_or("AOT: stack underflow on bitcast")?;
+                let output = kind.signature().1;
+                let result =
+                    self.bcx
+                        .ins()
+                        .bitcast(clif_type(output.clone()), MemFlagsData::new(), value);
+                self.stack.push((result, output));
+                Ok(())
+            }
             NumericOp::Sqrt => {
                 let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on sqrt")?;
                 let result = self.bcx.ins().sqrt(value);
