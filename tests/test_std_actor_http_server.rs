@@ -775,19 +775,33 @@ fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
         ],
     );
     let url = format!("https://127.0.0.1:{}/?[1-5000]", server.port);
+    // This workload requires fresh connections, not multiplexing. Curl's default
+    // parallel mode can leave transfers waiting for multiplexing until their
+    // entire timeout expires, before connecting to the server (issue #650).
     let output = Command::new("python3")
         .args(["-c", "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[1:], timeout=40).returncode)",
-            "curl", "-sS", "-k", "-Z", "--parallel-max", "16", "--max-time", "5",
-            "-H", "Connection: close", "-o", "/dev/null", "-w", "%{http_code}\n", &url])
+            "curl", "-sS", "-k", "-Z", "--parallel-immediate", "--parallel-max", "16", "--max-time", "5",
+            "-H", "Connection: close", "-o", "/dev/null", "-w",
+            "%{http_code} connects=%{num_connects} connect=%{time_connect} tls=%{time_appconnect} first_byte=%{time_starttransfer} total=%{time_total} url=%{url_effective}\n", &url])
         .output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
     let statuses = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(statuses.lines().count(), 5000);
-    assert!(statuses.lines().all(|line| line == "200"));
+    let failures: Vec<_> = statuses
+        .lines()
+        .filter(|line| !line.starts_with("200 "))
+        .take(16)
+        .collect();
+    if !output.status.success() || statuses.lines().count() != 5000 || !failures.is_empty() {
+        // Cancel through stdin and collect accounting even when curl fails;
+        // dropping the process at the assertion would lose this evidence.
+        let errors = server.errors();
+        let summary = server.finish();
+        panic!(
+            "HTTPS churn: curl {}; {} transfers; failures: {failures:?}\n{}\nserver:\n{summary}\n{errors}",
+            output.status,
+            statuses.lines().count(),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
     request_https_shutdown(&server);
     assert_eq!(
         server
