@@ -1,7 +1,7 @@
 import std.linalg as la
 import std.test as test
 
-def attempt(operation: i64, a: &la.Matrix, b: &la.Matrix) -> Result[(), AllocError | la.LinalgError]:
+def attempt(operation: i64, a: &la.Matrix, b: &la.Matrix) -> Result[(), la.LinalgError]:
     match operation:
         case 0:
             drop(a.matmul(b)?)
@@ -47,12 +47,11 @@ def main() -> Result[(), Failure]:
                     successes += 1
                 case Err(error):
                     match error:
-                        case cause: AllocError:
+                        case la.LinalgError.Allocation(cause):
                             test.equal(cause, AllocError.OutOfMemory)?
                             failures += 1
-                        case cause: la.LinalgError:
-                            print(cause)?
-                            test.fail("unexpected failure kind")?
+                        case _:
+                            test.fail(f"operation {operation}, budget {budget}: unexpected {error}"?)?
             test.equal(a.get(0, 0)?, 4.0)?
             test.equal(a.get(1, 1)?, 3.0)?
         test.check(successes > 0 and failures > 0, "budgets cover failure and success")?

@@ -11,7 +11,7 @@ def retained() -> Result[df.Query, df.DataFrameError | AllocError | BytesError]:
 def roundtrip() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
     mut source = [buffers.from_bytes(b"original")?]?
     copied = df.column_binary("payload", source)?
-    source[0].set(0, 0u8)?
+    source[0].set(0, 0u8)
     independent = df.frame([copied]?)?
     test.equal(independent.get_binary("payload", 0)?.unwrap(), buffers.from_bytes(b"original")?)?
     query = retained()?
@@ -31,7 +31,7 @@ def roundtrip() -> Result[(), df.DataFrameError | AllocError | BytesError | test
     test.equal(filtered.height()?, 1)?
     test.equal(filtered.get_binary("payload", 0)?.unwrap(), expected[0])?
     mut extracted = data.values_binary("payload")?
-    extracted[0].set(0, 42u8)?
+    extracted[0].set(0, 42u8)
     test.equal(data.get_binary("payload", 0)?.unwrap(), expected[0])?
     match data.get_binary("payload", -1):
         case Err(df.DataFrameError.Bounds(_)):
