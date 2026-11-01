@@ -651,6 +651,7 @@
     - [User-defined dictionary keys and set members](proposals/user-type-hashing.md)
     - [Derived serialization for classes and enums](proposals/derived-serialization.md)
     - [Value generic parameters](proposals/value-generics.md)
+    - [Positive and NonNegative integer domain types](proposals/domain-types.md)
     - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
         - [Examples beside ggplot2 and plotnine](proposals/std-plot/examples.md)
     - [Exact decimal arithmetic (std.decimal)](proposals/decimal.md)
