@@ -6,13 +6,6 @@ import std.random
 from std.bytes import Bytes, BytesError
 from std.random import Rng
 
-def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BytesError.Allocation(cause))
-
 pub enum SketchError:
     InvalidArgument
     InvalidData
@@ -49,7 +42,7 @@ pub def hash_u64(key: u64, seed: u64 = 0u64) -> u64:
     value = (value ^ (value >> 27u64)).wrapping_mul(10723151780598845931u64)
     value ^ (value >> 31u64)
 
-def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
     for shift in range(0, 64, 8):
         out.push(u8((value >> u64(shift)) & 255u64))?
     Ok(())
@@ -111,8 +104,8 @@ pub class HyperLogLog:
                 drop(self._registers.set(index, other._registers[index]))
         Ok(())
 
-    pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut out = bytes_error_allocated(std.bytes.with_capacity(20 + self._registers.len()))?
+    pub def to_bytes(self) -> Result[Bytes, AllocError]:
+        mut out = std.bytes.with_capacity(20 + self._registers.len())?
         out.extend(&b"PSH1")?
         word(&mut out, u64(self._precision))?
         word(&mut out, self._seed)?
@@ -124,7 +117,7 @@ pub def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog
         return Err(SketchError.InvalidArgument)
     size = 1 << precision
     mut registers = allocated(std.bytes.with_capacity(size))?
-    stored(registers.resize(size, 0u8))?
+    allocated(registers.resize(size, 0u8))?
     Ok(HyperLogLog(precision, seed, registers))
 
 pub def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError]:
@@ -208,10 +201,10 @@ pub class Quantiles:
         index = i64((fraction * f64(len(self._samples))).ceil()) - 1
         Ok(self._samples[index])
 
-    pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut out = bytes_error_allocated(std.bytes.with_capacity(116 + 32 * len(self._samples)))?
+    pub def to_bytes(self) -> Result[Bytes, AllocError]:
+        mut out = std.bytes.with_capacity(116 + 32 * len(self._samples))?
         out.extend(&b"PSQ1")?
-        mut scratch = bytes_error_allocated(std.bytes.with_capacity(32))?
+        mut scratch = std.bytes.with_capacity(32)?
         scratch.resize(32, 32u8)?
         word(&mut out, u64(self._capacity))?
         word(&mut out, self._count)?
@@ -228,11 +221,11 @@ pub class Quantiles:
 
 # Decimal round-trip text avoids exposing platform float representation. Each
 # finite f64 fits in 32 ASCII bytes; fixed slots make length validation simple.
-def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), BytesError]:
-    scratch.fill(0, 32, 32u8)?
-    drop(scratch.write_float(value)?)
-    out.extend(scratch)?
-    Ok(())
+def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), AllocError]:
+    # The 32-byte scratch holds every spelling, so neither call can fail.
+    scratch.fill(0, 32, 32u8).unwrap()
+    drop(scratch.write_float(value).unwrap())
+    out.extend(scratch)
 
 def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError]:
     text = match allocated(__bytes_to_text(&data[offset:offset + 32]))?:
@@ -348,8 +341,8 @@ pub class FrequentItems:
                 result.append(Frequency(self._keys[index], count, count + self._decrements))?
         Ok(result)
 
-    pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut out = bytes_error_allocated(std.bytes.with_capacity(28 + self._capacity * 16))?
+    pub def to_bytes(self) -> Result[Bytes, AllocError]:
+        mut out = std.bytes.with_capacity(28 + self._capacity * 16)?
         out.extend(&b"PSF1")?
         word(&mut out, u64(self._capacity))?
         word(&mut out, self._total)?

@@ -3,13 +3,6 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 from std.sketch import SketchError, hash_u64
 
-def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BytesError.Allocation(cause))
-
 def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
     match result:
         case Ok(value):
@@ -58,8 +51,8 @@ pub class XorFilter:
         (a, b, c) = positions(hash, self._block)
         fingerprint(hash) == self._fingerprints[a] ^ self._fingerprints[b] ^ self._fingerprints[c]
 
-    pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut out = bytes_error_allocated(std.bytes.with_capacity(28 + self._fingerprints.len()))?
+    pub def to_bytes(self) -> Result[Bytes, AllocError]:
+        mut out = std.bytes.with_capacity(28 + self._fingerprints.len())?
         out.extend(&b"PSX1")?
         word(&mut out, self._seed)?
         word(&mut out, u64(self._count))?
@@ -90,7 +83,7 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
     mut degrees = allocated(list[i64].with_capacity(size))?
     mut xors = allocated(list[u64].with_capacity(size))?
     mut prints = allocated(std.bytes.with_capacity(size))?
-    stored(prints.resize(size, 0u8))?
+    allocated(prints.resize(size, 0u8))?
     mut queue = allocated(list[i64].with_capacity(size))?
     mut peeled = allocated(list[u64].with_capacity(unique))?
     mut slots = allocated(list[i64].with_capacity(unique))?
@@ -151,7 +144,7 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
             return Ok(XorFilter(attempt_seed, unique, block, prints))
     Err(SketchError.ConstructionFailed)
 
-def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
     for shift in range(0, 64, 8):
         out.push(u8((value >> u64(shift)) & 255u64))?
     Ok(())
@@ -179,5 +172,5 @@ pub def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
     if len(data) != 28 + size:
         return Err(SketchError.InvalidData)
     mut prints = allocated(std.bytes.with_capacity(size))?
-    stored(prints.extend(&data[28:]))?
+    allocated(prints.extend(&data[28:]))?
     Ok(XorFilter(read_word(data, 4), i64(count), i64(block), prints))

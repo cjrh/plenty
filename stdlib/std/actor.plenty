@@ -177,6 +177,12 @@ pub enum Undelivered[M]:
     # The receiver has stopped.
     Gone(M)
 
+# Why `stage` failed: its tables could not be allocated, or its readiness
+# selector could not be created.
+pub enum StageError:
+    Allocation(AllocError)
+    Wait(WaitError)
+
 pub enum StartError:
     # This target has no actor heaps; only x86-64 Linux does.
     Unsupported
@@ -1400,12 +1406,24 @@ pub class Stage[N, M, E]:
 
 # Allocates a stage for at most `capacity` live actors, each with a mailbox
 # of `mailbox` messages, reporting up to `events` ready handles per wait.
-# A negative capacity or one over `max_capacity` is `CapacityOverflow`.
-pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]:
+# A negative capacity or one over `max_capacity` is
+# `Allocation(CapacityOverflow)`.
+pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], StageError]:
     # Initializes runtime globals now, so admission needs no hidden allocation.
     __actor_heap(op_prepare, 0)
     if capacity < 0 or capacity > max_capacity:
-        return Err(AllocError.CapacityOverflow)
+        return Err(StageError.Allocation(AllocError.CapacityOverflow))
+    match selector(events):
+        case Ok(ready):
+            match stage_with[N, M, E](capacity, mailbox, ready):
+                case Ok(built):
+                    Ok(built)
+                case Err(cause):
+                    Err(StageError.Allocation(cause))
+        case Err(cause):
+            Err(StageError.Wait(cause))
+
+def stage_with[N, M, E](capacity: i64, mailbox: i64, ready: Selector) -> Result[Stage[N, M, E], AllocError]:
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):
@@ -1416,7 +1434,7 @@ pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage
     queued: list[bool] = [False for _ in range(capacity)]?
     spawn_slots: list[i64] = [0 for _ in range(max_spawns)]?
     spawn_tags: list[i64] = [0 for _ in range(max_spawns)]?
-    context = Context[M, E](boxes, free, runnable, 0, 0, queued, selector(events)?, mailbox, 0u64, False, False, spawn_slots, spawn_tags, 0, Stats(0, 0, 0, 0, 0, 0, 0, 0, 0), []?, -1, []?, 0)
+    context = Context[M, E](boxes, free, runnable, 0, 0, queued, ready, mailbox, 0u64, False, False, spawn_slots, spawn_tags, 0, Stats(0, 0, 0, 0, 0, 0, 0, 0, 0), []?, -1, []?, 0)
     Ok(Stage[N, M, E](nodes, context, 0))
 
 # A handler's result. `__actor_run` reports a trap through an error type

@@ -759,7 +759,7 @@ fn whole_program(source: &str) -> String {
 fn rsa_keys_work_in_actor_handlers() {
     let source = whole_program(
         r#"
-from std.actor import Address, Context, Mail, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Mail, heap_bytes_used, heaps_live, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
@@ -796,7 +796,7 @@ pub class Signer:
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Signer], Fault]:
         Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     mut actors = stage[Signer, i64, Fault](1, 1, 1)?
     actors.start(Signer(False), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken()?)?

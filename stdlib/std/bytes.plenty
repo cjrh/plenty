@@ -50,8 +50,8 @@ pub class Bytes:
         __bytes_set(self._owner, index, value)
         Ok(())
 
-    pub def push(self: &mut Bytes, value: u8) -> Result[(), BytesError]:
-        stored(__bytes_push(self._owner, value))
+    pub def push(self: &mut Bytes, value: u8) -> Result[(), AllocError]:
+        __bytes_push(self._owner, value)
 
     pub def pop(self: &mut Bytes) -> Option[u8]:
         count = __bytes_len(self._owner)
@@ -62,15 +62,15 @@ pub class Bytes:
         drop(__bytes_resize(self._owner, count - 1, 0u8))
         Some(value)
 
-    pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), BytesError]:
+    pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]:
         if additional < 0:
-            return Err(BytesError.Allocation(AllocError.CapacityOverflow))
-        stored(__bytes_reserve(self._owner, additional))
+            return Err(AllocError.CapacityOverflow)
+        __bytes_reserve(self._owner, additional)
 
-    pub def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), BytesError]:
+    pub def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), AllocError]:
         if count < 0:
-            return Err(BytesError.Allocation(AllocError.CapacityOverflow))
-        stored(__bytes_resize(self._owner, count, fill))
+            return Err(AllocError.CapacityOverflow)
+        __bytes_resize(self._owner, count, fill)
 
     pub def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]:
         if count < 0 or count > __bytes_len(self._owner):
@@ -85,8 +85,8 @@ pub class Bytes:
         __bytes_fill(self._owner, start, stop, value)
         Ok(())
 
-    pub def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]:
-        stored(__bytes_append(self._owner, source))
+    pub def extend(self: &mut Bytes, source: &[u8]) -> Result[(), AllocError]:
+        __bytes_append(self._owner, source)
 
     # Writes `source` at `offset`; the buffer keeps its length.
     pub def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]:
@@ -112,8 +112,8 @@ pub class Bytes:
         stored(__bytes_append(owner, &self[start:stop]))?
         Ok(Bytes(owner))
 
-    pub def copy(self) -> Result[Bytes, BytesError]:
-        self.slice(0, __bytes_len(self._owner))
+    pub def copy(self) -> Result[Bytes, AllocError]:
+        from_bytes(&self[:])
 
     # Bulk scans. Each is one native call over the checked range, so prefer
     # them to a loop of `get` calls. An index result is absolute, not relative
@@ -166,8 +166,8 @@ pub class Bytes:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(start + __bytes_run(&self[start:stop], 1u8))
 
-    pub def to_list(self) -> Result[list[u8], BytesError]:
-        allocated(__bytes_to_list(self._owner))
+    pub def to_list(self) -> Result[list[u8], AllocError]:
+        __bytes_to_list(self._owner)
 
     pub def to_text(self) -> Result[str, BytesError]:
         text_in(&self[:])

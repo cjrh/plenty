@@ -38,7 +38,7 @@ This first implementation deliberately uses more construction slack than a
 tuned xor/fuse filter. It is immutable after construction. For changing data,
 see [cuckoo filters](sketch-cuckoo.md).
 
-`to_bytes()` returns `Bytes` with `BytesError` on failure. `from_bytes(data,
+`to_bytes()` returns `Result[Bytes, AllocError]`. `from_bytes(data,
 max_keys)` reads a `&[u8]` view and returns `SketchError`.
 The `PSX1` format stores seed, unique count, block size (little-endian u64), then
 fingerprint bytes. Readers validate the count/shape and exact length before

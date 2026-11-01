@@ -86,9 +86,8 @@ original data can compute exact counts for these candidates.
 `InvalidArgument` covers invalid configuration or nonfinite input. Count overflow
 returns `Limit` without accepting the update. Constructors, readers and updates
 that can also fail for another reason report allocation failure as
-`SketchError.Allocation(cause)`; `candidates()` fails only to allocate and
-returns `AllocError`. Methods that serialize to `std.bytes.Bytes` return
-`BytesError`. All allocation failures remain recoverable.
+`SketchError.Allocation(cause)`; `candidates()` and `to_bytes()` fail only to
+allocate and return `AllocError`. All allocation failures remain recoverable.
 
 `to_bytes()` writes a versioned Plenty format: `PSH1`, `PSQ1`, or `PSF1`.
 Integers use little-endian u64 words. Quantile values use 32-byte, space-padded,

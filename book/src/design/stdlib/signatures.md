@@ -18,91 +18,91 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 107-182
-- [`std.actor.net`](#stdactornet): 184-247
-- [`std.actor.tls`](#stdactortls): 249-278
-- [`std.actor.http.server`](#stdactorhttpserver): 280-343
-- [`std.archive`](#stdarchive): 345-411
-- [`std.atomic`](#stdatomic): 413-422
-- [`std.bytes`](#stdbytes): 424-471
-- [`std.cache.lru`](#stdcachelru): 473-495
-- [`std.channel`](#stdchannel): 497-501
-- [`std.cli`](#stdcli): 503-533
-- [`std.cli.fileinput`](#stdclifileinput): 535-544
-- [`std.cli.progress`](#stdcliprogress): 546-570
-- [`std.collections`](#stdcollections): 572-599
-- [`std.complex`](#stdcomplex): 601-627
-- [`std.compress`](#stdcompress): 629-659
-- [`std.concurrent`](#stdconcurrent): 661-665
-- [`std.crypto`](#stdcrypto): 667-748
-- [`std.csv`](#stdcsv): 750-813
-- [`std.dataframe`](#stddataframe): 815-1014
-- [`std.db.kv`](#stddbkv): 1016-1048
-- [`std.db.sqlite`](#stddbsqlite): 1050-1114
-- [`std.deque`](#stddeque): 1116-1130
-- [`std.diff`](#stddiff): 1132-1161
-- [`std.encoding`](#stdencoding): 1163-1224
-- [`std.env`](#stdenv): 1226-1240
-- [`std.error`](#stderror): 1242-1262
-- [`std.fmt`](#stdfmt): 1264-1331
-- [`std.fs`](#stdfs): 1333-1416
-- [`std.fs.dirs`](#stdfsdirs): 1418-1428
-- [`std.fs.watch`](#stdfswatch): 1430-1465
-- [`std.graph`](#stdgraph): 1467-1555
-- [`std.http`](#stdhttp): 1557-1627
-- [`std.http.decoder`](#stdhttpdecoder): 1629-1646
-- [`std.http.body`](#stdhttpbody): 1648-1683
-- [`std.http.client`](#stdhttpclient): 1685-1795
-- [`std.http.cookie`](#stdhttpcookie): 1797-1829
-- [`std.http.files`](#stdhttpfiles): 1831-1844
-- [`std.http.https`](#stdhttphttps): 1846-1860
-- [`std.http.proxy`](#stdhttpproxy): 1862-1883
-- [`std.http.server`](#stdhttpserver): 1885-1970
-- [`std.http.sse`](#stdhttpsse): 1972-1991
-- [`std.http.tls`](#stdhttptls): 1993-2010
-- [`std.http.typed`](#stdhttptyped): 2012-2045
-- [`std.http.websocket`](#stdhttpwebsocket): 2047-2082
-- [`std.http.wss`](#stdhttpwss): 2084-2090
-- [`std.image`](#stdimage): 2092-2138
-- [`std.io`](#stdio): 2140-2220
-- [`std.io.typed`](#stdiotyped): 2222-2260
-- [`std.json`](#stdjson): 2262-2326
-- [`std.jwt`](#stdjwt): 2328-2375
-- [`std.log`](#stdlog): 2377-2444
-- [`std.markdown`](#stdmarkdown): 2446-2480
-- [`std.template`](#stdtemplate): 2482-2503
-- [`std.math`](#stdmath): 2505-2571
-- [`std.mime`](#stdmime): 2573-2599
-- [`std.net`](#stdnet): 2601-2683
-- [`std.path`](#stdpath): 2685-2702
-- [`std.process`](#stdprocess): 2704-2753
-- [`std.random`](#stdrandom): 2755-2776
-- [`std.ready`](#stdready): 2778-2809
-- [`std.regex`](#stdregex): 2811-2864
-- [`std.report`](#stdreport): 2866-2873
-- [`std.secrets`](#stdsecrets): 2875-2901
-- [`std.shlex`](#stdshlex): 2903-2912
-- [`std.sketch`](#stdsketch): 2914-2952
-- [`std.sketch.xor`](#stdsketchxor): 2954-2965
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2967-2982
-- [`std.signal`](#stdsignal): 2984-3001
-- [`std.simd`](#stdsimd): 3003-3104
-- [`std.stat`](#stdstat): 3106-3139
-- [`std.plot`](#stdplot): 3141-3230
-- [`std.linalg`](#stdlinalg): 3232-3273
-- [`std.sync`](#stdsync): 3275-3293
-- [`std.system`](#stdsystem): 3295-3353
-- [`std.tempfile`](#stdtempfile): 3355-3387
-- [`std.test`](#stdtest): 3389-3431
-- [`std.text`](#stdtext): 3433-3476
-- [`std.thread`](#stdthread): 3478-3482
-- [`std.time`](#stdtime): 3484-3528
-- [`std.tls`](#stdtls): 3530-3612
-- [`std.toml`](#stdtoml): 3614-3663
-- [`std.unicode`](#stdunicode): 3665-3677
-- [`std.url`](#stdurl): 3679-3707
-- [`std.uuid`](#stduuid): 3709-3732
-- [`std.xml`](#stdxml): 3734-3767
+- [`std.actor`](#stdactor): 107-184
+- [`std.actor.net`](#stdactornet): 186-249
+- [`std.actor.tls`](#stdactortls): 251-280
+- [`std.actor.http.server`](#stdactorhttpserver): 282-345
+- [`std.archive`](#stdarchive): 347-413
+- [`std.atomic`](#stdatomic): 415-424
+- [`std.bytes`](#stdbytes): 426-473
+- [`std.cache.lru`](#stdcachelru): 475-497
+- [`std.channel`](#stdchannel): 499-503
+- [`std.cli`](#stdcli): 505-535
+- [`std.cli.fileinput`](#stdclifileinput): 537-546
+- [`std.cli.progress`](#stdcliprogress): 548-572
+- [`std.collections`](#stdcollections): 574-601
+- [`std.complex`](#stdcomplex): 603-629
+- [`std.compress`](#stdcompress): 631-661
+- [`std.concurrent`](#stdconcurrent): 663-667
+- [`std.crypto`](#stdcrypto): 669-750
+- [`std.csv`](#stdcsv): 752-815
+- [`std.dataframe`](#stddataframe): 817-1016
+- [`std.db.kv`](#stddbkv): 1018-1050
+- [`std.db.sqlite`](#stddbsqlite): 1052-1116
+- [`std.deque`](#stddeque): 1118-1132
+- [`std.diff`](#stddiff): 1134-1163
+- [`std.encoding`](#stdencoding): 1165-1226
+- [`std.env`](#stdenv): 1228-1242
+- [`std.error`](#stderror): 1244-1264
+- [`std.fmt`](#stdfmt): 1266-1333
+- [`std.fs`](#stdfs): 1335-1418
+- [`std.fs.dirs`](#stdfsdirs): 1420-1430
+- [`std.fs.watch`](#stdfswatch): 1432-1467
+- [`std.graph`](#stdgraph): 1469-1557
+- [`std.http`](#stdhttp): 1559-1629
+- [`std.http.decoder`](#stdhttpdecoder): 1631-1648
+- [`std.http.body`](#stdhttpbody): 1650-1685
+- [`std.http.client`](#stdhttpclient): 1687-1797
+- [`std.http.cookie`](#stdhttpcookie): 1799-1831
+- [`std.http.files`](#stdhttpfiles): 1833-1846
+- [`std.http.https`](#stdhttphttps): 1848-1862
+- [`std.http.proxy`](#stdhttpproxy): 1864-1885
+- [`std.http.server`](#stdhttpserver): 1887-1972
+- [`std.http.sse`](#stdhttpsse): 1974-1993
+- [`std.http.tls`](#stdhttptls): 1995-2012
+- [`std.http.typed`](#stdhttptyped): 2014-2047
+- [`std.http.websocket`](#stdhttpwebsocket): 2049-2084
+- [`std.http.wss`](#stdhttpwss): 2086-2092
+- [`std.image`](#stdimage): 2094-2140
+- [`std.io`](#stdio): 2142-2222
+- [`std.io.typed`](#stdiotyped): 2224-2262
+- [`std.json`](#stdjson): 2264-2328
+- [`std.jwt`](#stdjwt): 2330-2377
+- [`std.log`](#stdlog): 2379-2446
+- [`std.markdown`](#stdmarkdown): 2448-2482
+- [`std.template`](#stdtemplate): 2484-2505
+- [`std.math`](#stdmath): 2507-2573
+- [`std.mime`](#stdmime): 2575-2601
+- [`std.net`](#stdnet): 2603-2685
+- [`std.path`](#stdpath): 2687-2704
+- [`std.process`](#stdprocess): 2706-2755
+- [`std.random`](#stdrandom): 2757-2778
+- [`std.ready`](#stdready): 2780-2811
+- [`std.regex`](#stdregex): 2813-2866
+- [`std.report`](#stdreport): 2868-2875
+- [`std.secrets`](#stdsecrets): 2877-2903
+- [`std.shlex`](#stdshlex): 2905-2914
+- [`std.sketch`](#stdsketch): 2916-2954
+- [`std.sketch.xor`](#stdsketchxor): 2956-2967
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2969-2984
+- [`std.signal`](#stdsignal): 2986-3003
+- [`std.simd`](#stdsimd): 3005-3106
+- [`std.stat`](#stdstat): 3108-3141
+- [`std.plot`](#stdplot): 3143-3232
+- [`std.linalg`](#stdlinalg): 3234-3275
+- [`std.sync`](#stdsync): 3277-3295
+- [`std.system`](#stdsystem): 3297-3355
+- [`std.tempfile`](#stdtempfile): 3357-3389
+- [`std.test`](#stdtest): 3391-3433
+- [`std.text`](#stdtext): 3435-3478
+- [`std.thread`](#stdthread): 3480-3484
+- [`std.time`](#stdtime): 3486-3530
+- [`std.tls`](#stdtls): 3532-3614
+- [`std.toml`](#stdtoml): 3616-3665
+- [`std.unicode`](#stdunicode): 3667-3679
+- [`std.url`](#stdurl): 3681-3709
+- [`std.uuid`](#stduuid): 3711-3734
+- [`std.xml`](#stdxml): 3736-3769
 
 ## `std.actor`
 
@@ -135,6 +135,8 @@ enum Mail[M, E]
     Message(M) | Ready(Watch, Readiness) | Down(Address, i64, Exit[E]) | Stop | Timer(Timer) | Request(Request, M) | Reply(Request, Reply[M])
 enum Undelivered[M]
     Full(M) | Gone(M)
+enum StageError
+    Allocation(AllocError) | Wait(WaitError)
 enum StartError
     Unsupported | Capacity | Heaps | Limit | Mailbox
 class Stats
@@ -178,7 +180,7 @@ class Stage[N, M, E]
     def node(self, actor: Address) -> Option[&N]
     def heap_used(self, actor: Address) -> Option[i64]
     def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
-def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]
+def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], StageError]
 ```
 
 ## `std.actor.net`
@@ -436,18 +438,18 @@ class Bytes
     def capacity(self) -> i64
     def get(self, index: i64) -> Result[u8, BytesError]
     def set(self: &mut Bytes, index: i64, value: u8) -> Result[(), BytesError]
-    def push(self: &mut Bytes, value: u8) -> Result[(), BytesError]
+    def push(self: &mut Bytes, value: u8) -> Result[(), AllocError]
     def pop(self: &mut Bytes) -> Option[u8]
-    def reserve(self: &mut Bytes, additional: i64) -> Result[(), BytesError]
-    def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), BytesError]
+    def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]
+    def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), AllocError]
     def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]
     def clear(self: &mut Bytes) -> ()
     def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]
-    def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]
+    def extend(self: &mut Bytes, source: &[u8]) -> Result[(), AllocError]
     def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]
     def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]
     def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]
-    def copy(self) -> Result[Bytes, BytesError]
+    def copy(self) -> Result[Bytes, AllocError]
     def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]
     def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
     def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
@@ -457,7 +459,7 @@ class Bytes
     def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]
     def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
     def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
-    def to_list(self) -> Result[list[u8], BytesError]
+    def to_list(self) -> Result[list[u8], AllocError]
     def to_text(self) -> Result[str, BytesError]
     def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
     def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
@@ -2925,7 +2927,7 @@ class HyperLogLog
     def estimate(self) -> f64
     def relative_standard_error(self) -> f64
     def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
 def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError]
 def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError]
 class Quantiles
@@ -2933,7 +2935,7 @@ class Quantiles
     def retained(self) -> i64
     def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError]
     def quantile(self, fraction: f64) -> Result[f64, SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
 def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]
 def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError]
 class Frequency
@@ -2946,7 +2948,7 @@ class FrequentItems
     def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]
     def frequency(self, key: u64) -> Frequency
     def candidates(self) -> Result[list[Frequency], AllocError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
 def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError]
 def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError]
 ```
@@ -2959,7 +2961,7 @@ Static approximate membership over numeric identities with bounded construction.
 class XorFilter
     def len(self) -> i64
     def contains(self, key: u64) -> bool
-    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
 def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError]
 def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
 ```
@@ -2976,7 +2978,7 @@ class CuckooFilter
     def contains(self, key: u64) -> bool
     def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError]
     def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
 def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]
 def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError]
 ```

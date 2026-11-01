@@ -815,7 +815,7 @@ class Incoming[T]:
                 value
             case Err(cause):
                 return Err(self.failed(0, cause))
-        match bytes_of(buffer.resize(4096, 0u8)):
+        match alloc(buffer.resize(4096, 0u8)):
             case Ok(_):
                 pass
             case Err(cause):
@@ -826,7 +826,7 @@ class Incoming[T]:
                 return Ok(total)
             # Reserve before consuming payload, so an allocation failure can
             # never discard successfully read bytes that the caller needs.
-            match bytes_of(out.reserve(4096)):
+            match alloc(out.reserve(4096)):
                 case Ok(_):
                     pass
                 case Err(cause):
@@ -835,7 +835,7 @@ class Incoming[T]:
                 case Ok(count):
                     if count == 0:
                         return Ok(total)
-                    match bytes_of(out.extend(&buffer[:count])):
+                    match alloc(out.extend(&buffer[:count])):
                         case Ok(_):
                             total += count
                         case Err(cause):
@@ -1341,7 +1341,7 @@ def timed_out(error: &ClientError) -> bool:
 # which it must match exactly, or as chunks and the last chunk.
 def stream_body[T, R: Reader](conn: &mut BufReader[ClientError, Wire[T]], body: &mut R, upload: &Upload) -> Result[(), ClientError]:
     mut buffer = alloc(std.bytes.with_capacity(upload_chunk))?
-    bytes_of(buffer.resize(upload_chunk, 0u8))?
+    alloc(buffer.resize(upload_chunk, 0u8))?
     while True:
         count = match body.read(&mut buffer, 0, upload_chunk):
             case Ok(found):

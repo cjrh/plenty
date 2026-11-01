@@ -302,7 +302,7 @@ from std.bytes import Bytes, BytesError
 class Holder:
     data: Bytes
 
-def fill(data: &mut Bytes, count: i64) -> Result[(), BytesError]:
+def fill(data: &mut Bytes, count: i64) -> Result[(), AllocError]:
     for i in range(count):
         data.push(u8.try_from(i % 256).unwrap())?
     Ok(())
@@ -369,8 +369,8 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     print(held.data.len(), held.data[0], held.data[1], held.data[2])?
     Ok(())
 "#,
-        "Result[(), std.bytes.BytesError].Ok(()) \
-         Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)) 2 2\n\
+        "Result[(), AllocError].Ok(()) \
+         Result[(), AllocError].Err(AllocError.OutOfMemory) 2 2\n\
          3 1 2 3\n",
     );
 }

@@ -135,7 +135,7 @@ def started[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
             Err(TomlError(fault, 0, 1, 1))
 
 def push_byte(target: &mut Bytes, value: i64) -> Result[(), TomlFault]:
-    faulted(target.push(u8(value)))
+    reserved(target.push(u8(value)))
 
 # `code` is a Unicode scalar value; the caller has excluded surrogates.
 def push_scalar(target: &mut Bytes, code: i64) -> Result[(), TomlFault]:
@@ -397,7 +397,7 @@ class Parser:
         if end == self.at:
             return Err(self.unexpected())
         self.scratch.clear()
-        faulted(self.scratch.extend(&self.src[self.at:end]))?
+        reserved(self.scratch.extend(&self.src[self.at:end]))?
         self.at = end
         faulted(self.scratch.to_text())
 
@@ -598,7 +598,7 @@ class Parser:
                 end = run_end(self.src.find_in(&self.basic_stop, self.at, stop), stop)?
             else:
                 end = run_end(self.src.find_in(&self.literal_stop, self.at, stop), stop)?
-            faulted(self.scratch.extend(&self.src[self.at:end]))?
+            reserved(self.scratch.extend(&self.src[self.at:end]))?
             self.at = end
             byte = self.peek(0)
             if byte < 0:
@@ -629,7 +629,7 @@ class Parser:
                 count = self.newline()
                 if not multi or count == 0:
                     return Err(TomlFault.ControlCharacter)
-                faulted(self.scratch.extend(&self.src[self.at:self.at + count]))?
+                reserved(self.scratch.extend(&self.src[self.at:self.at + count]))?
                 self.at += count
         faulted(self.scratch.to_text())
 
@@ -988,7 +988,7 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
             room += 1
         else:
             room = read_chunk
-        match faulted(data.resize(have + room, 0u8)):
+        match reserved(data.resize(have + room, 0u8)):
             case Ok(_):
                 pass
             case Err(fault):
@@ -1110,17 +1110,17 @@ class Emitter:
     def extend(self: &mut Emitter, source: &[u8], start: i64, stop: i64) -> Result[(), TomlFault]:
         if stop - start > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend(&source[start:stop]))
+        reserved(self.out.extend(&source[start:stop]))
 
     def raw(self: &mut Emitter, token: bytes) -> Result[(), TomlFault]:
         if token.len() > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend(&token))
+        reserved(self.out.extend(&token))
 
     def spelled(self: &mut Emitter, start: i64, stop: i64) -> Result[(), TomlFault]:
         if stop - start > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend(&self.spelling[start:stop]))
+        reserved(self.out.extend(&self.spelling[start:stop]))
 
     def number(self: &mut Emitter, value: i64, width: i64) -> Result[(), TomlFault]:
         mut divisor = 1
@@ -1374,7 +1374,7 @@ def emitter(bounds: &Limits) -> Result[Emitter, TomlFault]:
     push_byte(&mut escaped, 9)?
     # Longer than any i64 spelling.
     mut spelling = reserved(std.bytes.with_capacity(32))?
-    faulted(spelling.resize(32, 0u8))?
+    reserved(spelling.resize(32, 0u8))?
     Ok(Emitter(out, path, bare, escaped, spelling, bounds.max_depth, bounds.max_output))
 
 # The root must be a table. Errors carry the bytes produced so far.

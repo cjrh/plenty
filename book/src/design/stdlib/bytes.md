@@ -49,8 +49,8 @@ literal, a buffer, a list, or part of any of them without copying.
 | `ascii_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the run of bytes below 128 that begins at `start` |
 | `utf8_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the longest valid UTF-8 that begins at `start` |
 | `slice(start, stop)` | shared | `Result[Bytes, BytesError]` | Independent copy of a range, with exact capacity |
-| `copy()` | shared | `Result[Bytes, BytesError]` | Independent copy of the whole buffer |
-| `to_list()` | shared | `Result[list[u8], BytesError]` | Independent `list[u8]` for the transport builtins |
+| `copy()` | shared | `Result[Bytes, AllocError]` | Independent copy of the whole buffer |
+| `to_list()` | shared | `Result[list[u8], AllocError]` | Independent `list[u8]` for the transport builtins |
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
 | `to_text_range(start, stop)` | shared | `Result[str, BytesError]` | `to_text` of one range, validated and copied once with no intermediate `Bytes`; a range that splits a UTF-8 sequence is `InvalidUtf8` |
 | `set(index, value)` | exclusive | `Result[(), BytesError]` | Replace one byte |
@@ -59,10 +59,10 @@ literal, a buffer, a list, or part of any of them without copying.
 | `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
 | `overwrite(offset, source)` | exclusive | `Result[(), BytesError]` | Copy `source` over existing bytes at `offset`; never grows |
 | `copy_within(start, stop, to)` | exclusive | `Result[(), BytesError]` | Copy `self[start:stop]` to `to` in the same buffer, like `memmove`; the ranges may overlap; never grows |
-| `push(value)` | exclusive | `Result[(), BytesError]` | Append one byte |
-| `extend(source)` | exclusive | `Result[(), BytesError]` | Append `source`; pass `&other[a:b]` to append part of a buffer |
-| `reserve(additional)` | exclusive | `Result[(), BytesError]` | Ensure room for `additional` more bytes |
-| `resize(count, fill)` | exclusive | `Result[(), BytesError]` | Set the length, appending `fill` or dropping the tail |
+| `push(value)` | exclusive | `Result[(), AllocError]` | Append one byte |
+| `extend(source)` | exclusive | `Result[(), AllocError]` | Append `source`; pass `&other[a:b]` to append part of a buffer |
+| `reserve(additional)` | exclusive | `Result[(), AllocError]` | Ensure room for `additional` more bytes |
+| `resize(count, fill)` | exclusive | `Result[(), AllocError]` | Set the length, appending `fill` or dropping the tail |
 | `truncate(count)` | exclusive | `Result[(), BytesError]` | Shorten to `count`; longer than the length is `OutOfRange` |
 | `pop()` | exclusive | `Option[u8]` | Remove and return the last byte, or `Nothing` |
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
@@ -225,9 +225,10 @@ pub enum BytesError:
     Allocation(AllocError)
 ```
 
-The constructors can fail only to allocate, so they return
-`Result[Bytes, AllocError]`. Every other fallible operation in the module
-returns `Result[T, BytesError]`. The only other result shape is `pop`, whose `Option[u8]` reports an empty buffer.
+The constructors and the methods that can fail only to allocate (`push`,
+`extend`, `reserve`, `resize`, `copy`, `to_list`) return `AllocError`; a
+negative `reserve` or `resize` count is `CapacityOverflow`. Every other
+fallible operation in the module returns `Result[T, BytesError]`. The only other result shape is `pop`, whose `Option[u8]` reports an empty buffer.
 `Allocation` carries the storage `AllocError`: `OutOfMemory` when the allocator
 refuses, `CapacityOverflow` when the requested total cannot be a size. A failed
 operation leaves the buffer's length and contents unchanged and releases

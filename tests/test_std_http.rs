@@ -87,12 +87,8 @@ def drain(data: &Bytes) -> Result[i64, HttpError]:
                             Err(HttpError.Allocation(cause))
                         case _ as other:
                             Err(HttpError.Stream(other))
-        case Err(error):
-            match error:
-                case std.bytes.BytesError.Allocation(cause):
-                    Err(HttpError.Allocation(cause))
-                case _:
-                    Err(HttpError.Truncated)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
 
 def drain_from(start: BufReader[Cursor]) -> Result[i64, HttpError]:
     limits = std.http.limits()

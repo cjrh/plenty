@@ -193,7 +193,7 @@ pub def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]:
     if batch_bytes < 272 or batch_bytes > 65536:
         return Err(WatchError.OutOfRange)
     mut buffer = allocated(std.bytes.with_capacity(batch_bytes))?
-    buffered(buffer.resize(batch_bytes, 0u8))?
+    allocated(buffer.resize(batch_bytes, 0u8))?
     offsets = allocated(list[i64].with_capacity(batch_bytes // 16))?
     file = io(__fs_watch_open())?
     Ok(Watcher(file, buffer, offsets))

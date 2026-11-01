@@ -350,7 +350,7 @@ pub class Reader[R]:
         mut out = allocated(std.bytes.empty())?
         while True:
             byte = self.take()?
-            bytes_result(out.push(byte))?
+            allocated(out.push(byte))?
             if out.len() >= ending.len():
                 mut matches = True
                 for index in range(ending.len()):
@@ -379,7 +379,7 @@ pub class Reader[R]:
         if self.peek()? != Some(60u8):
             mut bytes = allocated(std.bytes.empty())?
             while self.peek()?.is_some() and self.peek()? != Some(60u8):
-                bytes_result(bytes.push(self.take()?))?
+                allocated(bytes.push(self.take()?))?
             raw = bytes_result(bytes.to_text())?
             if len(self._stack) == 0 and not only_space(raw):
                 return Err(Fault.Syntax)
@@ -427,7 +427,7 @@ pub class Reader[R]:
             return Ok(Event.ProcessingInstruction(target, value))
         mut data = allocated(std.bytes.empty())?
         if first != 47u8:
-            bytes_result(data.push(first))?
+            allocated(data.push(first))?
         mut quote = 0u8
         while True:
             c = self.take()?
@@ -438,7 +438,7 @@ pub class Reader[R]:
                     quote = 0u8
                 elif quote == 0u8:
                     quote = c
-            bytes_result(data.push(c))?
+            allocated(data.push(c))?
         mut token = Token(data, 0)
         name = token.name()?
         if first == 47u8:
@@ -479,7 +479,7 @@ pub def reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]:
     if not valid_limits(bounds):
         return Err(XmlError(Fault.InvalidLimits, 0))
     mut buffer = placed(allocated(std.bytes.empty()), 0)?
-    placed(bytes_result(buffer.resize(4096, 0u8)), 0)?
+    placed(allocated(buffer.resize(4096, 0u8)), 0)?
     stack = placed(allocated(list[str]()), 0)?
     copied = Limits(bounds.max_depth, bounds.max_input, bounds.max_output, bounds.max_token, bounds.max_attributes)
     Ok(Reader(inner, copied, buffer, 0, 0, 0, 0, stack, False, True, True, False, False))
@@ -493,7 +493,7 @@ class Output:
         if text.byte_len() > self.maximum - self.data.len():
             return Err(Fault.TokenTooLarge)
         fragment = allocated(std.bytes.from_text(&text))?
-        bytes_result(self.data.extend(&fragment))
+        allocated(self.data.extend(&fragment))
 
     def escaped(self: &mut Output, text: str, attribute: bool) -> Result[(), Fault]:
         check_text(text)?

@@ -193,13 +193,13 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
         if consumed < 0:
             return Err(failed(consumed))
         at += consumed
-        reported(out.extend(&state))?
+        compress_error_allocated(out.extend(&state))?
         state.clear()
     while True:
         done = __compress_flush(state, finish_flush)
         if done < 0:
             return Err(failed(done))
-        reported(out.extend(&state))?
+        compress_error_allocated(out.extend(&state))?
         state.clear()
         if done == 1:
             return Ok(out)
@@ -217,7 +217,7 @@ pub def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, Com
         consumed = decoder.step(&data[at:total])?
         produced = decoder._state.len()
         at += consumed
-        reported(out.extend(&decoder._state))?
+        compress_error_allocated(out.extend(&decoder._state))?
         decoder._state.clear()
         if at == total and consumed == 0 and produced == 0:
             break
@@ -397,5 +397,5 @@ pub class Decompressor[R]:
 pub def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]:
     decoder = inflater(format, limit)?
     mut input = compress_error_allocated(std.bytes.with_capacity(window))?
-    reported(input.resize(window, 0u8))?
+    compress_error_allocated(input.resize(window, 0u8))?
     Ok(Decompressor(inner, decoder, 0, input, 0, 0, False, Nothing))

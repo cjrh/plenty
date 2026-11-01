@@ -138,7 +138,7 @@ def unplaced[T](result: Result[T, MarkdownFault]) -> Result[T, MarkdownError]:
     std.error.map_error(result, def once (fault: MarkdownFault) -> MarkdownError: MarkdownError(fault, 0, 0))
 
 def push_byte(target: &mut Bytes, value: i64) -> Result[(), MarkdownFault]:
-    faulted(target.push(u8(value)))
+    reserved(target.push(u8(value)))
 
 def push_scalar(target: &mut Bytes, code: i64) -> Result[(), MarkdownFault]:
     if code < 128:
@@ -842,7 +842,7 @@ pub class Parser:
             self._offset += 1
             for _ in range(4 - self._column % 4):
                 push_byte(&mut self._blocks[tip].content, 32)?
-        faulted(self._blocks[tip].content.extend(&self._text[self._offset:self._line_end]))?
+        reserved(self._blocks[tip].content.extend(&self._text[self._offset:self._line_end]))?
         push_byte(&mut self._blocks[tip].content, 10)
 
     def add_child(self: &mut Parser, kind: i64, offset: i64) -> Result[i64, MarkdownFault]:
@@ -1168,7 +1168,7 @@ pub class Parser:
                         last = first
                     elif is_space_or_tab(self.at(hashes - 1)):
                         last = hashes
-                faulted(self._blocks[heading].content.extend(&self._text[first:last]))?
+                reserved(self._blocks[heading].content.extend(&self._text[first:last]))?
                 self._offset = stop
                 return Ok(2)
         if not self._indented and (c == 96 or c == 126):
@@ -1380,7 +1380,7 @@ pub class Parser:
     # A text node holding `subject[start:stop]`.
     def add_text(self: &mut Parser, start: i64, stop: i64) -> Result[i64, MarkdownFault]:
         at = self._pool.len()
-        faulted(self._pool.extend(&self._subject[start:stop]))?
+        reserved(self._pool.extend(&self._subject[start:stop]))?
         node = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(i_root, node)
         Ok(node)
@@ -1691,13 +1691,13 @@ pub class Parser:
     def add_link_text(self: &mut Parser, destination_prefix: bool, start: i64, stop: i64) -> Result[(), MarkdownFault]:
         self._scratch.clear()
         if destination_prefix:
-            faulted(self._scratch.extend(&b"mailto:"))?
-        faulted(self._scratch.extend(&self._subject[start:stop]))?
+            reserved(self._scratch.extend(&b"mailto:"))?
+        reserved(self._scratch.extend(&self._subject[start:stop]))?
         destination = text_of(&self._scratch, 0, self._scratch.len())?
         link = self.add_node(i_link)?
         self._inlines[link].destination = destination
         at = self._pool.len()
-        faulted(self._pool.extend(&self._subject[start:stop]))?
+        reserved(self._pool.extend(&self._subject[start:stop]))?
         text = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(link, text)
         Ok(())
@@ -1786,7 +1786,7 @@ pub class Parser:
         if end < 0:
             return Ok(False)
         at = self._pool.len()
-        faulted(self._pool.extend(&self._subject[start:end]))?
+        reserved(self._pool.extend(&self._subject[start:end]))?
         node = self.new_inline(i_html, at, self._pool.len())?
         self.append_inline(i_root, node)
         self._pos = end
@@ -1853,7 +1853,7 @@ pub class Parser:
         while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
             last -= 1
         self._subject.clear()
-        faulted(self._subject.extend(&self._blocks[index].content[first:last]))?
+        reserved(self._subject.extend(&self._blocks[index].content[first:last]))?
         self._pool.clear()
         self._inlines.clear()
         self._delimiters.clear()
@@ -1905,7 +1905,7 @@ pub class Parser:
             kind = self._inlines[node].kind
             if entering:
                 if kind == i_text:
-                    faulted(self._scratch.extend(&self._pool[self._inlines[node].start:self._inlines[node].stop]))?
+                    reserved(self._scratch.extend(&self._pool[self._inlines[node].start:self._inlines[node].stop]))?
                 else:
                     self.flush_text()?
                     if kind == i_soft:
@@ -2144,7 +2144,7 @@ pub class HtmlRenderer:
         if len(markup) == 0:
             return Ok(())
         self.room(len(markup))?
-        faulted(self._out.extend(&markup))?
+        reserved(self._out.extend(&markup))?
         self._last = i64(markup[len(markup) - 1])
         Ok(())
 
@@ -2164,7 +2164,7 @@ pub class HtmlRenderer:
             return Ok(())
         source = reserved(std.bytes.from_text(text))?
         self.room(source.len())?
-        faulted(self._out.extend(&source))?
+        reserved(self._out.extend(&source))?
         self._last = i64(source[source.len() - 1])
         Ok(())
 

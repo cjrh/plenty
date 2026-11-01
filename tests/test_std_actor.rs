@@ -403,7 +403,7 @@ fn impossible_stage_capacities_are_capacity_overflow() {
         );
     let source = format!("{source}    Ok(())\n");
     let output = support::run_file_stdout(&source);
-    let line = "Result[std.actor.Stage[Node, i64, AllocError], AllocError | std.ready.WaitError].Err(AllocError.CapacityOverflow)";
+    let line = "Result[std.actor.Stage[Node, i64, AllocError], std.actor.StageError].Err(std.actor.StageError.Allocation(AllocError.CapacityOverflow))";
     assert_eq!(output, format!("{line}\n{line}"), "{source}");
 }
 

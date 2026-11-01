@@ -65,18 +65,18 @@ pub class Builder:
                     additional = 8
                 if additional > i64.MAX - self._bytes.len():
                     additional = count
-                byte_result(self._bytes.reserve(additional))?
+                text_result(self._bytes.reserve(additional))?
             for at in range(count):
-                byte_result(self._bytes.push(u8(__regex_text_byte(text, at))))?
+                text_result(self._bytes.push(u8(__regex_text_byte(text, at))))?
             return Ok(())
         encoded = text_result(std.bytes.from_text(text))?
-        byte_result(self._bytes.extend(&encoded))
+        text_result(self._bytes.extend(&encoded))
 
     # Tab expansion is a bounded bulk fill, not one append per output space.
     def append_spaces(self: &mut Builder, count: i64) -> Result[(), TextError]:
         if count > self._limit - self._bytes.len():
             return Err(TextError.LimitExceeded)
-        byte_result(self._bytes.resize(self._bytes.len() + count, 32u8))
+        text_result(self._bytes.resize(self._bytes.len() + count, 32u8))
 
     pub def clear(self: &mut Builder) -> ():
         self._bytes.clear()

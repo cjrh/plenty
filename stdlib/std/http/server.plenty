@@ -393,14 +393,14 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
         if size > limits.max_head:
             size = limits.max_head
         mut grown = net_allocated(std.bytes.with_capacity(size))?
-        net_bytes(grown.extend(&input.data))?
+        net_allocated(grown.extend(&input.data))?
         input.data = grown
     mut room = input.data.capacity() - have
     if room > read_chunk:
         room = read_chunk
     if room > limits.max_head - have:
         room = limits.max_head - have
-    net_bytes(input.data.resize(have + room, 0u8))?
+    net_allocated(input.data.resize(have + room, 0u8))?
     match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
         case Ok(count):
             drop(input.data.truncate(have + count))
@@ -562,12 +562,8 @@ pub class Conn[T]:
         match self._out.extend(source):
             case Ok(_):
                 Ok(count)
-            case Err(error):
-                match error:
-                    case BytesError.Allocation(cause):
-                        Err(StreamError.Allocation(cause))
-                    case _:
-                        Err(StreamError.OutOfRange)
+            case Err(cause):
+                Err(StreamError.Allocation(cause))
 
     pub def flush(self: &mut Conn[T]) -> Result[(), StreamError]:
         size = self._out.len()
@@ -944,14 +940,14 @@ pub class Exchange[T]:
         flushed(taken.inner.flush())?
         held = taken.buffered()
         mut input = http_allocated(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
-        http_bytes(input.resize(held, 0u8))?
+        http_allocated(input.resize(held, 0u8))?
         if held > 0:
             match taken.read(&mut input, 0, held):
                 case Ok(_):
                     pass
                 case Err(cause):
                     return Err(HttpError.Stream(cause))
-        http_bytes(input.extend(&taken.inner._input.data[taken.inner._at:]))?
+        http_allocated(input.extend(&taken.inner._input.data[taken.inner._at:]))?
         stream = match replace(taken.inner._stream, Nothing):
             case Some(found):
                 found
@@ -2196,7 +2192,7 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
     netted(wake.watch(&mut selector, wake_key, Interest.Read))?
     address = netted(wake.local_address())?
     mut scratch = allocated(std.bytes.with_capacity(discard_chunk))?
-    allocated(bytes_of(scratch.resize(discard_chunk, 0u8)))?
+    allocated(scratch.resize(discard_chunk, 0u8))?
     slots = allocated(list[Option[Job[T]]].new())?
     free = allocated(list[i64].new())?
     # Rejections must not hold up accepting, so they get a short write budget.
@@ -2207,13 +2203,6 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
             Ok(report)
         case Err(error):
             Err(ServerError.Thread(error))
-
-def bytes_of[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(_):
-            Err(AllocError.OutOfMemory)
 
 # Serves `listener` until `stop` is cancelled, then closes it, lets queued
 # and active connections finish within `drain_timeout`, cancels whatever is

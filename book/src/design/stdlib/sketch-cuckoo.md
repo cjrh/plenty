@@ -70,8 +70,8 @@ layer count, and occurrence count as little-endian u64, followed by little-endia
 u16 slots in layer order. `from_bytes(data, max_buckets)` reads a `&[u8]` view,
 validates shape, counts, length and the caller limit before constructing storage,
 and returns `SketchError`. The caller limit bounds the serialized
-**configured maximum**, not only today's occupancy. Serialization exposes
-`BytesError`. The format is versioned, Plenty-specific and unauthenticated.
+**configured maximum**, not only today's occupancy. Serialization fails only to
+allocate and returns `AllocError`. The format is versioned, Plenty-specific and unauthenticated.
 
 ## Acknowledgements
 

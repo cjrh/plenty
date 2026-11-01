@@ -186,7 +186,7 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Re
         if step > chunk:
             step = chunk
         filled = out.len()
-        match bytes_result(out.resize(filled + step, 0u8)):
+        match stream_error_allocated(out.resize(filled + step, 0u8)):
             case Ok(_):
                 pass
             case Err(cause):
@@ -305,7 +305,7 @@ pub class BufReader[R]:
                                 pass
                     case Err(_):
                         return Err(StreamError.OutOfRange)
-                bytes_result(out.extend(&self._buffer[self._start:stop]))?
+                stream_error_allocated(out.extend(&self._buffer[self._start:stop]))?
                 total += stop - self._start
                 self._start = stop
                 if found:
@@ -316,7 +316,7 @@ pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], Stre
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
     mut buffer = stream_error_allocated(with_capacity(capacity))?
-    bytes_result(buffer.resize(capacity, 0u8))?
+    stream_error_allocated(buffer.resize(capacity, 0u8))?
     Ok(BufReader(inner, buffer, 0, 0))
 
 # Repositions the inner stream and discards buffered input. A relative target
@@ -379,7 +379,7 @@ pub class BufWriter[W]:
         # A write at least as large as the buffer goes straight through.
         if count >= self._capacity:
             return progressed(self.inner.write(source)?, count)
-        bytes_result(self._buffer.extend(source))?
+        stream_error_allocated(self._buffer.extend(source))?
         Ok(count)
 
     pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
@@ -443,14 +443,14 @@ pub class Cursor:
         end = displaced(self._position, count)?
         # A position past the end leaves a gap, which reads back as zeros.
         if self._position > self.data.len():
-            bytes_result(self.data.resize(self._position, 0u8))?
+            stream_error_allocated(self.data.resize(self._position, 0u8))?
         mut inside = self.data.len() - self._position
         if inside > count:
             inside = count
         # Reserving first means a failed write changes nothing but the gap.
-        bytes_result(self.data.reserve(count - inside))?
+        stream_error_allocated(self.data.reserve(count - inside))?
         bytes_result(self.data.overwrite(self._position, &source[:inside]))?
-        bytes_result(self.data.extend(&source[inside:]))?
+        stream_error_allocated(self.data.extend(&source[inside:]))?
         self._position = end
         Ok(count)
 

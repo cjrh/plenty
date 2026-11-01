@@ -480,17 +480,17 @@ def escape(text: &str, max_bytes: i64) -> Result[str, TemplateError]:
         if size > max_bytes - output.len():
             return Err(TemplateError.LimitExceeded)
         if *byte == 38u8:
-            bytes_result(output.extend(b"&amp;"))?
+            allocated(output.extend(b"&amp;"))?
         elif *byte == 60u8:
-            bytes_result(output.extend(b"&lt;"))?
+            allocated(output.extend(b"&lt;"))?
         elif *byte == 62u8:
-            bytes_result(output.extend(b"&gt;"))?
+            allocated(output.extend(b"&gt;"))?
         elif *byte == 34u8:
-            bytes_result(output.extend(b"&quot;"))?
+            allocated(output.extend(b"&quot;"))?
         elif *byte == 39u8:
-            bytes_result(output.extend(b"&#x27;"))?
+            allocated(output.extend(b"&#x27;"))?
         else:
-            bytes_result(output.push(*byte))?
+            allocated(output.push(*byte))?
     bytes_result(output.to_text())
 
 def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Value, TemplateError]:
@@ -535,7 +535,7 @@ def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), Templat
     if text.byte_len() > bounds.max_output - state.output.len():
         return Err(TemplateError.LimitExceeded)
     encoded = allocated(std.bytes.from_text(text))?
-    bytes_result(state.output.extend(&encoded))
+    allocated(state.output.extend(&encoded))
 
 def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), TemplateError]:
     mut text = ""

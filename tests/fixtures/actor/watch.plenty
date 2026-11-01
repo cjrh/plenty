@@ -3,7 +3,7 @@
 # `Mail.Ready` names its socket, and level-triggered readiness of one socket
 # is queued once: after reading both, the actor sends itself a message, and
 # a duplicate `Ready` queued ahead of it would print `stale`.
-from std.actor import Address, Context, Mail, heaps_live, stage
+from std.actor import Address, Context, Mail, heaps_live, StageError, stage
 import std.bytes
 from std.bytes import BytesError
 from std.net import NetError, TcpStream, connect, listen, loopback_v4
@@ -65,7 +65,7 @@ pub class Pair:
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Pair], Fault]:
         Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError]:
     deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
     cancel = CancellationToken()?
     socket = listen(&loopback_v4(0u16), 4)?

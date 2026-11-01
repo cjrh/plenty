@@ -106,7 +106,7 @@ def finished(state: &mut Bytes, target: &mut Bytes, offset: i64, size: i64) -> R
 
 def output(state: &mut Bytes, size: i64) -> Result[Bytes, CryptoError]:
     mut target = crypto_error_allocated(std.bytes.with_capacity(size))?
-    reported(target.resize(size, 0u8))?
+    crypto_error_allocated(target.resize(size, 0u8))?
     finished(state, &mut target, 0, size)?
     Ok(target)
 
@@ -328,7 +328,7 @@ def advanced_status(status: i64) -> Result[(), AdvancedError]:
 
 def advanced_output(size: i64) -> Result[Bytes, AdvancedError]:
     mut target = advanced_error_allocated(std.bytes.with_capacity(size))?
-    advanced_bytes(target.resize(size, 0u8))?
+    advanced_error_allocated(target.resize(size, 0u8))?
     Ok(target)
 
 # Never reuse a nonce with a key. Encryption appends a 16-byte tag; growth
@@ -336,7 +336,7 @@ def advanced_output(size: i64) -> Result[Bytes, AdvancedError]:
 pub def seal_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]:
     if len(key) != 32 or len(nonce) != 12 or data.len() > 68719476704:
         return Err(AdvancedError.InvalidLength)
-    advanced_bytes(data.resize(data.len() + 16, 0u8))?
+    advanced_error_allocated(data.resize(data.len() + 16, 0u8))?
     status = match algorithm:
         case AeadAlgorithm.Aes256Gcm:
             __crypto_aes_seal(key, nonce, aad, data)
@@ -652,21 +652,21 @@ def der_length_size(size: i64) -> i64:
 
 # Lengths here stay below 65536, so at most two length bytes follow 0x82.
 def der_header(target: &mut Bytes, tag: u8, size: i64) -> Result[(), AdvancedError]:
-    advanced_bytes(target.push(tag))?
+    advanced_error_allocated(target.push(tag))?
     if size > 255:
-        advanced_bytes(target.push(130u8))?
-        advanced_bytes(target.push(u8(size >> 8)))?
+        advanced_error_allocated(target.push(130u8))?
+        advanced_error_allocated(target.push(u8(size >> 8)))?
     elif size > 127:
-        advanced_bytes(target.push(129u8))?
-    advanced_bytes(target.push(u8(size & 255)))
+        advanced_error_allocated(target.push(129u8))?
+    advanced_error_allocated(target.push(u8(size & 255)))
 
 def der_integer(target: &mut Bytes, magnitude: &[u8]) -> Result[(), AdvancedError]:
     signed = magnitude[0] > 127u8
     size = len(magnitude) + (1 if signed else 0)
     der_header(target, 2u8, size)?
     if signed:
-        advanced_bytes(target.push(0u8))?
-    advanced_bytes(target.extend(magnitude))
+        advanced_error_allocated(target.push(0u8))?
+    advanced_error_allocated(target.extend(magnitude))
 
 def integer_size(magnitude: &[u8]) -> i64:
     size = len(magnitude) + (1 if magnitude[0] > 127u8 else 0)
@@ -712,9 +712,9 @@ pub def p256_public_key_from_coordinates(x: &[u8], y: &[u8]) -> Result[P256Publi
     if len(x) != 32 or len(y) != 32:
         return Err(AdvancedError.InvalidKey)
     mut point = advanced_error_allocated(std.bytes.with_capacity(65))?
-    advanced_bytes(point.push(4u8))?
-    advanced_bytes(point.extend(x))?
-    advanced_bytes(point.extend(y))?
+    advanced_error_allocated(point.push(4u8))?
+    advanced_error_allocated(point.extend(x))?
+    advanced_error_allocated(point.extend(y))?
     p256_checked(point)
 
 # SubjectPublicKeyInfo DER with id-ecPublicKey and the named curve

@@ -365,12 +365,12 @@ pub class Formatter[W]:
         match &mut self._scratch:
             case Some(scratch):
                 if scratch.len() < size:
-                    stored(scratch.resize(size, 0u8))?
+                    format_error_allocated(scratch.resize(size, 0u8))?
                 return Ok(())
             case Nothing:
                 pass
         mut scratch = format_error_allocated(with_capacity(size))?
-        stored(scratch.resize(size, 0u8))?
+        format_error_allocated(scratch.resize(size, 0u8))?
         self._scratch = Some(scratch)
         Ok(())
 
@@ -690,7 +690,7 @@ pub def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cur
     if max_bytes < 0 or max_depth < 0 or max_depth > 64:
         return Err(FormatError.InvalidSpec)
     mut scratch = format_error_allocated(with_capacity(32))?
-    stored(scratch.resize(32, 0u8))?
+    format_error_allocated(scratch.resize(32, 0u8))?
     Ok(Formatter(cursor(format_error_allocated(with_capacity(0))?), Some(scratch), Destination.Collected, False, max_bytes, 0, 0, max_depth))
 
 pub def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]:

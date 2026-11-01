@@ -242,21 +242,21 @@ def le(data: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
 
 def put_le(out: &mut Bytes, value: i64, width: i64) -> Result[(), ArchiveError]:
     for index in range(0, width):
-        held(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
+        owned(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
     Ok(())
 
 def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
-    held(out.reserve(len(values)))?
+    owned(out.reserve(len(values)))?
     for index in range(0, len(values)):
-        held(out.push(values[index]))?
+        owned(out.push(values[index]))?
     Ok(())
 
 def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
     spelled = owned(std.bytes.from_text(text))?
-    held(out.extend(&spelled))
+    owned(out.extend(&spelled))
 
 def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
-    held(held(data.slice(start, stop))?.to_list())
+    owned(held(data.slice(start, stop))?.to_list())
 
 # A NUL-terminated field of at most `width` bytes.
 def text_field(data: &Bytes, at: i64, width: i64) -> Result[list[u8], ArchiveError]:
@@ -476,7 +476,7 @@ pub class TarReader[R]:
         if size > max_metadata:
             return Err(ArchiveError.Limit)
         mut data = owned(std.bytes.with_capacity(size))?
-        held(data.resize(size, 0u8))?
+        owned(data.resize(size, 0u8))?
         fill(&mut self.inner, &mut data, size)?
         self.skip((block_size - size % block_size) % block_size)?
         Ok(data)
@@ -614,7 +614,7 @@ pub class TarReader[R]:
 
 pub def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]:
     mut block = owned(std.bytes.with_capacity(block_size))?
-    held(block.resize(block_size, 0u8))?
+    owned(block.resize(block_size, 0u8))?
     Ok(TarReader(inner, block, 0, 0, False, Nothing))
 
 # TAR writing
@@ -780,7 +780,7 @@ pub class TarWriter[W]:
 
 pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
     mut block = owned(std.bytes.with_capacity(block_size))?
-    held(block.resize(block_size, 0u8))?
+    owned(block.resize(block_size, 0u8))?
     Ok(TarWriter(inner, block, False, False))
 
 # DOS dates
@@ -903,7 +903,7 @@ pub class ZipReader[R]:
             return Err(ArchiveError.Corrupt)
         tail_size = smaller(size, 65557)
         mut tail = owned(std.bytes.with_capacity(tail_size))?
-        held(tail.resize(tail_size, 0u8))?
+        owned(tail.resize(tail_size, 0u8))?
         self.at(size - tail_size)?
         fill(&mut self.inner, &mut tail, tail_size)?
         # The last end record whose comment reaches exactly to the end.
@@ -978,11 +978,11 @@ pub class ZipReader[R]:
             if consumed > directory_size:
                 return Err(ArchiveError.Corrupt)
             mut raw = owned(std.bytes.with_capacity(name_size))?
-            held(raw.resize(name_size, 0u8))?
+            owned(raw.resize(name_size, 0u8))?
             fill(&mut self.inner, &mut raw, name_size)?
-            name = held(raw.to_list())?
+            name = owned(raw.to_list())?
             mut extra = owned(std.bytes.with_capacity(extra_size))?
-            held(extra.resize(extra_size, 0u8))?
+            owned(extra.resize(extra_size, 0u8))?
             fill(&mut self.inner, &mut extra, extra_size)?
             mut left = comment_size
             while left > 0:
@@ -1190,7 +1190,7 @@ pub def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], Archiv
     if max_entries < 0:
         return Err(ArchiveError.InvalidInput)
     mut input = owned(std.bytes.with_capacity(chunk))?
-    held(input.resize(chunk, 0u8))?
+    owned(input.resize(chunk, 0u8))?
     decoder = coded(std.compress.inflater(Format.Deflate, 0))?
     mut reader = ZipReader(inner, owned(list[Entry].new())?, owned(list[Record].new())?, owned(list[i64].new())?, input, 0, 0, decoder, 0, False, False, 0, 0, 0, 0, 0, Nothing)
     reader.load(max_entries)?
@@ -1302,7 +1302,7 @@ pub class ZipWriter[W]:
         self._failed = True
         send(&mut self.inner, &head, 0, head.len())?
         send(&mut self.inner, payload, 0, compressed)?
-        held(self._central.extend(&entry))?
+        owned(self._central.extend(&entry))?
         self._offset += head.len() + compressed
         self._count += 1
         self._failed = False

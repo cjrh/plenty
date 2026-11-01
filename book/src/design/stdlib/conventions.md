@@ -152,8 +152,9 @@ after its source: `Stream(StreamError)`, `Io(IoError)`, `Net(NetError)`,
 
 Do not return a union such as `AllocError | GraphError`; add the variant
 instead. A function that only forwards another module's error keeps that
-error, as `std.bytes` constructors keep `AllocError`. `std.actor.stage` still
-returns `AllocError | WaitError`.
+error, as `std.bytes` constructors keep `AllocError`. An operation with two
+unrelated causes names both in its own enum: `std.actor.StageError` is
+`Allocation(AllocError)` or `Wait(WaitError)`.
 
 ### Invalid arguments
 
@@ -313,6 +314,5 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `dataframe.lit_binary(&Bytes)` | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
-| Errors | `AllocError \| WaitError` from `std.actor.stage` | Not yet tracked |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |
 | Names | Predicates without `is_`; `count()` as size; `watch` shapes; `new` | Not yet tracked |

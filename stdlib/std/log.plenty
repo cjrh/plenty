@@ -214,8 +214,8 @@ pub class LineBuffer:
         match self.data.extend(source):
             case Ok(_):
                 Ok(len(source))
-            case Err(_):
-                Err(StreamError.OutOfRange)
+            case Err(cause):
+                Err(StreamError.Allocation(cause))
 
     pub def flush(self: &mut LineBuffer) -> Result[(), StreamError]:
         Ok(())
@@ -313,7 +313,7 @@ pub def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], Lo
     if max_line < 1:
         return Err(LogError.InvalidSpec)
     mut scratch = log_error_allocated(with_capacity(32))?
-    stored(scratch.resize(32, 0u8))?
+    log_error_allocated(scratch.resize(32, 0u8))?
     line = LineBuffer(log_error_allocated(with_capacity(max_line))?, max_line, False)
     out = fields_of(formatter(line, scratch, i64.MAX, 0))?
     Ok(TextSink(writer, out))

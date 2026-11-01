@@ -306,7 +306,7 @@ def address_of(file: &File, which: u8) -> Result[SocketAddress, NetError]:
             Err(named(error))
 
 def emit(out: &mut Bytes, value: i64) -> Result[(), NetError]:
-    lifted(out.push(u8(value)))
+    allocated(out.push(u8(value)))
 
 def emit_decimal(out: &mut Bytes, value: i64) -> Result[(), NetError]:
     if value >= 10:
@@ -555,13 +555,13 @@ def reply_of(file: File, deadline: &Deadline, cancel: &CancellationToken) -> Res
     mut reply = FileStream(file)
     mut data = allocated(std.bytes.with_capacity(256))?
     mut chunk = allocated(std.bytes.with_capacity(256))?
-    lifted(chunk.resize(256, 0u8))?
+    allocated(chunk.resize(256, 0u8))?
     while True:
         count = counted(std.ready.read_before(&mut reply, &mut chunk, 0, 256, deadline, cancel))?
         if count == 0:
             break
-        lifted(data.extend(&chunk[:count]))?
-    lifted(data.to_list())
+        allocated(data.extend(&chunk[:count]))?
+    allocated(data.to_list())
 
 # Addresses for `host` with `port` set: an IP literal directly, otherwise
 # the system resolver, in its preference order. The lookup runs on a helper
@@ -637,14 +637,14 @@ pub class Lookup:
                 case Err(error):
                     return Err(waited(error))
             at = self._data.len()
-            lifted(self._data.resize(at + lookup_chunk, 0u8))?
+            allocated(self._data.resize(at + lookup_chunk, 0u8))?
             # Readable, so this read returns at once even though the reply
             # end blocks.
             match self._reply.read(&mut self._data, at, at + lookup_chunk):
                 case Ok(count):
                     lifted(self._data.truncate(at + count))?
                     if count == 0:
-                        return addresses_in(&lifted(self._data.to_list())?, self._port)
+                        return addresses_in(&allocated(self._data.to_list())?, self._port)
                 case Err(error):
                     lifted(self._data.truncate(at))?
                     return Err(streamed(error))
@@ -949,7 +949,7 @@ pub class UdpSocket:
             ready_for(&self._file, Interest.Read, deadline, cancel)?
             match received_from(buffer, &mut self._file, start, stop, &mut sender):
                 case Ok(size):
-                    data = lifted(sender.to_list())?
+                    data = allocated(sender.to_list())?
                     (source, _) = decoded(&data, 0)?
                     mut stored = size
                     if stored > stop - start:

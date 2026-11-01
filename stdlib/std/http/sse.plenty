@@ -77,11 +77,11 @@ def net_error(error: NetError) -> SseError:
 # Appends `name: ` and then `text` and a line feed.
 def field(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
     spelled = allocated(std.bytes.from_text(name))?
-    bytes_of(out.extend(&spelled))?
-    bytes_of(out.push(colon))?
-    bytes_of(out.push(space))?
-    bytes_of(out.extend(text))?
-    bytes_of(out.push(line_feed))
+    allocated(out.extend(&spelled))?
+    allocated(out.push(colon))?
+    allocated(out.push(space))?
+    allocated(out.extend(text))?
+    allocated(out.push(line_feed))
 
 # Appends one `name: line` field for each line of `text`. CRLF, CR and LF all
 # end a line, as the format's readers split them; a line break at the end
@@ -159,7 +159,7 @@ pub class EventStream[T]:
             case Nothing:
                 pass
         lines(&mut self._out, "data", data)?
-        bytes_of(self._out.push(line_feed))?
+        allocated(self._out.push(line_feed))?
         self.flush(deadline, cancel)
 
     # Sends `text` as comment lines, which clients ignore: a keep-alive that
@@ -183,7 +183,7 @@ pub class EventStream[T]:
         digits = allocated(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
         self._out.clear()
         field(&mut self._out, "retry", &digits)?
-        bytes_of(self._out.push(line_feed))?
+        allocated(self._out.push(line_feed))?
         self.flush(deadline, cancel)
 
     # Waits until `deadline`, returning Ok then. Ends early with
@@ -321,7 +321,7 @@ pub def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead
         return Err(SseError.Closed)
     out = allocated(std.bytes.with_capacity(256))?
     mut input = allocated(std.bytes.with_capacity(512))?
-    bytes_of(input.resize(512, 0u8))?
+    allocated(input.resize(512, 0u8))?
     stream = http_of(exchange.detach(owned))?
     Ok(EventStream(last, Some(stream), out, input, exchange.stop_token(), exchange.cancel_token(), True))
 

@@ -4,13 +4,6 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 from std.sketch import SketchError, hash_u64
 
-def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BytesError.Allocation(cause))
-
 def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
     match result:
         case Ok(value):
@@ -71,7 +64,7 @@ def empty_slot(layer: &Layer, bucket: i64) -> i64:
 
 def layer(buckets: i64) -> Result[Layer, SketchError]:
     mut slots = allocated(std.bytes.with_capacity(buckets * 8))?
-    stored(slots.resize(buckets * 8, 0u8))?
+    allocated(slots.resize(buckets * 8, 0u8))?
     Ok(Layer(slots, buckets))
 
 pub class CuckooFilter:
@@ -140,8 +133,8 @@ pub class CuckooFilter:
             return Ok(True)
         Ok(False)
 
-    pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut out = bytes_error_allocated(std.bytes.with_capacity(44 + self._used_buckets * 8))?
+    pub def to_bytes(self) -> Result[Bytes, AllocError]:
+        mut out = std.bytes.with_capacity(44 + self._used_buckets * 8)?
         out.extend(&b"PSC1")?
         word(&mut out, self._seed)?
         word(&mut out, u64(self._max_buckets))?
@@ -199,7 +192,7 @@ pub def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 
         allocated(old.append(0u16))?
     Ok(CuckooFilter(layers, max_buckets, initial_buckets, 0u64, seed, path, old))
 
-def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
+def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
     for shift in range(0, 64, 8):
         out.push(u8((value >> u64(shift)) & 255u64))?
     Ok(())

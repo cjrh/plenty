@@ -224,7 +224,7 @@ def literal_byte(which: i64, index: i64) -> i64:
     -1
 
 def push_byte(target: &mut Bytes, value: i64) -> Result[(), JsonFault]:
-    faulted(target.push(u8(value)))
+    reserved(target.push(u8(value)))
 
 # `code` is a Unicode scalar value; the caller has excluded surrogates.
 def push_scalar(target: &mut Bytes, code: i64) -> Result[(), JsonFault]:
@@ -332,7 +332,7 @@ pub class Decoder:
         if self._at == self._window.len():
             self._window.clear()
             self._at = 0
-        match faulted(self._window.extend(source)):
+        match reserved(self._window.extend(source)):
             case Ok(_):
                 self._fed += len(source)
                 Ok(())
@@ -560,7 +560,7 @@ pub class Decoder:
         # one column, and none is a line feed.
         available = self._window.len()
         stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)?
-        faulted(self._scratch.extend(&self._window[self._at:stop]))?
+        reserved(self._scratch.extend(&self._window[self._at:stop]))?
         count = stop - self._at
         self._at = stop
         self._offset += count
@@ -720,7 +720,7 @@ def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFa
         room += 1
     else:
         room = read_chunk
-    faulted(source._window.resize(room, 0u8))?
+    reserved(source._window.resize(room, 0u8))?
     source._at = 0
     while True:
         outcome = reader.read(&mut source._window, 0, room)
@@ -987,7 +987,7 @@ pub class Encoder:
     def extend(self: &mut Encoder, source: &[u8]) -> Result[(), JsonFault]:
         if len(source) > self._max_output - self._written:
             return Err(JsonFault.OutputTooLarge)
-        faulted(self._out.extend(source))?
+        reserved(self._out.extend(source))?
         self._written += len(source)
         Ok(())
 

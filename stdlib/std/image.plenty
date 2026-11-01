@@ -117,7 +117,7 @@ pub class Image:
     # An independent image with the same pixels. The builtin `copy` rejects an
     # Image, because its buffer is a resource.
     pub def copy(self) -> Result[Image, ImageError]:
-        Ok(Image(self._width, self._height, self._color, held(self._pixels.copy())?))
+        Ok(Image(self._width, self._height, self._color, listed(self._pixels.copy())?))
 
     pub def get(self, x: i64, y: i64, channel: i64) -> Result[u8, ImageError]:
         at = self.offset(x, y, channel)?
@@ -143,7 +143,7 @@ pub class Image:
         mut pixels = listed(std.bytes.with_capacity(row * height))?
         for line in range(y, y + height):
             at = (line * self._width + x) * channels
-            held(pixels.extend(&self._pixels[at:at + row]))?
+            listed(pixels.extend(&self._pixels[at:at + row]))?
         Ok(Image(width, height, self._color, pixels))
 
     # Gray from colour is BT.709 luma of the stored values; dropping alpha
@@ -155,7 +155,7 @@ pub class Image:
             return self.copy()
         count = self._width * self._height
         mut pixels = listed(std.bytes.with_capacity(count * target))?
-        held(pixels.resize(count * target, 0u8))?
+        listed(pixels.resize(count * target, 0u8))?
         gray = source < 3
         alpha = self._color.has_alpha()
         mut at = 0
@@ -210,7 +210,7 @@ def size(width: i64, height: i64, color: ColorType) -> Result[i64, ImageError]:
 pub def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]:
     total = size(width, height, color)?
     mut pixels = listed(std.bytes.with_capacity(total))?
-    held(pixels.resize(total, 0u8))?
+    listed(pixels.resize(total, 0u8))?
     Ok(Image(width, height, color, pixels))
 
 # Takes `pixels` as the image's buffer, without copying. Its length must be
@@ -656,9 +656,9 @@ def table(data: &[u8], scan: &Scan) -> Result[Bytes, ImageError]:
     mut colors = listed(std.bytes.with_capacity(4 * scan.entries))?
     for entry in range(0, scan.entries):
         at = scan.palette_at + 3 * entry
-        held(colors.extend(&data[at:at + 3]))?
+        listed(colors.extend(&data[at:at + 3]))?
         alpha = data[scan.alpha_at + entry] if entry < scan.alphas else 255u8
-        held(colors.push(alpha))?
+        listed(colors.push(alpha))?
     Ok(colors)
 
 # Streams decompressed image data into decoded pixels: collects each
@@ -738,8 +738,8 @@ class Decoder:
             # Rows arrive in order, so the buffer grows with the data and a
             # short file never touches the rest of its reservation.
             if scan.depth == 8 and scan.kind != 3 and not scan.keyed:
-                return held(self.out.extend(&self.lines[at:at + count]))
-            held(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
+                return listed(self.out.extend(&self.lines[at:at + count]))
+            listed(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
         mut to = (y * scan.width + x0) * channels
         step = dx * channels
         depth = scan.depth
@@ -791,10 +791,10 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
     total = scan.width * scan.height * color.channels()
     mut out = listed(std.bytes.with_capacity(total))?
     if scan.interlaced:
-        held(out.resize(total, 0u8))?
+        listed(out.resize(total, 0u8))?
     widest = 1 + scan.row_bytes(scan.width)
     mut lines = listed(std.bytes.with_capacity(2 * widest))?
-    held(lines.resize(2 * widest, 0u8))?
+    listed(lines.resize(2 * widest, 0u8))?
     colors = table(data, &scan)?
     mut inflater = coded(std.compress.inflater(std.compress.Format.Zlib, raw))?
     mut at = scan.at
@@ -836,17 +836,17 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
 const idat_size: i64 = 65536
 
 def put32(out: &mut Bytes, value: i64) -> Result[(), ImageError]:
-    held(out.push(u8.wrapping_from(value >> 24)))?
-    held(out.push(u8.wrapping_from(value >> 16)))?
-    held(out.push(u8.wrapping_from(value >> 8)))?
-    held(out.push(u8.wrapping_from(value)))?
+    listed(out.push(u8.wrapping_from(value >> 24)))?
+    listed(out.push(u8.wrapping_from(value >> 16)))?
+    listed(out.push(u8.wrapping_from(value >> 8)))?
+    listed(out.push(u8.wrapping_from(value)))?
     Ok(())
 
 def framed(out: &mut Bytes, kind: i64, data: &[u8], start: i64, stop: i64) -> Result[(), ImageError]:
     put32(out, stop - start)?
     at = out.len()
     put32(out, kind)?
-    held(out.extend(&data[start:stop]))?
+    listed(out.extend(&data[start:stop]))?
     crc = coded(std.compress.crc32(0, &out[at:]))?
     put32(out, crc)
 
@@ -930,21 +930,21 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
     mut header = listed(std.bytes.with_capacity(13))?
     put32(&mut header, width)?
     put32(&mut header, height)?
-    held(header.push(8u8))?
-    held(header.push(color_kind(image.color())))?
-    held(header.resize(13, 0u8))?
+    listed(header.push(8u8))?
+    listed(header.push(color_kind(image.color())))?
+    listed(header.resize(13, 0u8))?
     framed(&mut out, ihdr, &header, 0, 13)?
     line = count + 1
     # Level 0 stores rows unfiltered; otherwise each row is filtered five ways
     # and the best kept, with a zero row standing above the first.
     kinds = 1 if level == 0 else 5
     mut rows = listed(std.bytes.with_capacity(kinds * line))?
-    held(rows.resize(kinds * line, 0u8))?
+    listed(rows.resize(kinds * line, 0u8))?
     for kind in range(0, kinds):
         rows[kind * line] = u8(kind)
     mut zero = listed(std.bytes.with_capacity(count))?
     if level > 0:
-        held(zero.resize(count, 0u8))?
+        listed(zero.resize(count, 0u8))?
     sink = std.io.cursor(listed(std.bytes.empty())?)
     mut zlib = coded(std.compress.compressor(std.compress.Format.Zlib, sink, level))?
     pixels = image.pixels()
@@ -985,7 +985,7 @@ def nearest(image: &Image, width: i64, height: i64, total: i64) -> Result[Image,
         row = ((2 * y + 1) * image.height()) // (2 * height) * image.width()
         for x in range(0, width):
             at = (row + ((2 * x + 1) * image.width()) // (2 * width)) * channels
-            held(pixels.extend(&source[at:at + channels]))?
+            listed(pixels.extend(&source[at:at + channels]))?
     Ok(Image(width, height, image.color(), pixels))
 
 # Fixed-point bits in filter weights, as in Pillow's resampling.
@@ -1054,7 +1054,7 @@ def horizontal(source: &[u8], from_width: i64, rows: i64, channels: i64, weights
     to_width = len(&weights.starts)
     total = rows * to_width * channels
     mut out = listed(std.bytes.with_capacity(total))?
-    held(out.resize(total, 0u8))?
+    listed(out.resize(total, 0u8))?
     mut to = 0
     for y in range(0, rows):
         row = y * from_width * channels
@@ -1100,7 +1100,7 @@ def vertical(source: &[u8], stride: i64, weights: &Taps) -> Result[Bytes, ImageE
     to_height = len(&weights.starts)
     total = to_height * stride
     mut out = listed(std.bytes.with_capacity(total))?
-    held(out.resize(total, 0u8))?
+    listed(out.resize(total, 0u8))?
     mut to = 0
     for y in range(0, to_height):
         start = weights.starts[y]

@@ -672,14 +672,15 @@ fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {
     let failure =
         "std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))";
     let constructor = "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)";
+    let allocation = "AllocError].Err(AllocError.OutOfMemory)";
     let expected = format!(
-        "Result[(), {failure}\n\
-         Result[(), {failure}\n\
-         Result[(), {failure}\n\
-         Result[(), {failure}\n\
+        "Result[(), {allocation}\n\
+         Result[(), {allocation}\n\
+         Result[(), {allocation}\n\
+         Result[(), {allocation}\n\
          Result[std.bytes.Bytes, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
-         Result[list[u8], {failure}\n\
+         Result[std.bytes.Bytes, {allocation}\n\
+         Result[list[u8], {allocation}\n\
          Result[str, {failure}\n\
          {constructor}\n\
          {constructor}\n\
@@ -741,7 +742,7 @@ fn second_allocation_failure_releases_the_first() {
         "{constructor}\n\
          Result[std.bytes.Bytes, {failure}\n\
          {constructor}\n\
-         Result[list[u8], {failure}\n\
+         Result[list[u8], AllocError].Err(AllocError.OutOfMemory)\n\
          {constructor}"
     );
     native(
@@ -771,7 +772,7 @@ print(str.repr(e)?)?
 
 #[test]
 fn impossible_sizes_are_allocation_errors_and_change_nothing() {
-    let error = "std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError";
+    let error = "AllocError].Err(AllocError";
     // One byte short of the address-space limit is a refused request; a total
     // beyond it cannot be expressed as a size at all.
     native(
@@ -788,10 +789,10 @@ print(buffer.len(), buffer.capacity() == room, buffer.to_text()?)?
 "#,
         &format!(
             "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)\n\
-             Result[(), {error}.OutOfMemory))\n\
-             Result[(), {error}.CapacityOverflow))\n\
-             Result[(), {error}.CapacityOverflow))\n\
-             Result[(), {error}.CapacityOverflow))\n\
+             Result[(), {error}.OutOfMemory)\n\
+             Result[(), {error}.CapacityOverflow)\n\
+             Result[(), {error}.CapacityOverflow)\n\
+             Result[(), {error}.CapacityOverflow)\n\
              Result[std.bytes.Bytes, AllocError].Err(AllocError.CapacityOverflow)\n\
              2 True ab"
         ),

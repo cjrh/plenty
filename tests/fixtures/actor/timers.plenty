@@ -1,4 +1,4 @@
-from std.actor import Address, Context, Exit, Mail, Reply, Request, TimerError, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, Reply, Request, TimerError, heaps_live, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now, nanoseconds, seconds
@@ -173,7 +173,7 @@ pub enum Node:
             case _:
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
     cancel = CancellationToken()?
     mut actors = stage[Node, Job, Fault](8, 4, 4)?

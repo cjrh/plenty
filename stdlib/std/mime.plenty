@@ -244,10 +244,10 @@ pub def parse(text: &str) -> Result[MediaType, MimeError]:
                 if byte == 92u8:
                     if index == stop or not text_byte(i64(data[index])):
                         return Err(MimeError.Invalid)
-                    lifted(unquoted.push(data[index]))?
+                    allocated(unquoted.push(data[index]))?
                     index += 1
                 elif text_byte(i64(byte)):
-                    lifted(unquoted.push(byte))?
+                    allocated(unquoted.push(byte))?
                 else:
                     return Err(MimeError.Invalid)
             if not closed:

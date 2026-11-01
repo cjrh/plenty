@@ -129,13 +129,8 @@ pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufR
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
     mut buffer = stream_error_allocated(std.bytes.with_capacity(capacity))?
-    match buffer.resize(capacity, 0u8):
-        case Ok(_):
-            Ok(BufReader[E, R](inner, buffer, 0, 0))
-        case Err(std.bytes.BytesError.Allocation(cause)):
-            Err(StreamError.Allocation(cause))
-        case Err(_):
-            Err(StreamError.OutOfRange)
+    stream_error_allocated(buffer.resize(capacity, 0u8))?
+    Ok(BufReader[E, R](inner, buffer, 0, 0))
 
 pub enum WriteFailure[E]:
     Source(E)

@@ -311,7 +311,7 @@ pub def over(net: Connection, session: Session, input: i64) -> Result[TlsConnect
     if input <= 0:
         return Err(TlsError.Net(invalid()))
     mut buffer = tls_error_allocated(std.bytes.with_capacity(input))?
-    stored(buffer.resize(input, 0u8))?
+    tls_error_allocated(buffer.resize(input, 0u8))?
     Ok(TlsConnection(net, session, buffer, 0, 0, False, False, False, False, True))
 
 # A server session over `net`, with `input` bytes for decrypted input.

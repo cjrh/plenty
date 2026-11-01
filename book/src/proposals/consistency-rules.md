@@ -542,10 +542,14 @@ and an argument bug traps.
    constructors, negative capacities. Done with B92 phase 3:
    `FormatError.Allocation`, `std.bytes` constructors return `AllocError`,
    and `std.graph`, `std.sketch`, `std.linalg`, `std.shlex` and `std.mime`
-   (new `MimeError`) carry the variant. `std.actor.stage` keeps its
-   `AllocError | WaitError` union. Other out-of-domain arguments still
-   return named `Err` variants; converting them to traps needs a std trap
-   with a message.
+   (new `MimeError`) carry the variant; `std.actor.stage` returns
+   `StageError`. `Bytes` methods that fail only to allocate, and sketch
+   `to_bytes`, return `AllocError`. Out-of-domain arguments that depend on
+   run-time state (a range beyond a buffer's length, a random index into an
+   empty population) still return named `Err` variants: converting them to
+   traps needs a function-scope `assert` or a std trap with a message.
+   Statically checkable domains (positive capacities and limits) wait for a
+   type that expresses them.
 
 ## Rule 6: every callable form is a value wherever a callback is accepted
 

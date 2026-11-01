@@ -65,7 +65,7 @@ pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encodi
         case Nothing:
             pass
     mut values = encoding_error_allocated(std.bytes.with_capacity(128))?
-    lifted(values.resize(128, 255u8))?
+    encoding_error_allocated(values.resize(128, 255u8))?
     for index in range(count):
         code = i64(alphabet[index])
         if code < 33 or code > 126 or code == pad:
@@ -523,7 +523,7 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
 # Output buffers are created with their exact final capacity, so this never
 # allocates.
 def emit(target: &mut Bytes, value: i64) -> Result[(), EncodingError]:
-    lifted(target.push(u8(value)))
+    encoding_error_allocated(target.push(u8(value)))
 
 def hex_digit(value: i64) -> i64:
     if value < 10:
@@ -687,7 +687,7 @@ def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian)
 
 def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
     offset = target.len()
-    lifted(target.resize(offset + width, 0u8))?
+    encoding_error_allocated(target.resize(offset + width, 0u8))?
     place(target, offset, bits, width, order)
 
 def load(source: &[u8], offset: i64, width: i64, order: Endian) -> Result[u64, EncodingError]:

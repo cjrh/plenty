@@ -319,7 +319,7 @@ pub class WebSocket[T]:
             mut payload = allocated(std.bytes.with_capacity(2 + reason.byte_len()))?
             encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
             spelled = allocated(std.bytes.from_text(reason))?
-            bytes_of(payload.extend(&spelled))?
+            allocated(payload.extend(&spelled))?
             outcome = self.frame(op_close, &payload, True, deadline, cancel)
             self.sent(outcome)?
             self._state = state_closing
@@ -536,10 +536,10 @@ pub class WebSocket[T]:
         mut held = self._stop - self._start
         if held > count:
             held = count
-        bytes_of(out.extend(&self._input[self._start:self._start + held]))?
+        allocated(out.extend(&self._input[self._start:self._start + held]))?
         self._start += held
         if held < count:
-            bytes_of(out.resize(base + count, 0u8))?
+            allocated(out.resize(base + count, 0u8))?
             mut at = base + held
             while at < base + count:
                 if cancel.is_cancelled():
@@ -586,21 +586,21 @@ pub class WebSocket[T]:
         mut first = opcode
         if last:
             first = first | 128u8
-        bytes_of(self._out.push(first))?
+        allocated(self._out.push(first))?
         mut flag = 0u8
         if self._client:
             flag = 128u8
         if length < 126:
-            bytes_of(self._out.push(flag | u8(length)))?
+            allocated(self._out.push(flag | u8(length)))?
         elif length < 65536:
-            bytes_of(self._out.push(flag | 126u8))?
+            allocated(self._out.push(flag | 126u8))?
             encoded(std.encoding.append_u16(&mut self._out, u16(length), Endian.Big))?
         else:
-            bytes_of(self._out.push(flag | 127u8))?
+            allocated(self._out.push(flag | 127u8))?
             encoded(std.encoding.append_u64(&mut self._out, u64(length), Endian.Big))?
         if self._client:
             secret(std.secrets.fill(&mut self._key, 0, 4))?
-            bytes_of(self._out.extend(&self._key))?
+            allocated(self._out.extend(&self._key))?
         stop = length
         mut at = 0
         while True:
@@ -608,7 +608,7 @@ pub class WebSocket[T]:
             if end - at > chunk:
                 end = at + chunk
             mark = self._out.len()
-            bytes_of(self._out.extend(&source[at:end]))?
+            allocated(self._out.extend(&source[at:end]))?
             if self._client:
                 for index in range(end - at):
                     self._out[mark + index] = self._out[mark + index] ^ self._key[(at + index) % 4]
@@ -645,7 +645,7 @@ pub class WebSocket[T]:
 
 def blank(size: i64) -> Result[Bytes, WebSocketError]:
     mut made = allocated(std.bytes.with_capacity(size))?
-    bytes_of(made.resize(size, 0u8))?
+    allocated(made.resize(size, 0u8))?
     Ok(made)
 
 def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotocol: Option[str], waiting: CancellationToken, cancel: CancellationToken) -> Result[WebSocket[T], WebSocketError]:
@@ -655,7 +655,7 @@ def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotoco
     mut size = chunk
     if held > size:
         size = held
-    bytes_of(buffer.resize(size, 0u8))?
+    allocated(buffer.resize(size, 0u8))?
     mask = blank(4)?
     key = blank(4)?
     out = allocated(std.bytes.with_capacity(chunk + 14))?

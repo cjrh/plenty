@@ -280,7 +280,7 @@ def drained(file: &mut File, out: &mut Bytes, limit: i64) -> Result[bool, Stream
     mut wanted = chunk
     if limit - before < chunk:
         wanted = limit - before + 1
-    stored(out.resize(before + wanted, 0u8))?
+    stream_error_allocated(out.resize(before + wanted, 0u8))?
     match out.read_file(file, before, before + wanted):
         case Ok(count):
             stored(out.truncate(before + count))?

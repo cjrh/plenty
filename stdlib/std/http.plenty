@@ -806,7 +806,7 @@ pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Res
     mut total = 0
     while True:
         filled = out.len()
-        lifted(out.resize(filled + 4096, 0u8))?
+        listed(out.resize(filled + 4096, 0u8))?
         outcome = body.read_body(out, filled, filled + 4096)
         match outcome:
             case Ok(count):
@@ -822,7 +822,7 @@ pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Res
 # Reads and drops the rest of the body, still under `max_body`.
 pub def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]:
     mut scratch = listed(std.bytes.with_capacity(4096))?
-    lifted(scratch.resize(4096, 0u8))?
+    listed(scratch.resize(4096, 0u8))?
     mut total = 0
     while True:
         count = body.read_body(&mut scratch, 0, 4096)?
@@ -854,11 +854,11 @@ pub def release[R](body: &mut BodyReader[R]) -> Option[BufReader[R]]:
     replace(body._conn, Nothing)
 
 def emit(out: &mut Bytes, value: u8) -> Result[(), HttpError]:
-    lifted(out.push(value))
+    listed(out.push(value))
 
 def put(out: &mut Bytes, text: &str) -> Result[(), HttpError]:
     piece = listed(std.bytes.from_text(text))?
-    lifted(out.extend(&piece))
+    listed(out.extend(&piece))
 
 def put_number(out: &mut Bytes, value: i64) -> Result[(), HttpError]:
     digits = listed(str.repr(value))?

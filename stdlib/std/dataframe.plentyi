@@ -1304,7 +1304,7 @@ pub def lit_bool(value: bool) -> Result[Expr, DataFrameError]:
     Ok(out)
 
 pub def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]:
-    data = buffered(value.to_list())?
+    data = allocated(value.to_list())?
     mut out = Expr()
     checked(lit_binary_raw(data, &mut out.raw))?
     Ok(out)
@@ -1347,9 +1347,9 @@ pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFr
     mut packed = allocated(buffers.empty())?
     mut offsets = allocated([0])?
     for value in values:
-        buffered(packed.extend(value))?
+        allocated(packed.extend(value))?
         allocated(offsets.append(packed.len()))?
-    data = buffered(packed.to_list())?
+    data = allocated(packed.to_list())?
     valid = allocated([1u8 for _ in range(len(values))])?
     mut out = Column()
     checked(native_binary(name, data, offsets, valid, &mut out.raw))?
@@ -1362,12 +1362,12 @@ pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Resu
     for value in values:
         match value:
             case Some(buffer):
-                buffered(packed.extend(buffer))?
+                allocated(packed.extend(buffer))?
                 allocated(valid.append(1u8))?
             case Nothing:
                 allocated(valid.append(0u8))?
         allocated(offsets.append(packed.len()))?
-    data = buffered(packed.to_list())?
+    data = allocated(packed.to_list())?
     mut out = Column()
     checked(native_binary(name, data, offsets, valid, &mut out.raw))?
     Ok(out)

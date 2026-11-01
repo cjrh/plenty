@@ -1,4 +1,4 @@
-from std.actor import Address, Context, Exit, Mail, Undelivered, heap_bytes_committed, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, Undelivered, heap_bytes_committed, heap_bytes_used, heaps_live, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
@@ -63,7 +63,7 @@ def describe(result: Result[(), Undelivered[Note]]) -> Result[(), IoError]:
             print("gone", note)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
     cancel = CancellationToken()?
     mut tree = stage[Node, Note, AllocError](8, 4, 8)?

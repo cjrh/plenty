@@ -397,7 +397,7 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
         http(exchange.respond(head, b""))?
         return Ok(304)
     mut buffer = allocated(std.bytes.with_capacity(chunk))?
-    lifted(buffer.resize(chunk, 0u8))?
+    allocated(buffer.resize(chunk, 0u8))?
     mut head = http(std.http.response(200, "OK"))?
     http(head.add("Content-Type", media_type(path)))?
     http(head.add("Content-Length", allocated(str.from(size))?))?

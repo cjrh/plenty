@@ -180,9 +180,9 @@ def lowered(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
     for index in range(start, stop):
         value = code(data, index)
         if value >= 65 and value <= 90:
-            lifted(out.push(u8(value + 32)))?
+            allocated(out.push(u8(value + 32)))?
         else:
-            lifted(out.push(data[index]))?
+            allocated(out.push(data[index]))?
     lifted(out.to_text())
 
 def skip_blanks(data: &[u8], start: i64) -> i64:
@@ -237,7 +237,7 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
             mut closed = False
             while at < count:
                 run = quoted_end(&data, at, count)
-                lifted(out.extend(&data[at:run]))?
+                allocated(out.extend(&data[at:run]))?
                 at = run
                 if at == count:
                     break
@@ -251,7 +251,7 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
                 at += 1
                 if at == count or control(code(&data, at)):
                     return Err(BodyError.Malformed)
-                lifted(out.push(data[at]))?
+                allocated(out.push(data[at]))?
                 at += 1
             if not closed:
                 return Err(BodyError.Malformed)
@@ -313,12 +313,12 @@ def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Byte
     declared_within(&exchange.request.headers, limit)?
     mut out = allocated(std.bytes.empty())?
     mut chunk = allocated(std.bytes.empty())?
-    lifted(chunk.resize(4096, 0u8))?
+    allocated(chunk.resize(4096, 0u8))?
     mut count = http(exchange.read_body(&mut chunk, 0, 4096))?
     while count > 0:
         if out.len() + count > limit:
             return Err(BodyError.TooLarge)
-        lifted(out.extend(&chunk[:count]))?
+        allocated(out.extend(&chunk[:count]))?
         count = http(exchange.read_body(&mut chunk, 0, 4096))?
     Ok(out)
 
@@ -343,7 +343,7 @@ def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]
     while at < stop:
         value = code(source, at)
         if value == 43:
-            lifted(out.push(32u8))?
+            allocated(out.push(32u8))?
             at += 1
         elif value == 37:
             if at + 2 >= stop:
@@ -352,10 +352,10 @@ def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]
             low = hex_value(code(source, at + 2))
             if high < 0 or low < 0:
                 return Err(BodyError.Malformed)
-            lifted(out.push(u8(high * 16 + low)))?
+            allocated(out.push(u8(high * 16 + low)))?
             at += 3
         else:
-            lifted(out.push(source[at]))?
+            allocated(out.push(source[at]))?
             at += 1
     lifted(out.to_text())
 
@@ -498,7 +498,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     window.total += count
     if window.total > window.limit:
         return Err(BodyError.TooLarge)
-    lifted(window.data.extend(&window.chunk[:count]))?
+    allocated(window.data.extend(&window.chunk[:count]))?
     Ok(True)
 
 # Reads until `count` unexamined bytes are held; False if the body ends first.
@@ -597,7 +597,7 @@ def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: 
         case Nothing:
             if total > limits.max_field:
                 return Err(BodyError.TooLarge)
-            lifted(text.extend(&data[start:stop]))?
+            allocated(text.extend(&data[start:stop]))?
             Ok(total)
 
 def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:
@@ -627,7 +627,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
     width = delimiter.len()
     blank_line = allocated(std.bytes.from_text("\r\n\r\n"))?
     mut chunk = allocated(std.bytes.empty())?
-    lifted(chunk.resize(16384, 0u8))?
+    allocated(chunk.resize(16384, 0u8))?
     mut window = Window(allocated(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body)
     mut parts = allocated(list[Part].new())?
     # The preamble before the first delimiter is discarded.

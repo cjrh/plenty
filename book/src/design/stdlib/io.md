@@ -61,10 +61,8 @@ pub class Tally:
         match self.data.extend(source):
             case Ok(_):
                 Ok(len(source))
-            case Err(std.bytes.BytesError.Allocation(cause)):
+            case Err(cause):
                 Err(StreamError.Allocation(cause))
-            case Err(_):
-                Err(StreamError.OutOfRange)
 
     pub def flush(self: &mut Tally) -> Result[(), StreamError]:
         Ok(())

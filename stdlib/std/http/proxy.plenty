@@ -291,7 +291,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
                     at += 1
                     if at == count:
                         return Err(ProxyError.InvalidForwarded)
-                lifted(value.push(data[at]))?
+                allocated(value.push(data[at]))?
                 at += 1
             if not closed:
                 return Err(ProxyError.InvalidForwarded)
@@ -299,7 +299,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             first = at
             while at < count and data[at] != 59u8 and not is_blank(data[at]):
                 at += 1
-            lifted(value.extend(&data[first:at]))?
+            allocated(value.extend(&data[first:at]))?
         if name == "for":
             node = value
         elif name == "proto":

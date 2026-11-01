@@ -429,7 +429,7 @@ def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]
     if length == absent:
         return Ok(Nothing)
     mut value = tls_error_allocated(std.bytes.with_capacity(length))?
-    stored(value.resize(length, 0u8))?
+    tls_error_allocated(value.resize(length, 0u8))?
     described(session, &mut value, which)
     Ok(Some(value))
 
@@ -800,9 +800,9 @@ def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
 
 def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStream, TlsError]:
     mut incoming = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
-    stored(incoming.resize(buffer_size, 0u8))?
+    tls_error_allocated(incoming.resize(buffer_size, 0u8))?
     mut outgoing = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
-    stored(outgoing.resize(buffer_size, 0u8))?
+    tls_error_allocated(outgoing.resize(buffer_size, 0u8))?
     Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server))
 
 # Starts a client session on a connected stream without waiting; the

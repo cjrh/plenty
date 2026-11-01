@@ -232,7 +232,7 @@ pub def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]:
     index = 0
     while index < stop:
         escape = percent_from(source, index)
-        lifted(decoded.extend(&source[index:escape]))?
+        allocated(decoded.extend(&source[index:escape]))?
         if escape < stop:
             emit(&mut decoded, hex_value(i64(source[escape + 1])) * 16 + hex_value(i64(source[escape + 2])))?
         index = escape + 3
@@ -302,11 +302,11 @@ pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
             emit(&mut out, 38)?
         key = allocated(std.bytes.from_text(pairs[index].key))?
         encoded_key = encode_bytes(&key, Component.QueryPart)?
-        lifted(out.extend(&encoded_key))?
+        allocated(out.extend(&encoded_key))?
         emit(&mut out, 61)?
         value = allocated(std.bytes.from_text(pairs[index].value))?
         encoded_value = encode_bytes(&value, Component.QueryPart)?
-        lifted(out.extend(&encoded_value))?
+        allocated(out.extend(&encoded_value))?
     lifted(out.to_text())
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:
@@ -330,11 +330,11 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
             Err(UrlError.Allocation(error))
 
 def emit(target: &mut Bytes, value: i64) -> Result[(), UrlError]:
-    lifted(target.push(u8(value)))
+    allocated(target.push(u8(value)))
 
 def put(target: &mut Bytes, text: &str) -> Result[(), UrlError]:
     piece = allocated(std.bytes.from_text(text))?
-    lifted(target.extend(&piece))
+    allocated(target.extend(&piece))
 
 def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, UrlError]:
     lifted(source.to_text_range(start, stop))

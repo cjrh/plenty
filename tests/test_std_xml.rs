@@ -43,12 +43,8 @@ pub class Sink:
     pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
         count = min(min(2, self.room), len(source))
         match self.data.extend(&source[:count]):
-            case Err(error):
-                match error:
-                    case std.bytes.BytesError.Allocation(cause):
-                        return Err(StreamError.Allocation(cause))
-                    case _:
-                        return Err(StreamError.OutOfRange)
+            case Err(cause):
+                return Err(StreamError.Allocation(cause))
             case Ok(_):
                 pass
         self.room -= count

@@ -27,8 +27,8 @@ def head_step[E, T](result: Result[T, HttpError], completed: i64) -> Result[T, P
         case Err(cause):
             Err(Partial(completed, FramingError[E].Protocol(cause)))
 
-def head_storage[E, T](result: Result[T, std.bytes.BytesError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
-    match chunk_bytes[E, T](result):
+def head_storage[E, T](result: Result[T, AllocError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
+    match chunk_allocated[E, T](result):
         case Ok(value):
             Ok(value)
         case Err(cause):
@@ -333,7 +333,7 @@ pub class ChunkedBody[E, R]:
                 return Err(StepError[FramingError[E]].Source(FramingError[E].Protocol(overflow)))
             drop(self.pull(buffer, start, start + 1)?)
             code = buffer[start]
-            match chunk_bytes[E, ()](self.line.push(code)):
+            match chunk_allocated[E, ()](self.line.push(code)):
                 case Err(cause):
                     return Err(StepError[FramingError[E]].Source(cause))
                 case Ok(_):

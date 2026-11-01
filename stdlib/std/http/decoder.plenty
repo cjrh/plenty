@@ -82,8 +82,8 @@ pub class Decoder:
         if prior == head:
             # Preserve the shared parser's error when a complete malformed
             # line is followed by EOF before the final empty line.
-            mut raw = mapped_bytes(self._section.copy())?
-            mapped_bytes(raw.extend(&self._line))?
+            mut raw = allocated(self._section.copy())?
+            allocated(raw.extend(&self._line))?
             mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_budget))?
             drop(std.http.read_request(&mut reader, &self._limits)?)
         elif prior == trailers:
@@ -120,7 +120,7 @@ pub class Decoder:
             if count == 0:
                 return Ok((0, Nothing))
             mut body = allocated(std.bytes.with_capacity(count))?
-            mapped_bytes(body.extend(&source[:count]))?
+            allocated(body.extend(&source[:count]))?
             self._remaining -= count
             self._total += count
             if self._remaining == 0:
@@ -134,7 +134,7 @@ pub class Decoder:
                 return Ok((at, Nothing))
             size = self._line.len() - 2
             if self._state == head:
-                mapped_bytes(self._section.extend(&self._line))?
+                allocated(self._section.extend(&self._line))?
                 if not self._request_line:
                     if size > 0:
                         self._request_line = True
@@ -159,7 +159,7 @@ pub class Decoder:
                     return Err(HttpError.InvalidChunk)
                 self._state = chunk_size
             else:
-                mapped_bytes(self._section.extend(&self._line))?
+                allocated(self._section.extend(&self._line))?
                 if size == 0:
                     self._line.clear()
                     values = self.parsed_trailers()?
@@ -208,7 +208,7 @@ pub class Decoder:
                 complete = True
                 break
             at += 1
-        mapped_bytes(self._line.extend(&source[:end]))?
+        allocated(self._line.extend(&source[:end]))?
         if complete:
             length = self._line.len()
             if length < 2 or self._line[length - 2] != 13u8:

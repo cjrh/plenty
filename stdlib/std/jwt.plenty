@@ -296,7 +296,7 @@ pub class SigningKey:
     pub def verifying_key(self) -> Result[VerifyingKey, JwtError]:
         material = match &self._material:
             case Signer.Secret(secret):
-                Verifier.Secret(from_bytes(secret.copy())?)
+                Verifier.Secret(jwt_error_allocated(secret.copy())?)
             case Signer.Rsa(private):
                 Verifier.Rsa(from_crypto(private.public_key(), JwtError.InvalidKey)?)
             case Signer.P256(private):
@@ -365,7 +365,7 @@ pub def ed25519_verifying_key(public_key: &[u8]) -> Result[VerifyingKey, JwtErro
     if len(public_key) != 32:
         return Err(JwtError.InvalidKey)
     mut probe = jwt_error_allocated(std.bytes.with_capacity(64))?
-    from_bytes(probe.resize(64, 0u8))?
+    jwt_error_allocated(probe.resize(64, 0u8))?
     from_crypto(std.crypto.ed25519_verify(public_key, &probe, &probe), JwtError.InvalidKey)?
     Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(jwt_error_allocated(std.bytes.from_bytes(public_key))?)))
 
@@ -652,7 +652,7 @@ def signature_for(key: &SigningKey, message: &[u8]) -> Result[Bytes, JwtError]:
 
 def append_segment(target: &mut Bytes, data: &[u8]) -> Result[(), JwtError]:
     encoded = from_encoding(std.encoding.base64url_encode(data))?
-    from_bytes(target.extend(&encoded))
+    jwt_error_allocated(target.extend(&encoded))
 
 # The header is `{"alg":...,"typ":"JWT"}`, plus `kid` when given. `claims`
 # must be a JSON object; it is encoded compactly in member order.
@@ -680,9 +680,9 @@ pub def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> 
     payload_json = from_json(std.json.encode(claims, &bounds))?
     mut token = jwt_error_allocated(std.bytes.empty())?
     append_segment(&mut token, &header_json)?
-    from_bytes(token.push(46u8))?
+    jwt_error_allocated(token.push(46u8))?
     append_segment(&mut token, &payload_json)?
     signature = signature_for(key, &token)?
-    from_bytes(token.push(46u8))?
+    jwt_error_allocated(token.push(46u8))?
     append_segment(&mut token, &signature)?
     from_bytes(token.to_text())
