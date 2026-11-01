@@ -201,6 +201,9 @@ configuration memory and setup work; the original TLS comparison predates that
 change. Completion acknowledgements and bounded retry timers reduce concurrent
 keep-alive mailbox retry overhead while preserving application mail, completion
 accounting and shutdown control (issue #644). The qualification record retains
-the original comparison and adds a controlled before/after HTTP measurement.
+the original comparison and adds a controlled before/after HTTP measurement. A
+[refreshed TLS comparison](../design/stdlib/actor-http-tls-comparison.md)
+after both fixes records 270,000 successful requests, 9,000 verified handshakes,
+current idle RSS and 400 contained traps with stable after-batch resources.
 
 Remaining stages stay **B85** in the [backlog](../backlog.md).

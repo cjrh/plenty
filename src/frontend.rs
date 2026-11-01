@@ -3640,6 +3640,11 @@ impl Lower<'_> {
             });
             let hint = if can_propagate {
                 "; use `?` to propagate the error or match the result explicitly".into()
+            } else if let (Some(Ty::Ref(inner, _)), Some(expected)) = (&got, &expected)
+                && **inner == *expected
+                && copyable_through_reference(inner)
+            {
+                "; copy the value with `*`".into()
             } else {
                 expected
                     .as_ref()
@@ -5080,12 +5085,17 @@ impl Lower<'_> {
             }
             if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
-                // A borrowed box also lends its content.
+                // A borrowed Box or Shared owner also lends its content.
                 let ty = if ty == *expected {
                     ty
                 } else {
-                    self.unbox_reference(ty, ops)
+                    self.lend_content(ty, expected, ops)
                 };
+                if ty != *expected
+                    && matches!(&ty, Ty::Ref(inner, true) if matches!(**inner, Ty::Shared(_)))
+                {
+                    return Err(arg.at.error(shared::MUTATION));
+                }
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 argument_loans.push(loan);
                 continue;
@@ -5715,6 +5725,13 @@ impl Lower<'_> {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
                     let value_start = ops.len();
+                    let converted = match &context {
+                        Some(view @ Ty::View(_, mutable)) => {
+                            self.owner_view(value, *mutable, *view == text_view(), ops)?
+                        }
+                        _ => None,
+                    };
+                    let value = converted.as_ref().unwrap_or(value);
                     let (ty, origin) = self.binding_value(value, context, ops)?;
                     let diagnostic_origin = annotation
                         .as_ref()
@@ -5997,6 +6014,25 @@ fn ungroup(mut e: &Expr) -> &Expr {
         e = inner;
     }
     e
+}
+
+/// Whether `*r` copies a `T` out of `r: &T`: the value needs no ownership
+/// transfer and can itself be stored.
+fn copyable_through_reference(ty: &Ty) -> bool {
+    !ty.affine() && ty.storage_barrier().is_none()
+}
+
+/// A hint suggesting `*e` when `e` has type `&T` and `T` copies, for a
+/// position that cannot hold the reference itself.
+fn copy_hint(e: &Expr, ty: &Ty) -> Option<String> {
+    let Ty::Ref(inner, _) = ty else { return None };
+    if !copyable_through_reference(inner) {
+        return None;
+    }
+    Some(match &ungroup(e).kind {
+        Expression::Name(name) => format!("; store a copy with `*{name}`"),
+        _ => "; store a copy with `*`".into(),
+    })
 }
 
 fn type_name(ty: Type) -> String {

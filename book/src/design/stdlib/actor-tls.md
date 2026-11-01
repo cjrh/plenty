@@ -245,6 +245,11 @@ enough. 80 KiB served full records with 1 KiB buffers, and 96 KiB with
 graph now owned by each actor session. Measure the current application and its
 certificate/root set before choosing a heap limit.
 
+The [HTTP server TLS comparison](actor-http-tls-comparison.md#tls-handshake-and-idle-memory)
+records current process RSS and handshake timings after reconstruction, with an
+ECDSA P-256 server certificate. Those resident-memory measurements do not replace
+the echo application's per-actor heap measurements above.
+
 rustls allocates through the Rust allocator, which in a handler is the
 current actor's heap. A session that exceeds its heap traps that actor
 only, and its heap is discarded with the session; other connections
