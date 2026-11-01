@@ -26,7 +26,7 @@ standard library.
   [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
   [prelude](../language/02-source/names.md) holds builtin names, plus
-  `std.fmt.FormatError`, which every f-string produces (issue #632).
+  `std.fmt.FormatError`, which user formatting methods return (issue #632).
 - Each module page states ownership, allocation, error variants and limits
   for every public function, as described in
   [Reading a module page](index.md#reading-a-module-page), and ends with
@@ -62,11 +62,11 @@ not add it.
 | `describe()` | One-line error description as `Result[str, AllocError]` |
 | `display[W](self, out)` | Write to a `std.fmt.Formatter[W]`; `print` and f-string fields call it |
 | `debug[W](self, out)` | Write a diagnostic form; `str.repr`, `!r` and aggregate elements call it |
-| `format(self, output)` | Write to a `std.report.Formatter`; the `Formattable` protocol for reports |
+| `format[W](self, output)` | Write to a `std.fmt.Formatter[W]`; the `Formattable` protocol for reports |
 
-`format` is reserved for the formatter protocol. `Url`, `MediaType`,
-`SocketAddress` and `SetCookie` instead have `format() -> Result[str, E]`
-(issue #634). `display` and `debug` are reserved for the formatter form:
+`format` is reserved for writing to a formatter. `Url`, `MediaType`,
+`SocketAddress` and `SetCookie` return owned canonical text through `to_string()`.
+`display` and `debug` are reserved for the formatter form:
 formatting a type whose method of either name has another signature is a
 compile error. See [Formatting](#formatting).
 
@@ -199,11 +199,13 @@ A method that also has a deadline-free form adds the deadline under a
 `now: &Instant`, or offers an `_at` variant that does, so tests can supply the
 time with the fake clocks in [`std.test`](test.md).
 
-Issue #635 lists the exceptions: raw `i64` milliseconds in the SQLite and
-key-value busy timeouts and SSE `retry`; `i64` seconds in `std.jwt`,
-`std.http.cookie` `max_age` and `http_date`; builtin `timeout_ms: u64` waits
-(B42); and `&Deadline` without a token in `std.http.websocket`,
-`std.http.sse` and `std.ready.wait_until`.
+Typed spans and wall-clock values use `Duration` and `Timestamp` in SQLite,
+key-value storage, JWT validation, cookies, SSE retry hints and HTTP dates.
+The [typed waits in `std.sync`](sync.md#typed-deadline-waits) provide deadline
+and cancellation forms for compiler-owned channels, futures and tokens.
+Low-level `_timeout_ms` forms remain available; their old `_timeout` names are
+compatibility aliases. SSE's optional `event` and `id` follow the required
+`deadline, cancel` pair because required parameters precede defaults.
 
 ### Limits
 
@@ -272,20 +274,21 @@ operation that offers a mode by a separate method instead, such as
 
 ## Formatting
 
-`std.fmt` and `std.report` each define a `Formatter` and a `FormatError`,
-with the same helper names and different output errors (issue #634). Until
-they are one family:
+`std.fmt.Formatter[W]` and its `FormatError` serve value formatting and
+reports. Import types, constructors, and the writer-generic `Formattable`
+protocol from `std.fmt`; `std.report` provides rendering helpers.
 
-- a value that f-strings display implements `display[W]` against
-  `std.fmt.Formatter[W]`;
-- an error that renders into a report implements `format(self, output)`
-  against `std.report.Formatter`;
-- an owned canonical string is `to_string() -> Result[str, E]`;
+- a value that f-strings display implements `display[W]`;
+- an error that renders into a report implements
+  `format[W](self, output: &mut Formatter[W])`;
+- an owned canonical string is `to_string() -> Result[str, E]`; reserve
+  `format` for writing to a formatter (including compiler-handled f-strings).
 - `print` and f-strings call `display`; `str.repr`, `!r` and elements of
   formatted aggregates call `debug`. A type without `display` uses its
   `debug`, and one without `debug` uses its structure. When a user method can
-  run, `print` returns `Result[(), IoError | FormatError]` and `str.repr`
-  returns `Result[str, AllocError | FormatError]`. See
+  run, `print` returns `Result[(), IoError | FormatError]`, and `str.repr`
+  and f-strings return `Result[str, AllocError | FormatError]`; otherwise
+  `print` reports `IoError` and both others `AllocError`. See
   [formatting](../facilities/01-builtins/formatting.md).
 - `std.log.Logger.debug` and `std.cli.Progress.display` have other
   signatures, so `print` rejects those types; call their methods instead.
@@ -294,8 +297,6 @@ they are one family:
 
 | Area | Deviation | Tracking |
 |---|---|---|
-| Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
-| Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `&Bytes` inputs | B39 |

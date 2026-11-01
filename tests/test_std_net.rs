@@ -229,7 +229,7 @@ def show(text: &str) -> Result[(), NetError | AllocError | IoError]:
 def show_address(text: &str) -> Result[(), NetError | AllocError | IoError]:
     match parse_address(text):
         case Ok(address):
-            print(address.format()?, address.port, address.scope)?
+            print(address.to_string()?, address.port, address.scope)?
         case Err(error):
             print(text, str.repr(error)?)?
     Ok(())
@@ -240,7 +240,7 @@ def main() -> Result[(), NetError | AllocError | IoError]:
     for text in ["127.0.0.1:80", "[::1]:65535", "[fe80::1%7]:8080", "1.2.3.4:65536", "1.2.3.4", "[::1]80", "[::1]:"]?:
         show_address(text)?
     print(format_ip(ipv4(192u8, 168u8, 1u8, 20u8))?)?
-    print(socket_address(IpAddress.V6(0u64, 1u64), 443u16).format()?)?
+    print(socket_address(IpAddress.V6(0u64, 1u64), 443u16).to_string()?)?
     Ok(())
 "#,
         "10.0.0.255\n::\n::1\n1::\n2001:db8::8:800:200c:417a\n2001:db8::1:0:0:1\n2001:db8:0:1:1:1:1:1\n0:0:1::\n\
@@ -276,7 +276,7 @@ def show(data: &list[u8]) -> Result[(), NetError | AllocError | IoError]:
     match decoded(data, 0):
         case Ok(pair):
             (address, next) = pair
-            print(address.format()?, next)?
+            print(address.to_string()?, next)?
         case Err(error):
             print(str.repr(error)?)?
     Ok(())
@@ -710,7 +710,7 @@ def main() -> Result[(), NetError | RangeError | AllocError | IoError]:
             mut stream = connect(&address, &deadline, &cancel).unwrap()
             accepted = listener.accept(&deadline, &cancel).unwrap()
             print(format_ip(accepted.peer_address().unwrap().ip)?)?
-            print(stream.peer_address().unwrap().format()? == address.format()?)?
+            print(stream.peer_address().unwrap().to_string()? == address.to_string()?)?
         case Err(NetError.AddressUnavailable):
             print("::1")?
             print(True)?
@@ -730,11 +730,11 @@ def main() -> Result[(), NetError | RangeError | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     literal = resolve("10.1.2.3", 53u16, &deadline, &cancel).unwrap()
-    print(len(literal), literal[0].format()?)?
+    print(len(literal), literal[0].to_string()?)?
     local = resolve("localhost", 8080u16, &deadline, &cancel).unwrap()
     mut loopback = False
     for address in &local:
-        loopback = loopback or address.format()? == "127.0.0.1:8080" or address.format()? == "[::1]:8080"
+        loopback = loopback or address.to_string()? == "127.0.0.1:8080" or address.to_string()? == "[::1]:8080"
     print(len(local) > 0, loopback)?
     print(outcome(resolve("localhost", 1u16, &within(0u32)?, &cancel))?)?
     print(outcome(resolve("", 1u16, &deadline, &cancel))?)?

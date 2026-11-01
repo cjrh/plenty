@@ -1,6 +1,7 @@
 # Six rules for a consistent core
 
-> **Status: Not implemented.** Nothing shipped. Researched against local
+> **Status: Accepted; partially implemented.** The [backlog](../backlog.md)
+> tracks remaining scope. The evidence below records research against local
 > `main` at `b4580c2d` on 2026-10-31, with probes on the debug compiler built
 > that day. The evidence is the 2026-10-31 language consistency survey,
 > recorded as issues #612–#637. Accepted and scheduled as backlog rows
@@ -168,10 +169,11 @@ methods. *Probe*, for a public class `P` whose `display` writes `<3>` and
 
 A non-`pub` class with `display` cannot appear in an f-string in its own
 module; the diagnostic names `__plenty_fstring_…` (issue #615). `main`'s
-error report uses a third hook, `std.report.Formattable.format`, over a
-different `Formatter` type, and otherwise the `str.repr` spelling (see
-[entrypoint reporting](../design/toolchain/01-building/entry-report.md)).
-Issue #634 records the two `Formatter`/`FormatError` families.
+error report originally used a third hook, `std.report.Formattable.format`,
+over a different `Formatter` type, and otherwise the `str.repr` spelling.
+Issue #634 subsequently unified the formatter, error, and reporting protocol in
+`std.fmt`; choosing `display` for entrypoint reports remains separate work. See
+[entrypoint reporting](../design/toolchain/01-building/entry-report.md).
 
 ### Proposed rule
 
@@ -213,11 +215,11 @@ appear in diagnostics.
 - Output changes for every printed value of a type with `display` or `debug`.
   Expected-output fences in the tutorial and reference that print std types
   with these methods change; the test suite finds each one.
-- `main`'s error report uses `display`. `std.report.Formattable` becomes a
-  transitional fallback until issue #634 settles one `Formatter`. That
-  decision, and the meaning of a method named `format`, belong to the std
-  conventions page (rule 7); this rule only fixes which hook core
-  formatting calls.
+- `main`'s error report uses `display`. `std.fmt.Formattable` becomes a
+  transitional fallback while the entrypoint hook migrates. Issue #634
+  delivered the shared formatter; the meaning of a method named `format`
+  belongs to the std conventions page (rule 7). This rule fixes which hook
+  core formatting calls.
 - Automatic formatting still rejects recursive types. Each user method an
   aggregate element calls gets its own `std.fmt` formatter with a fresh depth
   of 32 and no byte budget of its own; the methods do not share one depth
@@ -234,7 +236,8 @@ disagree. One rule: `display` for people, `debug` for precision.
 1. Fix the false sentence and the private-class lookup; hide internal names
    (issue #615).
 2. Route `print`, `str.repr` and aggregate elements through `display`/`debug`.
-3. `main`'s report uses `display`, after issue #634 picks one `Formatter`.
+3. `main`'s report uses `display`; its shared formatter dependency is delivered
+   by issue #634.
 
 ## Rule 3: an owner converts to its view
 
@@ -416,7 +419,9 @@ everything that works on one iterator works on all.
 
 ### Today
 
-Allocation failure has several shapes (issue #632):
+Allocation failure has several shapes (issue #632). The f-string row and
+its probe describe the state before phasing item 2, which made f-strings
+without user formatting fail with `AllocError`:
 
 | Operation | Allocation failure reported as |
 | --- | --- |
@@ -522,7 +527,9 @@ and an argument bug traps.
    (issue #625); literal `split("")` rejected and the `chunks` message
    (issue #629).
 2. f-strings, `print` and `str.repr` report `AllocError` when no user method
-   runs.
+   runs. Done: `print` and `str.repr` with B89 phase 2 (issue #615),
+   f-strings with B92 phase 2. A `:c` spec counts as computed, since an
+   out-of-range scalar is `InvalidSpec`.
 3. std error types: `Allocation(AllocError)` variants, `std.bytes`
    constructors, negative capacities.
 
@@ -678,7 +685,7 @@ become `proposals/consistency-rules.md#...`.
 | ID | Area | Suggested wording |
 | --- | --- | --- |
 | B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound, so B84 moves earlier. [Proposal](#rule-1-one-copy-rule); issue #636. |
-| B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook after issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
+| B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook migration uses the shared formatter delivered by issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
 | B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; `&Shared[T]` converts to `&T` like `Box`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
 | B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
 | B92 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |

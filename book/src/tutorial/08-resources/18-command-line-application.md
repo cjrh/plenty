@@ -10,7 +10,7 @@ mistaken for the end of the file.
 Save this module as `report.plenty`:
 
 ```plenty-file report.plenty
-pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError | FormatError]:
+pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError]:
     mut count = 0
     mut total = 0
     with open(path)? as file:
@@ -34,7 +34,7 @@ from report import summarize
 enum UsageError:
     Arguments
 
-type AppError = AllocError | IoError | ParseError | FormatError | UsageError
+type AppError = AllocError | IoError | ParseError | UsageError
 
 def run() -> Result[(), AppError]:
     arguments = args()?
@@ -67,7 +67,7 @@ For an input containing `10`, a blank line, and `20`, the output file contains
 `count=2 total=30` followed by a newline. `write_text` replaces the output file;
 choose a path whose contents may be replaced.
 
-`AppError` preserves usage, parsing, formatting, I/O, and allocation errors. Returning the
+`AppError` preserves usage, parsing, I/O, and allocation errors. Returning the
 error from `main` reports its cause on standard error and exits unsuccessfully.
 `run` prints `"saved report"` only after writing succeeds. It propagates failures
 to `main` so a failed operation cannot accidentally become a successful exit.

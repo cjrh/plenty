@@ -10,16 +10,52 @@ field:
 {field[=][!conversion][:spec]}
 ```
 
-The expression `f"..."` has type `Result[str, std.fmt.FormatError]`, like a
-collection literal's `Result`: `s = f"x={x}"?` or `print(f"x={x}"?)?`.
-[`out.format(f"...")`](#writing-to-a-formatter) writes one to an existing
-formatter instead. The
+The expression `f"..."` has type `Result[str, AllocError]`, like a collection
+literal: `s = f"x={x}"?` or `print(f"x={x}"?)?`. Its type is
+`Result[str, AllocError | FormatError]` when formatting can fail other than by
+allocation: a field runs a user [`display` or `debug` method](#values-and-conversions),
+directly or for an element of an aggregate, a spec has
+[nested fields](#nested-fields-in-a-spec), or a spec has type `c`. The choice
+is made per site from the fields' types; in a generic function it is made for
+each instantiation. [`out.format(f"...")`](#writing-to-a-formatter) writes one
+to an existing formatter instead. The
 compiler parses the template and checks every spec while compiling. It lowers
 the literal to calls on a [`std.fmt`](../../stdlib/fmt.md) string formatter,
 with no format-string interpreter at run time. A module that uses an f-string
 loads `std.fmt` without an `import`. `FormatError` is a
 [prelude name](../02-source/names.md), so a signature names it without an
 import too (issue #632).
+
+```plenty
+from std.fmt import Formatter
+
+class Tag:
+    name: str
+
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.format(f"#{self.name}")
+
+def plain(n: i64) -> Result[str, AllocError]:
+    pair = [n, n]?
+    Ok(f"n={n:>4} {pair}"?)
+
+def tagged(tag: &Tag, width: i64) -> Result[str, AllocError | FormatError]:
+    Ok(f"{tag} {1:{width}}"?)
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    print(plain(7)?)?
+    print(tagged(&Tag("x"), 3)?)?
+    Ok(())
+```
+
+```output
+n=   7 [7, 7]
+#x   1
+```
+
+A function that declares only `FormatError` for an f-string with built-in
+spellings is rejected, and the diagnostic names `AllocError` as the
+replacement.
 
 ## Fields
 
@@ -120,7 +156,8 @@ Width and precision are decimal numbers of at most 4096.
 `c` writes the Unicode scalar whose code point is the integer, laid out like a
 number: right-aligned by default, and `0` pads with zeros. A value that is not
 a scalar (negative, a surrogate, or above U+10FFFF) makes the f-string return
-`Err(FormatError.InvalidSpec)`. `n` is Python's `n` in the C locale, which is
+`Err(FormatError.InvalidSpec)`, so a field with `c` adds `FormatError` to the
+f-string's type. `n` is Python's `n` in the C locale, which is
 the locale Python formats with unless a program calls `locale.setlocale`: `d`
 for integers and `g` for floats, with no grouping. Plenty has no locales, so
 grouping with `n` is rejected rather than ignored.
@@ -198,7 +235,8 @@ The result of `f"..."` is built in a new string formatter whose output and
 32-byte scratch are allocated for each evaluation; a float spelling longer than the scratch
 grows it. A spec on a value without a built-in spelling first builds that
 value's text as a temporary string. There is no byte budget: an f-string is
-bounded only by allocation failure, reported as
-`FormatError.Bytes(BytesError.Allocation(...))`. User `display` and `debug`
+bounded only by allocation failure, reported as `AllocError` whatever the
+f-string's type; a user method's own `FormatError.Bytes(BytesError.Allocation(...))`
+is reported as `AllocError` too. User `display` and `debug`
 methods may nest through `std.fmt` up to 32 levels, after which the result is
 `FormatError.RecursionLimit`. No partial string is returned on error.

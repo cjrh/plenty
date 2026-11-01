@@ -46,7 +46,7 @@ and ordering are specified in its facility page.
 
 `Future[T].result()` consumes the future and returns `Result[T, FutureError]`.
 Cancellation before execution yields `FutureError.Cancelled`; it never forcibly
-stops running code. `done()`, `cancel()`, and `wait_timeout(timeout_ms)` observe
+stops running code. `done()`, `cancel()`, and `wait_timeout_ms(timeout_ms)` observe
 the same state as the prelude methods. Use [`std.sync`](sync.md) tokens for
 cooperative stopping. Pool exit drains and joins; dropping a future does not
 cancel its job. Live-receiver shutdown and result-wait diagnostics also apply

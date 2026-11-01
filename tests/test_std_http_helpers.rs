@@ -5,6 +5,7 @@
 /// An in-memory `Transport` and a handler for each helper. `$STORAGE` is
 /// replaced with a directory the test owns.
 const PRELUDE: &str = r##"import std.bytes
+import std.time
 import std.fs
 import std.http
 import std.http.body
@@ -134,7 +135,7 @@ pub class App:
                     text = text.concat("[")?.concat(&cookie.name)?.concat("=")?.concat(&cookie.value)?.concat("]")?
                 mut head = std.http.response(200, "OK")?
                 mut session = std.http.cookie.set_cookie("session", "abc123")?
-                session.max_age = Some(3600)
+                session.max_age = Some(std.time.seconds(3600u32))
                 std.http.cookie.add(&mut head, &session)?
                 std.http.cookie.add(&mut head, &std.http.cookie.removal("old")?)?
                 head.add("Content-Type", "text/plain")?
@@ -602,42 +603,43 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | st
     serve(&app, "GET /cookies HTTP/1.1\r\nHost: x\r\nCookie: a=1; b=2; c=3; d=4; e=5\r\nConnection: close\r\n\r\n", Nothing)?
     mut evil = std.http.cookie.set_cookie("id", "x")?
     evil.value = "x\r\nSet-Cookie: admin=1"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     evil.value = "x; Domain=evil.example"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     evil.value = "x"
     evil.name = "id\r\nX: y"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     evil.name = "id"
     evil.path = "/\r\nX: y"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     evil.path = "/a;b"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     evil.path = "/"
     evil.domain = "evil.example; Secure"
-    print(evil.format().is_err())?
+    print(evil.to_string().is_err())?
     print(std.http.cookie.set_cookie("a b", "x").is_err())?
     print(std.http.cookie.set_cookie("a", "\"x\"").is_err())?
     mut host = std.http.cookie.set_cookie("__Host-id", "x")?
-    print(host.format()?)?
+    print(host.to_string()?)?
     host.domain = "example.com"
-    print(host.format().is_err())?
+    print(host.to_string().is_err())?
     mut secure = std.http.cookie.set_cookie("__Secure-id", "x")?
     secure.secure = False
-    print(secure.format().is_err())?
+    print(secure.to_string().is_err())?
     mut cross = std.http.cookie.set_cookie("x", "y")?
     cross.same_site = SameSite.Unrestricted
-    print(cross.format()?)?
+    print(cross.to_string()?)?
     cross.secure = False
-    print(cross.format().is_err())?
+    print(cross.to_string().is_err())?
     cross.same_site = SameSite.Strict
     cross.path = ""
     cross.domain = "a.example"
-    cross.max_age = Some(-1)
-    print(cross.format().is_err())?
+    cross.domain = ".invalid"
+    print(cross.to_string().is_err())?
+    cross.domain = "a.example"
     cross.max_age = Nothing
     cross.http_only = False
-    print(cross.format()?)?
+    print(cross.to_string()?)?
     Ok(())
 "##,
         r"

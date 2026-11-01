@@ -8,7 +8,7 @@ functions use the `f64` numeric methods. Nothing in it allocates or fails.
 ```plenty
 from std.complex import Complex, from_polar
 
-def main() -> Result[(), IoError | FormatError]:
+def main() -> Result[(), IoError | AllocError | FormatError]:
     a = Complex(1.5, 2.0)
     b = Complex(-0.5, 4.0)
     print(f"{a + b} {a - b} {a * b} {-a}"?)?
@@ -89,7 +89,7 @@ finite. `norm` does not scale and overflows first.
 from std.complex import Complex, from_polar
 import std.math as math
 
-def main() -> Result[(), IoError | FormatError | math.MathError]:
+def main() -> Result[(), IoError | AllocError | FormatError | math.MathError]:
     z = from_polar(2.0, 0.5)
     r, theta = z.to_polar()
     print(math.isclose(r, 2.0, 1e-15, 0.0)?, math.isclose(theta, 0.5, 1e-15, 0.0)?)?
@@ -147,7 +147,7 @@ part is infinite, even if the other is NaN.
 ```plenty
 from std.complex import Complex
 
-def main() -> Result[(), IoError | FormatError]:
+def main() -> Result[(), IoError | AllocError | FormatError]:
     print(f"{Complex(1.0, 2.0) / Complex(0.0, 0.0)} {Complex(0.0, 0.0) / Complex(0.0, 0.0)}"?)?
     print(f"{Complex(-4.0, 0.0).sqrt()} {Complex(-4.0, -0.0).sqrt()}"?)?
     print(f"{Complex(0.0, 0.0).log()} {Complex(f64.INF, f64.NAN).abs()}"?)?

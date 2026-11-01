@@ -70,7 +70,7 @@ pub class SocketAddress:
 
     # `1.2.3.4:80`, or `[::1]:80` with `%scope` inside the brackets when the
     # scope is not zero.
-    pub def format(self) -> Result[str, NetError]:
+    pub def to_string(self) -> Result[str, NetError]:
         mut out = lifted(std.bytes.with_capacity(64))?
         ip = self.ip
         match ip:
@@ -632,7 +632,7 @@ pub class Lookup:
     # reply is complete; then its addresses, or why there are none.
     pub def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]:
         while True:
-            match std.ready.wait_until(&self._reply.file, Interest.Read, &deadline_at(&monotonic_now())):
+            match std.ready.wait_now(&self._reply.file, Interest.Read):
                 case Ok(_):
                     pass
                 case Err(WaitError.TimedOut):

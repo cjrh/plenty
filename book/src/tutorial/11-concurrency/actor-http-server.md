@@ -40,7 +40,7 @@ pub class Counter:
 def make_counter() -> Result[Counter, HandlerError]:
     Ok(Counter(0))
 
-type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type VisitError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     with stop.cancel_on_exit():

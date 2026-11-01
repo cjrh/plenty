@@ -16,7 +16,7 @@ shared state in one fallible allocation.
 | `cancel()` | `()` | Permanently request cancellation and wake token waiters |
 | `is_cancelled()` | `bool` | Observe the request |
 | `wait()` | `()` | Wait until cancellation is requested |
-| `wait_timeout(timeout_ms: u64)` | `bool` | Observe cancellation within the budget |
+| `wait_timeout_ms(timeout_ms: u64)` | `bool` | Observe cancellation within the budget |
 | `cancel_on_exit()` | `with` guard | Cancel on every exit from the `with` block; see [cancel on every exit](../facilities/03-concurrency/cancellation.md#cancel-on-every-exit) |
 
 Methods borrow the handle, allocate nothing, and copy no captured data. Share
@@ -29,6 +29,39 @@ Cancellation is idempotent and does not reset.
 A token does not interrupt instructions, cancel a future, or wake a channel
 wait. Workers must return cooperatively, using bounded waits where needed.
 [`std.time`](time.md) supplies deadline arithmetic and timeout conversion.
+
+## Typed deadline waits
+
+Prefer these waits when a caller supplies a total budget and cancellation.
+They borrow the handles, allocate nothing, and preserve the deadline across
+wakeups. `deadline` and `cancel` are the last two parameters.
+
+| Operation | Result |
+|---|---|
+| `recv_before(&receiver, &deadline, &cancel)` | `Result[T, WaitError]` |
+| `send_before(&sender, value, &deadline, &cancel)` | `Result[(), SendBeforeError[T]]` |
+| `select_recv_before(&first, &second, &deadline, &cancel)` | `Result[Selected[A, B], WaitError]` |
+| `future_before(&future, &deadline, &cancel)` | `Result[(), WaitError]` |
+| `cancelled_before(&token, &deadline, &cancel)` | `Result[(), WaitError]` |
+
+`WaitError` has `TimedOut`, `Cancelled` and `Disconnected` (channels only).
+Every `SendBeforeError[T]` variant (`TimedOut`, `Cancelled`, `Disconnected`)
+returns the original unsent value, without copying it. Cancellation visible
+before an attempt wins even over readiness. Otherwise an already-ready value
+or disconnection wins over an expired deadline. Selection keeps the builtin's
+first-receiver priority. Future observation leaves its result owned by the
+future and does not cancel its worker. Token observation leaves its state intact.
+
+Channel and future primitives cannot wake on a separate token, so these wrappers
+sleep in slices of at most 10 ms, rechecking cancellation between slices. This
+is a polling interval, not a hard latency guarantee under scheduler or lock
+contention. Positive fractional milliseconds round up when passed to the native
+wait, so a final slice can overrun by less than 1 ms. No deadline is restarted.
+
+Low-level millisecond methods have explicit unit names: `send_timeout_ms`,
+`recv_timeout_ms`, `wait_timeout_ms` on futures and tokens, and
+`select_recv_timeout_ms`. The original `_timeout` spellings remain compatibility
+aliases with the same millisecond units. They do not accept a separate token.
 
 ## `Mutex[T]`
 

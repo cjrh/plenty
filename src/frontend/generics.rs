@@ -530,7 +530,7 @@ impl Engine {
 
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
         self.protocols
-            .get("std.report.Formattable")
+            .get("std.fmt.Formattable")
             .filter(|protocol| protocols::reporting(protocol, &self.standard_sources))
     }
     fn record_defaults(&mut self, f: &Function) {

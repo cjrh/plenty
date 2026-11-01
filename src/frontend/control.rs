@@ -48,12 +48,12 @@ impl Lower<'_> {
             ("cancel", []) => ControlOp::Cancel,
             ("is_cancelled", []) => ControlOp::IsCancelled,
             ("wait", []) => ControlOp::Wait,
-            ("wait_timeout", [timeout]) => {
+            ("wait_timeout" | "wait_timeout_ms", [timeout]) => {
                 let actual = self.expr_expected(timeout, Some(Ty::U64), ops)?;
                 self.same(actual, Some(Ty::U64), &timeout.at)?;
                 ControlOp::WaitTimeout
             }
-            _ => return Err(base.at.error("CancellationToken supports share(), cancel(), cancel_on_exit(), is_cancelled(), wait(), and wait_timeout(timeout_ms)")),
+            _ => return Err(base.at.error("CancellationToken supports share(), cancel(), cancel_on_exit(), is_cancelled(), wait(), and wait_timeout_ms(timeout_ms)")),
         };
         let output = op.signature().1;
         ops.push(Op::Control(op));

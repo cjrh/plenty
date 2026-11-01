@@ -319,9 +319,9 @@ pub def server(net: Connection, config: &ServerConfig, input: i64) -> Result[Tls
 pub def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]:
     over(net, client_session(config, server_name)?, input)
 
+# Callers keep 0 <= start <= stop <= len, so the overlapping copy cannot fail.
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
-    for index in range(stop - start):
-        buffer[index] = buffer[start + index]
+    drop(buffer.copy_within(start, stop, 0))
 
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))

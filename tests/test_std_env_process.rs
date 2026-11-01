@@ -6,11 +6,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::process::{Command, Stdio};
 
 const PRELUDE: &str = r#"import std.bytes
+import std.time
 import std.env
 import std.io
 import std.path
 import std.process
-import std.time
 from std.bytes import Bytes
 from std.io import StreamError
 from std.process import Child, Command, ExitStatus, Output, Stdio
@@ -81,7 +81,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.process.WaitError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -529,7 +529,7 @@ match std.io.read_up_to(&mut out, &mut line, 6):
     case Err(_):
         print("read failed")?
 third.terminate()?
-print(absent(&third.wait_timeout(&std.time.milliseconds(200u32))?))?
+print(absent(&third.wait_timeout(&std.time.milliseconds(200u32), &CancellationToken().unwrap())?))?
 third.kill()?
 show(&third.wait()?)?
 "#,
@@ -555,7 +555,7 @@ fn wait_timeout_returns_early_or_gives_up() {
 mut quick = std.process.shell("sleep 0.05; exit 3")?
 mut child = quick.spawn()?
 start = std.time.monotonic_now()
-match child.wait_timeout(&std.time.seconds(30u32))?:
+match child.wait_timeout(&std.time.seconds(30u32), &CancellationToken().unwrap())?:
     case Some(status):
         show(&status)?
     case Nothing:
@@ -565,9 +565,9 @@ print(elapsed(&start) < 10000000000u64)?
 mut sleeper = std.process.command("sleep")?
 sleeper.arg("60")?
 mut slow = sleeper.spawn()?
-print(absent(&slow.wait_timeout(&std.time.milliseconds(0u32))?))?
+print(absent(&slow.wait_timeout(&std.time.milliseconds(0u32), &CancellationToken().unwrap())?))?
 before = std.time.monotonic_now()
-print(absent(&slow.wait_timeout(&std.time.milliseconds(120u32))?))?
+print(absent(&slow.wait_timeout(&std.time.milliseconds(120u32), &CancellationToken().unwrap())?))?
 waited = elapsed(&before)
 print(waited >= 120000000u64, waited < 10000000000u64)?
 slow.kill()?
@@ -751,7 +751,7 @@ fn writing_to_a_child_that_has_gone_is_an_error_not_a_signal() {
     native(
         r#"
 mut child = piped("true", &list[str].new()?)?.spawn()?
-print(absent(&child.wait_timeout(&std.time.seconds(30u32))?))?
+print(absent(&child.wait_timeout(&std.time.seconds(30u32), &CancellationToken().unwrap())?))?
 mut stdin = child.take_stdin().unwrap()
 source = std.bytes.from_text("unread")?
 print(str.repr(source.write_file(&mut stdin, 0, 6))?)?
@@ -842,7 +842,7 @@ for round in range(40):
     if round % 2 == 0:
         child.wait()?
     else:
-        child.wait_timeout(&std.time.seconds(30u32))?
+        child.wait_timeout(&std.time.seconds(30u32), &CancellationToken().unwrap())?
 print(out_text(&sh(census)?)?)?
 
 "#,
@@ -979,4 +979,27 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
         assert!(output.status.success(), "{stdout}{stderr}");
         assert_eq!(stdout, "300\n1600\n");
     }
+}
+
+#[test]
+fn child_wait_cancellation_leaves_the_child_running_and_reapable() {
+    native(
+        r#"
+mut command = std.process.command("sleep")?
+command.arg("60")?
+mut child = command.spawn()?
+cancel = CancellationToken()?
+cancel.cancel()
+deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(30u32)).unwrap()
+match child.wait_before(&deadline, &cancel):
+    case Err(std.process.WaitError.Cancelled):
+        print("cancelled")?
+    case _:
+        print("wrong result")?
+print(child.try_wait()?.is_none())?
+child.kill()?
+print(child.wait()?.success())?
+"#,
+        "cancelled\nTrue\nFalse",
+    );
 }

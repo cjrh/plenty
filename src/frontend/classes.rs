@@ -1184,7 +1184,7 @@ impl Lower<'_> {
             {
                 let protocol = self.generics.reporting_protocol().ok_or_else(|| {
                     base.at
-                        .error("Context formatting requires std.report.Formattable")
+                        .error("Context formatting requires std.fmt.Formattable")
                 })?;
                 protocols::check(
                     protocol,
@@ -1307,7 +1307,7 @@ impl Lower<'_> {
 
     fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
         let Some(protocol) = self.generics.reporting_protocol().cloned() else {
-            return Err(at.error("anonymous sum formatting requires std.report.Formattable"));
+            return Err(at.error("anonymous sum formatting requires std.fmt.Formattable"));
         };
         // Use the library's visibility boundary even for a direct sum.format
         // call: private member methods must not become a public implementation.
@@ -1322,7 +1322,7 @@ impl Lower<'_> {
             &protocol.at,
             at,
         )?;
-        if self.sigs.contains_key(callee) {
+        if self.generics.templates.contains_key(callee) {
             return Ok(());
         }
         let mut function = protocol.methods[0].clone();
@@ -1366,10 +1366,9 @@ impl Lower<'_> {
                 cases,
             },
         }];
-        register_signature(&function, self.aliases, self.sigs)?;
         self.generics
-            .inherit_requirement(self.sigs, &self.function_name, callee);
-        self.generics.declare(function, self.sigs);
+            .templates
+            .insert(callee.into(), Arc::new(function));
         Ok(())
     }
 

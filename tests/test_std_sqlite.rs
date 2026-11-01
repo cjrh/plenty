@@ -3,6 +3,7 @@ mod support;
 use support::{build_file as build, run_file as run};
 
 const HEADER: &str = r#"import std.bytes
+import std.time
 import std.db.sqlite
 from std.bytes import Bytes
 from std.db.sqlite import Begin, Connection, DbError, Mode, Statement, ValueType
@@ -309,9 +310,9 @@ mut second = std.db.sqlite.connect({path}, Mode.ReadWrite, 4096)?
 mut writing = first.begin(Begin.Immediate)?
 first.execute("INSERT INTO t VALUES (1)")?
 report(second.begin(Begin.Immediate))?
-second.set_busy_timeout(20)?
+second.set_busy_timeout(&std.time.milliseconds(20u32))?
 report(second.execute("INSERT INTO t VALUES (2)"))?
-report(second.set_busy_timeout(-1))?
+report(second.set_busy_timeout(&std.time.nanoseconds(u64.MAX)))?
 writing.commit()?
 mut later = second.begin(Begin.Immediate)?
 second.execute("INSERT INTO t VALUES (2)")?
@@ -338,7 +339,7 @@ db.close()?
 db.close()?
 report(db.prepare("SELECT 1"))?
 report(db.begin(Begin.Deferred))?
-report(db.set_busy_timeout(1))?
+report(db.set_busy_timeout(&std.time.milliseconds(1u32)))?
 print(db.changes())?
 "#,
         "InUse\nInUse\nClosed\nClosed\nClosed\n0",
@@ -730,5 +731,19 @@ print("__test_end_no_allocations__")?
 print(total)?
 "#,
         "4950",
+    );
+}
+
+#[test]
+fn busy_duration_rounding_checks_the_native_millisecond_limit() {
+    native(
+        r#"
+mut db = std.db.sqlite.memory(4096)?
+report(db.set_busy_timeout(&std.time.nanoseconds(1u64)))?
+report(db.set_busy_timeout(&std.time.nanoseconds(2147483647000000u64)))?
+report(db.set_busy_timeout(&std.time.nanoseconds(2147483647000001u64)))?
+report(db.set_busy_timeout(&std.time.milliseconds(0u32)))?
+"#,
+        "ok\nok\nOutOfRange\nok",
     );
 }

@@ -12,12 +12,12 @@ lesson [Stream events to browsers](../../tutorial/11-concurrency/server-sent-eve
 shows a complete program. There is no client-side reader.
 
 ```plenty
+import std.time
 import std.bytes
 import std.http.client
 import std.http.server
 import std.http.sse
 import std.net
-import std.time
 from std.http.server import Exchange
 from std.http.sse import SseError
 from std.net import TcpStream
@@ -28,14 +28,15 @@ pub enum Route:
 
 pub class Feed:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), SseError | RangeError]:
+        wait_cancel = exchange.cancel_token()
         deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(1u32))?
         mut events = std.http.sse.accept(exchange)?
-        events.send("first line\nsecond line", &deadline, event="note", id=Some("1"))?
-        events.send("done", &deadline)?
+        events.send("first line\nsecond line", &deadline, &wait_cancel, event="note", id=Some("1"))?
+        events.send("done", &deadline, &wait_cancel)?
         events.close()
         Ok(())
 
-type WatchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type WatchError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def watch(port: u16, stop: CancellationToken) -> Result[(), WatchError]:
     with stop.cancel_on_exit():
@@ -105,11 +106,11 @@ reconnecting `EventSource` sends with the last id it received, or
 
 | Method | Meaning |
 |---|---|
-| `send(&data, &deadline, event="", id=Nothing)` | Send one event |
-| `send_bytes(&data, start, stop, &deadline, event="", id=Nothing)` | `send` of UTF-8 `data[start:stop]`, without copying it first |
-| `comment(&text, &deadline)` | Send comment lines, which clients ignore |
-| `retry(milliseconds, &deadline)` | Ask the client to wait this long before reconnecting |
-| `wait(&deadline)` | Wait until `deadline`, watching for a disconnect and for shutdown |
+| `send(&data, &deadline, &cancel, event="", id=Nothing)` | Send one event |
+| `send_bytes(&data, start, stop, &deadline, &cancel, event="", id=Nothing)` | `send` of UTF-8 `data[start:stop]`, without copying it first |
+| `comment(&text, &deadline, &cancel)` | Send comment lines, which clients ignore |
+| `retry(span: &Duration, &deadline, &cancel)` | Ask the client to wait this long before reconnecting |
+| `wait(&deadline, &cancel)` | Wait until `deadline`, watching for a disconnect and for shutdown |
 | `close()` | End the response; closing a closed stream does nothing |
 | `is_open()` | Whether events can still be sent |
 
@@ -126,17 +127,28 @@ An event is written as the format's readers parse it:
 | `data` | `data: line` for each line; CRLF, CR and LF all end a line |
 | end | an empty line, which dispatches the event |
 
-`send("a\nb", &deadline, event="update", id=Some("7"))` writes
+`send("a\nb", &deadline, &cancel, event="update", id=Some("7"))` writes
 `event: update\nid: 7\ndata: a\ndata: b\n\n`. Data ending with a line break
 gets a last, empty `data:` line, so the client sees the trailing line feed.
 An event name or id holding CR or LF, or an id holding NUL, is
 `InvalidField`; data that is not UTF-8 is `InvalidText`; a range out of
-bounds or a negative retry time is `OutOfRange`. These checks happen before
+bounds is `OutOfRange`. These checks happen before
 anything is written, and the stream stays open.
 
-`comment("ping", &deadline)` writes `: ping\n`, one line per line of text.
+`comment("ping", &deadline, &cancel)` writes `: ping\n`, one line per line of text.
 A comment is the usual keep-alive: proxies close quiet connections, and a
 write is how a server notices a client that has gone away.
+
+`retry` takes a nonnegative `Duration`; positive fractions round up to whole
+milliseconds on the wire. The deadline/cancellation pair precedes the optional
+`event` and `id` arguments because required parameters precede defaults.
+
+All waits accept caller cancellation. They preserve the retained server shutdown
+tokens, checking the caller between native waits of at most 10 ms; this interval
+is not a scheduling guarantee. Cancellation before a send leaves the stream
+open and writes nothing. Cancellation during a partial write closes it.
+`wait` returns `Net(Cancelled)` without closing on caller cancellation, so the
+handler can choose whether to send a final event with another token.
 
 ## Disconnects and shutdown
 
@@ -158,12 +170,12 @@ A handler sends events between waits:
 
 ```text
 while True:
-    events.send(&next_update()?, &soon()?)?
-    match events.wait(&in_one_second()?):
+    events.send(&next_update()?, &soon()?, &wait_cancel)?
+    match events.wait(&in_one_second()?, &wait_cancel):
         case Ok(_):
             pass
         case Err(SseError.Stopping):
-            events.send("bye", &soon()?, event="shutdown")?
+            events.send("bye", &soon()?, &wait_cancel, event="shutdown")?
             return Ok(())
         case Err(error):
             return Err(error)

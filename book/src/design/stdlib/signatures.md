@@ -44,65 +44,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.encoding`](#stdencoding): 1168-1229
 - [`std.env`](#stdenv): 1231-1245
 - [`std.error`](#stderror): 1247-1267
-- [`std.fmt`](#stdfmt): 1269-1330
-- [`std.fs`](#stdfs): 1332-1415
-- [`std.fs.dirs`](#stdfsdirs): 1417-1427
-- [`std.fs.watch`](#stdfswatch): 1429-1464
-- [`std.graph`](#stdgraph): 1466-1554
-- [`std.http`](#stdhttp): 1556-1626
-- [`std.http.decoder`](#stdhttpdecoder): 1628-1645
-- [`std.http.body`](#stdhttpbody): 1647-1682
-- [`std.http.client`](#stdhttpclient): 1684-1794
-- [`std.http.cookie`](#stdhttpcookie): 1796-1828
-- [`std.http.files`](#stdhttpfiles): 1830-1843
-- [`std.http.https`](#stdhttphttps): 1845-1859
-- [`std.http.proxy`](#stdhttpproxy): 1861-1882
-- [`std.http.server`](#stdhttpserver): 1884-1969
-- [`std.http.sse`](#stdhttpsse): 1971-1990
-- [`std.http.tls`](#stdhttptls): 1992-2009
-- [`std.http.typed`](#stdhttptyped): 2011-2044
-- [`std.http.websocket`](#stdhttpwebsocket): 2046-2081
-- [`std.http.wss`](#stdhttpwss): 2083-2089
-- [`std.image`](#stdimage): 2091-2137
-- [`std.io`](#stdio): 2139-2219
-- [`std.io.typed`](#stdiotyped): 2221-2259
-- [`std.json`](#stdjson): 2261-2325
-- [`std.jwt`](#stdjwt): 2327-2374
-- [`std.log`](#stdlog): 2376-2443
-- [`std.markdown`](#stdmarkdown): 2445-2479
-- [`std.template`](#stdtemplate): 2481-2502
-- [`std.math`](#stdmath): 2504-2570
-- [`std.mime`](#stdmime): 2572-2596
-- [`std.net`](#stdnet): 2598-2680
-- [`std.path`](#stdpath): 2682-2699
-- [`std.process`](#stdprocess): 2701-2747
-- [`std.random`](#stdrandom): 2749-2770
-- [`std.ready`](#stdready): 2772-2802
-- [`std.regex`](#stdregex): 2804-2857
-- [`std.report`](#stdreport): 2859-2882
-- [`std.secrets`](#stdsecrets): 2884-2910
-- [`std.shlex`](#stdshlex): 2912-2921
-- [`std.sketch`](#stdsketch): 2923-2961
-- [`std.sketch.xor`](#stdsketchxor): 2963-2974
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2976-2991
-- [`std.signal`](#stdsignal): 2993-3010
-- [`std.simd`](#stdsimd): 3012-3113
-- [`std.stat`](#stdstat): 3115-3148
-- [`std.plot`](#stdplot): 3150-3239
-- [`std.linalg`](#stdlinalg): 3241-3282
-- [`std.sync`](#stdsync): 3284-3293
-- [`std.system`](#stdsystem): 3295-3353
-- [`std.tempfile`](#stdtempfile): 3355-3387
-- [`std.test`](#stdtest): 3389-3431
-- [`std.text`](#stdtext): 3433-3452
-- [`std.thread`](#stdthread): 3454-3458
-- [`std.time`](#stdtime): 3460-3504
-- [`std.tls`](#stdtls): 3506-3588
-- [`std.toml`](#stdtoml): 3590-3639
-- [`std.unicode`](#stdunicode): 3641-3653
-- [`std.url`](#stdurl): 3655-3683
-- [`std.uuid`](#stduuid): 3685-3708
-- [`std.xml`](#stdxml): 3710-3743
+- [`std.fmt`](#stdfmt): 1269-1336
+- [`std.fs`](#stdfs): 1338-1421
+- [`std.fs.dirs`](#stdfsdirs): 1423-1433
+- [`std.fs.watch`](#stdfswatch): 1435-1470
+- [`std.graph`](#stdgraph): 1472-1560
+- [`std.http`](#stdhttp): 1562-1632
+- [`std.http.decoder`](#stdhttpdecoder): 1634-1651
+- [`std.http.body`](#stdhttpbody): 1653-1688
+- [`std.http.client`](#stdhttpclient): 1690-1800
+- [`std.http.cookie`](#stdhttpcookie): 1802-1834
+- [`std.http.files`](#stdhttpfiles): 1836-1849
+- [`std.http.https`](#stdhttphttps): 1851-1865
+- [`std.http.proxy`](#stdhttpproxy): 1867-1888
+- [`std.http.server`](#stdhttpserver): 1890-1975
+- [`std.http.sse`](#stdhttpsse): 1977-1996
+- [`std.http.tls`](#stdhttptls): 1998-2015
+- [`std.http.typed`](#stdhttptyped): 2017-2050
+- [`std.http.websocket`](#stdhttpwebsocket): 2052-2087
+- [`std.http.wss`](#stdhttpwss): 2089-2095
+- [`std.image`](#stdimage): 2097-2143
+- [`std.io`](#stdio): 2145-2225
+- [`std.io.typed`](#stdiotyped): 2227-2265
+- [`std.json`](#stdjson): 2267-2331
+- [`std.jwt`](#stdjwt): 2333-2380
+- [`std.log`](#stdlog): 2382-2449
+- [`std.markdown`](#stdmarkdown): 2451-2485
+- [`std.template`](#stdtemplate): 2487-2508
+- [`std.math`](#stdmath): 2510-2576
+- [`std.mime`](#stdmime): 2578-2602
+- [`std.net`](#stdnet): 2604-2686
+- [`std.path`](#stdpath): 2688-2705
+- [`std.process`](#stdprocess): 2707-2756
+- [`std.random`](#stdrandom): 2758-2779
+- [`std.ready`](#stdready): 2781-2812
+- [`std.regex`](#stdregex): 2814-2867
+- [`std.report`](#stdreport): 2869-2876
+- [`std.secrets`](#stdsecrets): 2878-2904
+- [`std.shlex`](#stdshlex): 2906-2915
+- [`std.sketch`](#stdsketch): 2917-2955
+- [`std.sketch.xor`](#stdsketchxor): 2957-2968
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2970-2985
+- [`std.signal`](#stdsignal): 2987-3004
+- [`std.simd`](#stdsimd): 3006-3107
+- [`std.stat`](#stdstat): 3109-3142
+- [`std.plot`](#stdplot): 3144-3233
+- [`std.linalg`](#stdlinalg): 3235-3276
+- [`std.sync`](#stdsync): 3278-3296
+- [`std.system`](#stdsystem): 3298-3356
+- [`std.tempfile`](#stdtempfile): 3358-3390
+- [`std.test`](#stdtest): 3392-3434
+- [`std.text`](#stdtext): 3436-3455
+- [`std.thread`](#stdthread): 3457-3461
+- [`std.time`](#stdtime): 3463-3507
+- [`std.tls`](#stdtls): 3509-3591
+- [`std.toml`](#stdtoml): 3593-3642
+- [`std.unicode`](#stdunicode): 3644-3656
+- [`std.url`](#stdurl): 3658-3686
+- [`std.uuid`](#stduuid): 3688-3711
+- [`std.xml`](#stdxml): 3713-3746
 
 ## `std.actor`
 
@@ -503,7 +503,7 @@ class LruCache[K, V]
 
 Bounded channels, endpoints and selection. Errors: Channel/send/receive/selection errors. [Reference](channel.md).
 
-Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`. Their signatures are on the reference page.
+Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
 
 ## `std.cli`
 
@@ -561,7 +561,7 @@ class Progress
     def is_finished(self) -> bool
     def rate(self, now: &Instant) -> Option[f64]
     def eta(self, now: &Instant) -> Option[f64]
-    def render(self, now: &Instant, output: &mut Formatter) -> Result[(), FormatError]
+    def render[W](self, now: &Instant, output: &mut Formatter[W]) -> Result[(), FormatError]
     def set_position_at(self: &mut Progress, position: u64, now: &Instant) -> Result[(), ProgressError]
     def set_position(self: &mut Progress, position: u64) -> Result[(), ProgressError]
     def advance(self: &mut Progress, count: u64 = 1u64) -> Result[(), ProgressError]
@@ -707,7 +707,7 @@ def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
 enum AdvancedError
     InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | SmallOrderKey | Allocation(AllocError)
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum AeadAlgorithm
     Aes256Gcm | ChaCha20Poly1305
 def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
@@ -1038,7 +1038,7 @@ class Transaction
     def rollback(self: &mut Transaction) -> Result[(), KvError]
 class Store
     def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
-    def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]
+    def set_busy_timeout(self: &mut Store, budget: &Duration) -> Result[(), KvError]
     def close(self: &mut Store) -> Result[(), KvError]
     def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]
     def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]
@@ -1084,7 +1084,7 @@ class Connection
     def begin(self: &mut Connection, mode: Begin) -> Result[Transaction, DbError]
     def changes(self) -> i64
     def last_insert_rowid(self) -> i64
-    def set_busy_timeout(self: &mut Connection, milliseconds: i64) -> Result[(), DbError]
+    def set_busy_timeout(self: &mut Connection, budget: &Duration) -> Result[(), DbError]
     def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]
     def close(self: &mut Connection) -> Result[(), DbError]
 def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]
@@ -1256,7 +1256,7 @@ class Context[E]
     operation: str
     subject: Subject
     cause: E
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def describe(self) -> Result[str, AllocError]
     def describe_with(self, cause: &str) -> Result[str, AllocError]
     def report(self) -> ()
@@ -1268,11 +1268,11 @@ def native_code(error: IoError) -> Option[i32]
 
 ## `std.fmt`
 
-Static display/debug, bounded writer output and fallible strings. Errors: `FormatError`. [Reference](fmt.md).
+Writer-generic value/report formatting, bounded output and fallible strings. Errors: `FormatError`. [Reference](fmt.md).
 
 ```text
 enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError)
+    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError) | OutputClosed
 class Spec
     fill: str
     align: str
@@ -1291,12 +1291,13 @@ def spec_count(value: i64) -> Result[i64, FormatError]
 class Formatter[W]
     writer: W
     def completed(self) -> i64
+    def has_failed(self) -> bool
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64) -> Result[(), FormatError]
-    def integer(self: &mut Formatter[W], value: i64, width: i64) -> Result[(), FormatError]
+    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64 = 0) -> Result[(), FormatError]
+    def integer(self: &mut Formatter[W], value: i64, width: i64 = 0) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
@@ -1310,6 +1311,7 @@ class Formatter[W]
     def enter(self: &mut Formatter[W]) -> Result[(), FormatError]
     def leave(self: &mut Formatter[W]) -> ()
 def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]
+def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Stderr], FormatError]
 def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]
 def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]
 def display[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
@@ -1322,11 +1324,15 @@ def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), F
 def repr_view_string[T](value: &[T]) -> Result[str, FormatError]
 def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]
+def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]
+def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]
 def debug_string(value: &str) -> Result[str, FormatError]
 def repr_substr_string(value: &substr) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]
+protocol Formattable
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 ```
 
 ## `std.fs`
@@ -1812,11 +1818,11 @@ class SetCookie
     value: str
     path: str
     domain: str
-    max_age: Option[i64]
+    max_age: Option[Duration]
     secure: bool
     http_only: bool
     same_site: SameSite
-    def format(self) -> Result[str, CookieError]
+    def to_string(self) -> Result[str, CookieError]
 def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]
 def removal(name: &str) -> Result[SetCookie, CookieError]
 def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]
@@ -1837,8 +1843,8 @@ enum FilesError
 const max_path: i64 = 4096
 def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]
 def media_type(name: &str) -> str
-def http_date(seconds: i64) -> Result[Option[str], FilesError]
-def parse_http_date(text: &str) -> Result[Option[i64], FilesError]
+def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]
+def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]
 def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]
 ```
 
@@ -1978,11 +1984,11 @@ enum SseError
 class EventStream[T]
     last_event_id: Option[str]
     def is_open(self) -> bool
-    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline) -> Result[(), SseError]
-    def retry(self: &mut EventStream[T], milliseconds: i64, deadline: &Deadline) -> Result[(), SseError]
-    def wait(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]
+    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
+    def retry(self: &mut EventStream[T], span: &Duration, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
+    def wait(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def close(self: &mut EventStream[T]) -> ()
 def head() -> Result[ResponseHead, HttpError]
 def accept[T: Transport](exchange: &mut Exchange[T]) -> Result[EventStream[T], SseError]
@@ -2062,11 +2068,11 @@ enum Kind
 class WebSocket[T]
     subprotocol: Option[str]
     def is_open(self) -> bool
-    def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline) -> Result[Message, WebSocketError]
-    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
-    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline) -> Result[(), WebSocketError]
-    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
-    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline) -> Result[(), WebSocketError]
+    def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]
+    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
 def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]
 class Target
     secure: bool
@@ -2336,7 +2342,7 @@ enum Claim
     Expiry | NotBefore | IssuedAt | Issuer | Audience
 enum JwtError
     Malformed | NotObject | TooLarge | UnsupportedAlgorithm | AlgorithmMismatch | CriticalHeader | InvalidSignature | Expired | NotYetValid | MissingClaim(Claim) | InvalidClaim(Claim) | WrongIssuer | WrongAudience | InvalidKey | InvalidValidation | RandomFailure | Allocation(AllocError)
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class SigningKey
     def algorithm(self) -> Algorithm
     def verifying_key(self) -> Result[VerifyingKey, JwtError]
@@ -2354,13 +2360,13 @@ const default_max_size: i64 = 8192
 const max_leeway: i64 = 86400
 const max_token_size: i64 = 1048576
 class Validation
-    now: i64
-    leeway: i64
+    now: Timestamp
+    leeway: Duration
     require_expiry: bool
     issuer: Option[str]
     audience: Option[str]
     max_size: i64
-def validation(now: i64) -> Validation
+def validation(now: &Timestamp) -> Validation
 class Header
     algorithm: Algorithm
     key_id: Option[str]
@@ -2588,7 +2594,7 @@ class MediaType
     def matches(self, pattern: &MediaType) -> bool
     def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
     def remove_param(self: &mut MediaType, name: &str) -> bool
-    def format(self) -> Result[str, AllocError]
+    def to_string(self) -> Result[str, AllocError]
 def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
 def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
 def from_extension(extension: &str) -> Option[str]
@@ -2608,7 +2614,7 @@ class SocketAddress
     ip: IpAddress
     port: u16
     scope: u32
-    def format(self) -> Result[str, NetError]
+    def to_string(self) -> Result[str, NetError]
 def socket_address(ip: IpAddress, port: u16) -> SocketAddress
 def ipv4(a: u8, b: u8, c: u8, d: u8) -> IpAddress
 def loopback_v4(port: u16) -> SocketAddress
@@ -2738,12 +2744,15 @@ class Child
     def close_stdin(self: &mut Child) -> Result[(), IoError]
     def wait(self: &mut Child) -> Result[ExitStatus, IoError]
     def try_wait(self: &mut Child) -> Result[Option[ExitStatus], IoError]
-    def wait_timeout(self: &mut Child, budget: &Duration) -> Result[Option[ExitStatus], IoError]
+    def wait_timeout(self: &mut Child, budget: &Duration, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]
+    def wait_before(self: &mut Child, deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
     def communicate(self: &mut Child, input: &Bytes, limit: i64) -> Result[Output, StreamError]
     def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]
+enum WaitError
+    Io(IoError) | Cancelled
 ```
 
 ## `std.random`
@@ -2783,7 +2792,8 @@ class Readiness
     error: bool
 enum WaitError
     TimedOut | Cancelled | Stream(StreamError)
-def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[Readiness, WaitError]
+def wait_now(file: &File, interest: Interest) -> Result[Readiness, WaitError]
+def wait_until(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
 def write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
@@ -2858,26 +2868,10 @@ def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]
 
 ## `std.report`
 
-A bounded formatter for human-readable reports, to standard error or an owned collector. Errors: `FormatError`. [Reference](report.md).
+Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [Reference](report.md).
 
 ```text
-enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(IoError) | WriteZero | OutputClosed
-class Formatter
-    def completed(self) -> i64
-    def failed(self) -> bool
-    def text(self: &mut Formatter, value: &str) -> Result[(), FormatError]
-    def boolean(self: &mut Formatter, value: bool) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter, value: u64, base: i64) -> Result[(), FormatError]
-    def integer(self: &mut Formatter, value: i64) -> Result[(), FormatError]
-    def enter(self: &mut Formatter) -> Result[(), FormatError]
-    def leave(self: &mut Formatter) -> ()
-protocol Formattable
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
-def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]
-def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]
-def finish(output: &Formatter) -> Result[str, FormatError]
-def render[T: Formattable](value: &T, output: &mut Formatter) -> Result[(), FormatError]
+def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
 ```
 
@@ -3153,7 +3147,7 @@ Layered charts from owned columns or record accessors, validated mappings, group
 
 ```text
 enum PlotError
-    Allocation(AllocError) | Format(FormatError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
+    Allocation(AllocError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
 enum Column
     Num(list[f64]) | Int(list[i64]) | Text(list[str]) | Bool(list[bool]) | MaybeNum(list[Option[f64]]) | MaybeText(list[Option[str]])
 class Table
@@ -3290,6 +3284,15 @@ Compiler-provided: `CancellationToken`. Their signatures are on the reference pa
 ```text
 class Mutex[T]
     def __init__(self, value: T) -> ()
+enum WaitError
+    TimedOut | Cancelled | Disconnected
+enum SendBeforeError[T]
+    TimedOut(T) | Cancelled(T) | Disconnected(T)
+def recv_before[T](receiver: &Receiver[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[T, WaitError]
+def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SendBeforeError[T]]
+def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
+def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
+def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[A, B], WaitError]
 ```
 
 ## `std.system`
@@ -3669,7 +3672,7 @@ class Url
     path: str
     query: Option[str]
     fragment: Option[str]
-    def format(self) -> Result[str, UrlError]
+    def to_string(self) -> Result[str, UrlError]
 class Pair
     key: str
     value: str

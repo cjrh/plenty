@@ -3128,6 +3128,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "select_recv"
                 | "select_recv_nowait"
                 | "select_recv_timeout"
+                | "select_recv_timeout_ms"
                 | "Generator"
                 | "Iter"
                 | "Callable"
@@ -3680,6 +3681,20 @@ impl Lower<'_> {
             });
             let hint = if can_propagate {
                 "; use `?` to propagate the error or match the result explicitly".into()
+            } else if let (Some(Ty::Enum(expected)), Some(Ty::Enum(got))) = (&expected, &got)
+                && expected.is_result()
+                && got.is_result()
+                && is_format_error(&expected.get().variants[1].fields[0])
+                && got.get().variants[1].fields[0] == crate::sum::alloc_error()
+            {
+                "; an f-string whose fields use built-in spellings fails only with AllocError: declare Result[_, AllocError]".into()
+            } else if let (Some(Ty::Enum(expected)), Some(Ty::Enum(got))) = (&expected, &got)
+                && expected.is_result()
+                && got.is_result()
+                && is_format_error(&expected.get().variants[1].fields[0])
+                && is_format_alloc_sum(&got.get().variants[1].fields[0])
+            {
+                "; an f-string whose field runs a display or debug method, or has a computed spec, fails with AllocError | FormatError: declare Result[_, AllocError | FormatError]".into()
             } else if let (Some(Ty::Ref(inner, _)), Some(expected)) = (&got, &expected)
                 && **inner == *expected
                 && copyable_through_reference(inner)
@@ -3853,7 +3868,9 @@ impl Lower<'_> {
                 Some(FixedError::Collection) => {
                     "; a collection literal returns Result[collection, AllocError]"
                 }
-                Some(FixedError::Format) => "; an f-string returns Result[str, FormatError]",
+                Some(FixedError::Format) => {
+                    "; an f-string returns Result[str, AllocError], or Result[str, AllocError | FormatError] when a field runs a display or debug method or has a computed spec"
+                }
                 None => "",
             };
             return Err(e.at.error(format!(
@@ -3875,7 +3892,12 @@ impl Lower<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let hint = producer_conflict_hint(target_error, source_error);
-                return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}{hint}")));
+                let origin = if literal == Some(FixedError::Format) {
+                    format!("; this f-string fails with {source_error}")
+                } else {
+                    String::new()
+                };
+                return Err(e.at.error(format!("`?` operand error {source_error} cannot propagate as {target_error}; missing alternatives: {missing}{origin}{hint}")));
             }
             let hint = producer_conflict_hint(target_error, source_error);
             if !hint.is_empty() {
@@ -3883,16 +3905,19 @@ impl Lower<'_> {
                     "`?` operand error {source_error} cannot propagate as {target_error}; convert the error explicitly{hint}"
                 )));
             }
-            let mut member = source_error.to_string();
+            let member = source_error.to_string();
             let origin = match literal {
                 Some(FixedError::Collection) => {
                     format!("; a collection literal fails with {member}")
                 }
-                Some(FixedError::Format) => {
-                    // The sum names the prelude spelling.
-                    member = "FormatError".into();
-                    "; an f-string fails with FormatError".into()
+                Some(FixedError::Format) if is_format_error(target_error) => {
+                    // A signature written before B92 phase 2: name the
+                    // replacement rather than a sum the function may not need.
+                    return Err(e.at.error(format!(
+                        "`?` operand error {member} cannot propagate as FormatError; an f-string whose fields use built-in spellings fails only with AllocError: declare Result[_, AllocError], or Result[_, AllocError | FormatError] if the function also returns FormatError"
+                    )));
                 }
+                Some(FixedError::Format) => format!("; an f-string fails with {member}"),
                 None => String::new(),
             };
             let convert = if literal.is_some() {
@@ -4635,7 +4660,10 @@ impl Lower<'_> {
                 }
                 if matches!(
                     name.as_str(),
-                    "select_recv" | "select_recv_nowait" | "select_recv_timeout"
+                    "select_recv"
+                        | "select_recv_nowait"
+                        | "select_recv_timeout"
+                        | "select_recv_timeout_ms"
                 ) {
                     return self.channel_select(name, args, &e.at, ops);
                 }
@@ -5958,12 +5986,27 @@ impl Lower<'_> {
     }
 }
 
+/// Whether `ty` is `std.fmt.FormatError`, the prelude `FormatError`.
+fn is_format_error(ty: &Ty) -> bool {
+    matches!(ty, Ty::Enum(t) if &*t.name == "std.fmt.FormatError")
+}
+
+/// Whether `ty` is `AllocError | FormatError`, the error of an f-string that
+/// runs user formatting or has a computed spec.
+fn is_format_alloc_sum(ty: &Ty) -> bool {
+    let members = crate::sum::members(ty);
+    members.len() == 2
+        && members.contains(&crate::sum::alloc_error())
+        && members.iter().any(is_format_error)
+}
+
 /// An operand of `?` whose error type the language fixes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FixedError {
     /// A collection literal: `AllocError`.
     Collection,
-    /// An f-string: `FormatError`.
+    /// An f-string: `AllocError`, or `AllocError | FormatError` when user
+    /// formatting runs or a spec is computed.
     Format,
 }
 
@@ -7093,7 +7136,7 @@ fn lower(
     };
     // The reporting contract is optional: types without its exact public
     // implementation retain the existing structural entrypoint diagnostic.
-    // Its canonical types imply that the trusted std.report module is loaded.
+    // Its canonical types imply that the trusted std.fmt module is loaded.
     let entry_report = if require_main {
         match (
             sigs["main"].outputs.as_slice(),
@@ -7116,7 +7159,7 @@ fn lower(
                 {
                     let main = sigs.intern("main");
                     let (symbol, function) = generics.instantiate(
-                        "std.report.entry_report",
+                        "std.fmt.entry_report",
                         vec![error.clone()],
                         &protocol.at,
                         &aliases,

@@ -256,7 +256,7 @@ impl Lower<'_> {
                     Some(Ty::CancellationToken) => {
                         return match name.as_str() {
                             "share" => Some(Ty::CancellationToken),
-                            "is_cancelled" | "wait_timeout" => Some(Ty::Bool),
+                            "is_cancelled" | "wait_timeout" | "wait_timeout_ms" => Some(Ty::Bool),
                             _ => None,
                         };
                     }
@@ -267,20 +267,22 @@ impl Lower<'_> {
                                     .signature()
                                     .1,
                             ),
-                            "done" | "cancel" | "wait_timeout" => Some(Ty::Bool),
+                            "done" | "cancel" | "wait_timeout" | "wait_timeout_ms" => {
+                                Some(Ty::Bool)
+                            }
                             _ => None,
                         };
                     }
                     Some(ty @ Ty::Channel(_, _)) if name == "share" => return Some(ty),
                     Some(Ty::Channel(message, sender)) => {
-                        if sender && name == "send_timeout" {
+                        if sender && matches!(name.as_str(), "send_timeout" | "send_timeout_ms") {
                             return Some(
                                 crate::channel::ChannelOp::SendTimeout((*message).clone())
                                     .signature()
                                     .1,
                             );
                         }
-                        if !sender && name == "recv_timeout" {
+                        if !sender && matches!(name.as_str(), "recv_timeout" | "recv_timeout_ms") {
                             return Some(
                                 crate::channel::ChannelOp::RecvTimeout((*message).clone())
                                     .signature()

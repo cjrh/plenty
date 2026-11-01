@@ -376,14 +376,14 @@ fn collection_literal_under_question_still_propagates_alloc_error_and_failure() 
 // Issue #626: the f-string error type is named. Issue #632: it is a prelude
 // name, so the suggestion adds no import.
 #[test]
-fn f_string_under_question_names_format_error() {
+fn f_string_under_question_names_its_error() {
     let error = support::check_source(
         "def work(n: i64) -> Result[(), IoError]:\n    s = f\"{n}\"?\n    print(s)?\n    Ok(())",
     )
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("an f-string fails with FormatError; the function's error type must include it: declare a sum such as Result[_, FormatError | IoError], or"),
+        error.contains("an f-string fails with AllocError; the function's error type must include it: declare a sum such as Result[_, AllocError | IoError], or"),
         "{error}"
     );
     let error = support::check_source("def work(n: i64) -> Option[str]:\n    Some(f\"{n}\"?)")
@@ -391,11 +391,11 @@ fn f_string_under_question_names_format_error() {
         .to_string();
     assert!(
         error
-            .contains("same Result or Option family; an f-string returns Result[str, FormatError]"),
+            .contains("same Result or Option family; an f-string returns Result[str, AllocError], or Result[str, AllocError | FormatError] when a field runs a display or debug method or has a computed spec"),
         "{error}"
     );
     plenty::check_source(
-        "def work(n: i64) -> Result[(), FormatError | IoError]:\n    s = f\"{n}\"?\n    print(s)?\n    Ok(())\ndef main() -> ():\n    pass\n",
+        "def work(n: i64) -> Result[(), AllocError | IoError]:\n    s = f\"{n}\"?\n    print(s)?\n    Ok(())\ndef main() -> ():\n    pass\n",
     )
     .unwrap();
 }

@@ -5,7 +5,7 @@
 # book/src/design/stdlib/crypto.md.
 import std.bytes
 from std.bytes import Bytes, BytesError, ByteSource
-from std.report import Formatter, FormatError
+from std.fmt import Formatter, FormatError
 
 pub enum CryptoError:
     OutOfRange
@@ -252,7 +252,7 @@ pub enum AdvancedError:
 
     # The std.report message, used by entrypoint reports. Each states the
     # cause without key material.
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         message = match self:
             case AdvancedError.InvalidLength:
                 "wrong length for a key, nonce, tag, signature or output"

@@ -46,13 +46,14 @@ impl Lower<'_> {
             let actual = self.expr_expected(&args[0], Some((**message).clone()), ops)?;
             self.same(actual, Some((**message).clone()), &args[0].at)?;
             ChannelOp::Send((**message).clone(), name == "send_nowait")
-        } else if *sender && name == "send_timeout" && args.len() == 2 {
+        } else if *sender && matches!(name, "send_timeout" | "send_timeout_ms") && args.len() == 2 {
             let actual = self.expr_expected(&args[0], Some((**message).clone()), ops)?;
             self.same(actual, Some((**message).clone()), &args[0].at)?;
             let actual = self.expr_expected(&args[1], Some(Ty::U64), ops)?;
             self.same(actual, Some(Ty::U64), &args[1].at)?;
             ChannelOp::SendTimeout((**message).clone())
-        } else if !*sender && name == "recv_timeout" && args.len() == 1 {
+        } else if !*sender && matches!(name, "recv_timeout" | "recv_timeout_ms") && args.len() == 1
+        {
             let actual = self.expr_expected(&args[0], Some(Ty::U64), ops)?;
             self.same(actual, Some(Ty::U64), &args[0].at)?;
             ChannelOp::RecvTimeout((**message).clone())
@@ -60,9 +61,9 @@ impl Lower<'_> {
             ChannelOp::Recv((**message).clone(), name == "recv_nowait")
         } else {
             return Err(base.at.error(if *sender {
-                "Sender supports share(), send(value), send_nowait(value), and send_timeout(value, timeout_ms)"
+                "Sender supports share(), send(value), send_nowait(value), and send_timeout_ms(value, timeout_ms)"
             } else {
-                "Receiver supports share(), recv(), recv_nowait(), and recv_timeout(timeout_ms)"
+                "Receiver supports share(), recv(), recv_nowait(), and recv_timeout_ms(timeout_ms)"
             }));
         };
         let output = op.signature().1;

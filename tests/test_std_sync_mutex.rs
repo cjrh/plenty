@@ -435,3 +435,74 @@ fn mutexes_have_no_value_operations() {
         "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
     );
 }
+
+#[test]
+fn typed_deadlines_poll_ready_values_and_preserve_unsent_ownership() {
+    let source = r#"
+import std.sync
+import std.time
+
+def main() -> Result[(), AllocError | ChannelError | IoError]:
+    cancel = CancellationToken()?
+    sender, receiver = channel[list[i64]](1u64)?
+    unused, other = channel[i64](1u64)?
+    expired = std.time.deadline_at(&std.time.monotonic_now())
+    original = [7, 8]?
+    std.sync.send_before(&sender, original, &expired, &cancel).unwrap()
+    blocked = [9, 10]?
+    match std.sync.send_before(&sender, blocked, &expired, &cancel):
+        case Err(std.sync.SendBeforeError.TimedOut(value)):
+            print(value)?
+        case _:
+            print("wrong send result")?
+    match std.sync.select_recv_before(&receiver, &other, &expired, &cancel):
+        case Ok(Selected.First(value)):
+            print(value)?
+        case _:
+            print("wrong selection")?
+    cancel.cancel()
+    match std.sync.send_before(&sender, [11]?, &expired, &cancel):
+        case Err(std.sync.SendBeforeError.Cancelled(value)):
+            print(value)?
+        case _:
+            print("wrong cancelled send")?
+    print(std.sync.recv_before(&receiver, &expired, &cancel).is_err())?
+    print(std.sync.cancelled_before(&cancel, &expired, &cancel).is_err())?
+    Ok(())
+"#;
+    assert_eq!(output(source), "[9, 10]\n[7, 8]\n[11]\nTrue\nTrue");
+}
+
+#[test]
+fn typed_waits_observe_cross_thread_cancellation_and_keep_future_results() {
+    let source = r#"
+import std.sync
+import std.time
+
+def stop_later(token: &CancellationToken) -> ():
+    std.time.sleep(&std.time.milliseconds(30u32))
+    token.cancel()
+
+def value() -> i64:
+    42
+
+def main() -> Result[(), AllocError | ChannelError | SpawnError[()] | PoolError | IoError | RangeError]:
+    cancel = CancellationToken()?
+    sender, receiver = channel[i64](1u64)?
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+    with spawn(stop_later, &cancel)?:
+        match std.sync.recv_before(&receiver, &deadline, &cancel):
+            case Err(std.sync.WaitError.Cancelled):
+                print("cancelled")?
+            case _:
+                print("wrong result")?
+    clean = CancellationToken()?
+    pool = ThreadPoolExecutor(1u64, 1u64)?
+    future = pool.submit(value).unwrap()
+    std.sync.future_before(&future, &deadline, &clean).unwrap()
+    print(future.result().unwrap())?
+    pool.shutdown()
+    Ok(())
+"#;
+    assert_eq!(output(source), "cancelled\n42");
+}

@@ -8,7 +8,7 @@ from std.mime import MediaType
 def show(text: &str) -> Result[(), AllocError | IoError]:
     match std.mime.parse(text):
         case Ok(value):
-            print(value.format()?)?
+            print(value.to_string()?)?
         case Err(error):
             print(error)?
     Ok(())
@@ -96,12 +96,12 @@ mut built = std.mime.new("Application", "JSON")?
 built.set_param("Charset", "UTF-8")?
 built.set_param("note", "hi there")?
 built.set_param("charset", "ascii")?
-print(built.format()?)?
-print(built.remove_param("NOTE"), built.remove_param("x"), built.format()?)?
+print(built.to_string()?)?
+print(built.remove_param("NOTE"), built.remove_param("x"), built.to_string()?)?
 print(built.set_param("bad name", "x").is_err(), built.set_param("x", "a\nb").is_err(), std.mime.new("a b", "c").is_err(), std.mime.new("text", "").is_err())?
 built.set_param("empty", "")?
 built.set_param("quote", "say \"hi\"")?
-text = built.format()?
+text = built.to_string()?
 print(text, std.mime.parse(&text)? == built)?
 "#,
         r#"
@@ -167,7 +167,7 @@ fn allocation_failure_returns_alloc_error() {
         r#"def attempt() -> Result[str, AllocError | ParseError]:
     mut value = std.mime.parse("Multipart/Form-Data; Boundary=\"a \\\"b\"; charset=UTF-8; x=y")?
     value.set_param("note", "two words")?
-    Ok(value.format()?)
+    Ok(value.to_string()?)
 
 def main() -> Result[(), AllocError | IoError]:
     mut failures = 0

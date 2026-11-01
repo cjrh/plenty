@@ -2,16 +2,16 @@
 use std::process::Command;
 
 const TYPES: &str = r#"
-from std.report import Formatter, FormatError
+from std.fmt import Formatter, FormatError
 pub class Problem:
     message: str
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.message)
     def __del__(self) -> ():
         print("dropped").unwrap()
 pub enum Code:
     Value(i64)
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         match self:
             case Code.Value(value):
                 output.integer(*value)
@@ -87,19 +87,19 @@ fn incomplete_sum_and_inexact_or_private_methods_keep_structural_fallback() {
         "error: main returned Problem(message=\"input\")\n",
     );
     for method in [
-        "def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        output.text('human')",
-        "pub def format(self, output: &mut Formatter) -> ():\n        pass",
+        "def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('human')",
+        "pub def format[W](self, output: &mut Formatter[W]) -> ():\n        pass",
     ] {
         reports(
             &format!(
-                "from std.report import Formatter, FormatError\npub class Hidden:\n    value: i64\n    {method}\ndef main() -> Result[(), Hidden]:\n    Err(Hidden(9))\n"
+                "from std.fmt import Formatter, FormatError\npub class Hidden:\n    value: i64\n    {method}\ndef main() -> Result[(), Hidden]:\n    Err(Hidden(9))\n"
             ),
             "",
             "error: main returned Hidden(value=9)\n",
         );
     }
     reports(
-        "pub class Formatter:\n    pass\npub enum FormatError:\n    Failed\npub class Lookalike:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\ndef main() -> Result[(), Lookalike]:\n    Err(Lookalike(9))\n",
+        "pub class Formatter[W]:\n    pass\npub enum FormatError:\n    Failed\npub class Lookalike:\n    value: i64\n    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\ndef main() -> Result[(), Lookalike]:\n    Err(Lookalike(9))\n",
         "",
         "error: main returned Lookalike(value=9)\n",
     );
@@ -108,7 +108,7 @@ fn incomplete_sum_and_inexact_or_private_methods_keep_structural_fallback() {
 #[test]
 fn generic_and_normalized_alias_error_types_select_reporting() {
     reports(
-        "from std.report import Formatter, FormatError\npub class Generic[T]:\n    value: T\n    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        output.text('generic')\ntype Error = Generic[i64] | Generic[i64]\ndef main() -> Result[i32, Error]:\n    Err(Generic[i64](42))\n",
+        "from std.fmt import Formatter, FormatError\npub class Generic[T]:\n    value: T\n    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('generic')\ntype Error = Generic[i64] | Generic[i64]\ndef main() -> Result[i32, Error]:\n    Err(Generic[i64](42))\n",
         "",
         "error: main returned generic\n",
     );
@@ -163,8 +163,8 @@ fn record_budget_includes_prefix_and_newline_and_recursion_is_bounded() {
     }
     let recursive = TYPES
         .replace(
-            "from std.report import Formatter, FormatError",
-            "from std.report import Formatter, FormatError, render",
+            "from std.fmt import Formatter, FormatError",
+            "from std.fmt import Formatter, FormatError\nfrom std.report import render",
         )
         .replace("output.text(&self.message)", "render(self, output)");
     reports(

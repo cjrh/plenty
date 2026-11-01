@@ -83,12 +83,13 @@ method. Contexts then format their operation labels and delegate to that cause:
 
 ```plenty
 from std.error import Context, Subject
-from std.report import Formatter, FormatError, to_string
+from std.fmt import Formatter, FormatError
+from std.report import to_string
 
 pub enum SettingsError:
     Invalid
 
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("invalid setting")
 
 def main() -> Result[(), FormatError | IoError]:
