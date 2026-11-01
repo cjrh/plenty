@@ -367,7 +367,7 @@ impl Lower<'_> {
             let ty = if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
                 loans.push(loan);
-                ty
+                self.lend_content(ty, expected, ops)
             } else if let Ty::View(_, mutable) = expected {
                 let text = *expected == text_view();
                 let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;

@@ -114,6 +114,35 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// A borrowed `str`, a `&str` binding, or a literal converts to the whole
+/// `&substr` (consistency rule 3, backlog B90).
+#[test]
+fn strings_convert_to_whole_substr_views() {
+    support::assert_stdout(
+        r#"
+def vowels(text: &substr) -> i64:
+    mut n = 0
+    for c in text:
+        if c in "aeiou":
+            n += 1
+    n
+
+def through(text: &str) -> i64:
+    vowels(text)
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "education"
+    shared = Shared("queue")?
+    print(vowels(&s), vowels(&s[:3]), vowels("aei"), through(&s), vowels(&shared))?
+    whole: &substr = &s
+    literal: &substr = "hello"
+    print(whole, len(literal))?
+    Ok(())
+"#,
+        "5 2 3 5 4\neducation 5\n",
+    );
+}
+
 #[test]
 fn view_index_is_checked_against_the_view() {
     let output = support::run(
@@ -163,8 +192,16 @@ def main() -> Result[(), AllocError | IoError]:
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def g(x: &substr) -> i64:\n    len(x)\n\ns = \"abc\"\nn = g(&s)",
-    "pass a whole string as `&s[:]`"
+    "def g(x: &substr) -> i64:\n    len(x)\n\ns = \"abc\"\nn = g(s)",
+    "this parameter takes a substring view: pass `&s` or a literal for a whole string, or `&s[a:b]` for part of it"
+)]
+#[case(
+    "def g(x: &substr) -> i64:\n    len(x)\n\nn = g(b\"abc\")",
+    "this parameter takes a substring view"
+)]
+#[case(
+    "def g[T](xs: &[T]) -> i64:\n    len(xs)\n\ns = \"abc\"\nn = g(&s)",
+    "`&s[a:b]` is a `&substr`"
 )]
 #[case(
     "def g[T](xs: &[T]) -> i64:\n    len(xs)\n\ns = \"abc\"\nn = g(&s[:])",

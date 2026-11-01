@@ -107,21 +107,21 @@ def reset(values: &mut [i64]) -> ():
 
 def main() -> Result[(), AllocError | IoError]:
     mut scores = [70, 85, 90, 65, 88]?
-    print(total(&scores[1:]))?
+    print(total(&scores), total(&scores[1:]))?
     reset(&mut scores[:2])
     print(scores)?
     Ok(())
 ```
 
 ```output
-328
+398 328
 [0, 0, 90, 65, 88]
 ```
 
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
-elements. A list is not converted to a
-view automatically: pass a whole list as `&scores[:]`. A view borrows its
+elements. A `&[T]` parameter also takes a whole list as `&scores`, which is
+a view that copies nothing. A view borrows its
 run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 
@@ -164,7 +164,7 @@ def main() -> Result[(), AllocError | IoError]:
     line = "name: Ada Lovelace"
     value = &line[6:]
     print(value, len(value))?
-    print(&line[:4] == "name", "Love" in value, count(&line[:], "a"))?
+    print(&line[:4] == "name", "Love" in value, count(&line, "a"))?
     first = value[:3]?
     print(first)?
     Ok(())
@@ -176,8 +176,8 @@ True True 3
 Ada
 ```
 
-A function takes a substring as `&substr`; pass a whole string as
-`&line[:]`. Copy the text with `value[a:b]?` when you need an owned `str`,
+A function takes a substring as `&substr`, and a whole string as `&line` or
+a literal. Copy the text with `value[a:b]?` when you need an owned `str`,
 for example to call a `str` method or keep it after the string changes. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.
