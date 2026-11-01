@@ -432,6 +432,23 @@ condition keeps its join block.
 
 ## Measuring compilation
 
+A local run of [compiler-benchmark](https://github.com/nordlow/compiler-benchmark)
+used 40,000 functions, three requested runs, and disabled caches. The machine
+and run date were not recorded, so these numbers are not independently
+reproducible:
+
+| Compiler | Build + run (µs/function) |
+| --- | ---: |
+| Clang 22.1.8 | 172 |
+| Plenty 0.2.4 | 233 |
+| Zig 0.16.0 | 269 |
+| GCC 16.2.1 | 367 |
+| Go 1.26.10 | 440 |
+
+Plenty's build took approximately 9.3 seconds, with 176 MB peak RSS. Generated-code
+optimization was off; only the non-generic Plenty workload was implemented.
+All four adapter tests passed, including native-result verification.
+
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
 and three functions. It reports median checking time, optionally full AOT/linking,
 and a fourfold-input scaling ratio. `tests/test_compile_scaling.rs` guards against
