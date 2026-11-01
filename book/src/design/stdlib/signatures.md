@@ -45,64 +45,64 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.env`](#stdenv): 1226-1240
 - [`std.error`](#stderror): 1242-1262
 - [`std.fmt`](#stdfmt): 1264-1331
-- [`std.fs`](#stdfs): 1333-1416
-- [`std.fs.dirs`](#stdfsdirs): 1418-1428
-- [`std.fs.watch`](#stdfswatch): 1430-1465
-- [`std.graph`](#stdgraph): 1467-1555
-- [`std.http`](#stdhttp): 1557-1627
-- [`std.http.decoder`](#stdhttpdecoder): 1629-1646
-- [`std.http.body`](#stdhttpbody): 1648-1683
-- [`std.http.client`](#stdhttpclient): 1685-1795
-- [`std.http.cookie`](#stdhttpcookie): 1797-1829
-- [`std.http.files`](#stdhttpfiles): 1831-1844
-- [`std.http.https`](#stdhttphttps): 1846-1860
-- [`std.http.proxy`](#stdhttpproxy): 1862-1883
-- [`std.http.server`](#stdhttpserver): 1885-1970
-- [`std.http.sse`](#stdhttpsse): 1972-1991
-- [`std.http.tls`](#stdhttptls): 1993-2010
-- [`std.http.typed`](#stdhttptyped): 2012-2045
-- [`std.http.websocket`](#stdhttpwebsocket): 2047-2082
-- [`std.http.wss`](#stdhttpwss): 2084-2090
-- [`std.image`](#stdimage): 2092-2138
-- [`std.io`](#stdio): 2140-2220
-- [`std.io.typed`](#stdiotyped): 2222-2260
-- [`std.json`](#stdjson): 2262-2326
-- [`std.jwt`](#stdjwt): 2328-2375
-- [`std.log`](#stdlog): 2377-2444
-- [`std.markdown`](#stdmarkdown): 2446-2480
-- [`std.template`](#stdtemplate): 2482-2503
-- [`std.math`](#stdmath): 2505-2571
-- [`std.mime`](#stdmime): 2573-2597
-- [`std.net`](#stdnet): 2599-2681
-- [`std.path`](#stdpath): 2683-2700
-- [`std.process`](#stdprocess): 2702-2751
-- [`std.random`](#stdrandom): 2753-2774
-- [`std.ready`](#stdready): 2776-2807
-- [`std.regex`](#stdregex): 2809-2862
-- [`std.report`](#stdreport): 2864-2871
-- [`std.secrets`](#stdsecrets): 2873-2899
-- [`std.shlex`](#stdshlex): 2901-2910
-- [`std.sketch`](#stdsketch): 2912-2950
-- [`std.sketch.xor`](#stdsketchxor): 2952-2963
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2965-2980
-- [`std.signal`](#stdsignal): 2982-2999
-- [`std.simd`](#stdsimd): 3001-3102
-- [`std.stat`](#stdstat): 3104-3137
-- [`std.plot`](#stdplot): 3139-3228
-- [`std.linalg`](#stdlinalg): 3230-3271
-- [`std.sync`](#stdsync): 3273-3291
-- [`std.system`](#stdsystem): 3293-3351
-- [`std.tempfile`](#stdtempfile): 3353-3385
-- [`std.test`](#stdtest): 3387-3429
-- [`std.text`](#stdtext): 3431-3474
-- [`std.thread`](#stdthread): 3476-3480
-- [`std.time`](#stdtime): 3482-3526
-- [`std.tls`](#stdtls): 3528-3610
-- [`std.toml`](#stdtoml): 3612-3661
-- [`std.unicode`](#stdunicode): 3663-3675
-- [`std.url`](#stdurl): 3677-3705
-- [`std.uuid`](#stduuid): 3707-3730
-- [`std.xml`](#stdxml): 3732-3765
+- [`std.fs`](#stdfs): 1333-1427
+- [`std.fs.dirs`](#stdfsdirs): 1429-1439
+- [`std.fs.watch`](#stdfswatch): 1441-1476
+- [`std.graph`](#stdgraph): 1478-1566
+- [`std.http`](#stdhttp): 1568-1638
+- [`std.http.decoder`](#stdhttpdecoder): 1640-1657
+- [`std.http.body`](#stdhttpbody): 1659-1694
+- [`std.http.client`](#stdhttpclient): 1696-1806
+- [`std.http.cookie`](#stdhttpcookie): 1808-1840
+- [`std.http.files`](#stdhttpfiles): 1842-1855
+- [`std.http.https`](#stdhttphttps): 1857-1871
+- [`std.http.proxy`](#stdhttpproxy): 1873-1894
+- [`std.http.server`](#stdhttpserver): 1896-1981
+- [`std.http.sse`](#stdhttpsse): 1983-2002
+- [`std.http.tls`](#stdhttptls): 2004-2021
+- [`std.http.typed`](#stdhttptyped): 2023-2056
+- [`std.http.websocket`](#stdhttpwebsocket): 2058-2093
+- [`std.http.wss`](#stdhttpwss): 2095-2101
+- [`std.image`](#stdimage): 2103-2149
+- [`std.io`](#stdio): 2151-2231
+- [`std.io.typed`](#stdiotyped): 2233-2271
+- [`std.json`](#stdjson): 2273-2337
+- [`std.jwt`](#stdjwt): 2339-2386
+- [`std.log`](#stdlog): 2388-2455
+- [`std.markdown`](#stdmarkdown): 2457-2491
+- [`std.template`](#stdtemplate): 2493-2514
+- [`std.math`](#stdmath): 2516-2582
+- [`std.mime`](#stdmime): 2584-2608
+- [`std.net`](#stdnet): 2610-2692
+- [`std.path`](#stdpath): 2694-2711
+- [`std.process`](#stdprocess): 2713-2762
+- [`std.random`](#stdrandom): 2764-2785
+- [`std.ready`](#stdready): 2787-2818
+- [`std.regex`](#stdregex): 2820-2873
+- [`std.report`](#stdreport): 2875-2882
+- [`std.secrets`](#stdsecrets): 2884-2910
+- [`std.shlex`](#stdshlex): 2912-2921
+- [`std.sketch`](#stdsketch): 2923-2961
+- [`std.sketch.xor`](#stdsketchxor): 2963-2974
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2976-2991
+- [`std.signal`](#stdsignal): 2993-3010
+- [`std.simd`](#stdsimd): 3012-3113
+- [`std.stat`](#stdstat): 3115-3148
+- [`std.plot`](#stdplot): 3150-3239
+- [`std.linalg`](#stdlinalg): 3241-3282
+- [`std.sync`](#stdsync): 3284-3302
+- [`std.system`](#stdsystem): 3304-3362
+- [`std.tempfile`](#stdtempfile): 3364-3396
+- [`std.test`](#stdtest): 3398-3440
+- [`std.text`](#stdtext): 3442-3485
+- [`std.thread`](#stdthread): 3487-3491
+- [`std.time`](#stdtime): 3493-3537
+- [`std.tls`](#stdtls): 3539-3621
+- [`std.toml`](#stdtoml): 3623-3672
+- [`std.unicode`](#stdunicode): 3674-3686
+- [`std.url`](#stdurl): 3688-3716
+- [`std.uuid`](#stduuid): 3718-3741
+- [`std.xml`](#stdxml): 3743-3776
 
 ## `std.actor`
 
@@ -1332,11 +1332,11 @@ protocol Formattable
 
 ## `std.fs`
 
-Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`. [Reference](fs.md).
+Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError`. [Reference](fs.md).
 
 ```text
 enum FsError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Entropy(SecretsError) | InvalidInput | Limit | Cancelled | Replaced | Collisions
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Entropy(SecretsError) | InvalidInput | Limit | Cancelled | Replaced | Collisions | UnsupportedType | Overlap | InvalidLimits
 class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
@@ -1363,8 +1363,19 @@ class TempDir
     def cleanup_tree(self: &mut TempDir, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
 def temporary_dir_named(parent: &Root, name: &Path) -> Result[TempDir, FsError]
 def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[TempDir, FsError]
+enum CopyMetadata
+    ContentsOnly | PermissionsAndTimes
 def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]
-def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]
+def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]
+class CopyLimits
+    max_entries: i64
+    max_depth: i64
+    max_bytes: i64
+    max_open_handles: i64
+def copy_limits() -> CopyLimits
+enum TreeCopyError
+    Setup(FsError) | Partial(FsError) | Entry(Path, i64, FsError)
+def copy_tree(source_parent: &Root, source: &Path, destination_parent: &Root, destination: &Path, limits: &CopyLimits, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, TreeCopyError]
 def remove_tree(parent: &Root, name: &Path, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
 def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, max_steps: i64) -> Result[list[Path], FsError]
 enum FileType

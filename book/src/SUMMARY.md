@@ -417,6 +417,7 @@
             - [Rooted filesystem helpers](design/stdlib/fs/helpers.md)
             - [Temporary resources](design/stdlib/fs/temporary.md)
             - [Bounded operations](design/stdlib/fs/operations.md)
+            - [Filesystem copying](design/stdlib/fs/copying.md)
             - [User directories](design/stdlib/fs/dirs.md)
             - [Filesystem changes](design/stdlib/fs/watch.md)
         - [`std.graph`](design/stdlib/graph.md)
