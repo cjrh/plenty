@@ -555,7 +555,9 @@ and an argument bug traps.
    Encoding offsets, UUID `write_bytes`, crypto `finish_into`, and CSV
    field positions now trap on caller bounds errors (issue #667). Encoding
    pack/unpack, UUID writes, and CSV positions return plain values.
-   Stream `read` ranges await issue #666. Statically checkable
+   Stream `read` ranges and TLS session transfers follow the same trap rule
+   (issue #666). Unreachable range variants and byte-error adapters are
+   removed (issue #668). Statically checkable
    domains (positive capacities and limits) wait for a type that expresses
    them; `BytesError.OutOfRange` remains for `std.actor.net` connection
    limits.
