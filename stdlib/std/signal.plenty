@@ -7,7 +7,7 @@
 import std.bytes
 import std.io
 import std.ready
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.io import FileStream, StreamError, classify
 from std.ready import Interest, Selector, WaitError
 from std.sync import CancellationToken
@@ -31,15 +31,6 @@ pub enum Signal:
 pub enum SignalError:
     AlreadyListening
     Stream(StreamError)
-
-def lifted[T](result: Result[T, BytesError]) -> Result[T, SignalError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(SignalError.Stream(StreamError.Allocation(cause)))
-        case Err(_):
-            Err(SignalError.Stream(StreamError.OutOfRange))
 
 def moved(result: Result[i64, StreamError]) -> Result[i64, WaitError]:
     match result:

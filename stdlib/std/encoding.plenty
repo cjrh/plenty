@@ -15,7 +15,6 @@ def encoding_error_allocated[T](result: Result[T, AllocError]) -> Result[T, Enco
 # it. Ordinary codecs accept one canonical form; only the explicitly named
 # MIME decoder skips ASCII whitespace.
 pub enum EncodingError:
-    OutOfRange
     InvalidLength
     InvalidByte(i64)
     InvalidPadding(i64)
@@ -539,7 +538,7 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
                 case BytesError.Allocation(cause):
                     Err(EncodingError.Allocation(cause))
                 case _:
-                    Err(EncodingError.OutOfRange)
+                    __trap("encoding text: encoder produced invalid UTF-8")
 
 # Output buffers are created with their exact final capacity, so this never
 # allocates.
@@ -708,7 +707,7 @@ def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian)
 def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
     offset = target.len()
     if offset > i64.MAX - width:
-        return Err(EncodingError.OutOfRange)
+        return Err(EncodingError.Allocation(AllocError.CapacityOverflow))
     encoding_error_allocated(target.resize(offset + width, 0u8))?
     place(target, offset, bits, width, order)
     Ok(())

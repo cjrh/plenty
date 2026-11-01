@@ -129,38 +129,28 @@ def status(code: i64) -> Result[(), TlsError]:
         return Err(failure(code))
     Ok(())
 
-def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(TlsError.Allocation(cause))
-        case Err(_):
-            Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
-
 # A count, or a runtime failure code other than `would_block`.
 # Encrypts at most `buffer_size` bytes of `source` into the session: the
 # count taken, or one of the negative codes.
-def encrypted(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
-    Ok(__tls_write(session, &source[:buffer_size]))
+def encrypted(session: &ByteStorage, source: &[u8]) -> i64:
+    __tls_write(session, &source[:buffer_size])
 
 # Record transfers between a session and caller bytes. Each gives a byte
 # count or one of the negative codes `counted` maps.
-def fed(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
-    Ok(__tls_feed(session, source))
+def fed(session: &ByteStorage, source: &[u8]) -> i64:
+    __tls_feed(session, source)
 
-def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> i64:
     if start < 0 or start > stop or stop > target.len():
         __trap("take: start/stop outside buffer")
-    Ok(__tls_take(session, target, start, stop))
+    __tls_take(session, target, start, stop)
 
-def decrypted(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+def decrypted(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> i64:
     if start < 0 or start > stop or stop > target.len():
         __trap("read: start/stop outside buffer")
-    Ok(__tls_read(session, target, start, stop))
+    __tls_read(session, target, start, stop)
 
-def counted(result: Result[i64, BytesError]) -> Result[i64, TlsError]:
-    count = stored(result)?
+def counted(count: i64) -> Result[i64, TlsError]:
     if count < 0 and count != would_block:
         return Err(failure(count))
     Ok(count)

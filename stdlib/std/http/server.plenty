@@ -12,7 +12,7 @@ import std.ready
 import std.text
 import std.time
 import std.url
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
@@ -111,17 +111,6 @@ def http_allocated[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
             Ok(value)
         case Err(cause):
             Err(HttpError.Allocation(cause))
-
-def http_bytes[T](result: Result[T, BytesError]) -> Result[T, HttpError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(HttpError.Allocation(cause))
-                case _:
-                    Err(HttpError.Stream(StreamError.OutOfRange))
 
 # Deadlines are kept as monotonic nanoseconds so they can be stored and
 # compared without copying Deadline values.
@@ -362,15 +351,6 @@ def net_allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
             Ok(value)
         case Err(cause):
             Err(NetError.Stream(StreamError.Allocation(cause)))
-
-def net_bytes[T](result: Result[T, BytesError]) -> Result[T, NetError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(NetError.Stream(StreamError.Allocation(cause)))
-        case Err(_):
-            Err(NetError.Stream(StreamError.OutOfRange))
 
 # Appends input that has already arrived to `input.data`, without waiting.
 # Zero is the end of the peer's stream; TimedOut means nothing has arrived.

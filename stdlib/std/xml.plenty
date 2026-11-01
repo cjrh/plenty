@@ -78,8 +78,8 @@ def bytes_result[T](value: Result[T, BytesError]) -> Result[T, Fault]:
                     Err(Fault.Allocation(cause))
                 case BytesError.InvalidUtf8:
                     Err(Fault.InvalidUtf8)
-                case BytesError.OutOfRange:
-                    Err(Fault.Syntax)
+                case _:
+                    __trap("byte text conversion: unexpected range error")
 
 def placed[T](value: Result[T, Fault], offset: i64) -> Result[T, XmlError]:
     match value:

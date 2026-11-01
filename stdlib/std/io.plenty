@@ -3,7 +3,7 @@
 # dispatched per concrete class. One read or write call makes at most one
 # attempt and reports the bytes it moved. The helpers below add retry, end of
 # input and failure-after-progress policy. See book/src/design/stdlib/io.md.
-from std.bytes import Bytes, BytesError, with_capacity
+from std.bytes import Bytes, with_capacity
 from std.path import Path
 from std.encoding import Endian
 import std.encoding
@@ -100,17 +100,6 @@ def interrupted(cause: &StreamError) -> bool:
             True
         case _:
             False
-
-def bytes_result[T](result: Result[T, BytesError]) -> Result[T, StreamError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(StreamError.Allocation(cause))
-                case _:
-                    Err(StreamError.OutOfRange)
 
 # EINTR becomes Interrupted and buffer exhaustion Allocation; every other
 # native failure keeps its IoError.

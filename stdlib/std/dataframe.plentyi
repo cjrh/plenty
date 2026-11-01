@@ -1,7 +1,7 @@
 # Optional Polars engine. All native owners are private and uniquely released.
 # Views are borrowed for one call. Native allocation failure can abort the process.
 import std.bytes as buffers
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
 opaque RawBinaryValues
 opaque RawStrings
@@ -318,17 +318,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, DataFrameError]:
             Ok(value)
         case Err(error):
             Err(DataFrameError.Allocation(error))
-
-def buffered[T](result: Result[T, BytesError]) -> Result[T, DataFrameError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(error)):
-            Err(DataFrameError.Allocation(error))
-        case Err(BytesError.OutOfRange):
-            Err(DataFrameError.Bounds("binary buffer range is out of bounds"))
-        case Err(BytesError.InvalidUtf8):
-            Err(DataFrameError.Schema("unexpected UTF-8 conversion in binary transfer"))
 
 class BinaryValues:
     raw: RawBinaryValues

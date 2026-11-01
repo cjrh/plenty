@@ -41,7 +41,7 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, FilesError]:
         case Err(BytesError.Allocation(cause)):
             Err(FilesError.Allocation(cause))
         case Err(_):
-            Err(FilesError.Stream(StreamError.OutOfRange))
+            __trap("HTTP files text: invalid internal byte conversion")
 
 def http[T](result: Result[T, HttpError]) -> Result[T, FilesError]:
     match result:

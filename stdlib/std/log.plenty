@@ -1,4 +1,4 @@
-from std.bytes import Bytes, BytesError, with_capacity
+from std.bytes import Bytes, with_capacity
 from std.fmt import Formatter, FormatError, formatter
 from std.io import Writer, StreamError, write_all
 from std.time import Timestamp, wall_now
@@ -188,17 +188,6 @@ def fields_of[T](result: Result[T, FormatError]) -> Result[T, LogError]:
             Ok(value)
         case Err(error):
             Err(LogError.Format(error))
-
-def stored[T](result: Result[T, BytesError]) -> Result[T, LogError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(LogError.Allocation(cause))
-                case _:
-                    Err(LogError.InvalidSpec)
 
 # A fixed-capacity writer for one line. Refusing a write that would pass the
 # limit is what bounds formatting; nothing grows after construction.

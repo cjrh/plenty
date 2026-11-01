@@ -3,7 +3,7 @@
 import std.bytes
 import std.math
 import std.random
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.random import Rng
 
 pub enum SketchError:
@@ -24,16 +24,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
 
 # Offsets into sketch buffers are computed here, so only allocation can fail;
 # another byte error is a bug in this module and traps.
-def stored[T](result: Result[T, BytesError]) -> Result[T, SketchError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(SketchError.Allocation(cause))
-        case Err(error):
-            unexpected: Result[SketchError, BytesError] = Err(error)
-            Err(unexpected.unwrap())
-
 # Stable SplitMix64 finalizer. Keys are caller-owned 64-bit identities; this
 # mixer is not a cryptographic hash and does not make hostile keys safe.
 pub def hash_u64(key: u64, seed: u64 = 0u64) -> u64:

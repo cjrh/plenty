@@ -216,3 +216,22 @@ after both fixes records 270,000 successful requests, 9,000 verified handshakes,
 current idle RSS and 400 contained traps with stable after-batch resources.
 
 Remaining stages stay **B85** in the [backlog](../backlog.md).
+
+## Standard-library argument and error contracts
+
+B92's allocation/error-type work (local PR #804) gives std domain errors an
+`Allocation(AllocError)` cause, narrows allocation-only byte operations to
+`AllocError`, and reports invalid caller positions with named traps. Stream
+reads and `read_exact` validate buffer ranges before transport access, EOF,
+handshake work, or stored errors; TLS session transfers follow the same rule
+(issue #666). Encoding fields, UUID output, crypto finalization and CSV field
+positions trap on invalid caller offsets or indices; operations with no other
+failure return plain values (issue #667).
+
+Unused byte-error adapters and unreachable range variants have been removed
+(issue #668). Real failures remain recoverable: truncation, malformed encoded
+text, allocation failure, transport failures and the capacities, limits and
+seek targets that still return named errors. `BytesError.OutOfRange` remains
+for actor networking connection limits until B95's domain-type migration.
+See the [invalid-argument convention](../design/stdlib/conventions.md#invalid-arguments)
+and [byte-stream contract](../design/stdlib/io.md).

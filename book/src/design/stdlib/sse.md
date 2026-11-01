@@ -191,7 +191,6 @@ while True:
 | `Http(HttpError)` | The head was refused or could not be written |
 | `InvalidField` | An event name or id with a line break, or an id with NUL |
 | `InvalidText` | Data that is not UTF-8 |
-| `OutOfRange` | A negative retry time |
 | `Disconnected` | The client closed the connection |
 | `Closed` | The stream was closed, or failed earlier |
 | `Stopping` | Server shutdown began while waiting |

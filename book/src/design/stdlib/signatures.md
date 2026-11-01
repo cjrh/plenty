@@ -672,7 +672,7 @@ Digests, HMAC, BLAKE3 hashing/key derivation, constant-time comparison, AEAD enc
 
 ```text
 enum CryptoError
-    OutOfRange | Finished | InvalidKeyLength | UnsupportedAlgorithm | Allocation(AllocError)
+    Finished | InvalidKeyLength | UnsupportedAlgorithm | Allocation(AllocError)
 enum Algorithm
     Sha256 | Sha512 | Sha1 | Blake3
 def output_size(algorithm: Algorithm) -> i64
@@ -1168,7 +1168,7 @@ Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width
 
 ```text
 enum EncodingError
-    OutOfRange | InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | InvalidPem(i64) | PemLabel | Allocation(AllocError)
+    InvalidLength | InvalidByte(i64) | InvalidPadding(i64) | NonCanonical(i64) | InvalidAlphabet | InvalidPem(i64) | PemLabel | Allocation(AllocError)
 enum Endian
     Little | Big
 class Encoding
@@ -1994,7 +1994,7 @@ Server-Sent Events from a server exchange: `event`, `id`, multi-line `data`, com
 
 ```text
 enum SseError
-    Net(NetError) | Allocation(AllocError) | Http(HttpError) | InvalidField | InvalidText | OutOfRange | Disconnected | Closed | Stopping
+    Net(NetError) | Allocation(AllocError) | Http(HttpError) | InvalidField | InvalidText | Disconnected | Closed | Stopping
 class EventStream[T]
     last_event_id: Option[str]
     def is_open(self) -> bool
@@ -3662,7 +3662,7 @@ Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits
 
 ```text
 enum TomlFault
-    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | InvalidLimits | OutOfRange | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
 class TomlError
     fault: TomlFault
     offset: i64
@@ -3727,7 +3727,7 @@ Strict RFC 3986 absolute URL parsing and formatting without normalization, compo
 
 ```text
 enum UrlError
-    InvalidLimit | LimitExceeded | OutOfRange | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
+    InvalidLimit | LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
 enum Component
     Userinfo | Segment | Path | Query | QueryPart | Fragment
 class Url

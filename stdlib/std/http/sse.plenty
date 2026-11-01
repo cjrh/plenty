@@ -10,7 +10,7 @@ import std.http
 import std.http.server
 import std.io
 import std.time
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.http import HttpError, ResponseHead
 from std.http.server import Exchange, Transport
 from std.io import StreamError
@@ -26,8 +26,6 @@ pub enum SseError:
     InvalidField
     # Data that is not UTF-8.
     InvalidText
-    # A byte range out of bounds, or a negative retry time.
-    OutOfRange
     # The client closed the connection.
     Disconnected
     # The stream was closed, or failed earlier.
@@ -39,19 +37,6 @@ const line_feed: u8 = 10u8
 const carriage_return: u8 = 13u8
 const space: u8 = 32u8
 const colon: u8 = 58u8
-
-def bytes_of[T](result: Result[T, BytesError]) -> Result[T, SseError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(SseError.Allocation(cause))
-                case BytesError.InvalidUtf8:
-                    Err(SseError.InvalidText)
-                case BytesError.OutOfRange:
-                    Err(SseError.OutOfRange)
 
 def http_of[T](result: Result[T, HttpError]) -> Result[T, SseError]:
     match result:
