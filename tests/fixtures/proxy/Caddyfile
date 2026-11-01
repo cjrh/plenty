@@ -27,11 +27,13 @@
 
 http://:@HTTP_PORT@ {
 	bind 127.0.0.1
+	respond /__plenty_proxy_ready "@IDENTITY@"
 	import upstream
 }
 
 https://localhost:@TLS_PORT@ {
 	bind 127.0.0.1
 	tls /etc/plenty-proxy/leaf.pem /etc/plenty-proxy/leaf.key
+	respond /__plenty_proxy_ready "@IDENTITY@"
 	import upstream
 }

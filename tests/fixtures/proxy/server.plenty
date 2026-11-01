@@ -140,7 +140,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.prox
     listener = std.net.listen(&std.net.loopback_v4(0u16), 64)?
     print("port ".concat(str.from(i64(listener.local_address()?.port))?)?)?
     stop = CancellationToken()?
-    with spawn(std.signal.cancel_on, signals, stop.share())? as watcher:
+    with spawn(std.signal.cancel_on, signals, stop.share()).drop_job()? as watcher:
         served = std.http.server.serve(listener, &table, &site, &std.http.server.config(), &stop)
         stop.cancel()
         watcher.join()?
