@@ -363,7 +363,8 @@ pub(super) struct AccessMap {
     types: HashMap<String, Access>,
     enums: HashSet<String>,
     protocols: HashSet<String>,
-    /// Standard library sources: their `_` members are visible to each other.
+    /// Standard library sources: their private members are visible to each
+    /// other, so `std` behaves as one package.
     standard: HashSet<Arc<str>>,
 }
 
@@ -2306,8 +2307,9 @@ fn resolve(
             )
         })
         .collect();
-    // A standard module also sees another standard module's `_` names: the
-    // hooks std modules share without making them public API.
+    // A standard module also sees another standard module's private names, so
+    // `std` behaves as one package: modules share native hooks without making
+    // them public API.
     let internal: Vec<Option<Arc<HashMap<String, String>>>> = modules
         .iter()
         .zip(&exports)
@@ -2317,7 +2319,6 @@ fn resolve(
                 names.extend(
                     m.names()
                         .chain(&m.constants)
-                        .filter(|name| name.starts_with('_'))
                         .map(|name| (name.clone(), qualified(&m.name, name))),
                 );
                 Arc::new(names)
@@ -2730,7 +2731,7 @@ pub(super) fn check_member_at(
     if let Some(rule) = access.members.get(&(class.into(), member.into()))
         && !rule.public
         && rule.owner != context.source()
-        && !shared_in_std(access, rule, member, context)
+        && !shared_in_std(access, rule, context)
     {
         if access.types.get(class).is_some_and(|ty| !ty.public) {
             let kind = if access.enums.contains(class) {
@@ -2761,15 +2762,15 @@ pub(super) fn check_member_at(
     Ok(())
 }
 
-/// A `_` member of a standard library type is visible to every standard
+/// A private member of a standard library type is visible to every standard
 /// module, so std modules share native hooks without publishing them.
-fn shared_in_std(access: &AccessMap, rule: &Access, member: &str, context: &Token) -> bool {
+fn shared_in_std(access: &AccessMap, rule: &Access, context: &Token) -> bool {
     let standard = |source: &Option<Arc<str>>| {
         source
             .as_ref()
             .is_some_and(|source| access.standard.contains(source))
     };
-    member.starts_with('_') && standard(&rule.owner) && standard(&context.source())
+    standard(&rule.owner) && standard(&context.source())
 }
 
 /// Collects the public-API types of a function signature: its inputs (minus

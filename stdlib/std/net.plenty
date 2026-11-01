@@ -943,7 +943,7 @@ pub class UdpSocket:
         mut sender = lifted(std.bytes.with_capacity(v6_size))?
         while True:
             ready_for(&self._file, Interest.Read, deadline, cancel)?
-            match buffer._net_receive_from(&mut self._file, start, stop, &mut sender):
+            match buffer.net_receive_from(&mut self._file, start, stop, &mut sender):
                 case Ok(size):
                     data = lifted(sender.to_list())?
                     (source, _) = decoded(&data, 0)?

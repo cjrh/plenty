@@ -517,7 +517,7 @@ print(std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?)?
     assert!(copied.contains("cannot be copied"), "{copied}");
     // Issue #633: the key back end is visible only to std modules.
     let forged = support::check_file_error(&program(
-        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(std.bytes._crypto_key_sign(&state, 0, &message, &mut target))?\n",
+        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(std.bytes.crypto_key_sign(&state, 0, &message, &mut target))?\n",
     ));
     assert!(forged.contains("private"), "{forged}");
 }

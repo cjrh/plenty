@@ -19,11 +19,11 @@ standard library.
   allocation-failure and error contracts as Plenty code.
 - Everything declared `pub` is public API: it appears in the signature index
   and is documented on the module page. Helpers stay private.
-- A native hook that another std module needs is a private member or
-  function whose name starts with `_`. Such names are
+- A native hook that another std module needs is declared without `pub`.
+  Non-`pub` names are
   [visible to every std module](../language/02-source/visibility.md) and
   private to user code, so they stay out of the index and module pages
-  (`Bytes._crypto_update`, `std.bytes._compress_state`).
+  (`Bytes.crypto_update`, `std.bytes.compress_state`).
 - A module's error types and protocols are imported from that module. The
   [prelude](../language/02-source/names.md) holds builtin names only;
   `FormatError` is missing from it although every f-string produces it

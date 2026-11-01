@@ -73,7 +73,7 @@ def absorbed(result: Result[bool, BytesError]) -> Result[(), CryptoError]:
 def output(state: &mut Bytes, size: i64) -> Result[Bytes, CryptoError]:
     mut target = reported(std.bytes.with_capacity(size))?
     reported(target.resize(size, 0u8))?
-    absorbed(state._crypto_finish(&mut target, 0, size))?
+    absorbed(state.crypto_finish(&mut target, 0, size))?
     Ok(target)
 
 # An incremental hash. Feed input in any number of pieces; the result equals
@@ -87,10 +87,10 @@ pub class Digest:
         self._size
 
     pub def update(self: &mut Digest, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        absorbed(self._state._crypto_update(data, start, stop))
+        absorbed(self._state.crypto_update(data, start, stop))
 
     pub def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]:
-        if not self._state._crypto_update_text(text):
+        if not self._state.crypto_update_text(text):
             return Err(CryptoError.Finished)
         Ok(())
 
@@ -101,7 +101,7 @@ pub class Digest:
 
     # Writes size() bytes at target[offset:] without allocating.
     pub def finish_into(self: &mut Digest, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]:
-        absorbed(self._state._crypto_finish(target, offset, self._size))
+        absorbed(self._state.crypto_finish(target, offset, self._size))
 
 # An incremental HMAC or keyed BLAKE3. Its state holds key material; finishing or dropping it
 # overwrites that state.
@@ -114,10 +114,10 @@ pub class Mac:
         self._size
 
     pub def update(self: &mut Mac, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        absorbed(self._state._crypto_update(data, start, stop))
+        absorbed(self._state.crypto_update(data, start, stop))
 
     pub def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]:
-        if not self._state._crypto_update_text(text):
+        if not self._state.crypto_update_text(text):
             return Err(CryptoError.Finished)
         Ok(())
 
@@ -125,12 +125,12 @@ pub class Mac:
         output(&mut self._state, self._size)
 
     pub def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]:
-        absorbed(self._state._crypto_finish(target, offset, self._size))
+        absorbed(self._state.crypto_finish(target, offset, self._size))
 
     # Finishes and compares the tag with expected[start:stop] in constant
     # time. A tag of the wrong length is a mismatch, not an error.
     pub def verify(self: &mut Mac, expected: &Bytes, start: i64, stop: i64) -> Result[bool, CryptoError]:
-        match reported(self._state._crypto_verify(expected, start, stop))?:
+        match reported(self._state.crypto_verify(expected, start, stop))?:
             case 1:
                 Ok(True)
             case 0:
@@ -139,14 +139,14 @@ pub class Mac:
                 Err(CryptoError.Finished)
 
 pub def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]:
-    state = reported(std.bytes._crypto_state(kind(algorithm, False)))?
+    state = reported(std.bytes.crypto_state(kind(algorithm, False)))?
     Ok(Digest(state, output_size(algorithm)))
 
 # SHA algorithms accept any key length; RFC 2104 hashes keys longer than a block.
 pub def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]:
     if algorithm == Algorithm.Blake3:
         return Err(CryptoError.UnsupportedAlgorithm)
-    state = reported(std.bytes._crypto_keyed_state(kind(algorithm, True), key, 0, key.len()))?
+    state = reported(std.bytes.crypto_keyed_state(kind(algorithm, True), key, 0, key.len()))?
     Ok(Mac(state, output_size(algorithm)))
 
 def hashed(algorithm: Algorithm, data: &Bytes) -> Result[Bytes, CryptoError]:
@@ -172,7 +172,7 @@ pub def blake3(data: &Bytes) -> Result[Bytes, CryptoError]:
 pub def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]:
     if key.len() != 32:
         return Err(CryptoError.InvalidKeyLength)
-    state = reported(std.bytes._crypto_keyed_state(8u8, key, 0, key.len()))?
+    state = reported(std.bytes.crypto_keyed_state(8u8, key, 0, key.len()))?
     Ok(Mac(state, 32))
 
 pub def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
@@ -183,7 +183,7 @@ pub def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
 # Context is a fixed, globally unique application/purpose string. This is a
 # KDF for high-entropy key material, not password hashing.
 pub def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]:
-    state = reported(std.bytes._crypto_derive_state(context))?
+    state = reported(std.bytes.crypto_derive_state(context))?
     Ok(Digest(state, 32))
 
 pub def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]:
@@ -204,7 +204,7 @@ pub def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
 # Whether two buffers hold the same bytes, in time that depends only on their
 # lengths. Use it for secrets such as tags and tokens; `==` may stop early.
 pub def equal(a: &Bytes, b: &Bytes) -> bool:
-    a._crypto_equal(b)
+    a.crypto_equal(b)
 
 # Authenticated encryption, Ed25519, X25519, HKDF, RSA and ECDSA use ring
 # 0.17.14 (Apache-2.0 AND ISC, https://github.com/briansmith/ring). No
@@ -296,9 +296,9 @@ pub def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad:
     advanced_bytes(data.resize(data.len() + 16, 0u8))?
     status = match algorithm:
         case AeadAlgorithm.Aes256Gcm:
-            std.bytes._crypto_aes_seal(key, nonce, aad, data)
+            std.bytes.crypto_aes_seal(key, nonce, aad, data)
         case AeadAlgorithm.ChaCha20Poly1305:
-            std.bytes._crypto_chacha_seal(key, nonce, aad, data)
+            std.bytes.crypto_chacha_seal(key, nonce, aad, data)
     advanced_status(status)
 
 # Success removes the tag. Authentication failure zeros the entire buffer
@@ -308,16 +308,16 @@ pub def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad:
         return Err(AdvancedError.InvalidLength)
     status = match algorithm:
         case AeadAlgorithm.Aes256Gcm:
-            std.bytes._crypto_aes_open(key, nonce, aad, data)
+            std.bytes.crypto_aes_open(key, nonce, aad, data)
         case AeadAlgorithm.ChaCha20Poly1305:
-            std.bytes._crypto_chacha_open(key, nonce, aad, data)
+            std.bytes.crypto_chacha_open(key, nonce, aad, data)
     advanced_status(status)?
     advanced_bytes(data.truncate(data.len() - 16))
 
 # The seed must contain 32 cryptographically random bytes. Signatures are
 # deterministic; reuse of a signing seed is permitted.
 pub def ed25519_public_key_into(seed: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-    advanced_status(std.bytes._crypto_ed_public(seed, target))
+    advanced_status(std.bytes.crypto_ed_public(seed, target))
 
 pub def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]:
     if seed.len() != 32:
@@ -327,7 +327,7 @@ pub def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]:
     Ok(target)
 
 pub def ed25519_sign_into(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-    advanced_status(std.bytes._crypto_ed_sign(seed, message, target))
+    advanced_status(std.bytes.crypto_ed_sign(seed, message, target))
 
 pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedError]:
     if seed.len() != 32:
@@ -341,7 +341,7 @@ pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedErr
 pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
     if public_key.len() == 32 and signature.len() == 64 and ed25519_small_order(public_key, 0)?:
         return Err(AdvancedError.SmallOrderKey)
-    status = std.bytes._crypto_ed_verify(public_key, message, signature)
+    status = std.bytes.crypto_ed_verify(public_key, message, signature)
     if status < 0:
         return Err(AdvancedError.InvalidLength)
     Ok(status == 1)
@@ -349,7 +349,7 @@ pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -
 # HKDF-SHA256 extract + expand. The salt and info may be empty; output is
 # 0..8160 bytes. This derives keys from key material, not from passwords.
 pub def hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-    advanced_status(std.bytes._crypto_hkdf(salt, key_material, info, target))
+    advanced_status(std.bytes.crypto_hkdf(salt, key_material, info, target))
 
 pub def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64) -> Result[Bytes, AdvancedError]:
     if size < 0 or size > 8160:
@@ -365,7 +365,7 @@ pub class X25519Key:
     _state: Bytes
 
     pub def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]:
-        advanced_status(std.bytes._crypto_x_public(&self._state, target))
+        advanced_status(std.bytes.crypto_x_public(&self._state, target))
 
     pub def public_key(self) -> Result[Bytes, AdvancedError]:
         mut target = advanced_output(32)?
@@ -373,7 +373,7 @@ pub class X25519Key:
         Ok(target)
 
     pub def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-        advanced_status(std.bytes._crypto_x_agree(&mut self._state, peer_public_key, target))
+        advanced_status(std.bytes.crypto_x_agree(&mut self._state, peer_public_key, target))
 
     pub def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]:
         if peer_public_key.len() != 32:
@@ -383,7 +383,7 @@ pub class X25519Key:
         Ok(target)
 
 pub def x25519() -> Result[X25519Key, AdvancedError]:
-    state = advanced_bytes(std.bytes._crypto_x_new())?
+    state = advanced_bytes(std.bytes.crypto_x_new())?
     key = X25519Key(state)
     # Validate entropy/key generation before returning a usable key.
     drop(key.public_key()?)
@@ -431,7 +431,7 @@ pub class RsaPublicKey:
     pub def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
         if signature.len() != self._size:
             return Err(AdvancedError.InvalidLength)
-        status = std.bytes._crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature)
+        status = std.bytes.crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature)
         if status < 0:
             advanced_status(status)?
         Ok(status == 1)
@@ -442,17 +442,17 @@ pub class RsaPrivateKey:
     _state: Bytes
 
     pub def signature_size(self) -> i64:
-        std.bytes._crypto_key_size(&self._state, 1)
+        std.bytes.crypto_key_size(&self._state, 1)
 
     pub def public_key(self) -> Result[RsaPublicKey, AdvancedError]:
-        mut key = advanced_output(std.bytes._crypto_key_size(&self._state, 0))?
-        advanced_status(std.bytes._crypto_key_public(&self._state, &mut key))?
+        mut key = advanced_output(std.bytes.crypto_key_size(&self._state, 0))?
+        advanced_status(std.bytes.crypto_key_public(&self._state, &mut key))?
         Ok(RsaPublicKey(key, self.signature_size()))
 
     # The target must hold exactly signature_size() bytes. PKCS #1 v1.5
     # signatures are deterministic; PSS draws a random salt.
     pub def sign_into(self, scheme: RsaScheme, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-        advanced_status(std.bytes._crypto_key_sign(&self._state, rsa_scheme(scheme), message, target))
+        advanced_status(std.bytes.crypto_key_sign(&self._state, rsa_scheme(scheme), message, target))
 
     pub def sign(self, scheme: RsaScheme, message: &Bytes) -> Result[Bytes, AdvancedError]:
         mut target = advanced_output(self.signature_size())?
@@ -466,7 +466,7 @@ pub class P256PublicKey:
     # The signature is the fixed 64-byte r || s form; a DER-encoded
     # signature has another length and is an InvalidLength error.
     pub def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
-        status = std.bytes._crypto_p256_verify(&self._point, message, signature)
+        status = std.bytes.crypto_p256_verify(&self._point, message, signature)
         if status < 0:
             return Err(AdvancedError.InvalidLength)
         Ok(status == 1)
@@ -478,13 +478,13 @@ pub class P256PrivateKey:
 
     pub def public_key(self) -> Result[P256PublicKey, AdvancedError]:
         mut point = advanced_output(65)?
-        advanced_status(std.bytes._crypto_key_public(&self._state, &mut point))?
+        advanced_status(std.bytes.crypto_key_public(&self._state, &mut point))?
         Ok(P256PublicKey(point))
 
     # Writes the 64-byte r || s signature. Each signature uses a fresh
     # random nonce, hedged with the key and message.
     pub def sign_into(self, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
-        advanced_status(std.bytes._crypto_key_sign(&self._state, 0, message, target))
+        advanced_status(std.bytes.crypto_key_sign(&self._state, 0, message, target))
 
     pub def sign(self, message: &Bytes) -> Result[Bytes, AdvancedError]:
         mut target = advanced_output(64)?
@@ -649,12 +649,12 @@ pub def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublic
 # Unencrypted PKCS #8 v1 (RFC 5208) holding a two-prime RSAPrivateKey, as
 # `openssl genpkey -algorithm RSA` writes it.
 pub def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, AdvancedError]:
-    mut state = advanced_bytes(std.bytes._crypto_key_new())?
-    advanced_status(std.bytes._crypto_rsa_load(&mut state, der))?
+    mut state = advanced_bytes(std.bytes.crypto_key_new())?
+    advanced_status(std.bytes.crypto_rsa_load(&mut state, der))?
     Ok(RsaPrivateKey(state))
 
 def p256_checked(point: Bytes) -> Result[P256PublicKey, AdvancedError]:
-    advanced_status(std.bytes._crypto_p256_check(&point))?
+    advanced_status(std.bytes.crypto_p256_check(&point))?
     Ok(P256PublicKey(point))
 
 # A 65-byte uncompressed SEC1 point: 0x04, then x and y. Compressed points
@@ -687,8 +687,8 @@ pub def p256_public_key_from_spki(der: &Bytes) -> Result[P256PublicKey, Advanced
 # includes its public key, as `openssl genpkey` writes it. The public key
 # must match the private scalar.
 pub def p256_private_key_from_pkcs8(der: &Bytes) -> Result[P256PrivateKey, AdvancedError]:
-    mut state = advanced_bytes(std.bytes._crypto_key_new())?
-    advanced_status(std.bytes._crypto_p256_load(&mut state, der))?
+    mut state = advanced_bytes(std.bytes.crypto_key_new())?
+    advanced_status(std.bytes.crypto_p256_load(&mut state, der))?
     Ok(P256PrivateKey(state))
 
 # SubjectPublicKeyInfo DER with id-Ed25519 (RFC 8410). Returns the 32-byte

@@ -358,7 +358,7 @@ fn states_cannot_be_forged_or_copied() {
     let forged = rejected(&program(
         "mut state = std.bytes.from_text(\"not a state\")?\n\
          data = std.bytes.from_text(\"abc\")?\n\
-         print(state._crypto_update(&data, 0, 3)?)?\n",
+         print(state.crypto_update(&data, 0, 3)?)?\n",
     ));
     assert!(forged.contains("private"), "{forged}");
 }

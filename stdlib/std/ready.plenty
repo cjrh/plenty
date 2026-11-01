@@ -173,7 +173,7 @@ pub class Selector:
                 return Err(WaitError.Cancelled)
             now = monotonic_now()
             budget = deadline.remaining(&now).as_nanoseconds()
-            count = polled(self._events._ready_select(&self._file, budget, cancel))?
+            count = polled(self._events.ready_select(&self._file, budget, cancel))?
             if count > 0:
                 self._count = count
                 return Ok(count)

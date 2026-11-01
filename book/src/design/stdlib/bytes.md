@@ -354,7 +354,7 @@ of input, seeking, and bounded buffering on top.
 The native back ends of [`std.secrets`](secrets.md), [`std.crypto`](crypto.md),
 [`std.compress`](compress.md), [`std.db.sqlite`](sqlite.md),
 [`std.net`](net.md), [`std.ready`](ready.md) and [`std.tls`](tls.md) are
-`_`-prefixed members and functions of this module. They are
+non-`pub` members and functions of this module. They are
 [visible only to std modules](../language/02-source/visibility.md); import the
 module that owns them instead.
 

@@ -434,10 +434,10 @@ print(str.repr(std.compress.crc32(-1, &data, 0, 1))?)?
 #[test]
 fn codec_states_cannot_be_forged() {
     for body in [
-        "state = std.bytes._compress_state(1u8, 6, 0)?\n",
+        "state = std.bytes.compress_state(1u8, 6, 0)?\n",
         "mut state = std.bytes.from_text(\"not a state\")?\n\
          data = std.bytes.from_text(\"abc\")?\n\
-         print(state._compress_step(&data, 0, 3)?)?\n",
+         print(state.compress_step(&data, 0, 3)?)?\n",
     ] {
         let error = support::check_file_error(&program(body));
         assert!(error.contains("private"), "{error}");

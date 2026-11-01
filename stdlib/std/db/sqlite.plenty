@@ -261,7 +261,7 @@ pub class Statement:
 
     pub def bind_blob(self: &mut Statement, index: i64, value: &Bytes) -> Result[(), DbError]:
         self.rewound()
-        status(value._sqlite_bind(&self._handle, index))
+        status(value.sqlite_bind(&self._handle, index))
 
     # Sets every parameter back to NULL.
     pub def clear_bindings(self: &mut Statement) -> Result[(), DbError]:
@@ -361,7 +361,7 @@ pub class Statement:
                 pass
             case _:
                 return Err(DbError.TypeMismatch(found))
-        blob(std.bytes._sqlite_column(&self._handle, column))
+        blob(std.bytes.sqlite_column(&self._handle, column))
 
     # The optional reads give Nothing for NULL and otherwise match the
     # strict reads.
