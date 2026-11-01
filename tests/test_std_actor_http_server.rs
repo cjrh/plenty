@@ -483,16 +483,43 @@ fn actor_http_tls_handshake_timeouts_and_close_notify() {
 
 #[test]
 fn actor_http_stalled_reader_expires_while_other_clients_progress() {
-    let server = Server::start(EVENTS, &[("timeout_ms", "200u32")]);
+    let server = Server::start(
+        EVENTS,
+        &[
+            ("timeout_ms", "200u32"),
+            ("response_timeout_ms", "0u32"),
+            ("observe_blocked", "True"),
+        ],
+    );
     let mut blocked = server.connect();
     blocked
         .get_mut()
         .write_all(b"GET /blocked HTTP/1.1\r\nHost: x\r\n\r\n")
         .unwrap();
-    // Sixteen MiB exceeds the socket send window. Not reading forces the
-    // actor to wait for writable readiness under its write deadline.
-    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(
+        server.lines.recv_timeout(WAIT).unwrap_or_else(|error| {
+            panic!(
+                "blocked response did not start: {error}: {}",
+                server.errors()
+            )
+        }),
+        "blocked started"
+    );
     assert_eq!(server.ask("/health").body, b"healthy");
+    // Keep all response bytes unread until this connection actor is dropped.
+    // A fixed sleep races server scheduling: starting to read too soon frees
+    // its socket window and lets the entire response complete (issue #651).
+    // Disable the overall response timeout so only the write-stall deadline
+    // can retire the still-producing handler. WAIT only bounds this test.
+    assert_eq!(
+        server.lines.recv_timeout(WAIT).unwrap_or_else(|error| {
+            panic!(
+                "write deadline did not retire stalled actor: {error}: {}",
+                server.errors()
+            )
+        }),
+        "blocked stopped"
+    );
     let mut partial = Vec::new();
     match blocked.read_to_end(&mut partial) {
         Ok(_) => (),
@@ -506,7 +533,9 @@ fn actor_http_stalled_reader_expires_while_other_clients_progress() {
     );
     drop(blocked);
     let summary = server.finish();
-    assert_eq!(counter(&summary, "trapped"), 0);
+    assert_eq!(counter(&summary, "requests"), 1, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 0, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
 }
 
 #[test]
