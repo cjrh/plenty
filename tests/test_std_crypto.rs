@@ -469,3 +469,22 @@ unfinished.update(&data, 0, 3)?
          ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
 }
+
+// Issue #633: a hasher's only allocation is the native state; wrapping it as
+// `Bytes` with `__bytes_adopt` adds none and cannot fail.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn a_hasher_allocates_only_its_native_state() {
+    native(
+        r#"
+print("__test_fail_allocations_after_0__")?
+failed = std.crypto.digest(Algorithm.Sha256)
+print("__test_restore_allocations__")?
+print("__test_fail_allocations_after_1__")?
+made = std.crypto.digest(Algorithm.Sha256)
+print("__test_restore_allocations__")?
+print(failed.is_err(), made.is_ok())?
+"#,
+        "True True",
+    );
+}

@@ -60,15 +60,25 @@ impl Lower<'_> {
     /// The storage of a `Bytes` buffer given for a `ByteStorage` operand,
     /// read under a loan of the whole buffer that the caller ends. std code
     /// passes its buffers to native hooks this way instead of reaching into
-    /// `Bytes._owner`.
+    /// `Bytes._owner` (issue #633). User code keeps the narrower rule: only
+    /// a read-only `source` operand takes a buffer.
     pub(super) fn buffer_storage(
         &mut self,
         arg: &Expr,
         expected: &Ty,
         mutable: bool,
+        source: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Option<usize>> {
         if *expected != Ty::ByteStorage {
+            return Ok(None);
+        }
+        let standard = arg
+            .at
+            .source()
+            .as_ref()
+            .is_some_and(|file| self.generics.source_facts(file).1);
+        if !standard && (mutable || !source) {
             return Ok(None);
         }
         let Some(ByteSource::Buffer(class)) = self.byte_source(arg) else {
@@ -97,7 +107,7 @@ impl Lower<'_> {
             self.unbox_reference(expected, ops);
             return Ok(vec![loan]);
         }
-        if let Some(loan) = self.buffer_storage(arg, &expected, false, ops)? {
+        if let Some(loan) = self.buffer_storage(arg, &expected, false, source, ops)? {
             return Ok(vec![loan]);
         }
         if source && expected == Ty::ByteStorage {
@@ -234,7 +244,7 @@ impl Lower<'_> {
         let (mut loans, mut reads) = (Vec::new(), Vec::new());
         for (index, (arg, expected)) in args.iter().zip(inputs).enumerate() {
             if exclusive(index) {
-                if let Some(loan) = self.buffer_storage(arg, &expected, true, ops)? {
+                if let Some(loan) = self.buffer_storage(arg, &expected, true, false, ops)? {
                     loans.push(loan);
                     continue;
                 }

@@ -210,7 +210,11 @@ impl Lower<'_> {
 impl Lower<'_> {
     /// `__bytes_adopt(storage)` constructs the `Bytes` that owns `storage`,
     /// so std modules can hand out a native state without a constructor
-    /// function in `std.bytes`.
+    /// function in `std.bytes`. `Bytes` is a one-field class with no
+    /// `__init__`, so the wrap is the storage itself: it neither allocates nor
+    /// fails. The allocation stays in the fallible intrinsic that made the
+    /// storage. A fallible `Bytes` initializer would make `output` a `Result`
+    /// and fail the check below.
     pub(super) fn bytes_adopt(
         &mut self,
         args: &[Expr],
