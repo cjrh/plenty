@@ -924,3 +924,30 @@ print(str.repr(settle(&mut wrong, &mut other))?)?
         "Result[Option[i64], TlsError].Err(TlsError.Truncated)\nResult[(), TlsError].Err(TlsError.WrongHost)",
     );
 }
+
+#[test]
+fn session_transfer_ranges_trap_before_handshake_or_empty_read() {
+    for operation in ["read", "take"] {
+        for (start, stop) in [(-1, 0), (2, 1), (0, 5), (5, 5), (i64::MAX, i64::MAX)] {
+            let source = program(
+                "",
+                &format!(
+                    r#"
+config = client_for("ca.pem")?
+mut session = std.tls.client_session(&config, "localhost").unwrap()
+mut buffer = std.bytes.with_capacity(4)?
+buffer.resize(4, 0u8)?
+drop(session.{operation}(&mut buffer, {start}, {stop}))
+"#
+                ),
+            );
+            let output = support::run_file(&source);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+            assert!(
+                stderr.contains(&format!(": {operation}: start/stop outside buffer\n")),
+                "{source}\n{stderr}"
+            );
+        }
+    }
+}
