@@ -24,9 +24,10 @@ pub class App:
                     response.send_text(200, "exhausted")?
                 elif self.mode == 2:
                     response.send_text(200, "sent")?
-                    # Admission cannot acknowledge into this full mailbox.
-                    # The first queued event then fails the handler while the
-                    # completed response still awaits its acknowledgement.
+                    # Queue application mail alongside the completion control.
+                    # Its first event fails the handler; any outstanding
+                    # completion must survive retirement. Whether admission
+                    # encounters a full mailbox depends on scheduling.
                     for _ in range(16):
                         drop(context.send(context.address(), Notice[i64].Message(1)))
                 else:
