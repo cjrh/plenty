@@ -56,27 +56,72 @@ fn unary(op: &str) -> Option<&'static str> {
     }
 }
 
-/// Python's comparison and hashing hooks would silently do nothing, because
-/// `==`, ordering and keys never call user code, so they are rejected. B37
-/// (`__cmp__`) and B74 (user-defined keys) replace this when they land; see
-/// book/src/design/language/04-expressions/operators.md#equality-ordering-and-hashing.
-pub(super) fn reject_comparison_hook(f: &Function) -> Result<()> {
-    let rule = match f.name.as_str() {
-        "__eq__" | "__ne__" => "`==` and `!=` always compare fields structurally",
+/// Hooks the compiler calls: lifecycle, context management and the operator
+/// tables above.
+fn known_hook(name: &str) -> bool {
+    matches!(
+        name,
+        "__init__" | "__del__" | "__new__" | "__enter__" | "__exit__"
+    ) || ["+", "-", "~"]
+        .into_iter()
+        .any(|op| unary(op) == Some(name))
+        || ["+", "-", "*", "/", "//", "%", "&", "|", "^", "<<", ">>"]
+            .into_iter()
+            .filter_map(binary)
+            .any(|(a, b, c)| [a, b, c].contains(&name))
+}
+
+/// Every other `__name__` method is rejected: Plenty would never call it, and
+/// reserving the pattern keeps the names free for later hooks. Python's
+/// comparison and hashing hooks get their own message; B37 (`__cmp__`), B74
+/// (user-defined keys) and B49 (`len`/`in`) replace this for the hooks they
+/// admit. See book/src/design/language/04-expressions/operators.md#reserved-method-names.
+pub(super) fn reject_unsupported_hook(f: &Function) -> Result<()> {
+    let name = f.name.as_str();
+    if name.len() <= 4 || !name.starts_with("__") || !name.ends_with("__") || known_hook(name) {
+        return Ok(());
+    }
+    let comparison = match name {
+        "__eq__" | "__ne__" => Some("`==` and `!=` always compare fields structurally"),
         "__lt__" | "__le__" | "__gt__" | "__ge__" | "__cmp__" => {
-            "`<`, `<=`, `>` and `>=` on a user type come only from `@newtype` forwarding"
+            Some("`<`, `<=`, `>` and `>=` on a user type come only from `@newtype` forwarding")
         }
-        "__hash__" | "__key__" => "dictionary keys and set elements hash structurally",
-        _ => return Ok(()),
+        "__hash__" | "__key__" => Some("dictionary keys and set elements hash structurally"),
+        _ => None,
+    };
+    if let Some(rule) = comparison {
+        return Err(f.at.error(format!(
+            "`{name}` is not supported: {rule} and never call methods; rename the method if it is not meant as a hook. See \"Equality, ordering and hashing\" in the operators reference"
+        )));
+    }
+    let advice = match name {
+        "__str__" | "__repr__" | "__format__" => {
+            "f-string fields call `display` and `debug` methods; define those instead (see std.fmt)"
+        }
+        "__pow__" | "__rpow__" | "__ipow__" => {
+            "there is no `**` operator; define a `pow` method and call `base.pow(exponent)`"
+        }
+        "__iter__" | "__next__" => {
+            "`for` never calls user methods; write a generator method that yields the elements and iterate over its result"
+        }
+        "__len__" | "__contains__" => {
+            "`len()` and `in` never call user methods; define a `len` or `contains` method and call it directly (`len()` and `in` on user types are planned under B49, issue #623)"
+        }
+        "__bool__" => {
+            "conditions require a `bool`; define a predicate method such as `is_empty` and call it"
+        }
+        "__getitem__" | "__setitem__" | "__delitem__" => {
+            "indexing never calls user methods; define named methods such as `get` and `set`"
+        }
+        _ => "Plenty never calls it",
     };
     Err(f.at.error(format!(
-        "`{}` is not supported: {rule} and never call methods; rename the method if it is not meant as a hook. See \"Equality, ordering and hashing\" in the operators reference",
-        f.name
+        "`{name}` is not supported: {advice}. Method names of the form `__name__` are reserved for the hooks Plenty calls; rename the method. See \"Reserved method names\" in the operators reference"
     )))
 }
 
 pub(super) fn validate(f: &Function, aliases: &TypeAliases) -> Result<()> {
-    reject_comparison_hook(f)?;
+    reject_unsupported_hook(f)?;
     let unary = ["+", "-", "~"]
         .into_iter()
         .any(|op| unary(op) == Some(&f.name));

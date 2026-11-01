@@ -102,9 +102,10 @@ comparisons such as `>` return `bool`. Typing stays nominal: `run + lap` and
 explicit hook such as `__add__` takes over its own operator. `@newtype` does
 not make the class copy; add `@copy` for that.
 
-Equality still compares fields automatically. Python's comparison and hashing
-hooks, such as `__eq__`, `__lt__` and `__hash__`, are compile errors rather than
-silently ignored; see
-[equality, ordering and hashing](../../design/language/04-expressions/operators.md#equality-ordering-and-hashing).
+Equality still compares fields automatically. Python special methods that
+Plenty never calls, such as `__eq__`, `__hash__`, `__str__` and `__len__`, are
+compile errors rather than silently ignored; see
+[equality, ordering and hashing](../../design/language/04-expressions/operators.md#equality-ordering-and-hashing)
+and [reserved method names](../../design/language/04-expressions/operators.md#reserved-method-names).
 For supported hooks, exact signatures, and resolution rules, see
 [user-defined arithmetic operators](../../design/language/04-expressions/operators.md).
