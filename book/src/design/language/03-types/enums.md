@@ -41,8 +41,10 @@ Enums with permitted element types can be list elements or dictionary values;
 they are not dictionary keys or set elements.
 
 Equality compares nominal identity, variant, and payload contents, including IEEE
-float comparisons. Printing uses qualified variant names. Automatic equality and
-formatting reject recursive data types.
+float comparisons; it never calls user methods, and comparison and hashing
+hooks are [rejected](../04-expressions/operators.md#equality-ordering-and-hashing).
+Printing uses qualified variant names. Automatic equality and formatting reject
+recursive data types.
 
 [Matching](../04-expressions/matching.md) selects variants and binds payloads.
 Standard [Option and Result](../08-errors/index.md) add prelude constructors and
