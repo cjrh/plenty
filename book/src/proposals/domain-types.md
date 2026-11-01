@@ -1,6 +1,6 @@
 # Positive and NonNegative integer domain types
 
-**Status: Proposed, not implemented.** No backlog item yet; it proposes B95,
+**Status: Accepted design, not implemented.** No backlog item yet; it proposes B95,
 related to B92. The [numbers reference](../design/language/03-types/numbers.md#nonzero-integers)
 defines `NonZero[T]`, the model for this design, and the
 [std conventions](../design/stdlib/conventions.md#invalid-arguments) define the
@@ -31,7 +31,7 @@ The [migration list](#migration-list) covers the public std parameters and
 `Limits` fields whose lower bound is `0` or `1` and is checked at run time
 today.
 
-## Decisions
+## Summary
 
 | Question | Decision |
 | --- | --- |
@@ -129,7 +129,7 @@ is a compile error for a `Positive`.
 | `a - b` | `T` | `T` | Can leave the domain |
 | unary `+` | `Positive[T]` | `NonNegative[T]` | Identity |
 | unary `-` | `T` | `T` | Leaves the domain |
-| `//`, `%`, bitwise, shifts | Compile error, suggests `.get()` | Same | As `NonZero`; see open question 4 |
+| `//`, `%`, bitwise, shifts | Compile error, suggests `.get()` | Same | As `NonZero`; a domain divisor is a later addition ([decision 4](#decisions)) |
 | `==`, `!=`, `<`, `<=`, `>`, `>=` | `bool` | `bool` | Same-type operands or a literal |
 
 Overflow in `+` and `*` traps, or is an `Err` in a
@@ -156,8 +156,8 @@ def chunks(total: i64, size: Positive[i64]) -> Result[(), IoError]:
 `NonZero.from(p)` and `NonNegative.from(p)` take a `Positive[T]`, cannot fail,
 allocate nothing and compile to nothing. A `from` that cannot fail beside a
 `try_from` that can matches the pair the reader already sees in `T.try_from`.
-Implicit widening is the alternative; see
-[Alternatives](#alternatives) and open question 3.
+Widening is explicit ([decision 3](#decisions)); see
+[Alternatives](#alternatives).
 
 There is no conversion from `NonNegative` to `NonZero` or `Positive` other
 than `try_from(n.get())`, since zero is in its domain.
@@ -202,8 +202,8 @@ mut out = std.text.builder(NonNegative.try_from(2 * len(text))?)?
 ```
 
 Inside std, public functions call `.get()` once and pass `i64` to private
-helpers, so internal arithmetic is unchanged. The `len()` rule is open
-question 5.
+helpers, so internal arithmetic is unchanged. A `len()` conversion rule is
+not part of this design ([decision 5](#decisions)).
 
 ## Migration list
 
@@ -231,7 +231,7 @@ are unchanged except where noted, and follow PR #804 where it changes them.
 The two builtins move from `u64` to `Positive[i64]` rather than to
 `NonZero[u64]`, which removes their listed deviation from the
 [integer-type convention](../design/stdlib/conventions.md#integer-types) in
-the same break. See open question 2.
+the same break ([decision 2](#decisions), issue #665).
 
 ### Group B: the call loses this failure; the error type keeps the variant for other causes
 
@@ -297,8 +297,9 @@ A ceiling keeps an `Err` variant, so the migration removes the `?` from these
 calls only if the ceiling stops being an `Err`. Rule 5.3 says an argument
 outside its documented domain traps and a constant outside it is a compile
 error; under that rule these ceilings trap, as the run-time domains in PR #804
-do, and the variants leave the error types. That is open question 1. Without
-it, Group C gains a documented type but keeps every `?`.
+do, and the variants leave the error types. This design adopts that rule
+([decision 1](#decisions)): a ceiling traps, and a literal above a constant
+ceiling is a compile error.
 
 ### Not migrated
 
@@ -361,7 +362,7 @@ def configured(settings: &Settings) -> Result[Positive[i64], AppError]:
 - **Implicit widening to `NonZero` and `NonNegative`.** Saves `NonZero.from`
   at range steps. It adds a third way for a domain value to appear where one
   is expected (literal, `try_from`, widening), and is subtyping in all but
-  name. Not proposed; open question 3.
+  name. Rejected ([decision 3](#decisions)).
 - **Implicit unwrapping to `T`.** `size + offset` with `offset: i64` would
   work, but the domain value disappears silently and comes back only through
   `try_from`. Rejected, as for `NonZero`.
@@ -405,29 +406,31 @@ def configured(settings: &Settings) -> Result[Positive[i64], AppError]:
 2. Group A, which removes variants and needs the largest doc change, with the
    builtins `channel`, `ThreadPoolExecutor` and `par(chunks)`.
 3. Group B, module by module; each module's page and tests change together.
-4. Group C, after open question 1 is decided, so each module changes once.
+4. Group C, whose ceilings change from `Err` to traps in the same step, so
+   each module changes once.
+5. Later: `//` and `%` by a `NonZero` or `Positive` divisor without the
+   zero check (issue #664).
 
 PR #804 merges first; this work changes the same std error types.
 
-## Open questions
+## Decisions
 
-1. **Group C ceilings.** Trap (rule 5.3), so the `?` and the variant go, or
-   keep the `Err` variant for the ceiling only? Recommended: trap, with a
-   compile error for a literal above the ceiling where the ceiling is a
-   constant.
-2. **Builtin widths.** `channel` and `ThreadPoolExecutor` move from `u64` to
-   `Positive[i64]` (recommended), or keep `u64` as `NonZero[u64]`?
-3. **Widening.** Explicit `NonZero.from(p)` and `NonNegative.from(p)`
-   (recommended), or implicit widening where a `NonZero` or `NonNegative` is
-   expected?
-4. **Division.** Should `T // p.get()` stay the only form, or should a
-   `Positive` divisor be accepted directly (`total // size`, result `T`) and
-   skip the zero check? The same question is open for a `NonZero` divisor
-   (issue #584 covered only range and slice steps), and should be decided
-   for all three types.
-5. **`len()`.** Leave `len()` as `i64` with explicit `try_from` (recommended
-   until call sites show friction), or let a `len()` call convert where a
-   `NonNegative[i64]` is expected?
-6. **Unsigned spelling.** Reject `Positive[u64]` and `NonNegative[u64]` with a
-   hint (recommended), or accept them as aliases of `NonZero[u64]` and `u64`
-   so generic code over all integer types can name them?
+Decided 2026-11-01, on review of local PR #812.
+
+1. **Group C ceilings trap** under rule 5.3. A literal above a constant
+   ceiling is a compile error, and the ceiling's `Err` variant leaves the
+   error type.
+2. **`channel` and `ThreadPoolExecutor` take `Positive[i64]`**, not
+   `NonZero[u64]`, which removes their `u64` deviation from the integer-type
+   convention. Tracked as issue #665, in phase 2.
+3. **Widening is explicit**: `NonZero.from(p)` and `NonNegative.from(p)`.
+   There is no implicit widening.
+4. **Division by a domain value is a later addition.** For now `//` and `%`
+   reject `Positive` and `NonZero` operands, as `NonZero` does today, and the
+   caller writes `.get()`. Accepting `T // NonZero[T]` and `T // Positive[T]`
+   with result `T`, and omitting the zero check, is tracked as issue #664.
+5. **`len()` does not convert.** It stays `i64`, and a length becomes a
+   limit through `NonNegative.try_from`. This can be reopened if call sites
+   show friction.
+6. **Unsigned forms are rejected.** `Positive[u64]` is a compile error that
+   points to `NonZero[u64]`, and `NonNegative[u32]` one that points to `u32`.
