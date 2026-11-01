@@ -215,15 +215,29 @@ impl TypeAliases {
         if declaration.copy.is_none() || declaration.type_params.is_empty() {
             return Ok(());
         }
-        let placeholders = declaration.type_params.iter().map(|(name, bound)| {
-            let float = bound
-                .as_ref()
-                .is_some_and(|b| b.name.as_deref() == Some("FloatType"));
-            (name, if float { Ty::F64 } else { Ty::I64 })
-        });
-        self.probe_bound(placeholders, |validation| {
+        // Substitute as instance creation does, so a parameter named like a
+        // program type still stands for the parameter.
+        let substitutions = declaration
+            .type_params
+            .iter()
+            .map(|(name, bound)| {
+                let float = bound
+                    .as_ref()
+                    .is_some_and(|b| b.name.as_deref() == Some("FloatType"));
+                let ty = if float { Ty::F64 } else { Ty::I64 };
+                (
+                    name.clone(),
+                    super::generics::type_ref(&ty, &declaration.at),
+                )
+            })
+            .collect();
+        self.probe([], |validation| {
             for (name, written) in &declaration.fields {
-                let Ok(Some(ty)) = written.resolve(validation) else {
+                let mut field = written.clone();
+                if super::generics::substitute(&mut field, &substitutions).is_err() {
+                    continue;
+                }
+                let Ok(Some(ty)) = field.resolve(validation) else {
                     continue;
                 };
                 if ty.affine() {

@@ -289,6 +289,13 @@ fn accepts_generic_fields_that_copy_with_their_arguments() {
     .unwrap();
 }
 
+/// A type parameter named like a program class stands for the parameter in
+/// the definition check, as it does in instances.
+#[test]
+fn type_parameter_shadows_a_class_of_the_same_name() {
+    check_source("class T:\n    xs: list[i64]\n@copy\nclass Cell[T]:\n    value: T\n").unwrap();
+}
+
 #[test]
 fn numeric_and_copy_bounds_remain_accepted() {
     runs(
