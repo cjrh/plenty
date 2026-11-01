@@ -2086,7 +2086,7 @@ fn step(
             stack.push(output);
         }
         Op::Thread(operation) => match operation {
-            crate::threading::ThreadOp::Start(task, slot) => {
+            crate::threading::ThreadOp::Start(task, slot, discard_job) => {
                 if locals.get(*slot as usize) != Some(&Ty::Task(task.clone())) {
                     return Err("invalid scoped thread slot".into());
                 }
@@ -2095,7 +2095,7 @@ fn step(
                         return Err("invalid scoped thread argument".into());
                     }
                 }
-                stack.push(task.start_result());
+                stack.push(task.start_result(*discard_job));
             }
             crate::threading::ThreadOp::Join(task) => {
                 if stack.pop() != Some(Ty::Task(task.clone())) {

@@ -207,14 +207,15 @@ impl Lower<'_> {
         // The start, and a failed start's exit, belong to the call, not its last argument.
         self.mark(&call.at, ops);
         self.holds_tokens(manager_start, ops);
-        ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot)));
-        let mut source = task.start_result();
-        if let Some(args) = drop_job {
-            if !args.is_empty() {
-                return Err(call.at.error("drop_job takes no arguments"));
-            }
-            source = self.drop_job(source, &call.at, ops)?;
+        if drop_job.is_some_and(|args| !args.is_empty()) {
+            return Err(call.at.error("drop_job takes no arguments"));
         }
+        // Discard the job in the start's failure block, before building its
+        // error. Materializing the job-carrying result here would pin two
+        // temporary aggregate copies in the caller's frame (issue #653).
+        let discard_job = drop_job.is_some();
+        ops.push(Op::Thread(ThreadOp::Start(task.clone(), slot, discard_job)));
+        let source = task.start_result(discard_job);
         let Ty::Enum(source) = source else {
             unreachable!()
         };

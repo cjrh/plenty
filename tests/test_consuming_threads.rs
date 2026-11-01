@@ -308,3 +308,39 @@ fn owned_named_start_declared_with_thread_error_names_drop_job() {
         "{error}"
     );
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn dropping_a_stored_spawn_error_keeps_its_code_and_releases_the_job_once() {
+    runs(
+        r#"
+class Guard:
+    label: str
+    def __del__(self) -> ():
+        print(self.label).unwrap()
+def result[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F]]:
+    with spawn(job)? as task:
+        return Ok(task.join())
+def make(label: str) -> OnceClosure[[], i64]:
+    guard = Guard(label)
+    def once [guard]() -> i64:
+        len(guard.label)
+def main() -> ():
+    print("__test_fail_thread_starts__").unwrap()
+    held = result(make("error"))
+    match held:
+        case Ok(_):
+            print("unexpected worker").unwrap()
+        case Err(error):
+            free = error.drop_job()
+            print(str.repr(free).unwrap()).unwrap()
+            drop(free)
+    other = result(make("result"))
+    converted = other.drop_job()
+    print(str.repr(converted).unwrap()).unwrap()
+    drop(converted)
+    print("__test_restore_thread_starts__").unwrap()
+"#,
+        "__test_fail_thread_starts__\nerror\nSpawnError[()].Unavailable((), 11)\nresult\nResult[i64, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n",
+    );
+}

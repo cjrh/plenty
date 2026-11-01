@@ -235,7 +235,7 @@ mod tests {
             Op::FunctionAddress("std.address".into(), signature.clone()),
             Op::BoxedCallableNew(Box::new(Ty::Unit), "std.boxed".into(), signature),
             Op::Executor(crate::executor::ExecutorOp::Submit(job, false)),
-            Op::Thread(crate::threading::ThreadOp::Start(task, 0)),
+            Op::Thread(crate::threading::ThreadOp::Start(task, 0, false)),
         ];
         let mut ops = vec![definition(
             "main",

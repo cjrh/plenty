@@ -28,7 +28,10 @@ function or a generic helper.
 `with spawn(job).drop_job()? as task:` gives up the job instead. `drop_job()`
 converts `Result[(), SpawnError[F]]` to `Result[(), SpawnError[()]]`: on failure
 it drops the job and its captures at the start, and the error keeps its variant
-and code, `SpawnError[()].Unavailable((), code)`. On success it changes nothing. One
+and code, `SpawnError[()].Unavailable((), code)`. When applied directly to
+`spawn`, the compiler constructs this job-free error in the failed-start block,
+without materializing an intermediate job-carrying result in the caller frame.
+On success it changes nothing. One
 `SpawnError[()]` member covers every job, so a function can start distinct
 closures and propagate one precise error:
 
