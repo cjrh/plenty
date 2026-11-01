@@ -885,3 +885,126 @@ fn actor_http_completion_pressure_preserves_application_messages_and_timers() {
     assert_eq!(counter(&summary, "requests"), 128);
     assert_eq!(counter(&summary, "trapped"), 0);
 }
+
+#[test]
+fn actor_http_completion_pressure_has_bounded_retry_work() {
+    const CLIENTS: i64 = 64;
+    const PIPELINED: i64 = 8;
+    let server = Server::start(SIMPLE, &[("capacity", "128"), ("timeout_ms", "5000u32")]);
+    let mut clients: Vec<_> = (0..CLIENTS).map(|_| server.connect()).collect();
+    // Confirm admission before submitting the simultaneous pipelined burst.
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        assert_eq!(response(client, false).body, b"home");
+    }
+    let pipeline =
+        b"GET /count HTTP/1.1\r\nHost: x\r\n\r\n".repeat(usize::try_from(PIPELINED).unwrap());
+    for client in &mut clients {
+        client.get_mut().write_all(&pipeline).unwrap();
+    }
+    for client in &mut clients {
+        for request in 2..=PIPELINED + 1 {
+            assert_eq!(response(client, false).body, request.to_string().as_bytes());
+        }
+    }
+    drop(clients);
+    let summary = server.finish();
+    let requests = CLIENTS * (PIPELINED + 1);
+    assert_eq!(counter(&summary, "requests"), requests, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 0, "{summary}");
+    assert_eq!(counter(&summary, "lost"), 0, "{summary}");
+    // A work bound, not a wall-clock performance assertion: the old repeated
+    // self-continuations made dozens of attempts per completed response.
+    assert!(counter(&summary, "full") < requests * 32, "{summary}");
+    assert!(counter(&summary, "delivered") < requests * 32, "{summary}");
+}
+
+#[test]
+fn actor_http_peer_eof_during_completion_closes_without_waiting_for_idle_timeout() {
+    let server = Server::start(SIMPLE, &[("timeout_ms", "5000u32")]);
+    let mut client = server.connect();
+    // Half-close before reading: EOF can arrive while a completed response
+    // still awaits admission's acknowledgement. No new readiness will follow.
+    client
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    client
+        .get_mut()
+        .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /count HTTP/1.1\r\nHost: x\r\n\r\n")
+        .unwrap();
+    client.get_mut().shutdown(Shutdown::Write).unwrap();
+    assert_eq!(response(&mut client, false).body, b"home");
+    assert_eq!(response(&mut client, false).body, b"2");
+    closed(&mut client);
+    drop(client);
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 2, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 0, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
+}
+
+#[test]
+fn actor_http_completion_control_survives_exhausted_timer_pool() {
+    let server = Server::start(
+        include_str!("fixtures/actor_http/control_pressure.plenty"),
+        &[("capacity", "128"), ("timeout_ms", "5000u32")],
+    );
+    let mut clients: Vec<_> = (0..64).map(|_| server.connect()).collect();
+    // Every connection must own its transport and phase timers before the
+    // application consumes the remaining shared timer records.
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+        assert_eq!(response(client, false).body, b"ready");
+    }
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET /exhaust HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .unwrap();
+    }
+    for client in &mut clients {
+        assert_eq!(response(client, false).body, b"exhausted");
+        closed(client);
+    }
+    drop(clients);
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 128, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 0, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
+    assert_eq!(counter(&summary, "lost"), 0, "{summary}");
+    assert!(counter(&summary, "full") > 0, "{summary}");
+}
+
+#[test]
+fn actor_http_completed_responses_survive_full_ack_mailboxes_and_handler_errors() {
+    let server = Server::start(
+        include_str!("fixtures/actor_http/control_pressure.plenty"),
+        &[("capacity", "128"), ("timeout_ms", "5000u32")],
+    );
+    let mut clients: Vec<_> = (0..64).map(|_| server.connect()).collect();
+    for client in &mut clients {
+        client
+            .get_mut()
+            .write_all(b"GET /fail HTTP/1.1\r\nHost: x\r\n\r\n")
+            .unwrap();
+    }
+    for client in &mut clients {
+        assert_eq!(response(client, false).body, b"sent");
+        closed(client);
+    }
+    drop(clients);
+    let summary = server.finish();
+    assert_eq!(counter(&summary, "requests"), 64, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 64, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
+    assert_eq!(counter(&summary, "lost"), 0, "{summary}");
+    assert!(counter(&summary, "full") > 0, "{summary}");
+}
