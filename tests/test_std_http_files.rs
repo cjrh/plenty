@@ -665,7 +665,7 @@ def client(port: u16, cookie: str, stop: CancellationToken) -> ():
     print(ask(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=user42\r\n\r\n", "first")).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | std.tls.TlsError | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/s/{path...}", Route.Files)?
     table.add("POST", "/login", Route.Login)?
@@ -678,7 +678,7 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | st
     stop = CancellationToken()?
     cookie = std.http.cookie.sign(&site.keys, "session", "user42")?
     config = std.http.server.config()
-    with spawn(client, port, cookie, stop.share())? as task:
+    with spawn(client, port, cookie, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, tls, &table, &site, &config, &stop)?
         print(report.requests)?
     Ok(())

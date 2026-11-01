@@ -151,11 +151,11 @@ def attempt(stream: &mut FileStream, buffer: &mut std.bytes.Bytes, deadline: &De
         case _:
             "other"
 
-def main() -> Result[(), AllocError | IoError | RangeError | ThreadError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | RangeError | SpawnError[()] | std.bytes.BytesError]:
     mut child = piped("printf abcdef; sleep 0.05; printf ghi")?
     stream = std.io.from_file(child.take_stdout().unwrap())
     cancel = CancellationToken()?
-    with spawn(drain, stream, cancel.share())? as task:
+    with spawn(drain, stream, cancel.share()).drop_job()? as task:
         print(task.join().unwrap())?
     child.wait()?
 
@@ -227,7 +227,7 @@ def consume(file: File) -> bool:
     mut owned = file
     owned.close().is_ok()
 
-def main() -> Result[(), AllocError | IoError | ParseError | RangeError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | ParseError | RangeError | SpawnError[()]]:
     descriptors = count("/proc/self/fd")?
     threads = count("/proc/self/task")?
     mut child = piped("sleep 5")?
@@ -243,7 +243,7 @@ def main() -> Result[(), AllocError | IoError | ParseError | RangeError | Thread
     child.wait()?
     for _ in range(20):
         mut short = piped("printf x")?
-        with spawn(consume, short.take_stdout().unwrap())? as task:
+        with spawn(consume, short.take_stdout().unwrap()).drop_job()? as task:
             task.join()
         short.wait()?
     # Still open: the pipe and the token's wake descriptor.
@@ -274,8 +274,8 @@ import std.env
 import std.path
 def worker() -> ():
     std.env.set_current_dir(&std.path.from_text("/").unwrap()).unwrap()
-def main() -> Result[(), ThreadError]:
-    with spawn(worker)?:
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(worker).drop_job()?:
         pass
     Ok(())
 "#,
@@ -292,8 +292,8 @@ class Resource:
         std.env.set_current_dir(&std.path.from_text("/").unwrap()).unwrap()
 def worker(value: Resource) -> i64:
     value.value
-def main() -> Result[(), ThreadError]:
-    with spawn(worker, Resource(1))?:
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(worker, Resource(1)).drop_job()?:
         pass
     Ok(())
 "#,
@@ -308,7 +308,7 @@ def main() -> Result[(), ThreadError]:
     let path = root.path().join("main.plenty");
     std::fs::write(
         &path,
-        "import native\ndef worker(token: native.Token) -> ():\n    pass\ndef main() -> Result[(), ThreadError]:\n    with spawn(worker, native.token())?:\n        pass\n    Ok(())\n",
+        "import native\ndef worker(token: native.Token) -> ():\n    pass\ndef main() -> Result[(), SpawnError[()]]:\n    with spawn(worker, native.token()).drop_job()?:\n        pass\n    Ok(())\n",
     )
     .unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
@@ -325,7 +325,7 @@ fn shared_file_loans_still_exclude_concurrent_mutation() {
 def reader(file: &mut File) -> ():
     file.read().unwrap()
     pass
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     mut file = open("/dev/null", "r")?
     with spawn(reader, &mut file)?:
         file.close()?
@@ -354,8 +354,8 @@ def count(directory: &str) -> Result[i64, IoError]:
 def consume(file: File) -> bool:
     file.closed
 
-def attempt(file: File) -> Result[bool, ThreadError]:
-    with spawn(consume, file)? as task:
+def attempt(file: File) -> Result[bool, SpawnError[()]]:
+    with spawn(consume, file).drop_job()? as task:
         return Ok(task.join())
 
 def main() -> Result[(), AllocError | IoError]:
@@ -370,7 +370,7 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#,
         ),
-        "__test_fail_thread_starts__\nResult[bool, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n0\n",
+        "__test_fail_thread_starts__\nResult[bool, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n0\n",
     );
 }
 

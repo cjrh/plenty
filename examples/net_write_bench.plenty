@@ -24,7 +24,7 @@ def drain(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
         received += count
     Ok(received)
 
-def main() -> Result[(), AllocError | BytesError | NetError | RangeError | ThreadError | IoError]:
+def main() -> Result[(), AllocError | BytesError | NetError | RangeError | SpawnError[()] | IoError]:
     mut data = std.bytes.with_capacity(response_size)?
     data.resize(response_size, 120u8)?
     cancel = CancellationToken()?

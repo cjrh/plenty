@@ -86,7 +86,7 @@ def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Res
         stream.read_before(&mut buffer, 0, 1, &deadline, cancel).unwrap()
     Ok(i64(monotonic_now().saturating_duration_since(&start).as_nanoseconds()) // rounds)
 
-def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | SpawnError[()]]:
     cancel = CancellationToken()?
     print("connections", "selector ns", "polling ns")?
     for count in [1, 16, 128, 1024]?:

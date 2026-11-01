@@ -673,10 +673,10 @@ def work(text: str, format: Format) -> Result[(), AllocError | IoError | std.byt
     print(std.compress.decompress(format, &packed, 100)?.to_text()?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(work, "from a thread", Format.Gzip)?:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(work, "from a thread", Format.Gzip).drop_job()?:
         pass
-    with spawn(work, "Brotli from a thread", Format.Brotli)?:
+    with spawn(work, "Brotli from a thread", Format.Brotli).drop_job()?:
         pass
     Ok(())
 "#

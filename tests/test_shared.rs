@@ -350,9 +350,9 @@ def peek(counter: &Shared[Mutex[i64]]) -> ():
     with counter.lock() as value:
         *value = *value + 100
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     counter = Shared(Mutex(0))?
-    with spawn(bump, counter.share(), 10000)?, spawn(bump, counter.share(), 10000)?:
+    with spawn(bump, counter.share(), 10000).drop_job()?, spawn(bump, counter.share(), 10000).drop_job()?:
         pass
     peek(&counter)
     with counter.lock() as value:
@@ -418,7 +418,7 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
         format!(
-            "{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | ThreadError | str]:\n{body}    Ok(())\n"
+            "{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | str]:\n{body}    Ok(())\n"
         )
     };
     rejects(
@@ -441,7 +441,7 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
     );
     rejects(
         &with_job(
-            "counter = Shared(Mutex(0))?\nwith counter.lock() as value:\n    with spawn(bump, counter.share())? as task:\n        print(task.join())?",
+            "counter = Shared(Mutex(0))?\nwith counter.lock() as value:\n    with spawn(bump, counter.share()).drop_job()? as task:\n        print(task.join())?",
         ),
         "this join waits for a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`",
     );

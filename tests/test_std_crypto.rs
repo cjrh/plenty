@@ -375,8 +375,8 @@ def work(text: str) -> ():
     data = std.bytes.from_text(text).unwrap()
     print(hex(&std.crypto.sha256(&data).unwrap()).unwrap()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(work, "abc")?:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(work, "abc").drop_job()?:
         pass
     Ok(())
 "#

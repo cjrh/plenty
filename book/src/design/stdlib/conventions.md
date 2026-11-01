@@ -169,8 +169,9 @@ An operation that takes ownership of a value and can fail before using it
 (send, submit, enqueue, admit) returns the value in its error, generic over the
 value's type: `Undelivered[M]` and `RequestError[M]` in `std.actor`,
 `SendError[T]` for [channels](../facilities/03-concurrency/channels.md),
-`SubmitError[F]` for executors. `spawn(f, args)` drops its
-arguments on failure (issue #630).
+`SubmitError[F]` for executors, `SpawnError[F]` for thread starts. Exception:
+a scoped `spawn` with borrowed arguments reports the job-free `SpawnError[()]`
+and drops its moved arguments, because an error cannot carry a loan.
 
 ## Parameters
 
@@ -258,7 +259,6 @@ pass it by name. Two `bool` parameters that combine into modes are an enum.
 Exception: `std.fs.walk(root, top_down)` requires a positional `bool`. An
 operation that offers a mode by a separate method instead, such as
 `ThreadPoolExecutor.cancel_pending()` before `shutdown()`, needs neither.
-`shutdown(True)` is still accepted until its removal.
 
 ### Integer types
 
@@ -297,7 +297,6 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 
 | Area | Deviation | Tracking |
 |---|---|---|
-| Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `&Bytes` inputs | B39 |

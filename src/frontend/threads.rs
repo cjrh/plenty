@@ -88,32 +88,48 @@ impl Lower<'_> {
         let saved = self.names.clone();
         let start = self.locals.len();
         let manager_start = ops.len();
+        let mut bound = false;
         let (worker_name, closure, inputs, output, loans) = match &ungroup(worker).kind {
             Expression::Name(function) if !self.names.contains_key(function) => {
                 let begin = ops.len();
-                let output = self
-                    .call_named(function, args, &worker.at, ops)?
-                    .unwrap_or(Ty::Unit);
+                let returned = self.call_named(function, args, &worker.at, ops)?;
+                let output = returned.clone().unwrap_or(Ty::Unit);
                 let (index, symbol) = take_call(ops, begin).ok_or_else(|| {
                     call.at
                         .error("spawn requires a statically selected function")
                 })?;
-                let inputs: Vec<_> = self.sigs[&symbol]
-                    .inputs
-                    .iter()
-                    .map(|(_, t)| t.clone())
-                    .collect();
-                let loans: Vec<_> = ops[index..]
-                    .iter()
-                    .filter_map(|op| match op {
-                        Op::UseLoan(id) => Some(*id),
-                        _ => None,
-                    })
-                    .collect();
-                for &loan in &loans {
-                    self.check_stored_reference(loan, &call.at)?;
+                let captures = self.sigs[&symbol].inputs.clone();
+                // Owned arguments bind a one-shot job, as `pool.submit` does,
+                // so a failed start returns them in `SpawnError[F]` (issue
+                // #630). A borrowed argument cannot be returned in an error,
+                // so those starts drop the moved arguments and report
+                // `SpawnError[()]`.
+                if captures.iter().all(|(_, ty)| ty.heap_storable()) {
+                    let closure =
+                        Self::bind_named_job(symbol, returned, captures, &worker.at, ops)?;
+                    let ty = Ty::Closure(closure.clone());
+                    bound = true;
+                    (
+                        closure.name.clone(),
+                        Some(closure),
+                        vec![ty],
+                        output,
+                        vec![],
+                    )
+                } else {
+                    let inputs: Vec<_> = captures.into_iter().map(|(_, t)| t).collect();
+                    let loans: Vec<_> = ops[index..]
+                        .iter()
+                        .filter_map(|op| match op {
+                            Op::UseLoan(id) => Some(*id),
+                            _ => None,
+                        })
+                        .collect();
+                    for &loan in &loans {
+                        self.check_stored_reference(loan, &call.at)?;
+                    }
+                    (symbol, None, inputs, output, loans)
                 }
-                (symbol, None, inputs, output, loans)
             }
             Expression::Unary(op, value) if op == "&" || op == "&mut" => {
                 if !args.is_empty() {
@@ -211,7 +227,16 @@ impl Lower<'_> {
             if !target.accepts_result_error(&source) {
                 let error = &source.get().variants[1].fields[0];
                 let declared = &target.get().variants[1].fields[0];
-                let hint = super::producer_conflict_hint(declared, error);
+                let mut hint = super::producer_conflict_hint(declared, error);
+                if hint.is_empty() && drop_job.is_none() {
+                    hint = if bound {
+                        "; a named start with owned arguments returns them in this error: call `drop_job()` on the start and declare the job-free `SpawnError[()]` to drop them on failure".into()
+                    } else if crate::sum::job_free(error).is_some_and(|free| &free != error) {
+                        "; or call `drop_job()` on the start and declare the job-free `SpawnError[()]`".into()
+                    } else {
+                        String::new()
+                    };
+                }
                 return Err(call.at.error(format!(
                     "spawn propagation requires a Result whose error accepts {error}; add it to the declared error, such as Result[_, {declared} | {error}]{hint}"
                 )));
@@ -367,14 +392,28 @@ impl Lower<'_> {
             Op::LoadLocal(held),
             Op::Enum(crate::sum::EnumOp::Tag(error.clone())),
             Op::StoreLocal(tag),
-            Op::DropLocal(held),
         ]);
+        // Fields after the job, such as `SpawnError`'s native code, are copied
+        // into the job-free error. Only single-variant errors have them, so the
+        // tag needs no check before the read.
         let variants = free.get().variants.len();
+        let mut kept = Vec::new();
+        for (field, ty) in free.get().variants[0].fields.iter().enumerate().skip(1) {
+            debug_assert!(variants == 1 && !ty.affine());
+            let slot = self.slot(ty.clone(), at)?;
+            ops.extend([
+                Op::LoadLocal(held),
+                Op::Enum(crate::sum::EnumOp::Field(error.clone(), 0, field)),
+                Op::StoreLocal(slot),
+            ]);
+            kept.push(slot);
+        }
+        ops.push(Op::DropLocal(held));
         let build = |variant: usize| {
-            vec![
-                Op::PushUnit,
-                Op::Enum(crate::sum::EnumOp::New(free.clone(), variant)),
-            ]
+            let mut fields = vec![Op::PushUnit];
+            fields.extend(kept.iter().map(|&slot| Op::LoadLocal(slot)));
+            fields.push(Op::Enum(crate::sum::EnumOp::New(free.clone(), variant)));
+            fields
         };
         let mut chosen = build(variants - 1);
         for variant in (0..variants - 1).rev() {

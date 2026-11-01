@@ -56,9 +56,9 @@ def answer() -> str:
 def take(inbox: &Receiver[str]) -> str:
     inbox.recv().unwrap()
 
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | RecvError | SendError[i64] | SubmitError[OnceClosure[[], str]] | ThreadError]:
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | RecvError | SendError[i64] | SubmitError[OnceClosure[[], str]] | SpawnError[()]]:
     sender, receiver = bounded[str](1)?
-    with std.thread.spawn(publish, sender)?, receiver as inbox:
+    with std.thread.spawn(publish, sender).drop_job()?, receiver as inbox:
         print(take(&inbox))?
     left, right = ch.channel[i64](1)?
     left.send(7)?
@@ -78,7 +78,7 @@ def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | Poo
         print(future.result()?)?
     with jobs.ThreadPoolExecutor(1, 1)? as pool:
         print(pool.submit(answer)?.result()?)?
-    with spawn(answer)? as task:
+    with spawn(answer).drop_job()? as task:
         print(task.join())?
     Ok(())
 "#,
@@ -133,10 +133,10 @@ def wait(token: Token) -> bool:
     token.wait()
     token.is_cancelled()
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], bool]] | ThreadError]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], bool]] | SpawnError[()]]:
     token = Token()?
     child = token.share()
-    with start(wait, child)? as task:
+    with start(wait, child).drop_job()? as task:
         token.cancel()
         print(task.join())?
     with Pool(1, 1)? as pool:
@@ -166,7 +166,7 @@ fn aliases_preserve_both_channel_join_hang_diagnostics() {
         ),
     ] {
         let source = format!(
-            "from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | ThreadError]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint})? as task:\n        task.join()\n    Ok(())\n"
+            "from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | SpawnError[()]]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint}).drop_job()? as task:\n        task.join()\n    Ok(())\n"
         );
         rejected(&source, expected);
     }
@@ -216,8 +216,8 @@ from native import foreign_call
 def worker(token: Token) -> i64:
     token.cancel()
     foreign_call()
-def main() -> Result[(), AllocError | ThreadError]:
-    with start(worker, Token()?)? as task:
+def main() -> Result[(), AllocError | SpawnError[()]]:
+    with start(worker, Token()?).drop_job()? as task:
         task.join()
     Ok(())
 "#,
@@ -270,7 +270,7 @@ from std.sync import CancellationToken as Token
 from std.thread import spawn as start
 def wait(token: &Token) -> ():
     token.wait()
-def main() -> Result[(), AllocError | ThreadError]:
+def main() -> Result[(), AllocError | SpawnError[()]]:
     token = Token()?
     with start(wait, &token)? as task:
         drop(token)

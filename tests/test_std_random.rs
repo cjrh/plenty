@@ -427,9 +427,9 @@ def work(rng: Rng) -> ():
     first = owned.next_u64()
     print(first, owned.between(0, 100).unwrap()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     rng = std.random.seeded(13u64)
-    with spawn(work, rng)?:
+    with spawn(work, rng).drop_job()?:
         pass
     Ok(())
 "#

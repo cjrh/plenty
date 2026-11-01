@@ -91,14 +91,14 @@ pub class Ticker:
         exchange.write(&bye, 0, bye.len())?
         Ok(())
 
-def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | std.ready.WaitError | std.signal.SignalError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | std.ready.WaitError | std.signal.SignalError]:
     signals = std.signal.listen()?
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/stream", Route.Stream)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     print(listener.local_address()?.port)?
     stop = CancellationToken()?
-    with spawn(std.signal.cancel_on, signals, stop.share())? as watcher:
+    with spawn(std.signal.cancel_on, signals, stop.share()).drop_job()? as watcher:
         served = std.http.server.serve(listener, &routes, &Ticker(), &std.http.server.config(), &stop)
         stop.cancel()
         match watcher.join()?:
@@ -304,8 +304,8 @@ def worker() -> Result[(), std.signal.SignalError]:
     std.signal.listen()?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.signal.SignalError]:
-    with spawn(worker)? as task:
+def main() -> Result[(), SpawnError[()] | std.signal.SignalError]:
+    with spawn(worker).drop_job()? as task:
         task.join()?
     Ok(())
 "##,

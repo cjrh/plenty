@@ -264,8 +264,8 @@ def work(count: i64) -> ():
     token = std.secrets.token_hex(count).unwrap()
     print(len(token)).unwrap()
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(work, 24)?:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(work, 24).drop_job()?:
         pass
     Ok(())
 "#

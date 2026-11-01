@@ -66,16 +66,16 @@ block gains early exits. They are the canonical form; the tutorial teaches them
 in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
 
 1. **Move each endpoint into the worker that uses it**, as a named argument:
-   `spawn(produce, sender)?`. A failed named start reports `ThreadError` and
-   drops its arguments.
+   `spawn(produce, sender).drop_job()?`. A failed start returns its owned
+   arguments inside `SpawnError`; `drop_job()` drops them before `?` leaves.
 2. **Guard each endpoint the function keeps as the last manager** of the task's
    `with`. Contexts exit in reverse order, so every exit drops it before the
    join:
 
    ```text
-   with spawn(produce, sender)?, receiver as inbox:
+   with spawn(produce, sender).drop_job()?, receiver as inbox:
        ...
-   with spawn(consume, receiver)?, sender as outbox:
+   with spawn(consume, receiver).drop_job()?, sender as outbox:
        ...
    ```
 
@@ -88,7 +88,7 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
    any statement that can leave the block:
 
    ```text
-   with spawn(produce, sender)? as task:
+   with spawn(produce, sender).drop_job()? as task:
        with receiver as inbox:
            ...
        result = task.join()
@@ -101,8 +101,8 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
    first, and start the producers inside a sender guard:
 
    ```text
-   with spawn(consume, receiver)? as consumer:
-       with sender as outbox, spawn(produce, outbox.share())?, spawn(produce, outbox.share())?:
+   with spawn(consume, receiver).drop_job()? as consumer:
+       with sender as outbox, spawn(produce, outbox.share()).drop_job()?, spawn(produce, outbox.share()).drop_job()?:
            pass
        total = consumer.join()
    ```
@@ -110,8 +110,9 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
    One receiver guard after several `?` starts is rejected: a failed later
    start joins the earlier tasks before the guard exists. Alternatively, start
    the later producers in a function that takes the receiver by value.
-5. **Call [`drop_job()`](jobs.md#job-free-errors) on a closure start** the
-   function will not retry: `spawn(job).drop_job()?`.
+5. **Call [`drop_job()`](jobs.md#job-free-errors) on a start** the
+   function will not retry: `spawn(job).drop_job()?` or
+   `spawn(produce, sender).drop_job()?`.
 6. **Wait in a statement of its own**, `result = task.join()`, and move an
    endpoint into a value or return it only after the block.
 7. **Start tasks and pools outside lock blocks**; see
@@ -120,7 +121,7 @@ in [avoid waits that hang](../../../tutorial/11-concurrency/wait-habits.md).
    guard, `stop.cancel_on_exit()` goes directly after the task or pool:
 
    ```text
-   with spawn(serve, stop.share())?, stop.cancel_on_exit():
+   with spawn(serve, stop.share()).drop_job()?, stop.cancel_on_exit():
        ...
    ```
 
@@ -146,7 +147,7 @@ Besides live bindings, these values hold the endpoints moved into them:
 
 | Holder | Held through | Rejected example | Fix |
 | --- | --- | --- | --- |
-| The error that `?` propagates | The function's return, after the exit's joins and pool shutdowns | `with spawn(consumer)? as task, spawn(producer)?:` where the `producer` closure captures the sender | `spawn(producer).drop_job()?`, or a named start `spawn(produce, sender)?` |
+| The error that `?` propagates | The function's return, after the exit's joins and pool shutdowns | `with spawn(consumer)? as task, spawn(producer)?:` where the `producer` closure captures the sender | `spawn(producer).drop_job()?` |
 | The value a `return` or final expression hands back | The joins and pool shutdowns of every block it leaves | `return Err(sender)` inside the consumer's block | Drop the endpoint in the block, or return it after the block |
 | A statement's expression and the value it builds | Until the statement stores, drops, or tests the value | `pair = (sender, task.join())` inside the consumer's block | Join in an earlier statement |
 | The final expression of a `match` case used as a value | That case's cleanup | A case whose value is an endpoint, ending a block that the endpoint blocks | Produce the endpoint after the block |

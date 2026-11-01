@@ -18,13 +18,8 @@ impl Task {
         self.inputs.first().filter(|t| matches!(t, Ty::Closure(_)))
     }
     pub fn start_result(&self) -> Ty {
-        crate::sum::result(
-            Ty::Unit,
-            self.owned_job()
-                .map_or_else(crate::sum::thread_error, |job| {
-                    crate::sum::spawn_error(job.clone())
-                }),
-        )
+        let job = self.owned_job().cloned().unwrap_or(Ty::Unit);
+        crate::sum::result(Ty::Unit, crate::sum::spawn_error(job))
     }
     // pthread_t occupies the first word and the runtime's thread entry the
     // second. The result starts at the next aligned slot; copied inputs follow

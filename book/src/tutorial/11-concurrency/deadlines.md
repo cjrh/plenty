@@ -63,7 +63,7 @@ from std.time import seconds
 def pause(stop: &CancellationToken) -> bool:
     stop.wait_timeout_ms(seconds(3600).as_timeout_ms())
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     stop = CancellationToken()?
     with spawn(pause, &stop)? as task:
         stop.cancel()

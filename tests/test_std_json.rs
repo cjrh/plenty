@@ -1371,9 +1371,9 @@ def work(data: Bytes) -> ():
     value = std.json.parse(&data, &bounds).unwrap()
     print(std.json.encode_text(&value, &bounds).unwrap()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | SpawnError[()]]:
     data = std.bytes.from_text(" { \"a\" : [ 1 , 2 ] } ")?
-    with spawn(work, data)?:
+    with spawn(work, data).drop_job()?:
         pass
     Ok(())
 "#

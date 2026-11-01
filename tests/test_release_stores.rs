@@ -68,7 +68,7 @@ def wait_then_publish(ready: &Atomic[bool], seen: &Atomic[i64]) -> i64:
     seen.store(7, Ordering.Release)
     1
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     mut a = 0
     mut b = 0
     with spawn(fill, &mut a, 5)? as first, spawn(fill, &mut b, 9)? as second:
@@ -112,9 +112,9 @@ def count(stats: &Mutex[i64], rounds: i64) -> ():
 def square(value: i64) -> i64:
     value * value
 
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], i64]] | SendError[i64] | ThreadError]:
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], i64]] | SendError[i64] | SpawnError[()]]:
     sender, receiver = channel[i64](4)?
-    with spawn(produce, sender, 0)?, receiver as inbox:
+    with spawn(produce, sender, 0).drop_job()?, receiver as inbox:
         total = collect(inbox)
         print(total)?
     stats = Mutex(0)

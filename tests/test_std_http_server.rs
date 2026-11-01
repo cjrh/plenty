@@ -517,7 +517,7 @@ def client(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(until(&mut second, "").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -558,7 +558,7 @@ def client(port: u16, path: str, stop: CancellationToken) -> ():
     print(text.endswith("bye\n|0||"), text.endswith("tick\n|")).unwrap()
     print(str.repr(until(&mut idle, "").unwrap()).unwrap()).unwrap()
 
-def run(path: str, drain_ms: u32) -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def run(path: str, drain_ms: u32) -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -568,7 +568,7 @@ def run(path: str, drain_ms: u32) -> Result[(), std.net.NetError | std.http.serv
     config.drain_timeout = std.time.milliseconds(drain_ms)
     start = std.time.monotonic_now()
     mut summary = ""
-    with spawn(client, port, path, stop.share())? as task:
+    with spawn(client, port, path, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &app, &config, &stop)?
         summary = counts(&report)?
     print(summary)?
@@ -576,7 +576,7 @@ def run(path: str, drain_ms: u32) -> Result[(), std.net.NetError | std.http.serv
     print(elapsed < 3000000000u64)?
     Ok(())
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     run("/polite", 5000u32)?
     run("/stubborn", 200u32)?
     Ok(())
@@ -615,7 +615,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(fetch(port, "GET /missing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -626,7 +626,7 @@ def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.Serve
     config.idle_timeout = std.time.milliseconds(200u32)
     config.head_timeout = std.time.milliseconds(200u32)
     config.events = Some(std.log.channel_sink(sender))
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &app, &config, &stop)?
         print(counts(&report)?)?
     config.events = Nothing
@@ -757,7 +757,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocE
     print(str.repr(&outcome)?)?
     Ok(())
 "##,
-        "Result[std.http.server.Report, std.http.server.ServerError].Err(std.http.server.ServerError.Thread(ThreadError.System(11)))",
+        "Result[std.http.server.Report, std.http.server.ServerError].Err(std.http.server.ServerError.Thread(SpawnError[()].Unavailable((), 11)))",
     );
 }
 
@@ -846,7 +846,7 @@ def capped(port: u16, stop: CancellationToken) -> ():
     print(str.repr(until(&mut second, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     mut config = std.http.server.config()
@@ -858,7 +858,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
     # The client prints after it sees each connection close, which can be
     # after `serve` returns, so the report is printed once the client joins.
     mut first: Option[Report] = Nothing
-    with spawn(many, port, stop.share())? as task:
+    with spawn(many, port, stop.share()).drop_job()? as task:
         first = Some(std.http.server.serve(listener, &table, &app, &config, &stop)?)
     print(counts(&first.unwrap())?)?
     config.idle_connections = 2
@@ -866,7 +866,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
     second = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     other = second.local_address()?.port
     halt = CancellationToken()?
-    with spawn(capped, other, halt.share())? as task:
+    with spawn(capped, other, halt.share()).drop_job()? as task:
         report = std.http.server.serve(second, &table, &app, &config, &halt)?
         print(counts(&report)?)?
     Ok(())
@@ -933,7 +933,7 @@ def crowded(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(str.repr(until(&mut silent, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     mut config = std.http.server.config()
@@ -943,7 +943,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(pieces, port, stop.share())? as task:
+    with spawn(pieces, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &app, &config, &stop)?
         print(counts(&report)?)?
     config.idle_connections = 1
@@ -1047,7 +1047,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut plain)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
@@ -1058,7 +1058,7 @@ def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.Serve
     config.workers = 1
     config.handshake_timeout = std.time.milliseconds(300u32)
     config.events = Some(std.log.channel_sink(sender))
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, tls, &table, &Secure(), &config, &stop)?
         print(counts(&report)?)?
     config.events = Nothing
@@ -1165,7 +1165,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut hello)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
@@ -1178,7 +1178,7 @@ def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.Serve
     # Later than the handshake deadline, so the events come in a fixed order.
     config.head_timeout = std.time.milliseconds(1500u32)
     config.events = Some(std.log.channel_sink(sender))
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, tls, &table, &Secure(), &config, &stop)?
         print(counts(&report)?)?
     config.events = Nothing
@@ -1507,20 +1507,20 @@ def secure_client(port: u16, stop: CancellationToken) -> ():
     print(ask(port, "/wait", "Error\n")).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.workers = 1
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(plain_client, port, stop.share())? as task:
+    with spawn(plain_client, port, stop.share()).drop_job()? as task:
         print(counts(&std.http.server.serve(listener, &table, &Plain(), &config, &stop)?)?)?
     secure = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     secure_port = secure.local_address()?.port
     secure_stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
-    with spawn(secure_client, secure_port, secure_stop.share())? as task:
+    with spawn(secure_client, secure_port, secure_stop.share()).drop_job()? as task:
         print(counts(&std.http.tls.serve(secure, tls, &table, &Secure(), &config, &secure_stop)?)?)?
     Ok(())
 "##

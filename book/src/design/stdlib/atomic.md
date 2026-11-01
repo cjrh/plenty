@@ -12,7 +12,7 @@ def work(hits: &Atomic[u64]) -> ():
     for _ in range(1000):
         hits.fetch_add(1, Ordering.Relaxed)
 
-def main() -> Result[(), ThreadError | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError]:
     hits = Atomic[u64](0)
     with spawn(work, &hits)?, spawn(work, &hits)?:
         pass

@@ -1075,8 +1075,8 @@ def work(text: str) -> ():
     url = std.url.parse(&text, 256).unwrap()
     print(url.to_string().unwrap() == text, std.url.encode("a b", Component.Segment).unwrap()).unwrap()
 
-def main() -> Result[(), ThreadError]:
-    with spawn(work, "https://example.com/a?b=c")?:
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(work, "https://example.com/a?b=c").drop_job()?:
         pass
     Ok(())
 "#

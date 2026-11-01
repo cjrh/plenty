@@ -764,14 +764,14 @@ def client(port: u16, stop: CancellationToken) -> ():
             print(error).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/echo", Route.Echo)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
     stop = CancellationToken()?
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, tls, &table, &App(), &std.http.server.config(), &stop)?
         print("handler_errors", report.handler_errors)?
     Ok(())

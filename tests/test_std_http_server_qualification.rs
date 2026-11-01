@@ -656,7 +656,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
         print(stats.opened, stats.reused)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError | std.http.client.ClientError | RangeError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError | std.http.client.ClientError | RangeError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -664,7 +664,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
     port = listener.local_address()?.port
     mut config = std.http.server.config()
     config.idle_timeout = std.time.seconds(request_budget_seconds)
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         task.join()?
         print(counts(&report)?)?
@@ -699,7 +699,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(total >= 1000u64, total < 2000u64).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -708,7 +708,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
     mut config = std.http.server.config()
     config.workers = 2
     config.head_timeout = std.time.milliseconds(1000u32)
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         print(counts(&report)?)?
     Ok(())
@@ -739,7 +739,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(until(&mut partial, "").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     stop = CancellationToken()?
     site = app(&stop)?
@@ -750,7 +750,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
     config.write_timeout = std.time.milliseconds(300u32)
     config.body_timeout = std.time.milliseconds(300u32)
     config.head_timeout = std.time.milliseconds(300u32)
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         print(counts(&report)?)?
     Ok(())
@@ -891,13 +891,13 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
             print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?
     Ok(())
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | std.tls.TlsError | AllocError | IoError | std.bytes.BytesError | RangeError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | std.tls.TlsError | AllocError | IoError | std.bytes.BytesError | RangeError]:
     table = routes()?
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 64)?
     port = listener.local_address()?.port
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, tls, &table, &Secure(), &std.http.server.config(), &stop)?
         task.join()?
         print(counts(&report)?)?
@@ -966,7 +966,7 @@ def faults(port: u16, stop: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(400u32))
     stop.cancel()
 
-def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.drain_timeout = std.time.milliseconds(2000u32)
@@ -981,7 +981,7 @@ def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.htt
     mut late = 0
     mut fewest = -1
     start = std.time.monotonic_now()
-    with spawn(stopper, stop.share())? as timer, spawn(hammer, port, stop.share())? as a, spawn(hammer, port, stop.share())? as b, spawn(hammer, port, stop.share())? as c, spawn(hammer, port, stop.share())? as d, spawn(hammer, port, stop.share())? as e, spawn(hammer, port, stop.share())? as f:
+    with spawn(stopper, stop.share()).drop_job()? as timer, spawn(hammer, port, stop.share()).drop_job()? as a, spawn(hammer, port, stop.share()).drop_job()? as b, spawn(hammer, port, stop.share()).drop_job()? as c, spawn(hammer, port, stop.share()).drop_job()? as d, spawn(hammer, port, stop.share()).drop_job()? as e, spawn(hammer, port, stop.share()).drop_job()? as f:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         summary = counts(&report)?
         # Stop comes at 500 ms; the drain deadline is 2 s after that.
@@ -997,7 +997,7 @@ def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.htt
     print(summary)?
     Ok(())
 
-def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     mut config = std.http.server.config()
     config.idle_connections = 2
@@ -1007,7 +1007,7 @@ def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.ht
     site = app(&stop)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 128)?
     port = listener.local_address()?.port
-    with spawn(faults, port, stop.share())? as task:
+    with spawn(faults, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &site, &config, &stop)?
         # Admission turns a new connection away once two are parked, without
         # reading what it sent, so under load any fault connection may be
@@ -1019,7 +1019,7 @@ def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.ht
 
 # Each round's values are dropped when it returns, so the heap checkpoint
 # after it sees only what the round leaked.
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     before = descriptors()?
     load_round()?
     print(descriptors()? - before)?
@@ -1099,14 +1099,14 @@ def client(port: u16, stop: CancellationToken) -> ():
     drop(fetch(port, "GET /trap HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
     print("unreachable").unwrap()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError]:
     mut table = std.http.server.router[Trial]()?
     table.add("GET", "/", Trial.Fail)?
     table.add("GET", "/trap", Trial.Trap(6))?
     stop = CancellationToken()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         drop(std.http.server.serve(listener, &table, &Fragile(), &std.http.server.config(), &stop)?)
     Ok(())
 "##;
@@ -1159,7 +1159,7 @@ def tag(result: &Result[Report, ServerError]) -> str:
         case Err(_):
             "other"
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Home)?
     mut config = std.http.server.config()
@@ -1175,7 +1175,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
         mut client = connect_to(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?
         marker = "__test_fail_allocations_after_".concat(str.from(attempt)?)?.concat("__")?
         mut outcome: Result[Report, ServerError] = Err(ServerError.InvalidConfig)
-        with spawn(watchdog, done.share(), stop.share())? as task, done.cancel_on_exit():
+        with spawn(watchdog, done.share(), stop.share()).drop_job()? as task, done.cancel_on_exit():
             print(marker)?
             outcome = std.http.server.serve(listener, &table, &app, &config, &stop)
             print("__test_restore_allocations__")?
@@ -1281,13 +1281,13 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
         print(answer.status, answer.body.to_text()?)?
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | std.http.server.ServerError | std.net.NetError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+def main() -> Result[(), AllocError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | IoError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/items", Route.Items)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         drop(std.http.server.serve(listener, &table, &Service(), &std.http.server.config(), &stop)?)
         task.join()?
     Ok(())
@@ -1509,7 +1509,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoError
                 print(answer.status, answer.body.to_text()?)?
     Ok(())
 
-def run() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+def run() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     arguments = args()?
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/summary", Route.Summary(arguments[1]))?
@@ -1519,7 +1519,7 @@ def run() -> Result[(), AllocError | IoError | ThreadError | std.http.server.Ser
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &table, &Service(), &std.http.server.config(), &stop)?
         task.join()?
         print("requests", report.requests, "handler errors", report.handler_errors, "protocol errors", report.protocol_errors)?
@@ -1532,7 +1532,7 @@ def descriptors() -> Result[i64, IoError]:
         count += 1
     Ok(count)
 
-def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
     before = descriptors()?
     run()?
     print("descriptor delta", descriptors()? - before)?

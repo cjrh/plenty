@@ -34,7 +34,7 @@ def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, ca
     stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
     stream.close_before(deadline, cancel)
 
-def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | TlsError | NetError | std.bytes.BytesError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | RangeError | TlsError | NetError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     client = std.tls.client_config(&std.tls.roots_from_pem(&CA_PEM)?)?

@@ -146,7 +146,7 @@ def make(n: i64) -> Closure[[], i64]:
     def [mut n]() -> i64:
         n = n + 1
         n
-def attempt[F: Callable[[], i64]](callback: &mut F) -> Result[i64, ThreadError]:
+def attempt[F: Callable[[], i64]](callback: &mut F) -> Result[i64, SpawnError[()]]:
     with spawn(&mut callback)? as task:
         return Ok(task.join())
 class Guard:
@@ -220,16 +220,16 @@ fn reference_bindings_reborrow_their_closure_for_the_task() {
     run(
         &format!(
             r#"{COUNTER_AND_READER}
-def run_mut(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:
+def run_mut(job: &mut Closure[[], i64]) -> Result[i64, SpawnError[()]]:
     with spawn(job)? as task:
         return Ok(task.join())
-def run_generic[F: Callable[[], i64]](job: &mut F) -> Result[i64, ThreadError]:
+def run_generic[F: Callable[[], i64]](job: &mut F) -> Result[i64, SpawnError[()]]:
     with spawn(job)? as task:
         return Ok(task.join())
-def run_shared(job: &Closure[[], i64]) -> Result[i64, ThreadError]:
+def run_shared(job: &Closure[[], i64]) -> Result[i64, SpawnError[()]]:
     with spawn(job)? as first, spawn(job)? as second:
         return Ok(first.join() + second.join())
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     mut named = {{0: counter(30)}}?
     match named.get_mut(0):
         case Some(callback):
@@ -258,23 +258,23 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 fn reference_binding_workers_keep_closure_and_loan_rules() {
     let cases = [
         (
-            "def run(job: &Closure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), ThreadError]:\n    mut c = counter(1)\n    run(&c)?\n    Ok(())\n",
+            "def run(job: &Closure[[], i64]) -> Result[i64, SpawnError[()]]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), SpawnError[()]]:\n    mut c = counter(1)\n    run(&c)?\n    Ok(())\n",
             "this worker closure has mutable captures and needs exclusive access, but this binding is a shared reference; bind or pass it as `&mut`",
         ),
         (
-            "def run(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        x = job()\n        return Ok(task.join() + x)\ndef main() -> Result[(), ThreadError]:\n    mut c = counter(1)\n    run(&mut c)?\n    Ok(())\n",
+            "def run(job: &mut Closure[[], i64]) -> Result[i64, SpawnError[()]]:\n    with spawn(job)? as task:\n        x = job()\n        return Ok(task.join() + x)\ndef main() -> Result[(), SpawnError[()]]:\n    mut c = counter(1)\n    run(&mut c)?\n    Ok(())\n",
             "conflicting borrow: cannot modify or exclusively borrow `job` while it is exclusively borrowed",
         ),
         (
-            "def main() -> Result[(), AllocError | ThreadError]:\n    mut named = {0: counter(1)}?\n    match named.get_mut(0):\n        case Some(callback):\n            with spawn(callback)? as task:\n                named.clear()\n                task.join()\n        case Nothing:\n            pass\n    Ok(())\n",
+            "def main() -> Result[(), AllocError | SpawnError[()]]:\n    mut named = {0: counter(1)}?\n    match named.get_mut(0):\n        case Some(callback):\n            with spawn(callback)? as task:\n                named.clear()\n                task.join()\n        case Nothing:\n            pass\n    Ok(())\n",
             "conflicting borrow: cannot modify or exclusively borrow `named` while it is exclusively borrowed",
         ),
         (
-            "def main() -> Result[(), ThreadError]:\n    mut r = reader(1)\n    shared = &r\n    with spawn(shared)? as task:\n        r = reader(2)\n        task.join()\n    Ok(())\n",
+            "def main() -> Result[(), SpawnError[()]]:\n    mut r = reader(1)\n    shared = &r\n    with spawn(shared)? as task:\n        r = reader(2)\n        task.join()\n    Ok(())\n",
             "borrow",
         ),
         (
-            "def run(job: &mut OnceClosure[[], i64]) -> Result[i64, ThreadError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), ThreadError]:\n    n = 1\n    mut c = def once [n]() -> i64:\n        n\n    run(&mut c)?\n    Ok(())\n",
+            "def run(job: &mut OnceClosure[[], i64]) -> Result[i64, SpawnError[()]]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), SpawnError[()]]:\n    n = 1\n    mut c = def once [n]() -> i64:\n        n\n    run(&mut c)?\n    Ok(())\n",
             "spawn requires a reusable zero-argument closure",
         ),
     ];

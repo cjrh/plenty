@@ -632,8 +632,8 @@ def work(text: str) -> Result[(), AllocError | IoError | std.regex.RegexError]:
     print(regex.replace(&text, "${{x}} ${{w}}", 100)?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(work, "thread worker")?:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(work, "thread worker").drop_job()?:
         pass
     Ok(())
 "#

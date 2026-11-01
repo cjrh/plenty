@@ -99,7 +99,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), AllocError | IoErro
 
 type ProxySetupError = std.http.server.ServerError | std.http.proxy.ProxyError | std.net.NetError
 
-def main() -> Result[(), ThreadError | AllocError | ProxySetupError | AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
+def main() -> Result[(), SpawnError[()] | AllocError | ProxySetupError | AllocError | IoError | RangeError | std.bytes.BytesError | std.net.NetError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("POST", "/login", Route.Login)?
     routes.add("GET", "/me", Route.Me)?
@@ -109,7 +109,7 @@ def main() -> Result[(), ThreadError | AllocError | ProxySetupError | AllocError
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         std.http.server.serve(listener, &routes, &site, &std.http.server.config(), &stop)?
         task.join()?
     Ok(())

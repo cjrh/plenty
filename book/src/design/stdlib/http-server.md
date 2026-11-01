@@ -47,13 +47,13 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
             print(reply.status, reply.body.to_text()?.strip()?)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | VisitError]:
+def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.NetError | VisitError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/hello/{name}", Route.Hello)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         drop(std.http.server.serve(listener, &routes, &Greeter(), &std.http.server.config(), &stop)?)
         task.join()?
     Ok(())

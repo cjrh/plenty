@@ -16,10 +16,10 @@ has `InvalidSize`, `Allocation(AllocError)`, and `Thread(ThreadError)`.
 
 `cancel_pending()` does not wait for running jobs. It removes the queued jobs,
 so their queue slots are free for later submissions; their futures report
-`FutureError.Cancelled`, and each job's captures are dropped with its future. To stop without running queued work, call
-`pool.cancel_pending()` and then `pool.shutdown()`. `shutdown(True)` does the
-same in one call and is kept for existing code; it will be removed, so new code
-uses `cancel_pending()`.
+`FutureError.Cancelled`, and each job's captures are dropped with its future.
+To stop without running queued work, call `pool.cancel_pending()` and then
+`pool.shutdown()`. `shutdown()` takes no argument; `shutdown(True)` is rejected
+with a diagnostic naming `cancel_pending()`.
 
 Methods observe the pool; `mut` is unnecessary. Executors are affine and do not
 support copying or equality. Jobs may differ in concrete argument/result types on
