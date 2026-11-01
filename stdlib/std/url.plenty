@@ -235,7 +235,7 @@ pub def decode_bytes(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, Url
     index = start
     while index < stop:
         escape = earliest(source, 37u8, index, stop)?
-        lifted(decoded.extend_range(source, index, escape))?
+        lifted(decoded.extend(&source[index:escape]))?
         if escape < stop:
             emit(&mut decoded, hex_value(i64(source[escape + 1])) * 16 + hex_value(i64(source[escape + 2])))?
         index = escape + 3
@@ -288,10 +288,12 @@ pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
         if index > 0:
             emit(&mut out, 38)?
         key = lifted(std.bytes.from_text(pairs[index].key))?
-        lifted(out.extend(&encode_bytes(&key, 0, key.len(), Component.QueryPart)?))?
+        encoded_key = encode_bytes(&key, 0, key.len(), Component.QueryPart)?
+        lifted(out.extend(&encoded_key))?
         emit(&mut out, 61)?
         value = lifted(std.bytes.from_text(pairs[index].value))?
-        lifted(out.extend(&encode_bytes(&value, 0, value.len(), Component.QueryPart)?))?
+        encoded_value = encode_bytes(&value, 0, value.len(), Component.QueryPart)?
+        lifted(out.extend(&encoded_value))?
     lifted(out.to_text())
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:

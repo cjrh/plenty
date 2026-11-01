@@ -50,7 +50,7 @@ def answer(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationTok
     mut buffer = std.bytes.with_capacity(64)?
     buffer.resize(64, 0u8)?
     count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
-    stream.write_all_before(&buffer, 0, count, deadline, cancel)?
+    stream.write_all_before(&buffer[:count], deadline, cancel)?
     stream.close_before(deadline, cancel)?
     Ok(())
 
@@ -73,7 +73,7 @@ def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, de
         tcp = connect(&address, deadline, cancel)?
         mut stream = std.tls.connect(tcp, client, "localhost", deadline, cancel)?
         message = std.bytes.from_text("hello")?
-        stream.write_all_before(&message, 0, message.len(), deadline, cancel)?
+        stream.write_all_before(&message, deadline, cancel)?
         outcome = stream.read_before(&mut reply, 0, 16, deadline, cancel)
         worker.join()?
         match outcome:

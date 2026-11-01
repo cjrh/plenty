@@ -21,7 +21,7 @@ import std.net
 import std.text
 import std.time
 import std.url
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.http import Header, HttpError, Limits, RequestHead, ResponseHead
 from std.http.typed import Body, FramingError
 from std.io import Reader, StreamError
@@ -88,7 +88,7 @@ pub protocol Transport:
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         pass
 
-    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    def write_before(self: &mut Transport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         pass
 
 # Opens a new connection to an endpoint within the deadline. The connector
@@ -105,8 +105,8 @@ pub class Plain:
     pub def read_before(self: &mut Plain, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         netted(self._stream.read_before(buffer, start, stop, deadline, cancel))
 
-    pub def write_before[S: ByteSource](self: &mut Plain, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
-        netted(self._stream.write_before(source, start, stop, deadline, cancel))
+    pub def write_before(self: &mut Plain, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+        netted(self._stream.write_before(source, deadline, cancel))
 
 # Opens plain TCP connections. Only the `http` scheme is accepted.
 pub class TcpConnector:
@@ -164,7 +164,7 @@ pub class Dialled:
     pub def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
-                tcp.write_before(source, start, stop, &deadline_of(self.until), &self.cancel)
+                tcp.write_before(&source[start:stop], &deadline_of(self.until), &self.cancel)
             case Nothing:
                 Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         transport_step(netted(outcome))
@@ -604,7 +604,7 @@ pub class Wire[T]:
 
     pub def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
         limit = least(after(now_ns(), self._write_span), self._until)
-        transport_step(self._stream.write_before(source, start, stop, &deadline_of(limit), &self._cancel))
+        transport_step(self._stream.write_before(&source[start:stop], &deadline_of(limit), &self._cancel))
 
 def transport_step(result: Result[i64, ClientError]) -> Result[i64, StepError[ClientError]]:
     match result:
@@ -837,7 +837,7 @@ class Incoming[T]:
                 case Ok(count):
                     if count == 0:
                         return Ok(total)
-                    match bytes_of(out.extend_range(&buffer, 0, count)):
+                    match bytes_of(out.extend(&buffer[:count])):
                         case Ok(_):
                             total += count
                         case Err(cause):

@@ -14,8 +14,9 @@ import std.http
 import std.http.cookie
 import std.http.files
 import std.http.server
+import std.io
 import std.path
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.fs import Root
 from std.http.cookie import CookieError
 from std.http.server import Exchange, Router
@@ -34,15 +35,16 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        Ok(source.write_stdout(start, stop).unwrap())
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        mut out = std.io.stdout()
+        Ok(out.write(source).unwrap())
 
 pub enum Route:
     Files
@@ -429,7 +431,7 @@ import std.http.body
 import std.http.server
 import std.path
 import std.test
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.fs import Root
 from std.http import HttpError
 from std.http.body import BodyError, Content, MultipartLimits
@@ -452,15 +454,15 @@ pub class Script:
             count = 7
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        Ok(stop - start)
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Ok(len(source))
 
 pub enum Route:
     Upload
@@ -598,7 +600,7 @@ import std.net
 import std.path
 import std.time
 import std.tls
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.fs import Root
 from std.http.server import Exchange
 from std.http.tls import TlsTransport
@@ -642,7 +644,7 @@ def ask(port: u16, request: &str, marker: &str) -> str:
     tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
     mut stream = std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
     data = std.bytes.from_text(request).unwrap()
-    stream.write_all_before(&data, 0, data.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&data, &deadline, &never).unwrap()
     mut out = std.bytes.empty().unwrap()
     while not out.to_text().unwrap().endswith(marker):
         at = out.len()

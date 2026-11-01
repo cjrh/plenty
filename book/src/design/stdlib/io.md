@@ -4,8 +4,8 @@
 stream contracts, helpers that retry until a range is complete, fixed-capacity
 buffering, and adapters for files, the process streams, and memory. Data moves
 through [`std.bytes.Bytes`](bytes.md) ranges; no operation creates a `list[u8]`.
-Writes read any [`ByteSource`](bytes.md#byte-sources), so a `b"..."` literal is
-written as it is, without a copy.
+Writes read a [`&[u8]` view](bytes.md#byte-views), so a buffer, part of one, or
+a `b"..."` literal is written as it is, without a copy.
 
 The module is embedded Plenty code over native transport and terminal queries. It is
 available on the supported x86-64 Linux GNU target.
@@ -19,7 +19,7 @@ dispatch and no stream object type.
 | Protocol | Method | Result |
 |---|---|---|
 | `Reader` | `read(self: &mut, buffer: &mut Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` |
-| `Writer` | `write[S: ByteSource](self: &mut, source: &S, start: i64, stop: i64)` | `Result[i64, StreamError]` |
+| `Writer` | `write(self: &mut, source: &[u8])` | `Result[i64, StreamError]` |
 | `Writer` | `flush(self: &mut)` | `Result[(), StreamError]` |
 | `Seeker` | `seek(self: &mut, target: SeekFrom)` | `Result[i64, StreamError]` |
 | `Closer` | `close(self: &mut)` | `Result[(), StreamError]` |
@@ -29,37 +29,40 @@ One call makes at most one attempt and returns the number of bytes it moved.
 - `read` fills a prefix of `buffer[start:stop]` and never changes the buffer's
   length. A count below the range length is a short read, not an error. Zero
   for a nonempty range means end of input.
-- `write` consumes a prefix of `source[start:stop]`. A short count is normal.
-  Zero for a nonempty range means the stream accepted nothing; `write_all`
-  reports that as `WriteZero` instead of looping.
-- An empty range returns `Ok(0)` and says nothing about end of input.
+- `write` consumes a prefix of `source`. A short count is normal. Zero for a
+  nonempty source means the stream accepted nothing; `write_all` reports that
+  as `WriteZero` instead of looping. To write part of a buffer, pass
+  `&buffer[a:b]`.
+- An empty range or source returns `Ok(0)` and says nothing about end of input.
 - An error means the call moved no bytes. A stream that fails after moving
   some bytes returns the count and reports the failure on the next call.
 - `Interrupted` means nothing moved and the same call can be repeated.
 - `seek` returns the new byte offset from the start.
 
-A range outside its buffer is `OutOfRange`. A stream that returns a negative
+A `read` range outside its buffer is `OutOfRange`; a `write` source is a view,
+whose bounds clamp, so it has no range error. A stream that returns a negative
 count or more than it was offered is reported as `InvalidProgress` by every
 helper and buffer, which then stop using that count.
 
-`write` has its own type parameter, so an implementation declares one too,
-with the same `ByteSource` constraint (the name may differ), and passes the
-source on to operations that accept a `ByteSource`, such as
-`Bytes.extend_range` or another stream's `write`:
+An implementation declares `write` with the same `source: &[u8]` parameter and
+passes the view, or part of it, on to operations that read one, such as
+`Bytes.extend` or another stream's `write`:
 
 ```plenty
 import std.bytes
 import std.io
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 
 pub class Tally:
     pub data: Bytes
 
-    pub def write[S: ByteSource](self: &mut Tally, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        match self.data.extend_range(source, start, stop):
+    pub def write(self: &mut Tally, source: &[u8]) -> Result[i64, StreamError]:
+        match self.data.extend(source):
             case Ok(_):
-                Ok(stop - start)
+                Ok(len(source))
+            case Err(std.bytes.BytesError.Allocation(cause)):
+                Err(StreamError.Allocation(cause))
             case Err(_):
                 Err(StreamError.OutOfRange)
 
@@ -68,8 +71,9 @@ pub class Tally:
 
 def main() -> Result[(), std.bytes.BytesError | std.io.Partial | IoError]:
     mut tally = Tally(std.bytes.empty()?)
-    std.io.write_all(&mut tally, b"ab", 0, 2)?
-    std.io.write_all(&mut tally, &std.bytes.from_text("cd")?, 0, 2)?
+    std.io.write_all(&mut tally, b"ab")?
+    tail = std.bytes.from_text("cdef")?
+    std.io.write_all(&mut tally, &tail[:2])?
     print(tally.data.to_text()?)?
     Ok(())
 ```
@@ -115,7 +119,7 @@ function whose error sum lists each of them.
 | Function | Result | Contract |
 |---|---|---|
 | `read_exact(reader, buffer, start, stop)` | `Result[(), Partial]` | Fill the whole range. End of input first is `UnexpectedEof` |
-| `write_all(writer, source, start, stop)` | `Result[(), Partial]` | Deliver the whole range. No progress is `WriteZero`. Does not flush |
+| `write_all(writer, source: &[u8])` | `Result[(), Partial]` | Deliver all of `source`. No progress is `WriteZero`. Does not flush |
 | `read_up_to(reader, out, limit)` | `Result[i64, Partial]` | Append at most `limit` bytes to `out`; fewer only at end of input |
 | `copy_all(reader, writer, scratch)` | `Result[i64, CopyError]` | Move bytes until end of input through the whole of `scratch`. Does not flush |
 
@@ -159,7 +163,7 @@ the buffer.
 
 | `BufWriter[W]` | Result | Contract |
 |---|---|---|
-| `write(source, start, stop)` | `Result[i64, StreamError]` | Hold the range, delivering held bytes first when it does not fit |
+| `write(source)` | `Result[i64, StreamError]` | Hold `source`, delivering held bytes first when it does not fit |
 | `flush()` | `Result[(), StreamError]` | Deliver every held byte, then flush the inner stream |
 | `pending()` | `i64` | Bytes held and not yet delivered |
 | `capacity()` | `i64` | The fixed buffer size |

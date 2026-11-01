@@ -148,7 +148,7 @@ fn native_paths_symlinks_and_open_path_modes() {
         dir.path(),
         r#"    path = paths.from_text("modes")?
     mut file = io.open_path(&path, "w+")?
-    io.write_all(&mut file, b"safe", 0, 4).unwrap()
+    io.write_all(&mut file, b"safe").unwrap()
     file.close()?
     print(io.open_path(&path, "x").is_err())?
     print(io.open_path(&path, "bad").is_err())?

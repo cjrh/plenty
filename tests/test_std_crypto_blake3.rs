@@ -27,12 +27,12 @@ fn official_blake3_vectors_cover_all_three_modes_and_incremental_input() {
              mut hash{case} = std.crypto.digest(Algorithm.Blake3)?\n\
              mut mac{case} = std.crypto.blake3_keyed_hasher(&key)?\n\
              mut kdf{case} = std.crypto.blake3_derive_hasher(\"{context}\")?\n\
-             hash{case}.update(&data{case}, 0, {half})?\n\
-             hash{case}.update(&data{case}, {half}, {len})?\n\
-             mac{case}.update(&data{case}, 0, {half})?\n\
-             mac{case}.update(&data{case}, {half}, {len})?\n\
-             kdf{case}.update(&data{case}, 0, {half})?\n\
-             kdf{case}.update(&data{case}, {half}, {len})?\n\
+             hash{case}.update(&data{case}[:{half}])?\n\
+             hash{case}.update(&data{case}[{half}:{len}])?\n\
+             mac{case}.update(&data{case}[:{half}])?\n\
+             mac{case}.update(&data{case}[{half}:{len}])?\n\
+             kdf{case}.update(&data{case}[:{half}])?\n\
+             kdf{case}.update(&data{case}[{half}:{len}])?\n\
              print(hex(&hash{case}.finish()?)?)?\n\
              print(hex(&mac{case}.finish()?)?)?\n\
              print(hex(&kdf{case}.finish()?)?)?\n",
@@ -59,12 +59,12 @@ print(str.repr(std.crypto.blake3_keyed_hasher(&long_key))?)?
 print(str.repr(std.crypto.hmac(Algorithm.Blake3, &key))?)?
 mut mac = std.crypto.blake3_keyed_hasher(&key)?
 print(mac.size())?
-print(str.repr(mac.update(&empty, -1, 0))?)?
+mac.update(&empty[-1:0])?
 tag = std.crypto.blake3_keyed(&key, &empty)?
-print(mac.verify(&tag, 0, 32)?)?
-print(str.repr(mac.verify(&tag, 0, 32))?)?
+print(mac.verify(&tag[:32])?)?
+print(str.repr(mac.verify(&tag[:32]))?)?
 mut mismatch = std.crypto.blake3_keyed_hasher(&key)?
-print(mismatch.verify(&tag, 0, 31)?)?
+print(mismatch.verify(&tag[:31])?)?
 mut digest = std.crypto.digest(Algorithm.Blake3)?
 mut target = std.bytes.with_capacity(34)?
 target.resize(34, 7u8)?
@@ -78,7 +78,7 @@ print(str.repr(digest.finish())?)?
         "Result[std.crypto.Mac, E].Err(E.InvalidKeyLength)\n\
          Result[std.crypto.Mac, E].Err(E.InvalidKeyLength)\n\
          Result[std.crypto.Mac, E].Err(E.UnsupportedAlgorithm)\n\
-         32\nResult[(), E].Err(E.OutOfRange)\nTrue\n\
+         32\nTrue\n\
          Result[bool, E].Err(E.Finished)\nFalse\n\
          Result[(), E].Err(E.OutOfRange)\n7 7\n\
          af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\n\
@@ -103,15 +103,15 @@ mut verifier = std.crypto.blake3_keyed_hasher(&key)?
 tag = std.crypto.blake3_keyed(&key, &data)?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
-hash.update(&data, 0, data.len())?
+hash.update(&data)?
 hash.update_text("雪")?
 hash.finish_into(&mut target, 0)?
-mac.update(&data, 0, data.len())?
+mac.update(&data)?
 mac.finish_into(&mut target, 32)?
-kdf.update(&data, 0, data.len())?
+kdf.update(&data)?
 kdf.finish_into(&mut target, 64)?
-verifier.update(&data, 0, data.len())?
-verified = verifier.verify(&tag, 0, tag.len())?
+verifier.update(&data)?
+verified = verifier.verify(&tag)?
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
 print(verified)?

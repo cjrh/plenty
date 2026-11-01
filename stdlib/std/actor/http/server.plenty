@@ -17,7 +17,7 @@ import std.bytes
 import std.http
 import std.io
 import std.http.server
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.http import Framing, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.time import Deadline, Duration, seconds
 
@@ -172,16 +172,14 @@ pub class Response:
 
     # A short result is back-pressure. Keep the remainder and resume on
     # Writable; this never waits for a socket and never exceeds the queue.
-    def _write[S: ByteSource](self: &mut Response, source: &S, start: i64, stop: i64) -> Result[i64, HttpError | BytesError]:
+    def _write(self: &mut Response, source: &[u8]) -> Result[i64, HttpError | BytesError]:
         if self._state < 1 or self._state > 3:
             return Err(HttpError.Broken)
-        if start < 0 or stop < start or stop > source.len():
-            return Err(BytesError.OutOfRange)
-        if self._state == 1 and stop - start > self._remaining and not self._head:
+        if self._state == 1 and len(source) > self._remaining and not self._head:
             return Err(HttpError.LengthMismatch)
         if self._head:
-            return Ok(stop - start)
-        mut count = stop - start
+            return Ok(len(source))
+        mut count = len(source)
         if count > self.space():
             count = self.space()
         if count == 0:
@@ -190,7 +188,7 @@ pub class Response:
         if self._state == 2:
             size = std.http.encode_chunk_size(count)?
             self._output.extend(&size)?
-        self._output.extend_range(source, start, start + count)?
+        self._output.extend(&source[:count])?
         if self._state == 2:
             self._output.extend(b"\r\n")?
         elif self._state == 1:
@@ -208,29 +206,31 @@ pub class Response:
         self._state = 4
         Ok(())
 
-    def _respond[S: ByteSource](self: &mut Response, head: ResponseHead, body: &S) -> Result[(), HttpError | BytesError | AllocError]:
+    def _respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), HttpError | BytesError | AllocError]:
         mut owned = head
         if std.http.find(&owned.headers, "content-length").is_some() or std.http.find(&owned.headers, "transfer-encoding").is_some():
             return Err(HttpError.ConflictingFraming)
-        if (owned.status == 204 or owned.status == 304) and body.len() != 0:
+        size = len(body)
+        if (owned.status == 204 or owned.status == 304) and size != 0:
             return Err(HttpError.LengthMismatch)
-        if body.len() > self.space() and not self._head:
+        if size > self.space() and not self._head:
             return Err(HttpError.BodyTooLarge)
         if owned.status != 204 and owned.status != 304:
-            owned.add("Content-Length", str.from(body.len())?)?
-        self.begin_response(owned, 0 if self._head else body.len())?
-        if self._write(body, 0, body.len())? != body.len():
+            owned.add("Content-Length", str.from(size)?)?
+        self.begin_response(owned, 0 if self._head else size)?
+        if self._write(body)? != size:
             return Err(HttpError.BodyTooLarge)
         self._finish()?
         Ok(())
 
-    def _send[S: ByteSource](self: &mut Response, status: i64, content_type: &str, body: &S) -> Result[(), HttpError | BytesError | AllocError]:
+    def _send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError | BytesError | AllocError]:
         mut head = std.http.response(status, std.http.server.reason(status))?
         head.add("Content-Type", *content_type)?
         self._respond(head, body)
 
     def _send_text(self: &mut Response, status: i64, text: &str) -> Result[(), HttpError | BytesError | AllocError]:
-        self._send(status, "text/plain; charset=utf-8", &std.bytes.from_text(text)?)
+        body = std.bytes.from_text(text)?
+        self._send(status, "text/plain; charset=utf-8", &body)
 
     def compact(self: &mut Response) -> Result[(), BytesError]:
         if self._start > 0:
@@ -242,16 +242,16 @@ pub class Response:
     pub def start(self: &mut Response, head: ResponseHead) -> Result[(), ServerError]:
         network(self.begin_response(head, 0))
 
-    pub def write[S: ByteSource](self: &mut Response, source: &S, start: i64, stop: i64) -> Result[i64, ServerError]:
-        network(self._write(source, start, stop))
+    pub def write(self: &mut Response, source: &[u8]) -> Result[i64, ServerError]:
+        network(self._write(source))
 
     pub def finish(self: &mut Response) -> Result[(), ServerError]:
         network(self._finish())
 
-    pub def respond[S: ByteSource](self: &mut Response, head: ResponseHead, body: &S) -> Result[(), ServerError]:
+    pub def respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), ServerError]:
         network(self._respond(head, body))
 
-    pub def send[S: ByteSource](self: &mut Response, status: i64, content_type: &str, body: &S) -> Result[(), ServerError]:
+    pub def send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), ServerError]:
         network(self._send(status, content_type, body))
 
     pub def send_text(self: &mut Response, status: i64, text: &str) -> Result[(), ServerError]:
@@ -339,12 +339,12 @@ enum Wire:
             case Wire.Secure(connection):
                 network(connection.consume(count, context))
 
-    pub def write[M](self: &mut Wire, bytes: &Bytes, start: i64, stop: i64, context: &mut Context[Notice[M], ServerError]) -> Result[i64, ServerError]:
+    pub def write[M](self: &mut Wire, bytes: &[u8], context: &mut Context[Notice[M], ServerError]) -> Result[i64, ServerError]:
         match self:
             case Wire.Plain(connection):
-                network(connection.write(bytes, start, stop, context))
+                network(connection.write(bytes, context))
             case Wire.Secure(connection):
-                network(connection.write(bytes, start, stop, context))
+                network(connection.write(bytes, context))
 
     pub def shutdown_write[M](self: &mut Wire, context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
         match self:
@@ -761,7 +761,8 @@ class Client[F, H]:
                 break
             if reply.is_started() and not reply.is_done() and reply.space() == 0:
                 break
-            next = decoder.feed(wire.input(), wire.input_start(), wire.input_stop())
+            input = wire.input()
+            next = decoder.feed(&input[wire.input_start():wire.input_stop()])
             match next:
                 case Err(error):
                     drop(context.send(self.parent, Notice[M].Rejected))
@@ -829,7 +830,7 @@ class Client[F, H]:
             mut stop = reply._output.len()
             if stop - reply._start > 16384:
                 stop = reply._start + 16384
-            count = wire.write(&reply._output, reply._start, stop, context)?
+            count = wire.write(&reply._output[reply._start:stop], context)?
             reply._start += count
             if reply._start == reply._output.len():
                 reply._output.clear()

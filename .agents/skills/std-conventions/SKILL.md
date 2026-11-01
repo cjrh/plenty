@@ -35,7 +35,7 @@ rg -n 'deadline: &Deadline' $S | rg -v 'CancellationToken'               # deadl
 rg -n 'bounds: &' $S                                                     # limits parameter spelling
 rg -n '\| AllocError\]|AllocError \|' $S                                 # AllocError unions
 rg -n 'list\[u8\]' $S                                                    # byte data that should be Bytes
-rg -n 'data: &Bytes|source: &Bytes' $S                                   # read-only input that could be ByteSource
+rg -n 'data: &Bytes|source: &Bytes' $S                                   # read-only input that could be &[u8]
 rg -n 'def (format|to_string|display)\(' $S                              # formatting names
 rg -n 'def [a-z_]+\(self\) -> bool' $S | rg -v 'def (is|has)_'           # predicates without is_/has_
 rg -n 'def (len|count|capacity)\(self\) -> u64' $S                       # sizes not i64

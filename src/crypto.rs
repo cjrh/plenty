@@ -72,40 +72,41 @@ impl CryptoOp {
         })
     }
 
+    /// Handles, states and outputs are byte storage; read-only inputs
+    /// (keys, messages, signatures) are `&[u8]` views (B90).
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let storage = || Ty::ByteStorage;
-        let range = || vec![storage(), storage(), Ty::I64, Ty::I64];
+        let view = crate::bytes::byte_view;
         let state = || sum::result(storage(), sum::alloc_error());
         match self {
             Self::New => (vec![Ty::U8], state()),
             Self::NewDeriveKey => (vec![Ty::Str], state()),
-            Self::NewKeyed => (vec![Ty::U8, storage(), Ty::I64, Ty::I64], state()),
+            Self::NewKeyed => (vec![Ty::U8, view()], state()),
             // False once the state has finished.
-            Self::Update => (range(), Ty::Bool),
+            Self::Update => (vec![storage(), view()], Ty::Bool),
             Self::UpdateText => (vec![storage(), Ty::Str], Ty::Bool),
             Self::Finish => (vec![storage(), storage(), Ty::I64], Ty::Bool),
             // 1 for a match, 0 for a mismatch, -1 once finished.
-            Self::Verify => (range(), Ty::I64),
-            Self::Equal => (vec![storage(), storage()], Ty::Bool),
+            Self::Verify => (vec![storage(), view()], Ty::I64),
+            Self::Equal => (vec![view(), view()], Ty::Bool),
             Self::AesSeal | Self::AesOpen | Self::ChaChaSeal | Self::ChaChaOpen | Self::Hkdf => {
-                (vec![storage(), storage(), storage(), storage()], Ty::I64)
+                (vec![view(), view(), view(), storage()], Ty::I64)
             }
-            Self::EdPublic | Self::XPublic => (vec![storage(), storage()], Ty::I64),
-            Self::EdSign | Self::EdVerify | Self::XAgree => {
-                (vec![storage(), storage(), storage()], Ty::I64)
-            }
+            Self::EdPublic => (vec![view(), storage()], Ty::I64),
+            Self::XPublic => (vec![storage(), storage()], Ty::I64),
+            Self::EdSign => (vec![view(), view(), storage()], Ty::I64),
+            Self::EdVerify => (vec![view(), view(), view()], Ty::I64),
+            Self::XAgree => (vec![storage(), view(), storage()], Ty::I64),
             Self::XNew | Self::KeyNew => (vec![], state()),
-            Self::RsaLoad | Self::P256Load | Self::KeyPublic => {
-                (vec![storage(), storage()], Ty::I64)
-            }
+            Self::RsaLoad | Self::P256Load => (vec![storage(), view()], Ty::I64),
+            Self::KeyPublic => (vec![storage(), storage()], Ty::I64),
             // Selector 0 is the public key's length, 1 the signature's.
             Self::KeySize => (vec![storage(), Ty::I64], Ty::I64),
             // The I64 is the RSA scheme; P-256 ignores it.
-            Self::KeySign | Self::RsaVerify => {
-                (vec![storage(), Ty::I64, storage(), storage()], Ty::I64)
-            }
-            Self::P256Verify => (vec![storage(), storage(), storage()], Ty::I64),
-            Self::P256Check => (vec![storage()], Ty::I64),
+            Self::KeySign => (vec![storage(), Ty::I64, view(), storage()], Ty::I64),
+            Self::RsaVerify => (vec![view(), Ty::I64, view(), view()], Ty::I64),
+            Self::P256Verify => (vec![view(), view(), view()], Ty::I64),
+            Self::P256Check => (vec![view()], Ty::I64),
         }
     }
 

@@ -632,23 +632,22 @@ mut post = std.http.request("POST", "/upload").unwrap()
 post.add("Transfer-Encoding", "chunked").unwrap()
 mut sink = std.io.cursor(std.bytes.empty()?)
 std.http.write_request(&mut sink, &post).unwrap()
-std.http.write_chunk(&mut sink, &piece, 0, 5).unwrap()
-std.http.write_chunk(&mut sink, &piece, 5, 5).unwrap()
-std.http.write_chunk(&mut sink, &piece, 5, 12).unwrap()
+std.http.write_chunk(&mut sink, &piece[:5]).unwrap()
+std.http.write_chunk(&mut sink, &piece[5:5]).unwrap()
+std.http.write_chunk(&mut sink, &piece[5:12]).unwrap()
 mut trailers = list[Header].new()?
 trailers.append(Header("Digest", "abc"))?
 std.http.write_last_chunk(&mut sink, &trailers).unwrap()
 mut put = std.http.request("PUT", "/x").unwrap()
 put.add("Content-Length", "12").unwrap()
 std.http.write_request(&mut sink, &put).unwrap()
-print(str.repr(std.http.write_body(&mut sink, &Framing.Length(12), &piece, 0, 11))?)?
-print(str.repr(std.http.write_body(&mut sink, &Framing.Empty, &piece, 0, 1))?)?
-print(str.repr(std.http.write_chunk(&mut sink, &piece, 3, 13))?)?
-std.http.write_body(&mut sink, &Framing.Length(12), &piece, 0, 12).unwrap()
+print(str.repr(std.http.write_body(&mut sink, &Framing.Length(12), &piece[:11]))?)?
+print(str.repr(std.http.write_body(&mut sink, &Framing.Empty, &piece[:1]))?)?
+std.http.write_body(&mut sink, &Framing.Length(12), &piece).unwrap()
 mut short = std.http.request("PATCH", "/y").unwrap()
 short.add("Transfer-Encoding", "chunked").unwrap()
 std.http.write_request(&mut sink, &short).unwrap()
-std.http.write_body(&mut sink, &Framing.Chunked, &piece, 7, 12).unwrap()
+std.http.write_body(&mut sink, &Framing.Chunked, &piece[7:12]).unwrap()
 mut bad_trailer = list[Header].new()?
 bad_trailer.append(Header("A", "\r\n"))?
 print(str.repr(std.http.write_last_chunk(&mut sink, &bad_trailer))?)?
@@ -657,7 +656,6 @@ shown(requests_from(replace(sink.data, std.bytes.empty()?), &std.http.limits()))
         r#"
 Result[(), std.http.HttpError].Err(LengthMismatch)
 Result[(), std.http.HttpError].Err(LengthMismatch)
-Result[(), std.http.HttpError].Err(Stream(OutOfRange))
 Result[(), std.http.HttpError].Err(InvalidHeader)
 req POST /upload 1 1 Chunked True "hello, world Digest=abc"
 req PUT /x 1 1 Length(12) True "hello, world"
@@ -840,7 +838,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
                 if not keep:
                     reply.add("Connection", "close")?
                 std.http.write_response(&mut conn.inner, &reply)?
-                std.http.write_body(&mut conn.inner, &Framing.Length(echoed.len()), &echoed, 0, echoed.len())?
+                std.http.write_body(&mut conn.inner, &Framing.Length(echoed.len()), &echoed)?
                 served += 1
                 if not keep:
                     break
@@ -864,8 +862,8 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError 
                 post.add("Connection", "close").unwrap()
             payload = std.bytes.from_text("message ".concat(str.from(index)?)?)?
             std.http.write_request(&mut conn.inner, &post).unwrap()
-            std.http.write_chunk(&mut conn.inner, &payload, 0, 3).unwrap()
-            std.http.write_chunk(&mut conn.inner, &payload, 3, payload.len()).unwrap()
+            std.http.write_chunk(&mut conn.inner, &payload[:3]).unwrap()
+            std.http.write_chunk(&mut conn.inner, &payload[3:]).unwrap()
             std.http.write_last_chunk(&mut conn.inner, &list[Header].new()?).unwrap()
             head = std.http.read_response(&mut conn, &limits).unwrap().unwrap()
             framing = std.http.response_framing(&head, "POST").unwrap()
@@ -917,7 +915,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     framing = std.http.request_framing(&head).unwrap()
     mut interim = std.io.cursor(std.bytes.empty()?)
     std.http.write_response(&mut interim, &std.http.response(100, "Continue").unwrap()).unwrap()
-    conn.inner.stream.write_all_before(&interim.data, 0, interim.data.len(), deadline, &CancellationToken()?).unwrap()
+    conn.inner.stream.write_all_before(&interim.data, deadline, &CancellationToken()?).unwrap()
     mut body = std.http.body_reader(conn, &framing, &limits).unwrap()
     mut out = std.bytes.empty()?
     outcome = str.repr(std.http.read_to_end(&mut body, &mut out))?
@@ -933,7 +931,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError 
         stream = connect(&address, &deadline, &cancel).unwrap()
         mut conn = std.io.buffered_reader(stream, 64)?
         start = std.bytes.from_text("PUT /slow HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc")?
-        conn.inner.write_all_before(&start, 0, start.len(), &deadline, &cancel).unwrap()
+        conn.inner.write_all_before(&start, &deadline, &cancel).unwrap()
         interim = std.http.read_response(&mut conn, &std.http.limits()).unwrap().unwrap()
         print(interim.status)?
         cancel.cancel()

@@ -116,7 +116,7 @@ pieces.update_text("jkijkljklmklmnlmnomnopnopq")?
 print(pieces.size(), hex(&pieces.finish()?)?)?
 mut mac = std.crypto.hmac(Algorithm.Sha1, &std.bytes.from_text("Jefe")?)?
 mac.update_text("what do ya want for nothing?")?
-print(mac.verify(&unhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79")?, 0, 20)?)?
+print(mac.verify(&unhex("effcdf6ae5eb2fa2d27416d5f184df9c259a7c79")?)?)?
 "#,
         "20\n\
          da39a3ee5e6b4b0d3255bfef95601890afd80709\n\
@@ -134,9 +134,9 @@ block = std.bytes.from_text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 mut short = std.crypto.digest(Algorithm.Sha256)?
 mut long = std.crypto.digest(Algorithm.Sha512)?
 for _ in range(10000):
-    short.update(&block, 0, 100)?
-    long.update(&block, 0, 37)?
-    long.update(&block, 37, 100)?
+    short.update(&block[:100])?
+    long.update(&block[:37])?
+    long.update(&block[37:100])?
 print(short.size(), hex(&short.finish()?)?)?
 print(long.size(), hex(&long.finish()?)?)?
 "#,
@@ -201,8 +201,8 @@ fn hmacs_match_rfc_4231() {
              print(hex(&std.crypto.hmac_sha256(&key{case}, &data{case})?)?)?\n\
              print(hex(&std.crypto.hmac_sha512(&key{case}, &data{case})?)?)?\n\
              mut mac{case} = std.crypto.hmac(Algorithm.Sha256, &key{case})?\n\
-             mac{case}.update(&data{case}, 0, data{case}.len())?\n\
-             print(mac{case}.verify(&unhex(\"{sha256}\")?, 0, 32)?)?\n"
+             mac{case}.update(&data{case})?\n\
+             print(mac{case}.verify(&unhex(\"{sha256}\")?)?)?\n"
         ));
         expected.extend([sha256, sha512, "True"]);
     }
@@ -224,22 +224,22 @@ for round in range(2):
     if round == 1:
         algorithm = Algorithm.Sha512
     mut whole_mac = std.crypto.hmac(algorithm, &key)?
-    whole_mac.update(&data, 0, data.len())?
+    whole_mac.update(&data)?
     whole = whole_mac.finish()?
     mut plain = std.crypto.digest(algorithm)?
-    plain.update(&data, 0, data.len())?
+    plain.update(&data)?
     expected = plain.finish()?
     for split in range(0, 301, 3):
         mut parts = std.crypto.digest(algorithm)?
-        parts.update(&data, 0, split)?
-        parts.update(&data, split, split)?
-        parts.update(&data, split, data.len())?
+        parts.update(&data[:split])?
+        parts.update(&data[split:split])?
+        parts.update(&data[split:])?
         if not std.crypto.equal(&parts.finish()?, &expected):
             mismatches += 1
         mut mac = std.crypto.hmac(algorithm, &key)?
-        mac.update(&data, 0, split)?
-        mac.update(&data, split, data.len())?
-        if not mac.verify(&whole, 0, whole.len())?:
+        mac.update(&data[:split])?
+        mac.update(&data[split:])?
+        if not mac.verify(&whole)?:
             mismatches += 1
 print(mismatches)?
 mut text = std.crypto.digest(Algorithm.Sha256)?
@@ -263,12 +263,12 @@ data = std.bytes.from_text("Test With Truncation")?
 mut tag = std.crypto.hmac_sha256(&key, &data)?
 print(hex(&tag)?)?
 mut mac = std.crypto.hmac(Algorithm.Sha256, &key)?
-mac.update(&data, 0, data.len())?
-print(mac.verify(&tag, 0, 16)?)?
+mac.update(&data)?
+print(mac.verify(&tag[:16])?)?
 tag.set(31, tag.get(31)? ^ 1u8)?
 mut again = std.crypto.hmac(Algorithm.Sha256, &key)?
-again.update(&data, 0, data.len())?
-print(again.verify(&tag, 0, 32)?)?
+again.update(&data)?
+print(again.verify(&tag[:32])?)?
 "#,
         "a3b6167473100ee06e0c796c2955552bfa6f7c0a6a8aef8b93f860aab0cd20c5\nFalse\nFalse",
     );
@@ -291,42 +291,34 @@ print(std.crypto.equal(&e, &e), std.crypto.equal(&e, &a))?
 }
 
 #[test]
-fn invalid_ranges_and_finished_states_are_errors() {
+fn invalid_offsets_and_finished_states_are_errors() {
     native(
         r#"
 data = std.bytes.from_text("abc")?
 mut digest = std.crypto.digest(Algorithm.Sha256)?
-print(str.repr(digest.update(&data, 2, 1))?)?
-print(str.repr(digest.update(&data, -1, 2))?)?
-print(str.repr(digest.update(&data, 0, 4))?)?
 mut target = std.bytes.empty()?
 target.resize(40, 0u8)?
 print(str.repr(digest.finish_into(&mut target, 9))?)?
 print(str.repr(digest.finish_into(&mut target, -1))?)?
-digest.update(&data, 0, 3)?
+digest.update(&data[:3])?
 digest.finish_into(&mut target, 8)?
 print(hex(&target.slice(8, 40)?)?)?
-print(str.repr(digest.update(&data, 0, 3))?)?
+print(str.repr(digest.update(&data[:3]))?)?
 print(str.repr(digest.update_text("x"))?)?
 print(str.repr(digest.finish())?)?
 print(str.repr(digest.finish_into(&mut target, 0))?)?
 mut mac = std.crypto.hmac(Algorithm.Sha512, &data)?
-print(mac.size(), str.repr(mac.verify(&data, 1, 0))?)?
-print(mac.verify(&data, 0, 3)?)?
-print(str.repr(mac.verify(&data, 0, 3))?)?
+print(mac.size(), mac.verify(&data[1:0])?)?
+print(str.repr(mac.verify(&data[:3]))?)?
 "#,
         "Result[(), E].Err(E.OutOfRange)\n\
-         Result[(), E].Err(E.OutOfRange)\n\
-         Result[(), E].Err(E.OutOfRange)\n\
-         Result[(), E].Err(E.OutOfRange)\n\
          Result[(), E].Err(E.OutOfRange)\n\
          ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\
          Result[(), E].Err(E.Finished)\n\
          Result[(), E].Err(E.Finished)\n\
          Result[Bytes, E].Err(E.Finished)\n\
          Result[(), E].Err(E.Finished)\n\
-         64 Result[bool, E].Err(E.OutOfRange)\n\
-         False\n\
+         64 False\n\
          Result[bool, E].Err(E.Finished)",
     );
 }
@@ -419,10 +411,10 @@ mut digest = std.crypto.digest(Algorithm.Sha512)?
 mut mac = std.crypto.hmac(Algorithm.Sha256, &key)?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
-digest.update(&data, 0, 3)?
+digest.update(&data[:3])?
 digest.update_text("")?
 digest.finish_into(&mut target, 0)?
-mac.update(&data, 0, 3)?
+mac.update(&data[:3])?
 mac.finish_into(&mut target, 64)?
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
@@ -449,7 +441,7 @@ print("__test_restore_allocations__")?
 print(str.repr(plain)?)?
 print(str.repr(keyed)?)?
 mut digest = std.crypto.digest(Algorithm.Sha256)?
-digest.update(&data, 0, 3)?
+digest.update(&data[:3])?
 print("__test_fail_allocations_after_0__")?
 first = digest.finish()
 print("__test_restore_allocations__")?
@@ -460,7 +452,7 @@ print(str.repr(first)?)?
 print(str.repr(second)?)?
 print(hex(&digest.finish()?)?)?
 mut unfinished = std.crypto.hmac(Algorithm.Sha256, &key)?
-unfinished.update(&data, 0, 3)?
+unfinished.update(&data[:3])?
 "#,
         "Result[std.crypto.Digest, E].Err(E.Allocation(AllocError.OutOfMemory))\n\
          Result[std.crypto.Mac, E].Err(E.Allocation(AllocError.OutOfMemory))\n\

@@ -14,7 +14,7 @@ import std.fs
 
 def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.Partial]:
     with std.tempfile.named_file(suffix=".txt")? as temporary:
-        std.io.write_all(temporary, &b"hello", 0, 5)?
+        std.io.write_all(temporary, &b"hello")?
         print(read_text(&temporary.path().to_text()?)?)?
         temporary.close()?
     Ok(())

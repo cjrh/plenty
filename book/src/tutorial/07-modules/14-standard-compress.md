@@ -87,7 +87,7 @@ def main() -> Result[(), IoError | CompressedStreamError]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):
-        std.io.write_all(&mut writer, &line, 0, line.len())?
+        std.io.write_all(&mut writer, &line)?
     writer.finish()?
     packed = writer.inner.data.copy()?
     print(packed.len())?

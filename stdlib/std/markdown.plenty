@@ -838,7 +838,7 @@ pub class Parser:
             self._offset += 1
             for _ in range(4 - self._column % 4):
                 push_byte(&mut self._blocks[tip].content, 32)?
-        faulted(self._blocks[tip].content.extend_range(&self._text, self._offset, self._line_end))?
+        faulted(self._blocks[tip].content.extend(&self._text[self._offset:self._line_end]))?
         push_byte(&mut self._blocks[tip].content, 10)
 
     def add_child(self: &mut Parser, kind: i64, offset: i64) -> Result[i64, MarkdownFault]:
@@ -1164,7 +1164,7 @@ pub class Parser:
                         last = first
                     elif is_space_or_tab(self.at(hashes - 1)):
                         last = hashes
-                faulted(self._blocks[heading].content.extend_range(&self._text, first, last))?
+                faulted(self._blocks[heading].content.extend(&self._text[first:last]))?
                 self._offset = stop
                 return Ok(2)
         if not self._indented and (c == 96 or c == 126):
@@ -1376,7 +1376,7 @@ pub class Parser:
     # A text node holding `subject[start:stop]`.
     def add_text(self: &mut Parser, start: i64, stop: i64) -> Result[i64, MarkdownFault]:
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        faulted(self._pool.extend(&self._subject[start:stop]))?
         node = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(i_root, node)
         Ok(node)
@@ -1688,12 +1688,12 @@ pub class Parser:
         self._scratch.clear()
         if destination_prefix:
             faulted(self._scratch.extend(&b"mailto:"))?
-        faulted(self._scratch.extend_range(&self._subject, start, stop))?
+        faulted(self._scratch.extend(&self._subject[start:stop]))?
         destination = text_of(&self._scratch, 0, self._scratch.len())?
         link = self.add_node(i_link)?
         self._inlines[link].destination = destination
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        faulted(self._pool.extend(&self._subject[start:stop]))?
         text = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(link, text)
         Ok(())
@@ -1782,7 +1782,7 @@ pub class Parser:
         if end < 0:
             return Ok(False)
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, end))?
+        faulted(self._pool.extend(&self._subject[start:end]))?
         node = self.new_inline(i_html, at, self._pool.len())?
         self.append_inline(i_root, node)
         self._pos = end
@@ -1849,7 +1849,7 @@ pub class Parser:
         while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
             last -= 1
         self._subject.clear()
-        faulted(self._subject.extend_range(&self._blocks[index].content, first, last))?
+        faulted(self._subject.extend(&self._blocks[index].content[first:last]))?
         self._pool.clear()
         self._inlines.clear()
         self._delimiters.clear()
@@ -1901,7 +1901,7 @@ pub class Parser:
             kind = self._inlines[node].kind
             if entering:
                 if kind == i_text:
-                    faulted(self._scratch.extend_range(&self._pool, self._inlines[node].start, self._inlines[node].stop))?
+                    faulted(self._scratch.extend(&self._pool[self._inlines[node].start:self._inlines[node].stop]))?
                 else:
                     self.flush_text()?
                     if kind == i_soft:
@@ -2404,7 +2404,7 @@ pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
 # Does not flush. On failure only the bytes the writer did not accept stay
 # pending, so a retry cannot repeat output.
 pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]:
-    outcome = std.io.write_all(writer, &source._out, 0, source._out.len())
+    outcome = std.io.write_all(writer, &source._out)
     match outcome:
         case Ok(_):
             source._out.clear()

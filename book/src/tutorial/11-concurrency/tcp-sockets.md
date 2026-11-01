@@ -22,7 +22,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
         if count == 0:
             return Ok(total)
-        stream.write_all_before(&buffer, 0, count, deadline, cancel)?
+        stream.write_all_before(&buffer[:count], deadline, cancel)?
         total = total + count
     Ok(total)
 
@@ -36,7 +36,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | SocketOperationErr
     with spawn(echo, &listener, &deadline, &cancel)? as server:
         mut stream = connect(&address, &deadline, &cancel)?
         message = std.bytes.from_text("hello")?
-        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
+        stream.write_all_before(&message, &deadline, &cancel)?
         stream.shutdown(Shutdown.Write)?
         mut reply = std.bytes.with_capacity(16)?
         reply.resize(16, 0u8)?
@@ -99,7 +99,7 @@ def main() -> Result[(), AllocError | IoError | SocketOperationError]:
     mut chosen = selector(8)?
     first.watch(&mut chosen, 1u64, Interest.Read)?
     second.watch(&mut chosen, 2u64, Interest.Read)?
-    chatty.write_all_before(&b"x", 0, 1, &deadline, &cancel)?
+    chatty.write_all_before(&b"x", &deadline, &cancel)?
     mut buffer = std.bytes.with_capacity(16)?
     buffer.resize(16, 0u8)?
     while True:

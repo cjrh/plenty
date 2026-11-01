@@ -642,11 +642,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     // SAFETY: see above. Byte views borrow a buffer's heap allocation, never
     // a TLS object.
     unsafe {
-        // A read-only view may also be a `bytes` literal being written.
-        let view = |value: u128, start: u128, stop: u128| {
-            let bytes = super::byte_storage::source(value);
-            &bytes[range(start, stop, bytes.len())]
-        };
+        let view = |value: u128| super::byte_storage::view_bytes(value);
         let view_mut = |value: u128, start: u128, stop: u128| {
             let bytes = &mut (*(value as *mut Storage)).bytes;
             let range = range(start, stop, bytes.len());
@@ -676,10 +672,10 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             )),
             474 => opened(client(config_of(a), strings::bytes(&text_b))),
             475 => opened(server(config_of(a))),
-            476 => feed(&mut connection(a), view(b, c, d)) as u128,
+            476 => feed(&mut connection(a), view(b)) as u128,
             477 => take(&mut connection(a), view_mut(b, c, d)) as u128,
             478 => read(&mut connection(a), view_mut(b, c, d)) as u128,
-            479 => write(&mut connection(a), view(b, c, d)) as u128,
+            479 => write(&mut connection(a), view(b)) as u128,
             480 => state(&connection(a)) as u128,
             481 => {
                 connection(a).send_close_notify();

@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 const PRELUDE: &str = r#"import std.bytes
 import std.io
 import std.csv
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError, Reader
 from std.csv import CsvError, Dialect, Width, Newline, Quoting
 
@@ -42,7 +42,7 @@ pub class Fake:
             count = step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -50,18 +50,18 @@ pub class Fake:
         self.at += count
         Ok(count)
 
-    pub def write[S: ByteSource](self: &mut Fake, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Fake, source: &[u8]) -> Result[i64, StreamError]:
         step = self.step()
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(stop - start + 1)
-        mut count = stop - start
+            return Ok(len(source) + 1)
+        mut count = len(source)
         if count > step:
             count = step
-        match self.data.extend_range(source, start, start + count):
+        match self.data.extend(&source[:count]):
             case Ok(_):
                 pass
             case Err(_):

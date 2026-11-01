@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 const PRELUDE: &str = r#"import std.bytes
 import std.io
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError, SeekFrom, Partial, CopyError, CloseError
 
 # Each call consumes one step: n > 0 moves at most n bytes, 0 reports no
@@ -42,7 +42,7 @@ pub class Fake:
             count = step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -50,18 +50,18 @@ pub class Fake:
         self.at += count
         Ok(count)
 
-    pub def write[S: ByteSource](self: &mut Fake, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Fake, source: &[u8]) -> Result[i64, StreamError]:
         step = self.step()
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(stop - start + 1)
-        mut count = stop - start
+            return Ok(len(source) + 1)
+        mut count = len(source)
         if count > step:
             count = step
-        match self.data.extend_range(source, start, start + count):
+        match self.data.extend(&source[:count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -201,7 +201,7 @@ fn write_all_retries_short_and_interrupted_writes() {
         r#"
 source = std.bytes.from_text("abcdefgh")?
 mut writer = fake("", [3, -1, 1, -1, 2]?)?
-print(str.repr(std.io.write_all(&mut writer, &source, 1, 8))?)?
+print(str.repr(std.io.write_all(&mut writer, &source[1:8]))?)?
 print(writer.data.to_text()?, writer.calls, writer.flushes)?
 "#,
         r#"
@@ -217,16 +217,16 @@ fn write_all_reports_progress_before_zero_progress_and_failure() {
         r#"
 source = std.bytes.from_text("abcdefgh")?
 mut stuck = fake("", [3, 0]?)?
-print(str.repr(std.io.write_all(&mut stuck, &source, 0, 8))?)?
+print(str.repr(std.io.write_all(&mut stuck, &source[:8]))?)?
 print(stuck.data.to_text()?)?
 mut failing = fake("", [2, 3, -2]?)?
-print(str.repr(std.io.write_all(&mut failing, &source, 0, 8))?)?
+print(str.repr(std.io.write_all(&mut failing, &source[:8]))?)?
 print(failing.data.to_text()?)?
 mut lying = fake("", [-3]?)?
-print(str.repr(std.io.write_all(&mut lying, &source, 0, 8))?)?
+print(str.repr(std.io.write_all(&mut lying, &source[:8]))?)?
 mut untouched = fake("", []?)?
-print(str.repr(std.io.write_all(&mut untouched, &source, 4, 9))?)?
-print(str.repr(std.io.write_all(&mut untouched, &source, 4, 4))?)?
+print(str.repr(std.io.write_all(&mut untouched, &source[4:9]))?)?
+print(str.repr(std.io.write_all(&mut untouched, &source[4:4]))?)?
 print(untouched.calls)?
 "#,
         r#"
@@ -235,9 +235,9 @@ abc
 Result[(), std.io.Partial].Err(std.io.Partial(completed=5, cause=std.io.StreamError.Io(IoError.Other)))
 abcde
 Result[(), std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.InvalidProgress))
-Result[(), std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.OutOfRange))
 Result[(), std.io.Partial].Ok(())
-0
+Result[(), std.io.Partial].Ok(())
+1
 "#,
     );
 }
@@ -352,7 +352,7 @@ mut buffer = blank(3)?
 mut seen = std.bytes.empty()?
 for n in range(4):
     count = reader.read(&mut buffer, 0, 3)?
-    seen.extend_range(&buffer, 0, count)?
+    seen.extend(&buffer[:count])?
     print(count, reader.buffered(), reader.inner.calls)?
 print(seen.to_text()?, reader.capacity())?
 mut large = blank(12)?
@@ -447,16 +447,16 @@ fn buffered_writer_holds_at_most_its_capacity() {
         r#"
 mut writer = std.io.buffered_writer(fake("", []?)?, 8)?
 source = std.bytes.from_text("abcdefghijklmnopqrstuvwxyz")?
-print(writer.write(&source, 0, 3)?, writer.pending(), writer.inner.calls)?
-print(writer.write(&source, 3, 8)?, writer.pending(), writer.inner.calls)?
-print(writer.write(&source, 8, 10)?, writer.pending(), writer.inner.calls)?
+print(writer.write(&source[:3])?, writer.pending(), writer.inner.calls)?
+print(writer.write(&source[3:8])?, writer.pending(), writer.inner.calls)?
+print(writer.write(&source[8:10])?, writer.pending(), writer.inner.calls)?
 print(writer.inner.data.to_text()?)?
-print(writer.write(&source, 10, 22)?, writer.pending(), writer.inner.calls)?
+print(writer.write(&source[10:22])?, writer.pending(), writer.inner.calls)?
 print(writer.inner.data.to_text()?)?
-print(writer.write(&source, 22, 26)?, writer.pending(), writer.inner.flushes)?
+print(writer.write(&source[22:26])?, writer.pending(), writer.inner.flushes)?
 print(str.repr(writer.flush())?, writer.pending(), writer.inner.flushes)?
 print(writer.inner.data.to_text()?, writer.capacity())?
-print(writer.write(&source, 5, 5)?, str.repr(writer.write(&source, 20, 27))?)?
+print(writer.write(&source[5:5])?, str.repr(writer.write(&source[20:27]))?)?
 print(str.repr(std.io.buffered_writer(fake("", []?)?, 0))?)?
 "#,
         r#"
@@ -469,7 +469,7 @@ abcdefghijklmnopqrstuv
 4 4 0
 Result[(), std.io.StreamError].Ok(()) 0 1
 abcdefghijklmnopqrstuvwxyz 8
-0 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)
+0 Result[i64, std.io.StreamError].Ok(6)
 Result[std.io.BufWriter[Fake], std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 "#,
     );
@@ -481,16 +481,16 @@ fn buffered_writer_keeps_undelivered_bytes_after_a_failed_drain() {
         r#"
 mut writer = std.io.buffered_writer(fake("", [2, -1, 1, -2, 0, -3]?)?, 8)?
 source = std.bytes.from_text("abcdefgh")?
-print(writer.write(&source, 0, 6)?, writer.pending())?
+print(writer.write(&source[:6])?, writer.pending())?
 print(str.repr(writer.flush())?, writer.pending(), writer.inner.flushes)?
-print(str.repr(writer.write(&source, 6, 8))?, writer.pending())?
+print(str.repr(writer.write(&source[6:8]))?, writer.pending())?
 print(str.repr(writer.flush())?, writer.pending())?
-print(str.repr(writer.write(&source, 0, 8))?, writer.pending())?
+print(str.repr(writer.write(&source[:8]))?, writer.pending())?
 print(str.repr(writer.flush())?, writer.pending(), writer.inner.flushes)?
 print(writer.inner.data.to_text()?)?
 mut direct = std.io.buffered_writer(fake("", [3]?)?, 4)?
-print(str.repr(direct.write(&source, 0, 8))?, direct.pending())?
-print(str.repr(std.io.write_all(&mut direct, &source, 3, 8))?, direct.inner.data.to_text()?)?
+print(str.repr(direct.write(&source[:8]))?, direct.pending())?
+print(str.repr(std.io.write_all(&mut direct, &source[3:8]))?, direct.inner.data.to_text()?)?
 "#,
         r#"
 6 6
@@ -512,26 +512,26 @@ fn close_buffered_always_closes_and_separates_flush_from_close_errors() {
         r#"
 source = std.bytes.from_text("abcd")?
 mut clean = std.io.buffered_writer(fake("", []?)?, 8)?
-clean.write(&source, 0, 4)?
+clean.write(&source[:4])?
 print(str.repr(std.io.close_buffered(&mut clean))?)?
 print(clean.inner.data.to_text()?, clean.inner.flushes, clean.inner.closes)?
 mut unflushed = std.io.buffered_writer(fake("", []?)?, 8)?
 unflushed.inner.fail_flush = True
-unflushed.write(&source, 0, 4)?
+unflushed.write(&source[:4])?
 print(str.repr(std.io.close_buffered(&mut unflushed))?)?
 print(unflushed.inner.data.to_text()?, unflushed.pending(), unflushed.inner.closes)?
 mut undelivered = std.io.buffered_writer(fake("", [1, -2]?)?, 8)?
-undelivered.write(&source, 0, 4)?
+undelivered.write(&source[:4])?
 print(str.repr(std.io.close_buffered(&mut undelivered))?)?
 print(undelivered.inner.data.to_text()?, undelivered.pending(), undelivered.inner.flushes, undelivered.inner.closes)?
 mut unclosed = std.io.buffered_writer(fake("", []?)?, 8)?
 unclosed.inner.fail_close = True
-unclosed.write(&source, 0, 4)?
+unclosed.write(&source[:4])?
 print(str.repr(std.io.close_buffered(&mut unclosed))?)?
 print(unclosed.inner.data.to_text()?, unclosed.pending())?
 mut both = std.io.buffered_writer(fake("", [0]?)?, 8)?
 both.inner.fail_close = True
-both.write(&source, 0, 4)?
+both.write(&source[:4])?
 print(str.repr(std.io.close_buffered(&mut both))?)?
 print(both.pending(), both.inner.closes)?
 "#,
@@ -559,15 +559,15 @@ mut buffer = blank(4)?
 print(stream.read(&mut buffer, 0, 4)?, stream.position(), buffer.to_text()?)?
 print(stream.read(&mut buffer, 0, 4)?, stream.position(), buffer.to_text()?)?
 print(stream.read(&mut buffer, 0, 4)?, stream.position())?
-print(stream.seek(SeekFrom.Start(4))?, stream.write(&buffer, 0, 4)?, stream.data.to_text()?)?
+print(stream.seek(SeekFrom.Start(4))?, stream.write(&buffer[:4])?, stream.data.to_text()?)?
 print(stream.seek(SeekFrom.End(-3))?, stream.seek(SeekFrom.Current(-2))?)?
-print(stream.write(&buffer, 2, 3)?, stream.position(), stream.data.to_text()?)?
+print(stream.write(&buffer[2:3])?, stream.position(), stream.data.to_text()?)?
 print(stream.seek(SeekFrom.End(2))?, stream.read(&mut buffer, 0, 4)?)?
-print(stream.write(&buffer, 0, 1)?, stream.data.len(), stream.data.get(9)?, stream.data.get(10)?)?
+print(stream.write(&buffer[:1])?, stream.data.len(), stream.data.get(9)?, stream.data.get(10)?)?
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(-12)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(i64.MAX)))?, stream.position())?
-print(str.repr(stream.read(&mut buffer, 3, 5))?, str.repr(stream.write(&buffer, 3, 5))?)?
+print(str.repr(stream.read(&mut buffer, 3, 5))?, str.repr(stream.write(&buffer[3:5]))?)?
 print(str.repr(stream.flush())?)?
 "#,
         r#"
@@ -582,7 +582,7 @@ print(str.repr(stream.flush())?)?
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)
+Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Ok(1)
 Result[(), std.io.StreamError].Ok(())
 "#,
     );
@@ -603,9 +603,9 @@ print(std.io.seek_reader(&mut reader, SeekFrom.End(-1))?, reader.read(&mut buffe
 print(str.repr(std.io.seek_reader(&mut reader, SeekFrom.Start(-1)))?)?
 mut writer = std.io.buffered_writer(std.io.cursor(std.bytes.empty()?), 8)?
 source = std.bytes.from_text("abcdef")?
-print(writer.write(&source, 0, 6)?, writer.inner.data.len())?
+print(writer.write(&source[:6])?, writer.inner.data.len())?
 print(std.io.seek_writer(&mut writer, SeekFrom.Start(1))?, writer.pending(), writer.inner.data.to_text()?)?
-print(writer.write(&source, 4, 6)?, str.repr(writer.flush())?, writer.inner.data.to_text()?)?
+print(writer.write(&source[4:6])?, str.repr(writer.flush())?, writer.inner.data.to_text()?)?
 "#,
         r#"
 2 6 8
@@ -628,7 +628,7 @@ fn file_stream_reads_writes_and_seeks_bytes() {
         r#"
 mut stream = std.io.open_file("data.bin", "w+")?
 source = std.bytes.from_list(&[0u8, 255u8, 10u8, 13u8, 65u8, 66u8]?)?
-print(str.repr(std.io.write_all(&mut stream, &source, 0, 6))?)?
+print(str.repr(std.io.write_all(&mut stream, &source[:6]))?)?
 print(str.repr(stream.flush())?, str.repr(stream.sync())?)?
 print(stream.seek(SeekFrom.Current(0))?, stream.seek(SeekFrom.Start(1))?)?
 mut buffer = blank(8)?
@@ -637,10 +637,10 @@ print(stream.read(&mut buffer, 0, 8)?, stream.read(&mut buffer, 2, 2)?)?
 print(stream.seek(SeekFrom.End(-2))?, stream.read(&mut buffer, 0, 1)?, buffer.get(0)?)?
 print(stream.seek(SeekFrom.Current(-3))?, stream.seek(SeekFrom.End(4))?)?
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, str.repr(stream.seek(SeekFrom.Current(-100)))?)?
-print(str.repr(stream.read(&mut buffer, 4, 9))?, str.repr(stream.write(&source, 4, 7))?)?
+print(str.repr(stream.read(&mut buffer, 4, 9))?, str.repr(stream.write(&source[4:7]))?)?
 print(str.repr(stream.close())?, str.repr(stream.close())?, stream.file.closed)?
 print(str.repr(stream.read(&mut buffer, 0, 1))?)?
-print(str.repr(stream.write(&source, 0, 1))?)?
+print(str.repr(stream.write(&source[:1]))?)?
 print(str.repr(stream.seek(SeekFrom.Start(0)))?)?
 print(str.repr(stream.flush())?)?
 "#,
@@ -653,7 +653,7 @@ Result[(), std.io.StreamError].Ok(()) Result[(), std.io.StreamError].Ok(())
 4 1 65
 2 10
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.System(22)))
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)
+Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Ok(2)
 Result[(), std.io.StreamError].Ok(()) Result[(), std.io.StreamError].Ok(()) True
 Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))
 Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))
@@ -670,10 +670,10 @@ fn file_streams_enforce_the_open_mode() {
 mut created = std.io.open_file("mode.bin", "w")?
 source = std.bytes.from_text("abc")?
 mut buffer = blank(3)?
-print(created.write(&source, 0, 3)?, str.repr(created.read(&mut buffer, 0, 3))?)?
+print(created.write(&source[:3])?, str.repr(created.read(&mut buffer, 0, 3))?)?
 created.close()?
 mut reopened = std.io.from_file(open("mode.bin", "r")?)
-print(reopened.read(&mut buffer, 0, 3)?, buffer.to_text()?, str.repr(reopened.write(&source, 0, 3))?)?
+print(reopened.read(&mut buffer, 0, 3)?, buffer.to_text()?, str.repr(reopened.write(&source[:3]))?)?
 match std.io.open_file("missing/none.bin", "r"):
     case Ok(_):
         print("opened")?
@@ -733,11 +733,11 @@ mut line = std.bytes.empty()?
 mut lines = 0
 while input.read_until(10u8, &mut line, 64)? > 0:
     lines += 1
-    std.io.write_all(&mut output, &line, 0, line.len()).unwrap()
+    std.io.write_all(&mut output, &line).unwrap()
     line.clear()
 output.flush()?
 note = std.bytes.from_text("done\n")?
-std.io.write_all(&mut errors, &note, 0, note.len()).unwrap()
+std.io.write_all(&mut errors, &note).unwrap()
 errors.flush()?
 print(lines, input.read_until(10u8, &mut line, 64)?)?
 "#,
@@ -767,7 +767,7 @@ print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
 first = reader.read_until(10u8, &mut line, 16)
 exact = std.io.read_exact(&mut reader, &mut scratch, 0, 4)
-written = std.io.write_all(&mut writer, &line, 0, line.len())
+written = std.io.write_all(&mut writer, &line)
 copied = std.io.copy_all(&mut reader, &mut writer, &mut scratch)
 flushed = writer.flush()
 sought = std.io.seek_writer(&mut writer, SeekFrom.Start(0))
@@ -800,7 +800,7 @@ print("__test_fail_allocations_after_0__")?
 a = std.io.buffered_reader(std.io.stdin(), 16)
 b = std.io.buffered_writer(std.io.stdout(), 16)
 c = std.io.read_up_to(&mut reader, &mut out, 8)
-d = stream.write(&source, 0, 4)
+d = stream.write(&source[:4])
 e = held.read_until(10u8, &mut line, 8)
 print("__test_restore_allocations__")?
 print(str.repr(a)?)?
@@ -851,7 +851,7 @@ std.io.read_exact(&mut other, &mut buffer, 0, 3).unwrap()
             r#"
 mut reader = std.io.buffered_reader(std.io.stdin(), 4)?
 source = blank(3)?
-std.io.write_all(&mut reader, &source, 0, 3).unwrap()
+std.io.write_all(&mut reader, &source[:3]).unwrap()
 "#,
             "std.io.BufReader[std.io.Stdin] does not satisfy std.io.Writer: missing method `write`",
         ),

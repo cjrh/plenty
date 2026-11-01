@@ -1,5 +1,5 @@
 import std.bytes
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 
 # Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
 # Everything here is checked Plenty: ranges are validated before reads and
@@ -147,14 +147,14 @@ pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
 # RFC 7468 strict PEM: one BEGIN line, base64 lines of exactly 64 symbols
 # except a shorter last line, the matching END line and one line terminator.
 # The label is bytes so a literal such as `b"PUBLIC KEY"` costs no allocation.
-pub def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
+pub def pem_encode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]:
     checked(start, stop, source.len())?
     pem_label(label)?
     if start == stop:
         return Err(EncodingError.InvalidLength)
     encoded = base64_encode(source, start, stop)?
     lines = (encoded.len() + 63) // 64
-    mut text = lifted(std.bytes.with_capacity(encoded.len() + lines + 2 * label.len() + 32))?
+    mut text = lifted(std.bytes.with_capacity(encoded.len() + lines + 2 * len(label) + 32))?
     pem_boundary(&mut text, b"-----BEGIN ", label)?
     for index in range(encoded.len()):
         emit(&mut text, i64(encoded[index]))?
@@ -163,20 +163,20 @@ pub def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
     pem_boundary(&mut text, b"-----END ", label)?
     Ok(text)
 
-pub def pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[str, EncodingError]:
+pub def pem_text(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[str, EncodingError]:
     lifted(pem_encode(source, start, stop, label)?.to_text())
 
 # Accepts LF or CRLF, used consistently, and nothing outside the one block:
 # no explanatory text, headers, blank lines or whitespace. `PemLabel` means
 # the BEGIN label differs from `label` or `label` is not an RFC 7468 label;
 # `InvalidPem` and the base64 errors give an offset into `source`.
-pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
+pub def pem_decode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]:
     checked(start, stop, source.len())?
     pem_label(label)?
     mut at = pem_expect(source, start, stop, b"-----BEGIN ")?
-    if not pem_matches(source, at, stop, label) or not pem_matches(source, at + label.len(), stop, b"-----"):
+    if not pem_matches(source, at, stop, label) or not pem_matches(source, at + len(label), stop, b"-----"):
         return Err(EncodingError.PemLabel)
-    at += label.len() + 5
+    at += len(label) + 5
     mut eol = 0
     if at < stop and source[at] == 10u8:
         eol = 1
@@ -229,15 +229,15 @@ pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
                 case _:
                     Err(error)
 
-pub def pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]:
+pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
     pem_decode(&source, 0, source.len(), label)
 
 # RFC 7468 section 3: printable ASCII except `-`, with single spaces or
 # hyphens only between such characters. The empty label is rejected because
 # no key or certificate format uses it.
-def pem_label[S: ByteSource](label: &S) -> Result[(), EncodingError]:
-    count = label.len()
+def pem_label(label: &[u8]) -> Result[(), EncodingError]:
+    count = len(label)
     if count == 0:
         return Err(EncodingError.PemLabel)
     for index in range(count):
@@ -249,29 +249,29 @@ def pem_label[S: ByteSource](label: &S) -> Result[(), EncodingError]:
             return Err(EncodingError.PemLabel)
     Ok(())
 
-def pem_boundary[K: ByteSource, S: ByteSource](text: &mut Bytes, kind: &K, label: &S) -> Result[(), EncodingError]:
-    for index in range(kind.len()):
+def pem_boundary(text: &mut Bytes, kind: &[u8], label: &[u8]) -> Result[(), EncodingError]:
+    for index in range(len(kind)):
         emit(text, i64(kind[index]))?
-    for index in range(label.len()):
+    for index in range(len(label)):
         emit(text, i64(label[index]))?
     for _ in range(5):
         emit(text, 45)?
     emit(text, 10)
 
-def pem_matches[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> bool:
-    if stop - at < expected.len():
+def pem_matches(source: &Bytes, at: i64, stop: i64, expected: &[u8]) -> bool:
+    if stop - at < len(expected):
         return False
-    for index in range(expected.len()):
+    for index in range(len(expected)):
         if source[at + index] != expected[index]:
             return False
     True
 
 # The position after `expected`, or an error at the first byte that differs.
-def pem_expect[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> Result[i64, EncodingError]:
-    for index in range(expected.len()):
+def pem_expect(source: &Bytes, at: i64, stop: i64, expected: &[u8]) -> Result[i64, EncodingError]:
+    for index in range(len(expected)):
         if at + index >= stop or source[at + index] != expected[index]:
             return Err(EncodingError.InvalidPem(at + index))
-    Ok(at + expected.len())
+    Ok(at + len(expected))
 
 def pem_line_end(source: &Bytes, at: i64, stop: i64, eol: i64) -> Result[i64, EncodingError]:
     if eol == 2:
@@ -305,7 +305,7 @@ def quantum(bits: i64) -> i64:
         count += 1
     count
 
-def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: &S, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
+def encode_radix(source: &Bytes, start: i64, stop: i64, symbols: &[u8], bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
     checked(start, stop, source.len())?
     count = stop - start
     if count > (i64.MAX - 7) // 8:
@@ -333,7 +333,7 @@ def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: 
 
 # Fixed alphabets avoid allocating a lookup table on every call; a custom
 # Encoding pays for its 128-byte table once and reuses it.
-def radix_value[V: ByteSource](code: i64, values: &V, kind: i64) -> i64:
+def radix_value(code: i64, values: &[u8], kind: i64) -> i64:
     if kind == 1:
         if code >= 65 and code <= 90:
             return code - 65
@@ -350,7 +350,7 @@ def radix_value[V: ByteSource](code: i64, values: &V, kind: i64) -> i64:
             return value
     -1
 
-def decode_radix[V: ByteSource](source: &Bytes, start: i64, stop: i64, values: &V, kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
+def decode_radix(source: &Bytes, start: i64, stop: i64, values: &[u8], kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
     checked(start, stop, source.len())?
     group = quantum(bits)
     if padding >= 0 and (stop - start) % group != 0:

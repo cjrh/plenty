@@ -76,10 +76,11 @@ def net_error(error: NetError) -> SseError:
 
 # Appends `name: ` and then text[start:stop] and a line feed.
 def field(out: &mut Bytes, name: &str, text: &Bytes, start: i64, stop: i64) -> Result[(), SseError]:
-    bytes_of(out.extend(&bytes_of(std.bytes.from_text(name))?))?
+    spelled = bytes_of(std.bytes.from_text(name))?
+    bytes_of(out.extend(&spelled))?
     bytes_of(out.push(colon))?
     bytes_of(out.push(space))?
-    bytes_of(out.extend_range(text, start, stop))?
+    bytes_of(out.extend(&text[start:stop]))?
     bytes_of(out.push(line_feed))
 
 # Appends one `name: line` field for each line of text[start:stop]. CRLF, CR
@@ -240,7 +241,7 @@ pub class EventStream[T]:
         while at < size:
             outcome: Result[i64, NetError] = match &mut self._stream:
                 case Some(stream):
-                    stream.write_before(&self._out, at, size, deadline, &self._cancel)
+                    stream.write_before(&self._out[at:size], deadline, &self._cancel)
                 case Nothing:
                     Err(NetError.Reset)
             match outcome:

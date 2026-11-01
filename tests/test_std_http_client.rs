@@ -10,9 +10,10 @@ use support::http_program_output as output;
 const SCRIPTED: &str = r##"import std.http.client as hc
 import std.bytes
 import std.http
+import std.io
 import std.net
 import std.time
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.http.client import ClientError, Endpoint, Request
 from std.http import HttpError
 from std.net import NetError
@@ -55,21 +56,22 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         if cancel.is_cancelled():
             return Err(ClientError.Net(NetError.Cancelled))
-        mut count = stop - start
+        mut count = len(source)
         if self.fail_after >= 0:
             if self.sent >= self.fail_after:
                 return Err(ClientError.Net(NetError.Reset))
             if count > self.fail_after - self.sent:
                 count = self.fail_after - self.sent
         if self.echo:
-            source.write_stdout(start, start + count).unwrap()
+            mut out = std.io.stdout()
+            out.write(&source[:count]).unwrap()
         self.sent += count
         mut end = 0
         if self.released > 0:
@@ -420,7 +422,7 @@ pub class Pieces:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.data, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.data[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
@@ -1430,13 +1432,13 @@ pub class Faulty:
             case Err(_):
                 Err(self.cause)
 
-    pub def write_before[S: ByteSource](self: &mut Faulty, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
+    pub def write_before(self: &mut Faulty, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         if self.fail_write:
             self.writes += 1
             if self.writes > 1:
                 return Err(self.cause)
             return Ok(1)
-        self.input.write_before(source, start, stop, deadline, cancel)
+        self.input.write_before(source, deadline, cancel)
 
 pub class Faults:
     pending: Mutex[list[Faulty]]

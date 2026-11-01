@@ -85,10 +85,10 @@ pub class Ticker:
         exchange.start(std.http.response(200, "OK")?)?
         tick = std.bytes.from_text("tick\n")?
         while not exchange.stopping():
-            exchange.write(&tick, 0, tick.len())?
+            exchange.write(&tick)?
             std.time.sleep(&std.time.milliseconds(20u32))
         bye = std.bytes.from_text("bye\n")?
-        exchange.write(&bye, 0, bye.len())?
+        exchange.write(&bye)?
         Ok(())
 
 def main() -> Result[(), AllocError | IoError | ThreadError | std.http.server.ServerError | std.net.NetError | std.ready.WaitError | std.signal.SignalError]:

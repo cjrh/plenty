@@ -1,4 +1,4 @@
-from std.bytes import ByteSource, Bytes, BytesError, with_capacity
+from std.bytes import Bytes, BytesError, with_capacity
 from std.fmt import Formatter, FormatError, formatter
 from std.io import Writer, StreamError, write_all
 from std.time import Timestamp, wall_now
@@ -200,15 +200,13 @@ pub class LineBuffer:
     _limit: i64
     _overflow: bool
 
-    pub def write[S: ByteSource](self: &mut LineBuffer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > source.len():
-            return Err(StreamError.OutOfRange)
-        if stop - start > self._limit - self.data.len():
+    pub def write(self: &mut LineBuffer, source: &[u8]) -> Result[i64, StreamError]:
+        if len(source) > self._limit - self.data.len():
             self._overflow = True
             return Err(StreamError.OutOfRange)
-        match self.data.extend_range(source, start, stop):
+        match self.data.extend(source):
             case Ok(_):
-                Ok(stop - start)
+                Ok(len(source))
             case Err(_):
                 Err(StreamError.OutOfRange)
 
@@ -293,7 +291,7 @@ pub class TextSink[W]:
                 if self._out.writer._overflow:
                     return Err(LogError.TooLarge)
                 return Err(LogError.Format(error))
-        match write_all(&mut self.writer, &self._out.writer.data, 0, self._out.writer.data.len()):
+        match write_all(&mut self.writer, &self._out.writer.data):
             case Ok(_):
                 pass
             case Err(partial):

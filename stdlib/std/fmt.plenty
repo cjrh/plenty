@@ -104,7 +104,7 @@ pub class Formatter[W]:
             return Err(FormatError.LimitExceeded)
         mut at = begin
         while at < end:
-            match self.writer.write(&self._scratch, at, end):
+            match self.writer.write(&self._scratch[at:end]):
                 case Ok(moved):
                     if moved == 0:
                         return Err(FormatError.Output(StreamError.WriteZero))

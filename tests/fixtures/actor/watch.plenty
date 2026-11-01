@@ -74,8 +74,8 @@ def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
     mut first_peer = socket.accept(&deadline, &cancel)?
     second = connect(&address, &deadline, &cancel)?
     mut second_peer = socket.accept(&deadline, &cancel)?
-    first_peer.write_all_before(b"a", 0, 1, &deadline, &cancel)?
-    second_peer.write_all_before(b"b", 0, 1, &deadline, &cancel)?
+    first_peer.write_all_before(b"a", &deadline, &cancel)?
+    second_peer.write_all_before(b"b", &deadline, &cancel)?
     mut actors = stage[Pair, i64, Fault](1, 4, 8)?
     actors.start(Pair(first, second, 0u64, 0u64, 0), 65536).unwrap()
     actors.run(&deadline, &cancel)?

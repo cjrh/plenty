@@ -22,7 +22,7 @@ from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | StreamError | std.bytes.BytesError]:
     mut stream = listener.accept(deadline, cancel)?
     reply = std.bytes.from_text("hello from the server")?
-    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
+    stream.write_all_before(&reply, deadline, cancel)?
     stream.close()
 
 def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | StreamError | std.bytes.BytesError]:
@@ -110,10 +110,10 @@ Both distinctions survive the network-error wrappers in
 | `connecting.stream()` | `TcpStream`: consumes a finished attempt |
 | `descriptor()` on `TcpStream`, `TcpListener`, `UdpSocket`, `Connecting`, `Lookup` | `&File`: the handle a selector waits on, for [`std.ready.Watchable`](ready.md#selectors) |
 | `stream.read_now(buffer, start, stop)` | `Result[i64, NetError]`: one nonblocking read attempt into `&mut Bytes` |
-| `stream.write_now(source, start, stop)` | `Result[i64, NetError]`: one nonblocking write attempt from any [`ByteSource`](bytes.md#byte-sources) |
+| `stream.write_now(source: &[u8])` | `Result[i64, NetError]`: one nonblocking write attempt from a [`&[u8]` view](bytes.md#byte-views) |
 | `stream.read_before(buffer, start, stop, deadline, cancel)` | `Result[i64, NetError]`: one read; 0 is end of input |
-| `stream.write_before(source, start, stop, deadline, cancel)` | `Result[i64, NetError]`: offer the whole range in one write and return the count accepted; `source` is any [`ByteSource`](bytes.md#byte-sources) |
-| `stream.write_all_before(source, start, stop, deadline, cancel)` | `Result[(), NetError]` |
+| `stream.write_before(source: &[u8], deadline, cancel)` | `Result[i64, NetError]`: offer all of `source` in one write and return the count accepted; `source` is a [`&[u8]` view](bytes.md#byte-views) |
+| `stream.write_all_before(source: &[u8], deadline, cancel)` | `Result[(), NetError]` |
 | `stream.read`, `write`, `flush` | The [`std.io`](io.md) `Reader` and `Writer` methods, returning `StreamError` on failure; `read` and `write` block without a bound |
 | `stream.close()` | `Result[(), StreamError]`, as required by [`std.io.Closer`](io.md#stream-contracts) |
 | `stream.shutdown(direction: Shutdown)` | `Result[(), NetError]`; `Shutdown.Read`, `Write` or `Both` |
@@ -146,11 +146,10 @@ Both distinctions survive the network-error wrappers in
   blocking `std.io` contract by waiting without a deadline when the socket
   would block. A read may return fewer bytes than were sent, and a write may
   accept fewer than offered: loop, or use `write_all_before`.
-- `write_before` offers all of `source[start:stop]` without a chunk-size cap.
-  The nonblocking write accepts only what currently fits in the kernel's send
-  buffer; a successful count is progress, not a guarantee that the whole range
-  was sent. The full range must satisfy `0 <= start <= stop <= source.len()`;
-  it is never clipped to make an invalid range valid.
+- `write_before` offers all of `source` without a chunk-size cap. The
+  nonblocking write accepts only what currently fits in the kernel's send
+  buffer; a successful count is progress, not a guarantee that the whole view
+  was sent. Pass `&buffer[a:b]` to write part of a buffer; view bounds clamp.
 - Writing to a connection the peer has closed is `Reset`, never `SIGPIPE`.
 - On `TimedOut` or `Cancelled` the socket and the caller's buffer are
   unchanged, apart from what earlier steps of `write_all_before` sent.
@@ -218,7 +217,7 @@ demonstrates reading the reported connection and handling stale readiness.
 | Function or method | Result |
 |---|---|
 | `bind_udp(address: &SocketAddress)` | `Result[UdpSocket, NetError]` |
-| `socket.send_to(source, start, stop, target: &SocketAddress, deadline, cancel)` | `Result[i64, NetError]`; `source` is any `ByteSource` |
+| `socket.send_to(source: &[u8], target: &SocketAddress, deadline, cancel)` | `Result[i64, NetError]`; `source` is a [`&[u8]` view](bytes.md#byte-views) |
 | `socket.receive_from(buffer, start, stop, deadline, cancel)` | `Result[Datagram, NetError]` |
 | `socket.set_broadcast(enabled: bool)` | `Result[(), NetError]` |
 | `socket.local_address()`, `close()` | As for TCP |

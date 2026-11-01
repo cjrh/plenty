@@ -264,7 +264,7 @@ pub class ChunkedBody[E, R]:
                 return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
             self.state = size_line
         elif self.state == size_line:
-            value = match std.http.parse_chunk_size(&self.line, size):
+            value = match std.http.parse_chunk_size(&self.line[:size]):
                 case Ok(found):
                     found
                 case Err(error):

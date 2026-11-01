@@ -72,13 +72,13 @@ are UTF-8 byte offsets. It does not parse MIME headers or multipart messages.
 ## PEM
 
 ```text
-pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_encode(source: &Bytes, start: i64, stop: i64, label: &[u8])
     -> Result[Bytes, EncodingError]
-pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_text(source: &Bytes, start: i64, stop: i64, label: &[u8])
     -> Result[str, EncodingError]
-pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_decode(source: &Bytes, start: i64, stop: i64, label: &[u8])
     -> Result[Bytes, EncodingError]
-pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]
+pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
 ```
 
 These read and write one block in the strict form of

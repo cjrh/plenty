@@ -179,30 +179,31 @@ b"\x89PNG" 4 80
 
 Operations that only read another sequence of bytes, such as `find_bytes`,
 `matches`, `find_in`, and `extend`, take a literal as readily as a buffer. Their
-parameter is generic over `ByteSource`, a protocol that both `bytes` and `Bytes`
-implement, so each call reads the bytes where they are and nothing is copied.
-Your own functions can accept either form the same way:
+parameter is a `&[u8]`
+[slice view](../../design/language/04-expressions/slices.md#slice-views): a
+literal, `&buffer`, or part of either, `&buffer[a:b]`, converts to it, so each
+call reads the bytes where they are and nothing is copied. Your own functions
+can accept every form the same way:
 
 ```plenty
 import std.bytes
-from std.bytes import ByteSource
 
-def starts_png[S: ByteSource](data: &S) -> bool:
-    data.len() >= 4 and data[0] == 137u8 and data[1] == 80u8
+def starts_png(data: &[u8]) -> bool:
+    len(data) >= 4 and data[0] == 137u8 and data[1] == 80u8
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     magic = b"\x89PNG"
     mut header = std.bytes.from_bytes(magic)?
     header.extend(b"\r\n\x1a\n")?
     print(header.find_bytes(b"\r\n", 0, header.len())?)?
-    print(header.matches(0, &magic, 0, 4)?, header.find_in(b"\n\r", 0, header.len())?)?
-    print(starts_png(&header), starts_png(&magic), starts_png(b"GIF8"))?
+    print(header.matches(0, &magic[:4])?, header.find_in(b"\n\r", 0, header.len())?)?
+    print(starts_png(&header), starts_png(&header[4:]), starts_png(b"GIF8"))?
     Ok(())
 ```
 ```output
 Option[i64].Some(4)
 True Option[i64].Some(4)
-True True False
+True False False
 ```
 
 The literal is never converted into a `Bytes` behind your back. To change bytes,

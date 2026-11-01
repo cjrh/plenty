@@ -101,7 +101,7 @@ def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, can
         if count == 0:
             stream.close_before(deadline, cancel)?
             return Ok(total)
-        stream.write_all_before(&buffer, 0, count, deadline, cancel)?
+        stream.write_all_before(&buffer[:count], deadline, cancel)?
         total += count
     Ok(total)
 "#;
@@ -117,7 +117,7 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
     tcp = connect(&address, &deadline, &cancel).unwrap()
     mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
     # A literal is encrypted in place (issue #156).
-    stream.write_all_before(b"hello", 0, 5, &deadline, &cancel).unwrap()
+    stream.write_all_before(b"hello", &deadline, &cancel).unwrap()
     mut reply = std.bytes.with_capacity(16)?
     reply.resize(16, 0u8)?
     count = stream.read_before(&mut reply, 0, 16, &deadline, &cancel).unwrap()
@@ -272,7 +272,7 @@ fn a_connection_cut_without_close_notify_is_truncated() {
 def cut(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
     mut stream = handshake(listener, config, deadline, cancel)?
     message = std.bytes.from_text("partial").unwrap()
-    stream.write_all_before(&message, 0, 7, deadline, cancel)?
+    stream.write_all_before(&message[:7], deadline, cancel)?
     # Dropping the stream closes the socket without close_notify.
     Ok(())
 "#,
@@ -348,11 +348,11 @@ data.resize(200000, 120u8)?
 with spawn(count, &listener, &server, &deadline, &cancel)? as worker:
     tcp = connect(&address, &deadline, &cancel).unwrap()
     mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
-    print(stream.write_before(&data, 0, 200000, &deadline, &cancel).unwrap())?
-    stream.write_all_before(&data, 16384, 100000, &deadline, &cancel).unwrap()
+    print(stream.write_before(&data[:200000], &deadline, &cancel).unwrap())?
+    stream.write_all_before(&data[16384:100000], &deadline, &cancel).unwrap()
     mut at = 100000
     while at < 200000:
-        at += stream.write(&data, at, 200000).unwrap()
+        at += stream.write(&data[at:200000]).unwrap()
     stream.flush().unwrap()
     stream.close().unwrap()
     print(worker.join().unwrap())?
@@ -372,14 +372,14 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
     tcp = connect(&address, &deadline, &cancel).unwrap()
     mut stream = std.tls.connect(tcp, &client, "localhost", &deadline, &cancel).unwrap()
     message = std.bytes.from_text("abc")?
-    stream.write(&message, 0, 3).unwrap()
+    stream.write(&message[:3]).unwrap()
     mut reply = std.bytes.with_capacity(8)?
     reply.resize(8, 0u8)?
     print(stream.read(&mut reply, 0, 8).unwrap())?
     print(stream.read(&mut reply, 0, 0).unwrap())?
     stream.close().unwrap()
     print(worker.join().unwrap())?
-    match stream.write(&message, 0, 3):
+    match stream.write(&message[:3]):
         case Err(_):
             print("closed")?
         case Ok(_):
@@ -477,13 +477,13 @@ def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, ca
         if count == 0:
             stream.close_before(deadline, cancel)?
             return Ok(total)
-        stream.write_all_before(&buffer, 0, count, deadline, cancel)?
+        stream.write_all_before(&buffer[:count], deadline, cancel)?
         total += count
     Ok(total)
 
 def ping(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
     message = std.bytes.from_text("ping").unwrap()
-    stream.write_all_before(&message, 0, 4, deadline, cancel)?
+    stream.write_all_before(&message[:4], deadline, cancel)?
     mut reply = std.bytes.with_capacity(16).unwrap()
     reply.resize(16, 0u8).unwrap()
     stream.read_before(&mut reply, 0, 16, deadline, cancel)?
@@ -799,7 +799,7 @@ def nonblocking_echo(listener: &TcpListener, config: &ServerConfig, deadline: &D
     while True:
         mut progressed = False
         if start < stop:
-            match stream.try_write(&buffer, start, stop)?:
+            match stream.try_write(&buffer[start:stop])?:
                 case Some(count):
                     start += count
                     progressed = True
@@ -841,7 +841,7 @@ with spawn(nonblocking_echo, &listener, &server, &deadline, &cancel)? as worker:
     reply.resize(3000, 0u8)?
     mut matched = True
     for round in range(20):
-        stream.write_all_before(&message, 0, 3000, &deadline, &cancel).unwrap()
+        stream.write_all_before(&message[:3000], &deadline, &cancel).unwrap()
         mut received = 0
         while received < 3000:
             received += stream.read_before(&mut reply, received, 3000, &deadline, &cancel).unwrap()
@@ -890,12 +890,12 @@ reply.resize(16, 0u8)?
 print(server.read(&mut reply, 0, 16).unwrap())?
 settle(&mut client, &mut server).unwrap()
 print(client.handshaking(), server.handshaking(), server.server_name().unwrap())?
-print(client.write(b"hello", 0, 5).unwrap())?
+print(client.write(b"hello").unwrap())?
 settle(&mut client, &mut server).unwrap()
 count = server.read(&mut reply, 0, 16).unwrap().unwrap()
 print(reply.slice(0, count)?.to_text()?)?
 client.close()
-print(str.repr(client.write(b"late", 0, 4))?)?
+print(str.repr(client.write(b"late"))?)?
 settle(&mut client, &mut server).unwrap()
 print(server.read(&mut reply, 0, 16).unwrap())?
 "#,

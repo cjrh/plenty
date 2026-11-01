@@ -4,7 +4,7 @@
 # validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 from std.report import Formatter, FormatError
 
 pub enum CryptoError:
@@ -65,11 +65,6 @@ def reported[T](result: Result[T, BytesError]) -> Result[T, CryptoError]:
                 case _:
                     Err(CryptoError.OutOfRange)
 
-def in_range(start: i64, stop: i64, count: i64) -> Result[(), CryptoError]:
-    if start < 0 or start > stop or stop > count:
-        return Err(CryptoError.OutOfRange)
-    Ok(())
-
 # A hasher state behind a `Bytes` that byte operations see as empty. The
 # native operations on it return false (or -1) once it has finished.
 def hasher_state(result: Result[ByteStorage, AllocError]) -> Result[Bytes, CryptoError]:
@@ -84,9 +79,8 @@ def absorbed(more: bool) -> Result[(), CryptoError]:
         return Err(CryptoError.Finished)
     Ok(())
 
-def updated(state: &mut Bytes, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-    in_range(start, stop, data.len())?
-    absorbed(__crypto_update(state, data, start, stop))
+def updated(state: &mut Bytes, data: &[u8]) -> Result[(), CryptoError]:
+    absorbed(__crypto_update(state, data))
 
 # Writes `size` output bytes at target[offset:]; `size` must be the
 # algorithm's output size.
@@ -112,8 +106,8 @@ pub class Digest:
     pub def size(self) -> i64:
         self._size
 
-    pub def update(self: &mut Digest, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        updated(&mut self._state, data, start, stop)
+    pub def update(self: &mut Digest, data: &[u8]) -> Result[(), CryptoError]:
+        updated(&mut self._state, data)
 
     pub def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
@@ -139,8 +133,8 @@ pub class Mac:
     pub def size(self) -> i64:
         self._size
 
-    pub def update(self: &mut Mac, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        updated(&mut self._state, data, start, stop)
+    pub def update(self: &mut Mac, data: &[u8]) -> Result[(), CryptoError]:
+        updated(&mut self._state, data)
 
     pub def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
@@ -153,12 +147,11 @@ pub class Mac:
     pub def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]:
         finished(&mut self._state, target, offset, self._size)
 
-    # Finishes and compares the tag with expected[start:stop] in constant
-    # time. A tag of the wrong length is a mismatch, not an error.
-    pub def verify(self: &mut Mac, expected: &Bytes, start: i64, stop: i64) -> Result[bool, CryptoError]:
-        # 1 when the tag equals expected[start:stop], 0 when not.
-        in_range(start, stop, expected.len())?
-        match __crypto_verify(self._state, expected, start, stop):
+    # Finishes and compares the tag with `expected` in constant time. A tag
+    # of the wrong length is a mismatch, not an error.
+    pub def verify(self: &mut Mac, expected: &[u8]) -> Result[bool, CryptoError]:
+        # 1 when the tag equals `expected`, 0 when not.
+        match __crypto_verify(self._state, expected):
             case 1:
                 Ok(True)
             case 0:
@@ -174,17 +167,17 @@ pub def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]:
 pub def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]:
     if algorithm == Algorithm.Blake3:
         return Err(CryptoError.UnsupportedAlgorithm)
-    state = hasher_state(__crypto_new_keyed(kind(algorithm, True), key, 0, key.len()))?
+    state = hasher_state(__crypto_new_keyed(kind(algorithm, True), key))?
     Ok(Mac(state, output_size(algorithm)))
 
 def hashed(algorithm: Algorithm, data: &Bytes) -> Result[Bytes, CryptoError]:
     mut hasher = digest(algorithm)?
-    hasher.update(data, 0, data.len())?
+    hasher.update(data)?
     hasher.finish()
 
 def keyed(algorithm: Algorithm, key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
     mut mac = hmac(algorithm, key)?
-    mac.update(data, 0, data.len())?
+    mac.update(data)?
     mac.finish()
 
 pub def sha256(data: &Bytes) -> Result[Bytes, CryptoError]:
@@ -200,12 +193,12 @@ pub def blake3(data: &Bytes) -> Result[Bytes, CryptoError]:
 pub def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]:
     if key.len() != 32:
         return Err(CryptoError.InvalidKeyLength)
-    state = hasher_state(__crypto_new_keyed(8u8, key, 0, key.len()))?
+    state = hasher_state(__crypto_new_keyed(8u8, key))?
     Ok(Mac(state, 32))
 
 pub def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
     mut mac = blake3_keyed_hasher(key)?
-    mac.update(data, 0, data.len())?
+    mac.update(data)?
     mac.finish()
 
 # Context is a fixed, globally unique application/purpose string. This is a
@@ -216,7 +209,7 @@ pub def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]:
 
 pub def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]:
     mut hasher = blake3_derive_hasher(context)?
-    hasher.update(key_material, 0, key_material.len())?
+    hasher.update(key_material)?
     hasher.finish()
 
 # Legacy: only for protocols that require SHA-1. Never use it for security.
@@ -467,7 +460,7 @@ pub class RsaPublicKey:
     pub def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
         if signature.len() != self._size:
             return Err(AdvancedError.InvalidLength)
-        status = __crypto_rsa_verify(self._key, rsa_scheme(scheme), message, signature)
+        status = __crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature)
         if status < 0:
             advanced_status(status)?
         Ok(status == 1)
@@ -502,7 +495,7 @@ pub class P256PublicKey:
     # The signature is the fixed 64-byte r || s form; a DER-encoded
     # signature has another length and is an InvalidLength error.
     pub def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
-        status = __crypto_p256_verify(self._point, message, signature)
+        status = __crypto_p256_verify(&self._point, message, signature)
         if status < 0:
             return Err(AdvancedError.InvalidLength)
         Ok(status == 1)
@@ -567,15 +560,15 @@ def der_whole(der: &Bytes) -> Result[Der, AdvancedError]:
         return Err(AdvancedError.InvalidKey)
     Ok(outer)
 
-def der_same[S: ByteSource](der: &Bytes, element: Der, expected: &S) -> Result[bool, AdvancedError]:
-    if element.stop - element.start != expected.len():
+def der_same(der: &Bytes, element: Der, expected: &[u8]) -> Result[bool, AdvancedError]:
+    if element.stop - element.start != len(expected):
         return Ok(False)
-    advanced_bytes(der.matches(element.start, expected, 0, expected.len()))
+    advanced_bytes(der.matches(element.start, expected))
 
 # SubjectPublicKeyInfo (RFC 5280): SEQUENCE { AlgorithmIdentifier, BIT
 # STRING }. Comparing the identifier with one fixed encoding rejects every
 # other algorithm, curve and parameter form. Returns the key bits.
-def spki[S: ByteSource](der: &Bytes, algorithm: &S) -> Result[Der, AdvancedError]:
+def spki(der: &Bytes, algorithm: &[u8]) -> Result[Der, AdvancedError]:
     outer = der_whole(der)?
     identifier = der_at(der, outer.start, outer.stop, 48u8)?
     if not der_same(der, identifier, algorithm)?:
@@ -690,7 +683,7 @@ pub def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, Advance
     Ok(RsaPrivateKey(state))
 
 def p256_checked(point: Bytes) -> Result[P256PublicKey, AdvancedError]:
-    advanced_status(__crypto_p256_check(point))?
+    advanced_status(__crypto_p256_check(&point))?
     Ok(P256PublicKey(point))
 
 # A 65-byte uncompressed SEC1 point: 0x04, then x and y. Compressed points
@@ -761,8 +754,8 @@ def ed25519_small_order(data: &Bytes, at: i64) -> Result[bool, AdvancedError]:
             Ok(False)
 
 # Whether data[at:at + 31] equals a small-order y's low 31 bytes.
-def ed25519_y[S: ByteSource](data: &Bytes, at: i64, low: &S) -> Result[bool, AdvancedError]:
-    advanced_bytes(data.matches(at, low, 0, 31))
+def ed25519_y(data: &Bytes, at: i64, low: &[u8]) -> Result[bool, AdvancedError]:
+    advanced_bytes(data.matches(at, low))
 
 # Unencrypted PKCS #8 (RFC 8410) holding an Ed25519 key. Returns the 32-byte
 # seed that ed25519_sign takes. Version 1 may include the public key, which
@@ -813,4 +806,4 @@ def ed25519_matches(der: &Bytes, at: i64, stop: i64, seed: &Bytes) -> Result[boo
     if public.stop != stop or public.stop - public.start != 33 or der[public.start] != 0u8:
         return Ok(False)
     derived = ed25519_public_key(seed)?
-    advanced_bytes(der.matches(public.start + 1, &derived, 0, 32))
+    advanced_bytes(der.matches(public.start + 1, &derived[0:32]))

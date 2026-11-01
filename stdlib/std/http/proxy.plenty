@@ -299,7 +299,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             first = at
             while at < count and data[at] != 59u8 and not is_blank(data[at]):
                 at += 1
-            lifted(value.extend_range(data, first, at))?
+            lifted(value.extend(&data[first:at]))?
         if name == "for":
             node = value
         elif name == "proto":

@@ -24,85 +24,85 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.actor.http.server`](#stdactorhttpserver): 280-343
 - [`std.archive`](#stdarchive): 345-411
 - [`std.atomic`](#stdatomic): 413-422
-- [`std.bytes`](#stdbytes): 424-476
-- [`std.cache.lru`](#stdcachelru): 478-500
-- [`std.channel`](#stdchannel): 502-506
-- [`std.cli`](#stdcli): 508-538
-- [`std.cli.fileinput`](#stdclifileinput): 540-549
-- [`std.cli.progress`](#stdcliprogress): 551-575
-- [`std.collections`](#stdcollections): 577-604
-- [`std.complex`](#stdcomplex): 606-632
-- [`std.compress`](#stdcompress): 634-664
-- [`std.concurrent`](#stdconcurrent): 666-670
-- [`std.crypto`](#stdcrypto): 672-753
-- [`std.csv`](#stdcsv): 755-818
-- [`std.dataframe`](#stddataframe): 820-1019
-- [`std.db.kv`](#stddbkv): 1021-1053
-- [`std.db.sqlite`](#stddbsqlite): 1055-1119
-- [`std.deque`](#stddeque): 1121-1135
-- [`std.diff`](#stddiff): 1137-1166
-- [`std.encoding`](#stdencoding): 1168-1229
-- [`std.env`](#stdenv): 1231-1245
-- [`std.error`](#stderror): 1247-1267
-- [`std.fmt`](#stdfmt): 1269-1330
-- [`std.fs`](#stdfs): 1332-1415
-- [`std.fs.dirs`](#stdfsdirs): 1417-1427
-- [`std.fs.watch`](#stdfswatch): 1429-1464
-- [`std.graph`](#stdgraph): 1466-1554
-- [`std.http`](#stdhttp): 1556-1626
-- [`std.http.decoder`](#stdhttpdecoder): 1628-1645
-- [`std.http.body`](#stdhttpbody): 1647-1682
-- [`std.http.client`](#stdhttpclient): 1684-1794
-- [`std.http.cookie`](#stdhttpcookie): 1796-1828
-- [`std.http.files`](#stdhttpfiles): 1830-1843
-- [`std.http.https`](#stdhttphttps): 1845-1859
-- [`std.http.proxy`](#stdhttpproxy): 1861-1882
-- [`std.http.server`](#stdhttpserver): 1884-1969
-- [`std.http.sse`](#stdhttpsse): 1971-1990
-- [`std.http.tls`](#stdhttptls): 1992-2009
-- [`std.http.typed`](#stdhttptyped): 2011-2044
-- [`std.http.websocket`](#stdhttpwebsocket): 2046-2081
-- [`std.http.wss`](#stdhttpwss): 2083-2089
-- [`std.image`](#stdimage): 2091-2137
-- [`std.io`](#stdio): 2139-2219
-- [`std.io.typed`](#stdiotyped): 2221-2259
-- [`std.json`](#stdjson): 2261-2325
-- [`std.jwt`](#stdjwt): 2327-2374
-- [`std.log`](#stdlog): 2376-2443
-- [`std.markdown`](#stdmarkdown): 2445-2479
-- [`std.template`](#stdtemplate): 2481-2502
-- [`std.math`](#stdmath): 2504-2570
-- [`std.mime`](#stdmime): 2572-2596
-- [`std.net`](#stdnet): 2598-2680
-- [`std.path`](#stdpath): 2682-2699
-- [`std.process`](#stdprocess): 2701-2747
-- [`std.random`](#stdrandom): 2749-2770
-- [`std.ready`](#stdready): 2772-2802
-- [`std.regex`](#stdregex): 2804-2857
-- [`std.report`](#stdreport): 2859-2882
-- [`std.secrets`](#stdsecrets): 2884-2910
-- [`std.shlex`](#stdshlex): 2912-2921
-- [`std.sketch`](#stdsketch): 2923-2961
-- [`std.sketch.xor`](#stdsketchxor): 2963-2974
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2976-2991
-- [`std.signal`](#stdsignal): 2993-3010
-- [`std.simd`](#stdsimd): 3012-3113
-- [`std.stat`](#stdstat): 3115-3148
-- [`std.plot`](#stdplot): 3150-3239
-- [`std.linalg`](#stdlinalg): 3241-3282
-- [`std.sync`](#stdsync): 3284-3293
-- [`std.system`](#stdsystem): 3295-3353
-- [`std.tempfile`](#stdtempfile): 3355-3387
-- [`std.test`](#stdtest): 3389-3431
-- [`std.text`](#stdtext): 3433-3452
-- [`std.thread`](#stdthread): 3454-3458
-- [`std.time`](#stdtime): 3460-3504
-- [`std.tls`](#stdtls): 3506-3588
-- [`std.toml`](#stdtoml): 3590-3639
-- [`std.unicode`](#stdunicode): 3641-3653
-- [`std.url`](#stdurl): 3655-3683
-- [`std.uuid`](#stduuid): 3685-3708
-- [`std.xml`](#stdxml): 3710-3743
+- [`std.bytes`](#stdbytes): 424-473
+- [`std.cache.lru`](#stdcachelru): 475-497
+- [`std.channel`](#stdchannel): 499-503
+- [`std.cli`](#stdcli): 505-535
+- [`std.cli.fileinput`](#stdclifileinput): 537-546
+- [`std.cli.progress`](#stdcliprogress): 548-572
+- [`std.collections`](#stdcollections): 574-601
+- [`std.complex`](#stdcomplex): 603-629
+- [`std.compress`](#stdcompress): 631-661
+- [`std.concurrent`](#stdconcurrent): 663-667
+- [`std.crypto`](#stdcrypto): 669-750
+- [`std.csv`](#stdcsv): 752-815
+- [`std.dataframe`](#stddataframe): 817-1016
+- [`std.db.kv`](#stddbkv): 1018-1050
+- [`std.db.sqlite`](#stddbsqlite): 1052-1116
+- [`std.deque`](#stddeque): 1118-1132
+- [`std.diff`](#stddiff): 1134-1163
+- [`std.encoding`](#stdencoding): 1165-1226
+- [`std.env`](#stdenv): 1228-1242
+- [`std.error`](#stderror): 1244-1264
+- [`std.fmt`](#stdfmt): 1266-1327
+- [`std.fs`](#stdfs): 1329-1412
+- [`std.fs.dirs`](#stdfsdirs): 1414-1424
+- [`std.fs.watch`](#stdfswatch): 1426-1461
+- [`std.graph`](#stdgraph): 1463-1551
+- [`std.http`](#stdhttp): 1553-1623
+- [`std.http.decoder`](#stdhttpdecoder): 1625-1642
+- [`std.http.body`](#stdhttpbody): 1644-1679
+- [`std.http.client`](#stdhttpclient): 1681-1791
+- [`std.http.cookie`](#stdhttpcookie): 1793-1825
+- [`std.http.files`](#stdhttpfiles): 1827-1840
+- [`std.http.https`](#stdhttphttps): 1842-1856
+- [`std.http.proxy`](#stdhttpproxy): 1858-1879
+- [`std.http.server`](#stdhttpserver): 1881-1966
+- [`std.http.sse`](#stdhttpsse): 1968-1987
+- [`std.http.tls`](#stdhttptls): 1989-2006
+- [`std.http.typed`](#stdhttptyped): 2008-2041
+- [`std.http.websocket`](#stdhttpwebsocket): 2043-2078
+- [`std.http.wss`](#stdhttpwss): 2080-2086
+- [`std.image`](#stdimage): 2088-2134
+- [`std.io`](#stdio): 2136-2216
+- [`std.io.typed`](#stdiotyped): 2218-2256
+- [`std.json`](#stdjson): 2258-2322
+- [`std.jwt`](#stdjwt): 2324-2371
+- [`std.log`](#stdlog): 2373-2440
+- [`std.markdown`](#stdmarkdown): 2442-2476
+- [`std.template`](#stdtemplate): 2478-2499
+- [`std.math`](#stdmath): 2501-2567
+- [`std.mime`](#stdmime): 2569-2593
+- [`std.net`](#stdnet): 2595-2677
+- [`std.path`](#stdpath): 2679-2696
+- [`std.process`](#stdprocess): 2698-2744
+- [`std.random`](#stdrandom): 2746-2767
+- [`std.ready`](#stdready): 2769-2799
+- [`std.regex`](#stdregex): 2801-2854
+- [`std.report`](#stdreport): 2856-2879
+- [`std.secrets`](#stdsecrets): 2881-2907
+- [`std.shlex`](#stdshlex): 2909-2918
+- [`std.sketch`](#stdsketch): 2920-2958
+- [`std.sketch.xor`](#stdsketchxor): 2960-2971
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2973-2988
+- [`std.signal`](#stdsignal): 2990-3007
+- [`std.simd`](#stdsimd): 3009-3110
+- [`std.stat`](#stdstat): 3112-3145
+- [`std.plot`](#stdplot): 3147-3236
+- [`std.linalg`](#stdlinalg): 3238-3279
+- [`std.sync`](#stdsync): 3281-3290
+- [`std.system`](#stdsystem): 3292-3350
+- [`std.tempfile`](#stdtempfile): 3352-3384
+- [`std.test`](#stdtest): 3386-3428
+- [`std.text`](#stdtext): 3430-3449
+- [`std.thread`](#stdthread): 3451-3455
+- [`std.time`](#stdtime): 3457-3501
+- [`std.tls`](#stdtls): 3503-3585
+- [`std.toml`](#stdtoml): 3587-3636
+- [`std.unicode`](#stdunicode): 3638-3650
+- [`std.url`](#stdurl): 3652-3680
+- [`std.uuid`](#stduuid): 3682-3705
+- [`std.xml`](#stdxml): 3707-3740
 
 ## `std.actor`
 
@@ -210,7 +210,7 @@ class Connection
     def consume[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
     def pending(self) -> i64
     def space(self) -> i64
-    def write[S: ByteSource, M, E](self: &mut Connection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
+    def write[M, E](self: &mut Connection, source: &[u8], context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
     def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]
     def output(self: &mut Connection) -> &mut Bytes
     def output_stop(self) -> i64
@@ -261,7 +261,7 @@ class TlsConnection
     def consume[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
     def pending(self) -> i64
     def space(self) -> i64
-    def write[S: ByteSource, M, E](self: &mut TlsConnection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]
+    def write[M, E](self: &mut TlsConnection, source: &[u8], context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]
     def forward[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[i64, TlsError | TimerError]
     def read_within[M, E](self: &mut TlsConnection, span: &Duration, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]
     def clear_read_deadline(self: &mut TlsConnection) -> ()
@@ -319,10 +319,10 @@ class Response
     def pending(self) -> i64
     def space(self) -> i64
     def start(self: &mut Response, head: ResponseHead) -> Result[(), ServerError]
-    def write[S: ByteSource](self: &mut Response, source: &S, start: i64, stop: i64) -> Result[i64, ServerError]
+    def write(self: &mut Response, source: &[u8]) -> Result[i64, ServerError]
     def finish(self: &mut Response) -> Result[(), ServerError]
-    def respond[S: ByteSource](self: &mut Response, head: ResponseHead, body: &S) -> Result[(), ServerError]
-    def send[S: ByteSource](self: &mut Response, status: i64, content_type: &str, body: &S) -> Result[(), ServerError]
+    def respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), ServerError]
+    def send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), ServerError]
     def send_text(self: &mut Response, status: i64, text: &str) -> Result[(), ServerError]
 def config() -> Config
 class Node[F, H]
@@ -428,8 +428,6 @@ Compact owning byte buffers with checked ranges, explicit copies and validated t
 ```text
 enum BytesError
     OutOfRange | InvalidUtf8 | Allocation(AllocError)
-protocol ByteSource
-    def len(self) -> i64
 class Bytes
     def len(self) -> i64
     def is_empty(self) -> bool
@@ -445,18 +443,17 @@ class Bytes
     def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]
     def clear(self: &mut Bytes) -> ()
     def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]
-    def extend[S: ByteSource](self: &mut Bytes, source: &S) -> Result[(), BytesError]
-    def extend_range[S: ByteSource](self: &mut Bytes, source: &S, start: i64, stop: i64) -> Result[(), BytesError]
-    def overwrite[S: ByteSource](self: &mut Bytes, offset: i64, source: &S, start: i64, stop: i64) -> Result[(), BytesError]
+    def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]
+    def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]
     def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]
     def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]
     def copy(self) -> Result[Bytes, BytesError]
     def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_not_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_bytes[S: ByteSource](self, needle: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]
+    def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
+    def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
+    def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
     def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]
-    def matches[S: ByteSource](self, offset: i64, source: &S, start: i64, stop: i64) -> Result[bool, BytesError]
+    def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]
     def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]
     def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
     def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
@@ -652,7 +649,7 @@ def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, Compre
 def crc32(seed: i64, data: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]
 class Compressor[W]
     inner: W
-    def write[S: ByteSource](self: &mut Compressor[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Compressor[W], source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Compressor[W]) -> Result[(), StreamError]
     def finish(self: &mut Compressor[W]) -> Result[(), StreamError]
 def compressor[W](format: Format, inner: W, level: i64) -> Result[Compressor[W], CompressError]
@@ -681,17 +678,17 @@ enum Algorithm
 def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
-    def update(self: &mut Digest, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]
+    def update(self: &mut Digest, data: &[u8]) -> Result[(), CryptoError]
     def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]
     def finish(self: &mut Digest) -> Result[Bytes, CryptoError]
     def finish_into(self: &mut Digest, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]
 class Mac
     def size(self) -> i64
-    def update(self: &mut Mac, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]
+    def update(self: &mut Mac, data: &[u8]) -> Result[(), CryptoError]
     def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]
     def finish(self: &mut Mac) -> Result[Bytes, CryptoError]
     def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]
-    def verify(self: &mut Mac, expected: &Bytes, start: i64, stop: i64) -> Result[bool, CryptoError]
+    def verify(self: &mut Mac, expected: &[u8]) -> Result[bool, CryptoError]
 def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
 def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
 def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
@@ -1192,10 +1189,10 @@ def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, En
 def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
 def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
-def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]
-def pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[str, EncodingError]
-def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]
-def pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]
+def pem_encode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]
+def pem_text(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[str, EncodingError]
+def pem_decode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]
+def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
 def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
 def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
@@ -1601,7 +1598,7 @@ class RequestTarget
     query: str
 def request_target(head: &RequestHead) -> Result[RequestTarget, HttpError]
 def response_keeps_alive(head: &ResponseHead, framing: &Framing) -> bool
-def parse_chunk_size[S: ByteSource](line: &S, size: i64) -> Result[i64, HttpError]
+def parse_chunk_size(line: &[u8]) -> Result[i64, HttpError]
 class BodyReader[R]
     trailers: list[Header]
     def total(self) -> i64
@@ -1618,11 +1615,11 @@ def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(), H
 def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]
 def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]
 def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]
-def write_chunk[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
+def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]
 def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
-def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
+def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]
 ```
 
 ## `std.http.decoder`
@@ -1640,7 +1637,7 @@ class Decoder
     def total(self) -> i64
     def reset(self: &mut Decoder) -> Result[(), HttpError]
     def finish(self: &mut Decoder) -> Result[(), HttpError]
-    def feed[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]
+    def feed(self: &mut Decoder, source: &[u8]) -> Result[(i64, Option[Event]), HttpError]
 def decoder(limits: &Limits) -> Result[Decoder, HttpError]
 ```
 
@@ -1702,12 +1699,12 @@ class Endpoint
     tunnel: Option[Tunnel]
 protocol Transport
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
-    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
+    def write_before(self: &mut Transport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
 protocol Connector[T]
     def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[T, ClientError]
 class Plain
     def read_before(self: &mut Plain, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
-    def write_before[S: ByteSource](self: &mut Plain, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
+    def write_before(self: &mut Plain, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
 class TcpConnector
     def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]
 def dial(endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]
@@ -1849,7 +1846,7 @@ def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> 
 ```text
 class Connection
     def read_before(self: &mut Connection, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
-    def write_before[S: ByteSource](self: &mut Connection, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
+    def write_before(self: &mut Connection, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]
 def secure_error(error: TlsError) -> ClientError
 class HttpsConnector
     def open(self, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Connection, ClientError]
@@ -1890,7 +1887,7 @@ enum ServerError
     InvalidConfig | InvalidPattern | DuplicateRoute | Allocation(AllocError) | Thread(ThreadError) | Net(NetError)
 protocol Transport
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
-    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
+    def write_before(self: &mut Transport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def shutdown(self: &mut Transport, direction: Shutdown) -> Result[(), NetError]
 protocol Handler[T, R, E]
     def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), E]
@@ -1928,7 +1925,7 @@ class Router[R]
 def router[R]() -> Result[Router[R], ServerError]
 class Conn[T]
     def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut Conn[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Conn[T], source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Conn[T]) -> Result[(), StreamError]
 class Exchange[T]
     request: RequestHead
@@ -1945,11 +1942,11 @@ class Exchange[T]
     def sent(self) -> i64
     def read_body(self: &mut Exchange[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]
     def read_all(self: &mut Exchange[T], out: &mut Bytes) -> Result[i64, HttpError]
-    def respond(self: &mut Exchange[T], head: ResponseHead, body: &Bytes) -> Result[(), HttpError]
-    def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &Bytes) -> Result[(), HttpError]
+    def respond(self: &mut Exchange[T], head: ResponseHead, body: &[u8]) -> Result[(), HttpError]
+    def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]
     def send_text(self: &mut Exchange[T], status: i64, text: &str) -> Result[(), HttpError]
     def start(self: &mut Exchange[T], head: ResponseHead) -> Result[(), HttpError]
-    def write(self: &mut Exchange[T], source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]
+    def write(self: &mut Exchange[T], source: &[u8]) -> Result[(), HttpError]
     def end(self: &mut Exchange[T]) -> Result[(), HttpError]
     def switch_protocols(self: &mut Exchange[T], head: ResponseHead) -> Result[(T, Bytes), HttpError]
     def detach(self: &mut Exchange[T], head: ResponseHead) -> Result[T, HttpError]
@@ -1997,7 +1994,7 @@ def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead) ->
 class TlsTransport
     stream: TlsStream
     def read_before(self: &mut TlsTransport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
-    def write_before[S: ByteSource](self: &mut TlsTransport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
+    def write_before(self: &mut TlsTransport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def shutdown(self: &mut TlsTransport, direction: Shutdown) -> Result[(), NetError]
 class TlsOpener
     def open(self, tcp: TcpStream) -> Result[TlsTransport, OpenError]
@@ -2155,7 +2152,7 @@ enum SeekFrom
 protocol Reader
     def read(self: &mut Reader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
 protocol Writer
-    def write[S: ByteSource](self: &mut Writer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Writer, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Writer) -> Result[(), StreamError]
 protocol Seeker
     def seek(self: &mut Seeker, target: SeekFrom) -> Result[i64, StreamError]
@@ -2163,7 +2160,7 @@ protocol Closer
     def close(self: &mut Closer) -> Result[(), StreamError]
 def classify(error: IoError) -> StreamError
 def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial]
-def write_all[W: Writer, S: ByteSource](writer: &mut W, source: &S, start: i64, stop: i64) -> Result[(), Partial]
+def write_all[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), Partial]
 def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]
 def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyError]
 class BufReader[R]
@@ -2178,7 +2175,7 @@ class BufWriter[W]
     inner: W
     def capacity(self) -> i64
     def pending(self) -> i64
-    def write[S: ByteSource](self: &mut BufWriter[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut BufWriter[W], source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]
 def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]
 def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]
@@ -2187,14 +2184,14 @@ class Cursor
     data: Bytes
     def position(self) -> i64
     def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut Cursor, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Cursor, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Cursor) -> Result[(), StreamError]
     def seek(self: &mut Cursor, target: SeekFrom) -> Result[i64, StreamError]
 def cursor(data: Bytes) -> Cursor
 class FileStream
     file: File
     def read(self: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut FileStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut FileStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FileStream) -> Result[(), StreamError]
     def sync(self: &mut FileStream) -> Result[(), StreamError]
     def seek(self: &mut FileStream, target: SeekFrom) -> Result[i64, StreamError]
@@ -2207,11 +2204,11 @@ class Stdin
     def read(self: &mut Stdin, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
 class Stdout
     def is_terminal(self) -> bool
-    def write[S: ByteSource](self: &mut Stdout, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Stdout, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Stdout) -> Result[(), StreamError]
 class Stderr
     def is_terminal(self) -> bool
-    def write[S: ByteSource](self: &mut Stderr, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut Stderr, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Stderr) -> Result[(), StreamError]
 def stdin() -> Stdin
 def stdout() -> Stdout
@@ -2419,7 +2416,7 @@ class Logger[S]
 def logger[S: Sink](sink: S, threshold: Level, clock: Clock) -> Logger[S]
 class LineBuffer
     data: Bytes
-    def write[S: ByteSource](self: &mut LineBuffer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut LineBuffer, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut LineBuffer) -> Result[(), StreamError]
 class TextSink[W]
     writer: W
@@ -2629,14 +2626,14 @@ enum Shutdown
     Read | Write | Both
 class TcpStream
     def read(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut TcpStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut TcpStream) -> Result[(), StreamError]
     def close(self: &mut TcpStream) -> Result[(), StreamError]
     def read_now(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, NetError]
-    def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]
+    def write_now(self: &mut TcpStream, source: &[u8]) -> Result[i64, NetError]
     def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
-    def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
-    def write_all_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]
+    def write_before(self: &mut TcpStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
+    def write_all_before(self: &mut TcpStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]
     def local_address(self) -> Result[SocketAddress, NetError]
     def peer_address(self) -> Result[SocketAddress, NetError]
     def shutdown(self: &mut TcpStream, direction: Shutdown) -> Result[(), NetError]
@@ -2673,7 +2670,7 @@ class UdpSocket
     def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def set_broadcast(self: &mut UdpSocket, enabled: bool) -> Result[(), NetError]
-    def send_to[S: ByteSource](self: &mut UdpSocket, source: &S, start: i64, stop: i64, target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
+    def send_to(self: &mut UdpSocket, source: &[u8], target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def receive_from(self: &mut UdpSocket, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Datagram, NetError]
     def close(self: &mut UdpSocket) -> Result[(), NetError]
 def bind_udp(address: &SocketAddress) -> Result[UdpSocket, NetError]
@@ -2786,7 +2783,7 @@ enum WaitError
 def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[Readiness, WaitError]
 def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
-def write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
+def write_before(stream: &mut FileStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
 protocol Watchable
     def descriptor(self) -> &File
 class Event
@@ -2936,7 +2933,7 @@ class HyperLogLog
     def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
 def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]
-def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
+def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
 class Quantiles
     def count(self) -> u64
     def retained(self) -> i64
@@ -2957,7 +2954,7 @@ class FrequentItems
     def candidates(self) -> Result[list[Frequency], AllocError]
     def to_bytes(self) -> Result[Bytes, BytesError]
 def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]
-def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
+def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
 ```
 
 ## `std.sketch.xor`
@@ -2970,7 +2967,7 @@ class XorFilter
     def contains(self, key: u64) -> bool
     def to_bytes(self) -> Result[Bytes, BytesError]
 def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]
-def from_bytes[S: ByteSource](data: &S, max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
+def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
 ```
 
 ## `std.sketch.cuckoo`
@@ -2987,7 +2984,7 @@ class CuckooFilter
     def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
 def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
-def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
 ```
 
 ## `std.signal`
@@ -3367,7 +3364,7 @@ def file(parent: &Path = default_dir()?) -> Result[TemporaryFile, IoError]
 class NamedTemporaryFile
     def path(self) -> &Path
     def read(self: &mut NamedTemporaryFile, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut NamedTemporaryFile, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut NamedTemporaryFile, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut NamedTemporaryFile) -> Result[(), StreamError]
     def sync(self: &mut NamedTemporaryFile) -> Result[(), StreamError]
     def seek(self: &mut NamedTemporaryFile, target: SeekFrom) -> Result[i64, StreamError]
@@ -3425,7 +3422,7 @@ class FakeStream
     def limit(self: &mut FakeStream, bytes: i64) -> ()
     def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> ()
     def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut FakeStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FakeStream) -> Result[(), StreamError]
 def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
 ```
@@ -3435,8 +3432,8 @@ def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
 Bounded reusable builders, joining, and scalar wrapping. Errors: `TextError`. [Reference](text.md).
 
 ```text
-def find_in[S: ByteSource](text: &str, set: &S) -> Option[i64]
-def find_not_in[S: ByteSource](text: &str, set: &S) -> Option[i64]
+def find_in(text: &str, set: &[u8]) -> Option[i64]
+def find_not_in(text: &str, set: &[u8]) -> Option[i64]
 enum TextError
     InvalidLimit | LimitExceeded | Allocation(AllocError) | Bytes(BytesError)
 class Builder
@@ -3546,17 +3543,17 @@ class TlsStream
     def try_handshake(self: &mut TlsStream) -> Result[bool, TlsError]
     def try_flush(self: &mut TlsStream) -> Result[bool, TlsError]
     def try_read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]
-    def try_write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[Option[i64], TlsError]
+    def try_write(self: &mut TlsStream, source: &[u8]) -> Result[Option[i64], TlsError]
     def interest(self) -> Interest
     def watch(self, selector: &mut Selector, key: u64, interest: Interest) -> Result[(), TlsError]
     def unwatch(self, selector: &mut Selector) -> Result[(), TlsError]
     def read_before(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]
-    def write_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]
-    def write_all_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]
+    def write_before(self: &mut TlsStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]
+    def write_all_before(self: &mut TlsStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]
     def close_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]
     def shutdown(self: &mut TlsStream, direction: Shutdown) -> Result[(), TlsError]
     def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]
+    def write(self: &mut TlsStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut TlsStream) -> Result[(), StreamError]
     def close(self: &mut TlsStream) -> Result[(), StreamError]
     def application_protocol(self) -> Result[Option[str], TlsError]
@@ -3573,7 +3570,7 @@ class Session
     def feed_end(self: &mut Session) -> Result[(), TlsError]
     def take(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, TlsError]
     def read(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]
-    def write[S: ByteSource](self: &mut Session, source: &S, start: i64, stop: i64) -> Result[i64, TlsError]
+    def write(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]
     def close(self: &mut Session) -> ()
     def handshaking(self) -> bool
     def wants_write(self) -> bool
@@ -3700,7 +3697,7 @@ class Uuid
 def nil() -> Uuid
 def from_u64_pair(high: u64, low: u64) -> Uuid
 def parse(text: &str) -> Result[Uuid, ParseError]
-def from_bytes[S: ByteSource](source: &S) -> Result[Uuid, ParseError]
+def from_bytes(source: &[u8]) -> Result[Uuid, ParseError]
 def v4_from[R: Reader](source: &mut Source[R]) -> Result[Uuid, SecretsError]
 def v4() -> Result[Uuid, SecretsError]
 def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]

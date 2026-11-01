@@ -397,7 +397,7 @@ class Parser:
         if end == self.at:
             return Err(self.unexpected())
         self.scratch.clear()
-        faulted(self.scratch.extend_range(&self.src, self.at, end))?
+        faulted(self.scratch.extend(&self.src[self.at:end]))?
         self.at = end
         faulted(self.scratch.to_text())
 
@@ -598,7 +598,7 @@ class Parser:
                 end = run_end(self.src.find_in(&self.basic_stop, self.at, stop), stop)?
             else:
                 end = run_end(self.src.find_in(&self.literal_stop, self.at, stop), stop)?
-            faulted(self.scratch.extend_range(&self.src, self.at, end))?
+            faulted(self.scratch.extend(&self.src[self.at:end]))?
             self.at = end
             byte = self.peek(0)
             if byte < 0:
@@ -629,7 +629,7 @@ class Parser:
                 count = self.newline()
                 if not multi or count == 0:
                     return Err(TomlFault.ControlCharacter)
-                faulted(self.scratch.extend_range(&self.src, self.at, self.at + count))?
+                faulted(self.scratch.extend(&self.src[self.at:self.at + count]))?
                 self.at += count
         faulted(self.scratch.to_text())
 
@@ -1110,17 +1110,17 @@ class Emitter:
     def extend(self: &mut Emitter, source: &Bytes, start: i64, stop: i64) -> Result[(), TomlFault]:
         if stop - start > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend_range(source, start, stop))
+        faulted(self.out.extend(&source[start:stop]))
 
     def raw(self: &mut Emitter, token: bytes) -> Result[(), TomlFault]:
         if token.len() > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend(token))
+        faulted(self.out.extend(&token))
 
     def spelled(self: &mut Emitter, start: i64, stop: i64) -> Result[(), TomlFault]:
         if stop - start > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
-        faulted(self.out.extend_range(&self.spelling, start, stop))
+        faulted(self.out.extend(&self.spelling[start:stop]))
 
     def number(self: &mut Emitter, value: i64, width: i64) -> Result[(), TomlFault]:
         mut divisor = 1
@@ -1409,7 +1409,7 @@ pub def encode_text(value: &Toml, bounds: &Limits) -> Result[str, TomlError]:
 # carries the bytes the writer accepted.
 pub def write_value[W: Writer](writer: &mut W, value: &Toml, bounds: &Limits) -> Result[(), TomlError]:
     encoded = encode(value, bounds)?
-    match std.io.write_all(writer, &encoded, 0, encoded.len()):
+    match std.io.write_all(writer, &encoded):
         case Ok(_):
             Ok(())
         case Err(partial):

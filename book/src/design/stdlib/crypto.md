@@ -40,7 +40,7 @@ def main() -> Result[(), IoError | BytesError | CryptoError | EncodingError]:
     # A receiver recomputes the tag and compares in constant time.
     mut check = std.crypto.hmac(Algorithm.Sha256, &key)?
     check.update_text("hello")?
-    print(tag.len(), check.verify(&tag, 0, tag.len())?)?
+    print(tag.len(), check.verify(&tag)?)?
     Ok(())
 ```
 ```output
@@ -84,13 +84,14 @@ pieces gives the same output as one call over the joined input.
 | Method | Result | Contract |
 |---|---|---|
 | `size()` | `i64` | The output size in bytes |
-| `update(data: &Bytes, start: i64, stop: i64)` | `Result[(), CryptoError]` | Absorb `data[start:stop]` |
+| `update(data: &[u8])` | `Result[(), CryptoError]` | Absorb `data`; pass `&buffer[a:b]` for part of a buffer |
 | `update_text(text: &str)` | `Result[(), CryptoError]` | Absorb the UTF-8 bytes of `text` |
 | `finish()` | `Result[Bytes, CryptoError]` | The output in a new buffer |
 | `finish_into(target: &mut Bytes, offset: i64)` | `Result[(), CryptoError]` | Write the output at `target[offset:offset + size()]` |
-| `Mac.verify(expected: &Bytes, start: i64, stop: i64)` | `Result[bool, CryptoError]` | Finish, and compare the tag with `expected[start:stop]` in constant time |
+| `Mac.verify(expected: &[u8])` | `Result[bool, CryptoError]` | Finish, and compare the tag with `expected` in constant time |
 
-`update`, `finish_into`, and `verify` take their range under the
+`update` and `verify` read a [`&[u8]` view](bytes.md#byte-views), whose bounds
+clamp; `finish_into` takes its offset under the
 [range rule](bytes.md#the-range-rule). Each state finishes once: `finish`,
 `finish_into`, and `verify` end it, and every later call is `Finished`. When
 `finish` cannot allocate its result, the state is left unfinished and the call

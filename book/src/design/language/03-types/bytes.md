@@ -81,12 +81,12 @@ owned `Bytes` rather than producing another `bytes`. `bytes` and
 
 Operations that only read bytes, such as `find_bytes`, `matches`, `extend`, and
 every `std.io`, `std.net`, and `std.tls` stream write, take a
-[`std.bytes.ByteSource`](../../stdlib/bytes.md#byte-sources): a generic `&S`
-satisfied by both `bytes` and `Bytes`. A literal passed there is read in place;
-nothing is copied or converted, and there is no implicit conversion between the
-two types. Changing or growing bytes needs a `Bytes`.
+[`&[u8]` view](../../stdlib/bytes.md#byte-views). A literal, a `Bytes` buffer,
+a `list[u8]`, or part of any of them converts to that view and is read in
+place; nothing is copied, and there is no implicit conversion between `bytes`
+and `Bytes`. Changing or growing bytes needs a `Bytes`.
 
 The literal type is a separate prelude type rather than a static `&Bytes` view
 so that the prelude does not depend on `std.bytes`: every program would
-otherwise know the library class. A generic protocol, rather than a third
-read-only view type, is what lets one parameter accept both.
+otherwise know the library class. The `&[u8]` view is what lets one parameter
+accept every byte owner.

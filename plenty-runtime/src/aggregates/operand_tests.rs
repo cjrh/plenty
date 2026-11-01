@@ -53,13 +53,12 @@ fn byte_fill_reads_the_fourth_operand_but_not_the_absent_fifth() {
 }
 
 #[test]
-fn byte_overwrite_preserves_both_scratch_operands() {
+fn byte_overwrite_reads_a_view_operand() {
     let mut bytes = buffer(b"abcd");
-    let mut source = buffer(b"wxyz");
     let owner = ptr::addr_of_mut!(bytes) as u128;
-    let source = ptr::addr_of_mut!(source) as u128;
-    // SAFETY: separate live buffers and valid source/destination ranges.
-    assert_eq!(unsafe { invoke(179, &[owner, 1, source, 2, 4]) }, 0);
+    let source = super::byte_storage::view_operand(&b"wxyz"[2..]);
+    // SAFETY: a live buffer and a separate live view.
+    assert_eq!(unsafe { invoke(179, &[owner, 1, source]) }, 0);
     assert_eq!(bytes.bytes, b"ayzd");
 }
 
@@ -92,7 +91,7 @@ fn scratch_words_preserve_all_128_bits() {
     let four = unsafe { read_operands::<4>(527, frame.as_ptr().cast()) };
     assert_eq!(four, [11, 22, 33, high + 44]);
     frame[5].write(high + 55);
-    // SAFETY: datagram send uses two scratch operands, both initialized.
-    let five = unsafe { read_operands::<5>(416, frame.as_ptr().cast()) };
+    // SAFETY: datagram receive uses two scratch operands, both initialized.
+    let five = unsafe { read_operands::<5>(417, frame.as_ptr().cast()) };
     assert_eq!(five, [11, 22, 33, high + 44, high + 55]);
 }

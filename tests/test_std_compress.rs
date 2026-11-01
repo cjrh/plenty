@@ -8,7 +8,7 @@ const HEADER: &str = r#"import std.bytes
 import std.compress
 import std.encoding
 import std.io
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.compress import Format, CompressError
 from std.io import StreamError
 
@@ -80,15 +80,15 @@ pub class Drip:
     pause: bool
     broken: bool
 
-    pub def write[S: ByteSource](self: &mut Drip, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Drip, source: &[u8]) -> Result[i64, StreamError]:
         if self.broken:
             return Err(StreamError.Io(IoError.Other))
         self.pause = not self.pause
         if self.pause:
             return Err(StreamError.Interrupted)
-        if start == stop:
+        if len(source) == 0:
             return Ok(0)
-        match self.out.extend_range(source, start, start + 1):
+        match self.out.extend(&source[:1]):
             case Ok(_):
                 Ok(1)
             case Err(_):
@@ -101,9 +101,9 @@ pub class Drip:
 pub class Counter:
     total: i64
 
-    pub def write[S: ByteSource](self: &mut Counter, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self.total += stop - start
-        Ok(stop - start)
+    pub def write(self: &mut Counter, source: &[u8]) -> Result[i64, StreamError]:
+        self.total += len(source)
+        Ok(len(source))
 
     pub def flush(self: &mut Counter) -> Result[(), StreamError]:
         Ok(())
@@ -275,7 +275,7 @@ fn output_beyond_the_limit_is_rejected() {
 zeros = repeated("\0", 65536)?
 mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 9)?
 for _ in range(0, 1024):
-    std.io.write_all(&mut writer, &zeros, 0, zeros.len())?
+    std.io.write_all(&mut writer, &zeros)?
 writer.finish()?
 bomb = writer.inner.data.copy()?
 print(bomb.len() < 100000)?
@@ -340,15 +340,15 @@ fn short_and_interrupted_io_preserves_the_stream() {
         r#"
 text = repeated("short reads and writes ", 500)?
 mut writer = std.compress.compressor(Format.Zlib, Drip(std.bytes.empty()?, False, False), 6)?
-std.io.write_all(&mut writer, &text, 0, 5000)?
+std.io.write_all(&mut writer, &text[:5000])?
 writer.flush()?
-std.io.write_all(&mut writer, &text, 5000, text.len())?
+std.io.write_all(&mut writer, &text[5000:])?
 writer.inner.broken = True
 print(str.repr(writer.finish())?)?
 writer.inner.broken = False
 writer.finish()?
 writer.finish()?
-print(str.repr(writer.write(&text, 0, 1))?)?
+print(str.repr(writer.write(&text[:1]))?)?
 packed = writer.inner.out.copy()?
 mut reader = std.compress.decompressor(Format.Zlib, Trickle(packed, 0, False), 100000)?
 mut out = std.bytes.empty()?
@@ -368,7 +368,7 @@ fn a_sync_flush_makes_written_data_decodable() {
         r#"
 text = std.bytes.from_text("first part")?
 mut writer = std.compress.compressor(Format.Deflate, std.io.cursor(std.bytes.empty()?), 6)?
-std.io.write_all(&mut writer, &text, 0, text.len())?
+std.io.write_all(&mut writer, &text)?
 writer.flush()?
 mut reader = std.compress.decompressor(Format.Deflate, std.io.cursor(writer.inner.data.copy()?), 100)?
 mut out = std.bytes.empty()?
@@ -508,15 +508,15 @@ fn brotli_short_io_flush_finish_retry_and_final_output_drain() {
         r#"
 text = repeated("short reads and writes ", 500)?
 mut writer = std.compress.compressor(Format.Brotli, Drip(std.bytes.empty()?, False, False), 5)?
-std.io.write_all(&mut writer, &text, 0, 5000)?
+std.io.write_all(&mut writer, &text[:5000])?
 writer.flush()?
-std.io.write_all(&mut writer, &text, 5000, text.len())?
+std.io.write_all(&mut writer, &text[5000:])?
 writer.inner.broken = True
 print(str.repr(writer.finish())?)?
 writer.inner.broken = False
 writer.finish()?
 writer.finish()?
-print(str.repr(writer.write(&text, 0, 1))?)?
+print(str.repr(writer.write(&text[:1]))?)?
 packed = writer.inner.out.copy()?
 mut reader = std.compress.decompressor(Format.Brotli, Trickle(packed, 0, False), 100000)?
 mut out = std.bytes.empty()?
@@ -538,7 +538,7 @@ fn brotli_sync_flush_and_sticky_reader_failure() {
         r#"
 text = std.bytes.from_text("first part")?
 mut writer = std.compress.compressor(Format.Brotli, std.io.cursor(std.bytes.empty()?), 5)?
-std.io.write_all(&mut writer, &text, 0, text.len())?
+std.io.write_all(&mut writer, &text)?
 writer.flush()?
 mut reader = std.compress.decompressor(Format.Brotli, std.io.cursor(writer.inner.data.copy()?), 100)?
 mut out = std.bytes.empty()?
@@ -644,7 +644,7 @@ def probe{budget}(data: &Bytes, packed: &Bytes) -> Result[(), AllocError | IoErr
         case Err(error):
             print(error)?
     mut unfinished = std.compress.compressor(Format.Brotli, std.io.cursor(std.bytes.empty()?), 5)?
-    std.io.write_all(&mut unfinished, data, 0, data.len())?
+    std.io.write_all(&mut unfinished, data)?
     mut partial = std.compress.decompressor(Format.Brotli, std.io.cursor(packed.copy()?), 10000)?
     mut scratch = std.bytes.with_capacity(1)?
     scratch.resize(1, 0u8)?
@@ -696,7 +696,7 @@ mut writer = std.compress.compressor(Format.Gzip, Counter(0), 6)?
 mut packed = std.io.cursor(std.bytes.empty()?)
 mut copier = std.compress.compressor(Format.Gzip, packed, 6)?
 for _ in range(0, 40):
-    std.io.write_all(&mut copier, &text, 0, text.len())?
+    std.io.write_all(&mut copier, &text)?
 copier.finish()?
 mut reader = std.compress.decompressor(Format.Gzip, std.io.cursor(copier.inner.data.copy()?), 10000000)?
 mut buffer = std.bytes.with_capacity(4096)?
@@ -704,7 +704,7 @@ buffer.resize(4096, 0u8)?
 mut total = 0
 print("__test_begin_no_allocations__")?
 for _ in range(0, 40):
-    std.io.write_all(&mut writer, &text, 0, text.len())?
+    std.io.write_all(&mut writer, &text)?
 writer.finish()?
 while True:
     count = reader.read(&mut buffer, 0, 4096)?
@@ -743,7 +743,7 @@ match packed:
     case Err(error):
         print(str.repr(error)?)?
 mut unfinished = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
-std.io.write_all(&mut unfinished, &data, 0, data.len())?
+std.io.write_all(&mut unfinished, &data)?
 mut partial = std.compress.decompressor(Format.Gzip, std.io.cursor(std.compress.compress(Format.Gzip, &data, 6)?), 2000)?
 mut buffer = std.bytes.with_capacity(10)?
 buffer.resize(10, 0u8)?

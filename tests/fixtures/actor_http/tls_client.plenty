@@ -18,7 +18,7 @@ def main() -> ():
         trapping = round % 3 != 2
         if trapping:
             request = b"GET /trap HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-        stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+        stream.write_all_before(&request, &deadline, &never).unwrap()
         mut out = std.bytes.empty().unwrap()
         mut cut = False
         while True:

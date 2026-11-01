@@ -15,7 +15,7 @@ import std.http.server
 import std.io
 import std.secrets
 import std.url
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.crypto import Algorithm, CryptoError
 from std.encoding import EncodingError, Endian
 from std.http import Header, HttpError, RequestHead, ResponseHead
@@ -271,7 +271,7 @@ pub class WebSocket[T]:
             if end - at > self._max_frame:
                 end = at + self._max_frame
             last = end == stop
-            outcome = self.frame(opcode, data, at, end, last, deadline)
+            outcome = self.frame(opcode, &data[at:end], last, deadline)
             self.sent(outcome)?
             if last:
                 return Ok(())
@@ -292,7 +292,7 @@ pub class WebSocket[T]:
             return Err(WebSocketError.Closed)
         if start < 0 or start > stop or stop > data.len() or stop - start > 125:
             return Err(WebSocketError.OutOfRange)
-        outcome = self.frame(op_ping, data, start, stop, True, deadline)
+        outcome = self.frame(op_ping, &data[start:stop], True, deadline)
         self.sent(outcome)
 
     # Closes the connection with `code` and a `reason` of at most 123 bytes:
@@ -309,8 +309,9 @@ pub class WebSocket[T]:
                 return Err(WebSocketError.OutOfRange)
             mut payload = bytes_of(std.bytes.with_capacity(2 + reason.byte_len()))?
             encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
-            bytes_of(payload.extend(&bytes_of(std.bytes.from_text(reason))?))?
-            outcome = self.frame(op_close, &payload, 0, payload.len(), True, deadline)
+            spelled = bytes_of(std.bytes.from_text(reason))?
+            bytes_of(payload.extend(&spelled))?
+            outcome = self.frame(op_close, &payload, True, deadline)
             self.sent(outcome)?
             self._state = state_closing
         outcome = self.drain(deadline)
@@ -345,7 +346,7 @@ pub class WebSocket[T]:
                     return self.closed_by_peer(out, base, mark, deadline)
                 if opcode == op_ping:
                     if self._state == state_open:
-                        self.frame(op_pong, out, mark, mark + length, True, deadline)?
+                        self.frame(op_pong, &out[mark:mark + length], True, deadline)?
                 elif opcode != op_pong:
                     return Err(WebSocketError.Protocol)
                 bytes_of(out.truncate(mark))?
@@ -386,7 +387,7 @@ pub class WebSocket[T]:
             if bytes_of(out.utf8_run(reason, out.len()))? != out.len():
                 return Err(WebSocketError.InvalidText)
         if self._state == state_open:
-            self.frame(op_close, out, mark, reason, True, deadline)?
+            self.frame(op_close, &out[mark:reason], True, deadline)?
         size = out.len() - reason
         for index in range(size):
             out[base + index] = out[reason + index]
@@ -416,7 +417,7 @@ pub class WebSocket[T]:
                 case Ok(made):
                     mut payload = made
                     if std.encoding.append_u16(&mut payload, u16(code), Endian.Big).is_ok():
-                        drop(self.frame(op_close, &payload, 0, 2, True, deadline))
+                        drop(self.frame(op_close, &payload[:2], True, deadline))
                 case Err(_):
                     pass
         self.shut(state_failed)
@@ -517,7 +518,7 @@ pub class WebSocket[T]:
         mut held = self._stop - self._start
         if held > count:
             held = count
-        bytes_of(out.extend_range(&self._input, self._start, self._start + held))?
+        bytes_of(out.extend(&self._input[self._start:self._start + held]))?
         self._start += held
         if held < count:
             bytes_of(out.resize(base + count, 0u8))?
@@ -550,10 +551,10 @@ pub class WebSocket[T]:
             left -= step
         Ok(())
 
-    # Sends one frame with payload source[start:stop], at most `chunk` bytes
-    # of it copied at a time.
-    def frame[S: ByteSource](self: &mut WebSocket[T], opcode: u8, source: &S, start: i64, stop: i64, last: bool, deadline: &Deadline) -> Result[(), WebSocketError]:
-        length = stop - start
+    # Sends one frame with payload `source`, at most `chunk` bytes of it
+    # copied at a time.
+    def frame(self: &mut WebSocket[T], opcode: u8, source: &[u8], last: bool, deadline: &Deadline) -> Result[(), WebSocketError]:
+        length = len(source)
         self._out.clear()
         mut first = opcode
         if last:
@@ -573,16 +574,17 @@ pub class WebSocket[T]:
         if self._client:
             secret(std.secrets.fill(&mut self._key, 0, 4))?
             bytes_of(self._out.extend(&self._key))?
-        mut at = start
+        stop = length
+        mut at = 0
         while True:
             mut end = stop
             if end - at > chunk:
                 end = at + chunk
             mark = self._out.len()
-            bytes_of(self._out.extend_range(source, at, end))?
+            bytes_of(self._out.extend(&source[at:end]))?
             if self._client:
                 for index in range(end - at):
-                    self._out[mark + index] = self._out[mark + index] ^ self._key[(at - start + index) % 4]
+                    self._out[mark + index] = self._out[mark + index] ^ self._key[(at + index) % 4]
             self.flush(deadline)?
             if end == stop:
                 return Ok(())
@@ -595,7 +597,7 @@ pub class WebSocket[T]:
         while at < size:
             outcome: Result[i64, NetError] = match &mut self._stream:
                 case Some(stream):
-                    stream.write_before(&self._out, at, size, deadline, &self._cancel)
+                    stream.write_before(&self._out[at:size], deadline, &self._cancel)
                 case Nothing:
                     Err(NetError.Stream(StreamError.Io(IoError.Closed)))
             written = netted(outcome)?
@@ -861,7 +863,7 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
     mut owned = stream
     mut at = 0
     while at < request.len():
-        written = netted(owned.write_before(&request, at, request.len(), deadline, cancel))?
+        written = netted(owned.write_before(&request[at:], deadline, cancel))?
         if written == 0:
             return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
         at += written

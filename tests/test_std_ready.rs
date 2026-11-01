@@ -111,7 +111,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesErro
     show(wait(&input.file, Interest.Write, &deadline, &token))?
     mut source = std.bytes.with_capacity(10000)?
     source.resize(10000, 120u8)?
-    print(write_before(&mut input, &source, 0, 10000, &deadline, &token).unwrap())?
+    print(write_before(&mut input, &source, &deadline, &token).unwrap())?
     input.file.close()?
     show(wait(&input.file, Interest.Write, &deadline, &token))?
     child.wait()?

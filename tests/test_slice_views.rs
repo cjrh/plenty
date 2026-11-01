@@ -571,24 +571,83 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
     );
 }
 
-/// Before the generic `&T` check, `&xs[:]` read as a borrow of the copying
-/// slice and reported `Result[list[u8], AllocError]` (consistency rule 3).
+/// Byte-reading std operations take `&[u8]` (B90 phase 3), so a `list[u8]`
+/// view, part of a buffer and a literal pass where `ByteSource` rejected a
+/// list and needed `start`/`stop` for a range.
 #[test]
-fn a_view_at_a_byte_source_parameter_names_the_view() {
-    let error = support::check_file_error(
+fn byte_reading_operations_take_any_byte_view() {
+    let stdout = support::run_file_stdout(
         r#"
 import std.bytes
 
-def main() -> Result[(), std.bytes.BytesError | AllocError]:
-    xs = [1u8, 2u8]?
+def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
+    xs = [104u8, 105u8]?
     mut buffer = std.bytes.from_text("a")?
-    buffer.extend(&xs[:])?
+    buffer.extend(&xs)?
+    buffer.extend(&xs[1:])?
+    tail = std.bytes.from_text("xyz")?
+    buffer.extend(&tail[-2:])?
+    buffer.extend(b"!")?
+    buffer.extend(&tail[5:9])?
+    print(buffer, buffer.matches(1, &xs)?, buffer.find_bytes(&tail[1:], 0, buffer.len())?)?
     Ok(())
 "#,
     );
+    assert_eq!(stdout.trim_end(), "b\"ahiiyz!\" True Option[i64].Some(4)");
+}
+
+/// `ByteSource` is removed (B90 phase 3); naming it points to `&[u8]`.
+#[test]
+fn naming_byte_source_points_to_byte_views() {
+    for source in [
+        "from std.bytes import ByteSource\n\ndef main() -> ():\n    pass\n",
+        "import std.bytes\n\ndef f[S: std.bytes.ByteSource](x: &S) -> ():\n    pass\n\ndef main() -> ():\n    pass\n",
+    ] {
+        let error = support::check_file_error(source);
+        assert!(
+            error.contains("`std.bytes.ByteSource` was removed") && error.contains("`&[u8]`"),
+            "{error}"
+        );
+    }
+}
+
+/// A shared view argument may view a call result, which is held until the
+/// end of the statement, and a literal slice views static data.
+#[test]
+fn view_arguments_hold_call_results_and_slice_literals() {
+    let stdout = support::run_file_stdout(
+        r#"
+import std.bytes
+
+def total(xs: &[u8]) -> i64:
+    mut sum = 0
+    for x in xs:
+        sum += i64(*x)
+    sum
+
+def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
+    mut buffer = std.bytes.empty()?
+    for word in ["ab", "cd"]?:
+        buffer.extend(&std.bytes.from_text(word)?[1:])?
+    buffer.extend(&b"GET /"[:3])?
+    print(buffer, total(&[1u8, 2u8]?), total(&std.bytes.from_text("ab")?))?
+    Ok(())
+"#,
+    );
+    assert_eq!(stdout.trim_end(), "b\"bdGET\" 3 195");
+}
+
+#[test]
+fn held_call_results_must_be_viewable() {
+    let error = support::check_file_error(
+        "import std.bytes\n\ndef f() -> i64:\n    1\n\n\
+         def main() -> Result[(), std.bytes.BytesError | AllocError]:\n    \
+         mut b = std.bytes.empty()?\n    b.extend(&f())?\n    Ok(())\n",
+    );
     assert!(
-        error.contains("a slice view is passed to a `&[T]` or `&substr` parameter")
-            && !error.contains("AllocError]"),
+        error.contains(
+            "this parameter takes a slice view of a list, Bytes, bytes, or str value, got i64"
+        ),
         "{error}"
     );
 }

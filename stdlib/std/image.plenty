@@ -143,7 +143,7 @@ pub class Image:
         mut pixels = held(std.bytes.with_capacity(row * height))?
         for line in range(y, y + height):
             at = (line * self._width + x) * channels
-            held(pixels.extend_range(&self._pixels, at, at + row))?
+            held(pixels.extend(&self._pixels[at:at + row]))?
         Ok(Image(width, height, self._color, pixels))
 
     # Gray from colour is BT.709 luma of the stored values; dropping alpha
@@ -660,7 +660,7 @@ def table(data: &Bytes, scan: &Scan) -> Result[Bytes, ImageError]:
     mut colors = held(std.bytes.with_capacity(4 * scan.entries))?
     for entry in range(0, scan.entries):
         at = scan.palette_at + 3 * entry
-        held(colors.extend_range(data, at, at + 3))?
+        held(colors.extend(&data[at:at + 3]))?
         alpha = data[scan.alpha_at + entry] if entry < scan.alphas else 255u8
         held(colors.push(alpha))?
     Ok(colors)
@@ -711,7 +711,7 @@ class Decoder:
             mut count = self.stride - self.filled
             if count > total - at:
                 count = total - at
-            held(self.lines.overwrite(self.current + self.filled, source, at, at + count))?
+            held(self.lines.overwrite(self.current + self.filled, &source[at:at + count]))?
             self.filled += count
             at += count
             if self.filled == self.stride:
@@ -742,7 +742,7 @@ class Decoder:
             # Rows arrive in order, so the buffer grows with the data and a
             # short file never touches the rest of its reservation.
             if scan.depth == 8 and scan.kind != 3 and not scan.keyed:
-                return held(self.out.extend_range(&self.lines, at, at + count))
+                return held(self.out.extend(&self.lines[at:at + count]))
             held(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
         mut to = (y * scan.width + x0) * channels
         step = dx * channels
@@ -773,7 +773,7 @@ class Decoder:
                     entry = sample(line, at, k, depth)
                     if entry >= scan.entries:
                         return Err(ImageError.Corrupt)
-                    held(self.out.overwrite(to, &self.palette, entry * 4, entry * 4 + channels))?
+                    held(self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels]))?
                     to += step
             case 4:
                 for k in range(0, self.columns):
@@ -849,7 +849,7 @@ def framed(out: &mut Bytes, kind: i64, data: &Bytes, start: i64, stop: i64) -> R
     put32(out, stop - start)?
     at = out.len()
     put32(out, kind)?
-    held(out.extend_range(data, start, stop))?
+    held(out.extend(&data[start:stop]))?
     crc = coded(std.compress.crc32(0, out, at, out.len()))?
     put32(out, crc)
 
@@ -955,7 +955,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
         at = y * count
         mut best = 0
         if level == 0:
-            held(rows.overwrite(1, pixels, at, at + count))?
+            held(rows.overwrite(1, &pixels[at:at + count]))?
         elif y == 0:
             best = filtered(&mut rows, pixels, at, &zero, 0, count, step)
         else:
@@ -963,7 +963,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
         start = best * line
         mut fed = start
         while fed < start + line:
-            fed += streamed(zlib.write(&rows, fed, start + line))?
+            fed += streamed(zlib.write(&rows[fed:start + line]))?
         if zlib.inner.data.len() >= idat_size:
             framed(&mut out, idat, &zlib.inner.data, 0, zlib.inner.data.len())?
             zlib.inner.data.clear()
@@ -988,7 +988,7 @@ def nearest(image: &Image, width: i64, height: i64, total: i64) -> Result[Image,
         row = ((2 * y + 1) * image.height()) // (2 * height) * image.width()
         for x in range(0, width):
             at = (row + ((2 * x + 1) * image.width()) // (2 * width)) * channels
-            held(pixels.extend_range(source, at, at + channels))?
+            held(pixels.extend(&source[at:at + channels]))?
     Ok(Image(width, height, image.color(), pixels))
 
 # Fixed-point bits in filter weights, as in Pillow's resampling.

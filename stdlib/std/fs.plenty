@@ -249,7 +249,7 @@ pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, 
             return Ok(total)
         if count > max_bytes - total:
             return Err(FsError.Limit)
-        match write_all(&mut target.stream, &scratch, 0, count):
+        match write_all(&mut target.stream, &scratch[:count]):
             case Ok(_):
                 total += count
             case Err(partial):

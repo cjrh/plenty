@@ -483,8 +483,8 @@ def signature_valid(key: &VerifyingKey, message: &Bytes, signature: &Bytes) -> R
             match hmac_hash(key._algorithm):
                 case Some(pair):
                     mut mac = from_mac(std.crypto.hmac(pair[0], secret))?
-                    from_mac(mac.update(message, 0, message.len()))?
-                    from_mac(mac.verify(signature, 0, signature.len()))
+                    from_mac(mac.update(message))?
+                    from_mac(mac.verify(signature))
                 case Nothing:
                     Err(JwtError.InvalidKey)
         case Verifier.Rsa(public):
@@ -616,7 +616,7 @@ def signature_for(key: &SigningKey, message: &Bytes) -> Result[Bytes, JwtError]:
             match hmac_hash(key._algorithm):
                 case Some(pair):
                     mut mac = from_mac(std.crypto.hmac(pair[0], secret))?
-                    from_mac(mac.update(message, 0, message.len()))?
+                    from_mac(mac.update(message))?
                     from_mac(mac.finish())
                 case Nothing:
                     Err(JwtError.InvalidKey)
@@ -632,7 +632,8 @@ def signature_for(key: &SigningKey, message: &Bytes) -> Result[Bytes, JwtError]:
             from_crypto(std.crypto.ed25519_sign(seed, message), JwtError.InvalidKey)
 
 def append_segment(target: &mut Bytes, data: &Bytes) -> Result[(), JwtError]:
-    from_bytes(target.extend(&from_encoding(std.encoding.base64url_encode(data, 0, data.len()))?))
+    encoded = from_encoding(std.encoding.base64url_encode(data, 0, data.len()))?
+    from_bytes(target.extend(&encoded))
 
 # The header is `{"alg":...,"typ":"JWT"}`, plus `kid` when given. `claims`
 # must be a JSON object; it is encoded compactly in member order.

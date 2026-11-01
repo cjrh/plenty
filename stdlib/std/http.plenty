@@ -6,7 +6,7 @@
 # See book/src/design/stdlib/http.md.
 import std.bytes
 import std.io
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.io import BufReader, Reader, StreamError, Writer
 
 pub enum HttpError:
@@ -601,14 +601,12 @@ const chunk_end: i64 = 4
 const until_close: i64 = 5
 const failed: i64 = 6
 
-# Parses the first `size` bytes of a chunk-size line, excluding CRLF.
-# Returns its nonnegative payload length; valid extensions are ignored.
-# Invalid syntax or i64 overflow is InvalidChunk; an invalid size is
-# Stream(OutOfRange). Does not allocate. Like parse_request_line and
-# parse_field, this supports callers implementing their own framed reader.
-pub def parse_chunk_size[S: ByteSource](line: &S, size: i64) -> Result[i64, HttpError]:
-    if size < 0 or size > line.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+# Parses a chunk-size line, excluding CRLF. Returns its nonnegative payload
+# length; valid extensions are ignored. Invalid syntax or i64 overflow is
+# InvalidChunk. Does not allocate. Like parse_request_line and parse_field,
+# this supports callers implementing their own framed reader.
+pub def parse_chunk_size(line: &[u8]) -> Result[i64, HttpError]:
+    size = len(line)
     mut index = 0
     mut value = 0
     while index < size:
@@ -698,7 +696,7 @@ pub class BodyReader[R]:
         size = self.line(self._max_line, HttpError.LineTooLong)?
         if size < 0:
             return Err(HttpError.Truncated)
-        value = parse_chunk_size(&self._line, size)?
+        value = parse_chunk_size(&self._line[:size])?
         if value > self._max_body - self._total:
             return Err(HttpError.BodyTooLarge)
         if value == 0:
@@ -918,8 +916,8 @@ def put_fields(out: &mut Bytes, headers: &list[Header]) -> Result[(), HttpError]
         put_line_end(out)?
     put_line_end(out)
 
-def deliver[W: Writer](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
-    match std.io.write_all(writer, data, start, stop):
+def deliver[W: Writer](writer: &mut W, data: &[u8]) -> Result[(), HttpError]:
+    match std.io.write_all(writer, data):
         case Ok(_):
             Ok(())
         case Err(partial):
@@ -929,7 +927,7 @@ def deliver[W: Writer](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> R
 # fails; a stream failure may leave part of the head delivered.
 pub def write_request[W: Writer](writer: &mut W, head: &RequestHead) -> Result[(), HttpError]:
     out = encode_request(head)?
-    deliver(writer, &out, 0, out.len())
+    deliver(writer, &out)
 
 pub def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]:
     drop(declared(&head.headers, head.minor)?)
@@ -951,7 +949,7 @@ pub def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]:
 
 pub def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]:
     out = encode_response(head)?
-    deliver(writer, &out, 0, out.len())
+    deliver(writer, &out)
 
 pub def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]:
     drop(declared(&head.headers, head.minor)?)
@@ -970,17 +968,15 @@ pub def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]:
     put_fields(&mut out, &head.headers)?
     Ok(out)
 
-# Sends source[start:stop] as one chunk of a chunked body. An empty range
-# sends nothing, because a zero-size chunk would end the body.
-pub def write_chunk[W: Writer](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
-    if start == stop:
+# Sends `source` as one chunk of a chunked body. An empty view sends
+# nothing, because a zero-size chunk would end the body.
+pub def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]:
+    if len(source) == 0:
         return Ok(())
-    line = encode_chunk_size(stop - start)?
-    deliver(writer, &line, 0, line.len())?
-    deliver(writer, source, start, stop)?
-    deliver(writer, &line, line.len() - 2, line.len())
+    line = encode_chunk_size(len(source))?
+    deliver(writer, &line)?
+    deliver(writer, source)?
+    deliver(writer, &line[line.len() - 2:])
 
 pub def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]:
     if length < 0:
@@ -994,7 +990,7 @@ pub def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]:
 # the field-line rules of `write_request`.
 pub def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]:
     out = encode_last_chunk(trailers)?
-    deliver(writer, &out, 0, out.len())
+    deliver(writer, &out)
 
 pub def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]:
     mut out = lifted(std.bytes.with_capacity(64))?
@@ -1004,23 +1000,21 @@ pub def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]:
     Ok(out)
 
 # Sends a whole body held in memory under `framing`: a Length body must be
-# exactly stop - start bytes, an Empty one none, and a Chunked one becomes
+# exactly len(source) bytes, an Empty one none, and a Chunked one becomes
 # one chunk and the last chunk. Nothing is sent when the sizes disagree.
-pub def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+pub def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]:
     match framing:
         case Framing.Empty:
-            if start != stop:
+            if len(source) != 0:
                 return Err(HttpError.LengthMismatch)
             Ok(())
         case Framing.Length(size):
-            if *size != stop - start:
+            if *size != len(source):
                 return Err(HttpError.LengthMismatch)
-            deliver(writer, source, start, stop)
+            deliver(writer, source)
         case Framing.Chunked:
-            write_chunk(writer, source, start, stop)?
+            write_chunk(writer, source)?
             trailers = listed(list[Header].new())?
             write_last_chunk(writer, &trailers)
         case Framing.UntilClose:
-            deliver(writer, source, start, stop)
+            deliver(writer, source)

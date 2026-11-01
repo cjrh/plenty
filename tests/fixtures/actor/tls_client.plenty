@@ -96,7 +96,7 @@ pub class Client:
                     mut stop = self.sent + chunk
                     if stop > payload:
                         stop = payload
-                    count = tls.write(&self.data, self.sent, stop, context)?
+                    count = tls.write(&self.data[self.sent:stop], context)?
                     if count == 0:
                         break
                     self.sent += count

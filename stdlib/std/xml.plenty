@@ -627,7 +627,7 @@ pub class Writer[W]:
         bytes = self.encode(event)?
         if bytes.len() > self._limits.max_output - self._offset:
             return Err(Fault.OutputTooLarge)
-        match std.io.write_all(&mut self.inner, &bytes, 0, bytes.len()):
+        match std.io.write_all(&mut self.inner, &bytes):
             case Ok(count):
                 self._offset += bytes.len()
                 Ok(())

@@ -35,7 +35,7 @@ pub def save(path: &str, values: &list[i64]) -> Result[(), AllocError | IoError]
 
 pub def report[W: Writer](out: &mut W, values: &list[i64]) -> Result[(), AllocError | BytesError | Partial]:
     line = from_text(&str.from(total(values))?)?
-    write_all(out, &line, 0, line.len())?
+    write_all(out, &line)?
     Ok(())
 ```
 

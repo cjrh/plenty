@@ -169,7 +169,11 @@ element with `xs[a:b:k]?`.
 `&[T]` and `&mut [T]` are types: parameters and local annotations may name
 them. A list of `u8`, a `Bytes` buffer, and a `bytes` literal all give `&[u8]`,
 so one `&[u8]` parameter reads any of them. The viewed value must be a named
-place, such as `xs`, `self.items`, or `rows[0]`.
+place, such as `xs`, `self.items`, or `rows[0]`, or a `bytes` or `str`
+literal, as in `&b"GET /"[:3]`. A shared view argument may also view a call
+result, as in `w.write(&encode(x)?[2:])`: the result lives until the end of the
+statement. Bind a call result to a name before binding a view of it to a name,
+and before passing an exclusive view of it.
 
 | Operation | Meaning |
 | --- | --- |
@@ -248,9 +252,10 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 `&xs[:]` keeps working. An owned list, `total(xs)`, is not a view and is
-rejected. A `&T` type parameter, such as a
-[`ByteSource`](../../stdlib/bytes.md#byte-sources) operand, takes a reference
-to a whole value, not a view.
+rejected. A `&T` type parameter takes a reference to a whole value, not a
+view. Standard-library operations that read bytes take
+[`&[u8]`](../../stdlib/bytes.md#byte-views), so `buffer.extend(&other[2:])` and
+`writer.write(b"ok")` pass a view.
 A function with a view parameter may return a reference into it: the first
 reference or view parameter is the
 [origin](../05-ownership/04-returned-references.md) of a returned reference.

@@ -15,7 +15,7 @@ import std.io
 import std.json
 import std.net
 import std.path
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.fs import Root
 from std.http.body import Content, FormLimits, MultipartLimits
 from std.http.cookie import SameSite
@@ -46,16 +46,17 @@ pub class Script:
             count = 7
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         # Stdout is line buffered and may take only part of the range.
-        Ok(source.write_stdout(start, stop).unwrap())
+        mut out = std.io.stdout()
+        Ok(out.write(source).unwrap())
 
 pub enum Route:
     Form
@@ -777,15 +778,15 @@ pub class Quiet:
         mut count = stop - start
         if count > self.input.len() - self.at:
             count = self.input.len() - self.at
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Quiet, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Quiet, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        Ok(stop - start)
+    pub def write_before(self: &mut Quiet, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Ok(len(source))
 
 def tag(error: &std.http.body.BodyError) -> str:
     match error:

@@ -238,7 +238,7 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
             mut closed = False
             while at < count:
                 run = quoted_end(&data, at, count)
-                lifted(out.extend_range(&data, at, run))?
+                lifted(out.extend(&data[at:run]))?
                 at = run
                 if at == count:
                     break
@@ -319,7 +319,7 @@ def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Byte
     while count > 0:
         if out.len() + count > limit:
             return Err(BodyError.TooLarge)
-        lifted(out.extend_range(&chunk, 0, count))?
+        lifted(out.extend(&chunk[:count]))?
         count = http(exchange.read_body(&mut chunk, 0, 4096))?
     Ok(out)
 
@@ -499,7 +499,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     window.total += count
     if window.total > window.limit:
         return Err(BodyError.TooLarge)
-    lifted(window.data.extend_range(&window.chunk, 0, count))?
+    lifted(window.data.extend(&window.chunk[:count]))?
     Ok(True)
 
 # Reads until `count` unexamined bytes are held; False if the body ends first.
@@ -590,7 +590,7 @@ def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text:
         case Some(handle):
             if total > limits.max_file:
                 return Err(BodyError.TooLarge)
-            match std.io.write_all(&mut handle.stream, data, start, stop):
+            match std.io.write_all(&mut handle.stream, &data[start:stop]):
                 case Ok(_):
                     Ok(total)
                 case Err(partial):
@@ -598,7 +598,7 @@ def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text:
         case Nothing:
             if total > limits.max_field:
                 return Err(BodyError.TooLarge)
-            lifted(text.extend_range(data, start, stop))?
+            lifted(text.extend(&data[start:stop]))?
             Ok(total)
 
 def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:

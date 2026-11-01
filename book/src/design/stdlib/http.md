@@ -199,12 +199,11 @@ as soon as a byte arrives past it. Chunk sizes are hexadecimal without signs
 or leading spaces. Chunk extensions after `;` are checked for control bytes
 and ignored. Each chunk's data must be followed by CRLF.
 
-`parse_chunk_size(&line, size)` exposes that chunk-size grammar for custom
-framed readers. It accepts any `ByteSource`, reads the first `size` bytes
-excluding CRLF, and returns `Result[i64, HttpError]` without allocating.
+`parse_chunk_size(line: &[u8])` exposes that chunk-size grammar for custom
+framed readers. It reads a [`&[u8]` view](bytes.md#byte-views) of one line excluding CRLF, such as
+`&line[:size]`, and returns `Result[i64, HttpError]` without allocating.
 Extensions are checked and ignored. Invalid syntax or a size exceeding
-`i64` returns `InvalidChunk`; an invalid input prefix range returns
-`Stream(OutOfRange)`. Callers enforce their own line and body limits.
+`i64` returns `InvalidChunk`. Callers enforce their own line and body limits.
 
 Through `read`, a body is an ordinary `Reader` for `std.io.copy_all` and
 similar helpers. Stream and allocation errors keep their `StreamError`;
@@ -218,9 +217,9 @@ the body reports only `Broken`.
 |---|---|
 | `write_request(writer: &mut W, head)` | `Result[(), HttpError]` |
 | `write_response(writer, head)` | `Result[(), HttpError]` |
-| `write_chunk(writer, source: &Bytes, start, stop)` | One chunk; an empty range writes nothing |
+| `write_chunk(writer, source: &[u8])` | One chunk; an empty view writes nothing |
 | `write_last_chunk(writer, trailers: &list[Header])` | The zero-size chunk and trailer section |
-| `write_body(writer, framing, source, start, stop)` | A whole body under `framing`; `Length` and `Empty` must match the range |
+| `write_body(writer, framing, source: &[u8])` | A whole body under `framing`; `Length` and `Empty` must match `len(source)` |
 
 Writers validate before writing and write nothing when validation fails:
 token methods and names, targets of visible ASCII, reasons and values without

@@ -724,7 +724,7 @@ mut child = piped("tr", &["a-z", "A-Z"]?)?.spawn()?
 mut writer = std.io.from_file(child.take_stdin().unwrap())
 mut reader = std.io.from_file(child.take_stdout().unwrap())
 source = std.bytes.from_text("through streams\n")?
-match std.io.write_all(&mut writer, &source, 0, source.len()):
+match std.io.write_all(&mut writer, &source):
     case Ok(_):
         pass
     case Err(_):

@@ -151,7 +151,7 @@ def main() -> Result[(), Problem]:
     banner = std.image.new(3000, 100, ColorType.Rgb)?
     png = std.image.encode_png(&banner)?
     mut out = std.io.open_file("banner.png", "w")?
-    std.io.write_all(&mut out, &png, 0, png.len())?
+    std.io.write_all(&mut out, &png)?
     out.close()?
 
     data = load("banner.png", 1048576)?

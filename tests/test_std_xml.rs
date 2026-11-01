@@ -5,7 +5,7 @@ const PRELUDE: &str = r#"import std.xml
 import std.bytes
 import std.io
 from std.xml import Event, Attribute, Fault, Limits
-from std.bytes import Bytes, ByteSource
+from std.bytes import Bytes
 from std.io import StreamError
 
 def min(a: i64, b: i64) -> i64:
@@ -27,7 +27,7 @@ pub class Trickle:
         if mode == 3:
             return Ok(stop - start + 1)
         count = min(min(self.step, stop - start), self.data.len() - self.at)
-        match target.overwrite(start, &self.data, self.at, self.at + count):
+        match target.overwrite(start, &self.data[self.at:self.at + count]):
             case Err(_):
                 return Err(StreamError.OutOfRange)
             case Ok(_):
@@ -40,9 +40,9 @@ pub class Sink:
     room: i64
     fail_flush: bool
 
-    pub def write[S: ByteSource](self: &mut Sink, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        count = min(min(2, self.room), stop - start)
-        match self.data.extend_range(source, start, start + count):
+    pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
+        count = min(min(2, self.room), len(source))
+        match self.data.extend(&source[:count]):
             case Err(error):
                 match error:
                     case std.bytes.BytesError.Allocation(cause):

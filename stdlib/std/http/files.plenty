@@ -374,7 +374,8 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
         mut head = http(std.http.response(405, "Method Not Allowed"))?
         http(head.add("Allow", "GET, HEAD"))?
         http(head.add("Content-Type", "text/plain; charset=utf-8"))?
-        http(exchange.respond(head, &lifted(std.bytes.from_text("Method Not Allowed\n"))?))?
+        body = lifted(std.bytes.from_text("Method Not Allowed\n"))?
+        http(exchange.respond(head, &body))?
         return Ok(405)
     mut stream = match open_file(root, path)?:
         case Some(found):
@@ -392,7 +393,7 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
     if unchanged(&exchange.request.headers, &found.tag, found.modified)?:
         mut head = http(std.http.response(304, "Not Modified"))?
         add_validators(&mut head, &found)?
-        http(exchange.respond(head, &lifted(std.bytes.empty())?))?
+        http(exchange.respond(head, b""))?
         return Ok(304)
     mut buffer = lifted(std.bytes.with_capacity(chunk))?
     lifted(buffer.resize(chunk, 0u8))?
@@ -419,7 +420,7 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
                 return Err(FilesError.Stream(error))
         if count == 0:
             return Err(FilesError.Truncated)
-        http(exchange.write(&buffer, 0, count))?
+        http(exchange.write(&buffer[:count]))?
         remaining -= count
     http(exchange.end())?
     Ok(200)

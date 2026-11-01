@@ -69,7 +69,7 @@ mut h = sketch.hyperloglog(4)?
 h.add(0u64)
 h.add(1u64)
 wire = h.to_bytes()?
-print(wire.len() == 36 and wire.matches(0, &gold, 0, len(gold))?)?
+print(wire.len() == 36 and wire.matches(0, &gold)?)?
 read = sketch.hyperloglog_from_bytes(&gold)?
 print(read.estimate() == h.estimate())?
 "#,

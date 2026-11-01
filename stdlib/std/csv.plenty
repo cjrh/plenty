@@ -222,7 +222,7 @@ pub class Record:
         allocated(self._data.slice(self.start(index)?, self.stop(index)?))
 
     pub def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]:
-        stored(out.extend_range(&self._data, self.start(index)?, self.stop(index)?))
+        stored(out.extend(&self._data[self.start(index)?:self.stop(index)?]))
 
     pub def text(self, index: i64) -> Result[str, CsvError]:
         field = self.bytes(index)?
@@ -381,7 +381,7 @@ pub class Reader[R]:
                     cursor = first_in(&self._buffer, &self._breaks, cursor + 1, end)
                 if end > self._start:
                     self._after_return = at(&self._buffer, end - 1) == carriage_return
-                stored(record._data.extend_range(&self._buffer, self._start, end))?
+                stored(record._data.extend(&self._buffer[self._start:end]))?
                 self._start = end
                 continue
             if not started and self._after_return:
@@ -421,7 +421,7 @@ pub class Reader[R]:
             if limit > self._stop:
                 limit = self._stop
             end = first_in(&self._buffer, &self._special, self._start + 1, limit)
-            stored(record._data.extend_range(&self._buffer, self._start, end))?
+            stored(record._data.extend(&self._buffer[self._start:end]))?
             self._start = end
             state = 1
             started = True
@@ -501,7 +501,7 @@ pub class Writer[W]:
 
     def drain(self: &mut Writer[W]) -> Result[(), CsvError]:
         while self._sent < self._ready:
-            match self.inner.write(&self._pending, self._sent, self._ready):
+            match self.inner.write(&self._pending[self._sent:self._ready]):
                 case Ok(count):
                     if count == 0:
                         return Err(CsvError.Stream(StreamError.WriteZero))
@@ -526,16 +526,16 @@ pub class Writer[W]:
         if self._fields > 0:
             stored(self._pending.push(self._delimiter))?
         if not self.quoted(source, start, stop):
-            return stored(self._pending.extend_range(source, start, stop))
+            return stored(self._pending.extend(&source[start:stop]))
         stored(self._pending.push(self._quote))?
         mut copied = start
         mut index = first(source, self._quote, start, stop)
         while index < stop:
-            stored(self._pending.extend_range(source, copied, index + 1))?
+            stored(self._pending.extend(&source[copied:index + 1]))?
             stored(self._pending.push(self._quote))?
             copied = index + 1
             index = first(source, self._quote, copied, stop)
-        stored(self._pending.extend_range(source, copied, stop))?
+        stored(self._pending.extend(&source[copied:stop]))?
         stored(self._pending.push(self._quote))
 
     # Adds source[start:stop] as the next field of the record in progress.

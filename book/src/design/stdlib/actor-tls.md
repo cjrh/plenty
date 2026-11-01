@@ -68,7 +68,7 @@ pub class Caller:
                 if events.writable and not self.sent:
                     self.sent = True
                     # The empty output takes all 14 bytes.
-                    call.write(b"hello over TLS", 0, 14, context)?
+                    call.write(b"hello over TLS", context)?
                     call.shutdown_write(context)?
                 if events.ended:
                     print("reply", call.input().to_text_range(call.input_start(), call.input_stop())?)?
@@ -295,7 +295,7 @@ private keys are zeroized on normal destruction; trap cleanup discards actor pag
 | `TlsConnection.handle(&mail, context)` | `Result[Events, TlsError \| TimerError]` |
 | `TlsConnection.input()`, `input_start()`, `input_stop()`, `available()` | The plaintext buffer and the unconsumed range |
 | `TlsConnection.consume(count, context)` | `Result[(), TlsError \| TimerError]`; may decrypt more |
-| `TlsConnection.write(source, start, stop, context)` | `Result[i64, TlsError \| TimerError]`: plaintext accepted; `Closed` after `shutdown_write` or `close` |
+| `TlsConnection.write(&source[start:stop], context)` | `Result[i64, TlsError \| TimerError]`: plaintext accepted; `Closed` after `shutdown_write` or `close` |
 | `TlsConnection.forward(count, context)` | `Result[i64, TlsError \| TimerError]`: plaintext moved from input to output |
 | `TlsConnection.pending()`, `space()` | Unsent ciphertext; plaintext `write` would accept now |
 | `TlsConnection.read_within(&span, context)`, `clear_read_deadline()` | Set or clear the read deadline |

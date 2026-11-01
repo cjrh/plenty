@@ -173,7 +173,7 @@ fn writers_receive_html_and_retries_do_not_repeat() {
     assert_visible_stdout(
         r##"import std.bytes
 import std.markdown
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 from std.markdown import Event, MarkdownError
 
@@ -182,12 +182,12 @@ pub class Sip:
     pub data: Bytes
     pub room: i64
 
-    pub def write[S: ByteSource](self: &mut Sip, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start == stop:
+    pub def write(self: &mut Sip, source: &[u8]) -> Result[i64, StreamError]:
+        if len(source) == 0:
             return Ok(0)
         if self.data.len() >= self.room:
             return Err(StreamError.Io(IoError.NotWritable))
-        match self.data.extend_range(source, start, start + 1):
+        match self.data.extend(&source[:1]):
             case Ok(_):
                 Ok(1)
             case Err(_):

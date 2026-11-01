@@ -48,17 +48,17 @@ pub class App:
             case Route.Big:
                 exchange.start(std.http.response(200, "OK")?)?
                 for index in range(16):
-                    exchange.write(&self.piece, 0, self.piece.len())?
+                    exchange.write(&self.piece)?
             case Route.Hold:
                 exchange.start(std.http.response(200, "OK")?)?
                 first = std.bytes.from_text("first\n")?
-                exchange.write(&first, 0, first.len())?
+                exchange.write(&first)?
                 mut waited = 0
                 while not self.release.is_cancelled() and waited < 1000:
                     std.time.sleep(&std.time.milliseconds(10u32))
                     waited += 1
                 second = std.bytes.from_text("second\n")?
-                exchange.write(&second, 0, second.len())?
+                exchange.write(&second)?
             case Route.Release:
                 self.release.cancel()
                 exchange.send_text(200, "released")?
@@ -71,10 +71,10 @@ pub class App:
                 exchange.start(std.http.response(200, "OK")?)?
                 tick = std.bytes.from_text("tick\n")?
                 while not exchange.stopping():
-                    exchange.write(&tick, 0, tick.len())?
+                    exchange.write(&tick)?
                     std.time.sleep(&std.time.milliseconds(20u32))
                 bye = std.bytes.from_text("bye\n")?
-                exchange.write(&bye, 0, bye.len())?
+                exchange.write(&bye)?
         Ok(())
 
 def field(exchange: &Exchange[TcpStream], name: &str) -> Result[str, AllocError]:

@@ -14,8 +14,8 @@ scans. Import `std.text`; every allocating operation returns
 | `Builder.finish()` | Final UTF-8 string; consumes the builder on success or failure |
 | `join(pieces: &list[str], separator: &str, max_bytes: i64)` | Separator between pieces, including empty pieces; empty list yields empty text |
 | `wrap(text: &str, width: i64, max_bytes: i64)` | Hard wrap at `width` Unicode scalars, inserting LF; width must be positive |
-| `find_in[S: ByteSource](text: &str, set: &S)` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
-| `find_not_in[S: ByteSource](text: &str, set: &S)` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
+| `find_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
+| `find_not_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
 
 `TextError` has `InvalidLimit`, `LimitExceeded`, `Allocation(AllocError)`, and
 `Bytes(BytesError)` variants. Byte-buffer failures preserve their typed cause;

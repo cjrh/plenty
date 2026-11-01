@@ -2,7 +2,8 @@ import std.bytes
 import std.encoding
 import std.http
 import std.http.server
-from std.bytes import ByteSource, Bytes
+import std.io
+from std.bytes import Bytes
 from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
 from std.net import NetError, Shutdown
 from std.sync import CancellationToken
@@ -27,18 +28,19 @@ pub class Script:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
-        source.write_stdout(start, stop).unwrap()
-        Ok(stop - start)
+        mut out = std.io.stdout()
+        std.io.write_all(&mut out, source).unwrap()
+        Ok(len(source))
 
 pub enum Route:
     Home

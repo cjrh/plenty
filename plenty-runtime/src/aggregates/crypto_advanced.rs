@@ -1,7 +1,7 @@
 //! Curated `ring` primitives. Key objects, tags, signatures and HKDF state
 //! use fixed-size stack storage; only X25519's owned state allocates, through
 //! the runtime's fallible allocator. No PKCS#8 or allocating seal API is used.
-use super::byte_storage::{Storage, result};
+use super::byte_storage::{Storage, result, view_bytes, view_overlaps};
 use crate::memory::{self, AllocError, Header};
 use ring::{aead, agreement, hkdf, rand, signature};
 use signature::KeyPair;
@@ -122,17 +122,28 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, d] = operands;
     let (output, inputs): (Option<u128>, &[u128]) = match op {
         308..=311 | 315 => (Some(d), &[a, b, c]),
-        312 | 317 => (Some(b), &[a]),
-        313 | 318 => (Some(c), &[a, b]),
+        312 => (Some(b), &[a]),
+        313 => (Some(c), &[a, b]),
+        318 => (Some(c), &[b]),
         _ => (None, &[]),
     };
-    if output.is_some_and(|output| inputs.contains(&output)) {
+    // A state handle and the output buffer it fills are both storage.
+    if op == 317 && a == b {
         crate::fail("crypto output aliases an input");
     }
-    // SAFETY: ByteStorage values refer to live Storage prefixes. Output
-    // exclusivity is checked by the compiler and aliases rejected above.
+    // SAFETY: inputs are live views and the output a live Storage prefix.
+    if output.is_some_and(|output| {
+        inputs
+            .iter()
+            .any(|&input| unsafe { view_overlaps(input, output) })
+    }) {
+        crate::fail("crypto output aliases an input");
+    }
+    // SAFETY: ByteStorage values refer to live Storage prefixes and input
+    // views to live bytes. Output exclusivity is checked by the compiler and
+    // aliases rejected above.
     unsafe {
-        let view = |value: u128| (*(value as *const Storage)).bytes.as_slice();
+        let view = |value: u128| view_bytes(value);
         let target = |value: u128| (*(value as *mut Storage)).bytes.as_mut_slice();
         let status = match op {
             308..=311 => encrypt(
@@ -292,7 +303,7 @@ mod tests {
                 header: Header::new(destroy),
                 bytes: vec![99; 32],
             };
-            let peer = ptr::addr_of_mut!(peer) as u128;
+            let peer = super::super::byte_storage::view_operand(&peer.bytes);
             let output_pointer = ptr::addr_of_mut!(output) as u128;
             assert_eq!(
                 call(318, [state as u128, peer, output_pointer, 0]) as i64,

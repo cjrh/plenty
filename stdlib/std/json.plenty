@@ -334,7 +334,7 @@ pub class Decoder:
         if self._at == self._window.len():
             self._window.clear()
             self._at = 0
-        match faulted(self._window.extend_range(source, start, stop)):
+        match faulted(self._window.extend(&source[start:stop])):
             case Ok(_):
                 self._fed += stop - start
                 Ok(())
@@ -562,7 +562,7 @@ pub class Decoder:
         # one column, and none is a line feed.
         available = self._window.len()
         stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)?
-        faulted(self._scratch.extend_range(&self._window, self._at, stop))?
+        faulted(self._scratch.extend(&self._window[self._at:stop]))?
         count = stop - self._at
         self._at = stop
         self._offset += count
@@ -989,7 +989,7 @@ pub class Encoder:
     def extend(self: &mut Encoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonFault]:
         if stop - start > self._max_output - self._written:
             return Err(JsonFault.OutputTooLarge)
-        faulted(self._out.extend_range(source, start, stop))?
+        faulted(self._out.extend(&source[start:stop]))?
         self._written += stop - start
         Ok(())
 
@@ -1269,7 +1269,7 @@ pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
 # Does not flush. On failure only the bytes the writer did not accept stay
 # pending, so a retry cannot repeat output.
 pub def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(), JsonError]:
-    outcome = std.io.write_all(writer, &source._out, 0, source._out.len())
+    outcome = std.io.write_all(writer, &source._out)
     match outcome:
         case Ok(_):
             source._out.clear()

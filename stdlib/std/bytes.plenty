@@ -8,13 +8,9 @@ pub enum BytesError:
     InvalidUtf8
     Allocation(AllocError)
 
-# Bytes that operations read in place: a `b"..."` literal or a `Bytes`
-# buffer. Generic code is checked per concrete type, so `source[i]` and
-# `for byte in source` work for both as well. Operations taking a
-# `&S` with `S: ByteSource` read either form without copying.
-pub protocol ByteSource:
-    def len(self) -> i64:
-        pass
+# Operations read bytes in place through a `&[u8]` view: `&buffer`, a
+# `b"..."` literal, or `&buffer[a:b]` for part of one. One body serves every
+# byte owner; the view's bounds clamp, so no range result is needed.
 
 pub class Bytes:
     _owner: ByteStorage
@@ -89,18 +85,14 @@ pub class Bytes:
         __bytes_fill(self._owner, start, stop, value)
         Ok(())
 
-    pub def extend[S: ByteSource](self: &mut Bytes, source: &S) -> Result[(), BytesError]:
-        stored(__bytes_append(self._owner, source, 0, source.len()))
+    pub def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]:
+        stored(__bytes_append(self._owner, source))
 
-    pub def extend_range[S: ByteSource](self: &mut Bytes, source: &S, start: i64, stop: i64) -> Result[(), BytesError]:
-        checked(start, stop, source.len())?
-        stored(__bytes_append(self._owner, source, start, stop))
-
-    pub def overwrite[S: ByteSource](self: &mut Bytes, offset: i64, source: &S, start: i64, stop: i64) -> Result[(), BytesError]:
-        checked(start, stop, source.len())?
-        if offset < 0 or offset > __bytes_len(self._owner) - (stop - start):
+    # Writes `source` at `offset`; the buffer keeps its length.
+    pub def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]:
+        if offset < 0 or offset > __bytes_len(self._owner) - len(source):
             return Err(BytesError.OutOfRange)
-        __bytes_overwrite(self._owner, offset, source, start, stop)
+        __bytes_overwrite(self._owner, offset, source)
         Ok(())
 
     # Copies self[start:stop] to `to` in the same buffer, as memmove does: the
@@ -117,7 +109,7 @@ pub class Bytes:
     pub def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         mut owner = allocated(__bytes_new(stop - start))?
-        stored(__bytes_append(owner, self._owner, start, stop))?
+        stored(__bytes_append(owner, &self[start:stop]))?
         Ok(Bytes(owner))
 
     pub def copy(self) -> Result[Bytes, BytesError]:
@@ -131,18 +123,18 @@ pub class Bytes:
         Ok(located(__bytes_find(self._owner, value, start, stop)))
 
     # The first byte that equals any byte of `set`. An empty set finds nothing.
-    pub def find_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(located(__bytes_find_in(self._owner, set, start, stop, 1u8)))
 
     # The first byte that equals no byte of `set`: the end of a run.
-    pub def find_not_in[S: ByteSource](self, set: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(located(__bytes_find_in(self._owner, set, start, stop, 0u8)))
 
     # The first position where all of `needle` occurs inside the range. An
     # empty needle is found at `start`.
-    pub def find_bytes[S: ByteSource](self, needle: &S, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
+    pub def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(located(__bytes_find_bytes(self._owner, needle, start, stop)))
 
@@ -150,13 +142,12 @@ pub class Bytes:
         checked(start, stop, __bytes_len(self._owner))?
         Ok(__bytes_count(self._owner, value, start, stop))
 
-    # Whether source[start:stop] occurs at `offset`. Too few bytes after
-    # `offset` is False, not an error.
-    pub def matches[S: ByteSource](self, offset: i64, source: &S, start: i64, stop: i64) -> Result[bool, BytesError]:
-        checked(start, stop, source.len())?
+    # Whether `source` occurs at `offset`. Too few bytes after `offset` is
+    # False, not an error.
+    pub def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]:
         if offset < 0 or offset > __bytes_len(self._owner):
             return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches(self._owner, offset, source, start, stop))
+        Ok(__bytes_matches(self._owner, offset, source))
 
     # Whether the UTF-8 bytes of `text` occur at `offset`.
     pub def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]:
@@ -197,7 +188,7 @@ pub class Bytes:
 
     pub def write_file(self, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
-        __io_file_write(self._owner, start, stop, file)
+        __io_file_write(&self[start:stop], file)
 
     pub def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
@@ -205,11 +196,11 @@ pub class Bytes:
 
     pub def write_stdout(self, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
-        __io_std_write(self._owner, start, stop, 1u8)
+        __io_std_write(&self[start:stop], 1u8)
 
     pub def write_stderr(self, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
-        __io_std_write(self._owner, start, stop, 2u8)
+        __io_std_write(&self[start:stop], 2u8)
 
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:

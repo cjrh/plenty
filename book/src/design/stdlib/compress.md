@@ -87,7 +87,7 @@ public.
 
 | Method | Result | Contract |
 |---|---|---|
-| `write[S: ByteSource](source: &S, start: i64, stop: i64)` | `Result[i64, StreamError]` | Compress part of `source[start:stop]`, a `Bytes` or a `b"..."` literal; the count is the input consumed |
+| `write(source: &[u8])` | `Result[i64, StreamError]` | Compress part of `source`, a view of a `Bytes`, a list or a `b"..."` literal; the count is the input consumed |
 | `flush()` | `Result[(), StreamError]` | Deliver everything written so far as complete blocks, then flush `inner` |
 | `finish()` | `Result[(), StreamError]` | Write the stream's end and checksum, then flush `inner` |
 

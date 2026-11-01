@@ -10,9 +10,10 @@ use support::{assert_http_program as runs, tls_fixtures as fixtures};
 const SCRIPTED: &str = r##"import std.bytes
 import std.http
 import std.http.server
+import std.io
 import std.net
 import std.time
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.http import Header, HttpError
 from std.http.server import Config, Exchange, Report, Router, ServerError, Transport
 from std.net import NetError, Shutdown, TcpStream
@@ -42,19 +43,20 @@ pub class Script:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
         if self.echo:
-            source.write_stdout(start, stop).unwrap()
-        Ok(stop - start)
+            mut out = std.io.stdout()
+            out.write(source).unwrap()
+        Ok(len(source))
 
 pub enum Route:
     Home
@@ -103,8 +105,8 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
             case Route.Stream:
                 exchange.start(std.http.response(200, "OK")?)?
                 piece = std.bytes.from_text("abcdef")?
-                exchange.write(&piece, 0, 2)?
-                exchange.write(&piece, 2, 6)?
+                exchange.write(&piece[:2])?
+                exchange.write(&piece[2:6])?
             case Route.Silent:
                 pass
             case Route.Sized:
@@ -112,7 +114,7 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
                 head.add("Content-Length", "5")?
                 exchange.start(head)?
                 piece = std.bytes.from_text("hello")?
-                exchange.write(&piece, 0, 5)?
+                exchange.write(&piece[:5])?
                 exchange.end()?
             case Route.Query:
                 query = exchange.query.concat("")?
@@ -120,7 +122,7 @@ pub def answer[T: Transport](label: &str, route: &Route, exchange: &mut Exchange
             case Route.Broken:
                 exchange.start(std.http.response(200, "OK")?)?
                 piece = std.bytes.from_text("part")?
-                exchange.write(&piece, 0, 4)?
+                exchange.write(&piece[:4])?
                 return Err(Deliberate.Fail)
             case Route.Authority:
                 authority = exchange.authority.concat("|")?
@@ -195,7 +197,7 @@ import std.http.server
 import std.net
 import std.time
 import std.http
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.http.server import Exchange, Report
 from std.net import NetError, TcpStream
 from std.sync import CancellationToken
@@ -224,16 +226,16 @@ pub class Gated:
                 exchange.start(std.http.response(200, "OK")?)?
                 tick = std.bytes.from_text("tick\n")?
                 while not exchange.stopping():
-                    exchange.write(&tick, 0, tick.len())?
+                    exchange.write(&tick)?
                     std.time.sleep(&std.time.milliseconds(20u32))
                 bye = std.bytes.from_text("bye\n")?
-                exchange.write(&bye, 0, bye.len())?
+                exchange.write(&bye)?
             case Route.Stubborn:
                 # Ignores shutdown; only cancellation stops it.
                 exchange.start(std.http.response(200, "OK")?)?
                 tick = std.bytes.from_text("tick\n")?
                 while True:
-                    exchange.write(&tick, 0, tick.len())?
+                    exchange.write(&tick)?
                     std.time.sleep(&std.time.milliseconds(20u32))
         Ok(())
 
@@ -253,7 +255,7 @@ pub def connect_to(port: u16, raw: &str) -> Result[TcpStream, NetError]:
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
     request = std.bytes.from_text(raw).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
+    stream.write_all_before(&request, &deadline, &never)?
     Ok(stream)
 
 # Reads until `marker` has arrived, or to the end when it is empty.
@@ -811,7 +813,7 @@ def ask(stream: &mut TcpStream) -> ():
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&request, &deadline, &never).unwrap()
 
 def many(port: u16, stop: CancellationToken) -> ():
     mut streams = list[TcpStream].new().unwrap()
@@ -896,7 +898,7 @@ def send(stream: &mut TcpStream, raw: &str) -> ():
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     request = std.bytes.from_text(raw).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&request, &deadline, &never).unwrap()
 
 def millis_since(start: &std.time.Instant) -> u64:
     std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // 1000000u64
@@ -1000,7 +1002,7 @@ def ask(stream: &mut TlsStream) -> str:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&request, &deadline, &never).unwrap()
     # Responses are length-delimited; the server sends no close_notify.
     mut out = std.bytes.empty().unwrap()
     while not out.to_text().unwrap().endswith("secure"):
@@ -1112,7 +1114,7 @@ def ask(stream: &mut TlsStream, raw: &str, marker: &str) -> str:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     request = std.bytes.from_text(raw).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&request, &deadline, &never).unwrap()
     mut out = std.bytes.empty().unwrap()
     while marker.byte_len() > 0 and not out.to_text().unwrap().endswith(marker):
         at = out.len()
@@ -1151,7 +1153,7 @@ def client(port: u16, stop: CancellationToken) -> ():
     # A TLS record header promising 512 bytes of handshake, then one byte.
     mut hello = std.net.connect(&std.net.loopback_v4(port), &std.time.deadline_after(&start, &std.time.seconds(5u32)).unwrap(), &CancellationToken().unwrap()).unwrap()
     partial = std.bytes.from_list(&[22u8, 3u8, 1u8, 2u8, 0u8, 1u8].unwrap()).unwrap()
-    hello.write_all_before(&partial, 0, partial.len(), &std.time.deadline_after(&start, &std.time.seconds(5u32)).unwrap(), &CancellationToken().unwrap()).unwrap()
+    hello.write_all_before(&partial, &std.time.deadline_after(&start, &std.time.seconds(5u32)).unwrap(), &CancellationToken().unwrap()).unwrap()
     mut stalled = secure(port)
     drop(ask(&mut stalled, "GET / HTTP/1.1\r\nHo", ""))
     mut first = secure(port)
@@ -1397,7 +1399,7 @@ pub class Summed:
             case Route.Broken:
                 exchange.start(std.http.response(200, "OK")?)?
                 piece = std.bytes.from_text("part")?
-                exchange.write(&piece, 0, 4)?
+                exchange.write(&piece[:4])?
                 return Err(Refused.Teapot)
             case _:
                 return Err(Refused.Teapot)
@@ -1493,7 +1495,7 @@ def ask(port: u16, path: &str, last: &str) -> str:
     tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
     mut stream = std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
     request = std.bytes.from_text(&"GET ".concat(path).unwrap().concat(" HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+    stream.write_all_before(&request, &deadline, &never).unwrap()
     mut out = std.bytes.empty().unwrap()
     while not out.to_text().unwrap().endswith(last):
         at = out.len()

@@ -13,7 +13,7 @@ const HEADER: &str = r#"import std.bytes
 import std.encoding
 import std.io
 import std.json
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 from std.json import DuplicateKeys, Event, Json, JsonError, JsonFault, Limits, Member
 
@@ -28,7 +28,7 @@ pub class Trickle:
             count = self.step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -1033,7 +1033,7 @@ pub class Flaky:
             return Err(StreamError.Io(IoError.Closed))
         if self.at >= self.data.len():
             return Ok(0)
-        match buffer.overwrite(start, &self.data, self.at, self.at + 1):
+        match buffer.overwrite(start, &self.data[self.at:self.at + 1]):
             case Ok(_):
                 pass
             case Err(_):
@@ -1046,12 +1046,12 @@ pub class Sip:
     pub data: Bytes
     pub room: i64
 
-    pub def write[S: ByteSource](self: &mut Sip, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start == stop:
+    pub def write(self: &mut Sip, source: &[u8]) -> Result[i64, StreamError]:
+        if len(source) == 0:
             return Ok(0)
         if self.data.len() >= self.room:
             return Err(StreamError.Io(IoError.NotWritable))
-        match self.data.extend_range(source, start, start + 1):
+        match self.data.extend(&source[:1]):
             case Ok(_):
                 Ok(1)
             case Err(_):

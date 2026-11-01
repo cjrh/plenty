@@ -823,7 +823,13 @@ impl Lower<'_> {
         }
         let mut loans = Vec::new();
         for (arg, expected) in args.iter().zip(inputs) {
-            if let Some(loan) = self.buffer_storage(arg, &expected, false, false, ops)? {
+            if let Ty::View(_, mutable) = &expected {
+                let (ty, loan) = self.view_argument(arg, *mutable, false, ops)?;
+                self.same(Some(ty), Some(expected.clone()), &arg.at)?;
+                loans.push(loan);
+                continue;
+            }
+            if let Some(loan) = self.buffer_storage(arg, &expected, false, ops)? {
                 loans.push(loan);
                 continue;
             }
@@ -3520,8 +3526,8 @@ impl Lower<'_> {
                 "str has no `len` method; `len(text)` counts scalars and `text.byte_len()` counts UTF-8 bytes",
             ));
         }
-        // `len` is the one method, so `bytes` satisfies std.bytes.ByteSource
-        // as `Bytes` does; see protocols::builtin_methods.
+        // `len` is the one method, so `bytes` satisfies a protocol requiring
+        // `len`; see protocols::builtin_methods.
         if ty == Ty::ByteStr && name == "len" {
             if !args.is_empty() {
                 return Err(base.at.error("len takes no arguments"));
@@ -3532,7 +3538,7 @@ impl Lower<'_> {
         }
         if ty == Ty::ByteStr {
             return Err(base.at.error(format!(
-                "bytes has no `{name}` method; `value.len()` counts its bytes, operations taking a `std.bytes.ByteSource` read it in place, and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
+                "bytes has no `{name}` method; `value.len()` counts its bytes, operations taking a `&[u8]` view read it in place, and `std.bytes.from_bytes(value)?` copies it into a `Bytes` buffer"
             )));
         }
         if ty == Ty::Str && name == "byte_len" {

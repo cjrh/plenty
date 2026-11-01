@@ -94,7 +94,7 @@ def sign(key: &Bytes, message: &str) -> Result[Bytes, AllocError | IoError | std
 def check(key: &Bytes, message: &str, tag: &Bytes) -> Result[bool, AllocError | IoError | std.crypto.CryptoError]:
     mut mac = std.crypto.hmac(Algorithm.Sha256, key)?
     mac.update_text(message)?
-    Ok(mac.verify(tag, 0, tag.len())?)
+    Ok(mac.verify(tag)?)
 
 type CryptoBufferError = std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError
 

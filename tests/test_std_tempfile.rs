@@ -269,14 +269,14 @@ fn context_managers_read_write_and_recursively_clean() {
     run(
         r#"
 with std.tempfile.file()? as stream:
-    std.io.write_all(stream, &b"hello", 0, 5)?
+    std.io.write_all(stream, &b"hello")?
     stream.seek(std.io.SeekFrom.Start(0))?
     mut output = std.bytes.with_capacity(5)?
     output.resize(5, 0u8)?
     std.test.equal(&stream.read(&mut output, 0, 5)?, &5)?
     std.test.equal(&output.to_text()?, &"hello")?
 with std.tempfile.named_file(prefix="report-", suffix=".txt")? as named:
-    std.io.write_all(named, &b"named", 0, 5)?
+    std.io.write_all(named, &b"named")?
     std.test.equal(&read_text(&named.path().to_text()?)?, &"named")?
 with std.tempfile.directory()? as scratch:
     scratch.root().create_dir(&std.path.from_text("nested")?)?
@@ -298,7 +298,7 @@ mut scratch = std.tempfile.directory()?
 scratch.cleanup()?
 scratch.cleanup()?
 mut kept = std.tempfile.named_file()?
-std.io.write_all(&mut kept, &b"kept", 0, 4)?
+std.io.write_all(&mut kept, &b"kept")?
 path = kept.keep()?
 kept.close()?
 std.test.equal(&read_text(&path.to_text()?)?, &"kept")?

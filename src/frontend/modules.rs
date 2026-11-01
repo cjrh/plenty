@@ -1549,10 +1549,13 @@ impl Scope {
             && let Some(exports) = self.namespaces.get(prefix)
         {
             return exports.get(member).cloned().map(Some).ok_or_else(|| {
+                let bytes = exports.get("Bytes").is_some_and(|s| s == "std.bytes.Bytes");
                 at.error(
-                    self.module_path(path).unwrap_or_else(|| {
-                        format!("`{path}` is private or is not a declared export")
-                    }),
+                    self.module_path(path)
+                        .or_else(|| bytes.then(|| removed_export("std.bytes", member)).flatten())
+                        .unwrap_or_else(|| {
+                            format!("`{path}` is private or is not a declared export")
+                        }),
                 )
             });
         }
@@ -2455,6 +2458,9 @@ fn resolve(
                     (!declared)
                         .then(|| submodule(i, import))
                         .flatten()
+                        .or_else(|| {
+                            removed_export(&import.module, item).map(|m| import.at.error(m))
+                        })
                         .unwrap_or_else(|| {
                             import.at.error(format!(
                                 "`{}.{item}` is private or is not a declared export",
@@ -2898,6 +2904,17 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         }
     }
     Ok(())
+}
+
+/// The diagnostic for an export that a later release removed, naming its
+/// replacement.
+fn removed_export(module: &str, item: &str) -> Option<String> {
+    (module == "std.bytes" && item == "ByteSource").then(|| {
+        "`std.bytes.ByteSource` was removed: operations that read bytes take a \
+         `&[u8]` view. Declare the parameter as `source: &[u8]` and pass `&buffer`, \
+         `&buffer[a:b]` or a `b\"...\"` literal"
+            .to_string()
+    })
 }
 
 #[cfg(test)]

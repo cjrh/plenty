@@ -76,7 +76,10 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   whole list as `&xs`, and a `&[u8]` one a `b"..."` literal. `&s[1:3]` borrows
   part of a `str` as a `&substr` (scalar positions, shared only); pass a whole
   string as `&s` or a literal.
-  Views cannot be returned or stored.
+  Views cannot be returned or stored. `std` operations that read bytes
+  (`Bytes.extend`, stream `write`, `write_all`, crypto `update`) take one
+  `&[u8]`, not `source, start, stop`: `w.write(&buf[a:b])`. A writer class
+  declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
 - No `**`, truthiness, chained comparisons, or inheritance. Use

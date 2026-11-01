@@ -4,7 +4,7 @@ import std.fs
 import std.secrets
 from std.fs import FsError, Root
 from std.io import FileStream, StreamError, SeekFrom
-from std.bytes import Bytes, ByteSource
+from std.bytes import Bytes
 from std.path import Path, from_text, from_bytes
 from std.sync import CancellationToken
 
@@ -87,8 +87,8 @@ pub class NamedTemporaryFile:
     pub def read(self: &mut NamedTemporaryFile, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         self._owner.stream.read(buffer, start, stop)
 
-    pub def write[S: ByteSource](self: &mut NamedTemporaryFile, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self._owner.stream.write(source, start, stop)
+    pub def write(self: &mut NamedTemporaryFile, source: &[u8]) -> Result[i64, StreamError]:
+        self._owner.stream.write(source)
 
     pub def flush(self: &mut NamedTemporaryFile) -> Result[(), StreamError]:
         self._owner.stream.flush()

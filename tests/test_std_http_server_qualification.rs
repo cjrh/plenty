@@ -63,13 +63,13 @@ pub class App:
             case Route.Big:
                 exchange.start(std.http.response(200, "OK")?)?
                 for index in range(16):
-                    exchange.write(&self.piece, 0, self.piece.len())?
+                    exchange.write(&self.piece)?
             case Route.Huge:
                 mut head = std.http.response(200, "OK")?
                 head.add("Content-Length", str.from(1024 * self.piece.len())?)?
                 exchange.start(head)?
                 for index in range(1024):
-                    exchange.write(&self.piece, 0, self.piece.len())?
+                    exchange.write(&self.piece)?
                 exchange.end()?
             case Route.Stop:
                 exchange.send_text(200, "stopping")?
@@ -77,8 +77,8 @@ pub class App:
             case Route.Stream:
                 exchange.start(std.http.response(200, "OK")?)?
                 text = std.bytes.from_text("abcdef")?
-                exchange.write(&text, 0, 2)?
-                exchange.write(&text, 2, 6)?
+                exchange.write(&text[:2])?
+                exchange.write(&text[2:6])?
         Ok(())
 
 pub def app(stop: &CancellationToken) -> Result[App, std.bytes.BytesError]:
@@ -101,14 +101,14 @@ pub def connect_to(port: u16, raw: &str) -> Result[TcpStream, NetError]:
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32)).unwrap()
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
     request = std.bytes.from_text(raw).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
+    stream.write_all_before(&request, &deadline, &never)?
     Ok(stream)
 
 pub def send(stream: &mut TcpStream, raw: &str) -> Result[(), NetError]:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32)).unwrap()
     request = std.bytes.from_text(raw).unwrap()
-    stream.write_all_before(&request, 0, request.len(), &deadline, &never)?
+    stream.write_all_before(&request, &deadline, &never)?
     Ok(())
 
 # Reads until the text ends with `marker`, or to the end when it is empty.
@@ -873,7 +873,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
             request.resize(request.len() + 20000, 97u8)?
             request.extend(&std.bytes.from_text("\r\n\r\n")?)?
             # A failed write still reads the server's answer.
-            drop(tls.write_all_before(&request, 0, request.len(), &deadline, &never))
+            drop(tls.write_all_before(&request, &deadline, &never))
             mut answer = std.bytes.empty()?
             mut ending = "close_notify"
             while True:

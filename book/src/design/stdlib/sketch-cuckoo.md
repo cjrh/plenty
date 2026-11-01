@@ -68,7 +68,7 @@ may be slower than a successful insertion into an existing layer.
 
 `to_bytes()` writes `PSC1`, seed, total configured limit, initial bucket count,
 layer count, and occurrence count as little-endian u64, followed by little-endian
-u16 slots in layer order. `from_bytes(data, max_buckets)` accepts a `ByteSource`,
+u16 slots in layer order. `from_bytes(data, max_buckets)` reads a `&[u8]` view,
 validates shape, counts, length and the caller limit before constructing storage,
 and returns `SketchError | AllocError | BytesError`. The caller limit bounds the serialized
 **configured maximum**, not only today's occupancy. Serialization exposes

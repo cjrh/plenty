@@ -29,9 +29,6 @@ pub enum NetOp {
     SelectorWatch,
     Select,
     ReadyNumber,
-    // The operations above reading their `source` operand from a `bytes`
-    // literal, which the runtime tells from a buffer by its header.
-    SendToLiteral,
 }
 
 impl NetOp {
@@ -55,37 +52,7 @@ impl NetOp {
         })
     }
 
-    /// The operand the primitive only reads bytes from, which a `Bytes`
-    /// buffer or a `bytes` literal can supply.
-    pub fn source(self) -> Option<usize> {
-        match self.buffer_form() {
-            Self::SendTo => Some(0),
-            _ => None,
-        }
-    }
-
-    /// The variant reading `source` from a `bytes` literal.
-    pub fn literal(self) -> Option<Self> {
-        Some(match self {
-            Self::SendTo => Self::SendToLiteral,
-            _ => return None,
-        })
-    }
-
-    fn buffer_form(self) -> Self {
-        match self {
-            Self::SendToLiteral => Self::SendTo,
-            other => other,
-        }
-    }
-
     pub fn signature(self) -> (Vec<Ty>, Ty) {
-        let form = self.buffer_form();
-        if form != self {
-            let (mut inputs, output) = form.signature();
-            inputs[form.source().unwrap()] = Ty::ByteStr;
-            return (inputs, output);
-        }
         let address = || Ty::List(Arc::new(Ty::U8));
         let range = || vec![Ty::ByteStorage, Ty::I64, Ty::I64, Ty::File];
         let (inputs, output) = match self {
@@ -97,7 +64,11 @@ impl NetOp {
             Self::Address => (vec![Ty::File, Ty::U8], address()),
             Self::Shutdown => (vec![Ty::File, Ty::U8], Ty::I64),
             Self::SetOption => (vec![Ty::File, Ty::U8, Ty::I64], Ty::I64),
-            Self::SendTo => ([range(), vec![address()]].concat(), Ty::I64),
+            // The datagram is a `&[u8]` view (B90).
+            Self::SendTo => (
+                vec![crate::bytes::byte_view(), Ty::File, address()],
+                Ty::I64,
+            ),
             // The sender's address is written into the last buffer.
             Self::ReceiveFrom => ([range(), vec![Ty::ByteStorage]].concat(), Ty::I64),
             // A socket carrying the reply of a lookup on a helper thread.
@@ -118,9 +89,6 @@ impl NetOp {
             // The handle's descriptor number, which selector keys can hold to
             // tell handles apart.
             Self::ReadyNumber => (vec![Ty::File], Ty::I64),
-            Self::SendToLiteral => {
-                unreachable!("a literal variant defers to its buffer form")
-            }
         };
         (inputs, sum::result(output, sum::io_error()))
     }
@@ -129,16 +97,12 @@ impl NetOp {
     /// changes. Accepting and reading addresses share a listener, so several
     /// workers can accept from one borrowed listener.
     pub fn exclusive(self, operand: usize) -> bool {
-        let form = self.buffer_form();
-        if form != self {
-            return form.exclusive(operand);
-        }
         match self {
             Self::FinishConnect | Self::Shutdown | Self::SetOption | Self::SelectorWatch => {
                 operand == 0
             }
             Self::Select => operand == 0,
-            Self::SendTo => operand == 3,
+            Self::SendTo => operand == 1,
             Self::ReceiveFrom => matches!(operand, 0 | 3 | 4),
             Self::Open
             | Self::Accept
@@ -147,25 +111,14 @@ impl NetOp {
             | Self::ReadyWait
             | Self::SelectorOpen
             | Self::ReadyNumber => false,
-            Self::SendToLiteral => {
-                unreachable!("a literal variant defers to its buffer form")
-            }
         }
     }
 
     pub fn opcode(self) -> i64 {
-        let form = self.buffer_form();
-        if form != self {
-            return form.opcode();
-        }
         410 + self as i64
     }
 
     pub fn effect(self) -> Effect {
-        let form = self.buffer_form();
-        if form != self {
-            return form.effect();
-        }
         match self {
             Self::Open | Self::Resolve => Effect::Network,
             Self::Accept
@@ -180,9 +133,6 @@ impl NetOp {
             | Self::SelectorWatch
             | Self::Select
             | Self::ReadyNumber => Effect::Handle,
-            Self::SendToLiteral => {
-                unreachable!("a literal variant defers to its buffer form")
-            }
         }
     }
 }

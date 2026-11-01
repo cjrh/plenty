@@ -592,11 +592,7 @@ mod native {
                     Ok(0)
                 }
                 415 => set_option(file(a)?, b, c),
-                416 => {
-                    let bytes = byte_storage::source(a);
-                    let source = &bytes[byte_storage::range(b, c, bytes.len())];
-                    send_to(file(d)?, source, &contiguous(e)?)
-                }
+                416 => send_to(file(b)?, byte_storage::view_bytes(a), &contiguous(c)?),
                 417 => {
                     let fd = file(d)?;
                     let bytes = &mut (*(a as *mut Storage)).bytes;

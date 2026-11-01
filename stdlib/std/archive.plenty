@@ -200,7 +200,7 @@ pub def stream_error(error: ArchiveError) -> StreamError:
             StreamError.Io(IoError.InvalidInput)
 
 def send[W](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> Result[(), ArchiveError]:
-    match std.io.write_all(writer, data, start, stop):
+    match std.io.write_all(writer, &data[start:stop]):
         case Ok(_):
             Ok(())
         case Err(partial):
@@ -252,7 +252,8 @@ def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
     Ok(())
 
 def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
-    held(out.extend(&held(std.bytes.from_text(text))?))
+    spelled = held(std.bytes.from_text(text))?
+    held(out.extend(&spelled))
 
 def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
     held(held(data.slice(start, stop))?.to_list())
@@ -1135,7 +1136,8 @@ pub class ZipReader[R]:
             pending = self._decoder.output().len() - self._out_start
             if pending > 0:
                 count = smaller(stop - start, pending)
-                held(buffer.overwrite(start, self._decoder.output(), self._out_start, self._out_start + count))?
+                output = self._decoder.output()
+                held(buffer.overwrite(start, &output[self._out_start:self._out_start + count]))?
                 self._crc = coded(std.compress.crc32(self._crc, buffer, start, start + count))?
                 self._produced += count
                 self._out_start += count

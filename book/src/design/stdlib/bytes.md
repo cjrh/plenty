@@ -1,7 +1,7 @@
 # std.bytes
 
 `import std.bytes` provides `Bytes`, an owning contiguous buffer that stores one
-byte per element, `BytesError`, and the `ByteSource` protocol. Use `Bytes` for
+byte per element, and `BytesError`. Use `Bytes` for
 checked byte-range operations and byte-oriented I/O. A `list[u8]` also stores
 one byte per element and provides ordinary list operations and element
 references; its capacity is rounded to allocation units as described under
@@ -26,8 +26,8 @@ constructor allocates and can report `Allocation`.
 
 A byte literal such as `b"\r\n"` has the separate, immutable prelude type
 `bytes`, which lives in read-only data and never allocates. Operations that only
-read another byte sequence accept a literal or a buffer through
-[`ByteSource`](#byte-sources), without copying.
+read another byte sequence take a [`&[u8]` view](#byte-views), so they accept a
+literal, a buffer, a list, or part of any of them without copying.
 
 ## Operations
 
@@ -44,7 +44,7 @@ read another byte sequence accept a literal or a buffer through
 | `find_not_in(set, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index holding no byte of `set`: the end of a run |
 | `find_bytes(needle, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index where all of `needle` occurs inside the range |
 | `count(value, start, stop)` | shared | `Result[i64, BytesError]` | Occurrences of `value` within the range |
-| `matches(offset, source, start, stop)` | shared | `Result[bool, BytesError]` | Whether `source[start:stop]` occurs at `offset` |
+| `matches(offset, source)` | shared | `Result[bool, BytesError]` | Whether `source` occurs at `offset` |
 | `matches_text(offset, text: &str)` | shared | `Result[bool, BytesError]` | Whether the UTF-8 bytes of `text` occur at `offset` |
 | `ascii_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the run of bytes below 128 that begins at `start` |
 | `utf8_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the longest valid UTF-8 that begins at `start` |
@@ -57,19 +57,18 @@ read another byte sequence accept a literal or a buffer through
 | `write_float(value: f64)` | exclusive | `Result[i64, BytesError]` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32`, returns bytes written, never allocates or changes length |
 | `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `Result[i64, BytesError]` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length are `OutOfRange`. Never allocates |
 | `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
-| `overwrite(offset, source, start, stop)` | exclusive | `Result[(), BytesError]` | Copy `source[start:stop]` over existing bytes at `offset`; never grows |
+| `overwrite(offset, source)` | exclusive | `Result[(), BytesError]` | Copy `source` over existing bytes at `offset`; never grows |
 | `copy_within(start, stop, to)` | exclusive | `Result[(), BytesError]` | Copy `self[start:stop]` to `to` in the same buffer, like `memmove`; the ranges may overlap; never grows |
 | `push(value)` | exclusive | `Result[(), BytesError]` | Append one byte |
-| `extend(source)` | exclusive | `Result[(), BytesError]` | Append all of another buffer |
-| `extend_range(source, start, stop)` | exclusive | `Result[(), BytesError]` | Append a range of another buffer |
+| `extend(source)` | exclusive | `Result[(), BytesError]` | Append `source`; pass `&other[a:b]` to append part of a buffer |
 | `reserve(additional)` | exclusive | `Result[(), BytesError]` | Ensure room for `additional` more bytes |
 | `resize(count, fill)` | exclusive | `Result[(), BytesError]` | Set the length, appending `fill` or dropping the tail |
 | `truncate(count)` | exclusive | `Result[(), BytesError]` | Shorten to `count`; longer than the length is `OutOfRange` |
 | `pop()` | exclusive | `Option[u8]` | Remove and return the last byte, or `Nothing` |
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
 
-`source`, `set`, and `needle` parameters are `&S` for any `S: ByteSource`: a
-`Bytes` or a `bytes` literal. `==` and `!=` compare contents. A buffer
+`source`, `set`, and `needle` parameters are `&[u8]` views. `==` and `!=`
+compare contents. A buffer
 [prints](#printing) as a byte literal.
 
 `Bytes` is a resource: assignment and argument passing move it, and the builtin
@@ -111,48 +110,45 @@ For binary data such as digests, keys, or packed records, write the hex form
 with [`std.encoding.hex_text`](encoding.md), two lowercase digits per byte, or
 format each byte explicitly.
 
-## Byte sources
+## Byte views
 
-```text
-pub protocol ByteSource:
-    def len(self) -> i64:
-        pass
-```
-
-`ByteSource` names bytes that an operation reads in place. It has two
-implementations: `Bytes`, and the built-in [`bytes`](../language/03-types/bytes.md),
-whose one method is `len`. A parameter `source: &S` with `S: ByteSource`
-accepts `&buffer`, `b"..."`, or a `bytes` value; each call is compiled for the
-type passed, so neither form is copied or converted:
+An operation that only reads bytes takes `&[u8]`, a
+[slice view](../language/04-expressions/slices.md#slice-views): a pointer and a
+length. `&buffer`, `&buffer[a:b]`, `&list`, a `b"..."` literal, and a view held
+by the caller all convert to it with no copy and no allocation. The range is
+part of the view, so these operations take no `start` and `stop` and report no
+range error: view bounds clamp, and a negative bound counts from the end.
 
 ```plenty
 import std.bytes
-from std.bytes import ByteSource
 
-def ends_line[S: ByteSource](line: &S) -> bool:
-    count = line.len()
+def ends_line(line: &[u8]) -> bool:
+    count = len(line)
     count >= 2 and line[count - 2] == 13u8 and line[count - 1] == 10u8
 
 def main() -> Result[(), std.bytes.BytesError | IoError]:
     mut head = std.bytes.from_text("Host: example")?
     head.extend(b"\r\n")?
-    print(head.find_bytes(b": ", 0, head.len())?, ends_line(&head), ends_line(b"no"))?
+    mut name = std.bytes.empty()?
+    name.extend(&head[:4])?
+    print(head.find_bytes(b": ", 0, head.len())?, ends_line(&head), ends_line(b"no"), name)?
     Ok(())
 ```
 ```output
-Option[i64].Some(4) True False
+Option[i64].Some(4) True False b"Host"
 ```
 
-The operations taking a `ByteSource` are `extend`, `extend_range`,
-`overwrite`, `find_in`, `find_not_in`, `find_bytes`, and `matches` here, and
-the stream writes in [`std.io`](io.md), [`std.net`](net.md), and
-[`std.tls`](tls.md). Generic code is [checked for each concrete
-type](../language/07-generics/protocols.md), so it can also index and iterate a
-source, which both forms support. Other types may declare `len`, but the
-operations above read a source's bytes natively and reject anything other than
-`Bytes` and `bytes` when the call is compiled. The receiver of a `Bytes`
-method is always a buffer: copy a literal with `from_bytes` to scan it with
-`find` or `count`, or to change it.
+The operations taking `&[u8]` are `extend`, `overwrite`, `find_in`,
+`find_not_in`, `find_bytes`, and `matches` here, the stream writes in
+[`std.io`](io.md), [`std.net`](net.md), and [`std.tls`](tls.md), and the
+read-only inputs of [`std.crypto`](crypto.md). Each is one compiled body for
+every byte owner; native operations read the view's bytes in place. A view has
+`len()`, indexing, slicing, `==`, and iteration, but no methods. The receiver
+of a `Bytes` method is always a buffer: copy a literal with `from_bytes` to
+scan it with `find` or `count`, or to change it.
+
+`std.bytes.ByteSource`, the protocol these operations took before, is
+removed; naming it is a compile error that points to `&[u8]`.
 
 ## Index syntax and iteration
 
@@ -192,7 +188,7 @@ without a `get` call per byte.
 
 - A found index is absolute, never relative to `start`. `Nothing` means the
   range holds no match.
-- A `set` is a `Bytes` whose elements are the members; order and repeats do not
+- A `set` is a byte view whose elements are the members; order and repeats do not
   matter. An empty set matches no byte, so `find_in` returns `Nothing` and
   `find_not_in` returns `start` for a nonempty range. Build a set once and
   reuse it. The set, needle, or source may be the buffer being scanned.
@@ -215,7 +211,7 @@ unlike [list slicing](../facilities/01-builtins/lists.md) and
 [index syntax](#index-syntax-and-iteration). A violation returns
 `Err(BytesError.OutOfRange)` and changes nothing. A zero-length range is valid
 anywhere from `0` to `len` inclusive. `overwrite` additionally requires
-`offset + (stop - start) <= len` of the destination, and `copy_within` requires
+`offset + len(source) <= len` of the destination, and `copy_within` requires
 `0 <= to` and `to + (stop - start) <= len`. `matches` and
 `matches_text` take an `offset` from `0` to `len` inclusive and never report a
 short remainder as an error.
@@ -262,21 +258,22 @@ or `&mut [u8]` of the selected bytes, and holds the same whole-buffer loan as
 `&Bytes` or `&mut Bytes`. It supports `len`, index reads and writes, loops,
 `iter` pipelines, narrower views, and `==`, and prints as a `bytes` literal,
 `b"bc"`. A `&[u8]` parameter also accepts views of `list[u8]` and `bytes`
-literals. It has no `Bytes` methods, so the scans and
-the I/O operations still take the reference with a `start`/`stop` pair. A view
-cannot be stored or returned yet; that needs stored references (backlog B11).
+literals. It has no `Bytes` methods: a scan's receiver is the buffer and its
+range, while the operations that read [another byte sequence](#byte-views) take
+the view itself. A view cannot be stored or returned yet; that needs stored
+references (backlog B11).
 
 ## Costs
 
 Storage is one byte per element plus one fixed-size owner. `with_capacity`,
 `slice`, `copy`, and the `from_` constructors reserve exactly what they need.
-Growth through `push`, `extend`, `extend_range`, and `resize` is amortized and
+Growth through `push`, `extend`, and `resize` is amortized and
 may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
 | Constructors, `slice`, `copy`, `to_list`, `to_text`, `to_text_range` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
-| `push`, `extend`, `extend_range`, `resize`, `reserve` beyond capacity | The same operations within capacity |
+| `push`, `extend`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `copy_within`, `truncate`, `pop`, `clear` |
 
 `get`, `set`, index syntax, `push` within capacity, `pop`, `truncate`, and
@@ -355,8 +352,10 @@ of input, seeking, and bounded buffering on top.
 [`std.crypto`](crypto.md), [`std.compress`](compress.md),
 [`std.db.sqlite`](sqlite.md), [`std.net`](net.md), [`std.ready`](ready.md) and
 [`std.tls`](tls.md) call compiler intrinsics (`__crypto_*`, `__compress_*`,
-`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`) that take
-`&Bytes` or `&mut Bytes` operands directly and check ranges in Plenty first.
+`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`). The
+stream, network, TLS and crypto intrinsics read their inputs as `&[u8]` views,
+passed as a pointer and a length with no copy; the others take `&Bytes` or
+`&mut Bytes` operands, and Plenty checks their ranges first.
 These intrinsics are reserved for the standard library: user code calling one
 is rejected with `` `__crypto_update` is reserved for the standard library ``.
 Import the module that owns them instead.

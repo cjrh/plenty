@@ -100,6 +100,40 @@ pub(super) unsafe fn source<'a>(value: u128) -> &'a [u8] {
     }
 }
 
+/// The bytes of a `&[u8]` view operand: the address of its first byte in the
+/// low word and its length in the high word, as slice views lower. The
+/// caller's loan keeps the viewed owner in place through the call.
+pub(crate) unsafe fn view_bytes<'a>(value: u128) -> &'a [u8] {
+    let (address, len) = (value as u64 as usize as *const u8, (value >> 64) as usize);
+    if len == 0 {
+        return &[];
+    }
+    // SAFETY: a view selects `len` initialized bytes of a live owner.
+    unsafe { std::slice::from_raw_parts(address, len) }
+}
+
+/// Whether the `view` operand shares a byte with the buffer `storage`, so a
+/// native writing `storage` while reading `view` would alias them.
+/// The operand a `&[u8]` view of `bytes` lowers to, for runtime tests.
+#[cfg(test)]
+pub(crate) fn view_operand(bytes: &[u8]) -> u128 {
+    bytes.as_ptr() as u128 | (bytes.len() as u128) << 64
+}
+
+pub(crate) unsafe fn view_overlaps(view: u128, storage: u128) -> bool {
+    // SAFETY: the caller passes a live view and a live storage prefix.
+    let (input, output) = unsafe {
+        (
+            view_bytes(view),
+            (*(storage as *const Storage)).bytes.as_slice(),
+        )
+    };
+    !input.is_empty()
+        && !output.is_empty()
+        && input.as_ptr() < output.as_ptr_range().end
+        && output.as_ptr() < input.as_ptr_range().end
+}
+
 pub(super) fn size(value: u128) -> usize {
     usize::try_from(value as i64).unwrap_or_else(|_| crate::fail("negative byte offset"))
 }
@@ -196,8 +230,7 @@ pub(super) unsafe fn call(
                 }))
             }
             178 => {
-                let source = source(b);
-                let source = &source[range(c, d, source.len())];
+                let source = view_bytes(b);
                 let bytes = storage(a);
                 result(
                     memory::try_reserve_amortized(bytes, source.len()).map(|()| {
@@ -207,8 +240,7 @@ pub(super) unsafe fn call(
                 )
             }
             179 => {
-                let source = source(c);
-                let source = &source[range(d, e, source.len())];
+                let source = view_bytes(c);
                 let bytes = storage(a);
                 let offset = size(b);
                 match offset
@@ -267,10 +299,9 @@ pub(super) unsafe fn call(
                 ))
             }
             189 => {
-                let bytes = source(a);
-                let source = &bytes[range(b, c, bytes.len())];
+                let source = view_bytes(a);
                 text_io::result(crate::files::write_bytes(
-                    d as *mut crate::files::File,
+                    b as *mut crate::files::File,
                     source,
                 ))
             }
@@ -281,11 +312,10 @@ pub(super) unsafe fn call(
                 crate::io::io_result(text_io::Stdin.read(target).map(|count| count as u128))
             }
             191 => {
-                let bytes = source(a);
-                let source = &bytes[range(b, c, bytes.len())];
+                let source = view_bytes(a);
                 // The process streams keep their existing buffering, so bytes
                 // stay ordered with `print` and the text writers.
-                let written = if d == 2 {
+                let written = if b == 2 {
                     crate::io::stderr().write(source)
                 } else {
                     std::io::stdout().lock().write(source)
@@ -304,7 +334,7 @@ pub(super) unsafe fn call(
                 let bytes = view(a);
                 let within = range(c, d, bytes.len());
                 found(
-                    byte_scan::find_in(&bytes[within.clone()], source(b), e != 0),
+                    byte_scan::find_in(&bytes[within.clone()], view_bytes(b), e != 0),
                     within.start,
                 )
             }
@@ -312,7 +342,7 @@ pub(super) unsafe fn call(
                 let bytes = view(a);
                 let within = range(c, d, bytes.len());
                 found(
-                    byte_scan::find_bytes(&bytes[within.clone()], source(b)),
+                    byte_scan::find_bytes(&bytes[within.clone()], view_bytes(b)),
                     within.start,
                 )
             }
@@ -320,11 +350,7 @@ pub(super) unsafe fn call(
                 let bytes = view(a);
                 byte_scan::count(&bytes[range(c, d, bytes.len())], b as u8) as u128
             }
-            234 => {
-                let other = source(c);
-                let other = &other[range(d, e, other.len())];
-                prefixed(view(a), size(b), other) as u128
-            }
+            234 => prefixed(view(a), size(b), view_bytes(c)) as u128,
             235 => prefixed(
                 view(a),
                 size(b),
@@ -426,12 +452,13 @@ pub(crate) unsafe extern "C" fn plenty_byte_view_len(owner: *const u8) -> u64 {
 }
 
 /// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar
-/// of `text` that is (`member` 1) or is not (0) an ASCII byte of `set`, or
-/// -1. `set` is a buffer's storage or a `bytes` literal (issue #383).
+/// of `text` that is (`member` 1) or is not (0) an ASCII byte of the `set`
+/// view (its address and length), or -1 (issue #383).
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_text_find_in(
     text: *const strings::Text,
     set: *const u8,
+    set_len: u64,
     member: u64,
 ) -> i64 {
     // SAFETY: the compiler passes both operands through shared loans that
@@ -439,7 +466,7 @@ pub(crate) unsafe extern "C" fn plenty_text_find_in(
     let found = unsafe {
         byte_scan::text_find_in(
             strings::bytes(&text),
-            source(set as usize as u128),
+            view_bytes(set as usize as u128 | u128::from(set_len) << 64),
             member != 0,
         )
     };
@@ -523,13 +550,14 @@ mod tests {
         unsafe {
             let source = Owner(from_slice(&[0, 255, 0x80, b'\n', 0]).unwrap());
             let target = Owner(run(170, [0; 5]));
-            assert_eq!(run(178, [target.0, source.0, 1, 4, 0]), 0);
+            let all = bytes(&source);
+            assert_eq!(run(178, [target.0, view_operand(&all[1..4]), 0, 0, 0]), 0);
             assert_eq!(bytes(&target), [255, 0x80, b'\n']);
-            assert_eq!(run(178, [target.0, source.0, 5, 5, 0]), 0);
+            assert_eq!(run(178, [target.0, view_operand(&[]), 0, 0, 0]), 0);
             assert_eq!(bytes(&target).len(), 3);
             assert_eq!(run(176, [target.0, 6, 7, 0, 0]), 0);
             assert_eq!(bytes(&target), [255, 0x80, b'\n', 7, 7, 7]);
-            run(179, [target.0, 4, source.0, 0, 2]);
+            run(179, [target.0, 4, view_operand(&all[..2]), 0, 0]);
             assert_eq!(bytes(&target), [255, 0x80, b'\n', 7, 0, 255]);
             assert_eq!(run(176, [target.0, 1, 0, 0, 0]), 0);
             assert_eq!(bytes(&target), [255]);
@@ -550,19 +578,24 @@ mod tests {
             let len = bytes(&data).len() as u128;
             assert_eq!(run(230, [data.0, b'=' as u128, 0, len, 0]), 3);
             assert_eq!(run(230, [data.0, b'=' as u128, 4, len, 0]), NONE);
-            assert_eq!(run(231, [data.0, set.0, 0, len, 1]), 6);
-            assert_eq!(run(231, [data.0, set.0, 7, len, 1]), 9);
-            assert_eq!(run(231, [data.0, set.0, 10, len, 1]), NONE);
-            assert_eq!(run(231, [data.0, set.0, 6, len, 0]), 7);
-            assert_eq!(run(231, [data.0, data.0, 0, len, 0]), NONE);
+            let set = view_operand(bytes(&set));
+            assert_eq!(run(231, [data.0, set, 0, len, 1]), 6);
+            assert_eq!(run(231, [data.0, set, 7, len, 1]), 9);
+            assert_eq!(run(231, [data.0, set, 10, len, 1]), NONE);
+            assert_eq!(run(231, [data.0, set, 6, len, 0]), 7);
+            assert_eq!(
+                run(231, [data.0, view_operand(bytes(&data)), 0, len, 0]),
+                NONE
+            );
             let line = Owner(from_slice(b"\r\n").unwrap());
-            assert_eq!(run(232, [data.0, line.0, 0, len, 0]), 10);
-            assert_eq!(run(232, [data.0, line.0, 0, 11, 0]), NONE);
+            let crlf = bytes(&line);
+            assert_eq!(run(232, [data.0, view_operand(crlf), 0, len, 0]), 10);
+            assert_eq!(run(232, [data.0, view_operand(crlf), 0, 11, 0]), NONE);
             assert_eq!(run(233, [data.0, b'e' as u128, 0, len, 0]), 3);
-            assert_eq!(run(234, [data.0, 10, line.0, 0, 2]), 1);
-            assert_eq!(run(234, [data.0, 9, line.0, 0, 2]), 0);
-            assert_eq!(run(234, [data.0, len - 1, line.0, 0, 2]), 0);
-            assert_eq!(run(234, [data.0, len, line.0, 1, 1]), 1);
+            assert_eq!(run(234, [data.0, 10, view_operand(crlf), 0, 0]), 1);
+            assert_eq!(run(234, [data.0, 9, view_operand(crlf), 0, 0]), 0);
+            assert_eq!(run(234, [data.0, len - 1, view_operand(crlf), 0, 0]), 0);
+            assert_eq!(run(234, [data.0, len, view_operand(&[]), 0, 0]), 1);
             let text = strings::try_new("next").unwrap();
             assert_eq!(run(235, [data.0, 12, text as u128, 0, 0]), 1);
             assert_eq!(run(235, [data.0, 13, text as u128, 0, 0]), 0);

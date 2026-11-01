@@ -1515,7 +1515,7 @@ def emit[W: Writer](writer: &mut W, value: str) -> Result[(), PlotError]:
             bytes
         case Err(error):
             return Err(PlotError.Bytes(error))
-    match std.io.write_all(writer, &data, 0, data.len()):
+    match std.io.write_all(writer, &data):
         case Ok(_):
             Ok(())
         case Err(error):
