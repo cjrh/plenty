@@ -117,13 +117,13 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     );
 }
 
-/// A set must be a borrowable place, as for the `Bytes` scans.
+/// A set must be a byte view, as for the `Bytes` scans.
 #[test]
-fn set_operand_must_be_a_byte_source_place() {
+fn set_operand_must_be_a_byte_view() {
     let error = support::check_error(
         "import std.text\ndef main() -> ():\n    std.text.find_in(\"a\", 3)\n    pass\n",
     );
-    assert!(error.contains("ByteSource"), "{error}");
+    assert!(error.contains("slice view"), "{error}");
 }
 
 /// Scans allocate nothing: they succeed with every allocation failing, and the
@@ -186,9 +186,9 @@ fn scans_call_only_the_narrow_helper() {
     let functions: Vec<&str> = clif.split("\n==== ").collect();
     let scans: Vec<&&str> = functions
         .iter()
-        .filter(|f| f.starts_with("std.text.find_not_in["))
+        .filter(|f| f.starts_with("std.text.find_not_in "))
         .collect();
-    assert!(!scans.is_empty(), "no find_not_in instance");
+    assert!(!scans.is_empty(), "find_not_in missing");
     for body in scans {
         let calls: Vec<&str> = body
             .lines()

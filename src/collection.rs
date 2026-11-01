@@ -547,8 +547,10 @@ impl CollectionOp {
                 vec![Ty::List(Arc::new(Ty::U8))],
                 crate::sum::result(Ty::Str, crate::sum::io_error()),
             ),
+            // Read-only output sources are `&[u8]` views (B90), so `Bytes`,
+            // `list[u8]`, literals and subviews share one entry point.
             WriteStdoutBytes | WriteStderrBytes => (
-                vec![Ty::List(Arc::new(Ty::U8))],
+                vec![crate::bytes::byte_view()],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             ReadBytes => (
@@ -556,7 +558,7 @@ impl CollectionOp {
                 crate::sum::result(Ty::List(Arc::new(Ty::U8)), crate::sum::io_error()),
             ),
             WriteBytes => (
-                vec![Ty::List(Arc::new(Ty::U8)), Ty::List(Arc::new(Ty::U8))],
+                vec![Ty::List(Arc::new(Ty::U8)), crate::bytes::byte_view()],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             Input => (

@@ -37,7 +37,7 @@ def main() -> Result[(), AllocError | BytesError | NetError | RangeError | Spawn
         for _ in range(responses):
             mut sent = 0
             while sent < response_size:
-                sent += stream.write_before(&data, sent, response_size, &deadline, &cancel)?
+                sent += stream.write_before(&data[sent:response_size], &deadline, &cancel)?
                 calls += 1
         stream.shutdown(Shutdown.Write)?
         received = task.join()?

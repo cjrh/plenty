@@ -118,12 +118,23 @@ def storage_failure(cause: StreamError) -> BodyError:
         case _ as other:
             BodyError.Storage(other)
 
-def text_of(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
-    lifted(data.to_text_range(start, stop))
+def text_of(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
+    match allocated(__bytes_to_text(&data[start:stop]))?:
+        case Some(text):
+            Ok(text)
+        case Nothing:
+            Err(BodyError.InvalidUtf8)
+
+# The first `byte` in data[start:stop], as an index into `data`.
+def located(data: &[u8], byte: u8, start: i64, stop: i64) -> Option[i64]:
+    found = __bytes_find(&data[start:stop], byte)
+    if found < 0:
+        return Nothing
+    Some(start + found)
 
 # Bytes
 
-def code(data: &Bytes, index: i64) -> i64:
+def code(data: &[u8], index: i64) -> i64:
     i64(data[index])
 
 def digit(value: i64) -> bool:
@@ -131,38 +142,26 @@ def digit(value: i64) -> bool:
 
 # The end of the run of RFC 9110 tchar in `start..stop`: one bulk scan over
 # the set `std.http` reads field names with (issue #376). Callers pass
-# ranges within `data`; should one not be, `start` is returned so the token
-# is empty and rejected.
-def token_end(data: &Bytes, start: i64, stop: i64) -> i64:
-    found = data.find_not_in(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", start, stop)
-    match found:
-        case Ok(Some(index)):
-            index
-        case Ok(Nothing):
-            stop
-        case Err(_):
-            start
+# ranges within `data`.
+def token_end(data: &[u8], start: i64, stop: i64) -> i64:
+    found = __bytes_find_in(&data[start:stop], b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
+    if found < 0:
+        return stop
+    start + found
 
 # The first byte in `start..stop` that a quoted string holds only escaped or
 # never: `"`, `\`, or a control other than tab (RFC 9110 qdtext and
 # quoted-pair); `stop` if there is none.
-def quoted_end(data: &Bytes, start: i64, stop: i64) -> i64:
-    found = data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\", start, stop)
-    match found:
-        case Ok(Some(index)):
-            index
-        case _:
-            stop
+def quoted_end(data: &[u8], start: i64, stop: i64) -> i64:
+    found = __bytes_find_in(&data[start:stop], b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\", 1u8)
+    if found < 0:
+        return stop
+    start + found
 
 # Whether `start..stop` holds a control other than tab, which no field value
 # may contain.
-def has_control(data: &Bytes, start: i64, stop: i64) -> bool:
-    found = data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", start, stop)
-    match found:
-        case Ok(Nothing):
-            False
-        case _:
-            True
+def has_control(data: &[u8], start: i64, stop: i64) -> bool:
+    __bytes_find_in(&data[start:stop], b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", 1u8) >= 0
 
 def control(value: i64) -> bool:
     (value < 32 and value != 9) or value == 127
@@ -176,7 +175,7 @@ def hex_value(value: i64) -> i64:
         return value - 87
     -1
 
-def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
+def lowered(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
     mut out = lifted(std.bytes.with_capacity(stop - start))?
     for index in range(start, stop):
         value = code(data, index)
@@ -186,9 +185,9 @@ def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
             lifted(out.push(data[index]))?
     lifted(out.to_text())
 
-def skip_blanks(data: &Bytes, start: i64) -> i64:
+def skip_blanks(data: &[u8], start: i64) -> i64:
     mut at = start
-    while at < data.len() and (code(data, at) == 32 or code(data, at) == 9):
+    while at < len(data) and (code(data, at) == 32 or code(data, at) == 9):
         at += 1
     at
 
@@ -238,7 +237,7 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
             mut closed = False
             while at < count:
                 run = quoted_end(&data, at, count)
-                lifted(out.extend_range(&data, at, run))?
+                lifted(out.extend(&data[at:run]))?
                 at = run
                 if at == count:
                     break
@@ -319,7 +318,7 @@ def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Byte
     while count > 0:
         if out.len() + count > limit:
             return Err(BodyError.TooLarge)
-        lifted(out.extend_range(&chunk, 0, count))?
+        lifted(out.extend(&chunk[:count]))?
         count = http(exchange.read_body(&mut chunk, 0, 4096))?
     Ok(out)
 
@@ -338,7 +337,7 @@ def checked_form(limits: &FormLimits) -> Result[(), BodyError]:
     Ok(())
 
 # `+` is a space and `%hh` a byte; the result must be UTF-8.
-def form_decoded(source: &Bytes, start: i64, stop: i64) -> Result[str, BodyError]:
+def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
     mut out = lifted(std.bytes.with_capacity(stop - start))?
     mut at = start
     while at < stop:
@@ -363,16 +362,16 @@ def form_decoded(source: &Bytes, start: i64, stop: i64) -> Result[str, BodyError
 # Splits an application/x-www-form-urlencoded body into decoded pairs, in
 # order. Empty pieces between `&` are skipped; a piece without `=` has an
 # empty value. A `%` not followed by two hex digits is Malformed.
-pub def parse_form(source: &Bytes, limits: &FormLimits) -> Result[list[Pair], BodyError]:
+pub def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]:
     checked_form(limits)?
-    count = source.len()
+    count = len(source)
     if count > limits.max_bytes:
         return Err(BodyError.TooLarge)
     mut pairs = allocated(list[Pair].new())?
     mut at = 0
     while at < count:
         mut stop = count
-        match lifted(source.find(38u8, at, count))?:
+        match located(source, 38u8, at, count):
             case Some(found):
                 stop = found
             case Nothing:
@@ -381,7 +380,7 @@ pub def parse_form(source: &Bytes, limits: &FormLimits) -> Result[list[Pair], Bo
             if len(pairs) >= limits.max_fields:
                 return Err(BodyError.TooManyFields)
             mut split = stop
-            match lifted(source.find(61u8, at, stop))?:
+            match located(source, 61u8, at, stop):
                 case Some(found):
                     split = found
                 case Nothing:
@@ -499,7 +498,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     window.total += count
     if window.total > window.limit:
         return Err(BodyError.TooLarge)
-    lifted(window.data.extend_range(&window.chunk, 0, count))?
+    lifted(window.data.extend(&window.chunk[:count]))?
     Ok(True)
 
 # Reads until `count` unexamined bytes are held; False if the body ends first.
@@ -523,20 +522,20 @@ class PartHead:
     content_type: str
 
 # Parses the header section data[start:stop], without its final CRLF CRLF.
-def part_head(data: &Bytes, start: i64, stop: i64) -> Result[PartHead, BodyError]:
+def part_head(data: &[u8], start: i64, stop: i64) -> Result[PartHead, BodyError]:
     mut disposition: Option[Parameters] = Nothing
     mut kind = "text/plain"
     mut at = start
     while at < stop:
         mut end = stop
-        match lifted(data.find(13u8, at, stop))?:
+        match located(data, 13u8, at, stop):
             case Some(found):
                 if found + 1 >= stop or code(data, found + 1) != 10:
                     return Err(BodyError.Malformed)
                 end = found
             case Nothing:
                 pass
-        colon = match lifted(data.find(58u8, at, end))?:
+        colon = match located(data, 58u8, at, end):
             case Some(found):
                 found
             case Nothing:
@@ -582,7 +581,7 @@ def part_head(data: &Bytes, start: i64, stop: i64) -> Result[PartHead, BodyError
 
 # Appends data[start:stop] to the part being read, whose content so far is
 # `size` bytes, and returns the new size.
-def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text: &mut Bytes, size: i64, limits: &MultipartLimits) -> Result[i64, BodyError]:
+def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: &mut Bytes, size: i64, limits: &MultipartLimits) -> Result[i64, BodyError]:
     if stop <= start:
         return Ok(size)
     total = size + (stop - start)
@@ -590,7 +589,7 @@ def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text:
         case Some(handle):
             if total > limits.max_file:
                 return Err(BodyError.TooLarge)
-            match std.io.write_all(&mut handle.stream, data, start, stop):
+            match std.io.write_all(&mut handle.stream, &data[start:stop]):
                 case Ok(_):
                     Ok(total)
                 case Err(partial):
@@ -598,7 +597,7 @@ def emit(data: &Bytes, start: i64, stop: i64, file: &mut Option[TempFile], text:
         case Nothing:
             if total > limits.max_field:
                 return Err(BodyError.TooLarge)
-            lifted(text.extend_range(data, start, stop))?
+            lifted(text.extend(&data[start:stop]))?
             Ok(total)
 
 def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:

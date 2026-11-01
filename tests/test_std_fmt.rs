@@ -117,12 +117,12 @@ fn short_interrupted_zero_invalid_and_failed_writers_keep_progress() {
         run(r#"
 import std.fmt
 import std.bytes
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 pub class Sink:
     calls: i64
     fail: i64
-    pub def write[S: ByteSource](self: &mut Sink, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
         self.calls += 1
         if self.calls == 1:
             return Err(StreamError.Interrupted)
@@ -130,7 +130,7 @@ pub class Sink:
             if self.fail == 0:
                 return Ok(0)
             if self.fail == 1:
-                return Ok(stop - start + 1)
+                return Ok(len(source) + 1)
             if self.fail == 2:
                 return Err(StreamError.OutOfRange)
         Ok(1)
@@ -401,15 +401,15 @@ fn arbitrary_writer_errors_do_not_prevent_later_recovery() {
         run(r#"
 import std.bytes
 import std.fmt
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 pub class Recovering:
     calls: i64
-    pub def write[S: ByteSource](self: &mut Recovering, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Recovering, source: &[u8]) -> Result[i64, StreamError]:
         self.calls += 1
         if self.calls == 1:
             return Err(StreamError.OutOfRange)
-        Ok(stop - start)
+        Ok(len(source))
     pub def flush(self: &mut Recovering) -> Result[(), StreamError]:
         Ok(())
 def main() -> Result[(), IoError | std.bytes.BytesError | FormatError]:

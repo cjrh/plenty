@@ -9,7 +9,7 @@
 //! byte buffer, so every operation first checks the object's destructor and
 //! stops the process on anything else. Finishing and destruction both
 //! overwrite the hasher, which holds the HMAC key's padded forms.
-use super::byte_storage::{Storage, range, result, size};
+use super::byte_storage::{Storage, result, size};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use hmac::{Hmac, Mac};
@@ -292,26 +292,22 @@ unsafe fn verify(state: u128, expected: &[u8]) -> i64 {
 // Inlined so each operation's entry symbol keeps only its own arm.
 #[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
-    let [a, b, c, d] = operands;
+    let [a, b, c, _] = operands;
     // SAFETY: see above. Byte views borrow a buffer's heap allocation, never
     // the object holding a hasher.
     unsafe {
-        let view = |value: u128| (*(value as *const Storage)).bytes.as_slice();
-        let slice = |value: u128, start: u128, stop: u128| {
-            let bytes = view(value);
-            &bytes[range(start, stop, bytes.len())]
-        };
+        let view = |value: u128| super::byte_storage::view_bytes(value);
         match op {
             300 if a == BLAKE3 => result(create_blake3(blake3::Hasher::new())),
             300 => result(create(start(a))),
             301 if a == BLAKE3_KEYED => {
-                let key = slice(b, c, d)
+                let key = view(b)
                     .try_into()
                     .unwrap_or_else(|_| crate::fail("BLAKE3 key must contain 32 bytes"));
                 result(create_blake3(blake3::Hasher::new_keyed(key)))
             }
-            301 => result(create(keyed(a, slice(b, c, d)))),
-            302 => update(a, slice(b, c, d)) as u128,
+            301 => result(create(keyed(a, view(b)))),
+            302 => update(a, view(b)) as u128,
             303 => {
                 let text = b as *const strings::Text;
                 update(a, strings::bytes(&text)) as u128
@@ -320,7 +316,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 let target = &mut (*(b as *mut Storage)).bytes;
                 finish(a, target, size(c)) as u128
             }
-            305 => verify(a, slice(b, c, d)) as u128,
+            305 => verify(a, view(b)) as u128,
             306 => bool::from(view(a).ct_eq(view(b))) as u128,
             307 => {
                 let text = a as *const strings::Text;

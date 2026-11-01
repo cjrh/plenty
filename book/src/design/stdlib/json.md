@@ -130,11 +130,10 @@ For encoding, `offset` is the number of bytes produced when the call failed and
 | `NonFiniteNumber` | A NaN or infinite `f64` given to the encoder |
 | `InvalidState` | A call that the decoder's or encoder's state does not allow |
 | `InvalidLimits` | `Limits` outside the valid ranges |
-| `OutOfRange` | A `feed` range outside its source |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |
 | `Allocation(AllocError)` | Memory was refused |
 
-After any error other than a refused `feed` range, a decoder or encoder is
+After any error, a decoder or encoder is
 poisoned: every later call reports `InvalidState`. Partial trees and buffers are
 released before the error returns.
 
@@ -165,7 +164,7 @@ nothing: `i64.parse`, `u64.parse`, `f64.parse`, or the text itself. `Text` and
 
 | Method | Receiver | Result | Contract |
 |---|---|---|---|
-| `feed(source: &Bytes, start, stop)` | exclusive | `Result[(), JsonError]` | Copy a range into the unexamined input |
+| `feed(source: &[u8])` | exclusive | `Result[(), JsonError]` | Copy a byte view into the unexamined input |
 | `finish()` | exclusive | `()` | Declare that no more input will arrive |
 | `next()` | exclusive | `Result[Event, JsonError]` | The next event |
 | `offset()` | shared | `i64` | Bytes examined |
@@ -253,7 +252,7 @@ pub class Member:
 
 | Function | Result | Contract |
 |---|---|---|
-| `parse(source: &Bytes, bounds)` | `Result[Json, JsonError]` | Decode one document from a buffer |
+| `parse(source: &[u8], bounds)` | `Result[Json, JsonError]` | Decode one document from a byte view |
 | `parse_text(text: &str, bounds)` | `Result[Json, JsonError]` | The same, from a `str` |
 | `read_value[R: Reader](reader: &mut R, bounds)` | `Result[Json, JsonError]` | Decode one document, reading to end of input |
 | `encode(value: &Json, bounds)` | `Result[Bytes, JsonError]` | Compact encoding |
@@ -281,7 +280,7 @@ encoder cannot be used from two threads at once, since every operation needs an
 exclusive loan.
 
 Sources are shared loans: `feed` and `parse` copy what they need and keep no
-reference to the caller's buffer. Events own their strings.
+reference to the caller's bytes. Events own their strings.
 
 `Json` is recursive, so the builtins that require a finite layout walk reject
 it: `==`, `copy`, `print`, and `str.repr` do not accept a `Json`. Compare and
@@ -292,7 +291,7 @@ display trees through `encode_text`.
 | Operation | Allocates | Time |
 |---|---|---|
 | `decoder` | Three empty buffers | Constant |
-| `feed` | Grows the window by the range; storage is reused once the window is drained | Linear in the range |
+| `feed` | Grows the window by the view; storage is reused once the window is drained | Linear in the view |
 | `next` | One `str` per `Number`, `Text`, or `Key` event; one byte of stack per open container; the scratch buffer grows to the longest token | Linear in the bytes examined |
 | `read_event` | A 4096-byte window, once | As `next`, plus the reads |
 | `parse`, `read_value` | The events, one list per container, one set of keys per object under `Reject`, and for `parse` one copy of the input | Linear in the input, expected |

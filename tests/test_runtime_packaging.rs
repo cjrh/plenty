@@ -80,7 +80,7 @@ def main() -> ():
     print(std.unicode.nfkc(&text.to_text().unwrap(), 64).unwrap()).unwrap()
     data = std.bytes.from_text("abc").unwrap()
     tag = std.crypto.hmac_sha256(&data, &data).unwrap()
-    print(std.encoding.hex_text(&tag, 0, 4).unwrap()).unwrap()
+    print(std.encoding.hex_text(&tag[:4]).unwrap()).unwrap()
     packed = std.compress.compress(std.compress.Format.Gzip, &data, 6).unwrap()
     print(std.compress.decompress(std.compress.Format.Gzip, &packed, 3).unwrap().to_text().unwrap()).unwrap()
 "#,

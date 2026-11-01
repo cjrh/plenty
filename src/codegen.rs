@@ -1386,7 +1386,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         text_find_in: helper(
             module,
             "plenty_text_find_in",
-            &[PTR_TY, PTR_TY, types::I64],
+            &[PTR_TY, PTR_TY, types::I64, types::I64],
             Some(types::I64),
         )?,
         text_next_byte: helper(

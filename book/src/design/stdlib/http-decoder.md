@@ -21,7 +21,7 @@ def main() -> Result[(), std.http.HttpError | IoError]:
     wire = b"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\nping"
     mut at = 0
     while not decoder.is_done():
-        consumed, event = decoder.feed(wire, at, wire.len())?
+        consumed, event = decoder.feed(&wire[at:])?
         at += consumed
         match event:
             case Some(Event.Head(head, _, _)):
@@ -48,9 +48,9 @@ the per-call byte budget alone does not bound an unbounded caller loop.
 
 ## Progress and events
 
-`feed(&source, start, stop)` accepts any `ByteSource` and returns
-`Result[(consumed, Option[Event]), HttpError]`. `consumed` is relative to
-`start`, not an absolute offset. Advance the source cursor by exactly that
+`feed(source: &[u8])` reads a [`&[u8]` view](bytes.md#byte-views) and returns
+`Result[(consumed, Option[Event]), HttpError]`. `consumed` counts from the
+start of the view, not from the start of the caller's buffer. Advance the source cursor by exactly that
 count. Neither a short count nor `Nothing` implies EOF.
 
 | Event | Meaning |

@@ -3,7 +3,7 @@
 import std.bytes
 import std.secrets
 import std.time
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 from std.io import Reader
 from std.secrets import Source, SecretsError
 from std.time import Timestamp
@@ -112,7 +112,7 @@ pub def parse(text: &str) -> Result[Uuid, ParseError]:
     Ok(Uuid(high, low))
 
 # The caller has checked the length; indexing cannot leave the source.
-def decoded[S: ByteSource](source: &S) -> Uuid:
+def decoded(source: &[u8]) -> Uuid:
     mut high = 0u64
     mut low = 0u64
     for index in range(8):
@@ -120,8 +120,8 @@ def decoded[S: ByteSource](source: &S) -> Uuid:
         low = (low << 8u64) | u64(source[index + 8])
     Uuid(high, low)
 
-pub def from_bytes[S: ByteSource](source: &S) -> Result[Uuid, ParseError]:
-    if source.len() != 16:
+pub def from_bytes(source: &[u8]) -> Result[Uuid, ParseError]:
+    if len(source) != 16:
         return Err(ParseError.Invalid)
     Ok(decoded(source))
 

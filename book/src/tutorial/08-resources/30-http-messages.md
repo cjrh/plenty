@@ -59,8 +59,8 @@ def main() -> Result[(), AllocError | IoError | MessageStreamError]:
     reply.add("Transfer-Encoding", "chunked")?
     std.http.write_response(&mut sink, &reply)?
     text = std.bytes.from_text("first second")?
-    std.http.write_chunk(&mut sink, &text, 0, 6)?
-    std.http.write_chunk(&mut sink, &text, 6, 12)?
+    std.http.write_chunk(&mut sink, &text[:6])?
+    std.http.write_chunk(&mut sink, &text[6:12])?
     std.http.write_last_chunk(&mut sink, &list[Header].new()?)?
     print(str.repr(sink.data.to_text()?)?)?
     mut forged = std.http.response(200, "OK")?

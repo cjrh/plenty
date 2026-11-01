@@ -103,8 +103,9 @@ def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     print(descriptors()? == before)?
     for entry in &entries:
         name = entry.file_name()?
-        write_stdout_bytes(name.as_bytes())?
-        write_stdout_bytes(encode_utf8("\0")?)?
+        raw = name.as_bytes()
+        write_stdout_bytes(raw)?
+        write_stdout_bytes(b"\0")?
         print(entry.file_type()?)?
         info = entry.metadata()?
         print(info.file_type() == entry.file_type()?)?

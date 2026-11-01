@@ -143,7 +143,7 @@ pub class Image:
         mut pixels = held(std.bytes.with_capacity(row * height))?
         for line in range(y, y + height):
             at = (line * self._width + x) * channels
-            held(pixels.extend_range(&self._pixels, at, at + row))?
+            held(pixels.extend(&self._pixels[at:at + row]))?
         Ok(Image(width, height, self._color, pixels))
 
     # Gray from colour is BT.709 luma of the stored values; dropping alpha
@@ -272,18 +272,14 @@ def streamed[T](result: Result[T, StreamError]) -> Result[T, ImageError]:
 
 # ---- Format detection ----
 
-def matched(data: &Bytes, at: i64, text: &str) -> bool:
-    match data.matches_text(at, text):
-        case Ok(found):
-            found
-        case Err(_):
-            False
+def matched(data: &[u8], at: i64, text: &str) -> bool:
+    __bytes_matches_text(&data[at:], 0, text)
 
 # The format named by the first bytes, or Nothing.
-pub def detect(data: &Bytes) -> Option[Format]:
-    if data.len() >= 8 and data[0] == 137u8 and matched(data, 1, "PNG\r\n\u{1a}\n"):
+pub def detect(data: &[u8]) -> Option[Format]:
+    if len(data) >= 8 and data[0] == 137u8 and matched(data, 1, "PNG\r\n\u{1a}\n"):
         return Some(Format.Png)
-    if data.len() >= 3 and data[0] == 255u8 and data[1] == 216u8 and data[2] == 255u8:
+    if len(data) >= 3 and data[0] == 255u8 and data[1] == 216u8 and data[2] == 255u8:
         return Some(Format.Jpeg)
     if matched(data, 0, "GIF87a") or matched(data, 0, "GIF89a"):
         return Some(Format.Gif)
@@ -293,7 +289,7 @@ pub def detect(data: &Bytes) -> Option[Format]:
 
 # The header of a supported file. Only PNG is decoded; other formats that
 # `detect` names are Unsupported.
-pub def info(data: &Bytes) -> Result[Info, ImageError]:
+pub def info(data: &[u8]) -> Result[Info, ImageError]:
     match detect(data):
         case Some(Format.Png):
             scan = scanned(data)?
@@ -303,7 +299,7 @@ pub def info(data: &Bytes) -> Result[Info, ImageError]:
 
 # Decodes a whole file. The header is checked against `limits` before the
 # pixel buffer is allocated.
-pub def decode(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]:
+pub def decode(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
     match detect(data):
         case Some(Format.Png):
             decode_png(data, limits)
@@ -323,10 +319,10 @@ const signature_size: i64 = 8
 # 4-byte CRC after it.
 const chunk_overhead: i64 = 12
 
-def be32(data: &Bytes, at: i64) -> i64:
+def be32(data: &[u8], at: i64) -> i64:
     (i64(data[at]) << 24) | (i64(data[at + 1]) << 16) | (i64(data[at + 2]) << 8) | i64(data[at + 3])
 
-def be16(data: &Bytes, at: i64) -> i64:
+def be16(data: &[u8], at: i64) -> i64:
     (i64(data[at]) << 8) | i64(data[at + 1])
 
 def letter(value: u8) -> bool:
@@ -350,8 +346,8 @@ class Chunk:
     def critical(self) -> bool:
         (self.kind >> 24) & 32 == 0
 
-def chunk_at(data: &Bytes, at: i64) -> Result[Chunk, ImageError]:
-    total = data.len()
+def chunk_at(data: &[u8], at: i64) -> Result[Chunk, ImageError]:
+    total = len(data)
     if total - at < 8:
         return Err(ImageError.Truncated)
     length = be32(data, at)
@@ -364,7 +360,7 @@ def chunk_at(data: &Bytes, at: i64) -> Result[Chunk, ImageError]:
     if total - start < length + 4:
         return Err(ImageError.Truncated)
     stop = start + length
-    crc = coded(std.compress.crc32(0, data, at + 4, stop))?
+    crc = coded(std.compress.crc32(0, &data[at + 4:stop]))?
     if crc != be32(data, stop):
         return Err(ImageError.Checksum)
     Ok(Chunk(be32(data, at + 4), start, stop))
@@ -450,8 +446,8 @@ def depth_allowed(kind: i64, depth: i64) -> bool:
 # Reads the signature, IHDR and every chunk up to the first IDAT. Unknown
 # ancillary chunks are skipped once their CRC is checked; an unknown critical
 # chunk is Unsupported.
-def scanned(data: &Bytes) -> Result[Scan, ImageError]:
-    if data.len() < signature_size or not matched(data, 1, "PNG\r\n\u{1a}\n") or data[0] != 137u8:
+def scanned(data: &[u8]) -> Result[Scan, ImageError]:
+    if len(data) < signature_size or not matched(data, 1, "PNG\r\n\u{1a}\n") or data[0] != 137u8:
         return Err(ImageError.Corrupt)
     header = chunk_at(data, signature_size)?
     if header.kind != ihdr or header.size() != 13:
@@ -507,7 +503,7 @@ def palette(chunk: Chunk, scan: &mut Scan) -> Result[(), ImageError]:
         scan.entries = entries
     Ok(())
 
-def keyed(data: &Bytes, chunk: Chunk, scan: &mut Scan) -> Result[(), ImageError]:
+def keyed(data: &[u8], chunk: Chunk, scan: &mut Scan) -> Result[(), ImageError]:
     size = chunk.size()
     s = chunk.start
     match scan.kind:
@@ -629,7 +625,7 @@ def unfiltered(line: &mut Bytes, at: i64, above: i64, count: i64, step: i64, fil
 
 # Sample `index` of a decoded scanline starting at `at`. Samples narrower than
 # a byte are packed from the most significant bit.
-def sample(line: &Bytes, at: i64, index: i64, depth: i64) -> i64:
+def sample(line: &[u8], at: i64, index: i64, depth: i64) -> i64:
     match depth:
         case 8:
             i64(line[at + index])
@@ -656,11 +652,11 @@ def scaled(value: i64, depth: i64) -> u8:
 
 # The palette as four bytes per entry, RGBA, with alpha from tRNS or 255;
 # empty for other colour types.
-def table(data: &Bytes, scan: &Scan) -> Result[Bytes, ImageError]:
+def table(data: &[u8], scan: &Scan) -> Result[Bytes, ImageError]:
     mut colors = held(std.bytes.with_capacity(4 * scan.entries))?
     for entry in range(0, scan.entries):
         at = scan.palette_at + 3 * entry
-        held(colors.extend_range(data, at, at + 3))?
+        held(colors.extend(&data[at:at + 3]))?
         alpha = data[scan.alpha_at + entry] if entry < scan.alphas else 255u8
         held(colors.push(alpha))?
     Ok(colors)
@@ -702,8 +698,8 @@ class Decoder:
             self.stage += 1
         Ok(())
 
-    def take(self: &mut Decoder, source: &Bytes) -> Result[(), ImageError]:
-        total = source.len()
+    def take(self: &mut Decoder, source: &[u8]) -> Result[(), ImageError]:
+        total = len(source)
         mut at = 0
         while at < total:
             if self.done():
@@ -711,7 +707,7 @@ class Decoder:
             mut count = self.stride - self.filled
             if count > total - at:
                 count = total - at
-            held(self.lines.overwrite(self.current + self.filled, source, at, at + count))?
+            held(self.lines.overwrite(self.current + self.filled, &source[at:at + count]))?
             self.filled += count
             at += count
             if self.filled == self.stride:
@@ -742,7 +738,7 @@ class Decoder:
             # Rows arrive in order, so the buffer grows with the data and a
             # short file never touches the rest of its reservation.
             if scan.depth == 8 and scan.kind != 3 and not scan.keyed:
-                return held(self.out.extend_range(&self.lines, at, at + count))
+                return held(self.out.extend(&self.lines[at:at + count]))
             held(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
         mut to = (y * scan.width + x0) * channels
         step = dx * channels
@@ -773,7 +769,7 @@ class Decoder:
                     entry = sample(line, at, k, depth)
                     if entry >= scan.entries:
                         return Err(ImageError.Corrupt)
-                    held(self.out.overwrite(to, &self.palette, entry * 4, entry * 4 + channels))?
+                    held(self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels]))?
                     to += step
             case 4:
                 for k in range(0, self.columns):
@@ -787,7 +783,7 @@ class Decoder:
                     to += step
         Ok(())
 
-def decode_png(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]:
+def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
     scan = scanned(data)?
     color = scan.color()
     limits.check(scan.width, scan.height, color)?
@@ -812,10 +808,11 @@ def decode_png(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]:
         mut position = chunk.start
         while True:
             inflater.clear()
-            consumed = coded(inflater.step(data, position, chunk.stop))?
+            consumed = coded(inflater.step(&data[position:chunk.stop]))?
             position += consumed
-            produced = inflater.output().len()
-            decoder.take(inflater.output())?
+            output = inflater.output()
+            produced = output.len()
+            decoder.take(&output)?
             if consumed == 0 and produced == 0:
                 break
         at = chunk.next()
@@ -845,12 +842,12 @@ def put32(out: &mut Bytes, value: i64) -> Result[(), ImageError]:
     held(out.push(u8.wrapping_from(value)))?
     Ok(())
 
-def framed(out: &mut Bytes, kind: i64, data: &Bytes, start: i64, stop: i64) -> Result[(), ImageError]:
+def framed(out: &mut Bytes, kind: i64, data: &[u8], start: i64, stop: i64) -> Result[(), ImageError]:
     put32(out, stop - start)?
     at = out.len()
     put32(out, kind)?
-    held(out.extend_range(data, start, stop))?
-    crc = coded(std.compress.crc32(0, out, at, out.len()))?
+    held(out.extend(&data[start:stop]))?
+    crc = coded(std.compress.crc32(0, &out[at:]))?
     put32(out, crc)
 
 # The sum of absolute differences of a filtered byte, read as signed.
@@ -862,7 +859,7 @@ def cost(value: i64) -> i64:
 # the type with the smallest sum of absolute differences: the heuristic the
 # PNG specification recommends and libpng uses. `above[top:]` is the
 # previous row, or zeros for the first.
-def filtered(rows: &mut Bytes, pixels: &Bytes, at: i64, above: &Bytes, top: i64, count: i64, step: i64) -> i64:
+def filtered(rows: &mut Bytes, pixels: &[u8], at: i64, above: &[u8], top: i64, count: i64, step: i64) -> i64:
     line = count + 1
     mut none = 0
     mut sub = 0
@@ -955,7 +952,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
         at = y * count
         mut best = 0
         if level == 0:
-            held(rows.overwrite(1, pixels, at, at + count))?
+            held(rows.overwrite(1, &pixels[at:at + count]))?
         elif y == 0:
             best = filtered(&mut rows, pixels, at, &zero, 0, count, step)
         else:
@@ -963,7 +960,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
         start = best * line
         mut fed = start
         while fed < start + line:
-            fed += streamed(zlib.write(&rows, fed, start + line))?
+            fed += streamed(zlib.write(&rows[fed:start + line]))?
         if zlib.inner.data.len() >= idat_size:
             framed(&mut out, idat, &zlib.inner.data, 0, zlib.inner.data.len())?
             zlib.inner.data.clear()
@@ -988,7 +985,7 @@ def nearest(image: &Image, width: i64, height: i64, total: i64) -> Result[Image,
         row = ((2 * y + 1) * image.height()) // (2 * height) * image.width()
         for x in range(0, width):
             at = (row + ((2 * x + 1) * image.width()) // (2 * width)) * channels
-            held(pixels.extend_range(source, at, at + channels))?
+            held(pixels.extend(&source[at:at + channels]))?
     Ok(Image(width, height, image.color(), pixels))
 
 # Fixed-point bits in filter weights, as in Pillow's resampling.
@@ -1053,7 +1050,7 @@ def premultiplied(value: i64, alpha: i64) -> i64:
 # Resamples each row of `source`: `rows` rows of `from_width` pixels become
 # rows of `taps`' target width. Colour channels of an alpha image, which has
 # 2 or 4 channels, are premultiplied as they are read.
-def horizontal(source: &Bytes, from_width: i64, rows: i64, channels: i64, weights: &Taps) -> Result[Bytes, ImageError]:
+def horizontal(source: &[u8], from_width: i64, rows: i64, channels: i64, weights: &Taps) -> Result[Bytes, ImageError]:
     to_width = len(&weights.starts)
     total = rows * to_width * channels
     mut out = held(std.bytes.with_capacity(total))?
@@ -1099,7 +1096,7 @@ def horizontal(source: &Bytes, from_width: i64, rows: i64, channels: i64, weight
     Ok(out)
 
 # Resamples each column of `source`, whose rows are `stride` bytes.
-def vertical(source: &Bytes, stride: i64, weights: &Taps) -> Result[Bytes, ImageError]:
+def vertical(source: &[u8], stride: i64, weights: &Taps) -> Result[Bytes, ImageError]:
     to_height = len(&weights.starts)
     total = to_height * stride
     mut out = held(std.bytes.with_capacity(total))?
@@ -1136,9 +1133,10 @@ def unpremultiplied(pixels: &mut Bytes, channels: i64) -> ():
 def resampled(image: &Image, width: i64, height: i64) -> Result[Bytes, ImageError]:
     channels = image.color().channels()
     stride = width * channels
+    pixels = image.pixels()
     if width == image.width() and not image.color().has_alpha():
-        return vertical(image.pixels(), stride, &taps(image.height(), height)?)
-    across = horizontal(image.pixels(), image.width(), image.height(), channels, &taps(image.width(), width)?)?
+        return vertical(&pixels, stride, &taps(image.height(), height)?)
+    across = horizontal(&pixels, image.width(), image.height(), channels, &taps(image.width(), width)?)?
     if height == image.height():
         return Ok(across)
     vertical(&across, stride, &taps(image.height(), height)?)

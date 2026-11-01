@@ -1,6 +1,7 @@
-//! `std.bytes.ByteSource`: read-only byte operations and stream writes take a
-//! `bytes` literal or a `Bytes` buffer in place (issue #156), and protocol
-//! requirements may declare their own type parameters.
+//! Read-only byte operations and stream writes take a `&[u8]` view of a
+//! `bytes` literal, a `Bytes` buffer or a `list[u8]` in place (issue #156,
+//! backlog B90), and protocol requirements may declare their own type
+//! parameters.
 mod support;
 use support::{check_error as rejected, check_file_error as file_rejected};
 
@@ -37,14 +38,14 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     print(head.find_bytes(b"", 3, 9)?, head.find_bytes(b"\r\n\r\n", 0, head.len())?)?
     print(head.find_in(b" :", 0, head.len())?, head.find_not_in(b"GET", 0, head.len())?)?
     print(head.find_in(b"", 0, head.len())?)?
-    print(head.matches(0, b"GET", 0, 3)?, head.matches(0, b"xGET", 1, 4)?, head.matches(25, b"\r\n\r\n", 0, 4)?)?
+    print(head.matches(0, b"GET")?, head.matches(0, &b"xGET"[1:4])?, head.matches(25, b"\r\n\r\n")?)?
     literal = b"\x00\xff"
     mut out = std.bytes.empty()?
     out.extend(&literal)?
     out.extend(b"abc")?
-    out.extend_range(b"abc", 1, 3)?
+    out.extend(&b"abc"[1:3])?
     out.extend(&crlf)?
-    out.overwrite(2, b"XYZ", 0, 2)?
+    out.overwrite(2, &b"XYZ"[:2])?
     print(out)?
     Ok(())
 "#,
@@ -60,31 +61,32 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     );
 }
 
+/// A view carries its own range, and its bounds clamp like `xs[a:b]`, so
+/// reading through one has no range error; offsets into the receiver are
+/// still checked.
 #[test]
-fn literal_sources_follow_the_range_rule() {
+fn views_clamp_and_offsets_stay_checked() {
     let printed = file_output(
         r#"
 import std.bytes
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut out = std.bytes.from_text("abcd")?
-    print(str.repr(out.extend_range(b"xy", 1, 3))?)?
-    print(str.repr(out.extend_range(b"xy", -1, 1))?)?
-    print(str.repr(out.overwrite(3, b"xy", 0, 2))?)?
-    print(str.repr(out.matches(0, b"ab", 0, 3))?)?
-    print(str.repr(out.matches(5, b"ab", 0, 2))?)?
-    print(out.matches(3, b"de", 0, 2)?, out.len())?
+    out.extend(&b"xy"[1:9])?
+    out.extend(&b"xy"[-1:1])?
+    print(out, out.matches(0, &b"ab"[:3])?)?
+    print(str.repr(out.overwrite(4, b"xy"))?)?
+    print(str.repr(out.matches(6, b"ab"))?)?
+    print(out.matches(3, b"dy")?, out.len())?
     Ok(())
 "#,
     );
     assert_eq!(
         printed,
-        "Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
-         Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
+        "b\"abcdy\" True\n\
          Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
          Result[bool, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
-         Result[bool, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
-         False 4\n"
+         True 5\n"
     );
 }
 
@@ -99,53 +101,52 @@ from std.compress import Format
 
 def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Partial | std.bytes.BytesError | std.compress.CompressError]:
     mut out = std.io.stdout()
-    out.write(b"direct\n", 0, 7)?
-    std.io.write_all(&mut out, b"[all]\n", 1, 6)?
+    out.write(b"direct\n")?
+    std.io.write_all(&mut out, &b"[all]\n"[1:6])?
     mut buffered = std.io.buffered_writer(std.io.stdout(), 4)?
-    buffered.write(b"ab", 0, 2)?
-    buffered.write(b"cdefgh\n", 0, 7)?
+    buffered.write(b"ab")?
+    buffered.write(b"cdefgh\n")?
     buffered.flush()?
     mut memory = std.io.cursor(std.bytes.empty()?)
-    std.io.write_all(&mut memory, b"memory", 0, 6)?
+    std.io.write_all(&mut memory, b"memory")?
     print(memory.data.to_text()?)?
     mut file = std.io.open_file("sources.bin", "w+")?
-    std.io.write_all(&mut file, b"\x00\xfffile", 0, 6)?
+    std.io.write_all(&mut file, b"\x00\xfffile")?
     file.seek(std.io.SeekFrom.Start(0))?
     mut back = std.bytes.with_capacity(6)?
     back.resize(6, 1u8)?
     std.io.read_exact(&mut file, &mut back, 0, 6)?
     print(back)?
     mut packer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
-    std.io.write_all(&mut packer, b"compressed literal", 0, 18)?
+    std.io.write_all(&mut packer, b"compressed literal")?
     packer.finish()?
     unpacked = std.compress.decompress(Format.Gzip, &packer.inner.data, 64)?
     print(unpacked.to_text()?)?
-    print(str.repr(out.write(b"ab", 1, 3))?)?
+    print(out.write(&b"ab"[1:3])?)?
     Ok(())
 "#,
     );
     assert_eq!(
         printed,
         "direct\nall]\nabcdefgh\nmemory\nb\"\\x00\\xfffile\"\n\
-         compressed literal\n\
-         Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)\n"
+         compressed literal\nb1\n"
     );
 }
 
 #[test]
-fn writers_declare_a_write_generic_in_its_source() {
+fn writers_declare_a_write_taking_a_byte_view() {
     let printed = file_output(
         r#"
 import std.bytes
 import std.io
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 
 pub class Upper:
     pub data: Bytes
 
-    pub def write[T: ByteSource](self: &mut Upper, source: &T, start: i64, stop: i64) -> Result[i64, StreamError]:
-        for index in range(start, stop):
+    pub def write(self: &mut Upper, source: &[u8]) -> Result[i64, StreamError]:
+        for index in range(len(source)):
             mut byte = source[index]
             if byte >= 97u8 and byte <= 122u8:
                 byte -= 32u8
@@ -154,17 +155,18 @@ pub class Upper:
                     pass
                 case Err(_):
                     return Err(StreamError.OutOfRange)
-        Ok(stop - start)
+        Ok(len(source))
 
     pub def flush(self: &mut Upper) -> Result[(), StreamError]:
         Ok(())
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial | std.io.StreamError]:
     mut upper = Upper(std.bytes.empty()?)
-    std.io.write_all(&mut upper, b"literal ", 0, 8)?
-    std.io.write_all(&mut upper, &std.bytes.from_text("buffer")?, 0, 6)?
+    std.io.write_all(&mut upper, b"literal ")?
+    word = std.bytes.from_text("buffer")?
+    std.io.write_all(&mut upper, &word[:6])?
     mut buffered = std.io.buffered_writer(upper, 4)?
-    buffered.write(b"!", 0, 1)?
+    buffered.write(b"!")?
     buffered.flush()?
     print(buffered.inner.data.to_text()?)?
     Ok(())
@@ -193,7 +195,7 @@ pub class Old:
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StreamError]:
     mut old = Old(std.bytes.empty()?)
-    std.io.write_all(&mut old, b"x", 0, 1)?
+    std.io.write_all(&mut old, b"x")?
     Ok(())
 "#,
     );
@@ -204,7 +206,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StreamErr
 }
 
 #[test]
-fn only_bytes_and_buffers_are_read_in_place() {
+fn only_byte_views_are_read_in_place() {
     let message = file_rejected(
         r#"
 import std.bytes
@@ -222,7 +224,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
 "#,
     );
     assert!(
-        message.contains("bytes are read in place only from a `std.bytes.Bytes` buffer or a `bytes` literal, got Sized"),
+        message.contains("this parameter takes a slice view"),
         "{message}"
     );
 }
@@ -396,13 +398,13 @@ fn reading_and_writing_sources_does_not_allocate() {
         r#"
 import std.bytes
 import std.io
-from std.bytes import ByteSource
 
-def tally[S: ByteSource](source: &S) -> i64:
+
+def tally(source: &[u8]) -> i64:
     mut total = 0
     for byte in source:
         total += i64(*byte)
-    total + source.len()
+    total + len(source)
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
@@ -414,12 +416,12 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Pa
     found = head.find_bytes(b"\r\n\r\n", 0, head.len())?
     also = head.find_bytes(&crlf, 0, head.len())?
     spaces = head.find_in(b" ", 0, head.len())?
-    same = head.matches(0, b"GET", 0, 3)?
+    same = head.matches(0, b"GET")?
     out.extend(b"abc")?
-    out.extend_range(&crlf, 0, 2)?
-    head.overwrite(0, b"PUT", 0, 3)?
-    std.io.write_all(&mut stdout, b"written\n", 0, 8)?
-    std.io.write_all(&mut memory, b"memory", 0, 6)?
+    out.extend(&crlf[:2])?
+    head.overwrite(0, b"PUT")?
+    std.io.write_all(&mut stdout, b"written\n")?
+    std.io.write_all(&mut memory, b"memory")?
     sums = tally(b"\x01\x02") + tally(&crlf)
     print("__test_end_no_allocations__")?
     print(found, also, spaces, same, out.len(), sums)?

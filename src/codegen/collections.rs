@@ -122,9 +122,9 @@ impl Lowerer<'_, '_> {
             CollectionOp::Get(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Trap),
             CollectionOp::IterGet(Ty::ByteStr) => (runtime.byte_str_item, false, Site::Null),
             CollectionOp::Len(Ty::ByteStr) => (runtime.text_byte_len, false, Site::None),
-            CollectionOp::Text(
-                crate::text::TextOp::FindIn | crate::text::TextOp::FindInLiteral,
-            ) => (runtime.text_find_in, true, Site::None),
+            CollectionOp::Text(crate::text::TextOp::FindIn) => {
+                (runtime.text_find_in, true, Site::None)
+            }
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,
@@ -703,7 +703,13 @@ impl Lowerer<'_, '_> {
             for input in inputs[1..].iter().rev() {
                 let (value, _) = self.pop_typed(input.clone())?;
                 // Narrow helpers take later shared references as the value
-                // word and integer arguments as full words.
+                // word, a slice view as its address and length (pushed in
+                // reverse, like the inputs), and integers as full words.
+                if matches!(input, Ty::View(..)) {
+                    let (address, len) = self.bcx.ins().isplit(value);
+                    trailing.extend([len, address]);
+                    continue;
+                }
                 let value = if matches!(input, Ty::Ref(..)) {
                     self.reference_word(value)
                 } else if clif_type(input.clone()) == types::I64 {

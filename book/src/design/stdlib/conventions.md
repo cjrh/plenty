@@ -21,7 +21,8 @@ standard library.
   and is documented on the module page. Helpers stay private.
 - Native hooks are std-only compiler intrinsics, not methods or functions
   of a std module. A std module calls the intrinsic (`__crypto_update`,
-  `__compress_new`) with `&Bytes` operands and checks ranges itself; user
+  `__compress_new`) with `&[u8]` views for inputs and `&mut Bytes` output
+  buffers whose ranges it checks itself; user
   code calling one is rejected as
   [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
@@ -231,13 +232,18 @@ no `max_` prefixes, and `InvalidLimit` appears beside `InvalidLimits`.
 | Role | Type |
 |---|---|
 | Owned buffer, argument or result | `Bytes` |
-| Read-only input | `source: &S` with `S: ByteSource`, accepting `&buffer` and `b"..."` literals |
+| Read-only input | `source: &[u8]`, accepting `&buffer`, `&buffer[a:b]`, `&list` and `b"..."` literals |
 | Caller's output buffer | `buffer: &mut Bytes, start: i64, stop: i64`, a half-open range |
 | A list of byte-sized numbers | `list[u8]` |
 
+A `&[u8]` input carries its own range, so it takes no `start` and `stop`
+and has no out-of-range error: the caller passes `&buffer[a:b]`, whose bounds
+clamp. [Slice views](../language/04-expressions/slices.md#slice-views)
+describe the conversion.
+
 `std.path`, `std.env`, `std.process` and `std.cli` carry operating-system
-strings as `list[u8]`, and many read-only inputs take `&Bytes` instead of a
-`ByteSource` (B39). [`std.bytes`](bytes.md) describes `ByteSource`.
+strings as `list[u8]` (B39). `std.dataframe.lit_binary` still takes `&Bytes`
+because its C adapter accepts only lists (issue #657).
 
 ### Streams
 
@@ -299,7 +305,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 |---|---|---|
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
-| Bytes | `list[u8]` OS strings; `&Bytes` inputs | B39 |
+| Bytes | `list[u8]` OS strings; `dataframe.lit_binary(&Bytes)` | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
 | Errors | `AllocError` unions in seven modules | Not yet tracked |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |

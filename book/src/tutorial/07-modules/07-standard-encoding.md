@@ -14,9 +14,9 @@ def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std
     std.encoding.append_u16(&mut frame, 513u16, Endian.Big)?
     std.encoding.append_u32(&mut frame, 7u32, Endian.Little)?
     frame.extend(&std.bytes.from_text("hi")?)?
-    print(std.encoding.hex_text(&frame, 0, frame.len())?)?
-    print(std.encoding.base64_text(&frame, 0, frame.len())?)?
-    print(std.encoding.base64url_text(&frame, 0, 7)?)?
+    print(std.encoding.hex_text(&frame)?)?
+    print(std.encoding.base64_text(&frame)?)?
+    print(std.encoding.base64url_text(&frame[:7])?)?
     print(std.encoding.unpack_u16(&frame, 0, Endian.Big)?, std.encoding.unpack_u16(&frame, 0, Endian.Little)?)?
     std.encoding.pack_u32(&mut frame, 2, 8u32, Endian.Little)?
     print(std.encoding.unpack_u32(&frame, 2, Endian.Little)?, frame.len())?
@@ -36,8 +36,8 @@ The same two bytes read as `513` or `258` depending on the order you state.
 `append_` grows the buffer by the integer's width. `pack_` overwrites bytes that
 already exist and never grows it. `unpack_` reads at an offset.
 
-The codecs take a borrowed buffer and a `start`/`stop` range, as `std.bytes`
-operations do. The `_text` forms return a `str`; `hex_encode`, `base64_encode`,
+The codecs take a byte view: `&buffer` for a whole buffer, `&buffer[start:stop]`
+for part of one, or a `b"..."` literal. The `_text` forms return a `str`; `hex_encode`, `base64_encode`,
 and `base64url_encode` return the encoded bytes as a new buffer. `base64` uses
 `+` and `/` and always pads with `=`. `base64url` uses `-` and `_` and never
 pads.
@@ -93,9 +93,9 @@ import std.encoding
 
 def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError]:
     data = std.bytes.from_text("hello")?
-    print(std.encoding.base32_text(&data, 0, data.len())?)?
+    print(std.encoding.base32_text(&data)?)?
     lower = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
-    text = lower.text(&data, 0, data.len())?
+    text = lower.text(&data)?
     print(text, lower.from_text(&text)?.to_text()?)?
     print(std.encoding.base64mime_from_text("aG Vs\r\nbG8=")?.to_text()?)?
     Ok(())

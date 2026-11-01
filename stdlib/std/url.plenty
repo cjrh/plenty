@@ -197,19 +197,17 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
 
 # Uppercase escapes. `%` is always escaped, so encoding is never a no-op on
 # text that already looks encoded.
-pub def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component) -> Result[Bytes, UrlError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(UrlError.OutOfRange)
+pub def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]:
     kind = kind_of(component)
     mut size = 0
-    for index in range(start, stop):
-        if literal(i64(source[index]), kind):
+    for code in source:
+        if literal(i64(*code), kind):
             size += 1
         else:
             size += 3
     mut encoded = lifted(std.bytes.with_capacity(size))?
-    for index in range(start, stop):
-        code = i64(source[index])
+    for value in source:
+        code = i64(*value)
         if literal(code, kind):
             emit(&mut encoded, code)?
         else:
@@ -220,36 +218,42 @@ pub def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component
 
 # Every `%hh` becomes one byte; every other byte is copied, including `+`.
 # Literal runs between escapes are found and copied natively.
-pub def decode_bytes(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, UrlError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(UrlError.OutOfRange)
+pub def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]:
+    stop = len(source)
     # Validate every escape before allocating the exact result.
-    mut size = stop - start
-    mut index = earliest(source, 37u8, start, stop)?
+    mut size = stop
+    mut index = percent_from(source, 0)
     while index < stop:
         if stop - index < 3 or hex_value(i64(source[index + 1])) < 0 or hex_value(i64(source[index + 2])) < 0:
             return Err(UrlError.InvalidEscape(index))
         size -= 2
-        index = earliest(source, 37u8, index + 3, stop)?
+        index = percent_from(source, index + 3)
     mut decoded = lifted(std.bytes.with_capacity(size))?
-    index = start
+    index = 0
     while index < stop:
-        escape = earliest(source, 37u8, index, stop)?
-        lifted(decoded.extend_range(source, index, escape))?
+        escape = percent_from(source, index)
+        lifted(decoded.extend(&source[index:escape]))?
         if escape < stop:
             emit(&mut decoded, hex_value(i64(source[escape + 1])) * 16 + hex_value(i64(source[escape + 2])))?
         index = escape + 3
     Ok(decoded)
 
+# The next `%` at or after `start`, or the end of `source`.
+def percent_from(source: &[u8], start: i64) -> i64:
+    found = __bytes_find(&source[start:], 37u8)
+    if found < 0:
+        return len(source)
+    start + found
+
 pub def encode(text: &str, component: Component) -> Result[str, UrlError]:
     source = lifted(std.bytes.from_text(text))?
-    lifted(encode_bytes(&source, 0, source.len(), component)?.to_text())
+    lifted(encode_bytes(&source, component)?.to_text())
 
 # `InvalidUtf8` when the decoded bytes are not UTF-8; use `decode_bytes` for
 # data that is not text.
 pub def decode(text: &str) -> Result[str, UrlError]:
     source = lifted(std.bytes.from_text(text))?
-    lifted(decode_bytes(&source, 0, source.len())?.to_text())
+    lifted(decode_bytes(&source)?.to_text())
 
 # One pair per `&`-separated piece, split at its first `=`, then decoded. A
 # piece without `=` has an empty value. The empty query has no pairs.
@@ -273,13 +277,22 @@ pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
                 split = found
             case Nothing:
                 pass
-        key = lifted(decode_bytes(&source, start, split)?.to_text())?
+        key = lifted(decoded_part(&source, start, split)?.to_text())?
         mut value = ""
         if split < stop:
-            value = lifted(decode_bytes(&source, split + 1, stop)?.to_text())?
+            value = lifted(decoded_part(&source, split + 1, stop)?.to_text())?
         allocated(pairs.append(Pair(key, value)))?
         start = stop + 1
     Ok(pairs)
+
+# Decodes source[start:stop], keeping an `InvalidEscape` index relative to
+# the whole query.
+def decoded_part(source: &[u8], start: i64, stop: i64) -> Result[Bytes, UrlError]:
+    match decode_bytes(&source[start:stop]):
+        case Err(UrlError.InvalidEscape(index)):
+            Err(UrlError.InvalidEscape(start + index))
+        case _ as other:
+            other
 
 # `key=value` joined with `&`, each side encoded as `Component.QueryPart`.
 pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
@@ -288,10 +301,12 @@ pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
         if index > 0:
             emit(&mut out, 38)?
         key = lifted(std.bytes.from_text(pairs[index].key))?
-        lifted(out.extend(&encode_bytes(&key, 0, key.len(), Component.QueryPart)?))?
+        encoded_key = encode_bytes(&key, Component.QueryPart)?
+        lifted(out.extend(&encoded_key))?
         emit(&mut out, 61)?
         value = lifted(std.bytes.from_text(pairs[index].value))?
-        lifted(out.extend(&encode_bytes(&value, 0, value.len(), Component.QueryPart)?))?
+        encoded_value = encode_bytes(&value, Component.QueryPart)?
+        lifted(out.extend(&encoded_value))?
     lifted(out.to_text())
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:

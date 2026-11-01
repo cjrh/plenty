@@ -741,14 +741,14 @@ def main() -> Result[(), IoError | RangeError | std.test.TestError | std.bytes.B
     stream.limit(0)
     message = std.bytes.from_text("abc")?
     stream.fail_after(1, StreamError.WriteZero)
-    std.test.equal(&stream.write(&message, 0, 3)?, &3)?
-    match stream.write(&message, 0, 3):
+    std.test.equal(&stream.write(&message[:3])?, &3)?
+    match stream.write(&message[:3]):
         case Err(StreamError.WriteZero):
             pass
         case _:
             std.test.fail("second write fails")?
     stream.limit(2)
-    std.io.write_all(&mut stream, &message, 0, 3)?
+    std.io.write_all(&mut stream, &message[:3])?
     stream.flush()?
     std.test.equal(&stream.output.to_text()?, &"abcabc")?
     std.test.equal(&stream.calls(), &11)?

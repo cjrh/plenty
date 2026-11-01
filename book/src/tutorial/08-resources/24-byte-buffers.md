@@ -65,16 +65,18 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
 conflicting borrow: cannot modify or exclusively borrow `frame` while it is borrowed
 ```
 
-File, argument, and stream builtins still exchange `list[u8]`. Convert at the
-edge with `from_list` and `to_list`; each is an explicit copy:
+File-reading and argument builtins still return `list[u8]`; `from_list`
+converts one with an explicit copy. The output builtins `write_stdout_bytes`,
+`write_stderr_bytes` and `write_bytes` take a `&[u8]` view, so pass a buffer or
+a range of it with no conversion:
 
 ```plenty
 import std.bytes
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut record = std.bytes.from_list(&encode_utf8("name=")?)?
-    record.extend(&std.bytes.from_list(&[255u8, 0u8]?)?)?
-    write_stdout_bytes(&record.slice(0, 5)?.to_list()?)?
+    record.extend(b"\xff\0")?
+    write_stdout_bytes(&record[0:5])?
     print(record.len(), record.find(61u8, 0, record.len())?)?
     Ok(())
 ```
@@ -179,34 +181,35 @@ b"\x89PNG" 4 80
 
 Operations that only read another sequence of bytes, such as `find_bytes`,
 `matches`, `find_in`, and `extend`, take a literal as readily as a buffer. Their
-parameter is generic over `ByteSource`, a protocol that both `bytes` and `Bytes`
-implement, so each call reads the bytes where they are and nothing is copied.
-Your own functions can accept either form the same way:
+parameter is a `&[u8]`
+[slice view](../../design/language/04-expressions/slices.md#slice-views): a
+literal, `&buffer`, or part of either, `&buffer[a:b]`, converts to it, so each
+call reads the bytes where they are and nothing is copied. Your own functions
+can accept every form the same way:
 
 ```plenty
 import std.bytes
-from std.bytes import ByteSource
 
-def starts_png[S: ByteSource](data: &S) -> bool:
-    data.len() >= 4 and data[0] == 137u8 and data[1] == 80u8
+def starts_png(data: &[u8]) -> bool:
+    len(data) >= 4 and data[0] == 137u8 and data[1] == 80u8
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     magic = b"\x89PNG"
-    mut header = std.bytes.from_bytes(magic)?
+    mut header = std.bytes.from_bytes(&magic)?
     header.extend(b"\r\n\x1a\n")?
     print(header.find_bytes(b"\r\n", 0, header.len())?)?
-    print(header.matches(0, &magic, 0, 4)?, header.find_in(b"\n\r", 0, header.len())?)?
-    print(starts_png(&header), starts_png(&magic), starts_png(b"GIF8"))?
+    print(header.matches(0, &magic[:4])?, header.find_in(b"\n\r", 0, header.len())?)?
+    print(starts_png(&header), starts_png(&header[4:]), starts_png(b"GIF8"))?
     Ok(())
 ```
 ```output
 Option[i64].Some(4)
 True Option[i64].Some(4)
-True True False
+True False False
 ```
 
 The literal is never converted into a `Bytes` behind your back. To change bytes,
-or to call a `Bytes` method such as `find` on them, copy the literal
+or to call a `Bytes` method such as `find` on them, copy any view
 with `from_bytes`, as `header` does; the copy allocates, so it returns a
 `Result`. A slice of a literal, such as `b"GET /index"[4:]?`, is also an owned
 `Bytes`. Stream writes in `std.io` accept a literal the same way, as the next

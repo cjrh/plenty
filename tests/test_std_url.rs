@@ -552,9 +552,9 @@ fn every_byte_is_escaped_or_kept_by_component() {
     let mut expected = String::new();
     for (name, kept) in sets {
         body.push_str(&format!(
-            "coded{name} = std.url.encode_bytes(&all, 0, 256, Component.{name})?\n\
+            "coded{name} = std.url.encode_bytes(&all, Component.{name})?\n\
              print(coded{name}.to_text()?)?\n\
-             print(std.url.decode_bytes(&coded{name}, 0, coded{name}.len())? == all, coded{name}.capacity() == coded{name}.len())?\n"
+             print(std.url.decode_bytes(&coded{name})? == all, coded{name}.capacity() == coded{name}.len())?\n"
         ));
         for byte in 0..=255u8 {
             let letter = byte as char;
@@ -594,15 +594,14 @@ print(str.repr(std.url.decode("%ff"))?)?
 print(str.repr(std.url.decode("%C3"))?)?
 print(str.repr(std.url.decode("%ED%A0%80"))?)?
 raw = std.bytes.from_text("%ff%C3")?
-print(std.encoding.hex_text(&std.url.decode_bytes(&raw, 0, 6)?, 0, 2)?)?
-print(std.url.decode_bytes(&raw, 3, 6)?.len(), std.url.decode_bytes(&raw, 6, 6)?.len())?
-print(str.repr(std.url.decode_bytes(&raw, 0, 2))?)?
-print(str.repr(std.url.decode_bytes(&raw, 0, 5))?)?
-print(str.repr(std.url.decode_bytes(&raw, 0, 7))?)?
-print(str.repr(std.url.decode_bytes(&raw, -1, 3))?)?
-print(str.repr(std.url.decode_bytes(&raw, 4, 3))?)?
-print(str.repr(std.url.encode_bytes(&raw, 0, 7, Component.Path))?)?
-print(str.repr(std.url.encode_bytes(&raw, 2, 1, Component.Path))?)?
+print(std.encoding.hex_text(&std.url.decode_bytes(&raw)?[:2])?)?
+print(std.url.decode_bytes(&raw[3:6])?.len(), std.url.decode_bytes(&raw[6:6])?.len())?
+print(str.repr(std.url.decode_bytes(&raw[:2]))?)?
+print(str.repr(std.url.decode_bytes(&raw[:5]))?)?
+# Error indexes are relative to the view, and view bounds clamp.
+print(str.repr(std.url.decode_bytes(&raw[3:5]))?)?
+print(std.url.decode_bytes(&raw[:7])?.len(), std.url.decode_bytes(&raw[4:3])?.len())?
+print(std.url.encode_bytes(b"a b/", Component.Path)?.to_text()?)?
 "#,
         r#"
 a%20b%2Fc%3Fd=e&f%23g%25
@@ -626,11 +625,9 @@ ffc3
 1 0
 Result[Bytes, E].Err(E.InvalidEscape(0))
 Result[Bytes, E].Err(E.InvalidEscape(3))
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
+Result[Bytes, E].Err(E.InvalidEscape(0))
+2 0
+a%20b/
 "#,
     );
 }
@@ -1037,10 +1034,10 @@ blob = std.encoding.hex_from_text("{blob}")?
 mut start = 0
 while start < blob.len():
     stop = blob.find(255u8, start, blob.len())?.unwrap()
-    match std.url.decode_bytes(&blob, start, stop):
+    match std.url.decode_bytes(&blob[start:stop]):
         case Ok(decoded):
-            coded = std.url.encode_bytes(&decoded, 0, decoded.len(), Component.QueryPart)?
-            print(std.url.decode_bytes(&coded, 0, coded.len())? == decoded)?
+            coded = std.url.encode_bytes(&decoded, Component.QueryPart)?
+            print(std.url.decode_bytes(&coded)? == decoded)?
         case Err(_):
             print(False)?
     start = stop + 1
@@ -1128,8 +1125,8 @@ raw = std.bytes.from_text(&query)?
 #[case::format("url.to_string()")]
 #[case::encode("std.url.encode(&query, Component.QueryPart)")]
 #[case::decode("std.url.decode(&query)")]
-#[case::encode_bytes("std.url.encode_bytes(&raw, 0, raw.len(), Component.Path)")]
-#[case::decode_bytes("std.url.decode_bytes(&raw, 0, raw.len())")]
+#[case::encode_bytes("std.url.encode_bytes(&raw, Component.Path)")]
+#[case::decode_bytes("std.url.decode_bytes(&raw)")]
 #[case::query_pairs("std.url.query_pairs(&query)")]
 #[case::query_text("std.url.query_text(&pairs)")]
 fn allocation_failure_is_reported_at_every_point_without_leaking(#[case] call: &str) {

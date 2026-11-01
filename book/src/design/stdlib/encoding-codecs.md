@@ -11,10 +11,10 @@ from std.encoding import EncodingError
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
     data = std.bytes.from_text("hello")?
-    print(std.encoding.base32_text(&data, 0, data.len())?)?
+    print(std.encoding.base32_text(&data)?)?
     print(std.encoding.base32_from_text("NBSWY3DP")?.to_text()?)?
     lower = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
-    text = lower.text(&data, 0, data.len())?
+    text = lower.text(&data)?
     print(text, lower.from_text(&text)?.to_text()?)?
     Ok(())
 ```
@@ -34,9 +34,9 @@ not accept whitespace, `0`/`1` substitutions, or nonzero unused trailing bits.
 
 | Function suffix, for both `base32` and `base32hex` | Result |
 |---|---|
-| `_encode(source: &Bytes, start: i64, stop: i64)` | `Result[Bytes, EncodingError]` |
-| `_decode(source: &Bytes, start: i64, stop: i64)` | `Result[Bytes, EncodingError]` |
-| `_text(source: &Bytes, start: i64, stop: i64)` | `Result[str, EncodingError]` |
+| `_encode(source: &[u8])` | `Result[Bytes, EncodingError]` |
+| `_decode(source: &[u8])` | `Result[Bytes, EncodingError]` |
+| `_text(source: &[u8])` | `Result[str, EncodingError]` |
 | `_from_text(text: &str)` | `Result[Bytes, EncodingError]` |
 
 For example, `f` encodes as `MY======` or `CO======`. Unpadded forms are
@@ -72,13 +72,13 @@ are UTF-8 byte offsets. It does not parse MIME headers or multipart messages.
 ## PEM
 
 ```text
-pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_encode(source: &[u8], label: &[u8])
     -> Result[Bytes, EncodingError]
-pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_text(source: &[u8], label: &[u8])
     -> Result[str, EncodingError]
-pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S)
+pem_decode(source: &[u8], label: &[u8])
     -> Result[Bytes, EncodingError]
-pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]
+pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
 ```
 
 These read and write one block in the strict form of
@@ -97,7 +97,7 @@ from std.encoding import EncodingError
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
     pem = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n"
     der = std.encoding.pem_from_text(pem, b"PUBLIC KEY")?
-    print(der.len(), std.encoding.pem_text(&der, 0, der.len(), b"PUBLIC KEY")? == pem)?
+    print(der.len(), std.encoding.pem_text(&der, b"PUBLIC KEY")? == pem)?
     print(str.repr(std.encoding.pem_from_text(pem, b"PRIVATE KEY"))?)?
     Ok(())
 ```
@@ -108,12 +108,12 @@ Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingErr
 
 The decoder accepts exactly:
 
-- `-----BEGIN LABEL-----` at `start`, with the expected label;
+- `-----BEGIN LABEL-----` at the start of the view, with the expected label;
 - one line terminator, LF or CRLF, used for every line that follows;
 - padded standard base64 in lines of exactly 64 symbols, except a final line of
   1 to 64 symbols, with at least one symbol in all;
 - `-----END LABEL-----` with the same label;
-- at most one final line terminator, then `stop`.
+- at most one final line terminator, then the end of the view.
 
 Explanatory text around the block, RFC 1421 headers such as `Proc-Type`,
 blank lines, spaces, tabs, and other line widths are errors. A label that is
@@ -144,9 +144,9 @@ With no configured padding, `=` may itself be an alphabet symbol.
 
 | Method | Result |
 |---|---|
-| `encode(source: &Bytes, start: i64, stop: i64)` | `Result[Bytes, EncodingError]` |
-| `decode(source: &Bytes, start: i64, stop: i64)` | `Result[Bytes, EncodingError]` |
-| `text(source: &Bytes, start: i64, stop: i64)` | `Result[str, EncodingError]` |
+| `encode(source: &[u8])` | `Result[Bytes, EncodingError]` |
+| `decode(source: &[u8])` | `Result[Bytes, EncodingError]` |
+| `text(source: &[u8])` | `Result[str, EncodingError]` |
 | `from_text(text: &str)` | `Result[Bytes, EncodingError]` |
 
 Bits are read most significant first. Padding completes the smallest group of

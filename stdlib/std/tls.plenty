@@ -5,7 +5,7 @@
 # and cancellation bound every handshake and transfer.
 # See book/src/design/stdlib/tls.md.
 import std.bytes
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.net import NetError, Shutdown, TcpStream
 from std.ready import Interest, Selector
@@ -132,19 +132,15 @@ def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
             Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
 
 # A count, or a runtime failure code other than `would_block`.
-# Encrypts source[start:stop] into the session: the count taken, or one of
-# the negative codes.
-def encrypted[S: ByteSource](session: &ByteStorage, source: &S, start: i64, stop: i64) -> Result[i64, BytesError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(BytesError.OutOfRange)
-    Ok(__tls_write(session, source, start, stop))
+# Encrypts at most `buffer_size` bytes of `source` into the session: the
+# count taken, or one of the negative codes.
+def encrypted(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
+    Ok(__tls_write(session, &source[:buffer_size]))
 
-# Record transfers between a session and buffer[start:stop]. Each gives a
-# byte count or one of the negative codes `counted` maps.
-def fed(session: &ByteStorage, source: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(BytesError.OutOfRange)
-    Ok(__tls_feed(session, source, start, stop))
+# Record transfers between a session and caller bytes. Each gives a byte
+# count or one of the negative codes `counted` maps.
+def fed(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
+    Ok(__tls_feed(session, source))
 
 def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
     if start < 0 or start > stop or stop > target.len():
@@ -482,14 +478,14 @@ pub class TlsStream:
         while True:
             if self.outgoing()? == 0:
                 return Ok(())
-            self._out_start += net(self._tcp.write_before(&self._outgoing, self._out_start, self._out_stop, deadline, cancel))?
+            self._out_start += net(self._tcp.write_before(&self._outgoing[self._out_start:self._out_stop], deadline, cancel))?
         Ok(())
 
     def flush_blocking(self: &mut TlsStream) -> Result[(), StreamError]:
         while True:
             if flowed(self.outgoing())? == 0:
                 return Ok(())
-            written = self._tcp.write(&self._outgoing, self._out_start, self._out_stop)?
+            written = self._tcp.write(&self._outgoing[self._out_start:self._out_stop])?
             if written == 0:
                 return Err(StreamError.WriteZero)
             self._out_start += written
@@ -499,7 +495,7 @@ pub class TlsStream:
     def feed_pending(self: &mut TlsStream) -> Result[bool, TlsError]:
         if self._in_start == self._in_stop:
             return Ok(False)
-        used = counted(fed(&self._session, &self._incoming, self._in_start, self._in_stop))?
+        used = counted(fed(&self._session, &self._incoming[self._in_start:self._in_stop]))?
         self._in_start += used
         if self._acknowledge_handshake:
             self.acknowledge_handshake()
@@ -526,7 +522,7 @@ pub class TlsStream:
         self._in_stop = count
         if count == 0:
             self._eof = True
-            counted(fed(&self._session, &self._incoming, 0, 0))?
+            counted(fed(&self._session, b""))?
             return Ok(())
         self.feed_pending()?
         Ok(())
@@ -611,7 +607,7 @@ pub class TlsStream:
         while True:
             if self.outgoing()? == 0:
                 return Ok(True)
-            match self._tcp.write_now(&self._outgoing, self._out_start, self._out_stop):
+            match self._tcp.write_now(&self._outgoing[self._out_start:self._out_stop]):
                 case Ok(count):
                     self._out_start += count
                 case Err(NetError.WouldBlock) | Err(NetError.Stream(StreamError.Interrupted)):
@@ -642,17 +638,14 @@ pub class TlsStream:
     # takes at once; the count taken. Nothing, with nothing taken, while the
     # handshake is incomplete or earlier ciphertext is still unsent. What the
     # socket did not take is sent by later `try_` calls.
-    pub def try_write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+    pub def try_write(self: &mut TlsStream, source: &[u8]) -> Result[Option[i64], TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
         if not self.try_handshake()?:
             return Ok(Nothing)
         if not self.try_flush()?:
             return Ok(Nothing)
-        mut end = stop
-        if stop - start > buffer_size:
-            end = start + buffer_size
-        count = counted(encrypted(&self._session, source, start, end))?
+        count = counted(encrypted(&self._session, source))?
         self.try_flush()?
         Ok(Some(count))
 
@@ -688,20 +681,17 @@ pub class TlsStream:
     # Encrypts at most 16 KiB of source[start:stop] and sends it before the
     # deadline; the count taken. On failure, an unknown prefix has been sent
     # and the rest stays buffered for the next call.
-    pub def write_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+    pub def write_before(self: &mut TlsStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
-        mut end = stop
-        if stop - start > buffer_size:
-            end = start + buffer_size
-        count = counted(encrypted(&self._session, source, start, end))?
+        count = counted(encrypted(&self._session, source))?
         self.flush_before(deadline, cancel)?
         Ok(count)
 
-    pub def write_all_before[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
-        mut at = start
-        while at < stop:
-            at += self.write_before(source, at, stop, deadline, cancel)?
+    pub def write_all_before(self: &mut TlsStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
+        mut at = 0
+        while at < len(source):
+            at += self.write_before(&source[at:], deadline, cancel)?
         Ok(())
 
     # Sends close_notify, then closes the TCP stream. The peer's own
@@ -744,13 +734,10 @@ pub class TlsStream:
             flowed(self.receive_blocking())?
         Ok(0)
 
-    pub def write[S: ByteSource](self: &mut TlsStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut TlsStream, source: &[u8]) -> Result[i64, StreamError]:
         if self._closed:
             return Err(StreamError.Io(IoError.Closed))
-        mut end = stop
-        if stop - start > buffer_size:
-            end = start + buffer_size
-        count = flowed(counted(encrypted(&self._session, source, start, end)))?
+        count = flowed(counted(encrypted(&self._session, source)))?
         self.flush_blocking()?
         Ok(count)
 
@@ -849,22 +836,18 @@ pub class Session:
     _handle: ByteStorage
     _closed: bool
 
-    # Processes ciphertext from source[start:stop]; the count consumed. The
-    # count falls short while decrypted bytes wait for `read`. On a TLS
-    # failure the session has queued an alert: send what `take` gives before
-    # closing.
-    pub def feed(self: &mut Session, source: &Bytes, start: i64, stop: i64) -> Result[i64, TlsError]:
-        if start == stop:
-            within(start, stop, source.len())?
+    # Processes ciphertext from `source`; the count consumed. The count falls
+    # short while decrypted bytes wait for `read`. On a TLS failure the
+    # session has queued an alert: send what `take` gives before closing.
+    pub def feed(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]:
+        if len(source) == 0:
             return Ok(0)
-        counted(fed(&self._handle, source, start, stop))
+        counted(fed(&self._handle, source))
 
     # Tells the session that the peer's stream has ended. Without the peer's
-    # close_notify, `read` then fails with Truncated. Allocates one empty
-    # buffer.
+    # close_notify, `read` then fails with Truncated.
     pub def feed_end(self: &mut Session) -> Result[(), TlsError]:
-        empty = stored(std.bytes.with_capacity(0))?
-        counted(fed(&self._handle, &empty, 0, 0))?
+        counted(fed(&self._handle, b""))?
         Ok(())
 
     # Moves ciphertext to send into target[start:stop]; the count, 0 when
@@ -887,13 +870,10 @@ pub class Session:
     # once 64 KiB of ciphertext waits for `take`. While the handshake runs,
     # plaintext waits in the session; check `handshaking` first to bound it.
     # Fails after `close`.
-    pub def write[S: ByteSource](self: &mut Session, source: &S, start: i64, stop: i64) -> Result[i64, TlsError]:
+    pub def write(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]:
         if self._closed:
             return Err(TlsError.Closed)
-        mut end = stop
-        if stop - start > buffer_size:
-            end = start + buffer_size
-        counted(encrypted(&self._handle, source, start, end))
+        counted(encrypted(&self._handle, source))
 
     # Queues close_notify for `take`; later writes fail.
     pub def close(self: &mut Session) -> ():

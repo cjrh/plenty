@@ -4,7 +4,7 @@
 //! allocate nothing. ring's RSA operations allocate limb buffers through the
 //! Rust global allocator, which cannot report failure, so each runs inside an
 //! arena reserved beforehand: see book/src/design/stdlib/crypto-keys.md.
-use super::byte_storage::{Storage, result};
+use super::byte_storage::{Storage, result, view_bytes, view_overlaps};
 use crate::actor_heap::{Arena, within};
 use crate::memory::{self, AllocError, Header};
 use ring::{agreement, rand, rsa, signature};
@@ -188,17 +188,26 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     let [a, b, c, d] = operands;
     let (output, inputs): (Option<u128>, &[u128]) = match op {
         341 | 342 => (Some(a), &[b]),
-        344 => (Some(b), &[a]),
-        345 => (Some(d), &[a, c]),
+        345 => (Some(d), &[c]),
         _ => (None, &[]),
     };
-    if output.is_some_and(|output| inputs.contains(&output)) {
+    // A state handle and the output buffer it fills are both storage.
+    if op == 344 && a == b {
         crate::fail("crypto output aliases an input");
     }
-    // SAFETY: ByteStorage values refer to live Storage prefixes. Output
-    // exclusivity is checked by the compiler and aliases rejected above.
+    // SAFETY: inputs are live views and the output a live Storage prefix.
+    if output.is_some_and(|output| {
+        inputs
+            .iter()
+            .any(|&input| unsafe { view_overlaps(input, output) })
+    }) {
+        crate::fail("crypto output aliases an input");
+    }
+    // SAFETY: ByteStorage values refer to live Storage prefixes and input
+    // views to live bytes. Output exclusivity is checked by the compiler and
+    // aliases rejected above.
     unsafe {
-        let view = |value: u128| (*(value as *const Storage)).bytes.as_slice();
+        let view = |value: u128| view_bytes(value);
         let target = |value: u128| (*(value as *mut Storage)).bytes.as_mut_slice();
         let status = match op {
             340 => return result(private()),

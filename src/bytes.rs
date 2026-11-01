@@ -36,19 +36,12 @@ pub enum BytesOp {
     SetItem,
     // `Item` on a temporary buffer value rather than a named place.
     ValueItem,
-    // A copy of a `bytes` literal, which shares the text layout.
-    FromStatic,
     // A memmove inside one buffer: `copy_within(start, stop, to)`.
     CopyWithin,
     // `source[start:stop:step]`: the bounds and the slice flags.
     Slice,
-    // The operations above whose `source` operand is a `bytes` literal. The
-    // runtime tells a literal from a buffer by its header.
-    AppendLiteral,
-    OverwriteLiteral,
-    FindInLiteral,
-    FindBytesLiteral,
-    MatchesLiteral,
+    // `Slice` of a `bytes` literal. The runtime tells a literal from a
+    // buffer by its header.
     SliceLiteral,
 }
 
@@ -81,56 +74,21 @@ impl BytesOp {
             "__bytes_fill" => Self::Fill,
             "__bytes_item" => Self::Item,
             "__bytes_set_item" => Self::SetItem,
-            "__bytes_from_static" => Self::FromStatic,
             "__bytes_copy_within" => Self::CopyWithin,
             _ => return None,
         })
     }
 
-    /// The operand the primitive only reads bytes from, which a `Bytes`
-    /// buffer or a `bytes` literal can supply.
-    pub fn source(self) -> Option<usize> {
-        match self.buffer_form() {
-            Self::Append | Self::FindIn | Self::FindBytes => Some(1),
-            Self::Overwrite | Self::Matches => Some(2),
-            Self::Slice => Some(0),
-            _ => None,
-        }
-    }
-
-    /// The variant reading `source` from a `bytes` literal.
-    pub fn literal(self) -> Option<Self> {
-        Some(match self {
-            Self::Append => Self::AppendLiteral,
-            Self::Overwrite => Self::OverwriteLiteral,
-            Self::FindIn => Self::FindInLiteral,
-            Self::FindBytes => Self::FindBytesLiteral,
-            Self::Matches => Self::MatchesLiteral,
-            Self::Slice => Self::SliceLiteral,
-            _ => return None,
-        })
-    }
-
-    fn buffer_form(self) -> Self {
-        match self {
-            Self::AppendLiteral => Self::Append,
-            Self::OverwriteLiteral => Self::Overwrite,
-            Self::FindInLiteral => Self::FindIn,
-            Self::FindBytesLiteral => Self::FindBytes,
-            Self::MatchesLiteral => Self::Matches,
-            Self::SliceLiteral => Self::Slice,
-            other => other,
-        }
-    }
-
     pub fn signature(self) -> (Vec<Ty>, Ty) {
-        let form = self.buffer_form();
-        if form != self {
-            let (mut inputs, output) = form.signature();
-            inputs[form.source().unwrap()] = Ty::ByteStr;
+        if self == Self::SliceLiteral {
+            let (mut inputs, output) = Self::Slice.signature();
+            inputs[0] = Ty::ByteStr;
             return (inputs, output);
         }
         let storage = || Ty::ByteStorage;
+        // Read-only byte operands are `&[u8]` views: one address and length
+        // for a buffer, a literal or part of either (B90).
+        let view = byte_view;
         let storage_ref = |mutable| Ty::Ref(Arc::new(Ty::ByteStorage), mutable);
         let list = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
@@ -151,54 +109,29 @@ impl BytesOp {
             Self::WriteFloatSpec => {
                 return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64);
             }
-            Self::Overwrite => {
-                return (
-                    vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
-                    Ty::Unit,
-                );
-            }
-            // Find returns a found index, or -1 for none; Count returns the number of
-            // matching bytes.
-            Self::Find | Self::Count => {
-                return (vec![storage(), Ty::U8, Ty::I64, Ty::I64], Ty::I64);
-            }
+            Self::Overwrite => return (vec![storage(), Ty::I64, view()], Ty::Unit),
+            // Scans read a view. Find returns an index into the view, or -1
+            // for none; Count returns the number of matching bytes.
+            Self::Find | Self::Count => return (vec![view(), Ty::U8], Ty::I64),
             // The last operand selects members (1) or non-members (0).
-            Self::FindIn => {
-                return (
-                    vec![storage(), storage(), Ty::I64, Ty::I64, Ty::U8],
-                    Ty::I64,
-                );
-            }
-            Self::FindBytes => return (vec![storage(), storage(), Ty::I64, Ty::I64], Ty::I64),
-            Self::Matches => {
-                return (
-                    vec![storage(), Ty::I64, storage(), Ty::I64, Ty::I64],
-                    Ty::Bool,
-                );
-            }
-            Self::MatchesText => return (vec![storage(), Ty::I64, Ty::Str], Ty::Bool),
-            // The last operand selects ASCII (0) or valid UTF-8 (1).
-            Self::Run => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::I64),
+            Self::FindIn => return (vec![view(), view(), Ty::U8], Ty::I64),
+            Self::FindBytes => return (vec![view(), view()], Ty::I64),
+            Self::Matches => return (vec![view(), Ty::I64, view()], Ty::Bool),
+            Self::MatchesText => return (vec![view(), Ty::I64, Ty::Str], Ty::Bool),
+            // The run's length. The operand selects ASCII (0) or valid UTF-8 (1).
+            Self::Run => return (vec![view(), Ty::U8], Ty::I64),
             Self::New => (vec![Ty::I64], storage()),
             Self::Reserve => (vec![storage(), Ty::I64], Ty::Unit),
             Self::Resize => (vec![storage(), Ty::I64, Ty::U8], Ty::Unit),
             // Appending writes through the exclusively borrowed field, so the
             // owner is neither retained nor released (issue #389).
             Self::Push => (vec![storage_ref(true), Ty::U8], Ty::Unit),
-            Self::Append => (vec![storage(), storage(), Ty::I64, Ty::I64], Ty::Unit),
+            Self::Append => (vec![storage(), view()], Ty::Unit),
             Self::FromList => (vec![list()], storage()),
             Self::ToList => (vec![storage()], list()),
             Self::FromText => (vec![Ty::Str], storage()),
-            Self::FromStatic => (vec![Ty::ByteStr], storage()),
-            Self::ToText => (vec![storage(), Ty::I64, Ty::I64], sum::option(Ty::Str)),
-            Self::AppendLiteral
-            | Self::OverwriteLiteral
-            | Self::FindInLiteral
-            | Self::FindBytesLiteral
-            | Self::MatchesLiteral
-            | Self::SliceLiteral => {
-                unreachable!("a literal variant defers to its buffer form")
-            }
+            Self::ToText => (vec![view()], sum::option(Ty::Str)),
+            Self::SliceLiteral => unreachable!("a literal slice defers to `Slice`"),
         };
         (inputs, sum::result(output, sum::alloc_error()))
     }
@@ -206,7 +139,7 @@ impl BytesOp {
     /// The first operand is written, so it needs an exclusive loan.
     pub fn mutable(self) -> bool {
         matches!(
-            self.buffer_form(),
+            self,
             Self::Set
                 | Self::SetItem
                 | Self::Fill
@@ -229,16 +162,11 @@ impl BytesOp {
     pub fn opcode(self) -> i64 {
         // The scans, fill, and indexed access sit in their own range (230-239);
         // 184 onward belongs to others.
-        let form = self.buffer_form();
-        if form != self {
-            return form.opcode();
-        }
         match self {
             Self::WriteFloat => 280,
             Self::WriteFloatSpec => 281,
             Self::CopyWithin => 282,
-            Self::Slice => crate::collection_opcodes::BYTES_SLICE,
-            Self::FromStatic => Self::FromText.opcode(),
+            Self::Slice | Self::SliceLiteral => crate::collection_opcodes::BYTES_SLICE,
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,
             Self::SetItem => 239,
@@ -248,4 +176,10 @@ impl BytesOp {
             },
         }
     }
+}
+
+/// The type of a read-only byte operand: a shared `&[u8]` view, passed to the
+/// runtime as its address and length.
+pub fn byte_view() -> Ty {
+    Ty::View(Arc::new(Ty::U8), false)
 }

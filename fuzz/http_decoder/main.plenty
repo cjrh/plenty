@@ -32,7 +32,7 @@ def decode(input: &Bytes, limits: &Limits, step: i64, alternate: bool) -> Result
         mut stop = at + count
         if stop > input.len():
             stop = input.len()
-        consumed, event = parser.feed(input, at, stop)?
+        consumed, event = parser.feed(&input[at:stop])?
         ensure(consumed >= 0 and consumed <= stop - at)
         ensure(consumed <= std.http.decoder.feed_budget)
         at += consumed
@@ -51,7 +51,7 @@ def decode(input: &Bytes, limits: &Limits, step: i64, alternate: bool) -> Result
             case Some(Event.End):
                 ensure(parser.is_done())
                 # Completion must leave every pipelined byte untouched.
-                paused, none = parser.feed(input, at, input.len())?
+                paused, none = parser.feed(&input[at:])?
                 ensure(paused == 0 and none.is_none())
                 requests += 1
                 parser.reset()?

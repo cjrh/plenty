@@ -1,5 +1,5 @@
 import std.bytes
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 
 # Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
 # Everything here is checked Plenty: ranges are validated before reads and
@@ -29,18 +29,18 @@ pub class Encoding:
     _bits: i64
     _padding: i64
 
-    pub def encode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-        encode_radix(source, start, stop, &self._symbols, self._bits, self._padding)
+    pub def encode(self, source: &[u8]) -> Result[Bytes, EncodingError]:
+        encode_radix(source, &self._symbols, self._bits, self._padding)
 
-    pub def decode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-        decode_radix(source, start, stop, &self._values, 0, self._bits, self._padding)
+    pub def decode(self, source: &[u8]) -> Result[Bytes, EncodingError]:
+        decode_radix(source, &self._values, 0, self._bits, self._padding)
 
-    pub def text(self, source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-        lifted(self.encode(source, start, stop)?.to_text())
+    pub def text(self, source: &[u8]) -> Result[str, EncodingError]:
+        lifted(self.encode(source)?.to_text())
 
     pub def from_text(self, text: &str) -> Result[Bytes, EncodingError]:
         source = lifted(std.bytes.from_text(text))?
-        self.decode(&source, 0, source.len())
+        self.decode(&source)
 
 pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
     count = len(symbols)
@@ -71,35 +71,35 @@ pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encodi
         bits += 1
     Ok(Encoding(alphabet, values, bits, pad))
 
-pub def base32_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    encode_radix(source, start, stop, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 61)
+pub def base32_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    encode_radix(source, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 61)
 
-pub def base32_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    decode_radix(source, start, stop, b"", 1, 5, 61)
+pub def base32_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    decode_radix(source, b"", 1, 5, 61)
 
-pub def base32_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(base32_encode(source, start, stop)?.to_text())
+pub def base32_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(base32_encode(source)?.to_text())
 
 pub def base32_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    base32_decode(&source, 0, source.len())
+    base32_decode(&source)
 
-pub def base32hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    encode_radix(source, start, stop, b"0123456789ABCDEFGHIJKLMNOPQRSTUV", 5, 61)
+pub def base32hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    encode_radix(source, b"0123456789ABCDEFGHIJKLMNOPQRSTUV", 5, 61)
 
-pub def base32hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    decode_radix(source, start, stop, b"", 2, 5, 61)
+pub def base32hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    decode_radix(source, b"", 2, 5, 61)
 
-pub def base32hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(base32hex_encode(source, start, stop)?.to_text())
+pub def base32hex_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(base32hex_encode(source)?.to_text())
 
 pub def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    base32hex_decode(&source, 0, source.len())
+    base32hex_decode(&source)
 
 # MIME's 76-column layout, CRLF between lines, no final line terminator.
-pub def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    encoded = base64_encode(source, start, stop)?
+pub def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    encoded = base64_encode(source)?
     mut breaks = 0
     if encoded.len() > 0:
         breaks = (encoded.len() - 1) // 76
@@ -113,48 +113,46 @@ pub def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes
 
 # Deliberately narrower than MIME's liberal recovery: skip SP/HT/CR/LF only,
 # and retain the strict base64 alphabet, padding and trailing-bit checks.
-pub def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
+pub def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
     mut size = 0
-    for index in range(start, stop):
+    for index in range(len(source)):
         if not mime_space(source[index]):
             size += 1
     mut compact = lifted(std.bytes.with_capacity(size))?
-    for index in range(start, stop):
+    for index in range(len(source)):
         if not mime_space(source[index]):
             emit(&mut compact, i64(source[index]))?
-    match base64_decode(&compact, 0, compact.len()):
+    match base64_decode(&compact):
         case Ok(decoded):
             Ok(decoded)
         case Err(error):
             match error:
                 case EncodingError.InvalidByte(index):
-                    Err(EncodingError.InvalidByte(mime_index(source, start, stop, index)))
+                    Err(EncodingError.InvalidByte(mime_index(source, index)))
                 case EncodingError.InvalidPadding(index):
-                    Err(EncodingError.InvalidPadding(mime_index(source, start, stop, index)))
+                    Err(EncodingError.InvalidPadding(mime_index(source, index)))
                 case EncodingError.NonCanonical(index):
-                    Err(EncodingError.NonCanonical(mime_index(source, start, stop, index)))
+                    Err(EncodingError.NonCanonical(mime_index(source, index)))
                 case _:
                     Err(error)
 
-pub def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(base64mime_encode(source, start, stop)?.to_text())
+pub def base64mime_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(base64mime_encode(source)?.to_text())
 
 pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    base64mime_decode(&source, 0, source.len())
+    base64mime_decode(&source)
 
 # RFC 7468 strict PEM: one BEGIN line, base64 lines of exactly 64 symbols
 # except a shorter last line, the matching END line and one line terminator.
 # The label is bytes so a literal such as `b"PUBLIC KEY"` costs no allocation.
-pub def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
+pub def pem_encode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
     pem_label(label)?
-    if start == stop:
+    if len(source) == 0:
         return Err(EncodingError.InvalidLength)
-    encoded = base64_encode(source, start, stop)?
+    encoded = base64_encode(source)?
     lines = (encoded.len() + 63) // 64
-    mut text = lifted(std.bytes.with_capacity(encoded.len() + lines + 2 * label.len() + 32))?
+    mut text = lifted(std.bytes.with_capacity(encoded.len() + lines + 2 * len(label) + 32))?
     pem_boundary(&mut text, b"-----BEGIN ", label)?
     for index in range(encoded.len()):
         emit(&mut text, i64(encoded[index]))?
@@ -163,24 +161,23 @@ pub def pem_encode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
     pem_boundary(&mut text, b"-----END ", label)?
     Ok(text)
 
-pub def pem_text[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[str, EncodingError]:
-    lifted(pem_encode(source, start, stop, label)?.to_text())
+pub def pem_text(source: &[u8], label: &[u8]) -> Result[str, EncodingError]:
+    lifted(pem_encode(source, label)?.to_text())
 
 # Accepts LF or CRLF, used consistently, and nothing outside the one block:
 # no explanatory text, headers, blank lines or whitespace. `PemLabel` means
 # the BEGIN label differs from `label` or `label` is not an RFC 7468 label;
 # `InvalidPem` and the base64 errors give an offset into `source`.
-pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: &S) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
+pub def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
     pem_label(label)?
-    mut at = pem_expect(source, start, stop, b"-----BEGIN ")?
-    if not pem_matches(source, at, stop, label) or not pem_matches(source, at + label.len(), stop, b"-----"):
+    mut at = pem_expect(source, 0, b"-----BEGIN ")?
+    if not pem_matches(source, at, label) or not pem_matches(source, at + len(label), b"-----"):
         return Err(EncodingError.PemLabel)
-    at += label.len() + 5
+    at += len(label) + 5
     mut eol = 0
-    if at < stop and source[at] == 10u8:
+    if at < len(source) and source[at] == 10u8:
         eol = 1
-    elif at + 1 < stop and source[at] == 13u8 and source[at + 1] == 10u8:
+    elif at + 1 < len(source) and source[at] == 13u8 and source[at + 1] == 10u8:
         eol = 2
     else:
         return Err(EncodingError.InvalidPem(at))
@@ -188,11 +185,11 @@ pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
     body = at
     mut count = 0
     mut short = False
-    while at < stop and source[at] != 45u8:
+    while at < len(source) and source[at] != 45u8:
         if short:
             return Err(EncodingError.InvalidPem(at))
         mut end = at
-        while end < stop and source[end] != 10u8 and source[end] != 13u8:
+        while end < len(source) and source[end] != 10u8 and source[end] != 13u8:
             if end - at == 64:
                 return Err(EncodingError.InvalidPem(end))
             end += 1
@@ -200,22 +197,22 @@ pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
             return Err(EncodingError.InvalidPem(at))
         short = end - at < 64
         count += end - at
-        at = pem_line_end(source, end, stop, eol)?
+        at = pem_line_end(source, end, eol)?
     if count == 0:
         return Err(EncodingError.InvalidPem(at))
-    at = pem_expect(source, at, stop, b"-----END ")?
-    at = pem_expect(source, at, stop, label)?
-    at = pem_expect(source, at, stop, b"-----")?
-    if at < stop:
-        at = pem_line_end(source, at, stop, eol)?
-        if at < stop:
+    at = pem_expect(source, at, b"-----END ")?
+    at = pem_expect(source, at, label)?
+    at = pem_expect(source, at, b"-----")?
+    if at < len(source):
+        at = pem_line_end(source, at, eol)?
+        if at < len(source):
             return Err(EncodingError.InvalidPem(at))
     mut compact = lifted(std.bytes.with_capacity(count))?
     for index in range(body, body + count + (count + 63) // 64 * eol):
         code = source[index]
         if code != 10u8 and code != 13u8:
             emit(&mut compact, i64(code))?
-    match base64_decode(&compact, 0, count):
+    match base64_decode(&compact[:count]):
         case Ok(decoded):
             Ok(decoded)
         case Err(error):
@@ -229,15 +226,15 @@ pub def pem_decode[S: ByteSource](source: &Bytes, start: i64, stop: i64, label: 
                 case _:
                     Err(error)
 
-pub def pem_from_text[S: ByteSource](text: &str, label: &S) -> Result[Bytes, EncodingError]:
+pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    pem_decode(&source, 0, source.len(), label)
+    pem_decode(&source, label)
 
 # RFC 7468 section 3: printable ASCII except `-`, with single spaces or
 # hyphens only between such characters. The empty label is rejected because
 # no key or certificate format uses it.
-def pem_label[S: ByteSource](label: &S) -> Result[(), EncodingError]:
-    count = label.len()
+def pem_label(label: &[u8]) -> Result[(), EncodingError]:
+    count = len(label)
     if count == 0:
         return Err(EncodingError.PemLabel)
     for index in range(count):
@@ -249,35 +246,35 @@ def pem_label[S: ByteSource](label: &S) -> Result[(), EncodingError]:
             return Err(EncodingError.PemLabel)
     Ok(())
 
-def pem_boundary[K: ByteSource, S: ByteSource](text: &mut Bytes, kind: &K, label: &S) -> Result[(), EncodingError]:
-    for index in range(kind.len()):
+def pem_boundary(text: &mut Bytes, kind: &[u8], label: &[u8]) -> Result[(), EncodingError]:
+    for index in range(len(kind)):
         emit(text, i64(kind[index]))?
-    for index in range(label.len()):
+    for index in range(len(label)):
         emit(text, i64(label[index]))?
     for _ in range(5):
         emit(text, 45)?
     emit(text, 10)
 
-def pem_matches[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> bool:
-    if stop - at < expected.len():
+def pem_matches(source: &[u8], at: i64, expected: &[u8]) -> bool:
+    if len(source) - at < len(expected):
         return False
-    for index in range(expected.len()):
+    for index in range(len(expected)):
         if source[at + index] != expected[index]:
             return False
     True
 
 # The position after `expected`, or an error at the first byte that differs.
-def pem_expect[S: ByteSource](source: &Bytes, at: i64, stop: i64, expected: &S) -> Result[i64, EncodingError]:
-    for index in range(expected.len()):
-        if at + index >= stop or source[at + index] != expected[index]:
+def pem_expect(source: &[u8], at: i64, expected: &[u8]) -> Result[i64, EncodingError]:
+    for index in range(len(expected)):
+        if at + index >= len(source) or source[at + index] != expected[index]:
             return Err(EncodingError.InvalidPem(at + index))
-    Ok(at + expected.len())
+    Ok(at + len(expected))
 
-def pem_line_end(source: &Bytes, at: i64, stop: i64, eol: i64) -> Result[i64, EncodingError]:
+def pem_line_end(source: &[u8], at: i64, eol: i64) -> Result[i64, EncodingError]:
     if eol == 2:
-        if at + 1 < stop and source[at] == 13u8 and source[at + 1] == 10u8:
+        if at + 1 < len(source) and source[at] == 13u8 and source[at + 1] == 10u8:
             return Ok(at + 2)
-    elif at < stop and source[at] == 10u8:
+    elif at < len(source) and source[at] == 10u8:
         return Ok(at + 1)
     Err(EncodingError.InvalidPem(at))
 
@@ -289,14 +286,14 @@ def pem_index(body: i64, eol: i64, compact_index: i64) -> i64:
 def mime_space(code: u8) -> bool:
     code == 32u8 or code == 9u8 or code == 13u8 or code == 10u8
 
-def mime_index(source: &Bytes, start: i64, stop: i64, compact_index: i64) -> i64:
+def mime_index(source: &[u8], compact_index: i64) -> i64:
     mut seen = 0
-    for index in range(start, stop):
+    for index in range(len(source)):
         if not mime_space(source[index]):
             if seen == compact_index:
                 return index
             seen += 1
-    stop
+    len(source)
 
 # The smallest number of symbols encoding a whole number of bytes.
 def quantum(bits: i64) -> i64:
@@ -305,9 +302,8 @@ def quantum(bits: i64) -> i64:
         count += 1
     count
 
-def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: &S, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
-    count = stop - start
+def encode_radix(source: &[u8], symbols: &[u8], bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
+    count = len(source)
     if count > (i64.MAX - 7) // 8:
         return Err(EncodingError.InvalidLength)
     mut size = (count * 8 + bits - 1) // bits
@@ -318,7 +314,7 @@ def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: 
     mask = (1 << bits) - 1
     mut pending = 0
     mut available = 0
-    for index in range(start, stop):
+    for index in range(len(source)):
         pending = pending << 8 | i64(source[index])
         available += 8
         while available >= bits:
@@ -333,7 +329,7 @@ def encode_radix[S: ByteSource](source: &Bytes, start: i64, stop: i64, symbols: 
 
 # Fixed alphabets avoid allocating a lookup table on every call; a custom
 # Encoding pays for its 128-byte table once and reuses it.
-def radix_value[V: ByteSource](code: i64, values: &V, kind: i64) -> i64:
+def radix_value(code: i64, values: &[u8], kind: i64) -> i64:
     if kind == 1:
         if code >= 65 and code <= 90:
             return code - 65
@@ -350,27 +346,26 @@ def radix_value[V: ByteSource](code: i64, values: &V, kind: i64) -> i64:
             return value
     -1
 
-def decode_radix[V: ByteSource](source: &Bytes, start: i64, stop: i64, values: &V, kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
+def decode_radix(source: &[u8], values: &[u8], kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
     group = quantum(bits)
-    if padding >= 0 and (stop - start) % group != 0:
+    if padding >= 0 and len(source) % group != 0:
         return Err(EncodingError.InvalidLength)
-    mut end = stop
+    mut end = len(source)
     if padding >= 0:
-        while end > start and i64(source[end - 1]) == padding:
+        while end > 0 and i64(source[end - 1]) == padding:
             end -= 1
-    count = end - start
+    count = end
     # An incomplete byte needs fewer unused bits than one whole symbol.
     trailing = (count % 8) * bits % 8
     if trailing >= bits:
         return Err(EncodingError.InvalidLength)
-    if padding >= 0 and stop - end != (group - count % group) % group:
+    if padding >= 0 and len(source) - end != (group - count % group) % group:
         return Err(EncodingError.InvalidPadding(end))
     size = (count // 8) * bits + (count % 8) * bits // 8
     mut decoded = lifted(std.bytes.with_capacity(size))?
     mut pending = 0
     mut available = 0
-    for index in range(start, end):
+    for index in range(end):
         code = i64(source[index])
         value = radix_value(code, values, kind)
         if value < 0:
@@ -389,23 +384,21 @@ def decode_radix[V: ByteSource](source: &Bytes, start: i64, stop: i64, values: &
 
 # Lowercase digits. Sizes below cannot overflow: a buffer large enough to make
 # them wrap cannot have been allocated.
-pub def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
-    mut encoded = lifted(std.bytes.with_capacity((stop - start) * 2))?
-    for index in range(start, stop):
+pub def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    mut encoded = lifted(std.bytes.with_capacity(len(source) * 2))?
+    for index in range(len(source)):
         value = i64(source[index])
         emit(&mut encoded, hex_digit(value >> 4))?
         emit(&mut encoded, hex_digit(value & 15))?
     Ok(encoded)
 
 # Accepts either digit case; the length must be even.
-pub def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
-    if (stop - start) % 2 != 0:
+pub def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    if len(source) % 2 != 0:
         return Err(EncodingError.InvalidLength)
-    mut decoded = lifted(std.bytes.with_capacity((stop - start) // 2))?
-    for pair in range((stop - start) // 2):
-        index = start + pair * 2
+    mut decoded = lifted(std.bytes.with_capacity(len(source) // 2))?
+    for pair in range(len(source) // 2):
+        index = pair * 2
         high = hex_value(i64(source[index]))
         if high < 0:
             return Err(EncodingError.InvalidByte(index))
@@ -415,40 +408,40 @@ pub def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, Encod
         emit(&mut decoded, high * 16 + low)?
     Ok(decoded)
 
-pub def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(hex_encode(source, start, stop)?.to_text())
+pub def hex_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(hex_encode(source)?.to_text())
 
 pub def hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    hex_decode(&source, 0, source.len())
+    hex_decode(&source)
 
 # RFC 4648 section 4: `+` and `/`, always padded with `=` to a multiple of four.
-pub def base64_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    encode64(source, start, stop, False)
+pub def base64_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    encode64(source, False)
 
-pub def base64_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    decode64(source, start, stop, False)
+pub def base64_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    decode64(source, False)
 
-pub def base64_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(encode64(source, start, stop, False)?.to_text())
+pub def base64_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(encode64(source, False)?.to_text())
 
 pub def base64_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    decode64(&source, 0, source.len(), False)
+    decode64(&source, False)
 
 # RFC 4648 section 5: `-` and `_`, never padded.
-pub def base64url_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    encode64(source, start, stop, True)
+pub def base64url_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    encode64(source, True)
 
-pub def base64url_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]:
-    decode64(source, start, stop, True)
+pub def base64url_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
+    decode64(source, True)
 
-pub def base64url_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]:
-    lifted(encode64(source, start, stop, True)?.to_text())
+pub def base64url_text(source: &[u8]) -> Result[str, EncodingError]:
+    lifted(encode64(source, True)?.to_text())
 
 pub def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]:
     source = lifted(std.bytes.from_text(text))?
-    decode64(&source, 0, source.len(), True)
+    decode64(&source, True)
 
 # `pack_` overwrites existing bytes and never grows the buffer; `append_`
 # grows it by exactly the width, or not at all.
@@ -489,29 +482,23 @@ pub def append_i32(target: &mut Bytes, value: i32, order: Endian) -> Result[(), 
 pub def append_i64(target: &mut Bytes, value: i64, order: Endian) -> Result[(), EncodingError]:
     grow(target, u64.wrapping_from(value), 8, order)
 
-pub def unpack_u16(source: &Bytes, offset: i64, order: Endian) -> Result[u16, EncodingError]:
+pub def unpack_u16(source: &[u8], offset: i64, order: Endian) -> Result[u16, EncodingError]:
     Ok(u16.wrapping_from(load(source, offset, 2, order)?))
 
-pub def unpack_u32(source: &Bytes, offset: i64, order: Endian) -> Result[u32, EncodingError]:
+pub def unpack_u32(source: &[u8], offset: i64, order: Endian) -> Result[u32, EncodingError]:
     Ok(u32.wrapping_from(load(source, offset, 4, order)?))
 
-pub def unpack_u64(source: &Bytes, offset: i64, order: Endian) -> Result[u64, EncodingError]:
+pub def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, EncodingError]:
     load(source, offset, 8, order)
 
-pub def unpack_i16(source: &Bytes, offset: i64, order: Endian) -> Result[i16, EncodingError]:
+pub def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]:
     Ok(i16.wrapping_from(load(source, offset, 2, order)?))
 
-pub def unpack_i32(source: &Bytes, offset: i64, order: Endian) -> Result[i32, EncodingError]:
+pub def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]:
     Ok(i32.wrapping_from(load(source, offset, 4, order)?))
 
-pub def unpack_i64(source: &Bytes, offset: i64, order: Endian) -> Result[i64, EncodingError]:
+pub def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]:
     Ok(i64.wrapping_from(load(source, offset, 8, order)?))
-
-# The `std.bytes` range rule: 0 <= start <= stop <= count.
-def checked(start: i64, stop: i64, count: i64) -> Result[(), EncodingError]:
-    if start < 0 or start > stop or stop > count:
-        return Err(EncodingError.OutOfRange)
-    Ok(())
 
 # Ranges are validated before any `Bytes` call and encoder output is ASCII, so
 # only `Allocation` reaches here in practice.
@@ -579,10 +566,9 @@ def sextet(code: i64, url: bool) -> i64:
         return 63
     -1
 
-def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
-    groups = (stop - start) // 3
-    tail = (stop - start) % 3
+def encode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
+    groups = len(source) // 3
+    tail = len(source) % 3
     mut size = groups * 4
     if tail > 0:
         if url:
@@ -591,7 +577,7 @@ def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
             size += 4
     mut encoded = lifted(std.bytes.with_capacity(size))?
     for group in range(groups):
-        index = start + group * 3
+        index = group * 3
         first = i64(source[index])
         second = i64(source[index + 1])
         third = i64(source[index + 2])
@@ -600,7 +586,7 @@ def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
         emit(&mut encoded, symbol((second & 15) << 2 | third >> 6, url))?
         emit(&mut encoded, symbol(third & 63, url))?
     if tail > 0:
-        index = stop - tail
+        index = len(source) - tail
         first = i64(source[index])
         emit(&mut encoded, symbol(first >> 2, url))?
         if tail == 1:
@@ -616,7 +602,7 @@ def encode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, 
 
 # One symbol, or the error naming its index. `=` is a padding error wherever
 # the caller did not already strip it.
-def symbol_at(source: &Bytes, index: i64, url: bool) -> Result[i64, EncodingError]:
+def symbol_at(source: &[u8], index: i64, url: bool) -> Result[i64, EncodingError]:
     code = i64(source[index])
     value = sextet(code, url)
     if value >= 0:
@@ -625,30 +611,29 @@ def symbol_at(source: &Bytes, index: i64, url: bool) -> Result[i64, EncodingErro
         return Err(EncodingError.InvalidPadding(index))
     Err(EncodingError.InvalidByte(index))
 
-def decode64(source: &Bytes, start: i64, stop: i64, url: bool) -> Result[Bytes, EncodingError]:
-    checked(start, stop, source.len())?
-    mut end = stop
+def decode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
+    mut end = len(source)
     if url:
-        if (stop - start) % 4 == 1:
+        if len(source) % 4 == 1:
             return Err(EncodingError.InvalidLength)
     else:
-        if (stop - start) % 4 != 0:
+        if len(source) % 4 != 0:
             return Err(EncodingError.InvalidLength)
         # At most two trailing `=` are padding. Any other `=` is reported by
         # `symbol_at`.
-        if end > start:
+        if end > 0:
             if i64(source[end - 1]) == 61:
                 end -= 1
                 if i64(source[end - 1]) == 61:
                     end -= 1
-    groups = (end - start) // 4
-    tail = (end - start) % 4
+    groups = end // 4
+    tail = end % 4
     mut size = groups * 3
     if tail > 0:
         size += tail - 1
     mut decoded = lifted(std.bytes.with_capacity(size))?
     for group in range(groups):
-        index = start + group * 4
+        index = group * 4
         first = symbol_at(source, index, url)?
         second = symbol_at(source, index + 1, url)?
         third = symbol_at(source, index + 2, url)?
@@ -698,8 +683,8 @@ def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(),
     lifted(target.resize(offset + width, 0u8))?
     place(target, offset, bits, width, order)
 
-def load(source: &Bytes, offset: i64, width: i64, order: Endian) -> Result[u64, EncodingError]:
-    if offset < 0 or offset > source.len() - width:
+def load(source: &[u8], offset: i64, width: i64, order: Endian) -> Result[u64, EncodingError]:
+    if offset < 0 or offset > len(source) - width:
         return Err(EncodingError.OutOfRange)
     forward = big(order)
     mut bits = 0u64

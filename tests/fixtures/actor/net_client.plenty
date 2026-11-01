@@ -52,7 +52,7 @@ pub class Client:
                     case Some(stream):
                         mut talk = connection(stream, &Limits(64, 64, milliseconds(0u32), milliseconds(0u32)))?
                         talk.start(context)?
-                        talk.write(b"hello", 0, 5, context)?
+                        talk.write(b"hello", context)?
                         talk.shutdown_write(context)?
                         self.step = Step.Talking(talk)
                     case Nothing:

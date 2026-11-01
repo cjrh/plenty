@@ -6,7 +6,7 @@
 # See book/src/design/stdlib/net.md.
 import std.bytes
 import std.ready
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.io import FileStream, StreamError, classify
 from std.ready import Interest, Selector, WaitError, wait
 from std.sync import CancellationToken
@@ -107,12 +107,9 @@ pub def any_v4(port: u16) -> SocketAddress:
 pub def any_v6(port: u16) -> SocketAddress:
     SocketAddress(IpAddress.V6(0u64, 0u64), port, 0u32)
 
-# One datagram of source[start:stop] to an encoded address. A bad range is
-# InvalidInput and sends nothing.
-def sent_to[S: ByteSource](source: &S, socket: &mut File, start: i64, stop: i64, address: &list[u8]) -> Result[i64, IoError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(IoError.InvalidInput)
-    __net_send_to(source, start, stop, socket, address)
+# One datagram of `source` to an encoded address.
+def sent_to(source: &[u8], socket: &mut File, address: &list[u8]) -> Result[i64, IoError]:
+    __net_send_to(source, socket, address)
 
 # One datagram into buffer[start:stop] and its sender's address into
 # `sender`. A bad range is InvalidInput and receives nothing.
@@ -563,7 +560,7 @@ def reply_of(file: File, deadline: &Deadline, cancel: &CancellationToken) -> Res
         count = counted(std.ready.read_before(&mut reply, &mut chunk, 0, 256, deadline, cancel))?
         if count == 0:
             break
-        lifted(data.extend_range(&chunk, 0, count))?
+        lifted(data.extend(&chunk[:count]))?
     lifted(data.to_list())
 
 # Addresses for `host` with `port` set: an IP literal directly, otherwise
@@ -681,9 +678,9 @@ pub class TcpStream:
                     transfer_wait(&self._stream.file, 1u8)?
         Ok(0)
 
-    pub def write[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut TcpStream, source: &[u8]) -> Result[i64, StreamError]:
         while True:
-            match self._stream.write(source, start, stop):
+            match self._stream.write(source):
                 case Ok(count):
                     return Ok(count)
                 case Err(error):
@@ -709,8 +706,8 @@ pub class TcpStream:
                 Err(streamed(error))
 
     # Offers the entire range once; keep the unsent suffix after a short write.
-    pub def write_now[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64) -> Result[i64, NetError]:
-        match self._stream.write(source, start, stop):
+    pub def write_now(self: &mut TcpStream, source: &[u8]) -> Result[i64, NetError]:
+        match self._stream.write(source):
             case Ok(count):
                 Ok(count)
             case Err(error):
@@ -730,10 +727,10 @@ pub class TcpStream:
 
     # Waits for space, then offers the whole range in one nonblocking write.
     # The returned count can be smaller than stop - start.
-    pub def write_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut TcpStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         while True:
             ready_for(&self._stream.file, Interest.Write, deadline, cancel)?
-            match self._stream.write(source, start, stop):
+            match self._stream.write(source):
                 case Ok(count):
                     return Ok(count)
                 case Err(error):
@@ -742,10 +739,10 @@ pub class TcpStream:
 
     # Writes all of source[start:stop]. On failure, an unknown prefix has
     # been sent.
-    pub def write_all_before[S: ByteSource](self: &mut TcpStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
-        mut at = start
-        while at < stop:
-            at += self.write_before(source, at, stop, deadline, cancel)?
+    pub def write_all_before(self: &mut TcpStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
+        mut at = 0
+        while at < len(source):
+            at += self.write_before(&source[at:], deadline, cancel)?
         Ok(())
 
     pub def local_address(self) -> Result[SocketAddress, NetError]:
@@ -932,11 +929,11 @@ pub class UdpSocket:
             value = 1
         done(__net_set_option(self._file, 2u8, value))
 
-    # Sends source[start:stop] as one datagram.
-    pub def send_to[S: ByteSource](self: &mut UdpSocket, source: &S, start: i64, stop: i64, target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    # Sends `source` as one datagram.
+    pub def send_to(self: &mut UdpSocket, source: &[u8], target: &SocketAddress, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         address = encoded(target)?
         while True:
-            match sent_to(source, &mut self._file, start, stop, &address):
+            match sent_to(source, &mut self._file, &address):
                 case Ok(count):
                     return Ok(count)
                 case Err(error):

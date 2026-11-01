@@ -50,7 +50,7 @@ pub class Client:
                     case Some(stream):
                         mut call = connection(stream, &Limits(64, 64, seconds(5), seconds(5)))?
                         call.start(context)?
-                        call.write(b"hello, actors", 0, 13, context)?
+                        call.write(b"hello, actors", context)?
                         call.shutdown_write(context)?
                         self.step = Step.Talking(call)
                     case Nothing:
@@ -277,7 +277,7 @@ heap.
 | `Connection.handle(&mail, context)` | `Result[Events, NetError \| TimerError]` |
 | `Connection.input()`, `input_start()`, `input_stop()`, `available()` | The input buffer and the unconsumed range |
 | `Connection.consume(count, context)` | `Result[(), NetError \| TimerError]` |
-| `Connection.write(source, start, stop, context)` | `Result[i64, NetError \| TimerError]`: bytes accepted; `Stream(StreamError.Io(IoError.Closed))` after `shutdown_write` or `close`, and `InvalidInput` for a range outside `source` |
+| `Connection.write(&source[start:stop], context)` | `Result[i64, NetError \| TimerError]`: bytes accepted; `Stream(StreamError.Io(IoError.Closed))` after `shutdown_write` or `close`, and `InvalidInput` for a range outside `source` |
 | `Connection.forward(count, context)` | `Result[i64, NetError \| TimerError]`: bytes moved from input to output |
 | `Connection.pending()`, `space()` | Unsent output bytes; bytes `write` would accept now |
 | `Connection.reserve(wanted)`, `output()`, `output_stop()`, `commit(count, context)` | Produce output in place: `reserve` compacts and returns `Result[i64, NetError]`, the room up to `wanted`; write into `output()` from `output_stop()`; `commit` sends the `count` bytes written. For layers such as [`std.actor.tls`](actor-tls.md) |

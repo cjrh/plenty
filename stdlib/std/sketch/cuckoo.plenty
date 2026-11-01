@@ -1,7 +1,7 @@
 # Four fingerprints per bucket. Layers double geometrically; each has its own
 # bucket mask. Failed eviction chains roll back before growth or an error.
 import std.bytes
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 from std.sketch import SketchError, hash_u64
 
 const initial_limit: i64 = 1 << 20
@@ -178,16 +178,16 @@ def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
         out.push(u8((value >> u64(shift)) & 255u64))?
     Ok(())
 
-def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
+def read_word(data: &[u8], offset: i64) -> u64:
     mut result = 0u64
     for index in range(8):
         result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
-pub def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
+pub def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]:
     if max_buckets < 1 or max_buckets > bucket_limit:
         return Err(SketchError.InvalidArgument)
-    if data.len() < 44:
+    if len(data) < 44:
         return Err(SketchError.InvalidData)
     if data[0] != 80u8 or data[1] != 83u8 or data[2] != 67u8 or data[3] != 49u8:
         return Err(SketchError.InvalidData)
@@ -200,12 +200,12 @@ pub def from_bytes[S: ByteSource](data: &S, max_buckets: i64) -> Result[CuckooFi
     if limit < initial or limit > u64(bucket_limit):
         return Err(SketchError.InvalidData)
     used = initial * ((1u64 << layers) - 1u64)
-    if used > limit or data.len() != 44 + i64(used) * 8:
+    if used > limit or len(data) != 44 + i64(used) * 8:
         return Err(SketchError.InvalidData)
     if limit > u64(max_buckets):
         return Err(SketchError.Limit)
     mut occupied = 0u64
-    for offset in range(44, data.len(), 2):
+    for offset in range(44, len(data), 2):
         if data[offset] != 0u8 or data[offset + 1] != 0u8:
             occupied += 1u64
     if occupied != count:

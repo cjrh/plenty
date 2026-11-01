@@ -253,9 +253,9 @@ def echo(socket: &mut ws.WebSocket[TcpStream]) -> Result[str, WebSocketError | s
         buffer.clear()
         match socket.receive(&mut buffer, &later()?, &wait_cancel):
             case Ok(Message.Text):
-                socket.send(Kind.Text, &buffer, 0, buffer.len(), &later()?, &wait_cancel)?
+                socket.send(Kind.Text, &buffer, &later()?, &wait_cancel)?
             case Ok(Message.Binary):
-                socket.send(Kind.Binary, &buffer, 0, buffer.len(), &later()?, &wait_cancel)?
+                socket.send(Kind.Binary, &buffer, &later()?, &wait_cancel)?
             case Ok(Message.Close(code)):
                 return Ok("closed ".concat(&str.from(code)?)?.concat(" ")?.concat(&buffer.to_text()?)?)
             case Err(error):
@@ -419,7 +419,7 @@ def session() -> Result[(), WebSocketError | std.bytes.BytesError | RangeError |
     mut data = std.bytes.with_capacity(70000)?
     for index in range(70000):
         data.push(u8(index % 251))?
-    socket.send(Kind.Binary, &data, 0, data.len(), &later()?, &wait_cancel)?
+    socket.send(Kind.Binary, &data, &later()?, &wait_cancel)?
     buffer.clear()
     print(socket.receive(&mut buffer, &later()?, &wait_cancel)?)?
     print(buffer.to_text()?)?
@@ -810,7 +810,7 @@ class CancelInWait:
         self.caller.cancel()
         Err(NetError.TimedOut)
 
-    pub def write_before[S: ByteSource](self: &mut CancelInWait, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut CancelInWait, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         self.caller.cancel()
         Err(NetError.TimedOut)
 

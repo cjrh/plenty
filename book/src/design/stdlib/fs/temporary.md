@@ -23,7 +23,7 @@ def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.io.Part
     current = path.from_text(".")?
     root = fs.root(&current)?
     mut staged = fs.temporary_file(&root)?
-    std.io.write_all(&mut staged.stream, &b"complete contents", 0, 17)?
+    std.io.write_all(&mut staged.stream, &b"complete contents")?
     staged.stream.sync()?
     staged.publish(&path.from_text("config.txt")?)?
     staged.close()?

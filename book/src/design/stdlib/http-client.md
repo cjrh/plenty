@@ -314,7 +314,7 @@ and its per-operation timeout.
 
 | Item | Meaning |
 |---|---|
-| `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]`; `write_before` is generic in its `S: ByteSource` source |
+| `protocol Transport` | `read_before` and `write_before` with `TcpStream`'s parameters, returning `Result[i64, ClientError]`; `write_before` takes its source as `&[u8]` |
 | `protocol Connector[T]` | `open(self, endpoint: &Endpoint, deadline, cancel) -> Result[T, ClientError]`; the connector is borrowed shared, since threads sharing a client open connections at the same time |
 | `Endpoint(scheme, host, port: u16, tunnel: Option[Tunnel])` | Where to connect: the origin, or the proxy; `host` is lowercase without brackets |
 | `Tunnel(host, port: u16, authorization: Option[str], limits: Limits)` | The proxy to reach the origin through with `CONNECT`; `limits` bounds the proxy's reply head |

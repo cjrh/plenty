@@ -107,7 +107,7 @@ reconnecting `EventSource` sends with the last id it received, or
 | Method | Meaning |
 |---|---|
 | `send(&data, &deadline, &cancel, event="", id=Nothing)` | Send one event |
-| `send_bytes(&data, start, stop, &deadline, &cancel, event="", id=Nothing)` | `send` of UTF-8 `data[start:stop]`, without copying it first |
+| `send_bytes(data: &[u8], &deadline, &cancel, event="", id=Nothing)` | `send` of UTF-8 `data`, without copying it first |
 | `comment(&text, &deadline, &cancel)` | Send comment lines, which clients ignore |
 | `retry(span: &Duration, &deadline, &cancel)` | Ask the client to wait this long before reconnecting |
 | `wait(&deadline, &cancel)` | Wait until `deadline`, watching for a disconnect and for shutdown |
@@ -131,8 +131,7 @@ An event is written as the format's readers parse it:
 `event: update\nid: 7\ndata: a\ndata: b\n\n`. Data ending with a line break
 gets a last, empty `data:` line, so the client sees the trailing line feed.
 An event name or id holding CR or LF, or an id holding NUL, is
-`InvalidField`; data that is not UTF-8 is `InvalidText`; a range out of
-bounds is `OutOfRange`. These checks happen before
+`InvalidField`; data that is not UTF-8 is `InvalidText`. These checks happen before
 anything is written, and the stream stays open.
 
 `comment("ping", &deadline, &cancel)` writes `: ping\n`, one line per line of text.
@@ -192,7 +191,7 @@ while True:
 | `Http(HttpError)` | The head was refused or could not be written |
 | `InvalidField` | An event name or id with a line break, or an id with NUL |
 | `InvalidText` | Data that is not UTF-8 |
-| `OutOfRange` | A byte range out of bounds, or a negative retry time |
+| `OutOfRange` | A negative retry time |
 | `Disconnected` | The client closed the connection |
 | `Closed` | The stream was closed, or failed earlier |
 | `Stopping` | Server shutdown began while waiting |

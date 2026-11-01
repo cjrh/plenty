@@ -74,7 +74,7 @@ def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limi
             return Ok(())
         if len(headers) >= limits.max_headers:
             return Err(Partial(total, FramingError[E].Protocol(HttpError.TooManyHeaders)))
-        field = head_step[E, Header](std.http.parse_field(line, size), total)?
+        field = head_step[E, Header](std.http.parse_field(&line[:size]), total)?
         match headers.append(field):
             case Ok(_):
                 pass
@@ -98,7 +98,7 @@ pub def read_request[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result
         if size < 0:
             return Ok(Nothing)
         total += size + 2
-    mut head = head_step[E, RequestHead](std.http.parse_request_line(&line, size), total)?
+    mut head = head_step[E, RequestHead](std.http.parse_request_line(&line[:size]), total)?
     head_fields[E, R](reader, &mut line, limits, total, &mut head.headers)?
     Ok(Some(head))
 
@@ -108,7 +108,7 @@ pub def read_response[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Resul
     if size < 0:
         return Ok(Nothing)
     total = size + 2
-    mut head = head_step[E, ResponseHead](std.http.parse_status_line(&line, size), total)?
+    mut head = head_step[E, ResponseHead](std.http.parse_status_line(&line[:size]), total)?
     head_fields[E, R](reader, &mut line, limits, total, &mut head.headers)?
     Ok(Some(head))
 
@@ -120,11 +120,9 @@ def write_failure[E](cause: WriteFailure[E]) -> FramingError[E]:
             FramingError[E].Protocol(HttpError.Stream(std.io.StreamError.WriteZero))
         case WriteFailure.InvalidProgress:
             FramingError[E].InvalidProgress
-        case WriteFailure.OutOfRange:
-            FramingError[E].OutOfRange
 
-def deliver[E, W: Writer[E]](writer: &mut W, data: &Bytes, start: i64, stop: i64, completed: i64) -> Result[(), Partial[FramingError[E]]]:
-    match std.io.typed.write_all[E, W](writer, data, start, stop):
+def deliver[E, W: Writer[E]](writer: &mut W, data: &[u8], completed: i64) -> Result[(), Partial[FramingError[E]]]:
+    match std.io.typed.write_all[E, W](writer, data):
         case Ok(_):
             Ok(())
         case Err(partial):
@@ -132,25 +130,24 @@ def deliver[E, W: Writer[E]](writer: &mut W, data: &Bytes, start: i64, stop: i64
 
 pub def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result[(), Partial[FramingError[E]]]:
     data = head_step[E, Bytes](std.http.encode_request(head), 0)?
-    deliver[E, W](writer, &data, 0, data.len(), 0)
+    deliver[E, W](writer, &data, 0)
 
 pub def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]:
     data = head_step[E, Bytes](std.http.encode_response(head), 0)?
-    deliver[E, W](writer, &data, 0, data.len(), 0)
+    deliver[E, W](writer, &data, 0)
 
 pub def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]:
     data = head_step[E, Bytes](std.http.encode_last_chunk(trailers), 0)?
-    deliver[E, W](writer, &data, 0, data.len(), 0)
+    deliver[E, W](writer, &data, 0)
 
-pub def write_chunk[E, W: Writer[E]](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial[FramingError[E]]]:
-    if not within(start, stop, source.len()):
-        return Err(Partial(0, FramingError[E].OutOfRange))
-    if start == stop:
+pub def write_chunk[E, W: Writer[E]](writer: &mut W, source: &[u8]) -> Result[(), Partial[FramingError[E]]]:
+    size = len(source)
+    if size == 0:
         return Ok(())
-    line = head_step[E, Bytes](std.http.encode_chunk_size(stop - start), 0)?
-    deliver[E, W](writer, &line, 0, line.len(), 0)?
-    deliver[E, W](writer, source, start, stop, line.len())?
-    deliver[E, W](writer, &line, line.len() - 2, line.len(), line.len() + stop - start)
+    line = head_step[E, Bytes](std.http.encode_chunk_size(size), 0)?
+    deliver[E, W](writer, &line, 0)?
+    deliver[E, W](writer, source, line.len())?
+    deliver[E, W](writer, &line[line.len() - 2:], line.len() + size)
 
 pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
     if length < 0:
@@ -264,7 +261,7 @@ pub class ChunkedBody[E, R]:
                 return Err(FramingError[E].Protocol(HttpError.InvalidChunk))
             self.state = size_line
         elif self.state == size_line:
-            value = match std.http.parse_chunk_size(&self.line, size):
+            value = match std.http.parse_chunk_size(&self.line[:size]):
                 case Ok(found):
                     found
                 case Err(error):

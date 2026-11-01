@@ -23,7 +23,7 @@ pub class Trickle:
             count = 3
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 self.at += count
                 Ok(count)
@@ -67,10 +67,10 @@ def main() -> Result[(), IoError | std.io.Partial | std.io.StreamError | std.byt
     mut count = 0
     while input.read_until(10u8, &mut line, 64)? > 0:
         count += 1
-        std.io.write_all(&mut output, b"line: ", 0, 6)?
-        std.io.write_all(&mut output, &line, 0, line.len())?
+        std.io.write_all(&mut output, b"line: ")?
+        std.io.write_all(&mut output, &line)?
         line.clear()
-    std.io.write_all(&mut output, b"\n", 0, 1)?
+    std.io.write_all(&mut output, b"\n")?
     output.flush()?
     print(count, output.pending(), output.capacity())?
     Ok(())
@@ -83,11 +83,11 @@ line: blue
 ```
 
 `write_all` takes the byte literal `b"line: "` as readily as the buffer
-`line`: a stream's `write` accepts any `std.bytes.ByteSource` and reads it in
-place. A class of your own becomes a writer with a `flush` method and a
-`write` method generic in its source, `def write[S: ByteSource](...)` taking
-`source: &S`; the [module reference](../../design/stdlib/io.md#stream-contracts)
-shows one.
+`line`: a stream's `write` reads a `&[u8]` view in place, so it also takes part
+of a buffer, `&line[:3]`. A class of your own becomes a writer with a `flush`
+method and a `write` method taking `source: &[u8]` that returns
+how many bytes it accepted; the
+[module reference](../../design/stdlib/io.md#stream-contracts) shows one.
 
 `cursor` turns a `Bytes` into a stream, which is how to test stream code
 without a file. `read_until` appends one line, including its newline, and never
@@ -109,7 +109,7 @@ type ByteTransferError = std.io.Partial | std.bytes.BytesError | std.io.StreamEr
 def main() -> Result[(), AllocError | IoError | ByteTransferError]:
     mut file = std.io.buffered_writer(std.io.open_file("streams-lesson.bin", "w+")?, 8)?
     record = std.bytes.from_list(&[1u8, 0u8, 255u8, 10u8, 7u8]?)?
-    std.io.write_all(&mut file, &record, 0, 5)?
+    std.io.write_all(&mut file, &record[:5])?
     print(file.pending(), std.io.seek_writer(&mut file, SeekFrom.Start(2))?, file.pending())?
     mut back = std.bytes.with_capacity(3)?
     back.resize(3, 0u8)?

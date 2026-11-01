@@ -122,7 +122,7 @@ pub class Formatter[W]:
             mut result: Result[i64, StreamError] = Err(StreamError.InvalidProgress)
             match &self._scratch:
                 case Some(scratch):
-                    result = self.writer.write(scratch, at, end)
+                    result = self.writer.write(&scratch[at:end])
                 case Nothing:
                     return Err(FormatError.InvalidSpec)
             match result:

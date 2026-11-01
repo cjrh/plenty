@@ -29,7 +29,7 @@ def run(step: i64) -> ():
         mut stop = at + step
         if stop > input.len():
             stop = input.len()
-        consumed, event = parser.feed(&input, at, stop).unwrap()
+        consumed, event = parser.feed(&input[at:stop]).unwrap()
         ensure(consumed <= std.http.decoder.feed_budget)
         at += consumed
         match event:
@@ -41,7 +41,7 @@ def run(step: i64) -> ():
                 print(fields).unwrap()
             case Some(Event.End):
                 ends += 1
-                paused, nothing = parser.feed(&input, at, input.len()).unwrap()
+                paused, nothing = parser.feed(&input[at:]).unwrap()
                 ensure(paused == 0)
                 ensure(nothing.is_none())
                 parser.reset().unwrap()
@@ -66,17 +66,17 @@ fn empty_feed_is_not_eof_and_finished_requests_require_reset() {
 def main() -> ():
     mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
     blank = std.bytes.from_text("\r\n").unwrap()
-    drop(parser.feed(&blank, 0, blank.len()).unwrap())
+    drop(parser.feed(&blank).unwrap())
     ensure(not parser.is_started())
     parser.finish().unwrap()
     ensure(parser.reset().is_err())
     data = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\n\r\n").unwrap()
-    drop(parser.feed(&data, 0, 4).unwrap())
+    drop(parser.feed(&data[:4]).unwrap())
     ensure(parser.is_started())
-    consumed, event = parser.feed(&data, 4, 4).unwrap()
+    consumed, event = parser.feed(&data[4:4]).unwrap()
     ensure(consumed == 0 and event.is_none())
     print(str.repr(parser.finish()).unwrap()).unwrap()
-    print(str.repr(parser.feed(&data, 4, data.len())).unwrap()).unwrap()
+    print(str.repr(parser.feed(&data[4:])).unwrap()).unwrap()
 "#
         ),
         "Result[(), std.http.HttpError].Err(std.http.HttpError.Truncated)\nResult[tuple[i64, Option[std.http.decoder.Event]], std.http.HttpError].Err(std.http.HttpError.Broken)\n",
@@ -118,7 +118,7 @@ def incremental(input: &Bytes, limits: &std.http.Limits, step: i64) -> Result[(i
         mut stop = at + step
         if stop > input.len():
             stop = input.len()
-        consumed, event = parser.feed(input, at, stop)?
+        consumed, event = parser.feed(&input[at:stop])?
         ensure(consumed <= std.http.decoder.feed_budget)
         at += consumed
         mut emitted = False
@@ -298,19 +298,17 @@ def main() -> ():
 }
 
 #[test]
-fn byte_source_literals_and_owned_buffers_share_the_decoder_contract() {
+fn literal_and_owned_views_share_the_decoder_contract() {
     support::assert_stdout(
         &format!(
             r#"{IMPORTS}
-from std.bytes import ByteSource
-
-def run[S: ByteSource](source: &S) -> ():
+def run(source: &[u8]) -> ():
     mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
     ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
     mut at = 0
     mut body = std.bytes.empty().unwrap()
     while not parser.is_done():
-        consumed, event = parser.feed(source, at, source.len()).unwrap()
+        consumed, event = parser.feed(&source[at:]).unwrap()
         at += consumed
         match event:
             case Some(Event.Head(_, _, _)):
@@ -319,21 +317,20 @@ def run[S: ByteSource](source: &S) -> ():
                 body.extend(&part).unwrap()
             case _:
                 pass
-    ensure(at == source.len())
+    ensure(at == len(source))
     print(body.to_text().unwrap()).unwrap()
     parser.reset().unwrap()
     ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
-    ensure(parser.feed(source, -1, 0).is_err())
     ensure(not parser.is_started())
 
 def main() -> ():
     literal = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc"
-    run(literal)
-    owned = std.bytes.from_bytes(literal).unwrap()
+    run(&literal)
+    owned = std.bytes.from_bytes(&literal).unwrap()
     run(&owned)
-    ensure(std.http.parse_chunk_size(b"a;ext=yes", 9).unwrap() == 10)
-    ensure(std.http.parse_chunk_size(b"a;ext=\x7f", 7).is_err())
-    ensure(std.http.parse_chunk_size(b"a", 2).is_err())
+    ensure(std.http.parse_chunk_size(b"a;ext=yes").unwrap() == 10)
+    ensure(std.http.parse_chunk_size(b"a;ext=\x7f").is_err())
+    ensure(std.http.parse_chunk_size(b"").is_err())
 "#
         ),
         "abc\nabc\n",

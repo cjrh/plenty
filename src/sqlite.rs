@@ -104,7 +104,8 @@ impl SqliteOp {
             Self::BindInteger => (vec![handle(), Ty::I64, Ty::I64], Ty::I64),
             Self::BindReal => (vec![handle(), Ty::I64, Ty::F64], Ty::I64),
             Self::BindText => (vec![handle(), Ty::I64, Ty::Str], Ty::I64),
-            Self::BindBlob => (vec![handle(), Ty::I64, handle()], Ty::I64),
+            // The blob is a read-only `&[u8]` view, copied by SQLite (B90).
+            Self::BindBlob => (vec![handle(), Ty::I64, crate::bytes::byte_view()], Ty::I64),
             Self::ColumnReal => (vec![handle(), Ty::I64], Ty::F64),
             Self::ColumnText | Self::ColumnName => {
                 (vec![handle(), Ty::I64], sum::result(Ty::Str, Ty::I64))

@@ -11,7 +11,7 @@
 import fuzz_input
 import std.bytes
 import std.http.server
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.http import HttpError
 from std.http.server import Exchange, Router, ServerError
 from std.net import NetError, Shutdown
@@ -37,19 +37,19 @@ pub class Script:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input, self.at, self.at + count).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
         self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
 
-    pub def write_before[S: ByteSource](self: &mut Script, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
-        self.output.extend_range(source, start, stop).unwrap()
+        self.output.extend(source).unwrap()
         self.checked = check(&self.output, self.checked).unwrap()
-        Ok(stop - start)
+        Ok(len(source))
 
 # Response bodies never repeat the request, so every `HTTP/1.` in the output
 # begins a response head.

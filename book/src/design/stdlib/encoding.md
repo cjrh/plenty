@@ -19,12 +19,12 @@ from std.encoding import EncodingError, Endian
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError]:
     data = std.bytes.from_text("hi!")?
-    print(std.encoding.hex_text(&data, 0, data.len())?)?
-    print(std.encoding.base64_text(&data, 0, data.len())?)?
+    print(std.encoding.hex_text(&data)?)?
+    print(std.encoding.base64_text(&data)?)?
     print(std.encoding.base64_from_text("aGkh")?.to_text()?)?
     mut header = std.bytes.with_capacity(4)?
     std.encoding.append_u32(&mut header, 258u32, Endian.Big)?
-    print(std.encoding.hex_text(&header, 0, header.len())?)?
+    print(std.encoding.hex_text(&header)?)?
     print(std.encoding.unpack_u32(&header, 0, Endian.Big)?)?
     Ok(())
 ```
@@ -38,26 +38,26 @@ hi!
 
 ## Codecs
 
-`source` is `&Bytes`; `start` and `stop` are `i64` and follow the
-[range rule](bytes.md#the-range-rule) `0 <= start <= stop <= len`.
+`source` is a byte view `&[u8]`: pass `&buffer` for a whole `Bytes`,
+`&buffer[start:stop]` for part of it, or a `b"..."` literal.
 
 | Function | Result | Contract |
 |---|---|---|
-| `hex_encode(source, start, stop)` | `Result[Bytes, EncodingError]` | Two lowercase digits per byte |
-| `hex_decode(source, start, stop)` | `Result[Bytes, EncodingError]` | Digits of either case; even length |
-| `base64_encode(source, start, stop)` | `Result[Bytes, EncodingError]` | RFC 4648 section 4, padded |
-| `base64_decode(source, start, stop)` | `Result[Bytes, EncodingError]` | The padded form only |
-| `base64url_encode(source, start, stop)` | `Result[Bytes, EncodingError]` | RFC 4648 section 5, unpadded |
-| `base64url_decode(source, start, stop)` | `Result[Bytes, EncodingError]` | The unpadded form only |
-| `hex_text`, `base64_text`, `base64url_text` `(source, start, stop)` | `Result[str, EncodingError]` | The same encoding as a `str` |
+| `hex_encode(source)` | `Result[Bytes, EncodingError]` | Two lowercase digits per byte |
+| `hex_decode(source)` | `Result[Bytes, EncodingError]` | Digits of either case; even length |
+| `base64_encode(source)` | `Result[Bytes, EncodingError]` | RFC 4648 section 4, padded |
+| `base64_decode(source)` | `Result[Bytes, EncodingError]` | The padded form only |
+| `base64url_encode(source)` | `Result[Bytes, EncodingError]` | RFC 4648 section 5, unpadded |
+| `base64url_decode(source)` | `Result[Bytes, EncodingError]` | The unpadded form only |
+| `hex_text`, `base64_text`, `base64url_text` `(source)` | `Result[str, EncodingError]` | The same encoding as a `str` |
 | `hex_from_text`, `base64_from_text`, `base64url_from_text` `(text: &str)` | `Result[Bytes, EncodingError]` | Decode the whole text |
 
 Each result is a new buffer whose capacity equals its length. Encoders produce
 ASCII only.
 
 For base32/base32hex, MIME line wrapping, PEM, and reusable custom alphabets, see
-[additional codecs](encoding-codecs.md). They use the same ranges, result
-types, and absolute byte indexes as the functions here.
+[additional codecs](encoding-codecs.md). They use the same views, result
+types, and byte indexes as the functions here.
 
 ### Accepted forms
 
@@ -91,7 +91,7 @@ Decoder checks, in order:
 |---|---|---|
 | `pack_u16`, `pack_u32`, `pack_u64`, `pack_i16`, `pack_i32`, `pack_i64` `(target: &mut Bytes, offset, value, order)` | `Result[(), EncodingError]` | Overwrite the bytes at `offset`; never grows |
 | `append_u16`, `append_u32`, `append_u64`, `append_i16`, `append_i32`, `append_i64` `(target: &mut Bytes, value, order)` | `Result[(), EncodingError]` | Grow by exactly the width |
-| `unpack_u16`, `unpack_u32`, `unpack_u64`, `unpack_i16`, `unpack_i32`, `unpack_i64` `(source: &Bytes, offset, order)` | `Result[u16, EncodingError]`, and so on | Read the bytes at `offset` |
+| `unpack_u16`, `unpack_u32`, `unpack_u64`, `unpack_i16`, `unpack_i32`, `unpack_i64` `(source: &[u8], offset, order)` | `Result[u16, EncodingError]`, and so on | Read the bytes at `offset` |
 
 `Endian.Big` puts the most significant byte at the lowest offset. Signed values
 use two's complement. `pack_` and `unpack_` require
@@ -117,7 +117,7 @@ pub enum EncodingError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A range or offset lies outside the buffer |
+| `OutOfRange` | An offset lies outside the buffer |
 | `InvalidLength` | The encoded length is impossible for the codec |
 | `InvalidByte(index)` | The byte at `index` is outside the alphabet |
 | `InvalidPadding(index)` | A configured padding byte at `index` where the codec does not accept it |
@@ -127,7 +127,7 @@ pub enum EncodingError:
 | `PemLabel` | The PEM label is not the expected one, or the expected label is invalid |
 | `Allocation(cause)` | Storage for the result could not be allocated |
 
-An index is a position in the source buffer, not relative to `start`; for the
+An index is a position in the source view; for the
 `_from_text` forms it is a UTF-8 byte offset into the text. Every fallible
 operation returns `Result[T, EncodingError]`. A failed operation leaves its
 `target` unchanged and releases anything it allocated. Wrap a result with
@@ -137,7 +137,7 @@ operation returns `Result[T, EncodingError]`. A failed operation leaves its
 
 Sources are shared loans and targets exclusive loans, so the
 [view rules](bytes.md#views) apply: a buffer cannot be packed into while a
-`&Bytes` to it is live, and cannot be encoded into itself. The module holds no
+view of it is live, and cannot be encoded into itself. The module holds no
 global state. Its functions pass the ordinary worker-effect checks and may run
 in any thread.
 

@@ -3,12 +3,6 @@ use super::*;
 use crate::nominal::Nominal;
 use crate::record::ClassType;
 
-/// A read-only byte operand supplied by a `Bytes` buffer or a `bytes` literal.
-enum ByteSource {
-    Buffer(Nominal<ClassType>),
-    Literal,
-}
-
 // One list of modes serves this check and the runtime's `open`.
 #[path = "../../plenty-runtime/src/open_modes.rs"]
 mod open_modes;
@@ -36,38 +30,25 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
-    /// How the argument for a native's read-only byte operand is supplied,
-    /// when it is a `Bytes` or `bytes` value or reference.
-    fn byte_source(&self, arg: &Expr) -> Option<ByteSource> {
+    /// The `Bytes` class of `arg`, a buffer or a reference to one.
+    fn buffer_class(&self, arg: &Expr) -> Option<Nominal<ClassType>> {
         let ty = match self.place_type(arg)? {
             Ty::Ref(inner, _) => (*inner).clone(),
             other => other,
         };
-        if ty == Ty::ByteStr {
-            return Some(ByteSource::Literal);
-        }
-        byte_buffers::byte_buffer(&ty).map(ByteSource::Buffer)
-    }
-
-    /// Whether the argument for `source` is a `bytes` literal, so that the
-    /// native's literal variant reads it.
-    pub(super) fn literal_source(&self, source: Option<usize>, args: &[Expr]) -> bool {
-        source
-            .and_then(|index| args.get(index))
-            .is_some_and(|arg| matches!(self.byte_source(arg), Some(ByteSource::Literal)))
+        byte_buffers::byte_buffer(&ty)
     }
 
     /// The storage of a `Bytes` buffer given for a `ByteStorage` operand,
     /// read under a loan of the whole buffer that the caller ends. std code
     /// passes its buffers to native hooks this way instead of reaching into
-    /// `Bytes._owner` (issue #633). User code keeps the narrower rule: only
-    /// a read-only `source` operand takes a buffer.
+    /// `Bytes._owner` (issue #633). User code passes read-only bytes as
+    /// `&[u8]` views instead (B90).
     pub(super) fn buffer_storage(
         &mut self,
         arg: &Expr,
         expected: &Ty,
         mutable: bool,
-        source: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Option<usize>> {
         if *expected != Ty::ByteStorage {
@@ -78,10 +59,10 @@ impl Lower<'_> {
             .source()
             .as_ref()
             .is_some_and(|file| self.generics.source_facts(file).1);
-        if !standard && (mutable || !source) {
+        if !standard {
             return Ok(None);
         }
-        let Some(ByteSource::Buffer(class)) = self.byte_source(arg) else {
+        let Some(class) = self.buffer_class(arg) else {
             return Ok(None);
         };
         let loan = self.byte_storage_place(&class, arg, mutable, ops)?;
@@ -89,16 +70,9 @@ impl Lower<'_> {
         Ok(Some(loan))
     }
 
-    /// Observes one native operand. A `Bytes` buffer or reference given for
-    /// a read-only source operand passes its storage, so std code generic
-    /// over `std.bytes.ByteSource` reaches either form without a copy.
-    fn operand(
-        &mut self,
-        arg: &Expr,
-        expected: Ty,
-        source: bool,
-        ops: &mut Vec<Op>,
-    ) -> Result<Vec<usize>> {
+    /// Observes one native operand. A read-only byte operand is a `&[u8]`
+    /// view, which a buffer, a literal or `&b[a:b]` supplies in place.
+    fn operand(&mut self, arg: &Expr, expected: Ty, ops: &mut Vec<Op>) -> Result<Vec<usize>> {
         // Keep explicitly borrowed native handles as loans. Reading an owned
         // temporary here would leak its retain if a native traps in an actor.
         if let Ty::Ref(inner, mutable) = &expected {
@@ -107,19 +81,13 @@ impl Lower<'_> {
             self.unbox_reference(expected, ops);
             return Ok(vec![loan]);
         }
-        if let Some(loan) = self.buffer_storage(arg, &expected, false, source, ops)? {
+        if let Ty::View(_, mutable) = &expected {
+            let (ty, loan) = self.view_argument(arg, *mutable, false, ops)?;
+            self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             return Ok(vec![loan]);
         }
-        if source && expected == Ty::ByteStorage {
-            let other = match self.place_type(arg) {
-                Some(Ty::Ref(inner, _)) => Some((*inner).clone()),
-                other => other,
-            };
-            if let Some(other) = other.filter(|ty| *ty != Ty::ByteStorage) {
-                return Err(arg.at.error(format!(
-                    "bytes are read in place only from a `std.bytes.Bytes` buffer or a `bytes` literal, got {other}"
-                )));
-            }
+        if let Some(loan) = self.buffer_storage(arg, &expected, false, ops)? {
+            return Ok(vec![loan]);
         }
         let (actual, loans) = self.observe_expected(arg, Some(expected.clone()), ops)?;
         self.same(Some(actual), Some(expected), &arg.at)?;
@@ -143,25 +111,11 @@ impl Lower<'_> {
             return Err(text.at.error("expected a `str` place"));
         }
         let mut loans = vec![self.borrow(text, false, ops)?.1];
-        let operation = match self.byte_source(set) {
-            Some(ByteSource::Buffer(class)) => {
-                loans.push(self.byte_storage_place(&class, set, false, ops)?);
-                TextOp::FindIn
-            }
-            Some(ByteSource::Literal) if self.place_type(set).is_some() => {
-                loans.push(self.borrow(set, false, ops)?.1);
-                TextOp::FindInLiteral
-            }
-            _ => {
-                return Err(set
-                    .at
-                    .error("expected a named `std.bytes.Bytes` buffer or `bytes` literal place"));
-            }
-        };
+        loans.extend(self.operand(set, crate::bytes::byte_view(), ops)?);
         let (actual, reads) = self.observe_expected(member, Some(Ty::U8), ops)?;
         self.same(Some(actual), Some(Ty::U8), &member.at)?;
         loans.extend(reads);
-        ops.push(Op::Collection(CollectionOp::Text(operation)));
+        ops.push(Op::Collection(CollectionOp::Text(TextOp::FindIn)));
         Self::end_reads(loans, ops);
         Ok(Some(Ty::I64))
     }
@@ -173,20 +127,8 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let operation = match operation.literal() {
-            Some(literal) if self.literal_source(operation.source(), args) => literal,
-            _ => operation,
-        };
         if !operation.mutable() {
-            let source = operation.source();
-            return self.exclusive_call(
-                CollectionOp::Bytes(operation),
-                &|_| false,
-                source,
-                args,
-                at,
-                ops,
-            );
+            return self.exclusive_call(CollectionOp::Bytes(operation), &|_| false, args, at, ops);
         }
         let (inputs, output) = operation.signature();
         if args.len() != inputs.len() {
@@ -212,8 +154,8 @@ impl Lower<'_> {
             ops.push(Op::ReadRef(storage));
         }
         let mut reads = Vec::new();
-        for (index, (arg, expected)) in args.iter().zip(inputs).enumerate().skip(1) {
-            reads.extend(self.operand(arg, expected, operation.source() == Some(index), ops)?);
+        for (arg, expected) in args.iter().zip(inputs).skip(1) {
+            reads.extend(self.operand(arg, expected, ops)?);
         }
         ops.push(Op::Collection(CollectionOp::Bytes(operation)));
         ops.push(Op::UseLoan(loan));
@@ -222,13 +164,11 @@ impl Lower<'_> {
     }
 
     /// A native primitive whose `exclusive` operands are written through and
-    /// need exclusive loans; the rest are observed. `source` is the operand
-    /// only read for its bytes, if any.
+    /// need exclusive loans; the rest are observed.
     pub(super) fn exclusive_call(
         &mut self,
         operation: CollectionOp,
         exclusive: &dyn Fn(usize) -> bool,
-        source: Option<usize>,
         args: &[Expr],
         at: &Token,
         ops: &mut Vec<Op>,
@@ -244,7 +184,7 @@ impl Lower<'_> {
         let (mut loans, mut reads) = (Vec::new(), Vec::new());
         for (index, (arg, expected)) in args.iter().zip(inputs).enumerate() {
             if exclusive(index) {
-                if let Some(loan) = self.buffer_storage(arg, &expected, true, false, ops)? {
+                if let Some(loan) = self.buffer_storage(arg, &expected, true, ops)? {
                     loans.push(loan);
                     continue;
                 }
@@ -253,7 +193,7 @@ impl Lower<'_> {
                 ops.push(Op::ReadRef(expected));
                 loans.push(loan);
             } else {
-                reads.extend(self.operand(arg, expected, source == Some(index), ops)?);
+                reads.extend(self.operand(arg, expected, ops)?);
             }
         }
         Self::push_query(operation, ops);

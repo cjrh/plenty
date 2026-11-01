@@ -31,7 +31,7 @@ const LEAF_KEY: str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqG
 def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError | NetError | std.bytes.BytesError]:
     mut stream = std.tls.accept(listener.accept(deadline, cancel)?, config, deadline, cancel)?
     reply = std.bytes.from_text("hello over TLS")?
-    stream.write_all_before(&reply, 0, reply.len(), deadline, cancel)?
+    stream.write_all_before(&reply, deadline, cancel)?
     stream.close_before(deadline, cancel)
 
 def main() -> Result[(), SpawnError[()] | IoError | AllocError | RangeError | TlsError | NetError | std.bytes.BytesError]:
@@ -202,12 +202,12 @@ application data passes before the peer is verified.
 |---|---|---|
 | `handshake_before(deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Finish the handshake. One that times out keeps its progress for a later call, so with a deadline already passed it does only the work possible without waiting |
 | `read_before(buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Decrypted bytes into `buffer[start:stop]`, waiting for at least one |
-| `write_before(source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Encrypt and send at most 16 KiB of `source[start:stop]`; the count taken |
-| `write_all_before(source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send all of `source[start:stop]` |
+| `write_before(source: &[u8], deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, TlsError]` | Encrypt and send at most 16 KiB of `source`; the count taken |
+| `write_all_before(source: &[u8], deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send all of `source` |
 | `close_before(deadline: &Deadline, cancel: &CancellationToken)` | `Result[(), TlsError]` | Send `close_notify`, then close the TCP stream |
 | `shutdown(direction: Shutdown)` | `Result[(), TlsError]` | End the TCP stream in one direction without closing it; ending writes sends `close_notify` first without waiting, and ciphertext the socket does not take at once is lost. Reading continues |
 | `read(buffer: &mut Bytes, start: i64, stop: i64)` | `Result[i64, StreamError]` | `std.io` Reader; waits without a deadline |
-| `write(source: &S, start: i64, stop: i64)` | `Result[i64, StreamError]` | `std.io` Writer; waits without a deadline |
+| `write(source: &[u8])` | `Result[i64, StreamError]` | `std.io` Writer; waits without a deadline |
 | `flush()` | `Result[(), StreamError]` | Nothing to do: writes are sent as they are made |
 | `close()` | `Result[(), StreamError]` | `close_before` without a deadline |
 | `application_protocol()` | `Result[Option[str], TlsError]` | The protocol chosen through ALPN |
@@ -216,8 +216,8 @@ application data passes before the peer is verified.
 | `version()` | `Option[TlsVersion]` | The negotiated version |
 | `cipher_suite()` | `Option[CipherSuite]` | The negotiated suite |
 
-Each `source: &S` is any [`std.bytes.ByteSource`](bytes.md#byte-sources): a
-`Bytes` buffer or a `b"..."` literal, written without a copy.
+Each `source` is a [`&[u8]` view](bytes.md#byte-views): a `Bytes` buffer, part of one, or a `b"..."`
+literal, written without a copy.
 
 The session details are `Nothing` until the handshake has settled them.
 `peer_certificate()` is `Nothing` on a server that did not verify clients or
@@ -249,7 +249,7 @@ These methods never wait, so one thread can drive many streams from a
 |---|---|---|
 | `try_handshake()` | `Result[bool, TlsError]` | Advance the handshake; true once complete |
 | `try_read(buffer: &mut Bytes, start: i64, stop: i64)` | `Result[Option[i64], TlsError]` | Decrypted bytes if any can be had now; `Some(0)` is `close_notify` |
-| `try_write(source: &S, start: i64, stop: i64)` | `Result[Option[i64], TlsError]` | Encrypt at most 16 KiB; `Nothing`, taking nothing, while the handshake is incomplete or earlier ciphertext is unsent |
+| `try_write(source: &[u8])` | `Result[Option[i64], TlsError]` | Encrypt at most 16 KiB; `Nothing`, taking nothing, while the handshake is incomplete or earlier ciphertext is unsent |
 | `try_flush()` | `Result[bool, TlsError]` | Send buffered ciphertext; true once none is left |
 | `interest()` | `Interest` | What to wait for: `ReadWrite` while ciphertext waits to be sent, else `Read` |
 | `watch(selector: &mut Selector, key: u64, interest: Interest)` | `Result[(), TlsError]` | Register the TCP stream |
@@ -283,11 +283,11 @@ one with the same verification as `connect` and `accept`.
 
 | Method | Result | Contract |
 |---|---|---|
-| `feed(source: &Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Process received ciphertext; the count used, short while decrypted bytes wait for `read` |
+| `feed(source: &[u8])` | `Result[i64, TlsError]` | Process received ciphertext; the count used, short while decrypted bytes wait for `read` |
 | `feed_end()` | `Result[(), TlsError]` | The peer's stream ended; without `close_notify`, `read` then fails with `Truncated` |
 | `take(target: &mut Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Ciphertext to send; 0 when none waits |
 | `read(target: &mut Bytes, start: i64, stop: i64)` | `Result[Option[i64], TlsError]` | Decrypted bytes; `Nothing` while none is ready, `Some(0)` for `close_notify` |
-| `write(source: &S, start: i64, stop: i64)` | `Result[i64, TlsError]` | Encrypt at most 16 KiB; short once 64 KiB of ciphertext waits for `take`; `Closed` after `close` |
+| `write(source: &[u8])` | `Result[i64, TlsError]` | Encrypt at most 16 KiB; short once 64 KiB of ciphertext waits for `take`; `Closed` after `close` |
 | `close()` | `()` | Queue `close_notify` for `take` |
 | `handshaking()`, `wants_write()`, `wants_read()` | `bool` | Handshake incomplete; ciphertext waits for `take`; more ciphertext is useful |
 
@@ -369,7 +369,7 @@ allowed in workers.
 
 The `__tls_*` intrinsics behind the session are
 [reserved for the standard library](bytes.md#transport). Writing uses
-`__tls_write`, which `std.tls` calls on any `ByteSource`.
+`__tls_write`, which reads the caller's `&[u8]` view in place.
 
 ## Costs
 

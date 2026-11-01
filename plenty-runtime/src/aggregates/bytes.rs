@@ -40,22 +40,9 @@ fn contiguous(list: &Collection) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-fn write(list: &Collection, writer: &mut impl Write) -> Result<u128, Error> {
-    let mut chunk = [0; 8192];
-    let mut entries = list.entries.iter();
-    loop {
-        let mut count = 0;
-        for byte in &mut chunk {
-            let Some(entry) = entries.next() else { break };
-            *byte = entry.key as u8;
-            count += 1;
-        }
-        if count == 0 {
-            break;
-        }
-        writer.write_all(&chunk[..count])?;
-    }
-    Ok(list.entries.len() as u128)
+fn write(bytes: &[u8], writer: &mut impl Write) -> Result<u128, Error> {
+    writer.write_all(bytes)?;
+    Ok(bytes.len() as u128)
 }
 
 unsafe fn record(reader: &mut impl Read, delimiter: u8, ty: &'static Type) -> Result<u128, Error> {
@@ -118,8 +105,11 @@ pub(super) unsafe fn call(
                 let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
                 Ok(strings::try_new(text)? as u128)
             }
-            146 => write(&*(a as *const Collection), &mut std::io::stdout().lock()),
-            147 => write(&*(a as *const Collection), &mut crate::io::stderr()),
+            146 => write(
+                super::byte_storage::view_bytes(a),
+                &mut std::io::stdout().lock(),
+            ),
+            147 => write(super::byte_storage::view_bytes(a), &mut crate::io::stderr()),
             148 | 149 => {
                 let path = contiguous(&*(a as *const Collection))?;
                 let mut file = text_io::open_file_bytes(
@@ -131,7 +121,7 @@ pub(super) unsafe fn call(
                     },
                 )?;
                 if op == 149 {
-                    let count = write(&*(b as *const Collection), &mut file)?;
+                    let count = write(super::byte_storage::view_bytes(b), &mut file)?;
                     text_io::close(file)?;
                     return Ok(count);
                 }

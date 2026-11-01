@@ -5,7 +5,7 @@
 # See book/src/design/stdlib/actor-net.md.
 import std.bytes
 from std.actor import Context, Mail, Timer, TimerError, Watch
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpListener, TcpStream, start_connect, start_lookup
 from std.ready import Interest, WaitError
@@ -168,18 +168,16 @@ pub class Connection:
     pub def space(self) -> i64:
         self._output.len() - self.pending()
 
-    # Copies as much of source[start:stop] as fits into the output buffer,
+    # Copies as much of `source` as fits into the output buffer,
     # sends what the socket takes at once, and returns how many bytes were
     # accepted. A short count is back-pressure: `Events.writable` reports
     # when space frees. Fails after `shutdown_write` or `close`.
-    pub def write[S: ByteSource, M, E](self: &mut Connection, source: &S, start: i64, stop: i64, context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]:
-        if start < 0 or stop < start or stop > source.len():
-            return Err(invalid())
+    pub def write[M, E](self: &mut Connection, source: &[u8], context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]:
         if self._closed or self._shutdown or not self._writing:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
-        count = self.make_room(stop - start, at)
-        lifted(self._output.overwrite(self._output_stop, source, start, start + count))?
+        count = self.make_room(len(source), at)
+        lifted(self._output.overwrite(self._output_stop, &source[:count]))?
         self._output_stop += count
         mut events = no_events()
         self.flush(&mut events, at)?
@@ -238,7 +236,7 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         moved = self.make_room(count, at)
-        lifted(self._output.overwrite(self._output_stop, &self._input, self._input_start, self._input_start + moved))?
+        lifted(self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved]))?
         self._output_stop += moved
         self._input_start += moved
         if self._input_start == self._input_stop:
@@ -330,7 +328,7 @@ pub class Connection:
         mut attempts = 0
         while self._output_start < self._output_stop and attempts < max_writes:
             attempts += 1
-            match self._stream.write_now(&self._output, self._output_start, self._output_stop):
+            match self._stream.write_now(&self._output[self._output_start:self._output_stop]):
                 case Ok(count):
                     self._output_start += count
                     self._active = at

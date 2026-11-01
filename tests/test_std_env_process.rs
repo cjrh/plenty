@@ -686,17 +686,17 @@ mut stdin = child.take_stdin().unwrap()
 mut stdout = child.take_stdout().unwrap()
 print(absent(&child.take_stdin()), absent(&child.take_stdout()))?
 source = std.bytes.from_text("partial")?
-print(source.write_file(&mut stdin, 0, 4)?)?
+print(std.bytes.write_file(&mut stdin, &source[:4])?)?
 mut buffer = std.bytes.with_capacity(0)?
 buffer.resize(64, 46u8)?
 # A read returns what has arrived, not the 64 bytes asked for.
 mut count = buffer.read_file(&mut stdout, 0, 64)?
 print(count, text(&buffer.slice(0, count)?)?)?
-print(source.write_file(&mut stdin, 4, 7)?)?
+print(std.bytes.write_file(&mut stdin, &source[4:7])?)?
 count = buffer.read_file(&mut stdout, 0, 64)?
 print(count, text(&buffer.slice(0, count)?)?)?
 # The pipe ends enforce their direction.
-print(str.repr(buffer.read_file(&mut stdin, 0, 1))?, str.repr(source.write_file(&mut stdout, 0, 1))?)?
+print(str.repr(buffer.read_file(&mut stdin, 0, 1))?, str.repr(std.bytes.write_file(&mut stdout, &source[:1]))?)?
 # Nothing here holds stdin, so the caller closes it to end the child's input.
 stdin.close()?
 print(buffer.read_file(&mut stdout, 0, 64)?)?
@@ -724,7 +724,7 @@ mut child = piped("tr", &["a-z", "A-Z"]?)?.spawn()?
 mut writer = std.io.from_file(child.take_stdin().unwrap())
 mut reader = std.io.from_file(child.take_stdout().unwrap())
 source = std.bytes.from_text("through streams\n")?
-match std.io.write_all(&mut writer, &source, 0, source.len()):
+match std.io.write_all(&mut writer, &source):
     case Ok(_):
         pass
     case Err(_):
@@ -754,7 +754,7 @@ mut child = piped("true", &list[str].new()?)?.spawn()?
 print(absent(&child.wait_timeout(&std.time.seconds(30u32), &CancellationToken().unwrap())?))?
 mut stdin = child.take_stdin().unwrap()
 source = std.bytes.from_text("unread")?
-print(str.repr(source.write_file(&mut stdin, 0, 6))?)?
+print(str.repr(std.bytes.write_file(&mut stdin, &source))?)?
 print(str.repr(stdin.write("text"))?)?
 stdin.close()?
 

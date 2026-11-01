@@ -73,7 +73,7 @@ def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.
 | `serve_connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, router, handler, config, stop, cancel: &CancellationToken)` | `Report`: serve every request on one connection, on the calling thread |
 | `serve_connection_from[T, R, E, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T, R, E]` | `def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), E]` |
-| `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` is generic in its `S: ByteSource` source |
+| `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` takes its source as `&[u8]` |
 | `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
 
 `E` is the handler's own error type: `HttpError`, or a sum such as
@@ -210,7 +210,7 @@ The handler receives an `Exchange[T]` for one request.
 | `send_text(status, text)` | `send` with `text/plain; charset=utf-8` |
 | `respond(head, &body)` | Whole response with the caller's head; `Content-Length` is added |
 | `start(head)` | Begin a streamed response |
-| `write(&source, start, stop)` | Send and flush part of a streamed body |
+| `write(source: &[u8])` | Send and flush part of a streamed body |
 | `end()` | Finish a streamed response |
 | `stopping()` | Shutdown has begun; a long response should end soon |
 | `cancelled()` | The drain deadline has passed; reads and writes now fail |

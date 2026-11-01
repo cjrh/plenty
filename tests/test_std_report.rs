@@ -433,23 +433,23 @@ import std.bytes
 import std.fmt
 import std.io
 import std.report
-from std.bytes import Bytes, ByteSource
+from std.bytes import Bytes
 from std.fmt import Formatter, FormatError
 from std.io import StreamError
 from std.error import Context, Subject
 pub class Sink:
     data: Bytes
     interrupted: bool
-    pub def write[S: ByteSource](self: &mut Sink, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
         if not self.interrupted:
             self.interrupted = True
             return Err(StreamError.Interrupted)
-        mut end = stop
-        if end - start > 2:
-            end = start + 2
-        match self.data.extend_range(source, start, end):
+        mut end = len(source)
+        if end > 2:
+            end = 2
+        match self.data.extend(&source[:end]):
             case Ok(_):
-                Ok(end - start)
+                Ok(end)
             case Err(_):
                 Err(StreamError.InvalidProgress)
     pub def flush(self: &mut Sink) -> Result[(), StreamError]:

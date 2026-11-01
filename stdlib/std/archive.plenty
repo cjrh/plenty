@@ -199,8 +199,8 @@ pub def stream_error(error: ArchiveError) -> StreamError:
         case _:
             StreamError.Io(IoError.InvalidInput)
 
-def send[W](writer: &mut W, data: &Bytes, start: i64, stop: i64) -> Result[(), ArchiveError]:
-    match std.io.write_all(writer, data, start, stop):
+def send[W](writer: &mut W, data: &[u8], start: i64, stop: i64) -> Result[(), ArchiveError]:
+    match std.io.write_all(writer, &data[start:stop]):
         case Ok(_):
             Ok(())
         case Err(partial):
@@ -252,7 +252,8 @@ def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
     Ok(())
 
 def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
-    held(out.extend(&held(std.bytes.from_text(text))?))
+    spelled = held(std.bytes.from_text(text))?
+    held(out.extend(&spelled))
 
 def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
     held(held(data.slice(start, stop))?.to_list())
@@ -728,11 +729,11 @@ pub class TarWriter[W]:
         put_octal(block, 148, 7, sum)?
         held(block.set(155, 32u8))
 
-    pub def add_file(self: &mut TarWriter[W], name: &Path, data: &Bytes, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+    pub def add_file(self: &mut TarWriter[W], name: &Path, data: &[u8], mode: i64, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, False)?
-        self.header(&stored, 48u8, data.len(), mode, mtime, &owned(list[u8].new())?)?
-        send(&mut self.inner, data, 0, data.len())?
-        self.pad(data.len())?
+        self.header(&stored, 48u8, len(data), mode, mtime, &owned(list[u8].new())?)?
+        send(&mut self.inner, data, 0, len(data))?
+        self.pad(len(data))?
         self._failed = False
         Ok(())
 
@@ -1127,7 +1128,7 @@ pub class ZipReader[R]:
                 return Err(ArchiveError.Stream(StreamError.InvalidProgress))
             if count == 0:
                 return Err(ArchiveError.Truncated)
-            self._crc = coded(std.compress.crc32(self._crc, buffer, start, start + count))?
+            self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
             self._left -= count
             self._produced += count
             return Ok(count)
@@ -1135,8 +1136,9 @@ pub class ZipReader[R]:
             pending = self._decoder.output().len() - self._out_start
             if pending > 0:
                 count = smaller(stop - start, pending)
-                held(buffer.overwrite(start, self._decoder.output(), self._out_start, self._out_start + count))?
-                self._crc = coded(std.compress.crc32(self._crc, buffer, start, start + count))?
+                output = self._decoder.output()
+                held(buffer.overwrite(start, &output[self._out_start:self._out_start + count]))?
+                self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
                 self._produced += count
                 self._out_start += count
                 if self._out_start == self._decoder.output().len():
@@ -1160,7 +1162,7 @@ pub class ZipReader[R]:
                 self._in_stop = count
                 self._left -= count
             else:
-                self._in_start += coded(self._decoder.step(&self._input, self._in_start, self._in_stop))?
+                self._in_start += coded(self._decoder.step(&self._input[self._in_start:self._in_stop]))?
         Ok(0)
 
     # Errors from `inner` leave the entry intact, so Interrupted and other
@@ -1222,12 +1224,12 @@ pub class ZipWriter[W]:
     _finished: bool
     _failed: bool
 
-    def record(self: &mut ZipWriter[W], name: &list[u8], method: i64, crc: i64, payload: &Bytes, size: i64, mode: i64, attributes: i64, mtime: i64) -> Result[(), ArchiveError]:
+    def record(self: &mut ZipWriter[W], name: &list[u8], method: i64, crc: i64, payload: &[u8], size: i64, mode: i64, attributes: i64, mtime: i64) -> Result[(), ArchiveError]:
         if self._finished or self._failed:
             return Err(ArchiveError.InvalidInput)
         if mtime < 0:
             return Err(ArchiveError.InvalidInput)
-        compressed = payload.len()
+        compressed = len(payload)
         wide = size >= u32_max or compressed >= u32_max or self._offset >= u32_max
         mut version = 20
         if wide:
@@ -1306,17 +1308,17 @@ pub class ZipWriter[W]:
         self._failed = False
         Ok(())
 
-    pub def add_file(self: &mut ZipWriter[W], name: &Path, data: &Bytes, method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
+    pub def add_file(self: &mut ZipWriter[W], name: &Path, data: &[u8], method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
         if mode < 0 or mode > 4095:
             return Err(ArchiveError.InvalidInput)
         stored = stored_name(name, False)?
-        crc = coded(std.compress.crc32(0, data, 0, data.len()))?
+        crc = coded(std.compress.crc32(0, data))?
         match method:
             case Method.Stored:
-                self.record(&stored, 0, crc, data, data.len(), regular_bits | mode, 0, mtime)
+                self.record(&stored, 0, crc, data, len(data), regular_bits | mode, 0, mtime)
             case Method.Deflate:
                 packed = coded(std.compress.compress(Format.Deflate, data, 6))?
-                self.record(&stored, 8, crc, &packed, data.len(), regular_bits | mode, 0, mtime)
+                self.record(&stored, 8, crc, &packed, len(data), regular_bits | mode, 0, mtime)
 
     pub def add_dir(self: &mut ZipWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]:
         if mode < 0 or mode > 4095:
@@ -1329,7 +1331,7 @@ pub class ZipWriter[W]:
         if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
             return Err(ArchiveError.InvalidInput)
         data = held(std.bytes.from_list(target.as_bytes()))?
-        crc = coded(std.compress.crc32(0, &data, 0, data.len()))?
+        crc = coded(std.compress.crc32(0, &data))?
         self.record(&stored, 0, crc, &data, data.len(), symlink_bits | 511, 0, mtime)
 
     pub def finish(self: &mut ZipWriter[W]) -> Result[(), ArchiveError]:

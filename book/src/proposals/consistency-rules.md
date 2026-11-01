@@ -243,6 +243,13 @@ disagree. One rule: `display` for people, `debug` for precision.
 
 ### Today
 
+> **Update 2026-11-01:** phases 1 and 3 shipped. Owners convert to views at
+> view types, byte-reading std APIs take `&[u8]`, and `ByteSource` is removed;
+> naming it is a compile error pointing to `&[u8]`. The remaining
+> `&Bytes, start, stop` inputs are listed under
+> [std conventions](../design/stdlib/conventions.md#bytes). The probes below
+> record the state before phase 1.
+
 [Slice views](../design/language/04-expressions/slices.md#slice-views) give
 `&[T]` for a list, a `Bytes` buffer and a `bytes` literal, so "one `&[u8]`
 parameter reads any of them". But "a list is not converted to a view
@@ -258,7 +265,7 @@ implicitly; pass the whole list as `&xs[:]`". *Probes:*
 | `n(&xs)` for `S: ByteSource` and `xs: list[u8]` | Rejected: protocols require classes, enums or `bytes` |
 | `n(&xs[:])` for the same | Rejected, and the diagnostic names `Result[list[u8], AllocError]`, the copying slice's type |
 
-[`ByteSource`](../design/stdlib/bytes.md#byte-sources) has two
+`ByteSource` has two
 implementations, `Bytes` and `bytes`; a `&[u8]` view and a `list[u8]` are not
 among them, although `&[u8]` already unifies all three owners. Byte APIs
 therefore take `source: &S, start, stop` triples that a view expresses

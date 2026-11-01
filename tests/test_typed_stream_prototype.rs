@@ -46,7 +46,7 @@ pub class Sink:
     mode: i64
     calls: i64
     delivered: i64
-    pub def write(self: &mut Sink, buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[Storage]]:
+    pub def write(self: &mut Sink, buffer: &[u8]) -> Result[i64, StepError[Storage]]:
         self.calls += 1
         if self.calls == 1:
             return Err(StepError[Storage].Interrupted)
@@ -57,7 +57,7 @@ pub class Sink:
         if self.mode == 3:
             return Ok(-1)
         if self.mode == 4:
-            return Ok(stop - start + 1)
+            return Ok(len(buffer) + 1)
         self.delivered += 1
         Ok(1)
 "#;
@@ -1000,17 +1000,9 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[W
     mut source = Source(0, 0)
     mut sink = Sink(0, 0, 0)
     mut buffer = scratch()?
-    write_all[Storage, Sink](&mut sink, &buffer, 2, 2)?
-    match write_all[Storage, Sink](&mut sink, &buffer, 3, 5):
-        case Err(partial):
-            print(partial.completed == 0)?
-            match partial.cause:
-                case WriteFailure.OutOfRange:
-                    print("range")?
-                case _:
-                    print("wrong")?
-        case _:
-            print("wrong")?
+    write_all[Storage, Sink](&mut sink, &buffer[2:2])?
+    write_all[Storage, Sink](&mut sink, &buffer[5:9])?
+    print(sink.calls == 0)?
     buffer.clear()
     match copy_all[Transport, Storage, Source, Sink](&mut source, &mut sink, &mut buffer):
         case Err(CopyFailure.Read(0, ReadFailure.OutOfRange)):
@@ -1026,7 +1018,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[W
             print("wrong")?
     Ok(())
 "#,
-        "True\nrange\nempty\n0\n0\nlength\n",
+        "True\nempty\n0\n0\nlength\n",
     );
 }
 
@@ -1111,8 +1103,6 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
                         print("zero")?
                     case WriteFailure.InvalidProgress:
                         print("invalid")?
-                    case _:
-                        print("wrong")?
             case _:
                 print("wrong side")?
         print(sink.delivered)?

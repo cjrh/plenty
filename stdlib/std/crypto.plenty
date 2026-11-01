@@ -4,7 +4,7 @@
 # validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 from std.fmt import Formatter, FormatError
 
 pub enum CryptoError:
@@ -65,11 +65,6 @@ def reported[T](result: Result[T, BytesError]) -> Result[T, CryptoError]:
                 case _:
                     Err(CryptoError.OutOfRange)
 
-def in_range(start: i64, stop: i64, count: i64) -> Result[(), CryptoError]:
-    if start < 0 or start > stop or stop > count:
-        return Err(CryptoError.OutOfRange)
-    Ok(())
-
 # A hasher state behind a `Bytes` that byte operations see as empty. The
 # native operations on it return false (or -1) once it has finished.
 def hasher_state(result: Result[ByteStorage, AllocError]) -> Result[Bytes, CryptoError]:
@@ -84,9 +79,8 @@ def absorbed(more: bool) -> Result[(), CryptoError]:
         return Err(CryptoError.Finished)
     Ok(())
 
-def updated(state: &mut Bytes, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-    in_range(start, stop, data.len())?
-    absorbed(__crypto_update(state, data, start, stop))
+def updated(state: &mut Bytes, data: &[u8]) -> Result[(), CryptoError]:
+    absorbed(__crypto_update(state, data))
 
 # Writes `size` output bytes at target[offset:]; `size` must be the
 # algorithm's output size.
@@ -112,8 +106,8 @@ pub class Digest:
     pub def size(self) -> i64:
         self._size
 
-    pub def update(self: &mut Digest, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        updated(&mut self._state, data, start, stop)
+    pub def update(self: &mut Digest, data: &[u8]) -> Result[(), CryptoError]:
+        updated(&mut self._state, data)
 
     pub def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
@@ -139,8 +133,8 @@ pub class Mac:
     pub def size(self) -> i64:
         self._size
 
-    pub def update(self: &mut Mac, data: &Bytes, start: i64, stop: i64) -> Result[(), CryptoError]:
-        updated(&mut self._state, data, start, stop)
+    pub def update(self: &mut Mac, data: &[u8]) -> Result[(), CryptoError]:
+        updated(&mut self._state, data)
 
     pub def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
@@ -153,12 +147,11 @@ pub class Mac:
     pub def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]:
         finished(&mut self._state, target, offset, self._size)
 
-    # Finishes and compares the tag with expected[start:stop] in constant
-    # time. A tag of the wrong length is a mismatch, not an error.
-    pub def verify(self: &mut Mac, expected: &Bytes, start: i64, stop: i64) -> Result[bool, CryptoError]:
-        # 1 when the tag equals expected[start:stop], 0 when not.
-        in_range(start, stop, expected.len())?
-        match __crypto_verify(self._state, expected, start, stop):
+    # Finishes and compares the tag with `expected` in constant time. A tag
+    # of the wrong length is a mismatch, not an error.
+    pub def verify(self: &mut Mac, expected: &[u8]) -> Result[bool, CryptoError]:
+        # 1 when the tag equals `expected`, 0 when not.
+        match __crypto_verify(self._state, expected):
             case 1:
                 Ok(True)
             case 0:
@@ -171,41 +164,41 @@ pub def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]:
     Ok(Digest(state, output_size(algorithm)))
 
 # SHA algorithms accept any key length; RFC 2104 hashes keys longer than a block.
-pub def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]:
+pub def hmac(algorithm: Algorithm, key: &[u8]) -> Result[Mac, CryptoError]:
     if algorithm == Algorithm.Blake3:
         return Err(CryptoError.UnsupportedAlgorithm)
-    state = hasher_state(__crypto_new_keyed(kind(algorithm, True), key, 0, key.len()))?
+    state = hasher_state(__crypto_new_keyed(kind(algorithm, True), key))?
     Ok(Mac(state, output_size(algorithm)))
 
-def hashed(algorithm: Algorithm, data: &Bytes) -> Result[Bytes, CryptoError]:
+def hashed(algorithm: Algorithm, data: &[u8]) -> Result[Bytes, CryptoError]:
     mut hasher = digest(algorithm)?
-    hasher.update(data, 0, data.len())?
+    hasher.update(data)?
     hasher.finish()
 
-def keyed(algorithm: Algorithm, key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
+def keyed(algorithm: Algorithm, key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]:
     mut mac = hmac(algorithm, key)?
-    mac.update(data, 0, data.len())?
+    mac.update(data)?
     mac.finish()
 
-pub def sha256(data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def sha256(data: &[u8]) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Sha256, data)
 
-pub def sha512(data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def sha512(data: &[u8]) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Sha512, data)
 
-pub def blake3(data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def blake3(data: &[u8]) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Blake3, data)
 
 # Native keyed BLAKE3, with exactly 32 key bytes (not HMAC).
-pub def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]:
-    if key.len() != 32:
+pub def blake3_keyed_hasher(key: &[u8]) -> Result[Mac, CryptoError]:
+    if len(key) != 32:
         return Err(CryptoError.InvalidKeyLength)
-    state = hasher_state(__crypto_new_keyed(8u8, key, 0, key.len()))?
+    state = hasher_state(__crypto_new_keyed(8u8, key))?
     Ok(Mac(state, 32))
 
-pub def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def blake3_keyed(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]:
     mut mac = blake3_keyed_hasher(key)?
-    mac.update(data, 0, data.len())?
+    mac.update(data)?
     mac.finish()
 
 # Context is a fixed, globally unique application/purpose string. This is a
@@ -214,24 +207,24 @@ pub def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]:
     state = hasher_state(__crypto_new_derive_key(context))?
     Ok(Digest(state, 32))
 
-pub def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]:
+pub def blake3_derive_key(context: &str, key_material: &[u8]) -> Result[Bytes, CryptoError]:
     mut hasher = blake3_derive_hasher(context)?
-    hasher.update(key_material, 0, key_material.len())?
+    hasher.update(key_material)?
     hasher.finish()
 
 # Legacy: only for protocols that require SHA-1. Never use it for security.
-pub def sha1(data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def sha1(data: &[u8]) -> Result[Bytes, CryptoError]:
     hashed(Algorithm.Sha1, data)
 
-pub def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def hmac_sha256(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]:
     keyed(Algorithm.Sha256, key, data)
 
-pub def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]:
+pub def hmac_sha512(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]:
     keyed(Algorithm.Sha512, key, data)
 
 # Whether two buffers hold the same bytes, in time that depends only on their
 # lengths. Use it for secrets such as tags and tokens; `==` may stop early.
-pub def equal(a: &Bytes, b: &Bytes) -> bool:
+pub def equal(a: &[u8], b: &[u8]) -> bool:
     __crypto_equal(a, b)
 
 # Authenticated encryption, Ed25519, X25519, HKDF, RSA and ECDSA use ring
@@ -326,8 +319,8 @@ def advanced_output(size: i64) -> Result[Bytes, AdvancedError]:
 
 # Never reuse a nonce with a key. Encryption appends a 16-byte tag; growth
 # is fallible and happens before encryption. Invalid inputs leave data intact.
-pub def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]:
-    if key.len() != 32 or nonce.len() != 12 or data.len() > 68719476704:
+pub def seal_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]:
+    if len(key) != 32 or len(nonce) != 12 or data.len() > 68719476704:
         return Err(AdvancedError.InvalidLength)
     advanced_bytes(data.resize(data.len() + 16, 0u8))?
     status = match algorithm:
@@ -339,8 +332,8 @@ pub def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad:
 
 # Success removes the tag. Authentication failure zeros the entire buffer
 # and leaves its length unchanged; no unauthenticated plaintext is exposed.
-pub def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]:
-    if key.len() != 32 or nonce.len() != 12 or data.len() < 16 or data.len() > 68719476720:
+pub def open_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]:
+    if len(key) != 32 or len(nonce) != 12 or data.len() < 16 or data.len() > 68719476720:
         return Err(AdvancedError.InvalidLength)
     status = match algorithm:
         case AeadAlgorithm.Aes256Gcm:
@@ -352,21 +345,21 @@ pub def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad:
 
 # The seed must contain 32 cryptographically random bytes. Signatures are
 # deterministic; reuse of a signing seed is permitted.
-pub def ed25519_public_key_into(seed: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+pub def ed25519_public_key_into(seed: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
     advanced_status(__crypto_ed_public(seed, target))
 
-pub def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]:
-    if seed.len() != 32:
+pub def ed25519_public_key(seed: &[u8]) -> Result[Bytes, AdvancedError]:
+    if len(seed) != 32:
         return Err(AdvancedError.InvalidLength)
     mut target = advanced_output(32)?
     ed25519_public_key_into(seed, &mut target)?
     Ok(target)
 
-pub def ed25519_sign_into(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+pub def ed25519_sign_into(seed: &[u8], message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
     advanced_status(__crypto_ed_sign(seed, message, target))
 
-pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedError]:
-    if seed.len() != 32:
+pub def ed25519_sign(seed: &[u8], message: &[u8]) -> Result[Bytes, AdvancedError]:
+    if len(seed) != 32:
         return Err(AdvancedError.InvalidLength)
     mut target = advanced_output(64)?
     ed25519_sign_into(seed, message, &mut target)?
@@ -374,8 +367,8 @@ pub def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedErr
 
 # Lengths are checked first. A small-order key is an error, not False: no
 # private key stands behind it, so no answer about the signature is useful.
-pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
-    if public_key.len() == 32 and signature.len() == 64 and ed25519_small_order(public_key, 0)?:
+pub def ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]:
+    if len(public_key) == 32 and len(signature) == 64 and ed25519_small_order(public_key, 0)?:
         return Err(AdvancedError.SmallOrderKey)
     status = __crypto_ed_verify(public_key, message, signature)
     if status < 0:
@@ -384,10 +377,10 @@ pub def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -
 
 # HKDF-SHA256 extract + expand. The salt and info may be empty; output is
 # 0..8160 bytes. This derives keys from key material, not from passwords.
-pub def hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+pub def hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
     advanced_status(__crypto_hkdf(salt, key_material, info, target))
 
-pub def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64) -> Result[Bytes, AdvancedError]:
+pub def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64) -> Result[Bytes, AdvancedError]:
     if size < 0 or size > 8160:
         return Err(AdvancedError.InvalidLength)
     mut target = advanced_output(size)?
@@ -408,11 +401,11 @@ pub class X25519Key:
         self.public_key_into(&mut target)?
         Ok(target)
 
-    pub def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    pub def agree_into(self: &mut X25519Key, peer_public_key: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
         advanced_status(__crypto_x_agree(self._state, peer_public_key, target))
 
-    pub def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]:
-        if peer_public_key.len() != 32:
+    pub def agree(self: &mut X25519Key, peer_public_key: &[u8]) -> Result[Bytes, AdvancedError]:
+        if len(peer_public_key) != 32:
             return Err(AdvancedError.InvalidLength)
         mut target = advanced_output(32)?
         self.agree_into(peer_public_key, &mut target)?
@@ -464,10 +457,10 @@ pub class RsaPublicKey:
 
     # False for a signature that does not verify. A signature of the wrong
     # length is an InvalidLength error.
-    pub def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
-        if signature.len() != self._size:
+    pub def verify(self, scheme: RsaScheme, message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]:
+        if len(signature) != self._size:
             return Err(AdvancedError.InvalidLength)
-        status = __crypto_rsa_verify(self._key, rsa_scheme(scheme), message, signature)
+        status = __crypto_rsa_verify(&self._key, rsa_scheme(scheme), message, signature)
         if status < 0:
             advanced_status(status)?
         Ok(status == 1)
@@ -487,10 +480,10 @@ pub class RsaPrivateKey:
 
     # The target must hold exactly signature_size() bytes. PKCS #1 v1.5
     # signatures are deterministic; PSS draws a random salt.
-    pub def sign_into(self, scheme: RsaScheme, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    pub def sign_into(self, scheme: RsaScheme, message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
         advanced_status(__crypto_key_sign(self._state, rsa_scheme(scheme), message, target))
 
-    pub def sign(self, scheme: RsaScheme, message: &Bytes) -> Result[Bytes, AdvancedError]:
+    pub def sign(self, scheme: RsaScheme, message: &[u8]) -> Result[Bytes, AdvancedError]:
         mut target = advanced_output(self.signature_size())?
         self.sign_into(scheme, message, &mut target)?
         Ok(target)
@@ -501,8 +494,8 @@ pub class P256PublicKey:
 
     # The signature is the fixed 64-byte r || s form; a DER-encoded
     # signature has another length and is an InvalidLength error.
-    pub def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]:
-        status = __crypto_p256_verify(self._point, message, signature)
+    pub def verify(self, message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]:
+        status = __crypto_p256_verify(&self._point, message, signature)
         if status < 0:
             return Err(AdvancedError.InvalidLength)
         Ok(status == 1)
@@ -519,10 +512,10 @@ pub class P256PrivateKey:
 
     # Writes the 64-byte r || s signature. Each signature uses a fresh
     # random nonce, hedged with the key and message.
-    pub def sign_into(self, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]:
+    pub def sign_into(self, message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
         advanced_status(__crypto_key_sign(self._state, 0, message, target))
 
-    pub def sign(self, message: &Bytes) -> Result[Bytes, AdvancedError]:
+    pub def sign(self, message: &[u8]) -> Result[Bytes, AdvancedError]:
         mut target = advanced_output(64)?
         self.sign_into(message, &mut target)?
         Ok(target)
@@ -535,7 +528,7 @@ class Der:
     stop: i64
 
 # The element with `tag` at der[at:limit].
-def der_at(der: &Bytes, at: i64, limit: i64, tag: u8) -> Result[Der, AdvancedError]:
+def der_at(der: &[u8], at: i64, limit: i64, tag: u8) -> Result[Der, AdvancedError]:
     if limit - at < 2 or der[at] != tag:
         return Err(AdvancedError.InvalidKey)
     first = i64(der[at + 1])
@@ -561,21 +554,21 @@ def der_at(der: &Bytes, at: i64, limit: i64, tag: u8) -> Result[Der, AdvancedErr
     Ok(Der(start, start + size))
 
 # The outermost SEQUENCE, which must end the buffer.
-def der_whole(der: &Bytes) -> Result[Der, AdvancedError]:
-    outer = der_at(der, 0, der.len(), 48u8)?
-    if outer.stop != der.len():
+def der_whole(der: &[u8]) -> Result[Der, AdvancedError]:
+    outer = der_at(der, 0, len(der), 48u8)?
+    if outer.stop != len(der):
         return Err(AdvancedError.InvalidKey)
     Ok(outer)
 
-def der_same[S: ByteSource](der: &Bytes, element: Der, expected: &S) -> Result[bool, AdvancedError]:
-    if element.stop - element.start != expected.len():
+def der_same(der: &[u8], element: Der, expected: &[u8]) -> Result[bool, AdvancedError]:
+    if element.stop - element.start != len(expected):
         return Ok(False)
-    advanced_bytes(der.matches(element.start, expected, 0, expected.len()))
+    Ok(__bytes_matches(&der[element.start:], 0, expected))
 
 # SubjectPublicKeyInfo (RFC 5280): SEQUENCE { AlgorithmIdentifier, BIT
 # STRING }. Comparing the identifier with one fixed encoding rejects every
 # other algorithm, curve and parameter form. Returns the key bits.
-def spki[S: ByteSource](der: &Bytes, algorithm: &S) -> Result[Der, AdvancedError]:
+def spki(der: &[u8], algorithm: &[u8]) -> Result[Der, AdvancedError]:
     outer = der_whole(der)?
     identifier = der_at(der, outer.start, outer.stop, 48u8)?
     if not der_same(der, identifier, algorithm)?:
@@ -587,7 +580,7 @@ def spki[S: ByteSource](der: &Bytes, algorithm: &S) -> Result[Der, AdvancedError
 
 # A positive DER INTEGER's magnitude, without its sign byte. `stop` is the
 # element's end, where the next element starts.
-def der_unsigned(der: &Bytes, at: i64, limit: i64) -> Result[Der, AdvancedError]:
+def der_unsigned(der: &[u8], at: i64, limit: i64) -> Result[Der, AdvancedError]:
     value = der_at(der, at, limit, 2u8)?
     if value.stop == value.start or der[value.start] > 127u8:
         return Err(AdvancedError.InvalidKey)
@@ -601,7 +594,7 @@ def der_unsigned(der: &Bytes, at: i64, limit: i64) -> Result[Der, AdvancedError]
 # meets a key ring would reject: the modulus has 2048..8192 bits, no leading
 # zero byte, and is odd; the exponent is odd, 3 <= e < 2**33, with no leading
 # zero byte. Returns the modulus length in bytes.
-def rsa_size(modulus: &Bytes, n: Der, exponent: &Bytes, e: Der) -> Result[i64, AdvancedError]:
+def rsa_size(modulus: &[u8], n: Der, exponent: &[u8], e: Der) -> Result[i64, AdvancedError]:
     size = n.stop - n.start
     width = e.stop - e.start
     if size == 0 or width == 0 or width > 5:
@@ -625,7 +618,7 @@ def rsa_size(modulus: &Bytes, n: Der, exponent: &Bytes, e: Der) -> Result[i64, A
     Ok(size)
 
 # A DER RSAPublicKey: SEQUENCE { INTEGER n, INTEGER e }.
-def rsa_public(der: &Bytes, start: i64, stop: i64) -> Result[RsaPublicKey, AdvancedError]:
+def rsa_public(der: &[u8], start: i64, stop: i64) -> Result[RsaPublicKey, AdvancedError]:
     key = der_at(der, start, stop, 48u8)?
     if key.stop != stop:
         return Err(AdvancedError.InvalidKey)
@@ -634,7 +627,7 @@ def rsa_public(der: &Bytes, start: i64, stop: i64) -> Result[RsaPublicKey, Advan
     if e.stop != key.stop:
         return Err(AdvancedError.InvalidKey)
     size = rsa_size(der, n, der, e)?
-    Ok(RsaPublicKey(advanced_bytes(der.slice(start, stop))?, size))
+    Ok(RsaPublicKey(advanced_bytes(std.bytes.from_bytes(&der[start:stop]))?, size))
 
 def der_length_size(size: i64) -> i64:
     if size < 128:
@@ -653,28 +646,28 @@ def der_header(target: &mut Bytes, tag: u8, size: i64) -> Result[(), AdvancedErr
         advanced_bytes(target.push(129u8))?
     advanced_bytes(target.push(u8(size & 255)))
 
-def der_integer(target: &mut Bytes, magnitude: &Bytes) -> Result[(), AdvancedError]:
+def der_integer(target: &mut Bytes, magnitude: &[u8]) -> Result[(), AdvancedError]:
     signed = magnitude[0] > 127u8
-    size = magnitude.len() + (1 if signed else 0)
+    size = len(magnitude) + (1 if signed else 0)
     der_header(target, 2u8, size)?
     if signed:
         advanced_bytes(target.push(0u8))?
     advanced_bytes(target.extend(magnitude))
 
-def integer_size(magnitude: &Bytes) -> i64:
-    size = magnitude.len() + (1 if magnitude[0] > 127u8 else 0)
+def integer_size(magnitude: &[u8]) -> i64:
+    size = len(magnitude) + (1 if magnitude[0] > 127u8 else 0)
     der_length_size(size) + size
 
 # SubjectPublicKeyInfo DER with the rsaEncryption algorithm and NULL
 # parameters, as `openssl pkey -pubout` writes it.
-pub def rsa_public_key_from_spki(der: &Bytes) -> Result[RsaPublicKey, AdvancedError]:
+pub def rsa_public_key_from_spki(der: &[u8]) -> Result[RsaPublicKey, AdvancedError]:
     bits = spki(der, b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00")?
     rsa_public(der, bits.start, bits.stop)
 
 # Big-endian unsigned modulus and exponent without leading zero bytes, as in
 # a JWK's decoded `n` and `e`.
-pub def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublicKey, AdvancedError]:
-    size = rsa_size(n, Der(0, n.len()), e, Der(0, e.len()))?
+pub def rsa_public_key_from_components(n: &[u8], e: &[u8]) -> Result[RsaPublicKey, AdvancedError]:
+    size = rsa_size(n, Der(0, len(n)), e, Der(0, len(e)))?
     body = integer_size(n) + integer_size(e)
     mut key = advanced_bytes(std.bytes.with_capacity(der_length_size(body) + body))?
     der_header(&mut key, 48u8, body)?
@@ -684,25 +677,25 @@ pub def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublic
 
 # Unencrypted PKCS #8 v1 (RFC 5208) holding a two-prime RSAPrivateKey, as
 # `openssl genpkey -algorithm RSA` writes it.
-pub def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, AdvancedError]:
+pub def rsa_private_key_from_pkcs8(der: &[u8]) -> Result[RsaPrivateKey, AdvancedError]:
     mut state = advanced_state(__crypto_key_new())?
     advanced_status(__crypto_rsa_load(state, der))?
     Ok(RsaPrivateKey(state))
 
 def p256_checked(point: Bytes) -> Result[P256PublicKey, AdvancedError]:
-    advanced_status(__crypto_p256_check(point))?
+    advanced_status(__crypto_p256_check(&point))?
     Ok(P256PublicKey(point))
 
 # A 65-byte uncompressed SEC1 point: 0x04, then x and y. Compressed points
 # are rejected. The point must lie on the curve.
-pub def p256_public_key_from_point(point: &Bytes) -> Result[P256PublicKey, AdvancedError]:
-    if point.len() != 65 or point[0] != 4u8:
+pub def p256_public_key_from_point(point: &[u8]) -> Result[P256PublicKey, AdvancedError]:
+    if len(point) != 65 or point[0] != 4u8:
         return Err(AdvancedError.InvalidKey)
-    p256_checked(advanced_bytes(point.copy())?)
+    p256_checked(advanced_bytes(std.bytes.from_bytes(point))?)
 
 # 32-byte big-endian coordinates, as in a JWK's decoded `x` and `y`.
-pub def p256_public_key_from_coordinates(x: &Bytes, y: &Bytes) -> Result[P256PublicKey, AdvancedError]:
-    if x.len() != 32 or y.len() != 32:
+pub def p256_public_key_from_coordinates(x: &[u8], y: &[u8]) -> Result[P256PublicKey, AdvancedError]:
+    if len(x) != 32 or len(y) != 32:
         return Err(AdvancedError.InvalidKey)
     mut point = advanced_bytes(std.bytes.with_capacity(65))?
     advanced_bytes(point.push(4u8))?
@@ -713,29 +706,29 @@ pub def p256_public_key_from_coordinates(x: &Bytes, y: &Bytes) -> Result[P256Pub
 # SubjectPublicKeyInfo DER with id-ecPublicKey and the named curve
 # prime256v1. Other curves, explicit curve parameters and compressed points
 # are rejected.
-pub def p256_public_key_from_spki(der: &Bytes) -> Result[P256PublicKey, AdvancedError]:
+pub def p256_public_key_from_spki(der: &[u8]) -> Result[P256PublicKey, AdvancedError]:
     bits = spki(der, b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07")?
     if bits.stop - bits.start != 65 or der[bits.start] != 4u8:
         return Err(AdvancedError.InvalidKey)
-    p256_checked(advanced_bytes(der.slice(bits.start, bits.stop))?)
+    p256_checked(advanced_bytes(std.bytes.from_bytes(&der[bits.start:bits.stop]))?)
 
 # Unencrypted PKCS #8 v1 holding a P-256 ECPrivateKey (RFC 5915) that
 # includes its public key, as `openssl genpkey` writes it. The public key
 # must match the private scalar.
-pub def p256_private_key_from_pkcs8(der: &Bytes) -> Result[P256PrivateKey, AdvancedError]:
+pub def p256_private_key_from_pkcs8(der: &[u8]) -> Result[P256PrivateKey, AdvancedError]:
     mut state = advanced_state(__crypto_key_new())?
     advanced_status(__crypto_p256_load(state, der))?
     Ok(P256PrivateKey(state))
 
 # SubjectPublicKeyInfo DER with id-Ed25519 (RFC 8410). Returns the 32-byte
 # public key that ed25519_verify takes.
-pub def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError]:
+pub def ed25519_public_key_from_spki(der: &[u8]) -> Result[Bytes, AdvancedError]:
     bits = spki(der, b"\x06\x03\x2b\x65\x70")?
     if bits.stop - bits.start != 32:
         return Err(AdvancedError.InvalidKey)
     if ed25519_small_order(der, bits.start)?:
         return Err(AdvancedError.SmallOrderKey)
-    advanced_bytes(der.slice(bits.start, bits.stop))
+    advanced_bytes(std.bytes.from_bytes(&der[bits.start:bits.stop]))
 
 # Whether data[at:at + 32] encodes a point of order 1, 2, 4 or 8. For such
 # a key A, the signature (R, S) = ([r]B, r) verifies whenever [k]A is the
@@ -745,8 +738,8 @@ pub def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError
 # values, and the non-canonical p and p + 1. Ignoring the sign bit covers the
 # remaining encodings: 14 in all. Mixed-order keys are accepted; see
 # crypto-advanced.md.
-def ed25519_small_order(data: &Bytes, at: i64) -> Result[bool, AdvancedError]:
-    if at < 0 or at + 32 > data.len():
+def ed25519_small_order(data: &[u8], at: i64) -> Result[bool, AdvancedError]:
+    if at < 0 or at + 32 > len(data):
         return Ok(False)
     match data[at + 31] & 127u8:
         case 0u8:
@@ -761,13 +754,13 @@ def ed25519_small_order(data: &Bytes, at: i64) -> Result[bool, AdvancedError]:
             Ok(False)
 
 # Whether data[at:at + 31] equals a small-order y's low 31 bytes.
-def ed25519_y[S: ByteSource](data: &Bytes, at: i64, low: &S) -> Result[bool, AdvancedError]:
-    advanced_bytes(data.matches(at, low, 0, 31))
+def ed25519_y(data: &[u8], at: i64, low: &[u8]) -> Result[bool, AdvancedError]:
+    Ok(__bytes_matches(&data[at:], 0, low))
 
 # Unencrypted PKCS #8 (RFC 8410) holding an Ed25519 key. Returns the 32-byte
 # seed that ed25519_sign takes. Version 1 may include the public key, which
 # must match the seed; attributes are ignored.
-pub def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]:
+pub def ed25519_seed_from_pkcs8(der: &[u8]) -> Result[Bytes, AdvancedError]:
     outer = der_whole(der)?
     version = der_at(der, outer.start, outer.stop, 2u8)?
     if version.stop - version.start != 1 or der[version.start] > 1u8:
@@ -782,7 +775,7 @@ pub def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]:
     mut at = wrapped.stop
     if at < outer.stop and der[at] == 160u8:
         at = der_at(der, at, outer.stop, 160u8)?.stop
-    mut seed = advanced_bytes(der.slice(inner.start, inner.stop))?
+    mut seed = advanced_bytes(std.bytes.from_bytes(&der[inner.start:inner.stop]))?
     if at == outer.stop:
         return Ok(seed)
     mut outcome: Result[bool, AdvancedError] = Ok(False)
@@ -804,7 +797,7 @@ pub def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]:
             Err(AdvancedError.InvalidKey)
 
 # Whether der[at:stop] is exactly a [1] public key matching the seed's.
-def ed25519_matches(der: &Bytes, at: i64, stop: i64, seed: &Bytes) -> Result[bool, AdvancedError]:
+def ed25519_matches(der: &[u8], at: i64, stop: i64, seed: &[u8]) -> Result[bool, AdvancedError]:
     public = match der_at(der, at, stop, 129u8):
         case Ok(element):
             element
@@ -813,4 +806,4 @@ def ed25519_matches(der: &Bytes, at: i64, stop: i64, seed: &Bytes) -> Result[boo
     if public.stop != stop or public.stop - public.start != 33 or der[public.start] != 0u8:
         return Ok(False)
     derived = ed25519_public_key(seed)?
-    advanced_bytes(der.matches(public.start + 1, &derived, 0, 32))
+    Ok(__bytes_matches(&der[public.start + 1:], 0, &derived[0:32]))

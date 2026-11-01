@@ -918,10 +918,10 @@ p = gg.ggplot(t, gg.aes("x", "y"), [gg.{geom}(), gg.theme_classic()]?)?
 #[test]
 fn writer_failure_and_invalid_output_dimensions() {
     let source = format!(
-        r#"from std.bytes import ByteSource
+        r#"
 pub class Stalled:
     remaining: i64
-    pub def write[S: ByteSource](self: &mut Stalled, data: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Stalled, data: &[u8]) -> Result[i64, StreamError]:
         count = self.remaining
         self.remaining = 0
         Ok(count)

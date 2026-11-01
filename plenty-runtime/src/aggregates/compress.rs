@@ -13,7 +13,7 @@
 //!
 //! zlib-rs is driven through its zlib-style calls (`__internal-api`), whose
 //! `init` reports allocation failure as `MemError` instead of aborting.
-use super::byte_storage::{Storage, range, result};
+use super::byte_storage::{Storage, result};
 use crate::memory::{self, AllocError, Header};
 use std::ffi::CStr;
 use std::ptr;
@@ -327,14 +327,10 @@ unsafe fn restart(value: u128) -> bool {
 // Inlined so each operation's entry symbol keeps only its own arm.
 #[inline(always)]
 pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
-    let [a, b, c, d] = operands;
+    let [a, b, c, _] = operands;
     // SAFETY: see above. The input view borrows a separate buffer's storage.
     unsafe {
-        // An input may also be a `bytes` literal.
-        let slice = |value: u128, start: u128, stop: u128| {
-            let bytes = super::byte_storage::source(value);
-            &bytes[range(start, stop, bytes.len())]
-        };
+        let view = |value: u128| super::byte_storage::view_bytes(value);
         match op {
             320 => {
                 let capacity = usize::try_from(c as i64)
@@ -343,7 +339,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                     .unwrap_or_else(|| crate::fail("empty compression buffer"));
                 result(create(a, b as i64, capacity))
             }
-            321 => step(a, slice(b, c, d)) as u128,
+            321 => step(a, view(b)) as u128,
             322 => flush(a, b as i64) as u128,
             323 => {
                 if brotli::owns(a) {
@@ -353,7 +349,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 }
             }
             324 => restart(a) as u128,
-            325 => zlib_rs::crc32::crc32(a as u32, slice(b, c, d)) as u128,
+            325 => zlib_rs::crc32::crc32(a as u32, view(b)) as u128,
             _ => crate::fail("unknown compression operation"),
         }
     }

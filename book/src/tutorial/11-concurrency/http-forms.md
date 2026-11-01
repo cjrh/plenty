@@ -71,7 +71,7 @@ def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.by
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
     data = std.bytes.from_text(request)?
-    stream.write_all_before(&data, 0, data.len(), &deadline, &never)?
+    stream.write_all_before(&data, &deadline, &never)?
     mut reply = std.bytes.empty()?
     mut buffer = std.bytes.empty()?
     buffer.resize(512, 0u8)?
@@ -79,7 +79,7 @@ def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.by
         count = stream.read_before(&mut buffer, 0, 512, &deadline, &never)?
         if count == 0:
             break
-        reply.extend_range(&buffer, 0, count)?
+        reply.extend(&buffer[:count])?
     text = reply.to_text()?
     lines = text.split("\r\n")?
     mut parts = [lines[0]]?

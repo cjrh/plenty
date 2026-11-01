@@ -4,7 +4,7 @@
 import std.bytes
 import std.http
 import std.io
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.http import Framing, Header, HttpError, Limits, RequestHead, RequestTarget
 from std.io import StreamError
 
@@ -90,20 +90,19 @@ pub class Decoder:
             drop(self.parsed_trailers()?)
         Err(HttpError.Truncated)
 
-    # The count is relative to start. Nothing means no event was produced;
-    # it may still consume bytes. An empty feed can emit End, but never EOF.
-    # Any framing/allocation failure poisons the decoder until it is dropped.
-    pub def feed[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
-        if start < 0 or stop < start or stop > source.len():
-            return Err(HttpError.Stream(StreamError.OutOfRange))
-        match self.step(source, start, stop):
+    # The count is how many bytes of `source` were consumed. Nothing means no
+    # event was produced; it may still consume bytes. An empty feed can emit
+    # End, but never EOF. Any framing/allocation failure poisons the decoder
+    # until it is dropped.
+    pub def feed(self: &mut Decoder, source: &[u8]) -> Result[(i64, Option[Event]), HttpError]:
+        match self.step(source):
             case Ok(progress):
                 Ok(progress)
             case Err(error):
                 self._state = failed
                 Err(error)
 
-    def step[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, Option[Event]), HttpError]:
+    def step(self: &mut Decoder, source: &[u8]) -> Result[(i64, Option[Event]), HttpError]:
         if self._state == failed:
             return Err(HttpError.Broken)
         if self._state == done:
@@ -111,28 +110,28 @@ pub class Decoder:
         if self._state == ending:
             self._state = done
             return Ok((0, Some(Event.End)))
-        mut end = stop
-        if stop - start > feed_budget:
-            end = start + feed_budget
+        mut end = len(source)
+        if end > feed_budget:
+            end = feed_budget
         if self._state == sized or self._state == chunk_data:
-            mut count = end - start
+            mut count = end
             if count > self._remaining:
                 count = self._remaining
             if count == 0:
                 return Ok((0, Nothing))
             mut body = mapped_bytes(std.bytes.with_capacity(count))?
-            mapped_bytes(body.extend_range(source, start, start + count))?
+            mapped_bytes(body.extend(&source[:count]))?
             self._remaining -= count
             self._total += count
             if self._remaining == 0:
                 self._state = ending if self._state == sized else chunk_end
             return Ok((count, Some(Event.Body(body))))
-        mut at = start
+        mut at = 0
         while at < end:
-            taken, complete = self.gather(source, at, end)?
+            taken, complete = self.gather(&source[at:end])?
             at += taken
             if not complete:
-                return Ok((at - start, Nothing))
+                return Ok((at, Nothing))
             size = self._line.len() - 2
             if self._state == head:
                 mapped_bytes(self._section.extend(&self._line))?
@@ -142,13 +141,13 @@ pub class Decoder:
                         self._started = True
                 elif size == 0:
                     self._line.clear()
-                    return Ok((at - start, Some(self.parsed_head()?)))
+                    return Ok((at, Some(self.parsed_head()?)))
                 else:
                     if self._fields >= self._limits.max_headers:
                         return Err(HttpError.TooManyHeaders)
                     self._fields += 1
             elif self._state == chunk_size:
-                length = std.http.parse_chunk_size(&self._line, size)?
+                length = std.http.parse_chunk_size(&self._line[:size])?
                 if length > self._limits.max_body - self._total:
                     return Err(HttpError.BodyTooLarge)
                 self._remaining = length
@@ -165,7 +164,7 @@ pub class Decoder:
                     self._line.clear()
                     values = self.parsed_trailers()?
                     self._state = ending
-                    return Ok((at - start, Some(Event.Trailers(values))))
+                    return Ok((at, Some(Event.Trailers(values))))
                 if self._fields >= self._limits.max_headers:
                     return Err(HttpError.TooManyHeaders)
                 self._fields += 1
@@ -175,12 +174,12 @@ pub class Decoder:
             # Body data belongs in a separate bounded event. Returning here
             # also avoids treating its arbitrary bytes as a framing line.
             if self._state == chunk_data:
-                return Ok((at - start, Nothing))
-        Ok((at - start, Nothing))
+                return Ok((at, Nothing))
+        Ok((at, Nothing))
 
     # One CRLF line. Reserve/check the section and line budgets before
     # copying input; valid CRLF at exactly the limit remains valid.
-    def gather[S: ByteSource](self: &mut Decoder, source: &S, start: i64, stop: i64) -> Result[(i64, bool), HttpError]:
+    def gather(self: &mut Decoder, source: &[u8]) -> Result[(i64, bool), HttpError]:
         mut limit = self._limits.max_line
         mut overflow = HttpError.LineTooLong
         if self._state == chunk_end:
@@ -193,14 +192,13 @@ pub class Decoder:
                 overflow = HttpError.HeadTooLarge
         if limit <= self._line.len():
             return Err(overflow)
-        mut end = stop
+        mut end = len(source)
         room = limit - self._line.len()
-        if end - start > room:
-            end = start + room
+        if end > room:
+            end = room
         mut complete = False
-        # Read either Bytes or a literal in place. The scan is bounded by
-        # feed_budget and avoids materializing a temporary input buffer.
-        mut at = start
+        # The scan is bounded by feed_budget and reads the view in place.
+        mut at = 0
         while at < end:
             byte = source[at]
             if self._state == head and byte != 13u8 and byte != 10u8:
@@ -210,14 +208,14 @@ pub class Decoder:
                 complete = True
                 break
             at += 1
-        mapped_bytes(self._line.extend_range(source, start, end))?
+        mapped_bytes(self._line.extend(&source[:end]))?
         if complete:
             length = self._line.len()
             if length < 2 or self._line[length - 2] != 13u8:
                 return Err(HttpError.BareLineFeed)
         elif self._line.len() == limit:
             return Err(overflow)
-        Ok((end - start, complete))
+        Ok((end, complete))
 
     def parsed_head(self: &mut Decoder) -> Result[Event, HttpError]:
         raw = replace(self._section, mapped_bytes(std.bytes.empty())?)
@@ -248,7 +246,7 @@ pub class Decoder:
             if size == 0:
                 break
             line = mapped_bytes(self._section.slice(at, end - 1))?
-            allocated(values.append(std.http.parse_field(&line, size)?))?
+            allocated(values.append(std.http.parse_field(&line[:size])?))?
             at = end + 1
         self._section.clear()
         Ok(values)

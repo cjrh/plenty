@@ -38,7 +38,7 @@ impl Parser {
                     .at
                     .error("protocol requirements cannot declare parameter defaults"));
             }
-            // Method-local parameters, such as `def write[S: ByteSource](...)`,
+            // Method-local parameters, such as `def map[U: Display](...)`,
             // must be declared alike by every implementation.
             for (parameter, bound) in &f.type_params {
                 if parameter == &name || type_params.iter().any(|(n, _)| n == parameter) {
@@ -177,7 +177,7 @@ pub(super) fn instantiate(
 }
 
 /// The methods a built-in type brings to protocols, as `(name, signature)`.
-/// `bytes` has `len`, which `std.bytes.ByteSource` requires.
+/// `bytes` has `len`, so it satisfies a protocol requiring `len`.
 fn builtin_methods(ty: &Ty) -> Option<Vec<(&'static str, generics::Signature)>> {
     match ty {
         Ty::ByteStr => Some(vec![(

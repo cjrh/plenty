@@ -23,7 +23,7 @@ pub class App:
                                 limits = std.actor.net.Limits(256, 256, std.time.seconds(2u32), std.time.seconds(2u32))
                                 mut connection = std.actor.net.connection(socket, &limits)?
                                 connection.start(context)?
-                                connection.write(b"ping", 0, 4, context)?
+                                connection.write(b"ping", context)?
                                 self.upstream = Some(connection)
                             case Nothing:
                                 pass
@@ -37,7 +37,8 @@ pub class App:
                         drop(connection.handle(&mail, context)?)
                         count = connection.available()
                         if count > 0:
-                            self.body.extend_range(connection.input(), connection.input_start(), connection.input_stop())?
+                            input = connection.input()
+                            self.body.extend(&input[connection.input_start():connection.input_stop()])?
                             connection.consume(count, context)?
                         if self.body.len() == 8:
                             response.send(200, "text/plain", &self.body)?

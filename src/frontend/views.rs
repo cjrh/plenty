@@ -40,6 +40,17 @@ impl Lower<'_> {
                 "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`",
             ));
         }
+        // `&b"abc"[1:]` views static data, as `&b"abc"` does at a `&[u8]`
+        // parameter; `&mut` still reports that a literal is read-only.
+        if !mutable
+            && matches!(
+                ungroup(base).kind,
+                Expression::Bytes(_) | Expression::Text(_)
+            )
+        {
+            let held = self.held_literal(base, ops)?;
+            return self.slice_view(&held, bounds, mutable, ops);
+        }
         let owner = self.place_type(base).map(classes::unbox);
         if matches!(owner, Some(Ty::Shared(_))) {
             if mutable {
@@ -242,6 +253,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Option<Expr>> {
         let (base, mutable) = match &ungroup(e).kind {
+            // `&b"..."` reads as the literal itself, as it did for the
+            // `&S` parameters that `&[u8]` replaced.
+            Expression::Unary(op, base)
+                if op == "&" && !text && matches!(ungroup(base).kind, Expression::Bytes(_)) =>
+            {
+                (self.held_literal(base, ops)?, false)
+            }
             Expression::Unary(op, base) if op == "&" || op == "&mut" => {
                 (Expr::clone(base), op == "&mut")
             }
@@ -311,6 +329,75 @@ impl Lower<'_> {
         })
     }
 
+    /// `&f()?` or `&f()?[a:b]` at a shared view parameter: the owner the call
+    /// returns is held until the end of the full expression, as a `&T`
+    /// argument holds one, and `arg` is rewritten to view that holder. A view
+    /// cannot outlive the call it is passed to, so the holder outlives it.
+    /// `None` leaves `arg` as written.
+    fn held_temporary(&mut self, arg: &Expr, ops: &mut Vec<Op>) -> Result<Option<Expr>> {
+        let Expression::Unary(op, inner) = &ungroup(arg).kind else {
+            return Ok(None);
+        };
+        if op != "&" {
+            return Ok(None);
+        }
+        let (owner, bounds) = match &ungroup(inner).kind {
+            Expression::Slice(base, bounds) => (ungroup(base), Some(bounds)),
+            _ => (ungroup(inner), None),
+        };
+        let held = |kind: &Expression| {
+            matches!(
+                kind,
+                Expression::Call(..)
+                    | Expression::GenericCall(..)
+                    | Expression::Method(..)
+                    | Expression::GenericMethod(..)
+                    | Expression::Invoke(..)
+                    | Expression::Try(..)
+            )
+        };
+        if !held(&owner.kind) || self.place_type(owner).is_some() {
+            return Ok(None);
+        }
+        let ty = self
+            .expr(owner, ops)?
+            .ok_or_else(|| owner.at.error("expected a value, got ()"))?;
+        let viewable = matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr)
+            || byte_buffers::byte_buffer(&ty).is_some();
+        if !viewable {
+            return Err(owner.at.error(format!(
+                "this parameter takes a slice view of a list, Bytes, bytes, or str value, got {ty}"
+            )));
+        }
+        let slot = self.slot(ty.clone(), &owner.at)?;
+        ops.push(Op::StoreLocal(slot));
+        self.expression_temps.push(slot);
+        let name = format!("$held{slot}");
+        self.bind(
+            name.clone(),
+            Local {
+                slot,
+                ty,
+                mutable: false,
+            },
+        );
+        let name = Expr {
+            at: owner.at.clone(),
+            kind: Expression::Name(name),
+        };
+        let viewed = match bounds {
+            Some(bounds) => Expr {
+                at: inner.at.clone(),
+                kind: Expression::Slice(Box::new(name), bounds.clone()),
+            },
+            None => name,
+        };
+        Ok(Some(Expr {
+            at: arg.at.clone(),
+            kind: Expression::Unary("&".into(), Box::new(viewed)),
+        }))
+    }
+
     /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
     /// binding, or an owner that [`Self::owner_view`] converts. `text`
     /// marks a `&substr`.
@@ -321,6 +408,12 @@ impl Lower<'_> {
         text: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        let held = if mutable {
+            None
+        } else {
+            self.held_temporary(arg, ops)?
+        };
+        let arg = held.as_ref().unwrap_or(arg);
         let converted = self.owner_view(arg, mutable, text, ops)?;
         let arg = converted.as_ref().unwrap_or(arg);
         let wanted = if mutable { "&mut xs[a:b]" } else { "&xs[a:b]" };

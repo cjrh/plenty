@@ -257,7 +257,7 @@ pub class Statement:
         self.rewound()
         status(__sqlite_bind_text(self._handle, index, value))
 
-    pub def bind_blob(self: &mut Statement, index: i64, value: &Bytes) -> Result[(), DbError]:
+    pub def bind_blob(self: &mut Statement, index: i64, value: &[u8]) -> Result[(), DbError]:
         self.rewound()
         status(__sqlite_bind_blob(self._handle, index, value))
 

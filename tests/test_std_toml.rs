@@ -11,7 +11,7 @@ const HEADER: &str = r#"import std.bytes
 import std.encoding
 import std.io
 import std.toml
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError
 from std.toml import DateTime, DateTimeKind, Entry, Limits, Toml, TomlError, TomlFault
 
@@ -26,7 +26,7 @@ pub class Trickle:
             count = self.step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -38,15 +38,15 @@ pub class Sink:
     pub data: Bytes
     pub room: i64
 
-    pub def write[S: ByteSource](self: &mut Sink, buffer: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut count = stop - start
+    pub def write(self: &mut Sink, buffer: &[u8]) -> Result[i64, StreamError]:
+        mut count = len(buffer)
         if count > 3:
             count = 3
         if count > self.room:
             count = self.room
         if count == 0:
             return Ok(0)
-        match self.data.extend_range(buffer, start, start + count):
+        match self.data.extend(&buffer[:count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -79,7 +79,7 @@ pub class Faulty:
             count = 2
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):

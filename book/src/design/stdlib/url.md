@@ -102,9 +102,9 @@ module does not lowercase schemes or hosts and does not decode escapes, so
 | Function | Result | Contract |
 |---|---|---|
 | `encode(text: &str, component)` | `Result[str, UrlError]` | Escape the UTF-8 bytes of `text` for `component` |
-| `encode_bytes(source: &Bytes, start, stop, component)` | `Result[Bytes, UrlError]` | The same for a byte range |
+| `encode_bytes(source: &[u8], component)` | `Result[Bytes, UrlError]` | The same for a byte view |
 | `decode(text: &str)` | `Result[str, UrlError]` | Replace each `%hh`; the result must be UTF-8 |
-| `decode_bytes(source: &Bytes, start, stop)` | `Result[Bytes, UrlError]` | Replace each `%hh` in a byte range |
+| `decode_bytes(source: &[u8])` | `Result[Bytes, UrlError]` | Replace each `%hh` in a byte view; an `InvalidEscape` index is relative to the view |
 
 Ranges follow the `std.bytes` [range rule](bytes.md#the-range-rule).
 

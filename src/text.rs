@@ -8,11 +8,9 @@ pub enum TextOp {
     AsciiEqualFolded,
     /// `__text_find_in(text, set, member)`: the scalar position of the first
     /// scalar that is (`member` 1) or is not (0) an ASCII byte of `set`, or
-    /// -1. `set` is a `Bytes` buffer's storage; `FindInLiteral` reads a
-    /// `bytes` literal. Operands are read through shared references, so the
-    /// call retains nothing (issue #383).
+    /// -1. `set` is a `&[u8]` view. The text is read through a shared
+    /// reference, so the call retains nothing (issue #383).
     FindIn,
-    FindInLiteral,
 }
 
 impl TextOp {
@@ -30,19 +28,16 @@ impl TextOp {
             // Whether both texts are ASCII and equal ignoring ASCII case.
             Self::AsciiEqualFolded => (vec![Ty::Str, Ty::Str], Ty::Bool),
             Self::FindIn => (
-                vec![shared(Ty::Str), shared(Ty::ByteStorage), Ty::U8],
+                vec![shared(Ty::Str), crate::bytes::byte_view(), Ty::U8],
                 Ty::I64,
             ),
-            Self::FindInLiteral => (vec![shared(Ty::Str), shared(Ty::ByteStr), Ty::U8], Ty::I64),
         }
     }
 
     pub fn opcode(self) -> i64 {
         match self {
             Self::AsciiEqualFolded => 366,
-            Self::FindIn | Self::FindInLiteral => {
-                unreachable!("text set scans use a narrow runtime helper")
-            }
+            Self::FindIn => unreachable!("text set scans use a narrow runtime helper"),
         }
     }
 }

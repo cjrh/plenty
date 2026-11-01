@@ -31,7 +31,7 @@ def main() -> Result[(), IoError]:
     while True:
         match input_bytes(0u8)?:
             case Some(record):
-                write_stdout_bytes(record)?
+                write_stdout_bytes(&record)?
                 write_stdout_bytes(&terminator)?
             case Nothing:
                 break
@@ -124,12 +124,49 @@ def main() -> Result[(), IoError]:
     assert_eq!(std::fs::read(destination).unwrap(), data);
 }
 
+// B90: the byte writers take `&[u8]`, so each owner kind and a subview reach
+// the same builtin without conversion.
+#[cfg(target_os = "linux")]
+#[test]
+fn byte_writers_take_every_view_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let binary = dir.path().join("program");
+    let path = dir.path().join("out");
+    support::compile_source_to_executable(
+        r#"
+import std.bytes
+
+def main() -> Result[(), IoError | std.bytes.BytesError]:
+    argv = args_bytes()?
+    owned = std.bytes.from_text("bytes,")?
+    listed = encode_utf8("list,")?
+    print(write_stdout_bytes(&owned)?, write_stdout_bytes(&listed)?)?
+    print(write_stdout_bytes(b"lit,")?, write_stdout_bytes(&owned[1:3])?)?
+    print(write_stderr_bytes(&listed[0:2])?, write_stderr_bytes(b"\xff")?)?
+    print(write_bytes(&argv[1], &owned[0:5])?)?
+    print(write_bytes(&argv[1], &listed[9:])?, read_bytes(&argv[1])?)?
+    print(write_bytes(&argv[1], b"\x00\xff")?, read_bytes(&argv[1])?)?
+    Ok(())
+"#,
+        &binary,
+    )
+    .unwrap();
+    let output = Command::new(binary).arg(&path).output().unwrap();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "bytes,list,6 5\nlit,yt4 2\n2 1\n5\n0 []\n2 [0, 255]\n"
+    );
+    assert_eq!(output.stderr, b"li\xff");
+    assert_eq!(std::fs::read(path).unwrap(), b"\x00\xff");
+}
+
 #[test]
 fn nul_paths_and_wrong_types_are_rejected() {
     let output = support::run(
         r#"
 print(str.repr(read_bytes([0u8].unwrap())).unwrap()).unwrap()
-print(str.repr(write_bytes([0u8].unwrap(), [255u8].unwrap())).unwrap()).unwrap()
+print(str.repr(write_bytes([0u8].unwrap(), b"\xff")).unwrap()).unwrap()
 "#,
     );
     assert!(output.status.success());

@@ -12,7 +12,7 @@ import std.ready
 import std.text
 import std.time
 import std.url
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.http import BodyReader, Framing, Header, HttpError, Limits, RequestHead, ResponseHead
 from std.io import BufReader, StreamError
 from std.log import ChannelSink, Field, Level
@@ -37,7 +37,7 @@ pub protocol Transport:
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         pass
 
-    def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+    def write_before(self: &mut Transport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         pass
 
     # The server only ends writes (`Shutdown.Write`), before a lingering
@@ -420,11 +420,12 @@ def gather[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limits, 
 
 # Connections
 
-def send_all[T: Transport, S: ByteSource](stream: &mut T, source: &S, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
-    mut at = start
+def send_all[T: Transport](stream: &mut T, source: &[u8], span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
+    stop = len(source)
+    mut at = 0
     while at < stop:
         limit = least(after(now_ns(), span), until)
-        count = stream.write_before(source, at, stop, &deadline_of(limit), cancel)?
+        count = stream.write_before(&source[at:], &deadline_of(limit), cancel)?
         if count <= 0:
             return Err(NetError.Stream(StreamError.WriteZero))
         at += count
@@ -437,10 +438,10 @@ def read_some[T: Transport](stream: &mut Option[T], buffer: &mut Bytes, start: i
         case Nothing:
             Err(NetError.Stream(StreamError.Io(IoError.Closed)))
 
-def send_some[T: Transport, S: ByteSource](stream: &mut Option[T], source: &S, start: i64, stop: i64, span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
+def send_some[T: Transport](stream: &mut Option[T], source: &[u8], span: u64, until: u64, cancel: &CancellationToken) -> Result[(), NetError]:
     match stream:
         case Some(open):
-            send_all(open, source, start, stop, span, until, cancel)
+            send_all(open, source, span, until, cancel)
         case Nothing:
             Err(NetError.Stream(StreamError.Io(IoError.Closed)))
 
@@ -511,7 +512,7 @@ pub class Conn[T]:
             mut count = stop - start
             if count > unread:
                 count = unread
-            match buffer.overwrite(start, &self._input.data, self._at, self._at + count):
+            match buffer.overwrite(start, &self._input.data[self._at:self._at + count]):
                 case Ok(_):
                     self._at += count
                     return Ok(count)
@@ -541,20 +542,19 @@ pub class Conn[T]:
             case Err(error):
                 Err(self.noted(error))
 
-    pub def write[S: ByteSource](self: &mut Conn[T], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > source.len():
-            return Err(StreamError.OutOfRange)
-        if self._out.len() + (stop - start) > self._out_limit:
+    pub def write(self: &mut Conn[T], source: &[u8]) -> Result[i64, StreamError]:
+        count = len(source)
+        if self._out.len() + count > self._out_limit:
             self.flush()?
-            if stop - start >= self._out_limit:
-                match send_some(&mut self._stream, source, start, stop, self._write_span, self._write_until, &self._cancel):
+            if count >= self._out_limit:
+                match send_some(&mut self._stream, source, self._write_span, self._write_until, &self._cancel):
                     case Ok(_):
-                        return Ok(stop - start)
+                        return Ok(count)
                     case Err(error):
                         return Err(self.noted(error))
-        match self._out.extend_range(source, start, stop):
+        match self._out.extend(source):
             case Ok(_):
-                Ok(stop - start)
+                Ok(count)
             case Err(error):
                 match error:
                     case BytesError.Allocation(cause):
@@ -566,7 +566,7 @@ pub class Conn[T]:
         size = self._out.len()
         if size == 0:
             return Ok(())
-        outcome = send_some(&mut self._stream, &self._out, 0, size, self._write_span, self._write_until, &self._cancel)
+        outcome = send_some(&mut self._stream, &self._out, self._write_span, self._write_until, &self._cancel)
         self._out.clear()
         match outcome:
             case Ok(_):
@@ -758,15 +758,15 @@ pub class Exchange[T]:
             case Nothing:
                 Err(HttpError.Broken)
 
-    def put(self: &mut Exchange[T], source: &Bytes, start: i64, stop: i64, framed: bool) -> Result[(), HttpError]:
+    def put(self: &mut Exchange[T], source: &[u8], framed: bool) -> Result[(), HttpError]:
         if self._head_only:
             return Ok(())
         match &mut self._conn:
             case Some(conn):
                 if framed:
-                    std.http.write_chunk(&mut conn.inner, source, start, stop)
+                    std.http.write_chunk(&mut conn.inner, source)
                 else:
-                    match std.io.write_all(&mut conn.inner, source, start, stop):
+                    match std.io.write_all(&mut conn.inner, source):
                         case Ok(_):
                             Ok(())
                         case Err(partial):
@@ -783,26 +783,26 @@ pub class Exchange[T]:
 
     # Sends a whole response: `head` plus `body`, with Content-Length added.
     # `head` must not declare framing itself.
-    pub def respond(self: &mut Exchange[T], head: ResponseHead, body: &Bytes) -> Result[(), HttpError]:
+    pub def respond(self: &mut Exchange[T], head: ResponseHead, body: &[u8]) -> Result[(), HttpError]:
         mut owned = head
         if std.http.find(&owned.headers, "content-length").is_some() or std.http.find(&owned.headers, "transfer-encoding").is_some():
             return Err(HttpError.ConflictingFraming)
         bodiless = owned.status == 204 or owned.status == 304
-        if bodiless and body.len() != 0:
+        if bodiless and len(body) != 0:
             return Err(HttpError.LengthMismatch)
         if not bodiless:
-            size = http_allocated(str.from(body.len()))?
+            size = http_allocated(str.from(len(body)))?
             owned.add("Content-Length", size)?
         self.begin(&mut owned)?
-        self.put(body, 0, body.len(), False)?
+        self.put(body, False)?
         self.flush()?
         if not self._head_only:
-            self._sent = body.len()
+            self._sent = len(body)
         self._state = ended
         Ok(())
 
     # Sends `body` with the given status and Content-Type.
-    pub def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &Bytes) -> Result[(), HttpError]:
+    pub def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]:
         mut head = std.http.response(status, reason(status))?
         head.add("Content-Type", *content_type)?
         self.respond(head, body)
@@ -839,21 +839,20 @@ pub class Exchange[T]:
         self._state = next
         Ok(())
 
-    # Sends source[start:stop] of a streamed response and flushes it.
-    pub def write(self: &mut Exchange[T], source: &Bytes, start: i64, stop: i64) -> Result[(), HttpError]:
+    # Sends `source` as part of a streamed response and flushes it.
+    pub def write(self: &mut Exchange[T], source: &[u8]) -> Result[(), HttpError]:
         if self._state != sized and self._state != chunked and self._state != closing:
             return Err(HttpError.Broken)
-        if start < 0 or start > stop or stop > source.len():
-            return Err(HttpError.Stream(StreamError.OutOfRange))
-        if self._state == sized and stop - start > self._remaining:
+        count = len(source)
+        if self._state == sized and count > self._remaining:
             return Err(HttpError.LengthMismatch)
         state = self._state
         self._state = broken
-        self.put(source, start, stop, state == chunked)?
+        self.put(source, state == chunked)?
         self.flush()?
-        self._remaining -= stop - start
+        self._remaining -= count
         if not self._head_only:
-            self._sent += stop - start
+            self._sent += count
         self._state = state
         Ok(())
 
@@ -945,7 +944,7 @@ pub class Exchange[T]:
                     pass
                 case Err(cause):
                     return Err(HttpError.Stream(cause))
-        http_bytes(input.extend_range(&taken.inner._input.data, taken.inner._at, taken.inner._input.data.len()))?
+        http_bytes(input.extend(&taken.inner._input.data[taken.inner._at:]))?
         stream = match replace(taken.inner._stream, Nothing):
             case Some(found):
                 found
@@ -1096,7 +1095,7 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
     head.add("Connection", "close")?
     std.http.write_response(conn, &head)?
     body = http_bytes(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
-    match std.io.write_all(conn, &body, 0, body.len()):
+    match std.io.write_all(conn, &body):
         case Ok(_):
             pass
         case Err(partial):
@@ -1165,7 +1164,7 @@ def unread[T](reader: &mut BufReader[Conn[T]], limits: &Limits) -> bool:
         # Taken from the reader's buffer; the stream is not read.
         if held > 0 and reader.read(&mut merged, 0, held).is_err():
             return False
-        if merged.extend_range(&reader.inner._input.data, at, size).is_err():
+        if merged.extend(&reader.inner._input.data[at:size]).is_err():
             return False
         reader.inner._input.data = merged
     reader.inner._at = 0
@@ -1698,7 +1697,7 @@ def worker[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](inbox: Receive
                                 case Some(socket):
                                     match &chime:
                                         case Some(byte):
-                                            drop(socket.send_to(byte, 0, 1, &wake, &deadline_of(0u64), cancel))
+                                            drop(socket.send_to(&byte[:1], &wake, &deadline_of(0u64), cancel))
                                         case Nothing:
                                             pass
                                 case Nothing:
@@ -1723,7 +1722,7 @@ def answer[T: Transport](stream: &mut T, text: &str, write_ns: u64, token: &Canc
             pass
     match std.bytes.from_text(text):
         case Ok(bytes):
-            drop(send_all(stream, &bytes, 0, bytes.len(), write_ns, after(now_ns(), write_ns), token))
+            drop(send_all(stream, &bytes, write_ns, after(now_ns(), write_ns), token))
         case Err(_):
             pass
 

@@ -69,7 +69,7 @@ mut h = sketch.hyperloglog(4)?
 h.add(0u64)
 h.add(1u64)
 wire = h.to_bytes()?
-print(wire.len() == 36 and wire.matches(0, &gold, 0, len(gold))?)?
+print(wire.len() == 36 and wire.matches(0, &gold)?)?
 read = sketch.hyperloglog_from_bytes(&gold)?
 print(read.estimate() == h.estimate())?
 "#,
@@ -220,7 +220,7 @@ fn malformed_and_limited_wire_inputs() {
         r#"
 mut rejected = 0
 for raw in [b"", b"PSH1", b"PSQ1", b"PSX1", b"PSC1", b"PSF1"]?:
-    data = std.bytes.from_bytes(raw)?
+    data = std.bytes.from_bytes(&raw)?
     match sketch.hyperloglog_from_bytes(&data):
         case Err(_):
             rejected += 1

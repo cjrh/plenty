@@ -94,7 +94,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
     stream.set_no_delay(True)?
     data = read_all(&mut stream, deadline, cancel)?
     stream.acknowledge_now()?
-    stream.write_all_before(&data, 0, data.len(), deadline, cancel)?
+    stream.write_all_before(&data, deadline, cancel)?
     stream.shutdown(Shutdown.Write)?
     Ok(data.len())
 "#;
@@ -119,17 +119,17 @@ def main() -> Result[(), std.bytes.BytesError | NetError | WaitError | RangeErro
     server.watch(&mut chosen, 2u64, Interest.Read)?
     mut buffer = zeroed(4)?
     print(outcome(server.read_now(&mut buffer, 1, 3))?, buffer[1])?
-    print(client.write_now(&b"!x!", 1, 2)?)?
+    print(client.write_now(&b"!x!"[1:2])?)?
     chosen.wait(&deadline, &cancel)?
     print(server.read_now(&mut buffer, 1, 3)?, buffer[0], buffer[1], buffer[2])?
     print(outcome(server.read_now(&mut buffer, 1, 3))?)?
-    print(server.read_now(&mut buffer, 2, 2)?, client.write_now(&b"", 0, 0)?)?
+    print(server.read_now(&mut buffer, 2, 2)?, client.write_now(&b"")?)?
     client.shutdown(Shutdown.Write)?
     chosen.wait(&deadline, &cancel)?
     print(server.read_now(&mut buffer, 0, 4)?)?
     server.close().unwrap()
     print(outcome(server.read_now(&mut buffer, 0, 1))?)?
-    print(outcome(server.write_now(&b"x", 0, 1))?)?
+    print(outcome(server.write_now(&b"x"))?)?
     listener.close()?
     print(outcome(listener.accept_now())?)?
     Ok(())
@@ -143,7 +143,7 @@ std.net.NetError.Stream(std.io.StreamError.Io(IoError.Closed))\n",
 }
 
 #[test]
-fn immediate_tcp_ranges_are_checked_before_attempting_io() {
+fn immediate_tcp_read_ranges_are_checked_before_attempting_io() {
     runs(
         r#"
 def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError]:
@@ -156,14 +156,13 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocErr
     for bounds in [(-1, 1), (3, 2), (0, 5), (1, i64.MAX)]?:
         (start, stop) = bounds
         print(outcome(server.read_now(&mut buffer, start, stop))?)?
-        print(outcome(client.write_now(&buffer, start, stop))?)?
     print(outcome(server.read_now(&mut buffer, 0, 4))?)?
     print(buffer[0], buffer[3])?
     Ok(())
 "#,
         &format!(
             "{}std.net.NetError.WouldBlock\n0 0\n",
-            "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n".repeat(8)
+            "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n".repeat(4)
         ),
     );
 }
@@ -183,7 +182,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocErr
     mut short = False
     mut larger_than_page = False
     while True:
-        match client.write_now(&data, 0, data.len()):
+        match client.write_now(&data):
             case Ok(count):
                 if count <= 0 or count > data.len() or sent >= 67108864:
                     return Err(IoError.InvalidInput)
@@ -206,7 +205,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocErr
     mut chosen = selector(1).unwrap()
     client.watch(&mut chosen, 1u64, Interest.Write)?
     chosen.wait(&deadline, &cancel).unwrap()
-    print(client.write_now(&b"x", 0, 1)?)?
+    print(client.write_now(&b"x")?)?
     print(server.read_before(&mut buffer, 0, 1, &deadline, &cancel)?, buffer[0])?
     Ok(())
 "#,
@@ -309,7 +308,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | SpawnErr
         print(stream.peer_address().unwrap().port == address.port)?
         print(format_ip(stream.local_address().unwrap().ip)?)?
         message = std.bytes.from_text("short reads are seven bytes at most")?
-        stream.write_all_before(&message, 0, message.len(), &deadline, &cancel).unwrap()
+        stream.write_all_before(&message, &deadline, &cancel).unwrap()
         stream.shutdown(Shutdown.Write).unwrap()
         reply = read_all(&mut stream, &deadline, &cancel).unwrap()
         print(reply.to_text()?)?
@@ -347,7 +346,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
         mut sent = 0
         mut larger_than_page = False
         while sent < data.len():
-            count = stream.write_before(&data, sent, data.len(), &deadline, &cancel).unwrap()
+            count = stream.write_before(&data[sent:], &deadline, &cancel).unwrap()
             if count <= 0 or count > data.len() - sent:
                 return Err(IoError.InvalidInput)
             larger_than_page = larger_than_page or count > 4096
@@ -362,7 +361,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
 }
 
 #[test]
-fn tcp_writes_validate_the_whole_requested_range() {
+fn tcp_write_views_clamp_to_the_buffer() {
     runs(
         r#"
 def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
@@ -372,20 +371,15 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoErro
     mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
     mut peer = listener.accept(&deadline, &cancel).unwrap()
     data = zeroed(8192)?
-    print(outcome(stream.write_before(&data, 0, 8193, &deadline, &cancel))?)?
-    print(outcome(stream.write_before(&data, 1, i64.MAX, &deadline, &cancel))?)?
-    print(outcome(stream.write_before(&data, -1, i64.MAX, &deadline, &cancel))?)?
-    print(outcome(stream.write_before(&data, 8193, 8192, &deadline, &cancel))?)?
-    print(stream.write_before(&data, 8192, 8192, &deadline, &cancel).unwrap())?
+    print(stream.write_before(&data[8190:i64.MAX], &deadline, &cancel).unwrap())?
+    print(stream.write_before(&data[-1:i64.MAX], &deadline, &cancel).unwrap())?
+    print(stream.write_before(&data[8193:8192], &deadline, &cancel).unwrap())?
     stream.shutdown(Shutdown.Write).unwrap()
     mut received = zeroed(1)?
     print(peer.read_before(&mut received, 0, 1, &deadline, &cancel).unwrap())?
     Ok(())
 "#,
-        "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
-std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
-std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n\
-std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n0\n0\n",
+        "2\n1\n0\n1\n",
     );
 }
 
@@ -408,9 +402,9 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoErro
     mut accepted = server.accept(&deadline, &cancel).unwrap()
     accepted.close().unwrap()
     data = zeroed(4096)?
-    mut result = stream.write_all_before(&data, 0, 4096, &deadline, &cancel)
+    mut result = stream.write_all_before(&data[:4096], &deadline, &cancel)
     while result.is_ok():
-        result = stream.write_all_before(&data, 0, 4096, &deadline, &cancel)
+        result = stream.write_all_before(&data[:4096], &deadline, &cancel)
     print(outcome(result)?)?
     Ok(())
 "#,
@@ -433,7 +427,7 @@ def delayed_sink(listener: &TcpListener, deadline: &Deadline, cancel: &Cancellat
     while count < 8000000:
         count += stream.read(&mut buffer, 0, 65536).unwrap()
     sleep(&milliseconds(30u32))
-    std.io.write_all(&mut stream, &b"done", 0, 4).unwrap()
+    std.io.write_all(&mut stream, &b"done").unwrap()
 
 def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
@@ -442,7 +436,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
     with spawn(delayed_sink, &listener, &deadline, &cancel)?:
         mut stream = connect(&listener.local_address().unwrap(), &deadline, &cancel).unwrap()
         data = zeroed(8000000)?
-        std.io.write_all(&mut stream, &data, 0, data.len()).unwrap()
+        std.io.write_all(&mut stream, &data).unwrap()
         mut reply = zeroed(4)?
         std.io.read_exact(&mut stream, &mut reply, 0, 4).unwrap()
         print(reply.to_text()?)?
@@ -468,14 +462,14 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
     accepted = listener.accept(&deadline, &cancel).unwrap()
     data = zeroed(8000000)?
     short = within(50u32)?
-    mut result = stream.write_before(&data, 0, data.len(), &short, &cancel)
+    mut result = stream.write_before(&data, &short, &cancel)
     while result.is_ok():
-        result = stream.write_before(&data, 0, data.len(), &short, &cancel)
+        result = stream.write_before(&data, &short, &cancel)
     print(outcome(result)?)?
     with spawn(cancel_later, cancel.share()).drop_job()?:
-        mut cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
+        mut cancelled = stream.write_before(&data, &deadline, &cancel)
         while cancelled.is_ok():
-            cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
+            cancelled = stream.write_before(&data, &deadline, &cancel)
         print(outcome(cancelled)?)?
     Ok(())
 "#,
@@ -625,8 +619,8 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoErro
     mut receiver = bind_udp(&loopback_v4(0u16)).unwrap()
     target = receiver.local_address().unwrap()
     payload = std.bytes.from_text("0123456789")?
-    print(sender.send_to(&payload, 0, 10, &target, &deadline, &cancel).unwrap())?
-    print(sender.send_to(&payload, 2, 5, &target, &deadline, &cancel).unwrap())?
+    print(sender.send_to(&payload[:10], &target, &deadline, &cancel).unwrap())?
+    print(sender.send_to(&payload[2:5], &target, &deadline, &cancel).unwrap())?
     mut buffer = zeroed(8)?
     first = receiver.receive_from(&mut buffer, 0, 4, &deadline, &cancel).unwrap()
     print(first.size, first.stored, first.truncated(), buffer.slice(0, 4)?.to_text()?)?
@@ -634,13 +628,11 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoErro
     second = receiver.receive_from(&mut buffer, 0, 8, &deadline, &cancel).unwrap()
     print(second.size, second.stored, second.truncated(), buffer.slice(0, 3)?.to_text()?)?
     print(outcome(receiver.receive_from(&mut buffer, 0, 8, &within(0u32)?, &cancel))?)?
-    print(outcome(sender.send_to(&payload, 0, 11, &target, &deadline, &cancel))?)?
     huge = zeroed(70000)?
-    print(outcome(sender.send_to(&huge, 0, 70000, &target, &deadline, &cancel))?)?
+    print(outcome(sender.send_to(&huge[:70000], &target, &deadline, &cancel))?)?
     Ok(())
 "#,
         "10\n3\n10 4 True 0123\nTrue\n3 3 False 234\nstd.net.NetError.TimedOut\n\
-std.net.NetError.Stream(std.io.StreamError.Io(IoError.InvalidInput))\n\
 std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(90)))\n",
     );
 }
@@ -663,7 +655,7 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
-/// Writes take any `std.bytes.ByteSource`, so literals need no copy (issue #156).
+/// Writes take a `&[u8]` view, so literals need no copy (issue #156).
 #[test]
 fn byte_literals_are_sent_in_place() {
     runs(
@@ -675,24 +667,22 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
     address = listener.local_address().unwrap()
     with spawn(echo, &listener, &deadline, &cancel)? as task:
         mut stream = connect(&address, &deadline, &cancel).unwrap()
-        stream.write_all_before(b"literal, ", 0, 9, &deadline, &cancel).unwrap()
-        print(stream.write_before(b"then more", 5, 9, &deadline, &cancel).unwrap())?
-        stream.write(b"!", 0, 1).unwrap()
+        stream.write_all_before(b"literal, ", &deadline, &cancel).unwrap()
+        print(stream.write_before(&b"then more"[5:9], &deadline, &cancel).unwrap())?
+        stream.write(b"!").unwrap()
         stream.shutdown(Shutdown.Write).unwrap()
         print(read_all(&mut stream, &deadline, &cancel).unwrap().to_text()?)?
         print(task.join().unwrap())?
     mut sender = bind_udp(&loopback_v4(0u16)).unwrap()
     mut receiver = bind_udp(&loopback_v4(0u16)).unwrap()
     target = receiver.local_address().unwrap()
-    print(sender.send_to(b"datagram", 4, 8, &target, &deadline, &cancel).unwrap())?
-    print(outcome(sender.send_to(b"datagram", 4, 9, &target, &deadline, &cancel))?)?
+    print(sender.send_to(&b"datagram"[4:8], &target, &deadline, &cancel).unwrap())?
     mut buffer = zeroed(8)?
     got = receiver.receive_from(&mut buffer, 0, 8, &deadline, &cancel).unwrap()
     print(buffer.slice(0, got.stored)?.to_text()?)?
     Ok(())
 "#,
-        "4\nliteral, more!\n14\n4\n\
-std.net.NetError.Stream(std.io.StreamError.Io(IoError.InvalidInput))\ngram\n",
+        "4\nliteral, more!\n14\n4\ngram\n",
     );
 }
 
@@ -808,7 +798,7 @@ def client(port: u16) -> Result[i64, NetError]:
     addresses = resolve("127.0.0.1", port, &deadline, &cancel)?
     mut stream = connect(&addresses[0], &deadline, &cancel)?
     message = std.bytes.from_text("from a worker").unwrap()
-    stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
+    stream.write_all_before(&message, &deadline, &cancel)?
     Ok(message.len())
 
 def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
@@ -832,7 +822,7 @@ fn several_workers_accept_from_one_listener() {
         r#"
 def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), std.bytes.BytesError]:
     message = std.bytes.from_text("ping")?
-    stream.write_all_before(&message, 0, 4, deadline, cancel).unwrap()
+    stream.write_all_before(&message[:4], deadline, cancel).unwrap()
     stream.shutdown(Shutdown.Write).unwrap()
     Ok(())
 
@@ -881,7 +871,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoErro
     first.watch(&mut chosen, 1u64, Interest.Read).unwrap()
     second.watch(&mut chosen, 2u64, Interest.Read).unwrap()
     message = std.bytes.from_text("x")?
-    two.write_all_before(&message, 0, 1, &long, &cancel).unwrap()
+    two.write_all_before(&message[:1], &long, &cancel).unwrap()
     ready = chosen.wait(&long, &cancel).unwrap()
     event = chosen.event(0).unwrap()
     print(ready, event.key, event.readiness.readable)?

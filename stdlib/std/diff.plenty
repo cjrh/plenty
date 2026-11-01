@@ -315,15 +315,15 @@ def allocated[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
                     failed: Result[T, BytesError] = Err(error)
                     Ok(failed.unwrap())
 
-def byte_ids(data: &Bytes) -> Result[list[i64], AllocError]:
+def byte_ids(data: &[u8]) -> Result[list[i64], AllocError]:
     mut out = list[i64]()?
-    out.reserve(data.len())?
-    for index in range(data.len()):
-        out.append(i64(allocated(data.get(index))?))?
+    out.reserve(len(data))?
+    for index in range(len(data)):
+        out.append(i64(data[index]))?
     Ok(out)
 
 # The edit operations that turn the bytes of `old` into those of `new`.
-pub def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]:
+pub def diff_bytes(old: &[u8], new: &[u8], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]:
     old_ids = byte_ids(old)?
     new_ids = byte_ids(new)?
     run(&old_ids, &new_ids, 256, algorithm, max_cost)

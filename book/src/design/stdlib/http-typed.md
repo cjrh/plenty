@@ -63,7 +63,7 @@ buffer; its `ReadFailure[E]` envelope preserves the original transport payload.
 Pass the same buffered reader to the body constructor to retain read-ahead.
 
 `write_request(writer, head)`, `write_response(writer, head)`,
-`write_chunk(writer, source, start, stop)` and
+`write_chunk(writer, source: &[u8])` and
 `write_last_chunk(writer, trailers)` return
 `Result[(), Partial[FramingError[E]]]`. Head/trailer serialization shares
 [`std.http`](http.md)'s validation and completes before any write. Chunk

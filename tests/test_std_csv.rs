@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 const PRELUDE: &str = r#"import std.bytes
 import std.io
 import std.csv
-from std.bytes import ByteSource, Bytes
+from std.bytes import Bytes
 from std.io import StreamError, Reader
 from std.csv import CsvError, Dialect, Width, Newline, Quoting
 
@@ -42,7 +42,7 @@ pub class Fake:
             count = step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data, self.at, self.at + count):
+        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -50,18 +50,18 @@ pub class Fake:
         self.at += count
         Ok(count)
 
-    pub def write[S: ByteSource](self: &mut Fake, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def write(self: &mut Fake, source: &[u8]) -> Result[i64, StreamError]:
         step = self.step()
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(stop - start + 1)
-        mut count = stop - start
+            return Ok(len(source) + 1)
+        mut count = len(source)
         if count > step:
             count = step
-        match self.data.extend_range(source, start, start + count):
+        match self.data.extend(&source[:count]):
             case Ok(_):
                 pass
             case Err(_):
@@ -599,8 +599,8 @@ out.texts(&[""]?)?
 out.texts(&["", ""]?)?
 out.text("é")?
 raw = std.bytes.from_list(&[120u8, 255u8, 34u8, 121u8]?)?
-out.field(&raw, 1, 3)?
-out.field(&raw, 2, 2)?
+out.field(&raw[1:3])?
+out.field(&raw[2:2])?
 out.end_record()?
 out.flush()?
 print(out.records(), out.pending(), out.inner.data.len())?
@@ -665,8 +665,7 @@ out.text("q")?
 out.text("r")?
 print(str.repr(out.text("s"))?)?
 print(str.repr(out.end_record())?)?
-range_error = out.field(&std.bytes.from_text("ab")?, 1, 3)
-print(str.repr(range_error)?, out.records())?
+print(out.records())?
 print(str.repr(out.inner.data.to_text()?)?)?
 mut exact = std.csv.rfc4180()
 exact.width = Width.Exactly(2)
@@ -686,7 +685,7 @@ Result[(), std.csv.CsvError].Err(std.csv.CsvError.Rejected(std.csv.Fault.RecordT
 Result[(), std.csv.CsvError].Ok(())
 Result[(), std.csv.CsvError].Err(std.csv.CsvError.Rejected(std.csv.Fault.TooManyFields, 3, 3))
 Result[(), std.csv.CsvError].Err(std.csv.CsvError.Width(3, 2, 3))
-Result[(), std.csv.CsvError].Err(std.csv.CsvError.OutOfRange) 2
+2
 "a,b\n\"\"\"\"\"\"\"\"\"\",12\n"
 Result[(), std.csv.CsvError].Err(std.csv.CsvError.Width(1, 2, 1)) 0
 Result[(), std.csv.CsvError].Err(std.csv.CsvError.Width(1, 2, 3))
@@ -750,7 +749,7 @@ for round in range(24):
             for position in range(size):
                 state = (state * 1103515245 + 12345) % 2147483648
                 field.push(alphabet[(state // 65536) % 10])?
-            out.field(&field, 0, field.len())?
+            out.field(&field)?
         out.end_record()?
     out.flush()?
     mut input = std.csv.reader(fake("", []?, 1)?, &dialect, 1 + round % 9)?
@@ -871,7 +870,7 @@ b = input.read(&mut record)
 c = input.read(&mut record)
 d = filled.text(0)
 e = filled.texts()
-f = out.field(&field, 0, 3)
+f = out.field(&field[:3])
 g = out.text("z")
 h = out.end_record()
 print("__test_restore_allocations__")?
@@ -879,7 +878,7 @@ print(a, str.repr(b)?, str.repr(c)?)?
 print(str.repr(d)?)?
 print(str.repr(e)?)?
 print(str.repr(f)?, str.repr(g)?, str.repr(h)?)?
-out.field(&field, 0, 3)?
+out.field(&field[:3])?
 out.end_record()?
 print(str.repr(out.inner.data.to_text()?)?, out.records())?
 "#,

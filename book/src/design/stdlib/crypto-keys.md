@@ -84,7 +84,7 @@ the key's configured algorithm, never from an unauthenticated message header.
 
 Every input is `&Bytes`. These are the forms `openssl genpkey` and
 `openssl pkey -pubout` write. For PEM, decode with
-`std.encoding.pem_decode(source, start, stop, b"PUBLIC KEY")` or
+`std.encoding.pem_decode(source, b"PUBLIC KEY")` or
 `b"PRIVATE KEY"` first; the label must match. Encrypted PKCS #8, the
 PKCS #1 `RSA PRIVATE KEY` and SEC1 `EC PRIVATE KEY` forms, and X.509
 certificates are not accepted.

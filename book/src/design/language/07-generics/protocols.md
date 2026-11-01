@@ -93,8 +93,7 @@ to model a product type, a record that holds all of its fields. Either can meet
 the same protocol.
 
 A generic method cannot satisfy a requirement without type parameters, and a
-non-generic method cannot satisfy one with them. This is how `std.io.Writer`
-accepts any [`std.bytes.ByteSource`](../../stdlib/bytes.md#byte-sources).
+non-generic method cannot satisfy one with them.
 
 Protocols constrain class and enum arguments, and the built-in `bytes`, rather
 than defining runtime value types or existential containers. `bytes` has one

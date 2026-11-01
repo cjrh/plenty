@@ -23,7 +23,7 @@ def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     data = std.bytes.from_text("abc")?
     digest = std.crypto.sha256(&data)?
     print(digest.len())?
-    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+    print(std.encoding.hex_text(&digest)?)?
     mut hasher = std.crypto.digest(Algorithm.Sha256)?
     hasher.update_text("a")?
     hasher.update_text("bc")?
@@ -94,14 +94,14 @@ def sign(key: &Bytes, message: &str) -> Result[Bytes, AllocError | IoError | std
 def check(key: &Bytes, message: &str, tag: &Bytes) -> Result[bool, AllocError | IoError | std.crypto.CryptoError]:
     mut mac = std.crypto.hmac(Algorithm.Sha256, key)?
     mac.update_text(message)?
-    Ok(mac.verify(tag, 0, tag.len())?)
+    Ok(mac.verify(tag)?)
 
 type CryptoBufferError = std.encoding.EncodingError | std.crypto.CryptoError | std.bytes.BytesError
 
 def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     key = std.bytes.from_text("server key")?
     tag = sign(&key, "user=ada")?
-    print(std.encoding.hex_text(&tag, 0, 8)?)?
+    print(std.encoding.hex_text(&tag[:8])?)?
     print(check(&key, "user=ada", &tag)?)?
     print(check(&key, "user=bob", &tag)?)?
     other = std.bytes.from_text("another key")?

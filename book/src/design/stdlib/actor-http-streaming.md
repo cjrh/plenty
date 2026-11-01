@@ -54,7 +54,7 @@ pool and can return `TimerError.Capacity`.
 | Operation | Contract |
 |---|---|
 | `start(head)` | Validate and queue an owned response head; `Result[(), ServerError]` |
-| `write(&source, start, stop)` | Queue part of a `ByteSource` range; returns accepted byte count or `ServerError` |
+| `write(source: &[u8])` | Queue part of `source`; returns accepted byte count or `ServerError` |
 | `finish()` | Complete framing; a declared length must match; `Result[(), ServerError]` |
 | `respond(head, &body)` | Queue and finish one whole response; it must fit |
 | `send(status, &content_type, &body)` | Whole response with an automatically encoded head |

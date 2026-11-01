@@ -113,7 +113,7 @@ pax extended header; a size beyond 8 GiB uses GNU base-256.
 
 | Method | Result | Contract |
 |---|---|---|
-| `add_file(name: &Path, data: &Bytes, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file holding `data` |
+| `add_file(name: &Path, data: &[u8], mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file holding `data` |
 | `add_from(name: &Path, size: i64, source: &mut S, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file of exactly `size` bytes read from `source` |
 | `add_dir(name: &Path, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A directory |
 | `add_symlink(name: &Path, target: &Path, mtime: i64)` | `Result[(), ArchiveError]` | A symbolic link; `target` is stored as given |
@@ -177,7 +177,7 @@ directory at `finish`. It never seeks, so it can write to a pipe.
 
 | Method | Result | Contract |
 |---|---|---|
-| `add_file(name: &Path, data: &Bytes, method: Method, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file; `Method.Deflate` compresses at level 6, `Method.Stored` does not |
+| `add_file(name: &Path, data: &[u8], method: Method, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A regular file; `Method.Deflate` compresses at level 6, `Method.Stored` does not |
 | `add_dir(name: &Path, mode: i64, mtime: i64)` | `Result[(), ArchiveError]` | A directory |
 | `add_symlink(name: &Path, target: &Path, mtime: i64)` | `Result[(), ArchiveError]` | A symbolic link |
 | `finish()` | `Result[(), ArchiveError]` | Write the central directory and end records, and flush `inner` |

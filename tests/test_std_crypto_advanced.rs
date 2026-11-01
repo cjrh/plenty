@@ -8,7 +8,7 @@ from std.bytes import Bytes
 from std.crypto import AeadAlgorithm, AdvancedError
 
 def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
-    Ok(std.encoding.hex_text(data, 0, data.len())?)
+    Ok(std.encoding.hex_text(data)?)
 
 def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)

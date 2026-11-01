@@ -80,9 +80,9 @@ writes like a server [`Transport`](http-server.md#https): `TcpStream`, or
 | Item | Meaning |
 |---|---|
 | `socket.receive(&mut out, &deadline, &wait_cancel)` | `Result[Message, WebSocketError]`: append the next whole message to `out` |
-| `socket.send(kind, &data, start, stop, &deadline, &wait_cancel)` | `Result[(), WebSocketError]`: send `data[start:stop]` as one `Kind.Text` or `Kind.Binary` message |
+| `socket.send(kind, data: &[u8], &deadline, &wait_cancel)` | `Result[(), WebSocketError]`: send `data` as one `Kind.Text` or `Kind.Binary` message |
 | `socket.send_text(&text, &deadline, &wait_cancel)` | `send` of `text`, copied into a buffer first |
-| `socket.ping(&data, start, stop, &deadline, &wait_cancel)` | Send a ping with at most 125 bytes of payload |
+| `socket.ping(data: &[u8], &deadline, &wait_cancel)` | Send a ping with at most 125 bytes of payload |
 | `socket.close(code, &reason, &deadline, &wait_cancel)` | Run the closing handshake, then shut the stream down |
 | `socket.is_open()` | Whether messages can still be sent |
 | `socket.subprotocol` | `Option[str]`: the subprotocol both sides agreed on |
@@ -218,7 +218,7 @@ and lock contention can delay observation beyond that interval.
 | `Connect(ClientError)` | The client could not connect, including TLS failures |
 | `Entropy(StreamError)` | No random bytes for a key or mask |
 | `InvalidConfig`, `InvalidUrl`, `UnsupportedScheme` | See above |
-| `OutOfRange` | A byte range, ping payload, close code or reason out of bounds |
+| `OutOfRange` | A ping payload, close code or reason out of bounds |
 | `Refused(status)` | The server refused a request that was not a handshake |
 | `Rejected(status)` | The server answered the client with another status |
 | `InvalidHandshake` | A 101 answer that does not complete the handshake |

@@ -53,7 +53,7 @@ mut store = kv.memory()?
 table = "quotes'\"; DROP TABLE plenty_kv; --\0"
 value = buffers.from_bytes(b"\xff\0")?
 for literal in [b"b", b"\xff", b"", b"a\0", b"a"]?:
-    key = buffers.from_bytes(literal)?
+    key = buffers.from_bytes(&literal)?
     store.put(&table, &key, &value)?
 key = buffers.from_bytes(b"a")?
 replacement = buffers.from_bytes(b"new")?
@@ -82,7 +82,7 @@ fn scans_have_bounds_limits_direction_and_owned_rows() {
 mut store = kv.memory()?
 empty = buffers.empty()?
 for literal in [b"a", b"b", b"c", b"d"]?:
-    key = buffers.from_bytes(literal)?
+    key = buffers.from_bytes(&literal)?
     store.put("t", &key, &empty)?
 start = buffers.from_bytes(b"b")?
 stop = buffers.from_bytes(b"d")?
@@ -308,5 +308,31 @@ match store.scan_all("t", -1):
 print(store.len("t")?)?
 "#,
         "std.db.kv.KvError.Database(std.db.sqlite.DbError.TooLarge)\nstd.db.kv.KvError.InvalidName\nstd.db.kv.KvError.InvalidLimit\n0",
+    );
+}
+
+/// B90: keys and values are `&[u8]` views, so literals and subviews need no
+/// owned buffer, and a subview binds only its own bytes.
+#[test]
+fn keys_and_values_accept_literals_and_subviews() {
+    native(
+        r#"
+mut store = kv.memory()?
+frame = buffers.from_bytes(b"<key>value!")?
+store.put("t", &frame[1:4], &frame[5:10])?
+store.put("t", b"", b"\0")?
+print(store.contains("t", b"key")?, store.contains("t", &frame[1:5])?)?
+match store.get("t", b"key")?:
+    case Some(found):
+        print(found.to_text()?)?
+    case Nothing:
+        print("missing")?
+mut scan = store.scan("t", b"", &frame[1:2], 10)?
+dump(&mut scan)?
+drop(scan)
+print(store.remove("t", &frame[1:4])?)?
+store.close()?
+"#,
+        "True False\nvalue\n[] [0]\nTrue",
     );
 }

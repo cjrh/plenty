@@ -40,7 +40,7 @@ tuned xor/fuse filter. It is immutable after construction. For changing data,
 see [cuckoo filters](sketch-cuckoo.md).
 
 `to_bytes()` returns `Bytes` with `BytesError` on failure. `from_bytes(data,
-max_keys)` accepts any `ByteSource` and returns `SketchError | BytesError`.
+max_keys)` reads a `&[u8]` view and returns `SketchError | BytesError`.
 The `PSX1` format stores seed, unique count, block size (little-endian u64), then
 fingerprint bytes. Readers validate the count/shape and exact length before
 allocation, and reject values beyond the caller's limit. It is a Plenty-specific

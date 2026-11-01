@@ -29,7 +29,7 @@ def accepted(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> 
 def echo_one(stream: &mut TcpStream, buffer: &mut Bytes, cancel: &CancellationToken) -> Result[(), NetError]:
     deadline = within(5000u32)
     stream.read_before(buffer, 0, 1, &deadline, cancel)?
-    stream.write_all_before(buffer, 0, 1, &deadline, cancel)
+    stream.write_all_before(&buffer[:1], &deadline, cancel)
 
 def selected(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
     cancel = CancellationToken().unwrap()
@@ -63,7 +63,7 @@ def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
         for index in range(count):
             match streams[index].read_before(&mut buffer, 0, 1, &expired, &cancel):
                 case Ok(_):
-                    streams[index].write_all_before(&buffer, 0, 1, &within(5000u32), &cancel)?
+                    streams[index].write_all_before(&buffer[:1], &within(5000u32), &cancel)?
                     served += 1
                 case Err(NetError.TimedOut):
                     pass
@@ -82,7 +82,7 @@ def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Res
     for round in range(rounds):
         stream = &mut streams[round % count]
         deadline = within(5000u32)
-        stream.write_all_before(&buffer, 0, 1, &deadline, cancel).unwrap()
+        stream.write_all_before(&buffer[:1], &deadline, cancel).unwrap()
         stream.read_before(&mut buffer, 0, 1, &deadline, cancel).unwrap()
     Ok(i64(monotonic_now().saturating_duration_since(&start).as_nanoseconds()) // rounds)
 

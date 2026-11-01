@@ -4785,41 +4785,19 @@ impl Lower<'_> {
                     }
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
-                    let operation = match operation.literal() {
-                        Some(literal) if self.literal_source(operation.source(), args) => literal,
-                        _ => operation,
-                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Stream(operation);
-                    return self.exclusive_call(
-                        call,
-                        &exclusive,
-                        operation.source(),
-                        args,
-                        &e.at,
-                        ops,
-                    );
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::crypto::CryptoOp::named(name) {
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Crypto(operation);
-                    return self.exclusive_call(call, &exclusive, None, args, &e.at, ops);
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::compress::CompressOp::named(name) {
-                    let operation = match operation.literal() {
-                        Some(literal) if self.literal_source(operation.source(), args) => literal,
-                        _ => operation,
-                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Compress(operation);
-                    return self.exclusive_call(
-                        call,
-                        &exclusive,
-                        operation.source(),
-                        args,
-                        &e.at,
-                        ops,
-                    );
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::process::ProcessOp::named(name) {
                     return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
@@ -4860,39 +4838,17 @@ impl Lower<'_> {
                     return self.system_call(CollectionOp::Text(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::net::NetOp::named(name) {
-                    let operation = match operation.literal() {
-                        Some(literal) if self.literal_source(operation.source(), args) => literal,
-                        _ => operation,
-                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Net(operation);
-                    return self.exclusive_call(
-                        call,
-                        &exclusive,
-                        operation.source(),
-                        args,
-                        &e.at,
-                        ops,
-                    );
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
                     return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::tls::TlsOp::named(name) {
-                    let operation = match operation.literal() {
-                        Some(literal) if self.literal_source(operation.source(), args) => literal,
-                        _ => operation,
-                    };
                     let exclusive = |index| operation.exclusive(index);
                     let call = CollectionOp::Tls(operation);
-                    return self.exclusive_call(
-                        call,
-                        &exclusive,
-                        operation.source(),
-                        args,
-                        &e.at,
-                        ops,
-                    );
+                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
                 }
                 if enums::prelude_variant(name) {
                     return self.prelude_constructor(name, Some(args), None, &e.at, ops);

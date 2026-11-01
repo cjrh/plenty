@@ -3,7 +3,7 @@
 import std.bytes
 import std.math
 import std.random
-from std.bytes import Bytes, BytesError, ByteSource
+from std.bytes import Bytes, BytesError
 from std.random import Rng
 
 pub enum SketchError:
@@ -27,7 +27,7 @@ def word(out: &mut Bytes, value: u64) -> Result[(), BytesError]:
         out.push(u8((value >> u64(shift)) & 255u64))?
     Ok(())
 
-def read_word[S: ByteSource](data: &S, offset: i64) -> u64:
+def read_word(data: &[u8], offset: i64) -> u64:
     mut result = 0u64
     for index in range(8):
         result = result | (u64(data[offset + index]) << u64(index * 8))
@@ -100,8 +100,8 @@ pub def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog
     registers.resize(size, 0u8)?
     Ok(HyperLogLog(precision, seed, registers))
 
-pub def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]:
-    if data.len() < 20:
+pub def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]:
+    if len(data) < 20:
         return Err(SketchError.InvalidData)
     if data[0] != 80u8 or data[1] != 83u8 or data[2] != 72u8 or data[3] != 49u8:
         return Err(SketchError.InvalidData)
@@ -111,7 +111,7 @@ pub def hyperloglog_from_bytes[S: ByteSource](data: &S, max_precision: i64 = 18)
     if i64(precision) > max_precision:
         return Err(SketchError.Limit)
     size = 1 << i64(precision)
-    if data.len() != 20 + size:
+    if len(data) != 20 + size:
         return Err(SketchError.InvalidData)
     for index in range(size):
         if data[20 + index] > u8(65u64 - precision):
@@ -207,8 +207,12 @@ def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), B
     out.extend(scratch)?
     Ok(())
 
-def read_float(data: &Bytes, offset: i64) -> Result[f64, SketchError | BytesError | AllocError]:
-    text = data.to_text_range(offset, offset + 32)?
+def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError | BytesError | AllocError]:
+    text = match __bytes_to_text(&data[offset:offset + 32])?:
+        case Some(decoded):
+            decoded
+        case Nothing:
+            return Err(SketchError.InvalidData)
     match f64.parse(text):
         case Ok(value):
             if std.math.isfinite(value):
@@ -223,10 +227,10 @@ pub def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, S
     samples = list[f64].with_capacity(capacity)?
     Ok(Quantiles(samples, capacity, 0u64, 0.0, 0.0, std.random.seeded(seed)))
 
-pub def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]:
-    if data.len() < 116:
+pub def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]:
+    if len(data) < 116:
         return Err(SketchError.InvalidData)
-    if not data.matches_text(0, "PSQ1")?:
+    if not __bytes_matches_text(data, 0, "PSQ1"):
         return Err(SketchError.InvalidData)
     capacity = read_word(data, 4)
     count = read_word(data, 12)
@@ -235,7 +239,7 @@ pub def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Resul
     if i64(capacity) > max_capacity:
         return Err(SketchError.Limit)
     retained = i64(std.math.min(capacity, count))
-    if data.len() != 116 + 32 * retained:
+    if len(data) != 116 + 32 * retained:
         return Err(SketchError.InvalidData)
     mut result = quantiles(i64(capacity))?
     match std.random.from_state(read_word(data, 20), read_word(data, 28), read_word(data, 36), read_word(data, 44)):
@@ -338,8 +342,8 @@ pub def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError
         counts.append(0u64)?
     Ok(FrequentItems(keys, counts, capacity, 0u64, 0u64))
 
-pub def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]:
-    if data.len() < 28:
+pub def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]:
+    if len(data) < 28:
         return Err(SketchError.InvalidData)
     if data[0] != 80u8 or data[1] != 83u8 or data[2] != 70u8 or data[3] != 49u8:
         return Err(SketchError.InvalidData)
@@ -350,7 +354,7 @@ pub def frequent_items_from_bytes[S: ByteSource](data: &S, max_capacity: i64 = 6
         return Err(SketchError.InvalidData)
     if i64(capacity) > max_capacity:
         return Err(SketchError.Limit)
-    if data.len() != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64):
+    if len(data) != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64):
         return Err(SketchError.InvalidData)
     mut result = frequent_items(i64(capacity))?
     mut sum = decrements * (capacity + 1u64)

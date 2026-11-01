@@ -151,17 +151,17 @@ def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, std.bytes.Byt
     mut tcp = listener.accept(&later()?, &never)?
     mut log = head(&mut tcp)?.concat("\n")?
     established = std.bytes.from_text("HTTP/1.1 200 Connection Established\r\n\r\n")?
-    tcp.write_all_before(&established, 0, established.len(), &later()?, &never)?
+    tcp.write_all_before(&established, &later()?, &never)?
     mut stream = std.tls.accept(tcp, &tls, &later()?, &never).unwrap()
     log = log.concat("server name ")?.concat(&stream.server_name().unwrap().unwrap())?.concat("\n")?
     log = log.concat(&head(&mut stream)?)?.concat("\n")?
     answer = std.bytes.from_text("HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\ntunnel")?
-    stream.write_all_before(&answer, 0, answer.len(), &later()?, &never).unwrap()
+    stream.write_all_before(&answer, &later()?, &never).unwrap()
     stream.close_before(&later()?, &never).unwrap()
     mut refused = listener.accept(&later()?, &never)?
     log = log.concat(&head(&mut refused)?)?
     denied = std.bytes.from_text("HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")?
-    refused.write_all_before(&denied, 0, denied.len(), &later()?, &never)?
+    refused.write_all_before(&denied, &later()?, &never)?
     Ok(log)
 
 def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | std.io.StreamError | SpawnError[()] | AllocError | IoError]:
@@ -253,7 +253,7 @@ def proxy(listener: TcpListener) -> Result[(), std.bytes.BytesError | std.net.Ne
     reply = std.bytes.from_text("HTTP/1.1 200 Connection Established\r\nVia: 1.1 a-proxy-with-a-long-name-here\r\n\r\n")?
     for index in range(2):
         mut tcp = listener.accept(&later()?, &never)?
-        tcp.write_all_before(&reply, 0, reply.len(), &later()?, &never)?
+        tcp.write_all_before(&reply, &later()?, &never)?
     Ok(())
 
 def fetch(port: u16, max_line: i64) -> Result[(), hc.ClientError | RangeError | AllocError | IoError]:
@@ -382,7 +382,7 @@ def first_response(port: u16) -> Result[u64, std.bytes.BytesError | std.net.NetE
     mut stream = std.tls.connect(tcp, &tls, "localhost", &later()?, &never).unwrap()
     request = std.bytes.from_text("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?
     start = std.time.monotonic_now()
-    stream.write_all_before(&request, 0, request.len(), &later()?, &never).unwrap()
+    stream.write_all_before(&request, &later()?, &never).unwrap()
     mut buffer = std.bytes.with_capacity(4096)?
     buffer.resize(4096, 0u8)?
     count = stream.read_before(&mut buffer, 0, 4096, &later()?, &never).unwrap()

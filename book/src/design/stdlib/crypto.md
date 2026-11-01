@@ -33,14 +33,14 @@ from std.encoding import EncodingError
 def main() -> Result[(), IoError | BytesError | CryptoError | EncodingError]:
     message = std.bytes.from_text("hello")?
     digest = std.crypto.sha256(&message)?
-    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+    print(std.encoding.hex_text(&digest)?)?
 
     key = std.bytes.from_text("server key")?
     tag = std.crypto.hmac_sha256(&key, &message)?
     # A receiver recomputes the tag and compares in constant time.
     mut check = std.crypto.hmac(Algorithm.Sha256, &key)?
     check.update_text("hello")?
-    print(tag.len(), check.verify(&tag, 0, tag.len())?)?
+    print(tag.len(), check.verify(&tag)?)?
     Ok(())
 ```
 ```output
@@ -55,14 +55,14 @@ incremental keyed-hash and derivation functions.
 
 | Function | Result | Contract |
 |---|---|---|
-| `sha256(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte SHA-256 digest of `data` |
-| `sha512(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte SHA-512 digest of `data` |
-| `sha1(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 20-byte SHA-1 digest of `data`; legacy, see below |
-| `hmac_sha256(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte HMAC-SHA-256 tag |
-| `hmac_sha512(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte HMAC-SHA-512 tag |
+| `sha256(data: &[u8])` | `Result[Bytes, CryptoError]` | The 32-byte SHA-256 digest of `data` |
+| `sha512(data: &[u8])` | `Result[Bytes, CryptoError]` | The 64-byte SHA-512 digest of `data` |
+| `sha1(data: &[u8])` | `Result[Bytes, CryptoError]` | The 20-byte SHA-1 digest of `data`; legacy, see below |
+| `hmac_sha256(key: &[u8], data: &[u8])` | `Result[Bytes, CryptoError]` | The 32-byte HMAC-SHA-256 tag |
+| `hmac_sha512(key: &[u8], data: &[u8])` | `Result[Bytes, CryptoError]` | The 64-byte HMAC-SHA-512 tag |
 | `digest(algorithm: Algorithm)` | `Result[Digest, CryptoError]` | A new incremental digest |
-| `hmac(algorithm: Algorithm, key: &Bytes)` | `Result[Mac, CryptoError]` | A new incremental HMAC under `key` |
-| `equal(a: &Bytes, b: &Bytes)` | `bool` | Whether `a` and `b` hold the same bytes, in constant time |
+| `hmac(algorithm: Algorithm, key: &[u8])` | `Result[Mac, CryptoError]` | A new incremental HMAC under `key` |
+| `equal(a: &[u8], b: &[u8])` | `bool` | Whether `a` and `b` hold the same bytes, in constant time |
 | `output_size(algorithm: Algorithm)` | `i64` | 32 for `Sha256` and `Blake3`, 64 for `Sha512`, 20 for `Sha1` |
 
 `Algorithm` is `Sha256`, `Sha512`, `Sha1` or `Blake3`. HMAC supports the SHA
@@ -84,13 +84,14 @@ pieces gives the same output as one call over the joined input.
 | Method | Result | Contract |
 |---|---|---|
 | `size()` | `i64` | The output size in bytes |
-| `update(data: &Bytes, start: i64, stop: i64)` | `Result[(), CryptoError]` | Absorb `data[start:stop]` |
+| `update(data: &[u8])` | `Result[(), CryptoError]` | Absorb `data`; pass `&buffer[a:b]` for part of a buffer |
 | `update_text(text: &str)` | `Result[(), CryptoError]` | Absorb the UTF-8 bytes of `text` |
 | `finish()` | `Result[Bytes, CryptoError]` | The output in a new buffer |
 | `finish_into(target: &mut Bytes, offset: i64)` | `Result[(), CryptoError]` | Write the output at `target[offset:offset + size()]` |
-| `Mac.verify(expected: &Bytes, start: i64, stop: i64)` | `Result[bool, CryptoError]` | Finish, and compare the tag with `expected[start:stop]` in constant time |
+| `Mac.verify(expected: &[u8])` | `Result[bool, CryptoError]` | Finish, and compare the tag with `expected` in constant time |
 
-`update`, `finish_into`, and `verify` take their range under the
+`update` and `verify` read a [`&[u8]` view](bytes.md#byte-views), whose bounds
+clamp; `finish_into` takes its offset under the
 [range rule](bytes.md#the-range-rule). Each state finishes once: `finish`,
 `finish_into`, and `verify` end it, and every later call is `Finished`. When
 `finish` cannot allocate its result, the state is left unfinished and the call

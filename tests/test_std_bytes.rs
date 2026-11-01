@@ -240,7 +240,6 @@ fn ranges_follow_one_rule_without_clamping_or_negative_offsets() {
          Result[(), {OUT_OF_RANGE}\n\
          Result[(), {OUT_OF_RANGE}\n\
          Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
          Result[std.bytes.Bytes, {OUT_OF_RANGE}\n\
          [97, 98, 99] 3"
     );
@@ -258,9 +257,8 @@ print(str.repr(buffer.slice(2, 1))?)?
 print(str.repr(buffer.slice(0, 4))?)?
 print(str.repr(buffer.find(0u8, 0, 4))?)?
 print(str.repr(buffer.fill(1, 4, 0u8))?)?
-print(str.repr(buffer.extend_range(&other, 1, 3))?)?
-print(str.repr(buffer.overwrite(2, &other, 0, 2))?)?
-print(str.repr(buffer.overwrite(-1, &other, 0, 1))?)?
+print(str.repr(buffer.overwrite(2, &other[:2]))?)?
+print(str.repr(buffer.overwrite(-1, &other[:1]))?)?
 print(str.repr(buffer.truncate(4))?)?
 print(str.repr(buffer.resize(-1, 0u8))?)?
 print(str.repr(buffer.reserve(-1))?)?
@@ -282,10 +280,10 @@ print(whole == buffer, word == buffer, word.capacity())?
 word.set(0, 87u8)?
 whole.fill(0, 5, 45u8)?
 print(buffer.to_text()?, word.to_text()?, whole.to_text()?)?
-buffer.overwrite(0, &word, 0, 5)?
+buffer.overwrite(0, &word[:5])?
 buffer.extend(&word)?
-buffer.extend_range(&word, 0, 1)?
-buffer.extend_range(&word, 5, 5)?
+buffer.extend(&word[:1])?
+buffer.extend(&word[5:5])?
 print(buffer.to_text()?, buffer.find(87u8, 1, buffer.len())?, buffer.find(0u8, 0, buffer.len())?)?
 "#,
         r#"
@@ -365,7 +363,7 @@ fn growth_mutation_and_movement_are_rejected_while_a_view_is_live() {
     );
     check(
         "mut buffer = std.bytes.from_text(\"abc\")?\nbuffer.extend(&buffer)?",
-        modify,
+        "cannot modify or exclusively borrow `buffer` while `buffer[:]` is borrowed",
     );
     check(
         "buffer = std.bytes.from_text(\"abc\")?\nbuffer.push(1u8)?",
@@ -627,9 +625,9 @@ print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
 buffer.push(1u8)?
 buffer.extend(&source)?
-buffer.extend_range(&source, 1, 3)?
+buffer.extend(&source[1:3])?
 buffer.resize(20, 0u8)?
-buffer.overwrite(12, &source, 0, 4)?
+buffer.overwrite(12, &source[:4])?
 buffer.fill(16, 20, 7u8)?
 buffer.set(0, 65u8)?
 buffer.truncate(18)?
@@ -806,20 +804,19 @@ fn transport_moves_one_checked_range_per_call() {
         r#"
 mut file = open("{}", "w+")?
 source = std.bytes.from_list(&[0u8, 255u8, 13u8, 10u8, 65u8]?)?
-print(source.write_file(&mut file, 1, 5)?, source.write_file(&mut file, 2, 2)?)?
+print(std.bytes.write_file(&mut file, &source[1:5])?, std.bytes.write_file(&mut file, &source[2:2])?)?
 file.seek(0)?
 mut buffer = std.bytes.with_capacity(8)?
 buffer.resize(8, 46u8)?
 print(buffer.read_file(&mut file, 2, 8)?, buffer.to_list()?, buffer.capacity())?
 print(buffer.read_file(&mut file, 0, 8)?, buffer.read_file(&mut file, 3, 3)?)?
 print(str.repr(buffer.read_file(&mut file, 0, 9))?)?
-print(str.repr(source.write_file(&mut file, 3, 2))?)?
-print(str.repr(buffer.read_stdin(-1, 2))?, str.repr(source.write_stdout(0, 6))?)?
-print(str.repr(source.write_stderr(4, 3))?, buffer.read_stdin(0, 8)?)?
-print(source.write_stdout(4, 5)?)?
+print(str.repr(buffer.read_stdin(-1, 2))?)?
+print(buffer.read_stdin(0, 8)?, write_stderr_bytes(&source[4:4])?)?
+print(write_stdout_bytes(&source[4:5])?, write_stdout_bytes(b"")?)?
 file.close()?
 print(str.repr(buffer.read_file(&mut file, 0, 8))?)?
-print(str.repr(source.write_file(&mut file, 0, 5))?)?
+print(str.repr(std.bytes.write_file(&mut file, &source))?)?
 "#,
         path.display()
     );
@@ -828,11 +825,28 @@ print(str.repr(source.write_file(&mut file, 0, 5))?)?
     native(
         &body,
         &format!(
-            "4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n{invalid}\n{invalid}\n\
-             {invalid} {invalid}\n{invalid} 0\nA1\n{closed}\n{closed}"
+            "4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n{invalid}\n{invalid}\n0 0\nA1 0\n{closed}\n{closed}"
         ),
     );
     assert_eq!(std::fs::read(path).unwrap(), [255, 13, 10, 65]);
+}
+
+// B90: `from_bytes` copies any byte view, not only a literal.
+#[test]
+fn from_bytes_copies_every_view_source() {
+    native(
+        r#"
+owned = std.bytes.from_text("owned")?
+listed = [1u8, 2u8, 3u8]?
+literal = b"lit"
+print(std.bytes.from_bytes(b"ab")?, std.bytes.from_bytes(&literal)?, std.bytes.from_bytes(&literal[1:])?)?
+print(std.bytes.from_bytes(&owned)?, std.bytes.from_bytes(&owned[1:3])?, std.bytes.from_bytes(&owned[9:])?)?
+mut copy = std.bytes.from_bytes(&listed)?
+copy.push(4u8)?
+print(copy, listed)?
+"#,
+        "b\"ab\" b\"lit\" b\"it\"\nb\"owned\" b\"wn\" b\"\"\nb\"\\x01\\x02\\x03\\x04\" [1, 2, 3]",
+    );
 }
 
 #[test]
@@ -959,9 +973,9 @@ fn ranges_are_compared_with_bytes_and_text_without_copying() {
         r#"
 data = std.bytes.from_text("true,false,né")?
 word = std.bytes.from_text("xfalsey")?
-print(data.matches(5, &word, 1, 6)?, data.matches(4, &word, 1, 6)?, data.matches(5, &word, 1, 7)?)?
-print(data.matches(0, &word, 3, 3)?, data.matches(data.len(), &word, 3, 3)?)?
-print(data.matches(11, &word, 1, 6)?, data.matches(data.len(), &word, 1, 2)?, data.matches(0, &data, 0, data.len())?)?
+print(data.matches(5, &word[1:6])?, data.matches(4, &word[1:6])?, data.matches(5, &word[1:7])?)?
+print(data.matches(0, &word[3:3])?, data.matches(data.len(), &word[3:3])?)?
+print(data.matches(11, &word[1:6])?, data.matches(data.len(), &word[1:2])?, data.matches(0, &data)?)?
 print(data.matches_text(0, "true")?, data.matches_text(0, "true,")?, data.matches_text(1, "true")?)?
 print(data.matches_text(11, "né")?, data.matches_text(11, "néx")?, data.matches_text(data.len(), "")?)?
 print(data.matches_text(data.len(), "x")?)?
@@ -992,13 +1006,13 @@ fn scans_reject_ranges_outside_the_buffer() {
     native(
         r#"
 data = std.bytes.from_text("abcd")?
-set = std.bytes.from_text("b")?
+chars = std.bytes.from_text("b")?
 print(str.repr(data.find(98u8, -1, 2))?, str.repr(data.find(98u8, 3, 2))?)?
-print(str.repr(data.find_in(&set, 0, 5))?, str.repr(data.find_not_in(&set, 5, 5))?)?
-print(str.repr(data.find_bytes(&set, 2, 1))?)?
+print(str.repr(data.find_in(&chars, 0, 5))?, str.repr(data.find_not_in(&chars, 5, 5))?)?
+print(str.repr(data.find_bytes(&chars, 2, 1))?)?
 print(str.repr(data.count(98u8, 0, 5))?, str.repr(data.ascii_run(-1, 0))?, str.repr(data.utf8_run(4, 5))?)?
-print(str.repr(data.matches(-1, &set, 0, 1))?, str.repr(data.matches(5, &set, 0, 0))?)?
-print(str.repr(data.matches(0, &set, 0, 2))?, str.repr(data.matches(0, &set, 1, 0))?)?
+print(str.repr(data.matches(-1, &chars[:1]))?, str.repr(data.matches(5, &chars[:0]))?)?
+print(data.matches(0, &chars[:2])?, data.matches(0, &chars[1:0])?)?
 print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?)?
 "#,
         &{
@@ -1007,7 +1021,7 @@ print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?
             let matched = format!("Result[bool, {OUT_OF_RANGE}");
             format!(
                 "{found} {found}\n{found} {found}\n{found}\n{counted} {counted} {counted}\n\
-                 {matched} {matched}\n{matched} {matched}\n{matched} {matched}"
+                 {matched} {matched}\nFalse True\n{matched} {matched}"
             )
         },
     );

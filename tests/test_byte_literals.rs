@@ -192,11 +192,12 @@ def main() -> Result[(), std.bytes.BytesError | IoError]:
     mut request = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     end = std.bytes.from_bytes(b"\r\n\r\n")?
     print(request.find_bytes(&end, 0, request.len())?)?
-    print(request.matches(0, &std.bytes.from_bytes(b"GET")?, 0, 3)?)?
+    method = std.bytes.from_bytes(b"GET")?
+    print(request.matches(0, &method[:3])?)?
     request.push(255u8)?
     print(request.len())?
     print(std.bytes.from_bytes(b"")?.len())?
-    std.bytes.from_bytes(b"done\n")?.write_stdout(0, 5)?
+    write_stdout_bytes(b"done\n")?
     Ok(())
 "#,
     );

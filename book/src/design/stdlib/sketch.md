@@ -100,8 +100,8 @@ formats, not interchange formats with third-party sketch libraries.
 `quantiles_from_bytes(data, max_capacity=1048576)`, and
 `frequent_items_from_bytes(data, max_capacity=65536)` reject unknown versions,
 bad lengths, invalid state and trailing bytes. Pass a smaller caller limit when
-reading untrusted checkpoints. HLL and frequent-item readers accept a
-`ByteSource`; the quantile reader takes `Bytes` for validated float parsing.
+reading untrusted checkpoints. HLL and frequent-item readers take a
+`&[u8]` view; the quantile reader takes `Bytes` for validated float parsing.
 Formats are version-tagged: future incompatible formats need a new version and
 must not silently reinterpret these bytes. They contain no checksum or
 authentication; structurally valid corruption can change estimates.

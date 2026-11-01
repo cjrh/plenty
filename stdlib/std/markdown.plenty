@@ -155,11 +155,15 @@ def push_scalar(target: &mut Bytes, code: i64) -> Result[(), MarkdownFault]:
     push_byte(target, 128 | ((code >> 6) & 63))?
     push_byte(target, 128 | (code & 63))
 
-def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, MarkdownFault]:
-    faulted(source.to_text_range(start, stop))
+def text_of(source: &[u8], start: i64, stop: i64) -> Result[str, MarkdownFault]:
+    match reserved(__bytes_to_text(&source[start:stop]))?:
+        case Some(text):
+            Ok(text)
+        case Nothing:
+            Err(MarkdownFault.InvalidUtf8)
 
 # Byte `index` of `source`, or -1 at or past `stop`.
-def peek(source: &Bytes, index: i64, stop: i64) -> i64:
+def peek(source: &[u8], index: i64, stop: i64) -> i64:
     if index < stop:
         return i64(source[index])
     -1
@@ -197,7 +201,7 @@ def hex_value(c: i64) -> i64:
     -1
 
 # The scalar that starts at `index`; `source` is valid UTF-8.
-def scalar_at(source: &Bytes, index: i64) -> i64:
+def scalar_at(source: &[u8], index: i64) -> i64:
     first = i64(source[index])
     if first < 128:
         return first
@@ -208,7 +212,7 @@ def scalar_at(source: &Bytes, index: i64) -> i64:
     ((first & 7) << 18) | ((i64(source[index + 1]) & 63) << 12) | ((i64(source[index + 2]) & 63) << 6) | (i64(source[index + 3]) & 63)
 
 # The scalar that ends just before `index`.
-def scalar_before(source: &Bytes, index: i64) -> i64:
+def scalar_before(source: &[u8], index: i64) -> i64:
     mut start = index - 1
     while start > 0 and (i64(source[start]) & 192) == 128:
         start -= 1
@@ -240,7 +244,7 @@ def is_unicode_punctuation(code: i64) -> bool:
 
 # Appends the value of the named reference `source[start:stop]`, which excludes
 # `&` and `;`, and reports whether the name exists.
-def push_named(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[bool, MarkdownFault]:
+def push_named(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> Result[bool, MarkdownFault]:
     table = entity_bucket(i64(source[start]))
     rest = stop - start - 1
     mut index = 0
@@ -264,7 +268,7 @@ def push_named(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Res
 # Decodes the entity or numeric character reference at `start`, which holds
 # `&`, appending its value. Returns the index after `;`, or -1 when there is no
 # valid reference, having appended nothing.
-def push_entity(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[i64, MarkdownFault]:
+def push_entity(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> Result[i64, MarkdownFault]:
     mut index = start + 1
     if peek(source, index, stop) == 35:
         index += 1
@@ -300,7 +304,7 @@ def push_entity(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Re
 
 # Appends `source[start:stop]` with backslash escapes and character references
 # resolved, as for link destinations, titles, and info strings.
-def push_unescaped(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) -> Result[(), MarkdownFault]:
+def push_unescaped(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> Result[(), MarkdownFault]:
     mut index = start
     while index < stop:
         c = i64(source[index])
@@ -319,7 +323,7 @@ def push_unescaped(source: &Bytes, start: i64, stop: i64, target: &mut Bytes) ->
             index += 1
     Ok(())
 
-def unescaped(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
+def unescaped(source: &[u8], start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
     scratch.clear()
     push_unescaped(source, start, stop, scratch)?
     text_of(scratch, 0, scratch.len())
@@ -327,7 +331,7 @@ def unescaped(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes) -> Res
 # The case-folded form under which a link label matches: inner whitespace runs
 # become one space, outer whitespace goes, and the text is lowered then raised
 # so that, for example, `ß` and `SS` match.
-def normalized_label(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
+def normalized_label(source: &[u8], start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
     scratch.clear()
     mut pending = False
     for index in range(start, stop):
@@ -343,27 +347,27 @@ def normalized_label(source: &Bytes, start: i64, stop: i64, scratch: &mut Bytes)
     folded = reserved(raw.lower())?
     reserved(folded.upper())
 
-def skip_spaces(source: &Bytes, index: i64, stop: i64) -> i64:
+def skip_spaces(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = index
     while is_space_or_tab(peek(source, at, stop)):
         at += 1
     at
 
-def skip_whitespace(source: &Bytes, index: i64, stop: i64) -> i64:
+def skip_whitespace(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = index
     while is_ascii_space(peek(source, at, stop)):
         at += 1
     at
 
 # Spaces or tabs, including up to one line ending.
-def skip_spnl(source: &Bytes, index: i64, stop: i64) -> i64:
+def skip_spnl(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = skip_spaces(source, index, stop)
     if peek(source, at, stop) == 10:
         at = skip_spaces(source, at + 1, stop)
     at
 
 # The index after a link label that starts at `index`, or -1.
-def scan_label(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_label(source: &[u8], index: i64, stop: i64) -> i64:
     if peek(source, index, stop) != 91:
         return -1
     mut at = index + 1
@@ -384,7 +388,7 @@ def scan_label(source: &Bytes, index: i64, stop: i64) -> i64:
 
 # A link destination at `index`: the index after it and the bounds of its
 # content, or -1 first.
-def scan_destination(source: &Bytes, index: i64, stop: i64) -> (i64, i64, i64):
+def scan_destination(source: &[u8], index: i64, stop: i64) -> (i64, i64, i64):
     if peek(source, index, stop) == 60:
         mut at = index + 1
         while at < stop:
@@ -428,7 +432,7 @@ def scan_destination(source: &Bytes, index: i64, stop: i64) -> (i64, i64, i64):
     (at, index, at)
 
 # The index after a link title that starts at `index`, or -1.
-def scan_title(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_title(source: &[u8], index: i64, stop: i64) -> i64:
     open = peek(source, index, stop)
     mut close = open
     if open == 40:
@@ -450,7 +454,7 @@ def scan_title(source: &Bytes, index: i64, stop: i64) -> i64:
 
 # Spaces or tabs to the end of a line: the index after its line ending, `stop`
 # at the end of input, or -1.
-def scan_line_end(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_line_end(source: &[u8], index: i64, stop: i64) -> i64:
     at = skip_spaces(source, index, stop)
     if at >= stop:
         return stop
@@ -458,7 +462,7 @@ def scan_line_end(source: &Bytes, index: i64, stop: i64) -> i64:
         return at + 1
     -1
 
-def scan_tag_name(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_tag_name(source: &[u8], index: i64, stop: i64) -> i64:
     if not is_letter(peek(source, index, stop)):
         return -1
     mut at = index + 1
@@ -473,7 +477,7 @@ def is_attribute_part(c: i64) -> bool:
     is_alnum(c) or c == 95 or c == 46 or c == 58 or c == 45
 
 # An HTML open tag at `index`, which holds `<`: the index after `>`, or -1.
-def scan_open_tag(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_open_tag(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = scan_tag_name(source, index + 1, stop)
     if at < 0:
         return -1
@@ -514,7 +518,7 @@ def scan_open_tag(source: &Bytes, index: i64, stop: i64) -> i64:
     -1
 
 # An HTML closing tag at `index`, which holds `<`: the index after `>`, or -1.
-def scan_close_tag(source: &Bytes, index: i64, stop: i64) -> i64:
+def scan_close_tag(source: &[u8], index: i64, stop: i64) -> i64:
     if peek(source, index + 1, stop) != 47:
         return -1
     name = scan_tag_name(source, index + 2, stop)
@@ -526,7 +530,7 @@ def scan_close_tag(source: &Bytes, index: i64, stop: i64) -> i64:
     -1
 
 # Whether `source[index:]` starts with `word`, ignoring ASCII case.
-def starts_folded(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
+def starts_folded(source: &[u8], index: i64, stop: i64, word: bytes) -> bool:
     if stop - index < len(word):
         return False
     for position in range(len(word)):
@@ -534,7 +538,7 @@ def starts_folded(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
             return False
     True
 
-def starts_exact(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
+def starts_exact(source: &[u8], index: i64, stop: i64, word: bytes) -> bool:
     if stop - index < len(word):
         return False
     for position in range(len(word)):
@@ -543,7 +547,7 @@ def starts_exact(source: &Bytes, index: i64, stop: i64, word: bytes) -> bool:
     True
 
 # The first index at or after `index` where `word` starts, or -1.
-def find_folded(source: &Bytes, index: i64, stop: i64, word: bytes) -> i64:
+def find_folded(source: &[u8], index: i64, stop: i64, word: bytes) -> i64:
     mut at = index
     while at + len(word) <= stop:
         if starts_folded(source, at, stop, word):
@@ -576,7 +580,7 @@ def raw_text_close(which: i64) -> bytes:
 def block_tag_names() -> bytes:
     b" address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul "
 
-def is_block_tag(source: &Bytes, start: i64, stop: i64) -> bool:
+def is_block_tag(source: &[u8], start: i64, stop: i64) -> bool:
     names = block_tag_names()
     size = stop - start
     mut at = 1
@@ -595,7 +599,7 @@ def is_block_tag(source: &Bytes, start: i64, stop: i64) -> bool:
         at = end + 1
     False
 
-def html_block_ends(kind: i64, source: &Bytes, start: i64, stop: i64) -> bool:
+def html_block_ends(kind: i64, source: &[u8], start: i64, stop: i64) -> bool:
     match kind:
         case 1:
             for which in range(4):
@@ -679,8 +683,8 @@ class Bracket:
 # Parses a link reference definition at the start of `content[start:]` into
 # `refs`, keeping an earlier definition of the same label. Returns the bytes
 # consumed, or zero when there is none.
-def parse_reference(content: &Bytes, start: i64, refs: &mut Refs, scratch: &mut Bytes) -> Result[i64, MarkdownFault]:
-    stop = content.len()
+def parse_reference(content: &[u8], start: i64, refs: &mut Refs, scratch: &mut Bytes) -> Result[i64, MarkdownFault]:
+    stop = len(content)
     label_end = scan_label(content, start, stop)
     if label_end < 0 or peek(content, label_end, stop) != 58:
         return Ok(0)
@@ -714,8 +718,8 @@ def parse_reference(content: &Bytes, start: i64, refs: &mut Refs, scratch: &mut 
         reserved(refs.titles.append(title))?
     Ok(end - start)
 
-def is_blank(content: &Bytes, start: i64) -> bool:
-    for index in range(start, content.len()):
+def is_blank(content: &[u8], start: i64) -> bool:
+    for index in range(start, len(content)):
         if not is_ascii_space(i64(content[index])):
             return False
     True
@@ -838,7 +842,7 @@ pub class Parser:
             self._offset += 1
             for _ in range(4 - self._column % 4):
                 push_byte(&mut self._blocks[tip].content, 32)?
-        faulted(self._blocks[tip].content.extend_range(&self._text, self._offset, self._line_end))?
+        faulted(self._blocks[tip].content.extend(&self._text[self._offset:self._line_end]))?
         push_byte(&mut self._blocks[tip].content, 10)
 
     def add_child(self: &mut Parser, kind: i64, offset: i64) -> Result[i64, MarkdownFault]:
@@ -1164,7 +1168,7 @@ pub class Parser:
                         last = first
                     elif is_space_or_tab(self.at(hashes - 1)):
                         last = hashes
-                faulted(self._blocks[heading].content.extend_range(&self._text, first, last))?
+                faulted(self._blocks[heading].content.extend(&self._text[first:last]))?
                 self._offset = stop
                 return Ok(2)
         if not self._indented and (c == 96 or c == 126):
@@ -1376,7 +1380,7 @@ pub class Parser:
     # A text node holding `subject[start:stop]`.
     def add_text(self: &mut Parser, start: i64, stop: i64) -> Result[i64, MarkdownFault]:
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        faulted(self._pool.extend(&self._subject[start:stop]))?
         node = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(i_root, node)
         Ok(node)
@@ -1688,12 +1692,12 @@ pub class Parser:
         self._scratch.clear()
         if destination_prefix:
             faulted(self._scratch.extend(&b"mailto:"))?
-        faulted(self._scratch.extend_range(&self._subject, start, stop))?
+        faulted(self._scratch.extend(&self._subject[start:stop]))?
         destination = text_of(&self._scratch, 0, self._scratch.len())?
         link = self.add_node(i_link)?
         self._inlines[link].destination = destination
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, stop))?
+        faulted(self._pool.extend(&self._subject[start:stop]))?
         text = self.new_inline(i_text, at, self._pool.len())?
         self.append_inline(link, text)
         Ok(())
@@ -1782,7 +1786,7 @@ pub class Parser:
         if end < 0:
             return Ok(False)
         at = self._pool.len()
-        faulted(self._pool.extend_range(&self._subject, start, end))?
+        faulted(self._pool.extend(&self._subject[start:end]))?
         node = self.new_inline(i_html, at, self._pool.len())?
         self.append_inline(i_root, node)
         self._pos = end
@@ -1849,7 +1853,7 @@ pub class Parser:
         while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
             last -= 1
         self._subject.clear()
-        faulted(self._subject.extend_range(&self._blocks[index].content, first, last))?
+        faulted(self._subject.extend(&self._blocks[index].content[first:last]))?
         self._pool.clear()
         self._inlines.clear()
         self._delimiters.clear()
@@ -1901,7 +1905,7 @@ pub class Parser:
             kind = self._inlines[node].kind
             if entering:
                 if kind == i_text:
-                    faulted(self._scratch.extend_range(&self._pool, self._inlines[node].start, self._inlines[node].stop))?
+                    faulted(self._scratch.extend(&self._pool[self._inlines[node].start:self._inlines[node].stop]))?
                 else:
                     self.flush_text()?
                     if kind == i_soft:
@@ -2029,10 +2033,10 @@ pub class Parser:
         Ok(replace(self._queue[index], Event.Done))
 
 # The start of line `line`, counted from one, in the original input.
-def line_offset(source: &Bytes, line: i64) -> i64:
+def line_offset(source: &[u8], line: i64) -> i64:
     mut current = 1
     mut index = 0
-    size = source.len()
+    size = len(source)
     while current < line and index < size:
         c = i64(source[index])
         if c == 10:
@@ -2045,8 +2049,8 @@ def line_offset(source: &Bytes, line: i64) -> i64:
     index
 
 # Line endings become LF, NUL becomes U+FFFD, and a final line ending is added.
-def normalized(source: &Bytes) -> Result[Bytes, MarkdownFault]:
-    size = source.len()
+def normalized(source: &[u8]) -> Result[Bytes, MarkdownFault]:
+    size = len(source)
     mut text = faulted(std.bytes.with_capacity(size + 1))?
     mut index = 0
     while index < size:
@@ -2065,13 +2069,13 @@ def normalized(source: &Bytes) -> Result[Bytes, MarkdownFault]:
     Ok(text)
 
 # Validates `source` as UTF-8 and parses its block structure.
-pub def parser(source: &Bytes, bounds: &Limits) -> Result[Parser, MarkdownError]:
+pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
     if not valid(bounds):
         return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
-    size = source.len()
+    size = len(source)
     if size > bounds.max_input:
         return Err(MarkdownError(MarkdownFault.InputTooLarge, bounds.max_input, 0))
-    run = unplaced(faulted(source.utf8_run(0, size)))?
+    run = __bytes_run(source, 1u8)
     if run < size:
         return Err(MarkdownError(MarkdownFault.InvalidUtf8, run, 0))
     text = unplaced(normalized(source))?
@@ -2404,7 +2408,7 @@ pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
 # Does not flush. On failure only the bytes the writer did not accept stay
 # pending, so a retry cannot repeat output.
 pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]:
-    outcome = std.io.write_all(writer, &source._out, 0, source._out.len())
+    outcome = std.io.write_all(writer, &source._out)
     match outcome:
         case Ok(_):
             source._out.clear()
@@ -2442,7 +2446,7 @@ pub def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limi
     write_pending(&mut target, writer)
 
 # Renders a whole document as HTML.
-pub def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]:
+pub def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]:
     mut events = parser(source, bounds)?
     mut target = renderer(bounds)?
     while True:

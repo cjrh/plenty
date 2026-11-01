@@ -66,13 +66,13 @@ pub class Budget:
     pub inner: io.Cursor
     pub left: i64
 
-    pub def write[S: std.bytes.ByteSource](self: &mut Budget, source: &S, start: i64, stop: i64) -> Result[i64, io.StreamError]:
+    pub def write(self: &mut Budget, source: &[u8]) -> Result[i64, io.StreamError]:
         if self.left <= 0:
             return Err(io.StreamError.WriteZero)
-        mut count = stop - start
+        mut count = len(source)
         if count > self.left:
             count = self.left
-        written = self.inner.write(source, start, start + count)?
+        written = self.inner.write(&source[:count])?
         self.left -= written
         Ok(written)
 

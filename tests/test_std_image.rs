@@ -19,7 +19,7 @@ def unhex(text: &str) -> Result[Bytes, Problem]:
     Ok(std.encoding.hex_from_text(text)?)
 
 def hex(data: &Bytes) -> Result[str, Problem]:
-    Ok(std.encoding.hex_text(data, 0, data.len())?)
+    Ok(std.encoding.hex_text(data)?)
 
 def named(color: ColorType) -> str:
     match color:

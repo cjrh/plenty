@@ -35,10 +35,10 @@ contents and names without text decoding or newline conversion. They currently
 support Linux. `write_bytes` creates or replaces its destination.
 
 For supplied paths on stdin, use `input_bytes(0u8)`. It returns one NUL-delimited
-record as `Some(bytes)` or `Nothing` at EOF. Write records with
-`write_stdout_bytes(bytes)` followed by `write_stdout_bytes(terminator)`, where
-`terminator = encode_utf8("\0")?`. Finish with `flush_stdout()?`. Empty records
-are distinct from EOF; a final nonempty unterminated record is accepted.
+record as `Some(record)` or `Nothing` at EOF. Write records with
+`write_stdout_bytes(&record)` followed by `write_stdout_bytes(b"\0")`. Finish
+with `flush_stdout()?`. Empty records are distinct from EOF; a final nonempty
+unterminated record is accepted.
 
 CR, LF, and invalid UTF-8 remain part of the path. Keep the original bytes when
 opening files, even if you separately decode or format them for display. The

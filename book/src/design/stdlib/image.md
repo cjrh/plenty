@@ -40,9 +40,9 @@ def main() -> Result[(), IoError | ImageError]:
 |---|---|---|
 | `new(width: i64, height: i64, color: ColorType)` | `Result[Image, ImageError]` | A zeroed image: black, and transparent if it has alpha |
 | `from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes)` | `Result[Image, ImageError]` | Takes `pixels` as the buffer, without copying |
-| `detect(data: &Bytes)` | `Option[Format]` | The format named by the first bytes of `data` |
-| `info(data: &Bytes)` | `Result[Info, ImageError]` | The header of a PNG file, without decoding pixels |
-| `decode(data: &Bytes, limits: &Limits)` | `Result[Image, ImageError]` | The image in a whole PNG file, within `limits` |
+| `detect(data: &[u8])` | `Option[Format]` | The format named by the first bytes of `data` |
+| `info(data: &[u8])` | `Result[Info, ImageError]` | The header of a PNG file, without decoding pixels |
+| `decode(data: &[u8], limits: &Limits)` | `Result[Image, ImageError]` | The image in a whole PNG file, within `limits` |
 | `encode_png(image: &Image, level: i64 = 6)` | `Result[Bytes, ImageError]` | A PNG file of `image`, compressed at zlib `level` |
 | `limits()` | `Limits` | The default limits; see [Decoding limits](#decoding-limits) |
 
@@ -151,7 +151,7 @@ def main() -> Result[(), Problem]:
     banner = std.image.new(3000, 100, ColorType.Rgb)?
     png = std.image.encode_png(&banner)?
     mut out = std.io.open_file("banner.png", "w")?
-    std.io.write_all(&mut out, &png, 0, png.len())?
+    std.io.write_all(&mut out, &png)?
     out.close()?
 
     data = load("banner.png", 1048576)?

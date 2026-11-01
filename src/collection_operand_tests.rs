@@ -21,24 +21,23 @@ fn scratch_operand_contract_matches_typed_primitives() {
     check_family!(BytesOp: New, Len, Capacity, Get, Set, Reserve, Resize, Push,
         Append, Overwrite, FromList, ToList, FromText, ToText, WriteFloat,
         WriteFloatSpec, Find, FindIn, FindBytes, Count, Matches, MatchesText,
-        Run, Fill, Item, SetItem, ValueItem, FromStatic, CopyWithin, Slice,
-        AppendLiteral, OverwriteLiteral, FindInLiteral, FindBytesLiteral,
-        MatchesLiteral, SliceLiteral);
+        Run, Fill, Item, SetItem, ValueItem, CopyWithin, Slice,
+        SliceLiteral);
     check_family!(CryptoOp: New, NewKeyed, Update, UpdateText, Finish, Verify,
         Equal, NewDeriveKey, AesSeal, AesOpen, ChaChaSeal, ChaChaOpen, EdPublic,
         EdSign, EdVerify, Hkdf, XNew, XPublic, XAgree, KeyNew, RsaLoad, P256Load,
         KeySize, KeyPublic, KeySign, RsaVerify, P256Verify, P256Check);
-    check_family!(CompressOp: New, Step, Flush, Ended, Restart, Crc32, StepLiteral);
+    check_family!(CompressOp: New, Step, Flush, Ended, Restart, Crc32);
     check_family!(StreamOp: FileRead, FileWrite, StdinRead, StdWrite, FileSeek,
-        EntropyRead, Wait, FileWriteLiteral, StdWriteLiteral);
+        EntropyRead, Wait);
     check_family!(NetOp: Open, Accept, FinishConnect, Address, Shutdown,
         SetOption, SendTo, ReceiveFrom, Resolve, ReadyWait, SelectorOpen,
-        SelectorWatch, Select, ReadyNumber, SendToLiteral);
+        SelectorWatch, Select, ReadyNumber);
     check_family!(TlsOp: Roots, RootsCount, ClientConfig, ServerConfig, Client,
         Server, Feed, Take, Read, Write, State, Close, Builder, BuilderRoots,
         BuilderCertificate, BuilderProtocol, BuilderVersion, BuilderSuite,
         BuilderRevocations, Build, Protocol, ServerName, PeerCertificate,
-        Version, Suite, WriteLiteral);
+        Version, Suite);
     check_family!(SqliteOp: Open, Message, Execute, Prepare, Changes, LastRowid,
         BusyTimeout, Close, Begin, Commit, Rollback, Step, Reset, ClearBindings,
         ParameterCount, ParameterIndex, BindNull, BindInteger, BindReal, BindText,

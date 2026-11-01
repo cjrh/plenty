@@ -3,7 +3,7 @@
 # dispatched per concrete class. One read or write call makes at most one
 # attempt and reports the bytes it moved. The helpers below add retry, end of
 # input and failure-after-progress policy. See book/src/design/stdlib/io.md.
-from std.bytes import ByteSource, Bytes, BytesError, with_capacity
+from std.bytes import Bytes, BytesError, with_capacity
 from std.path import Path
 
 pub enum StreamError:
@@ -39,10 +39,10 @@ pub protocol Reader:
     def read(self: &mut Reader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         pass
 
-# `write` accepts any ByteSource, so a `b"..."` literal and a `Bytes` buffer
-# are both written without a copy.
+# `write` reads a `&[u8]` view, so `&buffer`, a `b"..."` literal and
+# `&buffer[a:b]` are all written without a copy.
 pub protocol Writer:
-    def write[S: ByteSource](self: &mut Writer, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
+    def write(self: &mut Writer, source: &[u8]) -> Result[i64, StreamError]:
         pass
 
     def flush(self: &mut Writer) -> Result[(), StreamError]:
@@ -151,22 +151,21 @@ pub def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, st
                     return Err(Partial(at - start, cause))
     Ok(())
 
-# Delivers source[start:stop] completely, retrying interrupted and short writes.
-pub def write_all[W: Writer, S: ByteSource](writer: &mut W, source: &S, start: i64, stop: i64) -> Result[(), Partial]:
-    if not within(start, stop, source.len()):
-        return Err(Partial(0, StreamError.OutOfRange))
-    mut at = start
+# Delivers all of `source`, retrying interrupted and short writes.
+pub def write_all[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), Partial]:
+    stop = len(source)
+    mut at = 0
     while at < stop:
-        match writer.write(source, at, stop):
+        match writer.write(&source[at:]):
             case Ok(count):
                 if count == 0:
-                    return Err(Partial(at - start, StreamError.WriteZero))
+                    return Err(Partial(at, StreamError.WriteZero))
                 if count < 0 or count > stop - at:
-                    return Err(Partial(at - start, StreamError.InvalidProgress))
+                    return Err(Partial(at, StreamError.InvalidProgress))
                 at += count
             case Err(cause):
                 if not interrupted(&cause):
-                    return Err(Partial(at - start, cause))
+                    return Err(Partial(at, cause))
     Ok(())
 
 # Appends at most `limit` bytes to `out`, stopping early only at end of input.
@@ -216,7 +215,7 @@ pub def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: 
                     return Ok(total)
                 if count < 0 or count > size:
                     return Err(CopyError.Read(total, StreamError.InvalidProgress))
-                match write_all(writer, scratch, 0, count):
+                match write_all(writer, &scratch[0:count]):
                     case Ok(_):
                         total += count
                     case Err(partial):
@@ -263,7 +262,7 @@ pub class BufReader[R]:
         mut count = stop - start
         if count > self._stop - self._start:
             count = self._stop - self._start
-        bytes_result(buffer.overwrite(start, &self._buffer, self._start, self._start + count))?
+        bytes_result(buffer.overwrite(start, &self._buffer[self._start:self._start + count]))?
         self._start += count
         Ok(count)
 
@@ -299,7 +298,7 @@ pub class BufReader[R]:
                                 pass
                     case Err(_):
                         return Err(StreamError.OutOfRange)
-                bytes_result(out.extend_range(&self._buffer, self._start, stop))?
+                bytes_result(out.extend(&self._buffer[self._start:stop]))?
                 total += stop - self._start
                 self._start = stop
                 if found:
@@ -350,7 +349,7 @@ pub class BufWriter[W]:
     def drain(self: &mut BufWriter[W]) -> Result[(), StreamError]:
         total = self._buffer.len()
         while self._start < total:
-            match self.inner.write(&self._buffer, self._start, total):
+            match self.inner.write(&self._buffer[self._start:total]):
                 case Ok(count):
                     if count == 0:
                         return Err(StreamError.WriteZero)
@@ -364,17 +363,16 @@ pub class BufWriter[W]:
         self._start = 0
         Ok(())
 
-    pub def write[S: ByteSource](self: &mut BufWriter[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, source.len())?
-        count = stop - start
+    pub def write(self: &mut BufWriter[W], source: &[u8]) -> Result[i64, StreamError]:
+        count = len(source)
         if count == 0:
             return Ok(0)
         if count > self._capacity - self._buffer.len():
             self.drain()?
-        # A range at least as large as the buffer goes straight through.
+        # A write at least as large as the buffer goes straight through.
         if count >= self._capacity:
-            return progressed(self.inner.write(source, start, stop)?, count)
-        bytes_result(self._buffer.extend_range(source, start, stop))?
+            return progressed(self.inner.write(source)?, count)
+        bytes_result(self._buffer.extend(source))?
         Ok(count)
 
     pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
@@ -427,13 +425,12 @@ pub class Cursor:
         mut count = stop - start
         if count > size - self._position:
             count = size - self._position
-        bytes_result(buffer.overwrite(start, &self.data, self._position, self._position + count))?
+        bytes_result(buffer.overwrite(start, &self.data[self._position:self._position + count]))?
         self._position += count
         Ok(count)
 
-    pub def write[S: ByteSource](self: &mut Cursor, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, source.len())?
-        count = stop - start
+    pub def write(self: &mut Cursor, source: &[u8]) -> Result[i64, StreamError]:
+        count = len(source)
         if count == 0:
             return Ok(0)
         end = displaced(self._position, count)?
@@ -445,8 +442,8 @@ pub class Cursor:
             inside = count
         # Reserving first means a failed write changes nothing but the gap.
         bytes_result(self.data.reserve(count - inside))?
-        bytes_result(self.data.overwrite(self._position, source, start, start + inside))?
-        bytes_result(self.data.extend_range(source, start + inside, stop))?
+        bytes_result(self.data.overwrite(self._position, &source[:inside]))?
+        bytes_result(self.data.extend(&source[inside:]))?
         self._position = end
         Ok(count)
 
@@ -475,9 +472,8 @@ pub class FileStream:
         ranged(start, stop, buffer.len())?
         moved(buffer.read_file(&mut self.file, start, stop))
 
-    pub def write[S: ByteSource](self: &mut FileStream, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, source.len())?
-        moved(__io_file_write(source, start, stop, self.file))
+    pub def write(self: &mut FileStream, source: &[u8]) -> Result[i64, StreamError]:
+        moved(__io_file_write(source, self.file))
 
     pub def flush(self: &mut FileStream) -> Result[(), StreamError]:
         finished(self.file.flush())
@@ -531,9 +527,8 @@ pub class Stdout:
     pub def is_terminal(self) -> bool:
         __io_is_terminal(1u8)
 
-    pub def write[S: ByteSource](self: &mut Stdout, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, source.len())?
-        moved(__io_std_write(source, start, stop, 1u8))
+    pub def write(self: &mut Stdout, source: &[u8]) -> Result[i64, StreamError]:
+        moved(__io_std_write(source, 1u8))
 
     pub def flush(self: &mut Stdout) -> Result[(), StreamError]:
         finished(flush_stdout())
@@ -542,9 +537,8 @@ pub class Stderr:
     pub def is_terminal(self) -> bool:
         __io_is_terminal(2u8)
 
-    pub def write[S: ByteSource](self: &mut Stderr, source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, source.len())?
-        moved(__io_std_write(source, start, stop, 2u8))
+    pub def write(self: &mut Stderr, source: &[u8]) -> Result[i64, StreamError]:
+        moved(__io_std_write(source, 2u8))
 
     pub def flush(self: &mut Stderr) -> Result[(), StreamError]:
         finished(flush_stderr())

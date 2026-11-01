@@ -22,7 +22,7 @@ pub class App:
 
     pub def pump(self: &mut App, response: &mut Response) -> Result[(), Error]:
         while self.at < self.body.len():
-            count = response.write(&self.body, self.at, self.body.len())?
+            count = response.write(&self.body[self.at:])?
             self.at += count
             if count == 0:
                 return Ok(())

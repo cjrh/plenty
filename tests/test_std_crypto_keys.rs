@@ -172,7 +172,7 @@ from std.bytes import Bytes
 from std.crypto import AdvancedError, RsaScheme
 
 def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
-    Ok(std.encoding.hex_text(data, 0, data.len())?)
+    Ok(std.encoding.hex_text(data)?)
 
 def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)
@@ -468,7 +468,7 @@ der = std.encoding.pem_from_text(pem, b"PUBLIC KEY")?
 print(der == unhex("$RSA_SPKI")?)?
 key = std.crypto.rsa_public_key_from_spki(&der)?
 print(key.verify(RsaScheme.Pkcs1Sha256, &text("$RS256_INPUT")?, &unhex("$RS256_SIG")?)?)?
-print(std.encoding.pem_text(&der, 0, der.len(), b"PUBLIC KEY")? == pem)?
+print(std.encoding.pem_text(&der, b"PUBLIC KEY")? == pem)?
 print(str.repr(std.encoding.pem_from_text(pem, b"PRIVATE KEY"))?)?
 print(str.repr(std.encoding.pem_from_text(pem, b"PUBLIC  KEY"))?)?
 print(str.repr(std.encoding.pem_from_text("-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n", b"PUBLIC KEY"))?)?
@@ -583,7 +583,7 @@ d = std.crypto.p256_public_key_from_spki(&ec_spki)
 f = std.crypto.p256_private_key_from_pkcs8(&ec_pkcs8)
 g = std.crypto.ed25519_seed_from_pkcs8(&ed_pkcs8)
 h = private.sign(&message)
-i = std.encoding.pem_decode(&pem, 0, pem.len(), b"PUBLIC KEY")
+i = std.encoding.pem_decode(&pem, b"PUBLIC KEY")
 print("__test_restore_allocations__")?
 print(str.repr(a)?)?
 print(str.repr(b)?)?

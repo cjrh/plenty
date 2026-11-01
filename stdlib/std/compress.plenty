@@ -3,7 +3,7 @@
 # buffering, the output limit and the trailing-data policy. See
 # book/src/design/stdlib/compress.md.
 import std.bytes
-from std.bytes import ByteSource, Bytes, BytesError
+from std.bytes import Bytes, BytesError
 from std.io import StreamError
 
 pub enum Format:
@@ -67,12 +67,10 @@ def codec(kind: u8, level: i64, capacity: i64) -> Result[Bytes, CompressError]:
         case Err(cause):
             Err(CompressError.Allocation(cause))
 
-# Feeds input[start:stop] to the codec: the count consumed, or a negative
-# code for `failed`.
-def stepped[S: ByteSource](state: &mut Bytes, input: &S, start: i64, stop: i64) -> Result[i64, CompressError]:
-    if start < 0 or start > stop or stop > input.len():
-        return Err(CompressError.OutOfRange)
-    Ok(__compress_step(state, input, start, stop))
+# Feeds `input` to the codec: the count consumed, or a negative code for
+# `failed`.
+def stepped(state: &mut Bytes, input: &[u8]) -> i64:
+    __compress_step(state, input)
 
 # The runtime's negative step and flush results.
 def failed(code: i64) -> CompressError:
@@ -131,20 +129,18 @@ pub class Inflater:
     _limit: i64
     _produced: i64
 
-    # Consumes from input[start:stop] and leaves new output pending in the
-    # state. Returns the count consumed. 0 with pending output means the output
+    # Consumes from `input` and leaves new output pending in the state.
+    # Returns the count consumed. 0 with pending output means the output
     # window is full: drain it and call again. 0 with no output means more input
     # is needed.
-    pub def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
-        if start < 0 or start > stop or stop > input.len():
-            return Err(CompressError.OutOfRange)
+    pub def step(self: &mut Inflater, input: &[u8]) -> Result[i64, CompressError]:
         if __compress_ended(self._state):
-            if start == stop:
+            if len(input) == 0:
                 return Ok(0)
-            if not self._gzip or reported(input.get(start))? != gzip_magic:
+            if not self._gzip or input[0] != gzip_magic:
                 return Err(CompressError.TrailingData)
             __compress_restart(self._state)
-        consumed = stepped(&mut self._state, input, start, stop)?
+        consumed = stepped(&mut self._state, input)
         if consumed < 0:
             return Err(failed(consumed))
         produced = self._state.len()
@@ -152,7 +148,7 @@ pub class Inflater:
             return Err(CompressError.LimitExceeded)
         self._produced += produced
         # Codecs consume or produce whenever input and output room remain.
-        if start != stop and consumed == 0 and produced == 0 and not __compress_ended(self._state):
+        if len(input) != 0 and consumed == 0 and produced == 0 and not __compress_ended(self._state):
             return Err(CompressError.Corrupt)
         Ok(consumed)
 
@@ -179,14 +175,14 @@ pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
     Ok(Inflater(state, gzip, limit, 0))
 
 # Compresses all data: DEFLATE levels 0-9, Brotli qualities 0-11.
-pub def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, CompressError]:
+pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]:
     leveled(format, level)?
     mut state = codec(kind(format, False), level, window)?
     mut out = reported(std.bytes.empty())?
     mut at = 0
-    total = data.len()
+    total = len(data)
     while at < total:
-        consumed = stepped(&mut state, data, at, total)?
+        consumed = stepped(&mut state, &data[at:total])
         if consumed < 0:
             return Err(failed(consumed))
         at += consumed
@@ -205,13 +201,13 @@ pub def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, Comp
 # Decompresses all of `data`, which must hold exactly one stream (or, for
 # gzip, a sequence of members). More than `limit` output bytes is
 # LimitExceeded; nothing is returned on any error.
-pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, CompressError]:
+pub def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]:
     mut decoder = inflater(format, limit)?
     mut out = reported(std.bytes.empty())?
     mut at = 0
-    total = data.len()
+    total = len(data)
     while at < total or not decoder.complete():
-        consumed = decoder.step(data, at, total)?
+        consumed = decoder.step(&data[at:total])?
         produced = decoder._state.len()
         at += consumed
         reported(out.extend(&decoder._state))?
@@ -222,14 +218,12 @@ pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, Co
         return Err(CompressError.Truncated)
     Ok(out)
 
-# The CRC-32 (as in gzip and zip) of data[start:stop], continuing from
-# `seed`; start from 0.
-pub def crc32(seed: i64, data: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
+# The CRC-32 (as in gzip and zip) of `data`, continuing from `seed`; start
+# from 0.
+pub def crc32(seed: i64, data: &[u8]) -> Result[i64, CompressError]:
     if seed < 0 or seed > 4294967295:
         return Err(CompressError.OutOfRange)
-    if start < 0 or start > stop or stop > data.len():
-        return Err(CompressError.OutOfRange)
-    Ok(__compress_crc32(seed, data, start, stop))
+    Ok(__compress_crc32(seed, data))
 
 # A Writer that compresses into `inner`. Input is accepted once the codec has
 # consumed it; output reaches `inner` on later writes, `flush` and `finish`.
@@ -246,7 +240,7 @@ pub class Compressor[W]:
     def drain(self: &mut Compressor[W]) -> Result[(), StreamError]:
         total = self._state.len()
         while self._start < total:
-            match self.inner.write(&self._state, self._start, total):
+            match self.inner.write(&self._state[self._start:total]):
                 case Ok(count):
                     if count == 0:
                         return Err(StreamError.WriteZero)
@@ -260,16 +254,14 @@ pub class Compressor[W]:
         self._start = 0
         Ok(())
 
-    pub def write[S: ByteSource](self: &mut Compressor[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > source.len():
-            return Err(StreamError.OutOfRange)
+    pub def write(self: &mut Compressor[W], source: &[u8]) -> Result[i64, StreamError]:
         if self._finished or __compress_ended(self._state):
             return Err(StreamError.Io(IoError.Closed))
-        if start == stop:
+        if len(source) == 0:
             return Ok(0)
         while True:
             self.drain()?
-            consumed = streamed(stepped(&mut self._state, source, start, stop))?
+            consumed = stepped(&mut self._state, source)
             if consumed < 0:
                 return Err(stream_error(failed(consumed)))
             if consumed > 0:
@@ -352,7 +344,7 @@ pub class Decompressor[R]:
                 mut count = stop - start
                 if count > pending:
                     count = pending
-                match buffer.overwrite(start, &self._decoder._state, self._start, self._start + count):
+                match buffer.overwrite(start, &self._decoder._state[self._start:self._start + count]):
                     case Ok(_):
                         pass
                     case Err(_):
@@ -367,7 +359,7 @@ pub class Decompressor[R]:
                 # a long back-reference. Drain the codec before requesting more
                 # input or treating transport EOF as a truncated stream.
                 if not self._decoder.complete():
-                    match self._decoder.step(&self._input, self._in_start, self._in_stop):
+                    match self._decoder.step(&self._input[self._in_start:self._in_stop]):
                         case Ok(_):
                             if self._decoder._state.len() > 0:
                                 continue
@@ -388,7 +380,7 @@ pub class Decompressor[R]:
                 if count == 0:
                     self._eof = True
             else:
-                match self._decoder.step(&self._input, self._in_start, self._in_stop):
+                match self._decoder.step(&self._input[self._in_start:self._in_stop]):
                     case Ok(consumed):
                         self._in_start += consumed
                     case Err(error):
