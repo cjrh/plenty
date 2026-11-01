@@ -110,9 +110,11 @@ The declaration is checked as a whole:
 - The class cannot define `__del__`, because each copy would run it.
 
 A generic `@copy` class copies when its type arguments copy, as a tuple does.
-`Pair[i64]` and `Pair[str]` copy; `Pair[list[i64]]` is accepted and moves. Each
-instance whose type arguments all copy must satisfy the field rule, so a field
-such as `items: list[T]` is reported at the first such instance, naming it. A
+`Pair[i64]` and `Pair[str]` copy; `Pair[list[i64]]` is accepted and moves. The
+field rule is checked at the definition, whether or not the class is used: a
+field must copy whenever every type argument copies. `T`, `(T, U)`, `Option[T]`
+and `Pair[T]` qualify; a field such as `items: list[T]` or `b: Box[T]` moves
+for every argument and is reported at its declaration. A
 [`CopyType` bound](../07-generics/index.md#copytype) (or `IntType` or
 `FloatType`) restricts the class to instances that copy:
 

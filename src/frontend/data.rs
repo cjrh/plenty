@@ -303,6 +303,11 @@ impl TypeAliases {
             )
             .collect();
         declarations.sort_by_key(|(name, _)| *name);
+        let mut copy_classes: Vec<_> = self.data.classes.values().collect();
+        copy_classes.sort_by_key(|c| &c.name);
+        for class in copy_classes {
+            self.check_copy_template(class)?;
+        }
         for (_, params) in declarations {
             let bounds: Vec<_> = params
                 .iter()

@@ -257,16 +257,36 @@ fn generic_copy_class_moves_with_a_moving_argument() {
     );
 }
 
-/// A field that moves for every argument is reported once an instance with
-/// copying arguments exists, naming that instance.
+/// A field that moves even when every type argument copies is reported at
+/// its declaration, whether or not the class is used.
 #[test]
 fn rejects_generic_fields_that_always_move() {
-    rejects(
-        "@copy\nclass Bag[T]:\n    items: list[T]\n\
-         def main() -> Result[(), AllocError]:\n    bag = Bag([1]?)\n    Ok(())\n",
-        "`@copy` class `Bag[i64]` cannot have field `items` of type `list[i64]`, \
-         which moves even when every type argument copies",
-    );
+    for (field, ty) in [
+        ("items: list[T]", "list[T]"),
+        ("b: Box[T]", "Box[T]"),
+        ("d: dict[str, T]", "dict[str, T]"),
+        ("p: Pair[list[i64]]", "Pair[list[i64]]"),
+    ] {
+        let name = field.split(':').next().unwrap();
+        rejects(
+            &format!("{PAIR}@copy\nclass Bag[T]:\n    first: T\n    {field}\n"),
+            &format!(
+                "`@copy` class `Bag` cannot have field `{name}` of type `{ty}`, \
+                 which moves even when every type argument copies"
+            ),
+        );
+    }
+}
+
+/// A field whose copying depends only on the type parameters is accepted
+/// without any instance.
+#[test]
+fn accepts_generic_fields_that_copy_with_their_arguments() {
+    check_source(&format!(
+        "{PAIR}@copy\nclass Mix[T, U]:\n    t: T\n    both: (T, U)\n    maybe: Option[T]\n    \
+         pair: Pair[U]\n    nested: Pair[(T, str)]\n"
+    ))
+    .unwrap();
 }
 
 #[test]

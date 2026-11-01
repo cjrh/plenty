@@ -760,6 +760,23 @@ struct TypeRef {
 }
 
 impl TypeRef {
+    /// The type as written, with type parameters by name, for diagnostics
+    /// about a generic definition rather than one of its instances.
+    fn spelling(&self) -> String {
+        if let Some(ty) = &self.concrete {
+            return ty.to_string();
+        }
+        let Some(name) = &self.name else {
+            return "()".into();
+        };
+        let args: Vec<String> = self.args.iter().map(TypeRef::spelling).collect();
+        match name.as_str() {
+            "|" => args.join(" | "),
+            "&" | "&mut" => format!("{name}{}", args.concat()),
+            _ if args.is_empty() => name.clone(),
+            _ => format!("{name}[{}]", args.join(", ")),
+        }
+    }
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
         if ty == Some(Ty::Text) {

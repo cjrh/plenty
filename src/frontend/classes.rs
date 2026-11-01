@@ -180,10 +180,8 @@ impl ClassDecl {
 impl TypeAliases {
     /// Every field of a `@copy` class must itself copy on ordinary use, so
     /// copying the instance copies its inline fields and retains shared
-    /// strings, and never allocates or runs a destructor. A generic `@copy`
-    /// class copies conditionally, as `#[derive(Copy)]` does: an instance
-    /// whose type arguments all copy must copy, and one with a moving
-    /// argument moves (`actual` holds the instance's type arguments).
+    /// strings, and never allocates or runs a destructor. Generic classes are
+    /// checked once at their definition by `check_copy_template`.
     pub(super) fn check_copy_class(
         &self,
         class: &crate::nominal::Nominal<ClassType>,
@@ -191,25 +189,57 @@ impl TypeAliases {
         actual: &[Ty],
     ) -> Result<()> {
         let definition = class.get();
-        if !definition.copy || actual.iter().any(Ty::affine) {
+        if !definition.copy || !actual.is_empty() {
             return Ok(());
         }
         for ((name, ty), (_, written)) in definition.fields.iter().zip(&declaration.fields) {
             if ty.affine() {
-                let reason = if actual.is_empty() {
-                    ""
-                } else {
-                    " even when every type argument copies"
-                };
                 return Err(written.at.error(format!(
-                    "`@copy` class `{}` cannot have field `{name}` of type `{ty}`, which moves{reason}; every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those",
+                    "`@copy` class `{}` cannot have field `{name}` of type `{ty}`, which moves; {COPY_FIELDS}",
                     class.display_name()
                 )));
             }
         }
         Ok(())
     }
+
+    /// A generic `@copy` class copies conditionally, as `#[derive(Copy)]`
+    /// does: an instance whose type arguments all copy copies, and one with a
+    /// moving argument moves. A field that moves even when every argument
+    /// copies, such as `list[T]`, is rejected here, whether or not the class
+    /// is used. Copying composes structurally, so resolving each field with
+    /// one copying type per parameter decides every instance. A field that
+    /// fails to resolve this way is left to the instance that uses it, which
+    /// reports the real cause.
+    pub(super) fn check_copy_template(&self, declaration: &ClassDecl) -> Result<()> {
+        if declaration.copy.is_none() || declaration.type_params.is_empty() {
+            return Ok(());
+        }
+        let placeholders = declaration.type_params.iter().map(|(name, bound)| {
+            let float = bound
+                .as_ref()
+                .is_some_and(|b| b.name.as_deref() == Some("FloatType"));
+            (name, if float { Ty::F64 } else { Ty::I64 })
+        });
+        self.probe_bound(placeholders, |validation| {
+            for (name, written) in &declaration.fields {
+                let Ok(Some(ty)) = written.resolve(validation) else {
+                    continue;
+                };
+                if ty.affine() {
+                    return Err(written.at.error(format!(
+                        "`@copy` class `{}` cannot have field `{name}` of type `{}`, which moves even when every type argument copies; {COPY_FIELDS}",
+                        declaration.name,
+                        written.spelling()
+                    )));
+                }
+            }
+            Ok(())
+        })
+    }
 }
+
+const COPY_FIELDS: &str = "every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those";
 
 fn type_ref(at: &Token, name: &str) -> TypeRef {
     TypeRef {
