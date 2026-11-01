@@ -164,9 +164,11 @@ pub class FixedBody[E, R]:
     broken: bool
 
     pub def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if self.broken:
             return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
-        if not within(start, stop, buffer.len()) or self.remaining < 0:
+        if self.remaining < 0:
             return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
         if start == stop or self.remaining == 0:
             return Ok(0)
@@ -352,10 +354,10 @@ pub class ChunkedBody[E, R]:
         Ok(0)
 
     pub def read(self: &mut ChunkedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if self.state == broken:
             return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
-        if not within(start, stop, buffer.len()):
-            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
         if start == stop:
             return Ok(0)
         match self.step(buffer, start, stop):
@@ -374,10 +376,10 @@ pub class CloseBody[E, R]:
     broken: bool
 
     pub def read(self: &mut CloseBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if self.broken:
             return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
-        if not within(start, stop, buffer.len()):
-            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
         if start == stop or self.finished:
             return Ok(0)
         match read_inner[E, R](&mut self.inner, buffer, start, stop):
@@ -481,10 +483,10 @@ pub class Body[E, R]:
                 &self.empty
 
     pub def read(self: &mut Body[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if self.broken:
             return Err(StepError[FramingError[E]].Source(FramingError[E].Broken))
-        if not within(start, stop, buffer.len()):
-            return Err(StepError[FramingError[E]].Source(FramingError[E].OutOfRange))
         if start == stop:
             return Ok(0)
         # At the close-delimited budget, probe one byte to distinguish EOF

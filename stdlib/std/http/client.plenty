@@ -154,6 +154,8 @@ pub class Dialled:
     cancel: CancellationToken
 
     pub def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         outcome: Result[i64, NetError] = match &mut self.stream:
             case Some(tcp):
                 tcp.read_before(buffer, start, stop, &deadline_of(self.until), &self.cancel)
@@ -272,6 +274,8 @@ pub def chunked() -> Upload:
 # Reads no bytes; the source of a request whose body is in memory.
 pub class Unstreamed:
     pub def read(self: &mut Unstreamed, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         Ok(0)
 
 # Bytes of a streamed body read and sent at a time.
@@ -592,6 +596,8 @@ pub class Wire[T]:
                 pass
 
     pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         limit = least(least(after(now_ns(), self._read_span), self._until), self._phase)
         match self._stream.read_before(buffer, start, stop, &deadline_of(limit), &self._cancel):
             case Ok(count):
@@ -726,6 +732,8 @@ pub class Response[T]:
     # The std.io Reader method. A failure other than a stream or allocation
     # error is `Io(IoError.InvalidInput)`; `take_failure` returns its cause.
     pub def read(self: &mut Response[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match self.read_body(buffer, start, stop):
             case Ok(count):
                 Ok(count)
@@ -748,6 +756,8 @@ pub class TypedResponse[T]:
     response: Option[Response[T]]
 
     pub def read(self: &mut TypedResponse[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match &mut self.response:
             case Some(response):
                 response.read_typed(buffer, start, stop)
@@ -779,9 +789,8 @@ class Incoming[T]:
                 False
 
     def read_body(self: &mut Incoming[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ClientError]:
-        # Invalid caller ranges do not consume or poison a healthy response.
         if not std.io.typed.within(start, stop, buffer.len()):
-            return Err(ClientError.Http(HttpError.Stream(StreamError.OutOfRange)))
+            __trap("read: start/stop outside buffer")
         while True:
             outcome: Result[i64, StepError[FramingError[ReadFailure[ClientError]]]] = match &mut self._body:
                 case Some(body):

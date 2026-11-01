@@ -96,12 +96,6 @@ const interrupted_call: i32 = 4
 def within(start: i64, stop: i64, count: i64) -> bool:
     start >= 0 and start <= stop and stop <= count
 
-def ranged(start: i64, stop: i64, count: i64) -> Result[(), StreamError]:
-    if within(start, stop, count):
-        Ok(())
-    else:
-        Err(StreamError.OutOfRange)
-
 # A stream that reports moving more than it was offered, or a negative count,
 # is broken; trusting it would corrupt every offset computed afterwards.
 def progressed(count: i64, offered: i64) -> Result[i64, StreamError]:
@@ -170,7 +164,7 @@ def displaced(base: i64, offset: i64) -> Result[i64, StreamError]:
 # Fills buffer[start:stop] completely, retrying interrupted and short reads.
 pub def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial]:
     if not within(start, stop, buffer.len()):
-        return Err(Partial(0, StreamError.OutOfRange))
+        __trap("read_exact: start/stop outside buffer")
     mut at = start
     while at < stop:
         match reader.read(buffer, at, stop):
@@ -284,7 +278,8 @@ pub class BufReader[R]:
         Ok(count)
 
     pub def read(self: &mut BufReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, buffer.len())?
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
             return Ok(0)
         if self._start == self._stop:
@@ -621,7 +616,8 @@ pub class Cursor:
         Ok(())
 
     pub def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, buffer.len())?
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         size = self.data.len()
         if self._position >= size:
             return Ok(0)
@@ -667,7 +663,8 @@ pub class FileStream:
     pub file: File
 
     pub def read(self: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, buffer.len())?
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         moved(buffer.read_file(&mut self.file, start, stop))
 
     pub def write(self: &mut FileStream, source: &[u8]) -> Result[i64, StreamError]:
@@ -718,7 +715,8 @@ pub class Stdin:
         __io_is_terminal(0u8)
 
     pub def read(self: &mut Stdin, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        ranged(start, stop, buffer.len())?
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         moved(buffer.read_stdin(start, stop))
 
 pub class Stdout:

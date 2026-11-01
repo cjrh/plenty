@@ -129,7 +129,7 @@ produces only under load:
 | `calls()` | `i64` | `read`, `write`, and `flush` calls made so far, including failed ones |
 | `read`, `write`, `flush` | as `std.io` | The stream protocol methods |
 
-A range outside its buffer is `StreamError.OutOfRange` before the call is
+A range outside its buffer traps with `read: start/stop outside buffer` before the call is
 counted. `flush` does nothing but count and fail when told. Writing allocates
 as `output` grows; that failure is `StreamError.Allocation`.
 

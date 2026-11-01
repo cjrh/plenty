@@ -136,7 +136,9 @@ ownership too, so a construction failure drops the supplied transport.
 | `chunked_body(inner, limits)` | `Result[ChunkedBody[E, R], FramingError[E]]`; bounded chunked decoding with [`std.http.Limits`](http.md) |
 
 All readers expose `read(buffer, start, stop)` returning
-`Result[i64, StepError[FramingError[E]]]`. A fixed body caps each read to
+`Result[i64, StepError[FramingError[E]]]`. Invalid caller buffer ranges trap
+before checking body state or accessing the transport, as required by the
+[Reader contract](io.md). A fixed body caps each read to
 its remaining length and reports `Truncated` on premature EOF. It never
 consumes bytes after the body. A close-delimited body treats EOF as successful
 completion and remembers it, avoiding further transport reads. **A

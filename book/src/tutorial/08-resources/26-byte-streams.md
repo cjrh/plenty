@@ -169,3 +169,6 @@ the iterator's buffer are discarded, so do not interleave other stdin readers.
 
 For fixed-width in-memory fields, use the [binary packet cursor](binary-packets.md)
 instead of manually tracking offsets or expecting stream reads to be atomic.
+
+A read range must satisfy `0 <= start <= stop <= buffer.len()`. Invalid
+buffer ranges trap before reading; see the [stream contract](../../design/stdlib/io.md).

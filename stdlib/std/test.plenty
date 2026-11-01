@@ -313,7 +313,8 @@ pub class FakeStream:
         offered
 
     pub def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        span(start, stop, buffer.len())?
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         self.begin()?
         mut count = self.allowed(stop - start)
         left = self.input.len() - self._read
@@ -333,11 +334,6 @@ pub class FakeStream:
 
     pub def flush(self: &mut FakeStream) -> Result[(), StreamError]:
         self.begin()
-
-def span(start: i64, stop: i64, size: i64) -> Result[(), StreamError]:
-    if start < 0 or start > stop or stop > size:
-        return Err(StreamError.OutOfRange)
-    Ok(())
 
 def stream_bytes(result: Result[(), BytesError]) -> Result[(), StreamError]:
     match result:

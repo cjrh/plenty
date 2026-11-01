@@ -336,8 +336,8 @@ pub class Decompressor[R]:
         Err(stream_error(error))
 
     pub def read(self: &mut Decompressor[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > buffer.len():
-            return Err(StreamError.OutOfRange)
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match self._failure:
             case Some(error):
                 return Err(stream_error(error))

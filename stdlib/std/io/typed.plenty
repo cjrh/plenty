@@ -32,6 +32,8 @@ pub class LegacyReader[R]:
     inner: Option[R]
 
     pub def read(self: &mut LegacyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[StreamError]]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match &mut self.inner:
             case Some(inner):
                 legacy_step(inner.read(buffer, start, stop))
@@ -102,8 +104,8 @@ pub class BufReader[E, R]:
                 Err(StepError[ReadFailure[E]].Source(ReadFailure[E].Source(cause)))
 
     pub def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]:
-        if not within(start, stop, buffer.len()):
-            return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].OutOfRange))
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
             return Ok(0)
         if self.start == self.stop:
@@ -149,7 +151,7 @@ pub def within(start: i64, stop: i64, size: i64) -> bool:
 
 pub def read_exact[E, R: Reader[E]](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial[ReadFailure[E]]]:
     if not within(start, stop, buffer.len()):
-        return Err(Partial(0, ReadFailure[E].OutOfRange))
+        __trap("read_exact: start/stop outside buffer")
     mut at = start
     while at < stop:
         match reader.read(buffer, at, stop):
