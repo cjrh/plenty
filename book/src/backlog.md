@@ -211,7 +211,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B51 | JSON | Bulk scans outside string runs, pretty-printing, JSON Lines and derived codecs (B77). |
 | B52 | TOML | Independent conformance checks (`toml-test`/reference crate); evaluate TOML 1.1. |
 | B53 | CSV | Lenient parsing/recovery, header mapping/typed columns, non-UTF-8 encodings, multibyte delimiters and throughput benchmarks. |
-| B54 | Encodings | Bulk native codec/packing throughput, streaming codecs, float packing and varints. |
+| B54 | Encodings | Bulk native codec/packing throughput, streaming codecs and varints. [IEEE float packing delivered](completed-work/libraries.md) (issue #656). |
 | B55 | Filesystem | Passwd fallback, `XDG_RUNTIME_DIR` and `XDG_*_DIRS` search lists. |
 | B56 | Concurrency primitives | Condition variables, rwlocks and semaphores only with a concrete use case. |
 | B60 | URLs | Relative resolution, normalization/equivalence, IDNA and form encoding. |
