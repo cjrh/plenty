@@ -151,7 +151,7 @@ def fed(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
 
 def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
     if start < 0 or start > stop or stop > target.len():
-        return Err(BytesError.OutOfRange)
+        __trap("take: start/stop outside buffer")
     Ok(__tls_take(session, target, start, stop))
 
 def decrypted(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
@@ -630,7 +630,6 @@ pub class TlsStream:
         if not (0 <= start and start <= stop and stop <= buffer.len()):
             __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, buffer.len())?
             return Ok(Some(0))
         if not self.try_handshake()?:
             return Ok(Nothing)
@@ -679,7 +678,6 @@ pub class TlsStream:
         if not (0 <= start and start <= stop and stop <= buffer.len()):
             __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, buffer.len())?
             return Ok(0)
         while True:
             count = counted(decrypted(&self._session, buffer, start, stop))?
@@ -737,7 +735,6 @@ pub class TlsStream:
         if not (0 <= start and start <= stop and stop <= buffer.len()):
             __trap("read: start/stop outside buffer")
         if start == stop:
-            flowed(within(start, stop, buffer.len()))?
             return Ok(0)
         while True:
             count = flowed(counted(decrypted(&self._session, buffer, start, stop)))?
@@ -874,7 +871,6 @@ pub class Session:
         if not (0 <= start and start <= stop and stop <= target.len()):
             __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, target.len())?
             return Ok(Some(0))
         count = counted(decrypted(&self._handle, target, start, stop))?
         if count == would_block:
@@ -937,7 +933,3 @@ pub def client_session(config: &ClientConfig, server_name: &str) -> Result[Sessi
 pub def server_session(config: &ServerConfig) -> Result[Session, TlsError]:
     Ok(Session(opened(__tls_server(config._handle))?, False))
 
-def within(start: i64, stop: i64, length: i64) -> Result[(), TlsError]:
-    if start < 0 or start > stop or stop > length:
-        return Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
-    Ok(())
