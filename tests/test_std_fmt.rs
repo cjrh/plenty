@@ -22,7 +22,7 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(500, 8)?
     std.fmt.represent(&result, &mut out)?
     print(std.fmt.finish(&out)?)?
-    other: IoError | ThreadError = IoError.Closed
+    other: IoError | SpawnError[()] = IoError.Closed
     print(other)?
     pair: Named | i64 = Named.Pair(42, "hello")
     empty: Named | i64 = Named.Empty

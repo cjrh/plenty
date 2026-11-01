@@ -1887,7 +1887,7 @@ HTTP/1.1 server: routing, a bounded worker pool and admission queue, idle connec
 
 ```text
 enum ServerError
-    InvalidConfig | InvalidPattern | DuplicateRoute | Allocation(AllocError) | Thread(ThreadError) | Net(NetError)
+    InvalidConfig | InvalidPattern | DuplicateRoute | Allocation(AllocError) | Thread(SpawnError[()]) | Net(NetError)
 protocol Transport
     def read_before(self: &mut Transport, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]
     def write_before[S: ByteSource](self: &mut Transport, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]

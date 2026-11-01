@@ -210,7 +210,7 @@ def work(hits: &Atomic[u64], rounds: i64) -> ():
         hits.fetch_wrapping_sub(1, Ordering.Relaxed)
         hits.fetch_wrapping_add(1, Ordering.Relaxed)
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     hits = Atomic[u64](0)
     with spawn(work, &hits, 250000)? as a, spawn(work, &hits, 250000)? as b, spawn(work, &hits, 250000)? as c, spawn(work, &hits, 250000)? as d:
         hits.load(Ordering.Acquire)
@@ -234,7 +234,7 @@ def work(total: &Atomic[i64], rounds: i64) -> ():
         total.fetch_add(3, Ordering.Relaxed)
         total.fetch_sub(1, Ordering.Relaxed)
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     total = Atomic[i64](0)
     with spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?, spawn(work, &total, 200000)?:
         pass
@@ -270,7 +270,7 @@ def mark(slot: &Option[Atomic[u8]]) -> ():
         case Nothing:
             pass
 
-def main() -> Result[(), AllocError | ChannelError | IoError | RecvError | SendError[Atomic[u64]] | ThreadError]:
+def main() -> Result[(), AllocError | ChannelError | IoError | RecvError | SendError[Atomic[u64]] | SpawnError[()]]:
     flags = [Atomic(False), Atomic(False), Atomic(False)]?
     with spawn(flip, &flags, 1)?:
         pass
@@ -329,7 +329,7 @@ fn borrowed_atomics_cannot_move() {
         ),
     ] {
         let source = format!(
-            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    {body}\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    {body}\n    Ok(())\n"
         );
         let error = rejected(&source);
         assert!(error.contains(message), "{source}\n{error}");
@@ -354,7 +354,7 @@ def work(stats: &Stats, base: i64) -> ():
     for i in range(50000):
         stats.record(base + i)
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     stats = Stats(hits=Atomic[u32](0), largest=Atomic(i64.MIN), seen=Atomic(False))
     with spawn(work, &stats, 0)?, spawn(work, &stats, 1000000)?, spawn(work, &stats, -5)?:
         pass

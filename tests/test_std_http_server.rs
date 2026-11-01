@@ -517,7 +517,7 @@ def client(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(until(&mut second, "").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -757,7 +757,7 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocE
     print(str.repr(&outcome)?)?
     Ok(())
 "##,
-        "Result[std.http.server.Report, std.http.server.ServerError].Err(std.http.server.ServerError.Thread(ThreadError.System(11)))",
+        "Result[std.http.server.Report, std.http.server.ServerError].Err(std.http.server.ServerError.Thread(SpawnError[()].Unavailable((), 11)))",
     );
 }
 
@@ -933,7 +933,7 @@ def crowded(port: u16, app: &Gated, stop: CancellationToken) -> ():
     print(str.repr(until(&mut silent, "").unwrap()).unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | ThreadError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     table = routes()?
     app = gated()?
     mut config = std.http.server.config()

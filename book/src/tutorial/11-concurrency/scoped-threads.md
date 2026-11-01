@@ -38,7 +38,7 @@ A failed start reports `SpawnError[F]`, which returns the unstarted job: here
 the function and its arguments. `drop_job()` drops that job at the start, so the
 error becomes `SpawnError[()]`, one member for every start. Keep the job when
 you want to retry it, as [owned worker jobs](owned-worker-jobs.md) shows.
-[Borrowed workers](borrowed-workers.md) report `ThreadError` instead.
+[Borrowed workers](borrowed-workers.md) report `SpawnError[()]` too.
 
 Like any `?`, the start error widens into the enclosing Result's error sum, so
 `main` above lists `SpawnError[()]` beside the worker's `AllocError` and the

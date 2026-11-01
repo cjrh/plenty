@@ -182,30 +182,30 @@ impl Lowerer<'_, '_> {
                 let Ty::Enum(result_enum) = &result else {
                     unreachable!()
                 };
-                let error = if let Some(job) = task.owned_job() {
+                // Every nonzero status is `Unavailable`: EAGAIN is the usual
+                // one, but a seccomp filter can make clone fail with another
+                // code such as EPERM. An owned start returns its job; a
+                // borrowed start drops its moved arguments and reports
+                // `SpawnError[()]`, since a loan cannot leave in an error.
+                if let Some(job) = task.owned_job() {
                     // The source environment is inert after the move into task
                     // storage. On failure it becomes the residual owner; on
-                    // success only the worker owns its relocated copy. Every
-                    // nonzero status is `Unavailable`: EAGAIN is the usual one,
-                    // but a seccomp filter can make clone fail with another
-                    // code such as EPERM, and the job must still come back.
+                    // success only the worker owns its relocated copy.
                     self.stack.push((arguments[0].0, job.clone()));
-                    self.stack.push((status, Ty::I32));
-                    let Ty::Enum(error) = result_enum.get().variants[1].fields[0].clone() else {
-                        unreachable!()
-                    };
-                    self.lower_enum(&crate::sum::EnumOp::New(error, 0))?;
-                    self.lower_enum(&crate::sum::EnumOp::New(result_enum.clone(), 1))?;
-                    self.stack.pop().ok_or("missing spawn error")?.0
                 } else {
                     for (value, ty) in arguments.iter().rev() {
                         self.release(*value, ty);
                     }
-                    let payload = self.bcx.ins().uextend(types::I128, status);
-                    let (payload, _) = self.bcx.ins().isplit(payload);
-                    let tag = self.bcx.ins().iconst(types::I64, 1);
-                    self.bcx.ins().iconcat(payload, tag)
+                    let unit = self.bcx.ins().iconst(types::I64, 0);
+                    self.stack.push((unit, Ty::Unit));
+                }
+                self.stack.push((status, Ty::I32));
+                let Ty::Enum(error) = result_enum.get().variants[1].fields[0].clone() else {
+                    unreachable!()
                 };
+                self.lower_enum(&crate::sum::EnumOp::New(error, 0))?;
+                self.lower_enum(&crate::sum::EnumOp::New(result_enum.clone(), 1))?;
+                let error = self.stack.pop().ok_or("missing spawn error")?.0;
                 self.bcx.ins().jump(done, &[error.into()]);
                 self.bcx.switch_to_block(done);
                 self.bcx.seal_block(done);

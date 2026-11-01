@@ -70,7 +70,7 @@ def check(stats: &Mutex[Stats], rounds: i64) -> ():
             if data.total < 3 * data.count or data.total > 4 * data.count:
                 data.torn = True
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     stats = Mutex[Stats](Stats(0, 0, False))
     with spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(check, &stats, 50000)?:
         check(&stats, 50000)
@@ -216,7 +216,7 @@ def work(m: &Mutex[i64]) -> ():
     with m.lock() as v:
         *v = *v + 1
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     m = Mutex(1)
     with spawn(work, &m)? as task:
         with m.lock() as v:
@@ -327,25 +327,25 @@ fn joining_while_holding_a_reachable_lock_is_rejected() {
     let hang = "a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`: the worker could wait for that lock, and this join, forever";
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
         ),
         &format!("leaving this `with` block joins {hang}"),
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            task.join()\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            task.join()\n    Ok(())\n"
         ),
         &format!("this join waits for {hang}"),
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with m.lock() as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
         ),
         "note: the lock is acquired here; end the lock's `with` block before this one, or start the task outside it",
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), ThreadError]:\n    m = Mutex(1)\n    with m.lock() as v, spawn(work, &m)?:\n        pass\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with m.lock() as v, spawn(work, &m)?:\n        pass\n    Ok(())\n"
         ),
         &format!("leaving this `with` block joins {hang}"),
     );

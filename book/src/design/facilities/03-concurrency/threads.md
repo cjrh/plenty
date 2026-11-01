@@ -64,11 +64,12 @@ therefore returns the sender on failure. Call `drop_job()` on the start to drop
 the arguments there instead.
 
 A start that borrows, a named start with a `&T` or `&mut T` argument or
-`spawn(&job)`, returns `ThreadError.System(code)`. Moved arguments of a borrowed
-start drop exactly once on the parent thread, in reverse argument order; on
-success they belong to the worker. The error cannot return them until errors
-can carry stored references (backlog B11). The worker has not run and cannot have changed borrowed
-inputs; already evaluated argument expressions keep their effects.
+`spawn(&job)`, returns the job-free `SpawnError[()].Unavailable((), code)`, so
+every start fails with `SpawnError`. A borrowed argument cannot be returned in
+an error, so moved arguments of a borrowed start drop exactly once on the parent
+thread, in reverse argument order; on success they belong to the worker. The
+worker has not run and cannot have changed borrowed inputs; already evaluated
+argument expressions keep their effects.
 
 `spawn(...)?` follows ordinary
 [`?` propagation](../../language/08-errors/01-sums-and-propagation.md): the
@@ -76,8 +77,8 @@ enclosing Result's error may be the start error or an anonymous sum containing
 it.
 
 Every nonzero `pthread_create` status is a start failure; none terminates the
-process. Both errors carry it: `SpawnError[F].Unavailable(job, code)` and
-`ThreadError.System(code)`, with `code: i32`. The usual code is `EAGAIN` (11),
+process. The error carries it: `SpawnError[F].Unavailable(job, code)`, with
+`code: i32`. The usual code is `EAGAIN` (11),
 for a thread or memory limit. The runtime passes no thread attributes, so other
 codes come only from the environment: a seccomp filter that denies `clone`
 surfaces its own code, such as `EPERM` (1).

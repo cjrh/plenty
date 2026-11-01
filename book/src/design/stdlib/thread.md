@@ -7,7 +7,7 @@ item aliases. Importing allocates nothing and introduces no wrapper or new
 execution model. Supported target: x86_64 Linux GNU.
 
 ```plenty
-from std.thread import spawn, ThreadError
+from std.thread import spawn, SpawnError
 
 def total(values: &list[i64], start: i64, stop: i64) -> i64:
     mut sum = 0
@@ -15,7 +15,7 @@ def total(values: &list[i64], start: i64, stop: i64) -> i64:
         sum += values[i]
     sum
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     values = [n for n in range(1, 101)]?
     with spawn(total, &values, 0, 50)? as low, spawn(total, &values, 50, 100)? as high:
         print(low.join() + high.join())?
@@ -37,7 +37,9 @@ A start with only owned or copied arguments, `spawn(job)` or
 retaining the job for recovery; a named start's job binds its arguments.
 `.drop_job()` on the start drops the job and reports the job-free
 `SpawnError[()]`. A start that borrows, such as `spawn(total, &values, 0, 50)`,
-reports `ThreadError.System(code)`. See
+reports `SpawnError[()].Unavailable((), code)` and drops its moved arguments,
+since a loan cannot be returned in an error. `ThreadError` remains the payload
+of `PoolError.Thread`. See
 [owned jobs](../facilities/03-concurrency/jobs.md) and
 [start failures](../facilities/03-concurrency/threads.md#start-failures). Job handoff and bookkeeping
 allocate no Plenty heap storage; native thread creation uses OS resources.

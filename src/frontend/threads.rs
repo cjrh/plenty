@@ -101,9 +101,9 @@ impl Lower<'_> {
                 let captures = self.sigs[&symbol].inputs.clone();
                 // Owned arguments bind a one-shot job, as `pool.submit` does,
                 // so a failed start returns them in `SpawnError[F]` (issue
-                // #630). Borrowed arguments cannot be returned in an error
-                // until errors can carry loans (B11); those starts report
-                // `ThreadError` and drop the moved arguments.
+                // #630). A borrowed argument cannot be returned in an error,
+                // so those starts drop the moved arguments and report
+                // `SpawnError[()]`.
                 if captures.iter().all(|(_, ty)| ty.heap_storable()) {
                     let closure =
                         Self::bind_named_job(symbol, returned, captures, &worker.at, ops)?;

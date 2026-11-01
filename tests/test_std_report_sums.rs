@@ -260,7 +260,7 @@ pub class Global:
 def worker(value: &(Code | Global)) -> ():
     mut out = std.report.stderr_formatter(100, 1).unwrap()
     value.format(&mut out).unwrap()
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     value: Code | Global = Code.Value(1)
     with spawn(worker, &value)?:
         pass

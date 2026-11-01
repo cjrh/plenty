@@ -45,7 +45,7 @@ def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, can
 
 type TlsConnectionError = RangeError | TlsError | NetError | std.bytes.BytesError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | TlsConnectionError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | TlsConnectionError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     roots = std.tls.roots_from_pem(&ca_pem())?

@@ -210,7 +210,7 @@ print(submit(job).unwrap()).unwrap()
         "started\n5\n",
     );
     let error = support::check_source(
-        "def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, ThreadError | IoError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\nn = 1\njob = def once [n]() -> i64:\n    n\nsubmit(job).unwrap()\n",
+        "def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[()] | IoError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\nn = 1\njob = def once [n]() -> i64:\n    n\nsubmit(job).unwrap()\n",
     )
     .unwrap_err()
     .to_string();
@@ -278,14 +278,14 @@ match attempt([1, 2].unwrap()):
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_borrowing_named_start_reports_thread_error() {
-    // Borrowed arguments cannot be returned in an error until errors can
-    // carry loans (B11), so this start keeps `ThreadError`.
+fn failed_borrowing_named_start_reports_job_free_spawn_error() {
+    // A borrowed argument cannot be returned in an error, so this start
+    // reports the job-free `SpawnError[()]`.
     runs(
         r#"
 def total(values: &list[i64], scale: i64) -> i64:
     values[0] * scale
-def attempt(values: &list[i64]) -> Result[i64, ThreadError]:
+def attempt(values: &list[i64]) -> Result[i64, SpawnError[()]]:
     with spawn(total, values, 10)? as task:
         return Ok(task.join())
 values = [4, 5].unwrap()
@@ -294,7 +294,7 @@ print(str.repr(attempt(&values)).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 print(attempt(&values).unwrap()).unwrap()
 "#,
-        "__test_fail_thread_starts__\nResult[i64, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n40\n",
+        "__test_fail_thread_starts__\nResult[i64, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n40\n",
     );
 }
 

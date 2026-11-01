@@ -14,7 +14,7 @@ def worker(item: Item, values: list[i64], output: &mut i64) -> list[i64]:
     values
 def apply[F: Callable[[], i64]](job: F) -> i64:
     job()
-def main() -> Result[(), AllocError | IoError | ThreadError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     mut output = 0
     with spawn(worker, Item(7), [1, 2]?, &mut output)? as task:
         print(task.join())?
@@ -67,7 +67,7 @@ class Item:
 def worker(item: Item, values: list[Item], count: &mut i64) -> ():
     *count = *count + 1
     print("unexpected worker").unwrap()
-def attempt(count: &mut i64) -> Result[(), ThreadError]:
+def attempt(count: &mut i64) -> Result[(), SpawnError[()]]:
     with spawn(worker, Item("item"), [Item("nested")].unwrap(), count)?:
         pass
     Ok(())
@@ -89,7 +89,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(count)?
     Ok(())
 "#,
-        "__test_fail_thread_starts__\nnested\nitem\nResult[(), ThreadError].Err(ThreadError.System(11))\ncapture\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n0\n",
+        "__test_fail_thread_starts__\nnested\nitem\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\ncapture\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n0\n",
     );
 }
 
@@ -120,7 +120,7 @@ def sum_values(values: &list[i64]) -> i64:
     total
 def bump(value: &mut i64) -> ():
     *value = *value + 1
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     values = [2, 3, 4]?
     mut n = 7
     with spawn(sum_values, &values)? as a, spawn(sum_values, &values)? as b:
@@ -138,7 +138,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 fn borrowed_closures_keep_capture_dependencies_alive() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     mut values = [1, 2]?
     mut job = def [&mut values]() -> Result[i64, AllocError]:
         values.append(3)?
@@ -154,7 +154,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
 
 #[test]
 fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
-    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | ThreadError]:\n    mut value = 1\n";
+    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | SpawnError[()]]:\n    mut value = 1\n";
     // The thread holds its borrow until the scoped join, even after an
     // explicit join, so every note names the `with` block and not the join.
     let scoped = "\n  6:29: note: the exclusive borrow of `value` starts here\n  6:10: note: the borrow is held until the end of this `with` block";
@@ -199,7 +199,7 @@ fn race_diagnostics_point_at_the_use_and_the_spawn_scope() {
 
 #[test]
 fn rejects_races_escaping_handles_and_double_joins() {
-    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | ThreadError]:\n    mut value = 1\n";
+    let header = "def worker(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> Result[(), IoError | SpawnError[()]]:\n    mut value = 1\n";
     for (body, expected) in [
         (
             "with spawn(worker, &mut value)? as task:\n        print(value)?",
@@ -251,7 +251,7 @@ def total(node: &Node) -> i64:
             node.value
 def add[T: IntType](value: &mut T, amount: T) -> ():
     *value = *value + amount
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     node = Node(2, Some(Box(Node(3, Nothing))?))
     with spawn(total, &node)? as task:
         print(task.join())?
@@ -310,15 +310,15 @@ fn all_normal_exits_join_before_reclaiming_borrowed_storage() {
         r#"
 def update(n: &mut i64) -> ():
     *n = *n + 1
-def early(n: &mut i64) -> Result[(), ThreadError]:
+def early(n: &mut i64) -> Result[(), SpawnError[()]]:
     with spawn(update, n)?:
         return Ok(())
-def failed(n: &mut i64) -> Result[(), ThreadError]:
+def failed(n: &mut i64) -> Result[(), SpawnError[()]]:
     with spawn(update, n)?:
-        error: Result[(), ThreadError] = Err(ThreadError.System(1))
+        error: Result[(), SpawnError[()]] = Err(SpawnError[()].Unavailable((), 1))
         error?
     Ok(())
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     mut n = 0
     early(&mut n)?
     print(str.repr(failed(&mut n)).unwrap())?
@@ -330,7 +330,7 @@ def main() -> Result[(), IoError | ThreadError]:
     print(n)?
     Ok(())
 "#,
-        "Result[(), ThreadError].Err(ThreadError.System(1))\n5\n",
+        "Result[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 1))\n5\n",
     );
 }
 
@@ -349,7 +349,7 @@ class Resource:
         pass
 def worker(value: &Resource) -> i64:
     value.value
-def main() -> Result[(), ThreadError]:
+def main() -> Result[(), SpawnError[()]]:
     value = Resource(1)
     with spawn(worker, &value)?:
         pass
@@ -374,7 +374,7 @@ def main() -> Result[(), SpawnError[()]]:
             r#"
 def worker(data: &i64) -> &i64:
     data
-def main() -> Result[(), ThreadError]:
+def main() -> Result[(), SpawnError[()]]:
     data = 1
     with spawn(worker, &data)?:
         pass
@@ -477,7 +477,7 @@ fn failed_start_preserves_borrowed_job_and_joins_prior_tasks() {
         r#"
 def update(n: &mut i64) -> ():
     *n = *n + 10
-def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError]:
+def attempt(a: &mut i64, b: &mut i64) -> Result[(), SpawnError[()]]:
     with spawn(update, a)?, spawn(update, b)?:
         pass
     Ok(())
@@ -494,7 +494,7 @@ def main() -> Result[(), IoError]:
     print(b)?
     Ok(())
 "#,
-        "__test_one_thread_start__\nResult[(), ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\n11\n2\nResult[(), ThreadError].Ok(())\n21\n12\n",
+        "__test_one_thread_start__\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n11\n2\nResult[(), SpawnError[()]].Ok(())\n21\n12\n",
     );
 }
 
@@ -553,12 +553,12 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 fn task_bookkeeping_does_not_allocate_and_failed_closure_is_reusable() {
     runs(
         r#"
-def attempt(job: &mut Closure[[], i64]) -> Result[i64, ThreadError]:
+def attempt(job: &mut Closure[[], i64]) -> Result[i64, SpawnError[()]]:
     with spawn(&mut job)? as task:
         return Ok(task.join())
 def bump(value: &mut i64) -> ():
     *value = *value + 1
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     mut value = 0
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
@@ -577,7 +577,7 @@ def main() -> Result[(), IoError | ThreadError]:
     print(value)?
     Ok(())
 "#,
-        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n1\n__test_fail_thread_starts__\nResult[i64, ThreadError].Err(ThreadError.System(11))\n__test_restore_thread_starts__\nResult[i64, ThreadError].Ok(11)\n11\n",
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n1\n__test_fail_thread_starts__\nResult[i64, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\nResult[i64, SpawnError[()]].Ok(11)\n11\n",
     );
 }
 
@@ -590,7 +590,7 @@ class Pair:
     right: i64
 def bump(n: &mut i64) -> ():
     *n = *n + 1
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     text = "hello"
     job = def [&text]() -> str:
         text
@@ -612,7 +612,7 @@ fn closure_loans_block_parent_access_until_exit_and_tasks_cannot_suspend() {
     for access in ["print(values)?", "values.append(3)?", "drop(job)"] {
         let source = format!(
             r#"
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     mut values = [1]?
     mut job = def [&mut values]() -> Result[(), AllocError]:
         values.append(2)
@@ -671,11 +671,11 @@ class Counter:
         print(self.value).unwrap()
 def bump(counter: &mut Counter) -> ():
     counter.value = counter.value + 1
-def run() -> Result[(), ThreadError]:
+def run() -> Result[(), SpawnError[()]]:
     with Counter(5) as counter:
         with spawn(bump, counter)?:
             return Ok(())
-def main() -> Result[(), ThreadError]:
+def main() -> Result[(), SpawnError[()]]:
     run()?
     Ok(())
 "#,
@@ -771,7 +771,7 @@ def worker() -> ():
 def add(n: &mut i64) -> i64:
     *n = *n + 1
     *n
-def main() -> Result[(), ThreadError | SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError]:
     mut n = 1
     with spawn(worker).drop_job()?:
         print("started")?
@@ -810,7 +810,7 @@ def update(n: &mut i64) -> ():
     *n = *n + 10
 def take(item: Item, values: list[Item]) -> ():
     print("unexpected worker").unwrap()
-def attempt(a: &mut i64, b: &mut i64) -> Result[(), ThreadError | SpawnError[()] | IoError]:
+def attempt(a: &mut i64, b: &mut i64) -> Result[(), SpawnError[()] | IoError]:
     with spawn(update, a)?, spawn(take, Item("item"), [Item("nested")].unwrap()).drop_job()?, spawn(update, b)?:
         print("unexpected body")?
     Ok(())
@@ -854,7 +854,7 @@ def square(n: i64) -> i64:
 def apply[F: Callable[[], i64]](job: F) -> i64:
     job()
 
-def scoped(stop: i64) -> Result[i64, AllocError | ThreadError | SpawnError[()]]:
+def scoped(stop: i64) -> Result[i64, AllocError | SpawnError[()]]:
     values = [1, 2, 3]?
     mut output = 0
     mut total = 0
@@ -880,7 +880,7 @@ def early(limit: i64) -> Result[i64, SpawnError[()]]:
             seen += task.join()
     Ok(seen * 100 + count)
 
-def closures() -> Result[i64, ThreadError | SpawnError[()]]:
+def closures() -> Result[i64, SpawnError[()]]:
     mut calls = 0
     mut base = 5
     mut job = def [mut base]() -> i64:
@@ -897,7 +897,7 @@ def closures() -> Result[i64, ThreadError | SpawnError[()]]:
         sum += task.join()
     Ok(sum * 10 + calls + base)
 
-def owned() -> Result[i64, AllocError | ThreadError]:
+def owned() -> Result[i64, AllocError | SpawnError[()]]:
     values = [4, 5, 6]?
     mut index = 0
     mut total = 0
@@ -910,7 +910,7 @@ def owned() -> Result[i64, AllocError | ThreadError]:
         total += task.join()
     Ok(total)
 
-def main() -> Result[(), AllocError | IoError | ThreadError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     print(scoped(5)?)?
     print(early(3)?)?
     print(closures()?)?
@@ -945,8 +945,8 @@ def main() -> Result[(), AllocError | IoError | ThreadError | SpawnError[()]]:
     // The local frame is the entry block's first slot: 16 bytes each for the
     // borrowed `values` and `output`, none for `total`, `round`, `index`, or
     // the task tokens. Each task's storage is a separate slot. The owned start
-    // `spawn(square, round)` adds two 80-byte hidden results that hold its
-    // bound job until `drop_job()` (issue #630).
+    // `spawn(square, round).drop_job()` adds two 80-byte hidden values that
+    // hold its bound job until `drop_job()`; issue #653 tracks returning to 32.
     let first = scoped
         .lines()
         .find(|line| line.contains("explicit_slot"))

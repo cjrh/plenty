@@ -151,7 +151,7 @@ def attempt(stream: &mut FileStream, buffer: &mut std.bytes.Bytes, deadline: &De
         case _:
             "other"
 
-def main() -> Result[(), AllocError | IoError | RangeError | ThreadError | SpawnError[()] | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | RangeError | SpawnError[()] | std.bytes.BytesError]:
     mut child = piped("printf abcdef; sleep 0.05; printf ghi")?
     stream = std.io.from_file(child.take_stdout().unwrap())
     cancel = CancellationToken()?
@@ -227,7 +227,7 @@ def consume(file: File) -> bool:
     mut owned = file
     owned.close().is_ok()
 
-def main() -> Result[(), AllocError | IoError | ParseError | RangeError | ThreadError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | ParseError | RangeError | SpawnError[()]]:
     descriptors = count("/proc/self/fd")?
     threads = count("/proc/self/task")?
     mut child = piped("sleep 5")?
@@ -325,7 +325,7 @@ fn shared_file_loans_still_exclude_concurrent_mutation() {
 def reader(file: &mut File) -> ():
     file.read().unwrap()
     pass
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     mut file = open("/dev/null", "r")?
     with spawn(reader, &mut file)?:
         file.close()?

@@ -170,9 +170,8 @@ An operation that takes ownership of a value and can fail before using it
 value's type: `Undelivered[M]` and `RequestError[M]` in `std.actor`,
 `SendError[T]` for [channels](../facilities/03-concurrency/channels.md),
 `SubmitError[F]` for executors, `SpawnError[F]` for thread starts. Exception:
-a scoped `spawn` with borrowed arguments reports `ThreadError` and drops its
-moved arguments, because an error cannot carry a loan until stored references
-land (backlog B11).
+a scoped `spawn` with borrowed arguments reports the job-free `SpawnError[()]`
+and drops its moved arguments, because an error cannot carry a loan.
 
 ## Parameters
 
@@ -297,7 +296,6 @@ they are one family:
 |---|---|---|
 | Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
 | Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
-| Ownership | Borrowed `spawn` drops moved arguments on failure | B11 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `&Bytes` inputs | B39 |

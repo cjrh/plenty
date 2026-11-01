@@ -9,7 +9,7 @@ def counter(total: i64) -> Closure[[], i64]:
         total = total + 1
         total
 
-def main() -> Result[(), ThreadError | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError]:
     mut jobs = (counter(10), counter(100))
     with spawn(&mut jobs[0])? as first, spawn(&mut jobs[1])? as second:
         print(first.join())?

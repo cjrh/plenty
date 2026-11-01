@@ -270,7 +270,7 @@ from std.sync import CancellationToken as Token
 from std.thread import spawn as start
 def wait(token: &Token) -> ():
     token.wait()
-def main() -> Result[(), AllocError | ThreadError]:
+def main() -> Result[(), AllocError | SpawnError[()]]:
     token = Token()?
     with start(wait, &token)? as task:
         drop(token)

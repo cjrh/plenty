@@ -329,7 +329,8 @@ pub fn thread_error() -> Ty {
 /// A failed owned start returns the complete job and the native start code,
 /// without allocating an error object. Every native start failure is
 /// `Unavailable(job, code)`: the job comes first, as in the other errors that
-/// return a moved input. Borrowed starts report `ThreadError.System(code)`.
+/// return a moved input. Borrowed starts report `SpawnError[()]`: a loan cannot
+/// be returned in an error.
 pub fn spawn_error(job: Ty) -> Ty {
     let Ty::Enum(template) = option(job.clone()) else {
         unreachable!()

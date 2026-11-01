@@ -94,7 +94,7 @@ def main() -> Result[(), AllocError | SpawnError[()] | str]:
 fn a_borrowed_token_is_matched_too() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     with spawn(watch, &stop)?:
         fails()?
@@ -259,7 +259,7 @@ def main() -> Result[(), AllocError | SpawnError[()] | str]:
 fn guarded_tasks_pools_and_workers_are_accepted() {
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | SpawnError[()] | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     with spawn(spin, stop.share()).drop_job()?, stop.cancel_on_exit():
         fails()?
@@ -366,7 +366,7 @@ def worker(stop: CancellationToken, n: i64) -> Result[(), str]:
         stop.cancel()
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     worker(stop.share(), 1)?
     Ok(())

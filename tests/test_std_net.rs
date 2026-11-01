@@ -299,7 +299,7 @@ std.net.NetError.InvalidAddress\nstd.net.NetError.InvalidAddress\n127.0.0.1:80 7
 fn tcp_echo_reports_short_reads_and_end_of_input() {
     runs(
         r#"
-def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -336,7 +336,7 @@ def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         total += count
     Ok(total)
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(10000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -435,7 +435,7 @@ def delayed_sink(listener: &TcpListener, deadline: &Deadline, cancel: &Cancellat
     sleep(&milliseconds(30u32))
     std.io.write_all(&mut stream, &b"done", 0, 4).unwrap()
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -668,7 +668,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn byte_literals_are_sent_in_place() {
     runs(
         r#"
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -836,7 +836,7 @@ def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken
     stream.shutdown(Shutdown.Write).unwrap()
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -923,7 +923,7 @@ def selecting(cancel: CancellationToken) -> Result[Instant, WaitError]:
         case _:
             Err(WaitError.TimedOut)
 
-def main() -> Result[(), ThreadError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     mut worst = 0u64
     for _ in range(20):
