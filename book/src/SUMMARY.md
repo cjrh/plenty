@@ -107,7 +107,7 @@
         - [Measure time and wait](tutorial/07-modules/04-standard-time.md)
         - [Take the most urgent item first](tutorial/07-modules/05-priority-queues.md)
         - [Find a route through a graph](tutorial/07-modules/27-graphs.md)
-        - [Encode bytes and pack integers](tutorial/07-modules/07-standard-encoding.md)
+        - [Encode bytes and pack numbers](tutorial/07-modules/07-standard-encoding.md)
         - [Take a URL apart and build one](tutorial/07-modules/08-standard-urls.md)
         - [Draw random values and make secrets](tutorial/07-modules/09-random-and-secrets.md)
         - [Summarize observations and model uncertainty](tutorial/07-modules/22-statistics.md)
