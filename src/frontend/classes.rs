@@ -759,6 +759,36 @@ impl Lower<'_> {
         }
         reference
     }
+    /// Project a reference to a `Box` or `Shared` owner onto its content where
+    /// a reference to the content is expected, through nested owners:
+    /// `&Shared[T]` converts to `&T` as `&Box[T]` does (consistency rule 3).
+    /// Shared content is immutable, so only a shared reference projects
+    /// through a `Shared`; the borrow of the handle keeps its count alive.
+    /// Any other `reference` is returned unchanged.
+    pub(super) fn lend_content(&mut self, reference: Ty, expected: &Ty, ops: &mut Vec<Op>) -> Ty {
+        let mut steps = Vec::new();
+        let mut current = reference.clone();
+        while crate::generator::refine(expected, &current).is_none() {
+            let Ty::Ref(inner, mutable) = &current else {
+                return reference;
+            };
+            let (step, content) = match &**inner {
+                Ty::Box(content) => (
+                    crate::boxed::BoxOp::Ref((**content).clone(), *mutable),
+                    content.clone(),
+                ),
+                Ty::Shared(content) if !*mutable => (
+                    crate::boxed::BoxOp::SharedRef((**content).clone()),
+                    content.clone(),
+                ),
+                _ => return reference,
+            };
+            steps.push(step);
+            current = Ty::Ref(content, *mutable);
+        }
+        ops.extend(steps.into_iter().map(Op::Box));
+        current
+    }
     /// Convert a box to its content where the content's type is expected. Moving the value out
     /// cannot fail and allocates nothing, so the conversion needs no syntax.
     pub(super) fn unbox_to(&mut self, ty: Ty, expected: &Ty, ops: &mut Vec<Op>) -> Ty {
@@ -767,15 +797,10 @@ impl Lower<'_> {
         while crate::generator::refine(expected, content).is_none() {
             match content {
                 Ty::Box(inner) => content = inner,
-                Ty::Ref(inner, _) if matches!(**inner, Ty::Box(_)) && depth == 0 => {
-                    let projected = unbox(Ty::clone(inner));
-                    let matches = matches!(expected, Ty::Ref(target, _)
-                        if crate::generator::refine(target, &projected).is_some());
-                    return if matches {
-                        self.unbox_reference(ty, ops)
-                    } else {
-                        ty
-                    };
+                Ty::Ref(inner, _)
+                    if matches!(**inner, Ty::Box(_) | Ty::Shared(_)) && depth == 0 =>
+                {
+                    return self.lend_content(ty, expected, ops);
                 }
                 _ => return ty,
             }

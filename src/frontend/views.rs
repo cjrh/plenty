@@ -227,9 +227,93 @@ impl Lower<'_> {
         }
     }
 
-    /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, or a view
-    /// binding. A list or other value is not converted implicitly, so every
-    /// view a call receives is written as one. `text` marks a `&substr`.
+    /// The whole view, `&base[:]` or `&mut base[:]`, that `e` converts to
+    /// where a view type is expected: a borrow of an owner (`&xs`, `&buf`,
+    /// `&s`), a reference binding to one, or a `bytes` literal (a `str`
+    /// literal when `text`). The conversion copies nothing, so it needs no
+    /// syntax (consistency rule 3, backlog B90). A literal is first held in
+    /// a hidden local, since a view borrows a place. `None` leaves `e` as
+    /// written, so its own diagnostic reports anything else.
+    pub(super) fn owner_view(
+        &mut self,
+        e: &Expr,
+        mutable: bool,
+        text: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<Expr>> {
+        let (base, mutable) = match &ungroup(e).kind {
+            Expression::Unary(op, base) if op == "&" || op == "&mut" => {
+                (Expr::clone(base), op == "&mut")
+            }
+            Expression::Name(name) => match self.names.get(name) {
+                Some(Local {
+                    ty: Ty::Ref(..), ..
+                }) => (e.clone(), mutable),
+                _ => return Ok(None),
+            },
+            Expression::Bytes(_) if !text => (self.held_literal(e, ops)?, mutable),
+            Expression::Text(_) if text => (self.held_literal(e, ops)?, mutable),
+            _ => return Ok(None),
+        };
+        if matches!(ungroup(&base).kind, Expression::Slice(..)) {
+            return Ok(None);
+        }
+        let viewable = |ty: &Ty| {
+            matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr)
+                || byte_buffers::byte_buffer(ty).is_some()
+        };
+        let converts = match self.place_type(&base).map(classes::unbox) {
+            Some(Ty::Shared(content)) => viewable(&classes::unbox(Ty::clone(&content))),
+            Some(owner) => viewable(&owner),
+            None => false,
+        };
+        if !converts {
+            return Ok(None);
+        }
+        let whole = Expr {
+            at: base.at.clone(),
+            kind: Expression::Slice(
+                Box::new(base),
+                Box::new(SliceBounds {
+                    start: None,
+                    stop: None,
+                    step: None,
+                }),
+            ),
+        };
+        Ok(Some(Expr {
+            at: e.at.clone(),
+            kind: Expression::Unary(if mutable { "&mut" } else { "&" }.into(), Box::new(whole)),
+        }))
+    }
+
+    /// A `bytes` or `str` literal held in a hidden local, to be viewed. The
+    /// literal is static data, so the local lives to the end of its scope
+    /// like a written binding, and a view of it may be bound.
+    fn held_literal(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Expr> {
+        let ty = self
+            .expr(e, ops)?
+            .ok_or_else(|| e.at.error("expected a value, got ()"))?;
+        let slot = self.slot(ty.clone(), &e.at)?;
+        ops.push(Op::StoreLocal(slot));
+        let name = format!("$viewed{slot}");
+        self.bind(
+            name.clone(),
+            Local {
+                slot,
+                ty,
+                mutable: false,
+            },
+        );
+        Ok(Expr {
+            at: e.at.clone(),
+            kind: Expression::Name(name),
+        })
+    }
+
+    /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
+    /// binding, or an owner that [`Self::owner_view`] converts. `text`
+    /// marks a `&substr`.
     pub(super) fn view_argument(
         &mut self,
         arg: &Expr,
@@ -237,16 +321,18 @@ impl Lower<'_> {
         text: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        let converted = self.owner_view(arg, mutable, text, ops)?;
+        let arg = converted.as_ref().unwrap_or(arg);
         let wanted = if mutable { "&mut xs[a:b]" } else { "&xs[a:b]" };
         if text && !self.is_view(arg) {
             return Err(arg.at.error(
-                "this parameter takes a substring view, `&s[a:b]`; pass a whole string as `&s[:]`",
+                "this parameter takes a substring view: pass `&s` or a literal for a whole string, or `&s[a:b]` for part of it",
             ));
         }
         if !self.is_view(arg) {
-            let whole = if mutable { "&mut xs[:]" } else { "&xs[:]" };
+            let whole = if mutable { "&mut xs" } else { "&xs" };
             return Err(arg.at.error(format!(
-                "this parameter takes a slice view, `{wanted}`; pass a whole list or buffer as `{whole}`"
+                "this parameter takes a slice view: pass `{whole}` for a whole list or buffer, or `{wanted}` for part of it"
             )));
         }
         match &ungroup(arg).kind {

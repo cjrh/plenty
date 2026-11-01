@@ -126,6 +126,40 @@ print(boxed.x)?
     assert_eq!(output(&source), "3\n7\n2\nb\n4\n12\n8\n1");
 }
 
+/// `&Shared[T]` converts to `&T` where a `&T` is expected, as `&Box[T]`
+/// does (consistency rule 3, backlog B90). The handle stays borrowed.
+#[test]
+fn a_borrowed_handle_converts_to_a_reference_to_its_content() {
+    let source = program(
+        r#"
+h = Shared(Point(3, 4, ["a"]?))?
+print(total(&h), through(&h), len_of(&h.tags))?
+r: &Point = &h
+print(r.y)?
+nested = Shared(Box(Point(2, 5, []?))?)?
+print(total(&nested))?
+"#,
+    )
+    .replace(
+        "\ndef main()",
+        "\ndef total(p: &Point) -> i64:\n    return p.x * p.y\n\n\
+         def through(h: &Shared[Point]) -> i64:\n    return total(h)\n\n\
+         def len_of(xs: &list[str]) -> i64:\n    return len(xs)\n\ndef main()",
+    );
+    assert_eq!(output(&source), "12 12 1\n4\n10");
+    rejects_body(
+        "h = Shared(Point(1, 2, []?))?\nr: &Point = &h\ndrop(h)\nprint(r.x)?",
+        "cannot move `h` while it is borrowed",
+    );
+    rejects(
+        &program("mut h = Shared(Point(1, 2, []?))?\nshift(&mut h)").replace(
+            "\ndef main()",
+            "\ndef shift(p: &mut Point) -> ():\n    p.x = 0\n\ndef main()",
+        ),
+        "a Shared owner gives shared access only",
+    );
+}
+
 #[test]
 fn a_borrowed_handle_cannot_be_moved_or_dropped() {
     rejects_body(

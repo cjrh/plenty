@@ -28,6 +28,59 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// Where a view type is expected, a borrow of its owner, a reference to
+/// one, or a `bytes` literal converts to the whole view, as `[:]` would
+/// (consistency rule 3, backlog B90).
+#[test]
+fn owners_convert_to_whole_views() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+
+def total(values: &[i64]) -> i64:
+    mut sum = 0
+    for x in values:
+        sum += *x
+    sum
+
+def double(values: &mut [i64]) -> ():
+    for x in values:
+        *x *= 2
+
+def count(t: &[u8]) -> i64:
+    len(t)
+
+def width[T](xs: &[T]) -> i64:
+    len(xs)
+
+def through(xs: &list[i64]) -> i64:
+    total(xs)
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+    mut xs = [1, 2, 3]?
+    print(total(&xs), total(&xs[:]), through(&xs), width(&xs))?
+    double(&mut xs)
+    print(xs)?
+    buffer = std.bytes.from_text("abcd")?
+    data = b"xyz"
+    mut n = 0
+    for i in range(3):
+        n += count(b"ab")
+    print(count(&buffer), count(&data), count(b""), width(b"pq"), n)?
+    boxed = Box([4, 5]?)?
+    shared = Shared([6, 7, 8]?)?
+    print(total(&boxed), total(&shared))?
+    mut v: &[i64] = &xs
+    print(total(v))?
+    v = &xs
+    bytes_view: &[u8] = b"hi"
+    print(v, bytes_view)?
+    Ok(())
+"#,
+        "6 6 6 3\n[2, 4, 6]\n4 3 0 2 6\n9 21\n12\n[2, 4, 6] b\"hi\"\n",
+    );
+}
+
 /// `iter(v)` fuses into the view's loop, so items are `&T`, or `&mut T` for
 /// an exclusive view, as in `for x in v`.
 #[test]
@@ -379,8 +432,24 @@ def main() -> Result[(), AllocError | IoError]:
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def total(v: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nn = total(&xs)",
-    "this parameter takes a slice view, `&xs[a:b]`; pass a whole list or buffer as `&xs[:]`"
+    "def total(v: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nn = total(xs)",
+    "this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it"
+)]
+#[case(
+    "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(&xs)",
+    "this parameter takes an exclusive slice view, `&mut xs[a:b]`"
+)]
+#[case(
+    "def bump(v: &mut [u8]) -> ():\n    pass\nbump(b\"ab\")",
+    "a `bytes` literal is read-only"
+)]
+#[case(
+    "def bump(v: &mut [i64]) -> ():\n    pass\nh = Shared([1, 2].unwrap()).unwrap()\nbump(&mut h)",
+    "a Shared owner gives shared access only"
+)]
+#[case(
+    "def n[T](t: &T) -> i64:\n    0\nxs = [1u8].unwrap()\nk = n(&xs[:])",
+    "a slice view is passed to a `&[T]` or `&substr` parameter, not to a `&T` type parameter"
 )]
 #[case(
     "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(&xs[:])",
@@ -499,5 +568,27 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
         String::from_utf8_lossy(&output.stdout).ends_with("546 [2, 3, 3, 4, 5] aBc\n"),
         "{}",
         String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// Before the generic `&T` check, `&xs[:]` read as a borrow of the copying
+/// slice and reported `Result[list[u8], AllocError]` (consistency rule 3).
+#[test]
+fn a_view_at_a_byte_source_parameter_names_the_view() {
+    let error = support::check_file_error(
+        r#"
+import std.bytes
+
+def main() -> Result[(), std.bytes.BytesError | AllocError]:
+    xs = [1u8, 2u8]?
+    mut buffer = std.bytes.from_text("a")?
+    buffer.extend(&xs[:])?
+    Ok(())
+"#,
+    );
+    assert!(
+        error.contains("a slice view is passed to a `&[T]` or `&substr` parameter")
+            && !error.contains("AllocError]"),
+        "{error}"
     );
 }
