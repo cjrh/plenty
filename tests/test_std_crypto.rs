@@ -513,6 +513,8 @@ fn assert_trap(source: &str, message: &str) {
 fn finish_into_offsets_trap_for_digests_and_macs() {
     for constructor in [
         "std.crypto.digest(Algorithm.Sha256)",
+        "std.crypto.digest(Algorithm.Blake3)",
+        "std.crypto.blake3_keyed_hasher(b\"whats the Elvish word for friend\")",
         "std.crypto.hmac(Algorithm.Sha256, b\"key\")",
     ] {
         for offset in [i64::MIN, -1, 9, i64::MAX] {
