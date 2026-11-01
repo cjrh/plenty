@@ -109,12 +109,15 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.secre
 True
 True
 12
-Result[str, std.secrets.SecretsError].Err(std.secrets.SecretsError.OutOfRange)
+Result[str, std.secrets.SecretsError].Err(std.secrets.SecretsError.Allocation(AllocError.CapacityOverflow))
 ```
 
 The argument is a number of secret bytes, not characters: 32 bytes become 43
 base64url characters or 64 hex digits. `token_urlsafe` is safe to put in a URL
 or a file name. `below` is an unbiased integer, for example to pick a winner.
+
+A negative count is a size that cannot be allocated, so it returns
+`Allocation(AllocError.CapacityOverflow)`.
 
 If the system cannot supply entropy, these functions return
 `SecretsError.Entropy`. They never fall back to a weaker source, and a failed

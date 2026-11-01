@@ -9,7 +9,7 @@ import std.io
 import std.io.typed as typed
 from std.io.typed import Partial, ReadFailure
 
-def main() -> Result[(), IoError | std.bytes.BytesError | Partial[ReadFailure[std.io.StreamError]]]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | Partial[ReadFailure[std.io.StreamError]]]:
     mut source = typed.reader(std.io.cursor(std.bytes.from_text("header:body")?))
     mut buffer = std.bytes.with_capacity(6)?
     buffer.resize(6, 0u8)?

@@ -12,6 +12,13 @@ from std.net import NetError
 from std.time import Duration
 from std.tls import ClientConfig, ServerConfig, Session, TlsError, client_session, server_session
 
+def tls_error_allocated[T](result: Result[T, AllocError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(TlsError.Allocation(cause))
+
 # Ciphertext added to each record: header, content type, nonce and tag. A
 # write accepts only plaintext whose records fit the connection's output.
 const record_overhead: i64 = 32
@@ -303,7 +310,7 @@ def idle() -> Events:
 pub def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]:
     if input <= 0:
         return Err(TlsError.Net(invalid()))
-    mut buffer = stored(std.bytes.with_capacity(input))?
+    mut buffer = tls_error_allocated(std.bytes.with_capacity(input))?
     stored(buffer.resize(input, 0u8))?
     Ok(TlsConnection(net, session, buffer, 0, 0, False, False, False, False, True))
 

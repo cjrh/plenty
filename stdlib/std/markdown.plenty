@@ -854,7 +854,7 @@ pub class Parser:
             depth += 1
         if depth > self._max_depth:
             return Err(MarkdownFault.DepthExceeded)
-        content = faulted(std.bytes.empty())?
+        content = reserved(std.bytes.empty())?
         index = len(self._blocks)
         previous = self._blocks[parent].last
         block = Block(kind, parent, -1, -1, previous, -1, True, self._line_number, self._line_number, content, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, depth)
@@ -1226,7 +1226,7 @@ pub class Parser:
                 self._offset = stop
                 return Ok(2)
         if not self._indented or self.block_kind(container) == k_list:
-            mut marker = Block(k_item, 0, -1, -1, -1, -1, True, 0, 0, faulted(std.bytes.empty())?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
+            mut marker = Block(k_item, 0, -1, -1, -1, -1, True, 0, 0, reserved(std.bytes.empty())?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
             if self.list_marker(container, &mut marker):
                 self.close_unmatched()?
                 tip = self._tip
@@ -2051,7 +2051,7 @@ def line_offset(source: &[u8], line: i64) -> i64:
 # Line endings become LF, NUL becomes U+FFFD, and a final line ending is added.
 def normalized(source: &[u8]) -> Result[Bytes, MarkdownFault]:
     size = len(source)
-    mut text = faulted(std.bytes.with_capacity(size + 1))?
+    mut text = reserved(std.bytes.with_capacity(size + 1))?
     mut index = 0
     while index < size:
         c = i64(source[index])
@@ -2080,15 +2080,15 @@ pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
         return Err(MarkdownError(MarkdownFault.InvalidUtf8, run, 0))
     text = unplaced(normalized(source))?
     mut blocks = unplaced(reserved(list[Block]()))?
-    root = Block(k_document, -1, -1, -1, -1, -1, True, 1, 1, unplaced(faulted(std.bytes.empty()))?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
+    root = Block(k_document, -1, -1, -1, -1, -1, True, 1, 1, unplaced(reserved(std.bytes.empty()))?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
     unplaced(reserved(blocks.append(root)))?
     index = unplaced(reserved(dict[str, i64]()))?
     destinations = unplaced(reserved(list[str]()))?
     titles = unplaced(reserved(list[str]()))?
     refs = Refs(index, destinations, titles)
-    scratch = unplaced(faulted(std.bytes.empty()))?
-    subject = unplaced(faulted(std.bytes.empty()))?
-    pool = unplaced(faulted(std.bytes.empty()))?
+    scratch = unplaced(reserved(std.bytes.empty()))?
+    subject = unplaced(reserved(std.bytes.empty()))?
+    pool = unplaced(reserved(std.bytes.empty()))?
     inlines = unplaced(reserved(list[Inline]()))?
     delimiters = unplaced(reserved(list[Delimiter]()))?
     brackets = unplaced(reserved(list[Bracket]()))?
@@ -2113,7 +2113,7 @@ pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
                     Err(MarkdownError(fault, 0, 0))
 
 pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]:
-    source = unplaced(faulted(std.bytes.from_text(text)))?
+    source = unplaced(reserved(std.bytes.from_text(text)))?
     parser(&source, bounds)
 
 # Writes HTML for events into an owned buffer. `_written` counts every byte
@@ -2162,7 +2162,7 @@ pub class HtmlRenderer:
     def put_raw(self: &mut HtmlRenderer, text: &str) -> Result[(), MarkdownFault]:
         if text.byte_len() == 0:
             return Ok(())
-        source = faulted(std.bytes.from_text(text))?
+        source = reserved(std.bytes.from_text(text))?
         self.room(source.len())?
         faulted(self._out.extend(&source))?
         self._last = i64(source[source.len() - 1])
@@ -2171,7 +2171,7 @@ pub class HtmlRenderer:
     # Escapes `&`, `<`, `>`, and `"`; with `href`, also percent-encodes bytes
     # that do not belong in a URL and escapes `'`.
     def put_escaped(self: &mut HtmlRenderer, text: &str, href: bool) -> Result[(), MarkdownFault]:
-        source = faulted(std.bytes.from_text(text))?
+        source = reserved(std.bytes.from_text(text))?
         for index in range(source.len()):
             c = i64(source[index])
             if c == 38:
@@ -2220,7 +2220,7 @@ pub class HtmlRenderer:
             case Tag.CodeBlock(info):
                 self.cr()?
                 self.put(b"<pre><code")?
-                source = faulted(std.bytes.from_text(info))?
+                source = reserved(std.bytes.from_text(info))?
                 mut end = 0
                 while end < source.len() and not is_ascii_space(i64(source[end])):
                     end += 1
@@ -2380,7 +2380,7 @@ pub class HtmlRenderer:
 
     # Removes and returns the bytes produced so far.
     pub def take(self: &mut HtmlRenderer) -> Result[Bytes, MarkdownError]:
-        match faulted(std.bytes.empty()):
+        match reserved(std.bytes.empty()):
             case Ok(fresh):
                 Ok(replace(self._out, fresh))
             case Err(fault):
@@ -2401,7 +2401,7 @@ def hex_digit(value: i64) -> i64:
 pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
     if not valid(bounds):
         return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
-    out = unplaced(faulted(std.bytes.empty()))?
+    out = unplaced(reserved(std.bytes.empty()))?
     Ok(HtmlRenderer(out, 0, bounds.max_output, 10, 0, False))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
@@ -2457,7 +2457,7 @@ pub def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]:
     target.take()
 
 pub def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]:
-    source = unplaced(faulted(std.bytes.from_text(text)))?
+    source = unplaced(reserved(std.bytes.from_text(text)))?
     html = render(&source, bounds)?
     match faulted(html.to_text()):
         case Ok(result):

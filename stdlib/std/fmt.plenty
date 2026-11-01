@@ -1,20 +1,32 @@
 from std.bytes import Bytes, BytesError, with_capacity
 from std.io import Writer, StreamError, Cursor, cursor, Stderr, stderr, classify
 
+def format_error_allocated[T](result: Result[T, AllocError]) -> Result[T, FormatError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(FormatError.Allocation(cause))
+
 pub enum FormatError:
     InvalidSpec
     LimitExceeded
     RecursionLimit
-    Bytes(BytesError)
+    Allocation(AllocError)
     Output(StreamError)
     OutputClosed
 
+# Scratch offsets are computed here, so only allocation can fail; any other
+# byte error is a bug in this module and traps.
 def stored[T](result: Result[T, BytesError]) -> Result[T, FormatError]:
     match result:
         case Ok(value):
             Ok(value)
+        case Err(BytesError.Allocation(cause)):
+            Err(FormatError.Allocation(cause))
         case Err(error):
-            Err(FormatError.Bytes(error))
+            unexpected: Result[FormatError, BytesError] = Err(error)
+            Err(unexpected.unwrap())
 
 # Options of one Python format-spec field. Strings hold the spec characters
 # themselves; `precision` is -1 when absent. f-strings check them at compile
@@ -140,7 +152,7 @@ pub class Formatter[W]:
                         case StreamError.Interrupted:
                             pass
                         case StreamError.Allocation(cause):
-                            return Err(FormatError.Bytes(BytesError.Allocation(cause)))
+                            return Err(FormatError.Allocation(cause))
                         case _:
                             self._failed = self._destination == Destination.Stderr
                             return Err(FormatError.Output(error))
@@ -357,7 +369,7 @@ pub class Formatter[W]:
                 return Ok(())
             case Nothing:
                 pass
-        mut scratch = stored(with_capacity(size))?
+        mut scratch = format_error_allocated(with_capacity(size))?
         stored(scratch.resize(size, 0u8))?
         self._scratch = Some(scratch)
         Ok(())
@@ -677,9 +689,9 @@ pub def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Std
 pub def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]:
     if max_bytes < 0 or max_depth < 0 or max_depth > 64:
         return Err(FormatError.InvalidSpec)
-    mut scratch = stored(with_capacity(32))?
+    mut scratch = format_error_allocated(with_capacity(32))?
     stored(scratch.resize(32, 0u8))?
-    Ok(Formatter(cursor(stored(with_capacity(0))?), Some(scratch), Destination.Collected, False, max_bytes, 0, 0, max_depth))
+    Ok(Formatter(cursor(format_error_allocated(with_capacity(0))?), Some(scratch), Destination.Collected, False, max_bytes, 0, 0, max_depth))
 
 pub def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]:
     stored(output.writer.data.to_text())
@@ -715,14 +727,14 @@ pub def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), Form
         case Ok(text):
             output.text(&text)
         case Err(error):
-            Err(FormatError.Bytes(BytesError.Allocation(error)))
+            Err(FormatError.Allocation(error))
 
 pub def repr_string[T](value: &T) -> Result[str, FormatError]:
     match str.repr(value):
         case Ok(text):
             Ok(text)
         case Err(error):
-            Err(FormatError.Bytes(BytesError.Allocation(error)))
+            Err(FormatError.Allocation(error))
 
 # The same spellings for a slice view, which a `&T` parameter cannot take:
 # a `&[u8]` as a `bytes` literal, any other view as a list.
@@ -731,14 +743,14 @@ pub def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(
         case Ok(text):
             output.text(&text)
         case Err(error):
-            Err(FormatError.Bytes(BytesError.Allocation(error)))
+            Err(FormatError.Allocation(error))
 
 pub def repr_view_string[T](value: &[T]) -> Result[str, FormatError]:
     match str.repr(value):
         case Ok(text):
             Ok(text)
         case Err(error):
-            Err(FormatError.Bytes(BytesError.Allocation(error)))
+            Err(FormatError.Allocation(error))
 
 # The `str.repr` result of a value whose spelling runs a `debug` method,
 # which can fail with that method's error. The compiler calls `str.repr` at
@@ -754,38 +766,31 @@ pub def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[st
         case Err(error):
             match error:
                 case cause: AllocError:
-                    Err(FormatError.Bytes(BytesError.Allocation(cause)))
+                    Err(FormatError.Allocation(cause))
                 case cause: FormatError:
                     Err(cause)
 
-# An f-string's result. Its storage and its cursor report allocation
-# failure as `Bytes(Allocation)` and `Output(Allocation)`; both become
-# `AllocError`. With only built-in spellings and static specs nothing else
-# can fail, so another error is a compiler bug and traps.
+# An f-string's result. With only built-in spellings and static specs,
+# allocation is the only failure, so another error is a compiler bug and
+# traps.
 pub def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]:
-    match allocation_or_format(built):
+    match built:
         case Ok(text):
             Ok(text)
+        case Err(FormatError.Allocation(cause)):
+            Err(cause)
         case Err(error):
-            match error:
-                case cause: AllocError:
-                    Err(cause)
-                case cause: FormatError:
-                    unexpected: Result[AllocError, FormatError] = Err(cause)
-                    Err(unexpected.unwrap())
+            unexpected: Result[AllocError, FormatError] = Err(error)
+            Err(unexpected.unwrap())
 
 pub def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]:
     match built:
         case Ok(text):
             Ok(text)
+        case Err(FormatError.Allocation(cause)):
+            Err(cause)
         case Err(error):
-            match error:
-                case FormatError.Bytes(BytesError.Allocation(cause)):
-                    Err(cause)
-                case FormatError.Output(StreamError.Allocation(cause)):
-                    Err(cause)
-                case _:
-                    Err(error)
+            Err(error)
 
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?

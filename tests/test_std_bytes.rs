@@ -238,9 +238,6 @@ fn ranges_follow_one_rule_without_clamping_or_negative_offsets() {
          Result[(), {OUT_OF_RANGE}\n\
          Result[(), {OUT_OF_RANGE}\n\
          Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[std.bytes.Bytes, {OUT_OF_RANGE}\n\
          [97, 98, 99] 3"
     );
     native(
@@ -260,9 +257,6 @@ print(str.repr(buffer.fill(1, 4, 0u8))?)?
 print(str.repr(buffer.overwrite(2, &other[:2]))?)?
 print(str.repr(buffer.overwrite(-1, &other[:1]))?)?
 print(str.repr(buffer.truncate(4))?)?
-print(str.repr(buffer.resize(-1, 0u8))?)?
-print(str.repr(buffer.reserve(-1))?)?
-print(str.repr(std.bytes.with_capacity(-1))?)?
 print(buffer.to_list()?, buffer.len())?
 "#,
         &expected,
@@ -305,7 +299,7 @@ def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
         total += i64(view.get(index)?)
     Ok(total)
 
-def upper(view: &mut Bytes, start: i64, stop: i64) -> Result[(), BytesError]:
+def upper(view: &mut Bytes, start: i64, stop: i64) -> Result[(), AllocError | BytesError]:
     for index in range(start, stop):
         value = view.get(index)?
         if value >= 97u8 and value <= 122u8:
@@ -677,6 +671,7 @@ print(fixed, exponent, general, point, display, single, short)?
 fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {
     let failure =
         "std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))";
+    let constructor = "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)";
     let expected = format!(
         "Result[(), {failure}\n\
          Result[(), {failure}\n\
@@ -686,10 +681,10 @@ fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {
          Result[std.bytes.Bytes, {failure}\n\
          Result[list[u8], {failure}\n\
          Result[str, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
+         {constructor}\n\
+         {constructor}\n\
+         {constructor}\n\
+         {constructor}\n\
          4 4 abcd"
     );
     // Results are bound while injection is active and rendered afterwards,
@@ -741,12 +736,13 @@ fn second_allocation_failure_releases_the_first() {
     // the earlier ones, which the exit-time balance check verifies.
     let failure =
         "std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))";
+    let constructor = "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)";
     let expected = format!(
-        "Result[std.bytes.Bytes, {failure}\n\
+        "{constructor}\n\
          Result[std.bytes.Bytes, {failure}\n\
-         Result[std.bytes.Bytes, {failure}\n\
+         {constructor}\n\
          Result[list[u8], {failure}\n\
-         Result[std.bytes.Bytes, {failure}"
+         {constructor}"
     );
     native(
         r#"
@@ -785,12 +781,18 @@ room = buffer.capacity()
 print(str.repr(std.bytes.with_capacity(9223372036854775807))?)?
 print(str.repr(buffer.resize(9223372036854775807, 0u8))?)?
 print(str.repr(buffer.reserve(9223372036854775807))?)?
+print(str.repr(buffer.resize(-1, 0u8))?)?
+print(str.repr(buffer.reserve(-1))?)?
+print(str.repr(std.bytes.with_capacity(-1))?)?
 print(buffer.len(), buffer.capacity() == room, buffer.to_text()?)?
 "#,
         &format!(
-            "Result[std.bytes.Bytes, {error}.OutOfMemory))\n\
+            "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)\n\
              Result[(), {error}.OutOfMemory))\n\
              Result[(), {error}.CapacityOverflow))\n\
+             Result[(), {error}.CapacityOverflow))\n\
+             Result[(), {error}.CapacityOverflow))\n\
+             Result[std.bytes.Bytes, AllocError].Err(AllocError.CapacityOverflow)\n\
              2 True ab"
         ),
     );

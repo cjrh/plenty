@@ -104,7 +104,7 @@ pub class Cookie:
 # cookie must not make every request fail. A value in double quotes loses
 # the quotes.
 def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(), CookieError]:
-    data = lifted(std.bytes.from_text(field))?
+    data = allocated(std.bytes.from_text(field))?
     count = data.len()
     mut at = 0
     while at < count:
@@ -287,7 +287,7 @@ pub def sign(keys: &list[Bytes], name: &str, value: &str) -> Result[str, CookieE
         return Err(CookieError.InvalidName)
     if not valid_value(value):
         return Err(CookieError.InvalidValue)
-    data = lifted(std.bytes.from_text(value))?
+    data = allocated(std.bytes.from_text(value))?
     mut mac = tag_state(&keys[0], name, &data, data.len())?
     tag = crypto(mac.finish())?
     encoded = match std.encoding.base64url_text(&tag):
@@ -306,7 +306,7 @@ pub def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[st
     checked_keys(keys)?
     if not valid_name(name) or not valid_value(signed):
         return Ok(Nothing)
-    data = lifted(std.bytes.from_text(signed))?
+    data = allocated(std.bytes.from_text(signed))?
     count = data.len()
     mut dot = count - 1
     while dot >= 0 and code(&data, dot) != 46:

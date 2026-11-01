@@ -1050,7 +1050,7 @@ def outcome[T](result: &Result[T, HttpError]) -> str:
                     "?"
 
 # `prefix`, the byte `code`, then `suffix`, read as one request or response.
-def parsed(prefix: &str, code: i64, suffix: &str, response: bool) -> Result[str, std.bytes.BytesError | std.io.StreamError]:
+def parsed(prefix: &str, code: i64, suffix: &str, response: bool) -> Result[str, AllocError | std.bytes.BytesError | std.io.StreamError]:
     mut data = std.bytes.from_text(prefix)?
     data.push(u8(code))?
     data.extend(&std.bytes.from_text(suffix)?)?

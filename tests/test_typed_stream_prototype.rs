@@ -261,7 +261,7 @@ pub class Wire:
         buffer.set(start, code).unwrap()
         self.position += 1
         Ok(1)
-def wire(text: str) -> Result[Wire, std.bytes.BytesError]:
+def wire(text: str) -> Result[Wire, AllocError | std.bytes.BytesError]:
     Ok(Wire(std.bytes.from_text(text)?, 0, False, -1, 0))
 def reason(error: FramingError[Transport]) -> str:
     match error:

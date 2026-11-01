@@ -1,5 +1,4 @@
 from std.path import Path
-from std.bytes import BytesError
 from std.fmt import Formatter, FormatError
 from std.report import render
 
@@ -38,7 +37,7 @@ pub class Context[E]:
                     case Ok(text):
                         output.text(&text)?
                     case Err(error):
-                        return Err(FormatError.Bytes(BytesError.Allocation(error)))
+                        return Err(FormatError.Allocation(error))
                 output.text("\"")?
             case Subject.Unavailable(_):
                 output.text(" <path unavailable>")?

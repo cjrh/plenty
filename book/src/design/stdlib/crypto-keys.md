@@ -23,7 +23,7 @@ from std.bytes import BytesError
 from std.crypto import AdvancedError
 from std.encoding import EncodingError
 
-def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), IoError | AllocError | BytesError | AdvancedError | EncodingError]:
     # The ES256 example from RFC 7515 appendix A.3: a JWK's x and y, the
     # signing input, and its fixed 64-byte signature.
     x = std.encoding.base64url_from_text("f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU")?

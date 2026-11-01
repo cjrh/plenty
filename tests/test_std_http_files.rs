@@ -69,7 +69,7 @@ pub class App:
                         exchange.send_text(401, "unsigned")?
         Ok(())
 
-pub def key(fill: u8) -> Result[Bytes, std.bytes.BytesError]:
+pub def key(fill: u8) -> Result[Bytes, AllocError | std.bytes.BytesError]:
     mut data = std.bytes.empty()?
     data.resize(32, fill)?
     Ok(data)
@@ -483,7 +483,7 @@ pub class Upload:
     pub refused: CancellationToken
     pub wrong: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.bytes.BytesError | HttpError | StreamError | std.test.TestError | IoError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), AllocError | std.bytes.BytesError | HttpError | StreamError | std.test.TestError | IoError]:
         if self.files:
             std.test.fail_files_after(self.budget, 28i32)?
         else:

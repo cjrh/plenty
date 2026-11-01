@@ -119,7 +119,7 @@ pub class Decoder:
                 count = self._remaining
             if count == 0:
                 return Ok((0, Nothing))
-            mut body = mapped_bytes(std.bytes.with_capacity(count))?
+            mut body = allocated(std.bytes.with_capacity(count))?
             mapped_bytes(body.extend(&source[:count]))?
             self._remaining -= count
             self._total += count
@@ -218,7 +218,7 @@ pub class Decoder:
         Ok((end, complete))
 
     def parsed_head(self: &mut Decoder) -> Result[Event, HttpError]:
-        raw = replace(self._section, mapped_bytes(std.bytes.empty())?)
+        raw = replace(self._section, allocated(std.bytes.empty())?)
         mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_budget))?
         request = std.http.read_request(&mut reader, &self._limits)?.ok_or(HttpError.Truncated)?
         framing = std.http.request_framing(&request)?
@@ -255,7 +255,7 @@ pub def decoder(limits: &Limits) -> Result[Decoder, HttpError]:
     if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
         return Err(HttpError.InvalidLimit)
     owned = Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
-    Ok(Decoder(owned, head, mapped_bytes(std.bytes.empty())?, mapped_bytes(std.bytes.empty())?, False, False, 0, 0, 0))
+    Ok(Decoder(owned, head, allocated(std.bytes.empty())?, allocated(std.bytes.empty())?, False, False, 0, 0, 0))
 
 def mapped_bytes[T](result: Result[T, BytesError]) -> Result[T, HttpError]:
     match result:

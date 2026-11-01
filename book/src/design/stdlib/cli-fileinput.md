@@ -31,7 +31,7 @@ Compile this filter and run `./filter first.txt second.txt`, or pipe input into
 
 | API | Result | Behavior |
 |---|---|---|
-| `lines()` | `Result[Generator[Result[str, FileInputError]], IoError \| AllocError]` | Raw argv after the executable name; **no option parsing** |
+| `lines()` | `Result[Generator[Result[str, FileInputError]], IoError]` | Raw argv after the executable name; **no option parsing**. Failure to allocate the path list is `IoError.Data(DataError.Allocation(...))`, as for `print` |
 | `files(paths: list[Path])` | `Generator[Result[str, FileInputError]]` | Consumes explicit native paths in order; an empty list selects stdin |
 
 Applications with flags should parse them with [`std.cli`](cli.md), collect the

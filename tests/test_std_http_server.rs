@@ -213,7 +213,7 @@ pub class Gated:
     pub entered: CancellationToken
     pub gate: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home")?
@@ -771,7 +771,7 @@ fn allocation_failure_closes_the_connection_cleanly() {
     let attempts = 150;
     let main = format!(
         r##"
-def sample() -> Result[Bytes, std.bytes.BytesError]:
+def sample() -> Result[Bytes, AllocError | std.bytes.BytesError]:
     Ok(std.bytes.from_text("POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nX-Long-Field-Name-Beyond-Inline: a-value-beyond-inline-storage\r\n\r\n3\r\nabc\r\n0\r\n\r\nGET /hello/a-name-beyond-inline HTTP/1.1\r\nHost: x\r\n\r\n")?)
 
 def main() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:

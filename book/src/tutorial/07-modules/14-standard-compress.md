@@ -51,7 +51,7 @@ import std.bytes
 import std.compress
 from std.compress import Format
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.compress.CompressError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.compress.CompressError]:
     source = std.bytes.from_text("a small Brotli message")?
     packed = std.compress.compress(Format.Brotli, &source, 5)?
     restored = std.compress.decompress(Format.Brotli, &packed, 1024)?
@@ -83,7 +83,7 @@ from std.compress import Format
 
 type CompressedStreamError = std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError
 
-def main() -> Result[(), IoError | CompressedStreamError]:
+def main() -> Result[(), IoError | AllocError | CompressedStreamError]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):

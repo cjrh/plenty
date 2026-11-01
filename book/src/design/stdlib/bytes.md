@@ -15,11 +15,11 @@ available on the supported x86-64 Linux GNU target.
 
 | Function | Result | Contract |
 |---|---|---|
-| `std.bytes.empty()` | `Result[Bytes, BytesError]` | Empty buffer with no reserved capacity |
-| `std.bytes.with_capacity(capacity)` | `Result[Bytes, BytesError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `OutOfRange` |
-| `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, BytesError]` | Independent copy of the list's bytes |
-| `std.bytes.from_text(text: &str)` | `Result[Bytes, BytesError]` | Independent copy of the exact UTF-8 bytes |
-| `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, BytesError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
+| `std.bytes.empty()` | `Result[Bytes, AllocError]` | Empty buffer with no reserved capacity |
+| `std.bytes.with_capacity(capacity)` | `Result[Bytes, AllocError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `CapacityOverflow` |
+| `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, AllocError]` | Independent copy of the list's bytes |
+| `std.bytes.from_text(text: &str)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes |
+| `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, AllocError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
 
 `Bytes` has no public constructor and its storage field is private. Every
 constructor allocates and can report `Allocation`.
@@ -126,7 +126,7 @@ def ends_line(line: &[u8]) -> bool:
     count = len(line)
     count >= 2 and line[count - 2] == 13u8 and line[count - 1] == 10u8
 
-def main() -> Result[(), std.bytes.BytesError | IoError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | IoError]:
     mut head = std.bytes.from_text("Host: example")?
     head.extend(b"\r\n")?
     mut name = std.bytes.empty()?
@@ -225,8 +225,9 @@ pub enum BytesError:
     Allocation(AllocError)
 ```
 
-Every fallible operation in the module returns `Result[T, BytesError]`. The only
-other result shape is `pop`, whose `Option[u8]` reports an empty buffer.
+The constructors can fail only to allocate, so they return
+`Result[Bytes, AllocError]`. Every other fallible operation in the module
+returns `Result[T, BytesError]`. The only other result shape is `pop`, whose `Option[u8]` reports an empty buffer.
 `Allocation` carries the storage `AllocError`: `OutOfMemory` when the allocator
 refuses, `CapacityOverflow` when the requested total cannot be a size. A failed
 operation leaves the buffer's length and contents unchanged and releases

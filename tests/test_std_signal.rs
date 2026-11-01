@@ -81,7 +81,7 @@ pub enum Route:
     Stream
 
 pub class Ticker:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.bytes.BytesError | std.http.HttpError]:
         exchange.start(std.http.response(200, "OK")?)?
         tick = std.bytes.from_text("tick\n")?
         while not exchange.stopping():

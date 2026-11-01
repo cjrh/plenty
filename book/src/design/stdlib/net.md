@@ -19,7 +19,7 @@ from std.net import NetError, TcpListener, connect, listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
-def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError | StreamError | std.bytes.BytesError]:
+def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), AllocError | NetError | StreamError | std.bytes.BytesError]:
     mut stream = listener.accept(deadline, cancel)?
     reply = std.bytes.from_text("hello from the server")?
     stream.write_all_before(&reply, deadline, cancel)?

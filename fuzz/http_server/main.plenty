@@ -104,7 +104,7 @@ def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
 # Checks the status of every response head in `output` from `at`, and
 # returns where the next check starts: at a head whose status has not all
 # been written yet, or near the end.
-def check(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
+def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | HarnessError]:
     marker = std.bytes.from_text("HTTP/1.")?
     mut next = at
     while True:

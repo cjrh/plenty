@@ -72,37 +72,37 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.markdown`](#stdmarkdown): 2446-2480
 - [`std.template`](#stdtemplate): 2482-2503
 - [`std.math`](#stdmath): 2505-2571
-- [`std.mime`](#stdmime): 2573-2597
-- [`std.net`](#stdnet): 2599-2681
-- [`std.path`](#stdpath): 2683-2700
-- [`std.process`](#stdprocess): 2702-2751
-- [`std.random`](#stdrandom): 2753-2774
-- [`std.ready`](#stdready): 2776-2807
-- [`std.regex`](#stdregex): 2809-2862
-- [`std.report`](#stdreport): 2864-2871
-- [`std.secrets`](#stdsecrets): 2873-2899
-- [`std.shlex`](#stdshlex): 2901-2910
-- [`std.sketch`](#stdsketch): 2912-2950
-- [`std.sketch.xor`](#stdsketchxor): 2952-2963
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2965-2980
-- [`std.signal`](#stdsignal): 2982-2999
-- [`std.simd`](#stdsimd): 3001-3102
-- [`std.stat`](#stdstat): 3104-3137
-- [`std.plot`](#stdplot): 3139-3228
-- [`std.linalg`](#stdlinalg): 3230-3271
-- [`std.sync`](#stdsync): 3273-3291
-- [`std.system`](#stdsystem): 3293-3351
-- [`std.tempfile`](#stdtempfile): 3353-3385
-- [`std.test`](#stdtest): 3387-3429
-- [`std.text`](#stdtext): 3431-3474
-- [`std.thread`](#stdthread): 3476-3480
-- [`std.time`](#stdtime): 3482-3526
-- [`std.tls`](#stdtls): 3528-3610
-- [`std.toml`](#stdtoml): 3612-3661
-- [`std.unicode`](#stdunicode): 3663-3675
-- [`std.url`](#stdurl): 3677-3705
-- [`std.uuid`](#stduuid): 3707-3730
-- [`std.xml`](#stdxml): 3732-3765
+- [`std.mime`](#stdmime): 2573-2599
+- [`std.net`](#stdnet): 2601-2683
+- [`std.path`](#stdpath): 2685-2702
+- [`std.process`](#stdprocess): 2704-2753
+- [`std.random`](#stdrandom): 2755-2776
+- [`std.ready`](#stdready): 2778-2809
+- [`std.regex`](#stdregex): 2811-2864
+- [`std.report`](#stdreport): 2866-2873
+- [`std.secrets`](#stdsecrets): 2875-2901
+- [`std.shlex`](#stdshlex): 2903-2912
+- [`std.sketch`](#stdsketch): 2914-2952
+- [`std.sketch.xor`](#stdsketchxor): 2954-2965
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2967-2982
+- [`std.signal`](#stdsignal): 2984-3001
+- [`std.simd`](#stdsimd): 3003-3104
+- [`std.stat`](#stdstat): 3106-3139
+- [`std.plot`](#stdplot): 3141-3230
+- [`std.linalg`](#stdlinalg): 3232-3273
+- [`std.sync`](#stdsync): 3275-3293
+- [`std.system`](#stdsystem): 3295-3353
+- [`std.tempfile`](#stdtempfile): 3355-3387
+- [`std.test`](#stdtest): 3389-3431
+- [`std.text`](#stdtext): 3433-3476
+- [`std.thread`](#stdthread): 3478-3482
+- [`std.time`](#stdtime): 3484-3528
+- [`std.tls`](#stdtls): 3530-3612
+- [`std.toml`](#stdtoml): 3614-3663
+- [`std.unicode`](#stdunicode): 3665-3677
+- [`std.url`](#stdurl): 3679-3707
+- [`std.uuid`](#stduuid): 3709-3732
+- [`std.xml`](#stdxml): 3734-3767
 
 ## `std.actor`
 
@@ -462,11 +462,11 @@ class Bytes
     def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
     def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
     def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]
-def empty() -> Result[Bytes, BytesError]
-def with_capacity(capacity: i64) -> Result[Bytes, BytesError]
-def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
-def from_text(text: &str) -> Result[Bytes, BytesError]
-def from_bytes(source: &[u8]) -> Result[Bytes, BytesError]
+def empty() -> Result[Bytes, AllocError]
+def with_capacity(capacity: i64) -> Result[Bytes, AllocError]
+def from_list(values: &list[u8]) -> Result[Bytes, AllocError]
+def from_text(text: &str) -> Result[Bytes, AllocError]
+def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]
 def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
 ```
 
@@ -540,7 +540,7 @@ Buffered fallible UTF-8 lines across native paths or command-line files, with st
 enum FileInputError
     Open(Option[Path], StreamError) | Read(Option[Path], StreamError) | Text(Option[Path], BytesError) | Close(Option[Path], StreamError)
 def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]
-def lines() -> Result[Generator[Result[str, FileInputError]], IoError | AllocError]
+def lines() -> Result[Generator[Result[str, FileInputError]], IoError]
 ```
 
 ## `std.cli.progress`
@@ -1267,7 +1267,7 @@ Writer-generic value/report formatting, bounded output and fallible strings. Err
 
 ```text
 enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError) | OutputClosed
+    InvalidSpec | LimitExceeded | RecursionLimit | Allocation(AllocError) | Output(StreamError) | OutputClosed
 class Spec
     fill: str
     align: str
@@ -1472,7 +1472,7 @@ Directed and undirected graphs with node and edge data, stable handles, traversa
 type NodeId = i64
 type EdgeId = i64
 enum GraphError
-    Cycle(list[NodeId]) | NegativeCycle(list[NodeId]) | InvalidWeight(EdgeId) | InvalidEstimate(NodeId)
+    Cycle(list[NodeId]) | NegativeCycle(list[NodeId]) | InvalidWeight(EdgeId) | InvalidEstimate(NodeId) | Allocation(AllocError)
 class Walk
 class Paths
     def distance(self, node: NodeId) -> Option[f64]
@@ -1511,11 +1511,11 @@ class DiGraph[N, E]
     def next_edge(self, walk: &mut Walk) -> Option[EdgeId]
     def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
-    def toposort(self) -> Result[list[NodeId], AllocError | GraphError]
+    def toposort(self) -> Result[list[NodeId], GraphError]
     def strongly_connected_components(self) -> Result[list[list[NodeId]], AllocError]
-    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
-    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
 class UnGraph[N, E]
     def __init__(self) -> Result[(), AllocError]
     def node_count(self) -> i64
@@ -1548,10 +1548,10 @@ class UnGraph[N, E]
     def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def connected_components(self) -> Result[list[list[NodeId]], AllocError]
-    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
-    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], AllocError | GraphError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], GraphError]
 ```
 
 ## `std.http`
@@ -2575,6 +2575,8 @@ def prod_iter[I, T](items: &I, start: T) -> T
 Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table. Errors: `ParseError`, `AllocError`. [Reference](mime.md).
 
 ```text
+enum MimeError
+    Invalid | Allocation(AllocError)
 class Param
     name: str
     value: str
@@ -2587,11 +2589,11 @@ class MediaType
     def essence(self) -> Result[str, AllocError]
     def is_wildcard(self) -> bool
     def matches(self, pattern: &MediaType) -> bool
-    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
+    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), MimeError]
     def remove_param(self: &mut MediaType, name: &str) -> bool
     def to_string(self) -> Result[str, AllocError]
-def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
-def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
+def parse(text: &str) -> Result[MediaType, MimeError]
+def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]
 def from_extension(extension: &str) -> Option[str]
 def from_file_name(name: &str) -> str
 ```
@@ -2904,9 +2906,9 @@ Shell-style word splitting and POSIX argument quoting, without execution or expa
 
 ```text
 enum ShlexError
-    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64)
-def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | AllocError]
-def quote(text: &str) -> Result[str, ShlexError | AllocError]
+    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64) | Allocation(AllocError)
+def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError]
+def quote(text: &str) -> Result[str, ShlexError]
 ```
 
 ## `std.sketch`
@@ -2915,7 +2917,7 @@ Bounded distinct counts, sampled quantiles and frequent-item bounds with version
 
 ```text
 enum SketchError
-    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed
+    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed | Allocation(AllocError)
 def hash_u64(key: u64, seed: u64 = 0u64) -> u64
 class HyperLogLog
     def precision(self) -> i64
@@ -2924,16 +2926,16 @@ class HyperLogLog
     def relative_standard_error(self) -> f64
     def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
-def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]
-def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
+def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError]
+def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError]
 class Quantiles
     def count(self) -> u64
     def retained(self) -> i64
-    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError | AllocError]
+    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError]
     def quantile(self, fraction: f64) -> Result[f64, SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
-def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]
-def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
+def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]
+def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError]
 class Frequency
     key: u64
     lower: u64
@@ -2945,8 +2947,8 @@ class FrequentItems
     def frequency(self, key: u64) -> Frequency
     def candidates(self) -> Result[list[Frequency], AllocError]
     def to_bytes(self) -> Result[Bytes, BytesError]
-def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]
-def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
+def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError]
+def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError]
 ```
 
 ## `std.sketch.xor`
@@ -2958,8 +2960,8 @@ class XorFilter
     def len(self) -> i64
     def contains(self, key: u64) -> bool
     def to_bytes(self) -> Result[Bytes, BytesError]
-def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]
-def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
+def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError]
+def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
 ```
 
 ## `std.sketch.cuckoo`
@@ -2972,11 +2974,11 @@ class CuckooFilter
     def layers(self) -> i64
     def buckets(self) -> i64
     def contains(self, key: u64) -> bool
-    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError | AllocError | BytesError]
+    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError]
     def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
-def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
-def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]
+def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError]
 ```
 
 ## `std.signal`
@@ -3142,7 +3144,7 @@ Layered charts from owned columns or record accessors, validated mappings, group
 
 ```text
 enum PlotError
-    Allocation(AllocError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
+    Allocation(AllocError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
 enum Column
     Num(list[f64]) | Int(list[i64]) | Text(list[str]) | Bool(list[bool]) | MaybeNum(list[Option[f64]]) | MaybeText(list[Option[str]])
 class Table
@@ -3233,7 +3235,7 @@ Dense f64 matrices, products, solves, LU, QR, Cholesky, SVD and eigen decomposit
 
 ```text
 enum LinalgError
-    Shape | Bounds | NonFinite | Singular | NotSymmetric | NotPositiveDefinite | NoConvergence | Overflow | NativePanic
+    Shape | Bounds | NonFinite | Singular | NotSymmetric | NotPositiveDefinite | NoConvergence | Overflow | NativePanic | Allocation(AllocError)
 class Matrix
     def rows(self) -> i64
     def cols(self) -> i64
@@ -3241,33 +3243,33 @@ class Matrix
     def set(self: &mut Matrix, row: i64, col: i64, value: f64) -> Result[(), LinalgError]
     def to_list(self) -> Result[list[f64], AllocError]
     def transpose(self) -> Result[Matrix, AllocError]
-    def add(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def subtract(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def scale(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
-    def negate(self) -> Result[Matrix, AllocError | LinalgError]
-    def __add__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __sub__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __neg__(self) -> Result[Matrix, AllocError | LinalgError]
-    def __mul__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __rmul__(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
-    def matmul(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def lu(self) -> Result[Lu, AllocError | LinalgError]
-    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def qr(self) -> Result[(Matrix, Matrix), AllocError | LinalgError]
-    def cholesky(self) -> Result[Matrix, AllocError | LinalgError]
-    def svd(self) -> Result[(Matrix, list[f64], Matrix), AllocError | LinalgError]
-    def eigh(self) -> Result[(list[f64], Matrix), AllocError | LinalgError]
-    def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), AllocError | LinalgError]
+    def add(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def subtract(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def scale(self, factor: f64) -> Result[Matrix, LinalgError]
+    def negate(self) -> Result[Matrix, LinalgError]
+    def __add__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __sub__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __neg__(self) -> Result[Matrix, LinalgError]
+    def __mul__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __rmul__(self, factor: f64) -> Result[Matrix, LinalgError]
+    def matmul(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def lu(self) -> Result[Lu, LinalgError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def qr(self) -> Result[(Matrix, Matrix), LinalgError]
+    def cholesky(self) -> Result[Matrix, LinalgError]
+    def svd(self) -> Result[(Matrix, list[f64], Matrix), LinalgError]
+    def eigh(self) -> Result[(list[f64], Matrix), LinalgError]
+    def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), LinalgError]
 class Lu
-    def lower(self) -> Result[Matrix, AllocError | LinalgError]
-    def upper(self) -> Result[Matrix, AllocError | LinalgError]
+    def lower(self) -> Result[Matrix, LinalgError]
+    def upper(self) -> Result[Matrix, LinalgError]
     def permutation(self) -> Result[list[i64], AllocError]
-    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
-def vector(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
-def zeros(rows: i64, cols: i64) -> Result[Matrix, AllocError | LinalgError]
-def identity(n: i64) -> Result[Matrix, AllocError | LinalgError]
-def diagonal(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, LinalgError]
+def vector(values: &list[f64]) -> Result[Matrix, LinalgError]
+def zeros(rows: i64, cols: i64) -> Result[Matrix, LinalgError]
+def identity(n: i64) -> Result[Matrix, LinalgError]
+def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]
 ```
 
 ## `std.sync`
@@ -3425,7 +3427,7 @@ class FakeStream
     def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FakeStream) -> Result[(), StreamError]
-def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
+def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]
 ```
 
 ## `std.text`

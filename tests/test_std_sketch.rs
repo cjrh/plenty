@@ -397,9 +397,9 @@ print("__test_end_no_allocations__")?
         );
         assert_eq!(output.lines().count(), 32);
         assert!(
-            output
-                .lines()
-                .all(|line| line == "ok" || line.contains("OutOfMemory"))
+            output.lines().all(|line| line == "ok"
+                || line == "std.sketch.SketchError.Allocation(AllocError.OutOfMemory)"),
+            "{expression}: {output}"
         );
     }
 }

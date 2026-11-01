@@ -4,12 +4,10 @@
 import std.io
 import std.math
 import std.bytes
-from std.bytes import BytesError
 from std.io import Writer, StreamError
 
 pub enum PlotError:
     Allocation(AllocError)
-    Bytes(BytesError)
     Write(i64, StreamError)
     Io(StreamError)
     UnknownColumn(str)
@@ -1501,11 +1499,7 @@ def dimensions(width: f64, height: f64, units: Units, dpi: f64) -> Result[(f64, 
 # Each fragment is written immediately. A failing stream may already contain a
 # prefix; Write.completed counts bytes in the failing fragment, not the plot.
 def emit[W: Writer](writer: &mut W, value: str) -> Result[(), PlotError]:
-    data = match std.bytes.from_text(&value):
-        case Ok(bytes):
-            bytes
-        case Err(error):
-            return Err(PlotError.Bytes(error))
+    data = allocated(std.bytes.from_text(&value))?
     match std.io.write_all(writer, &data):
         case Ok(_):
             Ok(())

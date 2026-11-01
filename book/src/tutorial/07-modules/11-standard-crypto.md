@@ -52,7 +52,7 @@ import std.bytes
 import std.crypto
 from std.crypto import Algorithm
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.crypto.CryptoError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.crypto.CryptoError]:
     data = std.bytes.from_text("hello world")?
     expected = std.crypto.blake3(&data)?
     mut hasher = std.crypto.digest(Algorithm.Blake3)?

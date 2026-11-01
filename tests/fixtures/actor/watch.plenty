@@ -11,7 +11,7 @@ from std.ready import Interest, WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = NetError | BytesError | WaitError | IoError
+type Fault = AllocError | NetError | BytesError | WaitError | IoError
 
 pub class Pair:
     pub first: TcpStream

@@ -21,6 +21,13 @@ from std.bytes import Bytes, BytesError
 from std.http import Framing, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.time import Deadline, Duration, seconds
 
+def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BytesError.Allocation(cause))
+
 pub enum ServerError:
     InvalidConfig
     AdmissionStopped
@@ -261,7 +268,7 @@ pub def config() -> Config:
     Config(256, 4194304, 4096, 4096, 65536, std.http.limits(), seconds(5u32), seconds(10u32), seconds(30u32), seconds(10u32), seconds(60u32), seconds(10u32), seconds(5u32), 1000)
 
 def response(limit: i64) -> Result[Response, BytesError]:
-    Ok(Response(std.bytes.with_capacity(limit)?, 0, limit, 0, 0, False, 1, True, False, False, False))
+    Ok(Response(bytes_error_allocated(std.bytes.with_capacity(limit))?, 0, limit, 0, 0, False, 1, True, False, False, False))
 
 # The same driver uses TCP or TLS. Both transports advance only on available
 # bytes and return back-pressure rather than waiting.

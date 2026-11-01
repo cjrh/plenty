@@ -13,6 +13,7 @@ from std.ready import Interest, Selector, WaitError
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_at, instant_at, monotonic_now
 
+
 # Signal numbers on Linux, as the runtime writes them.
 const interrupt_number: u8 = 2u8
 
@@ -89,7 +90,11 @@ pub class Signals:
 # Catches SIGINT and SIGTERM for the rest of the process. A process listens
 # once: a second call is AlreadyListening. Only the main thread may call it.
 pub def listen() -> Result[Signals, SignalError]:
-    mut byte = lifted(std.bytes.with_capacity(1))?
+    mut byte = match std.bytes.with_capacity(1):
+        case Ok(value):
+            value
+        case Err(cause):
+            return Err(SignalError.Stream(StreamError.Allocation(cause)))
     lifted(byte.resize(1, 0u8))?
     match __signal_listen():
         case Ok(file):

@@ -140,7 +140,7 @@ O(V + E) time and O(V) extra space, where V is `node_bound()`.
 
 ## Topological order
 
-`di.toposort()` returns `Result[list[NodeId], AllocError | GraphError]`. It
+`di.toposort()` returns `Result[list[NodeId], GraphError]`. It
 uses Kahn's algorithm, starting from source nodes in handle order, so the
 result is deterministic. If the graph has a cycle, the error is
 `GraphError.Cycle(nodes)`: a list `[a, b, ..., z]` such that the graph has
@@ -155,9 +155,9 @@ metrics. Integer weights convert with `f64(value)`; they are exact up to 2^53.
 
 | Operation | Result | Weights |
 |---|---|---|
-| `graph.dijkstra(start, weight)` | `Result[Paths, AllocError \| GraphError]` | Non-negative; `+inf` acts as no edge |
-| `graph.astar(start, goal, weight, estimate)` | `Result[Option[(f64, list[NodeId])], AllocError \| GraphError]` | As Dijkstra |
-| `graph.bellman_ford(start, weight)` | `Result[Paths, AllocError \| GraphError]` | Any value except NaN and `-inf` |
+| `graph.dijkstra(start, weight)` | `Result[Paths, GraphError]` | Non-negative; `+inf` acts as no edge |
+| `graph.astar(start, goal, weight, estimate)` | `Result[Option[(f64, list[NodeId])], GraphError]` | As Dijkstra |
+| `graph.bellman_ford(start, weight)` | `Result[Paths, GraphError]` | Any value except NaN and `-inf` |
 
 `Paths` answers queries for every node:
 
@@ -187,8 +187,7 @@ form as `Cycle`. In an undirected graph, any negative edge reachable from
 
 ## Minimum spanning tree
 
-`un.minimum_spanning_tree(weight)` returns `Result[list[EdgeId], AllocError |
-GraphError]`: a minimum spanning forest, with one tree per connected
+`un.minimum_spanning_tree(weight)` returns `Result[list[EdgeId], GraphError]`: a minimum spanning forest, with one tree per connected
 component. It uses Kruskal's algorithm with a union–find, so edges come out in
 increasing weight, ties in handle order. Self-loops are never chosen. Negative
 weights are allowed; a NaN weight returns `GraphError.InvalidWeight(edge)`.
@@ -196,7 +195,7 @@ It takes O(E log E) time and O(V + E) space.
 
 ## Errors
 
-`GraphError` has four variants:
+`GraphError` has five variants:
 
 | Variant | Raised by |
 |---|---|
@@ -204,8 +203,11 @@ It takes O(E log E) time and O(V + E) space.
 | `NegativeCycle(list[NodeId])` | `bellman_ford` |
 | `InvalidWeight(EdgeId)` | `dijkstra`, `astar`, `bellman_ford`, `minimum_spanning_tree` |
 | `InvalidEstimate(NodeId)` | `astar` |
+| `Allocation(AllocError)` | `toposort`, `dijkstra`, `astar`, `bellman_ford`, `minimum_spanning_tree` |
 
-Algorithms return `AllocError` when their working lists cannot grow. Weights
+These algorithms return `Allocation(cause)` when their working lists cannot
+grow; the traversals and other operations without a domain error return
+`AllocError`. Weights
 and estimates are calculated by user callbacks, which are called only while the
 algorithm runs.
 

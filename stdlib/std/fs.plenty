@@ -222,7 +222,7 @@ pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, 
         return Err(FsError.InvalidInput)
     if cancel.is_cancelled():
         return Err(FsError.Cancelled)
-    mut scratch = fs_bytes(std.bytes.with_capacity(8192))?
+    mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
     fs_bytes(scratch.resize(8192, 0u8))?
     mut target = fs_io(temporary_file(parent))?
     mut total = 0

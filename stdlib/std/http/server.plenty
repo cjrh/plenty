@@ -361,6 +361,13 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
                 return end == bound
     True
 
+def net_allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(NetError.Stream(StreamError.Allocation(cause)))
+
 def net_bytes[T](result: Result[T, BytesError]) -> Result[T, NetError]:
     match result:
         case Ok(value):
@@ -385,7 +392,7 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
             size = read_chunk
         if size > limits.max_head:
             size = limits.max_head
-        mut grown = net_bytes(std.bytes.with_capacity(size))?
+        mut grown = net_allocated(std.bytes.with_capacity(size))?
         net_bytes(grown.extend(&input.data))?
         input.data = grown
     mut room = input.data.capacity() - have
@@ -809,7 +816,7 @@ pub class Exchange[T]:
 
     # Sends UTF-8 text as text/plain.
     pub def send_text(self: &mut Exchange[T], status: i64, text: &str) -> Result[(), HttpError]:
-        body = http_bytes(std.bytes.from_text(text))?
+        body = http_allocated(std.bytes.from_text(text))?
         self.send(status, "text/plain; charset=utf-8", &body)
 
     # Starts a streamed response. A head with Content-Length streams exactly
@@ -936,7 +943,7 @@ pub class Exchange[T]:
         std.http.write_response(&mut taken.inner, head)?
         flushed(taken.inner.flush())?
         held = taken.buffered()
-        mut input = http_bytes(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
+        mut input = http_allocated(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
         http_bytes(input.resize(held, 0u8))?
         if held > 0:
             match taken.read(&mut input, 0, held):
@@ -1094,7 +1101,7 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
         head.add("Allow", *allow)?
     head.add("Connection", "close")?
     std.http.write_response(conn, &head)?
-    body = http_bytes(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
+    body = http_allocated(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
     match std.io.write_all(conn, &body):
         case Ok(_):
             pass
@@ -1458,7 +1465,7 @@ def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> 
     head.add("Allow", *allow)?
     head.add("Content-Type", "text/plain; charset=utf-8")?
     text = http_allocated(reason(405).concat("\n"))?
-    body = http_bytes(std.bytes.from_text(&text))?
+    body = http_allocated(std.bytes.from_text(&text))?
     exchange.respond(head, &body)
 
 # Serves one connection over any Transport, such as a TLS session, with the
@@ -2188,7 +2195,7 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
     mut wake = netted(std.net.bind_udp(&std.net.loopback_v4(0u16)))?
     netted(wake.watch(&mut selector, wake_key, Interest.Read))?
     address = netted(wake.local_address())?
-    mut scratch = allocated(bytes_of(std.bytes.with_capacity(discard_chunk)))?
+    mut scratch = allocated(std.bytes.with_capacity(discard_chunk))?
     allocated(bytes_of(scratch.resize(discard_chunk, 0u8)))?
     slots = allocated(list[Option[Job[T]]].new())?
     free = allocated(list[i64].new())?

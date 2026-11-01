@@ -12,6 +12,13 @@ from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 
+def tls_error_allocated[T](result: Result[T, AllocError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(TlsError.Allocation(cause))
+
 pub enum TlsError:
     Net(NetError)
     UntrustedCertificate
@@ -417,11 +424,11 @@ def described(session: &ByteStorage, target: &mut Bytes, which: i64) -> i64:
 
 # A session detail as bytes, or Nothing when absent.
 def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]:
-    mut probe = stored(std.bytes.with_capacity(0))?
+    mut probe = tls_error_allocated(std.bytes.with_capacity(0))?
     length = described(session, &mut probe, which)
     if length == absent:
         return Ok(Nothing)
-    mut value = stored(std.bytes.with_capacity(length))?
+    mut value = tls_error_allocated(std.bytes.with_capacity(length))?
     stored(value.resize(length, 0u8))?
     described(session, &mut value, which)
     Ok(Some(value))
@@ -792,9 +799,9 @@ def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
             Err(NetError.Stream(cause))
 
 def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStream, TlsError]:
-    mut incoming = stored(std.bytes.with_capacity(buffer_size))?
+    mut incoming = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
     stored(incoming.resize(buffer_size, 0u8))?
-    mut outgoing = stored(std.bytes.with_capacity(buffer_size))?
+    mut outgoing = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
     stored(outgoing.resize(buffer_size, 0u8))?
     Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server))
 

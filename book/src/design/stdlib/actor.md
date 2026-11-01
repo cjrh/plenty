@@ -229,7 +229,7 @@ continue to follow the configured restart policy.
 | `heaps_live()`, `heap_bytes_used()`, `heap_bytes_committed()` | Process totals over all actor heaps |
 | `max_heap_limit` | 64 MiB, the largest heap limit |
 | `max_spawns` | 16 spawn requests per handler |
-| `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `OutOfMemory` above it |
+| `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `CapacityOverflow` for a negative capacity or one above it |
 
 | Type | Values |
 |---|---|

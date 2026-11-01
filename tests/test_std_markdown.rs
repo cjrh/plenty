@@ -249,7 +249,7 @@ import std.markdown
 from std.bytes import Bytes
 from std.markdown import MarkdownError
 
-def repeated(unit: &str, count: i64) -> Result[Bytes, std.bytes.BytesError]:
+def repeated(unit: &str, count: i64) -> Result[Bytes, AllocError | std.bytes.BytesError]:
     piece = std.bytes.from_text(unit)?
     mut out = std.bytes.with_capacity(piece.len() * count)?
     for _ in range(count):

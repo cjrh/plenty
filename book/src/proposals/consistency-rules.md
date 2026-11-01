@@ -426,9 +426,10 @@ everything that works on one iterator works on all.
 
 ### Today
 
-Allocation failure has several shapes (issue #632). The f-string row and
-its probe describe the state before phasing item 2, which made f-strings
-without user formatting fail with `AllocError`:
+Allocation failure has several shapes (issue #632). The table and the probe
+describe the state before phasing items 2 and 3. Item 2 made f-strings without
+user formatting fail with `AllocError`; item 3 changed the `FormatError`,
+`std.bytes` and union rows and `std.bytes.with_capacity(-1)`:
 
 | Operation | Allocation failure reported as |
 | --- | --- |
@@ -538,7 +539,13 @@ and an argument bug traps.
    f-strings with B92 phase 2. A `:c` spec counts as computed, since an
    out-of-range scalar is `InvalidSpec`.
 3. std error types: `Allocation(AllocError)` variants, `std.bytes`
-   constructors, negative capacities.
+   constructors, negative capacities. Done with B92 phase 3:
+   `FormatError.Allocation`, `std.bytes` constructors return `AllocError`,
+   and `std.graph`, `std.sketch`, `std.linalg`, `std.shlex` and `std.mime`
+   (new `MimeError`) carry the variant. `std.actor.stage` keeps its
+   `AllocError | WaitError` union. Other out-of-domain arguments still
+   return named `Err` variants; converting them to traps needs a std trap
+   with a message.
 
 ## Rule 6: every callable form is a value wherever a callback is accepted
 

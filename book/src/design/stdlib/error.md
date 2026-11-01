@@ -159,7 +159,7 @@ behavior even when the cause has a `format` method.
 
 Formatting an absent or unavailable subject adds no allocation. A present path
 uses the allocating `Path.display`; failure is returned as
-`FormatError.Bytes(BytesError.Allocation(...))`, preserving the cause and any
+`FormatError.Allocation(...)`, preserving the cause and any
 already-written prefix. Operation and cause text are emitted unchanged.
 
 ## Reports

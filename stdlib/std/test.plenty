@@ -342,5 +342,5 @@ def stream_bytes(result: Result[(), BytesError]) -> Result[(), StreamError]:
             Err(StreamError.OutOfRange)
 
 # Reads return `input`; nothing is limited or failing until asked.
-pub def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]:
+pub def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]:
     Ok(FakeStream(input, std.bytes.empty()?, 0, 0, 0, -1, Nothing))

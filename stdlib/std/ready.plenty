@@ -9,6 +9,7 @@ from std.io import FileStream, StreamError, classify
 from std.sync import CancellationToken
 from std.time import Deadline, monotonic_now
 
+
 # Bytes per event record that the runtime writes, and records per wait.
 const event_size: i64 = 16
 const most_events: i64 = 64
@@ -205,7 +206,11 @@ pub def selector(capacity: i64) -> Result[Selector, WaitError]:
         size = 1
     if size > most_events:
         size = most_events
-    mut events = lifted(std.bytes.with_capacity(size * event_size))?
+    mut events = match std.bytes.with_capacity(size * event_size):
+        case Ok(value):
+            value
+        case Err(cause):
+            return Err(WaitError.Stream(StreamError.Allocation(cause)))
     lifted(events.resize(size * event_size, 0u8))?
     match __ready_selector():
         case Ok(file):

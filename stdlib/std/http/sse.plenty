@@ -76,7 +76,7 @@ def net_error(error: NetError) -> SseError:
 
 # Appends `name: ` and then `text` and a line feed.
 def field(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
-    spelled = bytes_of(std.bytes.from_text(name))?
+    spelled = allocated(std.bytes.from_text(name))?
     bytes_of(out.extend(&spelled))?
     bytes_of(out.push(colon))?
     bytes_of(out.push(space))?
@@ -102,7 +102,7 @@ def lines(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
 
 # An event name or id, which must be one line.
 def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), SseError]:
-    text = bytes_of(std.bytes.from_text(value))?
+    text = allocated(std.bytes.from_text(value))?
     if bytes_of(text.find_in(b"\r\n", 0, text.len()))?.is_some():
         return Err(SseError.InvalidField)
     if id and bytes_of(text.find(0u8, 0, text.len()))?.is_some():
@@ -139,7 +139,7 @@ pub class EventStream[T]:
         self.usable()?
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
-        text = bytes_of(std.bytes.from_text(data))?
+        text = allocated(std.bytes.from_text(data))?
         self.send_bytes(&text, deadline, cancel, event, id)
 
     # `send` of `data`, which must be UTF-8. It is not copied except into the
@@ -168,7 +168,7 @@ pub class EventStream[T]:
         self.usable()?
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
-        source = bytes_of(std.bytes.from_text(text))?
+        source = allocated(std.bytes.from_text(text))?
         self._out.clear()
         lines(&mut self._out, "", &source)?
         self.flush(deadline, cancel)
@@ -180,7 +180,7 @@ pub class EventStream[T]:
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
         milliseconds = span.as_timeout_ms()
-        digits = bytes_of(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
+        digits = allocated(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
         self._out.clear()
         field(&mut self._out, "retry", &digits)?
         bytes_of(self._out.push(line_feed))?
@@ -319,8 +319,8 @@ pub def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead
         http_of(exchange.start(owned))?
         http_of(exchange.end())?
         return Err(SseError.Closed)
-    out = bytes_of(std.bytes.with_capacity(256))?
-    mut input = bytes_of(std.bytes.with_capacity(512))?
+    out = allocated(std.bytes.with_capacity(256))?
+    mut input = allocated(std.bytes.with_capacity(512))?
     bytes_of(input.resize(512, 0u8))?
     stream = http_of(exchange.detach(owned))?
     Ok(EventStream(last, Some(stream), out, input, exchange.stop_token(), exchange.cancel_token(), True))

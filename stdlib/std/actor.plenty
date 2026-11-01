@@ -1400,12 +1400,12 @@ pub class Stage[N, M, E]:
 
 # Allocates a stage for at most `capacity` live actors, each with a mailbox
 # of `mailbox` messages, reporting up to `events` ready handles per wait.
-# A capacity over `max_capacity` is `OutOfMemory`.
+# A negative capacity or one over `max_capacity` is `CapacityOverflow`.
 pub def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]:
     # Initializes runtime globals now, so admission needs no hidden allocation.
     __actor_heap(op_prepare, 0)
-    if capacity > max_capacity:
-        return Err(AllocError.OutOfMemory)
+    if capacity < 0 or capacity > max_capacity:
+        return Err(AllocError.CapacityOverflow)
     nodes: list[Option[N]] = [Nothing for _ in range(capacity)]?
     mut boxes: list[Mailbox[M, E]] = []?
     for _ in range(capacity):

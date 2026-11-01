@@ -24,7 +24,7 @@ from std.crypto import AeadAlgorithm
 
 type BufferError = std.bytes.BytesError | std.crypto.AdvancedError | std.secrets.SecretsError
 
-def main() -> Result[(), IoError | BufferError]:
+def main() -> Result[(), IoError | AllocError | BufferError]:
     key = std.secrets.token_bytes(32)?
     nonce = std.secrets.token_bytes(12)?
     header = std.bytes.from_text("example-v1")?
@@ -60,7 +60,7 @@ import std.secrets
 
 type SigningError = std.bytes.BytesError | std.crypto.AdvancedError | std.secrets.SecretsError
 
-def main() -> Result[(), IoError | SigningError]:
+def main() -> Result[(), IoError | AllocError | SigningError]:
     seed = std.secrets.token_bytes(32)?
     public_key = std.crypto.ed25519_public_key(&seed)?
     message = std.bytes.from_text("release manifest")?
@@ -93,7 +93,7 @@ authentication protocol.
 import std.bytes
 import std.crypto
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.crypto.AdvancedError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.crypto.AdvancedError]:
     mut alice = std.crypto.x25519()?
     mut bob = std.crypto.x25519()?
     alice_public = alice.public_key()?

@@ -109,15 +109,7 @@ def integers() -> Result[list[i64], RegexError]:
     held(list[i64].new())
 
 def no_bytes() -> Result[Bytes, RegexError]:
-    match std.bytes.with_capacity(0):
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(RegexError.Allocation(cause))
-                case _:
-                    Err(RegexError.OutOfRange)
+    held(std.bytes.with_capacity(0))
 
 def hex_value(code: i64) -> i64:
     if code >= 48 and code <= 57:
@@ -813,13 +805,7 @@ pub class Match:
     pub def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]:
         if self.start < 0 or self.start > self.end or self.end > len(data):
             return Err(RegexError.OutOfRange)
-        match std.bytes.from_bytes(&data[self.start:self.end]):
-            case Ok(owned):
-                Ok(owned)
-            case Err(BytesError.Allocation(cause)):
-                Err(RegexError.Allocation(cause))
-            case Err(_):
-                Err(RegexError.OutOfRange)
+        held(std.bytes.from_bytes(&data[self.start:self.end]))
 
 # Group matches; group 0 is the whole match.
 pub class Captures:

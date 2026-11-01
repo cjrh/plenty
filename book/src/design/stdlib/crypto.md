@@ -30,7 +30,7 @@ from std.bytes import BytesError
 from std.crypto import Algorithm, CryptoError
 from std.encoding import EncodingError
 
-def main() -> Result[(), IoError | BytesError | CryptoError | EncodingError]:
+def main() -> Result[(), IoError | AllocError | BytesError | CryptoError | EncodingError]:
     message = std.bytes.from_text("hello")?
     digest = std.crypto.sha256(&message)?
     print(std.encoding.hex_text(&digest)?)?

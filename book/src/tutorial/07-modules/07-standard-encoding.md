@@ -91,7 +91,7 @@ different alphabet or no padding, build a validated encoding once and reuse it:
 import std.bytes
 import std.encoding
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.encoding.EncodingError]:
     data = std.bytes.from_text("hello")?
     print(std.encoding.base32_text(&data)?)?
     lower = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?

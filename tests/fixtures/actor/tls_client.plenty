@@ -27,7 +27,7 @@ const mode: i64 = 0
 const roots: str = "ca.pem"
 const server_name: str = "localhost"
 
-type Fault = NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError
 
 pub enum Note:
     # Bytes echoed, and whether they matched.

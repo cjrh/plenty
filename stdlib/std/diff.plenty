@@ -452,7 +452,7 @@ def text_diff(old: list[str], new: list[str], algorithm: Algorithm, max_cost: Op
 
 # Lines, each keeping its LF; a final line without one is its own token.
 def split_lines(text: &str) -> Result[list[str], AllocError]:
-    data = allocated(std.bytes.from_text(text))?
+    data = std.bytes.from_text(text)?
     mut out = list[str]()?
     mut start = 0
     size = data.len()
@@ -469,7 +469,7 @@ def split_lines(text: &str) -> Result[list[str], AllocError]:
 
 # Alternating runs of Unicode White_Space and of other scalars.
 def split_words(text: &str) -> Result[list[str], AllocError]:
-    data = allocated(std.bytes.from_text(text))?
+    data = std.bytes.from_text(text)?
     mut out = list[str]()?
     mut start = 0
     mut at = 0

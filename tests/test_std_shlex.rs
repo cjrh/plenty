@@ -175,9 +175,14 @@ print(str.repr(quote{budget})?)?
     assert_eq!(output.lines().count(), 48);
     assert!(output.contains("OutOfMemory"));
     assert!(output.contains(".Ok("));
+    // Allocation failure is the domain error's variant, not a separate
+    // `AllocError` alternative (B92 rule 5).
     for line in output.lines() {
         assert!(
-            line.contains(".Ok(") || line.contains("OutOfMemory"),
+            line.contains(".Ok(")
+                || line.contains(
+                    "ShlexError].Err(std.shlex.ShlexError.Allocation(AllocError.OutOfMemory))"
+                ),
             "{line}"
         );
     }

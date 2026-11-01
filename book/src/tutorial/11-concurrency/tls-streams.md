@@ -30,7 +30,7 @@ def leaf_key() -> str:
     return "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvSEE3H7v+mInxSF\nAyWFDKYpzpXr20wH8mfFY3bCaB2hRANCAATxMc1B5OInoSrS1LG0dblDhMKxsioH\ncw60z3wRHIqCXqQd4cJ4NlgrHwH5VEZPaORa5N43bhCWPBR+Hu6HshrP\n-----END PRIVATE KEY-----\n"
 
 # Answers one message on one connection.
-def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | std.bytes.BytesError]:
+def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | TlsError | std.bytes.BytesError]:
     match listener.accept(deadline, cancel):
         case Ok(tcp):
             mut stream = std.tls.accept(tcp, config, deadline, cancel)?
@@ -79,6 +79,8 @@ def main() -> Result[(), SpawnError[()] | IoError | AllocError | TlsConnectionEr
                         print(tls)?
                     case buffer: std.bytes.BytesError:
                         print(buffer)?
+                    case cause: AllocError:
+                        print(cause)?
             case Ok(_):
                 print("unexpected")?
     Ok(())

@@ -60,7 +60,7 @@ small writes in a fixed-size buffer and passes them on in larger pieces:
 import std.bytes
 import std.io
 
-def main() -> Result[(), IoError | std.io.Partial | std.io.StreamError | std.bytes.BytesError]:
+def main() -> Result[(), IoError | AllocError | std.io.Partial | std.io.StreamError | std.bytes.BytesError]:
     mut input = std.io.buffered_reader(std.io.cursor(std.bytes.from_text("red\ngreen\nblue")?), 4)?
     mut output = std.io.buffered_writer(std.io.stdout(), 16)?
     mut line = std.bytes.empty()?

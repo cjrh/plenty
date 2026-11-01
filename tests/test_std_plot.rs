@@ -1080,7 +1080,7 @@ p = gg.ggplot(t, gg.aes("x", ymin="low", ymax="high"), [gg.geom_ribbon(), gg.geo
         body.push_str(&format!("facet_check{budget}(&p)?\n"));
         helpers.push_str(&format!(
             r#"
-def facet_check{budget}(p: &gg.Plot) -> Result[(), PlotError | BytesError | IoError]:
+def facet_check{budget}(p: &gg.Plot) -> Result[(), AllocError | PlotError | BytesError | IoError]:
     mut output = std.io.cursor(std.bytes.empty()?)
     print("__test_fail_allocations_after_{budget}__")?
     attempted = p.write_svg(&mut output, width=10.0, height=4.0)
@@ -1125,7 +1125,7 @@ p = gg.ggplot(t, gg.aes("x", "y", colour="group", fill="y"), [gg.geom_line(), gg
         body.push_str(&format!("check{budget}(&p)?\n"));
         helpers.push_str(&format!(
             r#"
-def check{budget}(p: &gg.Plot) -> Result[(), PlotError | BytesError | IoError]:
+def check{budget}(p: &gg.Plot) -> Result[(), AllocError | PlotError | BytesError | IoError]:
     mut output = std.io.cursor(std.bytes.empty()?)
     print("__test_fail_allocations_after_{budget}__")?
     attempted = p.write_svg(&mut output)

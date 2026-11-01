@@ -59,7 +59,7 @@ pub class Proxies:
     # address. Host bits below the prefix are InvalidNetwork, so a typo
     # such as `10.0.0.1/8` does not trust more than was meant.
     pub def trust(self: &mut Proxies, network: &str) -> Result[(), ProxyError]:
-        source = lifted(std.bytes.from_text(network))?
+        source = allocated(std.bytes.from_text(network))?
         count = source.len()
         mut slash = count
         match lifted(source.find(47u8, 0, count))?:
@@ -210,7 +210,7 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
     for index in range(len(headers)):
         if not std.http.same_name(&headers[index].name, name):
             continue
-        data = lifted(std.bytes.from_text(&headers[index].value))?
+        data = allocated(std.bytes.from_text(&headers[index].value))?
         count = data.len()
         mut at = 0
         while at <= count:
@@ -259,7 +259,7 @@ def x_forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyEr
 # A missing `for` leaves the node empty, which `node_ip` rejects.
 def element(data: &Bytes) -> Result[Hop, ProxyError]:
     count = data.len()
-    mut node = lifted(std.bytes.empty())?
+    mut node = allocated(std.bytes.empty())?
     mut proto: Option[str] = Nothing
     mut at = 0
     while at < count:
@@ -278,7 +278,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             case Err(cause):
                 return Err(ProxyError.Allocation(cause))
         at += 1
-        mut value = lifted(std.bytes.empty())?
+        mut value = allocated(std.bytes.empty())?
         if at < count and data[at] == 34u8:
             at += 1
             mut closed = False
@@ -312,7 +312,7 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
     for index in range(len(headers)):
         if not std.http.same_name(&headers[index].name, "forwarded"):
             continue
-        data = lifted(std.bytes.from_text(&headers[index].value))?
+        data = allocated(std.bytes.from_text(&headers[index].value))?
         count = data.len()
         mut start = 0
         mut quoted = False

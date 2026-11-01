@@ -12,8 +12,8 @@ Use `split` for an argument string supplied by a configuration file or user.
 
 | Function | Result | Contract |
 |---|---|---|
-| `split(text: &str, comments: bool = False)` | `Result[list[str], ShlexError \| AllocError]` | Remove word quoting and escapes, returning owned arguments |
-| `quote(text: &str)` | `Result[str, ShlexError \| AllocError]` | Encode one argument for a POSIX shell |
+| `split(text: &str, comments: bool = False)` | `Result[list[str], ShlexError]` | Remove word quoting and escapes, returning owned arguments |
+| `quote(text: &str)` | `Result[str, ShlexError]` | Encode one argument for a POSIX shell |
 
 ```plenty
 import std.shlex
@@ -68,12 +68,12 @@ path, or shell program appropriate for an application. Prefer argument-vector
 spawning; when a shell is needed, passing data through arguments or environment
 variables also avoids building scripts from data.
 
-`ShlexError` has `UnclosedQuote(position)`, `TrailingEscape(position)` and
-`Nul(position)`. Positions are zero-based Unicode scalar indices, matching
+`ShlexError` has `UnclosedQuote(position)`, `TrailingEscape(position)`,
+`Nul(position)` and `Allocation(AllocError)`. Positions are zero-based Unicode scalar indices, matching
 Plenty string indexing. The quote/escape position points to its opening
 character. Both functions reject NUL, including in a comment, because POSIX
-process arguments cannot contain it. Allocation failures return `AllocError`;
-no partial result is exposed and intermediate storage is released.
+process arguments cannot contain it. Allocation failures return
+`Allocation(cause)`; no partial result is exposed and intermediate storage is released.
 
 Splitting takes linear time and uses a reusable scalar-piece list plus the
 returned words. Quoting takes linear time and may allocate intermediate text

@@ -66,7 +66,7 @@ from std.time import Deadline, Instant, deadline_after, milliseconds, monotonic_
 def within(ms: u32) -> Result[Deadline, RangeError]:
     Ok(deadline_after(&monotonic_now(), &milliseconds(ms))?)
 
-def zeroed(size: i64) -> Result[Bytes, std.bytes.BytesError]:
+def zeroed(size: i64) -> Result[Bytes, AllocError | std.bytes.BytesError]:
     mut out = std.bytes.with_capacity(size)?
     out.resize(size, 0u8)?
     Ok(out)
@@ -820,7 +820,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
 fn several_workers_accept_from_one_listener() {
     runs(
         r#"
-def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), std.bytes.BytesError]:
+def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), AllocError | std.bytes.BytesError]:
     message = std.bytes.from_text("ping")?
     stream.write_all_before(&message[:4], deadline, cancel).unwrap()
     stream.shutdown(Shutdown.Write).unwrap()

@@ -25,7 +25,7 @@ pub enum Route:
     Echo
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | std.bytes.BytesError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?

@@ -31,7 +31,7 @@ pub enum Route:
     Echo
 
 pub class Echoer:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | std.bytes.BytesError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         exchange.send(200, "text/plain", &body)

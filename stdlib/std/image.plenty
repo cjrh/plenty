@@ -140,7 +140,7 @@ pub class Image:
             return Err(ImageError.OutOfRange)
         channels = self._color.channels()
         row = width * channels
-        mut pixels = held(std.bytes.with_capacity(row * height))?
+        mut pixels = listed(std.bytes.with_capacity(row * height))?
         for line in range(y, y + height):
             at = (line * self._width + x) * channels
             held(pixels.extend(&self._pixels[at:at + row]))?
@@ -154,7 +154,7 @@ pub class Image:
         if source == target:
             return self.copy()
         count = self._width * self._height
-        mut pixels = held(std.bytes.with_capacity(count * target))?
+        mut pixels = listed(std.bytes.with_capacity(count * target))?
         held(pixels.resize(count * target, 0u8))?
         gray = source < 3
         alpha = self._color.has_alpha()
@@ -209,7 +209,7 @@ def size(width: i64, height: i64, color: ColorType) -> Result[i64, ImageError]:
 # A zeroed image: black, and transparent if it has alpha.
 pub def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]:
     total = size(width, height, color)?
-    mut pixels = held(std.bytes.with_capacity(total))?
+    mut pixels = listed(std.bytes.with_capacity(total))?
     held(pixels.resize(total, 0u8))?
     Ok(Image(width, height, color, pixels))
 
@@ -653,7 +653,7 @@ def scaled(value: i64, depth: i64) -> u8:
 # The palette as four bytes per entry, RGBA, with alpha from tRNS or 255;
 # empty for other colour types.
 def table(data: &[u8], scan: &Scan) -> Result[Bytes, ImageError]:
-    mut colors = held(std.bytes.with_capacity(4 * scan.entries))?
+    mut colors = listed(std.bytes.with_capacity(4 * scan.entries))?
     for entry in range(0, scan.entries):
         at = scan.palette_at + 3 * entry
         held(colors.extend(&data[at:at + 3]))?
@@ -789,11 +789,11 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
     limits.check(scan.width, scan.height, color)?
     raw = raw_size(&scan)?
     total = scan.width * scan.height * color.channels()
-    mut out = held(std.bytes.with_capacity(total))?
+    mut out = listed(std.bytes.with_capacity(total))?
     if scan.interlaced:
         held(out.resize(total, 0u8))?
     widest = 1 + scan.row_bytes(scan.width)
-    mut lines = held(std.bytes.with_capacity(2 * widest))?
+    mut lines = listed(std.bytes.with_capacity(2 * widest))?
     held(lines.resize(2 * widest, 0u8))?
     colors = table(data, &scan)?
     mut inflater = coded(std.compress.inflater(std.compress.Format.Zlib, raw))?
@@ -923,11 +923,11 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
     height = image.height()
     step = image.color().channels()
     count = width * step
-    mut out = held(std.bytes.empty())?
+    mut out = listed(std.bytes.empty())?
     # The signature: 0x89, "PNG", CR LF, Ctrl-Z, LF.
     put32(&mut out, 0x89504E47)?
     put32(&mut out, 0x0D0A1A0A)?
-    mut header = held(std.bytes.with_capacity(13))?
+    mut header = listed(std.bytes.with_capacity(13))?
     put32(&mut header, width)?
     put32(&mut header, height)?
     held(header.push(8u8))?
@@ -938,14 +938,14 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
     # Level 0 stores rows unfiltered; otherwise each row is filtered five ways
     # and the best kept, with a zero row standing above the first.
     kinds = 1 if level == 0 else 5
-    mut rows = held(std.bytes.with_capacity(kinds * line))?
+    mut rows = listed(std.bytes.with_capacity(kinds * line))?
     held(rows.resize(kinds * line, 0u8))?
     for kind in range(0, kinds):
         rows[kind * line] = u8(kind)
-    mut zero = held(std.bytes.with_capacity(count))?
+    mut zero = listed(std.bytes.with_capacity(count))?
     if level > 0:
         held(zero.resize(count, 0u8))?
-    sink = std.io.cursor(held(std.bytes.empty())?)
+    sink = std.io.cursor(listed(std.bytes.empty())?)
     mut zlib = coded(std.compress.compressor(std.compress.Format.Zlib, sink, level))?
     pixels = image.pixels()
     for y in range(0, height):
@@ -978,7 +978,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
 def nearest(image: &Image, width: i64, height: i64, total: i64) -> Result[Image, ImageError]:
     channels = image.color().channels()
     source = image.pixels()
-    mut pixels = held(std.bytes.with_capacity(total))?
+    mut pixels = listed(std.bytes.with_capacity(total))?
     for y in range(0, height):
         # Doubled coordinates put each sample at a pixel centre; dimensions
         # below 2^31 keep the products in range.
@@ -1053,7 +1053,7 @@ def premultiplied(value: i64, alpha: i64) -> i64:
 def horizontal(source: &[u8], from_width: i64, rows: i64, channels: i64, weights: &Taps) -> Result[Bytes, ImageError]:
     to_width = len(&weights.starts)
     total = rows * to_width * channels
-    mut out = held(std.bytes.with_capacity(total))?
+    mut out = listed(std.bytes.with_capacity(total))?
     held(out.resize(total, 0u8))?
     mut to = 0
     for y in range(0, rows):
@@ -1099,7 +1099,7 @@ def horizontal(source: &[u8], from_width: i64, rows: i64, channels: i64, weights
 def vertical(source: &[u8], stride: i64, weights: &Taps) -> Result[Bytes, ImageError]:
     to_height = len(&weights.starts)
     total = to_height * stride
-    mut out = held(std.bytes.with_capacity(total))?
+    mut out = listed(std.bytes.with_capacity(total))?
     held(out.resize(total, 0u8))?
     mut to = 0
     for y in range(0, to_height):

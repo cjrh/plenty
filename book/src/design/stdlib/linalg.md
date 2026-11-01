@@ -43,7 +43,7 @@ and can be passed, returned, or stored in other classes.
 ## Arithmetic
 
 Arithmetic borrows its operands and returns a fresh matrix in
-`Result[Matrix, AllocError | LinalgError]`. Use `(a + b)?`: parentheses put
+`Result[Matrix, LinalgError]`. Use `(a + b)?`: parentheses put
 error propagation around the complete operation. Vectors follow the same rules
 because they are one-column matrices.
 
@@ -98,13 +98,14 @@ indexing overloads, sparse matrices, empty matrices, or GPU operations.
 
 ## Errors and numerical limits
 
-Allocating operations return `AllocError`, either directly or in a union with
-`LinalgError`. Plenty matrix allocations and native scratch allocations are
+Operations that can fail only to allocate, such as `to_list` and `transpose`,
+return `AllocError`; the others report it as `LinalgError.Allocation(cause)`.
+Plenty matrix allocations and native scratch allocations are
 fallible. Errors carry no dynamically allocated diagnostic message.
 
 `LinalgError` distinguishes `Shape`, `Bounds`, `NonFinite`, `Singular`,
-`NotSymmetric`, `NotPositiveDefinite`, `NoConvergence`, `Overflow`, and
-`NativePanic`. Dimension/product bounds are checked before allocation.
+`NotSymmetric`, `NotPositiveDefinite`, `NoConvergence`, `Overflow`,
+`NativePanic`, and `Allocation(AllocError)`. Dimension/product bounds are checked before allocation.
 Constructors/setters reject NaN and infinity; numerical results containing
 NaN or infinity report `Overflow`. Symmetry is checked with exact `f64` equality
 between the two triangles; symmetrize deliberately if your data is approximate.

@@ -148,9 +148,9 @@ print(target.to_list()?, source.inner.at)?
         "Result[(), E].Err(E.OutOfRange)
 Result[(), E].Err(E.OutOfRange)
 Result[(), E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[str, E].Err(E.OutOfRange)
-Result[str, E].Err(E.OutOfRange)
+Result[Bytes, E].Err(E.Allocation(AllocError.CapacityOverflow))
+Result[str, E].Err(E.Allocation(AllocError.CapacityOverflow))
+Result[str, E].Err(E.Allocation(AllocError.CapacityOverflow))
 Result[u64, E].Err(E.EmptyRange)
 0 True True
 [9, 9, 9, 9] 0",
@@ -221,7 +221,7 @@ print(str.repr(std.secrets.below(0u64))?)?
 22 0
 0 False
 True 0
-Result[Bytes, E].Err(E.OutOfRange)
+Result[Bytes, E].Err(E.Allocation(AllocError.CapacityOverflow))
 Result[u64, E].Err(E.EmptyRange)",
     );
 }

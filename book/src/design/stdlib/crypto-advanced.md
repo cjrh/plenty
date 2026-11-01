@@ -83,7 +83,7 @@ import std.fmt
 import std.encoding
 import std.report
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError | std.fmt.FormatError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.encoding.EncodingError | std.fmt.FormatError]:
     identity = std.encoding.hex_from_text("0100000000000000000000000000000000000000000000000000000000000000")?
     forged = std.encoding.hex_from_text("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000")?
     message = std.bytes.from_text("any message")?

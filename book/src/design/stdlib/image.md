@@ -135,7 +135,7 @@ import std.io
 from std.bytes import Bytes
 from std.image import ColorType, ImageError, Limits
 
-type Problem = IoError | std.bytes.BytesError | std.io.StreamError | std.io.Partial | ImageError
+type Problem = AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.io.Partial | ImageError
 
 # The whole file, or LimitExceeded if it is longer than `limit` bytes.
 def load(path: &str, limit: i64) -> Result[Bytes, Problem]:

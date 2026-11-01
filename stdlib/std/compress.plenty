@@ -6,6 +6,13 @@ import std.bytes
 from std.bytes import Bytes, BytesError
 from std.io import StreamError
 
+def compress_error_allocated[T](result: Result[T, AllocError]) -> Result[T, CompressError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(CompressError.Allocation(cause))
+
 pub enum Format:
     Deflate
     Zlib
@@ -178,7 +185,7 @@ pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
 pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]:
     leveled(format, level)?
     mut state = codec(kind(format, False), level, window)?
-    mut out = reported(std.bytes.empty())?
+    mut out = compress_error_allocated(std.bytes.empty())?
     mut at = 0
     total = len(data)
     while at < total:
@@ -203,7 +210,7 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
 # LimitExceeded; nothing is returned on any error.
 pub def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]:
     mut decoder = inflater(format, limit)?
-    mut out = reported(std.bytes.empty())?
+    mut out = compress_error_allocated(std.bytes.empty())?
     mut at = 0
     total = len(data)
     while at < total or not decoder.complete():
@@ -389,6 +396,6 @@ pub class Decompressor[R]:
 
 pub def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]:
     decoder = inflater(format, limit)?
-    mut input = reported(std.bytes.with_capacity(window))?
+    mut input = compress_error_allocated(std.bytes.with_capacity(window))?
     reported(input.resize(window, 0u8))?
     Ok(Decompressor(inner, decoder, 0, input, 0, 0, False, Nothing))

@@ -3,7 +3,7 @@
 mod support;
 
 const HEADER: &str = r#"import std.mime
-from std.mime import MediaType
+from std.mime import MediaType, MimeError
 
 def show(text: &str) -> Result[(), AllocError | IoError]:
     match std.mime.parse(text):
@@ -22,7 +22,7 @@ fn native(body: &str, expected: &str) {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     let source = format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | ParseError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | MimeError]:\n{body}    Ok(())\n"
     );
     let actual = support::run_file_stdout(&source);
     assert_eq!(actual, expected.trim_matches('\n'), "{source}");
@@ -57,7 +57,7 @@ fn malformed_media_types_are_rejected() {
 for text in ["", "text", "/x", "text/", "te xt/plain", "text/plain x", "text/plain; x", "text/plain; x=", "text/plain; =1", "text/plain; x=\"open", "text/plain; x=\"a\"b", "text/plain; x=1; X=2", "text/plain; x=a b", "text/plain; x=\"a\u{1}\"", "text/pl\u{e9}in"]?:
     show(&text)?
 "#,
-        &"ParseError.Invalid\n".repeat(15),
+        &"std.mime.MimeError.Invalid\n".repeat(15),
     );
 }
 
@@ -164,7 +164,7 @@ Option[str].Some("image/jpeg") Option[str].Nothing Option[str].Nothing
 fn allocation_failure_returns_alloc_error() {
     let source = format!(
         "{HEADER}{}",
-        r#"def attempt() -> Result[str, AllocError | ParseError]:
+        r#"def attempt() -> Result[str, AllocError | MimeError]:
     mut value = std.mime.parse("Multipart/Form-Data; Boundary=\"a \\\"b\"; charset=UTF-8; x=y")?
     value.set_param("note", "two words")?
     Ok(value.to_string()?)
@@ -196,7 +196,8 @@ def main() -> Result[(), AllocError | IoError]:
     assert!(
         lines[..failures]
             .iter()
-            .all(|line| *line == "AllocError.OutOfMemory"),
+            .all(|line| *line == "AllocError.OutOfMemory"
+                || *line == "std.mime.MimeError.Allocation(AllocError.OutOfMemory)"),
         "{text}"
     );
     assert_eq!(

@@ -63,7 +63,7 @@ def scaled(factor: i64) -> Option[Closure[[i64], i64]]:
 def labelled(label: str) -> Result[OnceClosure[[i64], str], Problem]:
     Ok(def once [label](value: i64) -> str: (label + str.from(value).unwrap()).unwrap())
 
-def filled(n: u8) -> Result[Bytes, BytesError]:
+def filled(n: u8) -> Result[Bytes, AllocError | BytesError]:
     mut out = std.bytes.empty()?
     for i in range(n):
         out.push(i)?

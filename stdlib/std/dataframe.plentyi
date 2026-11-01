@@ -344,7 +344,7 @@ class BinaryValues:
         mut offsets = allocated([0 for _ in range(rows + 1)])?
         mut valid = allocated([0u8 for _ in range(rows)])?
         checked(binary_values_copy(self.raw, &mut data, &mut offsets, &mut valid))?
-        packed = buffered(buffers.from_list(data))?
+        packed = allocated(buffers.from_list(data))?
         mut result = allocated(list[Option[Bytes]]())?
         for i in range(rows):
             if valid[i] == 0u8:
@@ -1344,7 +1344,7 @@ pub def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrame
     Ok(out)
 
 pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFrameError]:
-    mut packed = buffered(buffers.empty())?
+    mut packed = allocated(buffers.empty())?
     mut offsets = allocated([0])?
     for value in values:
         buffered(packed.extend(value))?
@@ -1356,7 +1356,7 @@ pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFr
     Ok(out)
 
 pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]:
-    mut packed = buffered(buffers.empty())?
+    mut packed = allocated(buffers.empty())?
     mut offsets = allocated([0])?
     mut valid = allocated(list[u8]())?
     for value in values:

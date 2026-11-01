@@ -6,6 +6,13 @@
 from std.bytes import Bytes, BytesError, with_capacity
 from std.path import Path
 
+def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(StreamError.Allocation(cause))
+
 pub enum StreamError:
     Interrupted
     UnexpectedEof
@@ -308,7 +315,7 @@ pub class BufReader[R]:
 pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    mut buffer = bytes_result(with_capacity(capacity))?
+    mut buffer = stream_error_allocated(with_capacity(capacity))?
     bytes_result(buffer.resize(capacity, 0u8))?
     Ok(BufReader(inner, buffer, 0, 0))
 
@@ -382,7 +389,7 @@ pub class BufWriter[W]:
 pub def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    Ok(BufWriter(inner, bytes_result(with_capacity(capacity))?, 0, capacity))
+    Ok(BufWriter(inner, stream_error_allocated(with_capacity(capacity))?, 0, capacity))
 
 # Delivers pending bytes, then repositions the inner stream.
 pub def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]:

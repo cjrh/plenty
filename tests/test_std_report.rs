@@ -464,7 +464,7 @@ pub enum Missing:
     Value
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("missing")
-def main() -> Result[(), FormatError | std.bytes.BytesError | IoError]:
+def main() -> Result[(), AllocError | FormatError | std.bytes.BytesError | IoError]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
     mut output = std.fmt.formatter(Sink(std.bytes.with_capacity(0)?, False), scratch, 100, 4)?

@@ -252,7 +252,7 @@ def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
     Ok(())
 
 def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
-    spelled = held(std.bytes.from_text(text))?
+    spelled = owned(std.bytes.from_text(text))?
     held(out.extend(&spelled))
 
 def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
@@ -475,7 +475,7 @@ pub class TarReader[R]:
     def metadata(self: &mut TarReader[R], size: i64) -> Result[Bytes, ArchiveError]:
         if size > max_metadata:
             return Err(ArchiveError.Limit)
-        mut data = held(std.bytes.with_capacity(size))?
+        mut data = owned(std.bytes.with_capacity(size))?
         held(data.resize(size, 0u8))?
         fill(&mut self.inner, &mut data, size)?
         self.skip((block_size - size % block_size) % block_size)?
@@ -613,7 +613,7 @@ pub class TarReader[R]:
                 Err(stream_error(error))
 
 pub def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]:
-    mut block = held(std.bytes.with_capacity(block_size))?
+    mut block = owned(std.bytes.with_capacity(block_size))?
     held(block.resize(block_size, 0u8))?
     Ok(TarReader(inner, block, 0, 0, False, Nothing))
 
@@ -683,7 +683,7 @@ pub class TarWriter[W]:
         if size < 0 or mode < 0 or mode > 4095 or mtime < 0 or mtime > 8589934591:
             return Err(ArchiveError.InvalidInput)
         if len(name) > 100 or len(link) > 100:
-            mut records = held(std.bytes.empty())?
+            mut records = owned(std.bytes.empty())?
             if len(name) > 100:
                 pax_record(&mut records, "path", name)?
             if len(link) > 100:
@@ -779,7 +779,7 @@ pub class TarWriter[W]:
         moved(self.inner.flush())
 
 pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
-    mut block = held(std.bytes.with_capacity(block_size))?
+    mut block = owned(std.bytes.with_capacity(block_size))?
     held(block.resize(block_size, 0u8))?
     Ok(TarWriter(inner, block, False, False))
 
@@ -902,7 +902,7 @@ pub class ZipReader[R]:
         if size < 22:
             return Err(ArchiveError.Corrupt)
         tail_size = smaller(size, 65557)
-        mut tail = held(std.bytes.with_capacity(tail_size))?
+        mut tail = owned(std.bytes.with_capacity(tail_size))?
         held(tail.resize(tail_size, 0u8))?
         self.at(size - tail_size)?
         fill(&mut self.inner, &mut tail, tail_size)?
@@ -977,11 +977,11 @@ pub class ZipReader[R]:
             consumed += 46 + name_size + extra_size + comment_size
             if consumed > directory_size:
                 return Err(ArchiveError.Corrupt)
-            mut raw = held(std.bytes.with_capacity(name_size))?
+            mut raw = owned(std.bytes.with_capacity(name_size))?
             held(raw.resize(name_size, 0u8))?
             fill(&mut self.inner, &mut raw, name_size)?
             name = held(raw.to_list())?
-            mut extra = held(std.bytes.with_capacity(extra_size))?
+            mut extra = owned(std.bytes.with_capacity(extra_size))?
             held(extra.resize(extra_size, 0u8))?
             fill(&mut self.inner, &mut extra, extra_size)?
             mut left = comment_size
@@ -1189,7 +1189,7 @@ pub class ZipReader[R]:
 pub def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], ArchiveError]:
     if max_entries < 0:
         return Err(ArchiveError.InvalidInput)
-    mut input = held(std.bytes.with_capacity(chunk))?
+    mut input = owned(std.bytes.with_capacity(chunk))?
     held(input.resize(chunk, 0u8))?
     decoder = coded(std.compress.inflater(Format.Deflate, 0))?
     mut reader = ZipReader(inner, owned(list[Entry].new())?, owned(list[Record].new())?, owned(list[i64].new())?, input, 0, 0, decoder, 0, False, False, 0, 0, 0, 0, 0, Nothing)
@@ -1236,7 +1236,7 @@ pub class ZipWriter[W]:
             version = 45
         flags = utf8_flag(name)
         time, date = to_dos(mtime)
-        mut head = held(std.bytes.with_capacity(30 + len(name) + 20))?
+        mut head = owned(std.bytes.with_capacity(30 + len(name) + 20))?
         put_le(&mut head, local_signature, 4)?
         put_le(&mut head, version, 2)?
         put_le(&mut head, flags, 2)?
@@ -1261,7 +1261,7 @@ pub class ZipWriter[W]:
             put_le(&mut head, 16, 2)?
             put_le(&mut head, size, 8)?
             put_le(&mut head, compressed, 8)?
-        mut entry = held(std.bytes.with_capacity(46 + len(name) + 28))?
+        mut entry = owned(std.bytes.with_capacity(46 + len(name) + 28))?
         central = &mut entry
         put_le(central, central_signature, 4)?
         put_le(central, made_by, 2)?
@@ -1324,13 +1324,13 @@ pub class ZipWriter[W]:
         if mode < 0 or mode > 4095:
             return Err(ArchiveError.InvalidInput)
         stored = stored_name(name, True)?
-        self.record(&stored, 0, 0, &held(std.bytes.empty())?, 0, directory_bits | mode, 16, mtime)
+        self.record(&stored, 0, 0, &owned(std.bytes.empty())?, 0, directory_bits | mode, 16, mtime)
 
     pub def add_symlink(self: &mut ZipWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, False)?
         if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
             return Err(ArchiveError.InvalidInput)
-        data = held(std.bytes.from_list(target.as_bytes()))?
+        data = owned(std.bytes.from_list(target.as_bytes()))?
         crc = coded(std.compress.crc32(0, &data))?
         self.record(&stored, 0, crc, &data, data.len(), symlink_bits | 511, 0, mtime)
 
@@ -1341,7 +1341,7 @@ pub class ZipWriter[W]:
             directory_offset = self._offset
             directory_size = self._central.len()
             count = self._count
-            mut tail = held(std.bytes.with_capacity(98))?
+            mut tail = owned(std.bytes.with_capacity(98))?
             if count >= u16_max or directory_offset >= u32_max or directory_size >= u32_max:
                 put_le(&mut tail, end64_signature, 4)?
                 put_le(&mut tail, 44, 8)?
@@ -1372,7 +1372,7 @@ pub class ZipWriter[W]:
         moved(self.inner.flush())
 
 pub def zip_writer[W](inner: W) -> Result[ZipWriter[W], ArchiveError]:
-    Ok(ZipWriter(inner, held(std.bytes.empty())?, 0, 0, False, False))
+    Ok(ZipWriter(inner, owned(std.bytes.empty())?, 0, 0, False, False))
 
 # Extraction
 

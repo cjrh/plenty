@@ -287,7 +287,7 @@ pub class WebSocket[T]:
     pub def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
-        data = bytes_of(std.bytes.from_text(text))?
+        data = allocated(std.bytes.from_text(text))?
         self.send(Kind.Text, &data, deadline, cancel)
 
     # Sends a ping with `data`, at most 125 bytes, as its payload. The peer's
@@ -316,9 +316,9 @@ pub class WebSocket[T]:
         if self._state == state_open:
             if not valid_code(code) or reason.byte_len() > 123:
                 return Err(WebSocketError.OutOfRange)
-            mut payload = bytes_of(std.bytes.with_capacity(2 + reason.byte_len()))?
+            mut payload = allocated(std.bytes.with_capacity(2 + reason.byte_len()))?
             encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
-            spelled = bytes_of(std.bytes.from_text(reason))?
+            spelled = allocated(std.bytes.from_text(reason))?
             bytes_of(payload.extend(&spelled))?
             outcome = self.frame(op_close, &payload, True, deadline, cancel)
             self.sent(outcome)?
@@ -644,7 +644,7 @@ pub class WebSocket[T]:
         Ok(())
 
 def blank(size: i64) -> Result[Bytes, WebSocketError]:
-    mut made = bytes_of(std.bytes.with_capacity(size))?
+    mut made = allocated(std.bytes.with_capacity(size))?
     bytes_of(made.resize(size, 0u8))?
     Ok(made)
 
@@ -658,7 +658,7 @@ def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotoco
     bytes_of(buffer.resize(size, 0u8))?
     mask = blank(4)?
     key = blank(4)?
-    out = bytes_of(std.bytes.with_capacity(chunk + 14))?
+    out = allocated(std.bytes.with_capacity(chunk + 14))?
     Ok(WebSocket(subprotocol, Some(stream), client, config.max_frame, config.max_message, buffer, 0, held, mask, key, out, waiting, cancel, state_open))
 
 # Whether a comma-separated element of a field named `name` is `token`:
@@ -737,7 +737,7 @@ def refuse[T: Transport](exchange: &mut Exchange[T], status: i64) -> Result[(), 
         http_of(head.add("Upgrade", "websocket"))?
         http_of(head.add("Sec-WebSocket-Version", "13"))?
     http_of(head.add("Content-Type", "text/plain; charset=utf-8"))?
-    body = bytes_of(std.bytes.from_text(&allocated(phrase.concat("\n"))?))?
+    body = allocated(std.bytes.from_text(&allocated(phrase.concat("\n"))?))?
     http_of(exchange.respond(head, &body))
 
 # Completes the server side of the handshake on `exchange`. A request that

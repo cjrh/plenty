@@ -12,7 +12,7 @@ import std.db.kv as kv
 import std.bytes as buffers
 from std.bytes import BytesError
 
-def main() -> Result[(), kv.KvError | BytesError | IoError]:
+def main() -> Result[(), AllocError | kv.KvError | BytesError | IoError]:
     mut store = kv.memory()?
     key = buffers.from_text("user:42")?
     value = buffers.from_text("Ada")?

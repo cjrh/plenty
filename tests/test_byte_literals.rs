@@ -188,7 +188,7 @@ fn owned_buffers_are_explicit_copies() {
         r#"
 import std.bytes
 
-def main() -> Result[(), std.bytes.BytesError | IoError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | IoError]:
     mut request = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     end = std.bytes.from_bytes(b"\r\n\r\n")?
     print(request.find_bytes(&end, 0, request.len())?)?

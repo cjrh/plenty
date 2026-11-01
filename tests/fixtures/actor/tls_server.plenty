@@ -21,7 +21,7 @@ const forward_chunk: i64 = 0
 const heap: i64 = 262144
 const read_ms: u32 = 0u32
 
-type Fault = NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError
 
 pub enum Note:
     # A connection's heap use once its handshake completed.

@@ -69,7 +69,7 @@ pub class Tally:
     pub def flush(self: &mut Tally) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | std.io.Partial | IoError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | std.io.Partial | IoError]:
     mut tally = Tally(std.bytes.empty()?)
     std.io.write_all(&mut tally, b"ab")?
     tail = std.bytes.from_text("cdef")?

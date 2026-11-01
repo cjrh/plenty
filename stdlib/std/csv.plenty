@@ -167,7 +167,7 @@ def first_in(buffer: &Bytes, set: &Bytes, start: i64, stop: i64) -> i64:
 
 # The bytes that end an unquoted field or force a written field to be quoted.
 def special(dialect: &Dialect) -> Result[Bytes, CsvError]:
-    mut set = allocated(std.bytes.with_capacity(4))?
+    mut set = listed(std.bytes.with_capacity(4))?
     stored(set.push(dialect.delimiter))?
     stored(set.push(dialect.quote))?
     stored(set.push(line_feed))?
@@ -248,7 +248,7 @@ pub class Record:
         self._ends.clear()
 
 pub def record() -> Result[Record, CsvError]:
-    Ok(Record(allocated(std.bytes.empty())?, listed(list[i64].new())?, 0, 0))
+    Ok(Record(listed(std.bytes.empty())?, listed(list[i64].new())?, 0, 0))
 
 # Parses records from `inner` through one fixed buffer. `inner` is public so
 # its owner can close it; reading it directly skips bytes still held here.
@@ -461,12 +461,12 @@ pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R
         return Err(CsvError.InvalidDialect)
     if capacity < 1:
         return Err(CsvError.OutOfRange)
-    mut buffer = allocated(std.bytes.with_capacity(capacity))?
+    mut buffer = listed(std.bytes.with_capacity(capacity))?
     stored(buffer.resize(capacity, 0u8))?
     mut matched = 3
     if dialect.skip_bom:
         matched = 0
-    mut breaks = allocated(std.bytes.with_capacity(2))?
+    mut breaks = listed(std.bytes.with_capacity(2))?
     stored(breaks.push(line_feed))?
     stored(breaks.push(carriage_return))?
     Ok(Reader(inner, buffer, special(dialect)?, breaks, 0, 0, dialect.delimiter, dialect.quote, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields, matched, 0, 1, 0, False, False, False))
@@ -559,7 +559,7 @@ pub class Writer[W]:
                 Err(cause)
 
     pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
-        encoded = allocated(std.bytes.from_text(value))?
+        encoded = listed(std.bytes.from_text(value))?
         self.field(&encoded)
 
     def terminate(self: &mut Writer[W]) -> Result[(), CsvError]:
@@ -653,4 +653,4 @@ pub def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]:
             always = True
         case Quoting.Needed:
             pass
-    Ok(Writer(inner, allocated(std.bytes.empty())?, special(dialect)?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))
+    Ok(Writer(inner, listed(std.bytes.empty())?, special(dialect)?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))

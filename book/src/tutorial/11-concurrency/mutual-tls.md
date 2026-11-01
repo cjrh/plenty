@@ -16,7 +16,7 @@ from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 from std.tls import TlsError, ClientCertificates, ClientConfig, ServerConfig, TlsStream
 
-type ConnectionError = IoError | NetError | TlsError | std.bytes.BytesError
+type ConnectionError = AllocError | IoError | NetError | TlsError | std.bytes.BytesError
 
 # Test-only certificates: a server CA and a localhost leaf it signed, and a
 # client CA and a client certificate it signed. Never use a published key
@@ -83,7 +83,7 @@ def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, de
                 print(error)?
     Ok(())
 
-def main() -> Result[(), ConnectionError | SpawnError[()] | AllocError | RangeError]:
+def main() -> Result[(), ConnectionError | SpawnError[()] | RangeError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut server = std.tls.server_builder(&leaf_pem(), &leaf_key())?
@@ -129,6 +129,6 @@ Builders also choose the minimum TLS version and the cipher suites, add
 revocation lists, and give a server several certificates to choose by the
 name the client asked for. See [`std.tls`](../../design/stdlib/tls.md).
 
-`ConnectionError` preserves the concrete I/O, networking, TLS, and byte-buffer
-errors from the connection helpers. `ask` adds `SpawnError[()]` for the scoped
-start, and `main` adds the allocation and range errors from setup.
+`ConnectionError` preserves the concrete allocation, I/O, networking, TLS, and
+byte-buffer errors from the connection helpers. `ask` adds `SpawnError[()]` for
+the scoped start, and `main` adds the range errors from setup.

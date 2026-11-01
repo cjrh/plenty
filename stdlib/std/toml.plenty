@@ -160,7 +160,7 @@ def push_range(target: &mut Bytes, low: i64, high: i64) -> Result[(), TomlFault]
 
 # Bytes allowed in a bare key: ASCII letters, digits, `_`, and `-`.
 def bare_bytes() -> Result[Bytes, TomlFault]:
-    mut set = faulted(std.bytes.with_capacity(64))?
+    mut set = reserved(std.bytes.with_capacity(64))?
     push_range(&mut set, 48, 58)?
     push_range(&mut set, 65, 91)?
     push_range(&mut set, 97, 123)?
@@ -171,7 +171,7 @@ def bare_bytes() -> Result[Bytes, TomlFault]:
 # Control characters other than tab, which no string or comment may hold
 # unescaped, plus `extra` when it is not negative.
 def control_bytes(extra: i64, other: i64) -> Result[Bytes, TomlFault]:
-    mut set = faulted(std.bytes.with_capacity(36))?
+    mut set = reserved(std.bytes.with_capacity(36))?
     push_range(&mut set, 0, 9)?
     push_range(&mut set, 10, 32)?
     push_byte(&mut set, 127)?
@@ -926,7 +926,7 @@ def parser(source: Bytes, bounds: &Limits) -> Result[Parser, TomlFault]:
     root = reserved(list[i64]())?
     reserved(nodes.append(Node(kind_table, origin_header, 0, "", Toml.Bool(False), root, -1)))?
     index = reserved(dict[(i64, str), i64]())?
-    scratch = faulted(std.bytes.empty())?
+    scratch = reserved(std.bytes.empty())?
     bare = bare_bytes()?
     basic_stop = control_bytes(34, 92)?
     literal_stop = control_bytes(39, -1)?
@@ -966,21 +966,21 @@ pub def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]:
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(started(faulted(std.bytes.from_bytes(source)))?, bounds)
+    run(started(reserved(std.bytes.from_bytes(source)))?, bounds)
 
 pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if text.byte_len() > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(started(faulted(std.bytes.from_text(text)))?, bounds)
+    run(started(reserved(std.bytes.from_text(text)))?, bounds)
 
 # Reads `reader` to end of input, then parses. One byte past `max_input` is
 # enough to tell a full document from an oversized one.
 pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    mut data = unplaced(faulted(std.bytes.empty()))?
+    mut data = unplaced(reserved(std.bytes.empty()))?
     while True:
         have = data.len()
         mut room = bounds.max_input - have
@@ -1099,7 +1099,7 @@ class Emitter:
     max_output: i64
 
     def take(self: &mut Emitter) -> Result[Bytes, TomlFault]:
-        fresh = faulted(std.bytes.empty())?
+        fresh = reserved(std.bytes.empty())?
         Ok(replace(self.out, fresh))
 
     def put(self: &mut Emitter, byte: i64) -> Result[(), TomlFault]:
@@ -1155,7 +1155,7 @@ class Emitter:
     # other scalar is written as UTF-8. The copy of `text` lets each unescaped
     # run be written at once; see the costs in book/src/design/stdlib/toml.md.
     def quote(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
-        source = faulted(std.bytes.from_text(text))?
+        source = reserved(std.bytes.from_text(text))?
         count = source.len()
         self.put(34)?
         mut run = 0
@@ -1191,7 +1191,7 @@ class Emitter:
 
     # Bare when every byte is allowed in a bare key, otherwise quoted.
     def key(self: &mut Emitter, name: &str) -> Result[(), TomlFault]:
-        source = faulted(std.bytes.from_text(name))?
+        source = reserved(std.bytes.from_text(name))?
         count = source.len()
         if count > 0 and run_end(source.find_not_in(&self.bare, 0, count), count)? == count:
             return self.extend(&source, 0, count)
@@ -1367,13 +1367,13 @@ class Emitter:
         Ok(())
 
 def emitter(bounds: &Limits) -> Result[Emitter, TomlFault]:
-    out = faulted(std.bytes.empty())?
+    out = reserved(std.bytes.empty())?
     path = reserved(list[str]())?
     bare = bare_bytes()?
     mut escaped = control_bytes(34, 92)?
     push_byte(&mut escaped, 9)?
     # Longer than any i64 spelling.
-    mut spelling = faulted(std.bytes.with_capacity(32))?
+    mut spelling = reserved(std.bytes.with_capacity(32))?
     faulted(spelling.resize(32, 0u8))?
     Ok(Emitter(out, path, bare, escaped, spelling, bounds.max_depth, bounds.max_output))
 
@@ -1387,7 +1387,7 @@ pub def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]:
             outcome = target.body(entries, 0)
             match outcome:
                 case Ok(_):
-                    match faulted(std.bytes.empty()):
+                    match reserved(std.bytes.empty()):
                         case Ok(fresh):
                             Ok(replace(target.out, fresh))
                         case Err(fault):
@@ -1641,7 +1641,7 @@ pub def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]:
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    state = document_state(started(faulted(std.bytes.from_bytes(source)))?, bounds)?
+    state = document_state(started(reserved(std.bytes.from_bytes(source)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
 
 pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:
@@ -1649,5 +1649,5 @@ pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if text.byte_len() > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    state = document_state(started(faulted(std.bytes.from_text(text)))?, bounds)?
+    state = document_state(started(reserved(std.bytes.from_text(text)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))

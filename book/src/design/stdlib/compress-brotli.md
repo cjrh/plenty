@@ -12,7 +12,7 @@ import std.compress
 from std.compress import Format, CompressError
 from std.bytes import BytesError
 
-def main() -> Result[(), BytesError | CompressError | IoError]:
+def main() -> Result[(), AllocError | BytesError | CompressError | IoError]:
     original = std.bytes.from_text("A Brotli message")?
     encoded = std.compress.compress(Format.Brotli, &original, 5)?
     decoded = std.compress.decompress(Format.Brotli, &encoded, 1024)?

@@ -81,7 +81,7 @@ pub class App:
                 exchange.write(&text[2:6])?
         Ok(())
 
-pub def app(stop: &CancellationToken) -> Result[App, std.bytes.BytesError]:
+pub def app(stop: &CancellationToken) -> Result[App, AllocError | std.bytes.BytesError]:
     mut piece = std.bytes.with_capacity(65536)?
     piece.resize(65536, 120u8)?
     Ok(App(stop.share(), piece))
@@ -529,7 +529,7 @@ from std.http.tls import TlsTransport
 pub class Secure:
     pub stop: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Echo:
                 mut body = std.bytes.empty()?

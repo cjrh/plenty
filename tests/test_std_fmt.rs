@@ -412,7 +412,7 @@ pub class Recovering:
         Ok(len(source))
     pub def flush(self: &mut Recovering) -> Result[(), StreamError]:
         Ok(())
-def main() -> Result[(), IoError | std.bytes.BytesError | FormatError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FormatError]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
     mut output = std.fmt.formatter(Recovering(0), scratch, 20, 0)?

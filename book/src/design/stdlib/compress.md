@@ -15,7 +15,7 @@ import std.bytes
 import std.compress
 from std.compress import Format
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.compress.CompressError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.compress.CompressError]:
     mut log = std.bytes.empty()?
     for _ in range(50):
         log.extend(&std.bytes.from_text("GET /index.html 200\n")?)?

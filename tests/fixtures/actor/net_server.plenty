@@ -18,7 +18,7 @@ const idle_ms: u32 = 0u32
 const stall_ms: u32 = 0u32
 const read_ms: u32 = 0u32
 
-type Fault = NetError | BytesError | TimerError
+type Fault = AllocError | NetError | BytesError | TimerError
 
 pub enum Note:
     # A connection's heap use once its buffers are allocated.

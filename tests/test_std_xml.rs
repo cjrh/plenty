@@ -60,7 +60,7 @@ pub class Sink:
         else:
             Ok(())
 
-def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, std.xml.XmlError | std.bytes.BytesError]:
+def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, AllocError | std.xml.XmlError]:
     mut reader = std.xml.reader(Trickle(std.bytes.from_text(&text)?, 0, step, 1), bounds)?
     mut count = 0
     while True:
@@ -79,7 +79,7 @@ def fault(text: str, bounds: &Limits) -> Fault:
             match error:
                 case cause: std.xml.XmlError:
                     cause.fault
-                case bytes_error: std.bytes.BytesError:
+                case _:
                     Fault.InvalidState
 "#;
 
