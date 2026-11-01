@@ -62,7 +62,7 @@ pub class Signals:
 
     # A signal caught and not yet taken, without waiting.
     pub def received(self: &mut Signals) -> Result[Option[Signal], WaitError]:
-        match std.ready.wait_until(&self._stream.file, Interest.Read, &deadline_at(&monotonic_now())):
+        match std.ready.wait_now(&self._stream.file, Interest.Read):
             case Ok(_):
                 count = moved(self._stream.read(&mut self._byte, 0, 1))?
                 Ok(Some(self.decoded(count)?))

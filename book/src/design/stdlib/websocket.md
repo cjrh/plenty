@@ -12,11 +12,11 @@ and add no runtime primitives; the handshake's SHA-1 comes from
 complete program.
 
 ```plenty
+import std.time
 import std.bytes
 import std.http.server
 import std.http.websocket
 import std.net
-import std.time
 from std.http.server import Exchange
 from std.http.websocket import Message, WebSocketError
 from std.net import TcpStream
@@ -33,15 +33,16 @@ pub enum Route:
 
 pub class Shout:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), ChatError]:
+        wait_cancel = exchange.cancel_token()
         mut socket = std.http.websocket.accept(exchange, &std.http.websocket.config())?
         mut message = std.bytes.empty()?
         while True:
             message.clear()
-            match socket.receive(&mut message, &soon()?)?:
+            match socket.receive(&mut message, &soon()?, &wait_cancel)?:
                 case Message.Close(_):
                     return Ok(())
                 case _:
-                    socket.send_text(&message.to_text()?.upper()?, &soon()?)?
+                    socket.send_text(&message.to_text()?.upper()?, &soon()?, &wait_cancel)?
         Ok(())
 
 def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
@@ -49,10 +50,10 @@ def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
         never = CancellationToken()?
         url = f"ws://127.0.0.1:{port}/chat"?
         mut socket = std.http.websocket.connect(&url, &std.http.websocket.config(), &soon()?, &never)?
-        socket.send_text("hello", &soon()?)?
+        socket.send_text("hello", &soon()?, &never)?
         mut reply = std.bytes.empty()?
-        print(socket.receive(&mut reply, &soon()?)?, reply.to_text()?)?
-        socket.close(1000, "bye", &soon()?)?
+        print(socket.receive(&mut reply, &soon()?, &never)?, reply.to_text()?)?
+        socket.close(1000, "bye", &soon()?, &never)?
     Ok(())
 
 def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | ChatError | IoError]:
@@ -78,11 +79,11 @@ writes like a server [`Transport`](http-server.md#https): `TcpStream`, or
 
 | Item | Meaning |
 |---|---|
-| `socket.receive(&mut out, &deadline)` | `Result[Message, WebSocketError]`: append the next whole message to `out` |
-| `socket.send(kind, &data, start, stop, &deadline)` | `Result[(), WebSocketError]`: send `data[start:stop]` as one `Kind.Text` or `Kind.Binary` message |
-| `socket.send_text(&text, &deadline)` | `send` of `text`, copied into a buffer first |
-| `socket.ping(&data, start, stop, &deadline)` | Send a ping with at most 125 bytes of payload |
-| `socket.close(code, &reason, &deadline)` | Run the closing handshake, then shut the stream down |
+| `socket.receive(&mut out, &deadline, &wait_cancel)` | `Result[Message, WebSocketError]`: append the next whole message to `out` |
+| `socket.send(kind, &data, start, stop, &deadline, &wait_cancel)` | `Result[(), WebSocketError]`: send `data[start:stop]` as one `Kind.Text` or `Kind.Binary` message |
+| `socket.send_text(&text, &deadline, &wait_cancel)` | `send` of `text`, copied into a buffer first |
+| `socket.ping(&data, start, stop, &deadline, &wait_cancel)` | Send a ping with at most 125 bytes of payload |
+| `socket.close(code, &reason, &deadline, &wait_cancel)` | Run the closing handshake, then shut the stream down |
 | `socket.is_open()` | Whether messages can still be sent |
 | `socket.subprotocol` | `Option[str]`: the subprotocol both sides agreed on |
 
@@ -196,6 +197,14 @@ host as the name, as for [HTTPS](http-client.md#https). A TLS failure is
 module is separate so that a program using only `ws` does not link TLS. On
 the server side, `accept` takes exchanges from
 [`std.http.tls.serve`](http-server.md#https) unchanged.
+
+Every message operation accepts a caller cancellation token after its deadline.
+Pre-cancellation returns `Net(Cancelled)` before changing the connection.
+Cancellation while receiving or writing closes the connection, since a partial
+frame cannot safely be resumed as a different operation. The retained server
+shutdown tokens keep their existing behavior. Native waits keep their shutdown
+wakeups and check the caller token between slices of at most 10 ms; scheduling
+and lock contention can delay observation beyond that interval.
 
 ## Errors
 

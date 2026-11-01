@@ -117,7 +117,7 @@ A `Child` is the single owner of one process. It is not copyable.
 | `close_stdin()` | `Result[(), IoError]` | End the child's input |
 | `wait()` | `Result[ExitStatus, IoError]` | Close stdin, block until the child ends, reap it |
 | `try_wait()` | `Result[Option[ExitStatus], IoError]` | Reap if ended; `Nothing` while running |
-| `wait_timeout(budget: &Duration)` | `Result[Option[ExitStatus], IoError]` | `Nothing` when the budget ran out |
+| `wait_timeout(budget: &Duration, cancel: &CancellationToken)` | `Result[Option[ExitStatus], WaitError]` | `Nothing` when the budget ran out |
 | `signal(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 |
 | `terminate()` | `Result[(), IoError]` | `SIGTERM`: a request the child may ignore |
 | `kill()` | `Result[(), IoError]` | `SIGKILL`: cannot be caught |
@@ -162,10 +162,12 @@ holds 64 KiB. Use `communicate`, which serves all three in one loop.
   asking the operating system.
 - `wait` blocks without a limit. It does not drain pipes: a child blocked
   writing to a full pipe that nobody reads never ends.
-- `wait_timeout` polls `try_wait` with pauses doubling from 1 ms to 32 ms, so
-  it can report an exit up to 32 ms late. It leaves stdin open and the child
-  running; a budget beyond the [monotonic clock](time.md) is
-  `IoError.InvalidInput`.
+- `wait_before(deadline: &Deadline, cancel: &CancellationToken)` polls
+  `try_wait` with pauses of at most 10 ms. `wait_timeout` constructs one total
+  deadline from a duration and delegates to it. Both leave stdin open and the
+  child running when cancelled or timed out. `WaitError.Cancelled` only ends
+  this wait; it never sends a signal. `WaitError.Io` preserves operating-system
+  errors; an overflowing budget is `WaitError.Io(IoError.InvalidInput)`.
 - Signals reach only a child that has not been reaped. Afterwards the methods
   return `Ok(())` and send nothing, so a number can never reach an unrelated
   process that received the same id. A number outside 1 to 64 is
@@ -208,8 +210,8 @@ A child that outlives the program is adopted by the system as usual.
   its argument vector; that one allocation is outside fallible accounting.
 - No redirection of a stream to a file or to another child, and no merging of
   stderr into stdout. `shell` can do both.
-- `wait_timeout` polls. There is no blocking wait with a deadline and no
-  cancellation token.
+- Timed child waits poll; scheduling and lock contention can delay return
+  beyond the 10 ms polling interval.
 - No process groups, sessions, user or group changes, resource limits, or
   detached children.
 - `communicate` holds whole outputs in memory. For streaming, take the pipes

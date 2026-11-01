@@ -632,7 +632,7 @@ pub class Lookup:
     # reply is complete; then its addresses, or why there are none.
     pub def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]:
         while True:
-            match std.ready.wait_until(&self._reply.file, Interest.Read, &deadline_at(&monotonic_now())):
+            match std.ready.wait_now(&self._reply.file, Interest.Read):
                 case Ok(_):
                     pass
                 case Err(WaitError.TimedOut):

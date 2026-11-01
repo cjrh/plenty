@@ -3128,6 +3128,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "select_recv"
                 | "select_recv_nowait"
                 | "select_recv_timeout"
+                | "select_recv_timeout_ms"
                 | "Generator"
                 | "Iter"
                 | "Callable"
@@ -4659,7 +4660,10 @@ impl Lower<'_> {
                 }
                 if matches!(
                     name.as_str(),
-                    "select_recv" | "select_recv_nowait" | "select_recv_timeout"
+                    "select_recv"
+                        | "select_recv_nowait"
+                        | "select_recv_timeout"
+                        | "select_recv_timeout_ms"
                 ) {
                     return self.channel_select(name, args, &e.at, ops);
                 }

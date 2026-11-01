@@ -10,10 +10,10 @@ JWS form (RFC 7515), with the RFC 7518 and RFC 8037 algorithms that
 > dispatches. See [`std.crypto`](crypto.md) for this policy.
 
 ```plenty
+import std.time
 import std.json
 import std.jwt
 import std.secrets
-import std.time
 from std.json import Json, JsonError
 from std.jwt import Algorithm, JwtError
 from std.secrets import SecretsError
@@ -26,8 +26,8 @@ def main() -> Result[(), AllocError | IoError | SecretsError | JsonError | JwtEr
 
     # The verifying key fixes the algorithm; the header only has to agree.
     key = signer.verifying_key()?
-    mut rules = std.jwt.validation(std.time.wall_now().seconds)
-    rules.leeway = 30
+    mut rules = std.jwt.validation(&std.time.wall_now())
+    rules.leeway = std.time.seconds(30u32)
     rules.audience = Some("api")
     verified = std.jwt.verify(&token, &key, &rules)?
     print(verified.header.algorithm.name())?
@@ -129,8 +129,8 @@ among keys the program already trusts, then call `verify`.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `now` | the argument | Current time in Unix seconds, at least 0, such as `std.time.wall_now().seconds` |
-| `leeway` | `0` | Allowed clock skew in seconds, `0` to `max_leeway` (86400) |
+| `now: Timestamp` | the argument | A valid wall timestamp at or after the Unix epoch, such as `std.time.wall_now()` |
+| `leeway: Duration` | zero | Allowed clock skew, up to `max_leeway` seconds (86400); subsecond precision is retained |
 | `require_expiry` | `True` | Whether a token without `exp` is `MissingClaim(Claim.Expiry)` |
 | `issuer` | `Nothing` | When set, `iss` must be present and equal it |
 | `audience` | `Nothing` | The audience this program accepts |

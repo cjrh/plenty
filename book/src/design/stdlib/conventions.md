@@ -198,11 +198,13 @@ A method that also has a deadline-free form adds the deadline under a
 `now: &Instant`, or offers an `_at` variant that does, so tests can supply the
 time with the fake clocks in [`std.test`](test.md).
 
-Issue #635 lists the exceptions: raw `i64` milliseconds in the SQLite and
-key-value busy timeouts and SSE `retry`; `i64` seconds in `std.jwt`,
-`std.http.cookie` `max_age` and `http_date`; builtin `timeout_ms: u64` waits
-(B42); and `&Deadline` without a token in `std.http.websocket`,
-`std.http.sse` and `std.ready.wait_until`.
+Typed spans and wall-clock values use `Duration` and `Timestamp` in SQLite,
+key-value storage, JWT validation, cookies, SSE retry hints and HTTP dates.
+The [typed waits in `std.sync`](sync.md#typed-deadline-waits) provide deadline
+and cancellation forms for compiler-owned channels, futures and tokens.
+Low-level `_timeout_ms` forms remain available; their old `_timeout` names are
+compatibility aliases. SSE's optional `event` and `id` follow the required
+`deadline, cancel` pair because required parameters precede defaults.
 
 ### Limits
 
@@ -296,7 +298,6 @@ they are one family:
 | Area | Deviation | Tracking |
 |---|---|---|
 | Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
-| Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
 | Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |

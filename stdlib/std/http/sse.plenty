@@ -16,7 +16,7 @@ from std.http.server import Exchange, Transport
 from std.io import StreamError
 from std.net import NetError, Shutdown
 from std.sync import CancellationToken
-from std.time import Deadline
+from std.time import Deadline, Duration, deadline_after, monotonic_now, milliseconds
 
 pub enum SseError:
     Net(NetError)
@@ -133,14 +133,19 @@ pub class EventStream[T]:
     # an `event` field naming its type unless `event` is empty and an `id`
     # field when `id` is given. An empty `id` resets the client's last event
     # id.
-    pub def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+    pub def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+        self.usable()?
+        if cancel.is_cancelled():
+            return Err(SseError.Net(NetError.Cancelled))
         text = bytes_of(std.bytes.from_text(data))?
-        self.send_bytes(&text, 0, text.len(), deadline, event, id)
+        self.send_bytes(&text, 0, text.len(), deadline, cancel, event, id)
 
     # `send` of data[start:stop], which must be UTF-8. It is not copied
     # except into the stream's output buffer.
-    pub def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+    pub def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
         self.usable()?
+        if cancel.is_cancelled():
+            return Err(SseError.Net(NetError.Cancelled))
         if start < 0 or start > stop or stop > data.len():
             return Err(SseError.OutOfRange)
         if bytes_of(data.utf8_run(start, stop))? != stop:
@@ -155,42 +160,50 @@ pub class EventStream[T]:
                 pass
         lines(&mut self._out, "data", data, start, stop)?
         bytes_of(self._out.push(line_feed))?
-        self.flush(deadline)
+        self.flush(deadline, cancel)
 
     # Sends `text` as comment lines, which clients ignore: a keep-alive that
     # also finds a client that has gone away.
-    pub def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline) -> Result[(), SseError]:
+    pub def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
         self.usable()?
+        if cancel.is_cancelled():
+            return Err(SseError.Net(NetError.Cancelled))
         source = bytes_of(std.bytes.from_text(text))?
         self._out.clear()
         lines(&mut self._out, "", &source, 0, source.len())?
-        self.flush(deadline)
+        self.flush(deadline, cancel)
 
     # Asks the client to wait `milliseconds` before reconnecting after the
     # connection is lost.
-    pub def retry(self: &mut EventStream[T], milliseconds: i64, deadline: &Deadline) -> Result[(), SseError]:
+    pub def retry(self: &mut EventStream[T], span: &Duration, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
         self.usable()?
-        if milliseconds < 0:
-            return Err(SseError.OutOfRange)
+        if cancel.is_cancelled():
+            return Err(SseError.Net(NetError.Cancelled))
+        milliseconds = span.as_timeout_ms()
         digits = bytes_of(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
         self._out.clear()
         field(&mut self._out, "retry", &digits, 0, digits.len())?
         bytes_of(self._out.push(line_feed))?
-        self.flush(deadline)
+        self.flush(deadline, cancel)
 
     # Waits until `deadline`, returning Ok then. Ends early with
     # Disconnected when the client closes the connection, and with Stopping,
     # leaving the stream open, when server shutdown begins. Input the client
     # sends is read and discarded.
-    pub def wait(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]:
+    pub def wait(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
         self.usable()?
+        if cancel.is_cancelled():
+            return Err(SseError.Net(NetError.Cancelled))
         if self._stop.is_cancelled():
             return Err(SseError.Stopping)
         while True:
+            if cancel.is_cancelled():
+                return Err(SseError.Net(NetError.Cancelled))
+            limited = cancellation_slice(deadline)
             size = self._input.len()
             outcome: Result[i64, NetError] = match &mut self._stream:
                 case Some(stream):
-                    stream.read_before(&mut self._input, 0, size, deadline, &self._stop)
+                    stream.read_before(&mut self._input, 0, size, &limited, &self._stop)
                 case Nothing:
                     Err(NetError.Reset)
             match outcome:
@@ -200,7 +213,9 @@ pub class EventStream[T]:
                     if deadline.expired(&std.time.monotonic_now()):
                         return Ok(())
                 case Err(NetError.TimedOut):
-                    return Ok(())
+                    if deadline.expired(&monotonic_now()):
+                        return Ok(())
+                    continue
                 case Err(NetError.Cancelled):
                     if self._cancel.is_cancelled():
                         return self.failed(SseError.Net(NetError.Cancelled))
@@ -234,13 +249,16 @@ pub class EventStream[T]:
 
     # Writes the output buffer. A failure part-way leaves the client inside
     # an event, so it closes the stream.
-    def flush(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]:
+    def flush(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
         size = self._out.len()
         mut at = 0
         while at < size:
+            if cancel.is_cancelled():
+                return self.failed(SseError.Net(NetError.Cancelled))
+            limited = cancellation_slice(deadline)
             outcome: Result[i64, NetError] = match &mut self._stream:
                 case Some(stream):
-                    stream.write_before(&self._out, at, size, deadline, &self._cancel)
+                    stream.write_before(&self._out, at, size, &limited, &self._cancel)
                 case Nothing:
                     Err(NetError.Reset)
             match outcome:
@@ -248,6 +266,10 @@ pub class EventStream[T]:
                     if written == 0:
                         return self.failed(SseError.Disconnected)
                     at += written
+                case Err(NetError.TimedOut):
+                    if not deadline.expired(&monotonic_now()):
+                        continue
+                    return self.failed(SseError.Net(NetError.TimedOut))
                 case Err(error):
                     return self.failed(net_error(error))
         Ok(())
@@ -302,3 +324,11 @@ pub def accept_with[T: Transport](exchange: &mut Exchange[T], head: ResponseHead
     bytes_of(input.resize(512, 0u8))?
     stream = http_of(exchange.detach(owned))?
     Ok(EventStream(last, Some(stream), out, input, exchange.stop_token(), exchange.cancel_token(), True))
+
+# Preserve the stream's native shutdown wakeup while observing caller cancel.
+def cancellation_slice(deadline: &Deadline) -> Deadline:
+    now = monotonic_now()
+    left = deadline.remaining(&now)
+    if left.as_nanoseconds() <= 10000000u64:
+        return deadline_after(&now, &left).unwrap()
+    deadline_after(&now, &milliseconds(10u32)).unwrap()

@@ -75,34 +75,34 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.mime`](#stdmime): 2574-2598
 - [`std.net`](#stdnet): 2600-2682
 - [`std.path`](#stdpath): 2684-2701
-- [`std.process`](#stdprocess): 2703-2749
-- [`std.random`](#stdrandom): 2751-2772
-- [`std.ready`](#stdready): 2774-2804
-- [`std.regex`](#stdregex): 2806-2859
-- [`std.report`](#stdreport): 2861-2884
-- [`std.secrets`](#stdsecrets): 2886-2912
-- [`std.shlex`](#stdshlex): 2914-2923
-- [`std.sketch`](#stdsketch): 2925-2963
-- [`std.sketch.xor`](#stdsketchxor): 2965-2976
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2978-2993
-- [`std.signal`](#stdsignal): 2995-3012
-- [`std.simd`](#stdsimd): 3014-3115
-- [`std.stat`](#stdstat): 3117-3150
-- [`std.plot`](#stdplot): 3152-3241
-- [`std.linalg`](#stdlinalg): 3243-3284
-- [`std.sync`](#stdsync): 3286-3295
-- [`std.system`](#stdsystem): 3297-3355
-- [`std.tempfile`](#stdtempfile): 3357-3389
-- [`std.test`](#stdtest): 3391-3433
-- [`std.text`](#stdtext): 3435-3454
-- [`std.thread`](#stdthread): 3456-3460
-- [`std.time`](#stdtime): 3462-3506
-- [`std.tls`](#stdtls): 3508-3590
-- [`std.toml`](#stdtoml): 3592-3641
-- [`std.unicode`](#stdunicode): 3643-3655
-- [`std.url`](#stdurl): 3657-3685
-- [`std.uuid`](#stduuid): 3687-3710
-- [`std.xml`](#stdxml): 3712-3745
+- [`std.process`](#stdprocess): 2703-2752
+- [`std.random`](#stdrandom): 2754-2775
+- [`std.ready`](#stdready): 2777-2808
+- [`std.regex`](#stdregex): 2810-2863
+- [`std.report`](#stdreport): 2865-2888
+- [`std.secrets`](#stdsecrets): 2890-2916
+- [`std.shlex`](#stdshlex): 2918-2927
+- [`std.sketch`](#stdsketch): 2929-2967
+- [`std.sketch.xor`](#stdsketchxor): 2969-2980
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2982-2997
+- [`std.signal`](#stdsignal): 2999-3016
+- [`std.simd`](#stdsimd): 3018-3119
+- [`std.stat`](#stdstat): 3121-3154
+- [`std.plot`](#stdplot): 3156-3245
+- [`std.linalg`](#stdlinalg): 3247-3288
+- [`std.sync`](#stdsync): 3290-3308
+- [`std.system`](#stdsystem): 3310-3368
+- [`std.tempfile`](#stdtempfile): 3370-3402
+- [`std.test`](#stdtest): 3404-3446
+- [`std.text`](#stdtext): 3448-3467
+- [`std.thread`](#stdthread): 3469-3473
+- [`std.time`](#stdtime): 3475-3519
+- [`std.tls`](#stdtls): 3521-3603
+- [`std.toml`](#stdtoml): 3605-3654
+- [`std.unicode`](#stdunicode): 3656-3668
+- [`std.url`](#stdurl): 3670-3698
+- [`std.uuid`](#stduuid): 3700-3723
+- [`std.xml`](#stdxml): 3725-3758
 
 ## `std.actor`
 
@@ -503,7 +503,7 @@ class LruCache[K, V]
 
 Bounded channels, endpoints and selection. Errors: Channel/send/receive/selection errors. [Reference](channel.md).
 
-Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`. Their signatures are on the reference page.
+Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
 
 ## `std.cli`
 
@@ -1038,7 +1038,7 @@ class Transaction
     def rollback(self: &mut Transaction) -> Result[(), KvError]
 class Store
     def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
-    def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]
+    def set_busy_timeout(self: &mut Store, budget: &Duration) -> Result[(), KvError]
     def close(self: &mut Store) -> Result[(), KvError]
     def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]
     def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]
@@ -1084,7 +1084,7 @@ class Connection
     def begin(self: &mut Connection, mode: Begin) -> Result[Transaction, DbError]
     def changes(self) -> i64
     def last_insert_rowid(self) -> i64
-    def set_busy_timeout(self: &mut Connection, milliseconds: i64) -> Result[(), DbError]
+    def set_busy_timeout(self: &mut Connection, budget: &Duration) -> Result[(), DbError]
     def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]
     def close(self: &mut Connection) -> Result[(), DbError]
 def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]
@@ -1814,7 +1814,7 @@ class SetCookie
     value: str
     path: str
     domain: str
-    max_age: Option[i64]
+    max_age: Option[Duration]
     secure: bool
     http_only: bool
     same_site: SameSite
@@ -1839,8 +1839,8 @@ enum FilesError
 const max_path: i64 = 4096
 def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]
 def media_type(name: &str) -> str
-def http_date(seconds: i64) -> Result[Option[str], FilesError]
-def parse_http_date(text: &str) -> Result[Option[i64], FilesError]
+def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]
+def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]
 def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]
 ```
 
@@ -1980,11 +1980,11 @@ enum SseError
 class EventStream[T]
     last_event_id: Option[str]
     def is_open(self) -> bool
-    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline) -> Result[(), SseError]
-    def retry(self: &mut EventStream[T], milliseconds: i64, deadline: &Deadline) -> Result[(), SseError]
-    def wait(self: &mut EventStream[T], deadline: &Deadline) -> Result[(), SseError]
+    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
+    def retry(self: &mut EventStream[T], span: &Duration, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
+    def wait(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def close(self: &mut EventStream[T]) -> ()
 def head() -> Result[ResponseHead, HttpError]
 def accept[T: Transport](exchange: &mut Exchange[T]) -> Result[EventStream[T], SseError]
@@ -2064,11 +2064,11 @@ enum Kind
 class WebSocket[T]
     subprotocol: Option[str]
     def is_open(self) -> bool
-    def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline) -> Result[Message, WebSocketError]
-    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
-    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline) -> Result[(), WebSocketError]
-    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline) -> Result[(), WebSocketError]
-    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline) -> Result[(), WebSocketError]
+    def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]
+    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
 def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]
 class Target
     secure: bool
@@ -2356,13 +2356,13 @@ const default_max_size: i64 = 8192
 const max_leeway: i64 = 86400
 const max_token_size: i64 = 1048576
 class Validation
-    now: i64
-    leeway: i64
+    now: Timestamp
+    leeway: Duration
     require_expiry: bool
     issuer: Option[str]
     audience: Option[str]
     max_size: i64
-def validation(now: i64) -> Validation
+def validation(now: &Timestamp) -> Validation
 class Header
     algorithm: Algorithm
     key_id: Option[str]
@@ -2740,12 +2740,15 @@ class Child
     def close_stdin(self: &mut Child) -> Result[(), IoError]
     def wait(self: &mut Child) -> Result[ExitStatus, IoError]
     def try_wait(self: &mut Child) -> Result[Option[ExitStatus], IoError]
-    def wait_timeout(self: &mut Child, budget: &Duration) -> Result[Option[ExitStatus], IoError]
+    def wait_timeout(self: &mut Child, budget: &Duration, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]
+    def wait_before(self: &mut Child, deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
     def communicate(self: &mut Child, input: &Bytes, limit: i64) -> Result[Output, StreamError]
     def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]
+enum WaitError
+    Io(IoError) | Cancelled
 ```
 
 ## `std.random`
@@ -2785,7 +2788,8 @@ class Readiness
     error: bool
 enum WaitError
     TimedOut | Cancelled | Stream(StreamError)
-def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[Readiness, WaitError]
+def wait_now(file: &File, interest: Interest) -> Result[Readiness, WaitError]
+def wait_until(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]
 def read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
 def write_before[S: ByteSource](stream: &mut FileStream, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, WaitError]
@@ -3292,6 +3296,15 @@ Compiler-provided: `CancellationToken`. Their signatures are on the reference pa
 ```text
 class Mutex[T]
     def __init__(self, value: T) -> ()
+enum WaitError
+    TimedOut | Cancelled | Disconnected
+enum SendBeforeError[T]
+    TimedOut(T) | Cancelled(T) | Disconnected(T)
+def recv_before[T](receiver: &Receiver[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[T, WaitError]
+def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SendBeforeError[T]]
+def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
+def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
+def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[A, B], WaitError]
 ```
 
 ## `std.system`

@@ -1,3 +1,4 @@
+from std.sync import CancellationToken
 # Child processes started from an argument vector. Nothing is parsed by a
 # shell unless the program is one: `shell` names that choice. Encoding the
 # request, draining pipes without deadlock, decoding the status and deciding
@@ -337,14 +338,18 @@ pub class Child:
             self._raw = raw
         Ok(Some(ExitStatus(self._raw)))
 
-    # Polls try_wait with pauses doubling from 1 ms to 32 ms. Nothing means
+    # Polls try_wait with cancellable pauses of at most 10 ms. Nothing means
     # the budget ran out and the child is still running. Stdin is left open.
-    pub def wait_timeout(self: &mut Child, budget: &Duration) -> Result[Option[ExitStatus], IoError]:
-        start = monotonic_now()
-        deadline = ending(&start, budget)?
-        mut pause = 1u32
+    pub def wait_timeout(self: &mut Child, budget: &Duration, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]:
+        deadline = ending(&monotonic_now(), budget).map_error(WaitError.Io)?
+        self.wait_before(&deadline, cancel)
+
+    # Cancellation observes this wait only; it never kills or reaps the child.
+    pub def wait_before(self: &mut Child, deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[ExitStatus], WaitError]:
         while True:
-            match self.try_wait()?:
+            if cancel.is_cancelled():
+                return Err(WaitError.Cancelled)
+            match self.try_wait().map_error(WaitError.Io)?:
                 case Some(status):
                     return Ok(Some(status))
                 case Nothing:
@@ -352,14 +357,11 @@ pub class Child:
             now = monotonic_now()
             if deadline.expired(&now):
                 return Ok(Nothing)
-            left = deadline.remaining(&now)
-            step = milliseconds(pause)
-            if left.as_nanoseconds() < step.as_nanoseconds():
-                sleep(&left)
+            left = deadline.remaining(&now).as_timeout_ms()
+            if left > 10u64:
+                drop(cancel.wait_timeout_ms(10u64))
             else:
-                sleep(&step)
-            if pause < 32u32:
-                pause = pause * 2u32
+                drop(cancel.wait_timeout_ms(left))
         Ok(Nothing)
 
     # Sends a signal to a child that has not been reaped; afterwards a no-op,
@@ -456,3 +458,7 @@ pub class Child:
     pub def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]:
         nothing = empty()?
         self.communicate(&nothing, limit)
+
+pub enum WaitError:
+    Io(IoError)
+    Cancelled

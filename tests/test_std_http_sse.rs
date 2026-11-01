@@ -93,11 +93,11 @@ fn get(port: u16, path: &str, extra: &str) -> TcpStream {
 }
 
 const SERVER: &str = r##"import std.bytes
+import std.time
 import std.http
 import std.http.server
 import std.http.sse as sse
 import std.net
-import std.time
 from std.http.server import Exchange
 from std.http.sse import EventStream, SseError
 from std.net import TcpStream
@@ -131,36 +131,39 @@ pub class App:
     pub stop: CancellationToken
 
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), Problem]:
+        mut wait_cancel = CancellationToken().unwrap()
         match route:
             case Route.Events:
                 mut events = sse.accept(exchange)?
                 print(events.last_event_id)?
-                events.retry(1500, &later()?)?
-                events.send("one", &later()?)?
-                events.wait(&pause()?)?
-                events.send("a\nb\r\nc\rd\n", &later()?, event="update", id=Some("7"))?
-                events.wait(&pause()?)?
-                events.send("héllo", &later()?, id=Some(""))?
-                events.wait(&pause()?)?
+                events.retry(&std.time.milliseconds(1500u32), &later()?, &wait_cancel)?
+                events.send("one", &later()?, &wait_cancel)?
+                events.wait(&pause()?, &wait_cancel)?
+                events.send("a\nb\r\nc\rd\n", &later()?, &wait_cancel, event="update", id=Some("7"))?
+                events.wait(&pause()?, &wait_cancel)?
+                events.send("héllo", &later()?, &wait_cancel, id=Some(""))?
+                events.wait(&pause()?, &wait_cancel)?
                 data = std.bytes.from_text("xxbytesxx")?
-                events.send_bytes(&data, 2, 7, &later()?)?
-                events.comment("keep\nalive", &later()?)?
-                outcome(events.send("x", &later()?, event="bad\nname"))?
+                events.send_bytes(&data, 2, 7, &later()?, &wait_cancel)?
+                events.comment("keep\nalive", &later()?, &wait_cancel)?
+                outcome(events.send("x", &later()?, &wait_cancel, event="bad\nname"))?
                 nul = std.bytes.from_list(&[97u8, 0u8, 98u8]?)?.to_text()?
-                outcome(events.send("x", &later()?, id=Some(nul)))?
+                outcome(events.send("x", &later()?, &wait_cancel, id=Some(nul)))?
                 bad = std.bytes.from_list(&[255u8, 254u8]?)?
-                outcome(events.send_bytes(&bad, 0, 2, &later()?))?
-                outcome(events.send_bytes(&data, 5, 3, &later()?))?
-                outcome(events.retry(-1, &later()?))?
-                events.wait(&pause()?)?
-                events.send("last", &later()?)?
+                outcome(events.send_bytes(&bad, 0, 2, &later()?, &wait_cancel))?
+                outcome(events.send_bytes(&data, 5, 3, &later()?, &wait_cancel))?
+                wait_cancel.cancel()
+                outcome(events.retry(&std.time.milliseconds(1u32), &later()?, &wait_cancel))?
+                wait_cancel = CancellationToken().unwrap()
+                events.wait(&pause()?, &wait_cancel)?
+                events.send("last", &later()?, &wait_cancel)?
                 events.close()
-                outcome(events.send("after", &later()?))?
+                outcome(events.send("after", &later()?, &wait_cancel))?
             case Route.Watch:
                 match sse.accept(exchange):
                     case Ok(stream):
                         mut events = stream
-                        outcome(events.wait(&later()?))?
+                        outcome(events.wait(&later()?, &wait_cancel))?
                         print(events.is_open())?
                     case Err(error):
                         print(error)?
@@ -169,7 +172,7 @@ pub class App:
             case Route.Push:
                 mut events = sse.accept(exchange)?
                 for index in range(2000):
-                    match events.send("tick", &later()?):
+                    match events.send("tick", &later()?, &wait_cancel):
                         case Ok(_):
                             std.time.sleep(&std.time.milliseconds(5u32))
                         case Err(error):
@@ -178,11 +181,11 @@ pub class App:
                 print("never failed")?
             case Route.Wait:
                 mut events = sse.accept(exchange)?
-                match events.wait(&later()?):
+                match events.wait(&later()?, &wait_cancel):
                     case Err(SseError.Stopping):
                         print("stopping")?
-                        outcome(events.wait(&later()?))?
-                        events.send("bye", &later()?, event="shutdown")?
+                        outcome(events.wait(&later()?, &wait_cancel))?
+                        events.send("bye", &later()?, &wait_cancel, event="shutdown")?
                     case _:
                         print("not stopped")?
             case Route.Custom:
@@ -201,7 +204,7 @@ pub class App:
                 mut cors = std.http.response(200, "OK")?
                 cors.add("Access-Control-Allow-Origin", "*")?
                 mut events = sse.accept_with(exchange, cors)?
-                events.send("hi", &later()?)?
+                events.send("hi", &later()?, &wait_cancel)?
             case Route.Stop:
                 exchange.send_text(200, "stopping")?
                 self.stop.cancel()
@@ -262,7 +265,7 @@ fn events_are_encoded_and_outlive_the_response_deadline() {
         "InvalidField",
         "InvalidText",
         "OutOfRange",
-        "OutOfRange",
+        "Net(std.net.NetError.Cancelled)",
         "Closed",
     ] {
         assert_eq!(server.line(), format!("std.http.sse.SseError.{error}"));

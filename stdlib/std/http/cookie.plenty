@@ -1,3 +1,4 @@
+from std.time import Duration, seconds
 # HTTP cookies (RFC 6265): reading the Cookie fields of a request and
 # writing Set-Cookie fields whose every part is validated, so no value can
 # inject another attribute or field. New cookies default to Secure, HttpOnly,
@@ -169,7 +170,7 @@ pub class SetCookie:
     pub value: str
     pub path: str
     pub domain: str
-    pub max_age: Option[i64]
+    pub max_age: Option[Duration]
     pub secure: bool
     pub http_only: bool
     pub same_site: SameSite
@@ -204,11 +205,9 @@ pub class SetCookie:
             out = allocated(out.concat("; Domain="))?
             out = allocated(out.concat(&self.domain))?
         match &self.max_age:
-            case Some(seconds):
-                if *seconds < 0:
-                    return Err(CookieError.InvalidAttribute)
+            case Some(span):
                 out = allocated(out.concat("; Max-Age="))?
-                out = allocated(out.concat(&allocated(str.from(*seconds))?))?
+                out = allocated(out.concat(&allocated(str.from(span.as_seconds() + (1u64 if span.as_nanoseconds() % 1000000000u64 != 0u64 else 0u64)))?))?
             case Nothing:
                 pass
         if self.secure:
@@ -237,7 +236,7 @@ pub def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]:
 # path and domain must match the cookie being removed.
 pub def removal(name: &str) -> Result[SetCookie, CookieError]:
     mut cookie = set_cookie(name, "")?
-    cookie.max_age = Some(0)
+    cookie.max_age = Some(seconds(0u32))
     Ok(cookie)
 
 # Appends a Set-Cookie field to `head`.

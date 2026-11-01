@@ -7,6 +7,7 @@ in `stdlib/std/http/cookie.plenty` and adds no runtime primitives; signing
 uses [`std.crypto`](crypto.md).
 
 ```plenty
+import std.time
 import std.http.cookie
 from std.http import Header
 from std.http.cookie import CookieError
@@ -18,7 +19,7 @@ def main() -> Result[(), CookieError | AllocError | IoError]:
         print(cookie.name, cookie.value)?
 
     mut reply = std.http.cookie.set_cookie("theme", "light")?
-    reply.max_age = Some(3600)
+    reply.max_age = Some(std.time.seconds(3600u32))
     print(reply.format()?)?
     print(std.http.cookie.removal("lang")?.format()?)?
     Ok(())
@@ -56,7 +57,7 @@ it, or [sign](#signing) it, before trusting it.
 |---|---|
 | `set_cookie(name, value)` | `Result[SetCookie, CookieError]`: a cookie with the defaults below |
 | `removal(name)` | `Result` with a cookie that deletes `name`: empty value, `Max-Age=0`; `CookieError` for an invalid name |
-| `SetCookie` | Public fields `name`, `value`, `path`, `domain`, `max_age: Option[i64]`, `secure`, `http_only`, `same_site: SameSite` |
+| `SetCookie` | Public fields `name`, `value`, `path`, `domain`, `max_age: Option[Duration]`, `secure`, `http_only`, `same_site: SameSite` |
 | `cookie.format()` | `Result[str, CookieError]`: the field value, after checking every part |
 | `add(&mut head, &cookie)` | Append a `Set-Cookie` field to a `ResponseHead` |
 | `SameSite` | `Strict`, `Lax`, or `Unrestricted` (`SameSite=None`) |
@@ -71,7 +72,7 @@ fields to relax them; `format` checks the result each time:
 | Value has only cookie-octets | `InvalidValue` |
 | `path` is empty or starts with `/` and has only visible ASCII and space, no `;` | `InvalidAttribute` |
 | `domain` has only letters, digits, `-` and `.`, and does not start or end with `.` | `InvalidAttribute` |
-| `max_age` is not negative | `InvalidAttribute` |
+| `max_age` is a nonnegative `Duration` | Positive fractions round up to whole seconds; zero removes the cookie |
 | `SameSite=None` needs `secure` | `InvalidAttribute` |
 | A `__Secure-` name needs `secure` | `InvalidAttribute` |
 | A `__Host-` name needs `secure`, path `/` and no domain | `InvalidAttribute` |

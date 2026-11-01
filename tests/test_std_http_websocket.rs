@@ -194,11 +194,11 @@ fn at_end(stream: &mut TcpStream) -> bool {
 }
 
 const SERVER: &str = r##"import std.bytes
+import std.time
 import std.http
 import std.http.server
 import std.http.websocket as ws
 import std.net
-import std.time
 from std.bytes import Bytes
 from std.http.server import Exchange
 from std.http.websocket import Kind, Message, WebSocketError
@@ -215,6 +215,7 @@ pub class App:
     pub stop: CancellationToken
 
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), WebSocketError | std.bytes.BytesError | std.http.HttpError | RangeError | AllocError | IoError]:
+        wait_cancel = exchange.cancel_token()
         mut config = ws.config()
         config.max_frame = 1024
         config.max_message = 4096
@@ -230,10 +231,10 @@ pub class App:
             case Route.Wait:
                 mut socket = ws.accept(exchange, &config)?
                 mut buffer = std.bytes.empty()?
-                match socket.receive(&mut buffer, &later()?):
+                match socket.receive(&mut buffer, &later()?, &wait_cancel):
                     case Err(WebSocketError.Stopping):
                         print("stopping")?
-                        socket.close(1001, "going away", &later()?)?
+                        socket.close(1001, "going away", &later()?, &wait_cancel)?
                     case _ as other:
                         print(str.repr(&other)?)?
             case Route.Stop:
@@ -246,14 +247,15 @@ def later() -> Result[Deadline, RangeError]:
 
 # Echoes messages until the peer closes; returns how the connection ended.
 def echo(socket: &mut ws.WebSocket[TcpStream]) -> Result[str, WebSocketError | std.bytes.BytesError | RangeError | AllocError]:
+    wait_cancel = CancellationToken().unwrap()
     mut buffer = std.bytes.empty()?
     while True:
         buffer.clear()
-        match socket.receive(&mut buffer, &later()?):
+        match socket.receive(&mut buffer, &later()?, &wait_cancel):
             case Ok(Message.Text):
-                socket.send(Kind.Text, &buffer, 0, buffer.len(), &later()?)?
+                socket.send(Kind.Text, &buffer, 0, buffer.len(), &later()?, &wait_cancel)?
             case Ok(Message.Binary):
-                socket.send(Kind.Binary, &buffer, 0, buffer.len(), &later()?)?
+                socket.send(Kind.Binary, &buffer, 0, buffer.len(), &later()?, &wait_cancel)?
             case Ok(Message.Close(code)):
                 return Ok("closed ".concat(&str.from(code)?)?.concat(" ")?.concat(&buffer.to_text()?)?)
             case Err(error):
@@ -390,8 +392,8 @@ fn server_handshake_framing_and_close_codes() {
 }
 
 const CLIENT: &str = r##"import std.bytes
-import std.http.websocket as ws
 import std.time
+import std.http.websocket as ws
 from std.bytes import Bytes
 from std.http.websocket import Kind, Message, WebSocketError
 from std.sync import CancellationToken
@@ -404,6 +406,7 @@ def url(path: &str) -> Result[str, AllocError]:
     Ok("ws://localhost:PORT".concat(path)?)
 
 def session() -> Result[(), WebSocketError | std.bytes.BytesError | RangeError | AllocError | IoError]:
+    wait_cancel = CancellationToken().unwrap()
     never = CancellationToken()?
     mut config = ws.config()
     config.max_frame = 100000
@@ -411,26 +414,27 @@ def session() -> Result[(), WebSocketError | std.bytes.BytesError | RangeError |
     mut socket = ws.connect(&url("/chat?room=1")?, &config, &later()?, &never)?
     print(socket.subprotocol)?
     mut buffer = std.bytes.empty()?
-    print(socket.receive(&mut buffer, &later()?)?)?
+    print(socket.receive(&mut buffer, &later()?, &wait_cancel)?)?
     print(buffer.to_text()?)?
     mut data = std.bytes.with_capacity(70000)?
     for index in range(70000):
         data.push(u8(index % 251))?
-    socket.send(Kind.Binary, &data, 0, data.len(), &later()?)?
+    socket.send(Kind.Binary, &data, 0, data.len(), &later()?, &wait_cancel)?
     buffer.clear()
-    print(socket.receive(&mut buffer, &later()?)?)?
+    print(socket.receive(&mut buffer, &later()?, &wait_cancel)?)?
     print(buffer.to_text()?)?
     print(socket.is_open())?
-    print(str.repr(&socket.send_text("late", &later()?))?)?
+    print(str.repr(&socket.send_text("late", &later()?, &wait_cancel))?)?
     Ok(())
 
 def attempt(path: &str) -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
+    wait_cancel = CancellationToken().unwrap()
     never = CancellationToken()?
     match ws.connect(&url(path)?, &ws.config(), &later()?, &never):
         case Ok(socket):
             mut owned = socket
             mut buffer = std.bytes.empty()?
-            print(str.repr(&owned.receive(&mut buffer, &later()?))?)?
+            print(str.repr(&owned.receive(&mut buffer, &later()?, &wait_cancel))?)?
         case Err(error):
             print(error)?
     Ok(())
@@ -692,13 +696,13 @@ std.http.websocket.WebSocketError.UnsupportedScheme"
 #[test]
 fn wss_connects_plenty_client_and_server() {
     let source = r##"import std.bytes
+import std.time
 import std.http
 import std.http.server
 import std.http.tls
 import std.http.websocket as ws
 import std.http.wss
 import std.net
-import std.time
 import std.tls
 from std.bytes import Bytes
 from std.http.server import Exchange
@@ -713,16 +717,17 @@ pub enum Route:
 
 pub class App:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), WebSocketError | std.bytes.BytesError | RangeError | AllocError | IoError]:
+        wait_cancel = exchange.cancel_token()
         mut config = ws.config()
         config.max_frame = 4
         mut socket = ws.accept(exchange, &config)?
         mut buffer = std.bytes.empty()?
         while True:
             buffer.clear()
-            match socket.receive(&mut buffer, &later()?)?:
+            match socket.receive(&mut buffer, &later()?, &wait_cancel)?:
                 case Message.Text:
                     reply = "echo: ".concat(&buffer.to_text()?)?
-                    socket.send_text(&reply, &later()?)?
+                    socket.send_text(&reply, &later()?, &wait_cancel)?
                 case Message.Binary:
                     pass
                 case Message.Close(code):
@@ -737,15 +742,16 @@ def trusting(name: &str) -> Result[ClientConfig, AllocError | IoError]:
     Ok(std.tls.client_config(&std.tls.roots_from_pem(&read_text(&("FIXTURES/" + name)?)?).unwrap()).unwrap())
 
 def talk(port: u16) -> Result[(), WebSocketError | std.bytes.BytesError | RangeError | AllocError | IoError]:
+    wait_cancel = CancellationToken().unwrap()
     never = CancellationToken()?
     url = "wss://localhost:".concat(&str.from(i64(port))?)?.concat("/echo")?
     mut config = ws.config()
     config.max_frame = 4
     mut socket = std.http.wss.connect(&url, &trusting("ca.pem")?, &config, &later()?, &never)?
-    socket.send_text("over tls", &later()?)?
+    socket.send_text("over tls", &later()?, &wait_cancel)?
     mut buffer = std.bytes.empty()?
-    print(socket.receive(&mut buffer, &later()?)?, buffer.to_text()?)?
-    socket.close(1000, "done", &later()?)?
+    print(socket.receive(&mut buffer, &later()?, &wait_cancel)?, buffer.to_text()?)?
+    socket.close(1000, "done", &later()?, &wait_cancel)?
     print(socket.is_open())?
     print(std.http.wss.connect(&url, &trusting("other-ca.pem")?, &config, &later()?, &never).is_err())?
     Ok(())
@@ -785,5 +791,64 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | Thread
             "std.http.websocket.Message.Text echo: over tls",
         ],
         "{printed}"
+    );
+}
+
+#[test]
+fn caller_cancellation_is_checked_during_partial_payload_reads_and_writes() {
+    // Exercise the private construction path with an unchanged module. The
+    // transport requests cancellation from inside a wait, deterministically
+    // reaching both the direct payload path and the frame-header path.
+    let source = format!(
+        "{}\n{}",
+        include_str!("../stdlib/std/http/websocket.plenty"),
+        r#"
+class CancelInWait:
+    caller: CancellationToken
+
+    pub def read_before(self: &mut CancelInWait, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        self.caller.cancel()
+        Err(NetError.TimedOut)
+
+    pub def write_before[S: ByteSource](self: &mut CancelInWait, source: &S, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        self.caller.cancel()
+        Err(NetError.TimedOut)
+
+    pub def shutdown(self: &mut CancelInWait, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
+
+def is_cancelled[E](result: &Result[E, WebSocketError]) -> bool:
+    match result:
+        case Err(WebSocketError.Net(NetError.Cancelled)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError | BytesError | RangeError | WebSocketError]:
+    never = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(1000u32))?
+    for partial in [True, False]?:
+        caller = CancellationToken()?
+        mut input = std.bytes.empty()?
+        if partial:
+            # An unmasked binary frame declares five bytes, but only one is held.
+            input.extend(&std.bytes.from_list(&[130u8, 5u8, 65u8]?)?)?
+        mut socket = opened(CancelInWait(caller.share()), input, True, &config(), Nothing, never.share(), never.share())?
+        mut out = std.bytes.from_text("kept")?
+        print(is_cancelled(&socket.receive(&mut out, &deadline, &caller)), socket.is_open(), out.to_text()?)?
+    caller = CancellationToken()?
+    mut socket = opened(CancelInWait(caller.share()), std.bytes.empty()?, True, &config(), Nothing, never.share(), never.share())?
+    caller.cancel()
+    mut out = std.bytes.empty()?
+    print(is_cancelled(&socket.receive(&mut out, &deadline, &caller)), socket.is_open())?
+    active = CancellationToken()?
+    mut writer = opened(CancelInWait(active.share()), std.bytes.empty()?, True, &config(), Nothing, never.share(), never.share())?
+    print(is_cancelled(&writer.send_text("hello", &deadline, &active)), writer.is_open())?
+    Ok(())
+"#
+    );
+    assert_eq!(
+        output(&source),
+        "True False kept\nTrue False kept\nTrue True\nTrue False"
     );
 }
