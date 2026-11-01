@@ -140,12 +140,14 @@ fn actor_clients_and_an_actor_server_exchange_data_and_close_cleanly() {
 #[test]
 fn small_buffers_split_records_and_handshake_flights() {
     // 100 bytes of output holds 68 bytes of plaintext per write; a 64-byte
-    // input takes part of a record per read.
+    // input takes part of a record per read. Forwarding one plaintext byte
+    // at a time leaves an overlapping tail to compact before decrypting more.
     let server = Server::start(&[
         ("connections", "3"),
         ("input_size", "64"),
         ("output_size", "100"),
         ("plain_size", "7"),
+        ("forward_chunk", "1"),
     ]);
     let clients = server.clients(&[
         ("clients", "3"),
