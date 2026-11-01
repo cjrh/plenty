@@ -182,14 +182,14 @@ HTTP assembly no longer needs placeholder heads, empty-string copies or dummy
 Results (issues #134–#136). Owned method receivers reuse by-value call rules;
 `std.text.Builder.finish()` adopts them. Field moves from owned locals/`self`
 are path-tracked with reassignment and cleanup rules (issue #534).
-The [owned-response experiment](../proposals/typestate-response-experiment.md)
+The [owned-response experiment](../proposals/completed/typestate-response-experiment.md)
 validated retry ownership, partial-write reporting and exactly-once cleanup,
 without implementing real HTTP integration. See [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields).
 Remaining experiments/ownership extensions stay **B72** in the [backlog](../backlog.md).
 
 ## B75: Fluent pipelines
 
-All four [proposal stages](../proposals/fluent-iterators.md) shipped: local
+All four [proposal stages](../proposals/completed/fluent-iterators.md) shipped: local
 borrowed/owned fused plans, adapters/pair callbacks and fallible terminals;
 explicit owned `.generator()` conversion; chain/flat_map and callback-free
 filtering/reductions; resumable/lendable plans; and explicit chunked parallel

@@ -1,6 +1,6 @@
 # Fluent iterator pipelines
 
-**Status: Stages 1 to 4 implemented.**
+**Status: Implemented.** All four agreed stages shipped.
 Stages 1 and 2 cover the serial core, pair callbacks, dictionary collection,
 generator fluent methods, explicit owned `.generator()` conversion, `chain`,
 `flat_map`, closure-literal splicing and comprehensions lowered through the
@@ -11,16 +11,16 @@ substitution of scalar leaf callbacks also covers named functions and immutable
 scalar captures; it addresses the original performance gap (issue #399).
 Stage 4 covers `.par(&pool)` with the terminals below, plus `sum`, `min`,
 `max` and `chunks=N`.
-The [pipeline reference](../design/language/09-iteration/06-pipelines.md)
+The [pipeline reference](../../design/language/09-iteration/06-pipelines.md)
 lists the supported adapters, terminals, ownership rules and current limits.
 Current iteration is defined by
-[iteration and generators](../design/language/09-iteration/index.md),
-[closures](../design/language/06-functions/03-closures.md)
-and [ordered parallel mapping](../design/facilities/03-concurrency/parallel-map.md).
+[iteration and generators](../../design/language/09-iteration/index.md),
+[closures](../../design/language/06-functions/03-closures.md)
+and [ordered parallel mapping](../../design/facilities/03-concurrency/parallel-map.md).
 Related backlog entries are B12 (iterator/view protocols, borrowed adapters),
 B49 (collections; its `std.iter` part was removed), B22 (broader parallel mapping) and B24 (automatic
-parallelization). B75 schedules this design. Code blocks on this
-page are proposed syntax unless they are labelled as current.
+parallelization). B75 tracks remaining extensions, not the delivered stages.
+This page preserves the original design; examples may differ from the current reference.
 
 ## Summary
 
@@ -123,7 +123,7 @@ indistinguishable from the first row.
 ### Pipelines
 
 `iter(source)` accepts every current `for` source and follows the same
-[ownership rules](../design/language/09-iteration/01-iterables.md):
+[ownership rules](../../design/language/09-iteration/01-iterables.md):
 
 | Source | Item |
 | --- | --- |
@@ -167,7 +167,7 @@ without waiting for stored references (B11).
 store an `Iter` value.** The compiler consumes the plan and transfers its owned
 source, callback environments and progress into a generator frame. Conversion
 is allowed only when all of that state meets the existing
-[generator capture, storage and yield rules](../design/language/09-iteration/03-generators.md).
+[generator capture, storage and yield rules](../../design/language/09-iteration/03-generators.md).
 Borrowed sources, borrowed callback captures and sub-pipelines lending another
 pipeline are rejected, even if their yielded items are owned. No loan may cross
 `yield`, and no implicit copying makes a borrowed pipeline eligible. The
@@ -181,7 +181,7 @@ implicit conversion from an expected `Generator[T]` type.
 ### Lending a pipeline to a function
 
 Implemented in stage 3; the
-[reference](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
+[reference](../../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
 states the final rules and limits. This section keeps the design rationale.
 
 A function can take a pipeline by exclusive reference, consume some of it, and
@@ -432,7 +432,7 @@ item type is known from the same chain, under B16) remains an
 [open question](#open-questions); it can be added without breaking code that
 writes the types.
 
-The [closure and inference design history](typed-ranges-and-expression-inference.md#reserve-space-for-functions-as-values-and-closures)
+The [closure and inference design history](../typed-ranges-and-expression-inference.md#reserve-space-for-functions-as-values-and-closures)
 also constrains this choice: captures remain explicit, their loans stay live
 while callbacks may use them, and whether lowering inlines a callback must not
 change which captures are legal. Parameter inference would not imply capture
@@ -522,7 +522,7 @@ n = iter(&xs).collect()?.len()
 The expected type passes through `?` and through the `Result` of the return
 type, exactly as `name: list[i64] = []?` does now. Sites that give no
 expected type: an unannotated binding, a generic parameter position (as
-[type argument inference](../design/language/07-generics/inference.md) already
+[type argument inference](../../design/language/07-generics/inference.md) already
 states), a method receiver (`....collect()?.len()`), and later uses of a
 binding. The checker does not look ahead.
 
@@ -611,7 +611,7 @@ only `map`, `enumerate`, `zip` or `take`), and otherwise grows like a
 comprehension.
 
 These guarantees follow the reference's
-[allocation boundaries](../design/language/08-errors/02-allocation-and-traps.md):
+[allocation boundaries](../../design/language/08-errors/02-allocation-and-traps.md):
 user callbacks, source expressions and destructors retain their own allocation
 behavior. Explicit generator conversion introduces an inline frame. Parallel
 execution is a separate boundary: job cells, output buffers and reduction
@@ -745,7 +745,7 @@ Acceptance for the implementation, not optional extras:
 thread to produce input items; steps after it run on the pool's workers. The
 pool is the existing `ThreadPoolExecutor`; there is no global pool, so thread
 creation stays explicit and fallible, as the
-[parallelism proposal](memory-parallelism-and-simd.md#threads-channels-and-parallel-collections)
+[parallelism proposal](../memory-parallelism-and-simd.md#threads-channels-and-parallel-collections)
 requires.
 
 ```text
@@ -785,13 +785,13 @@ Stage 4 contract, extending current `pool.map`/`pool.reduce_tree`:
 - **Reduction grouping.** A parallel `reduce` groups by chunk, as `sum` does,
   so no list of all items is collected; empty input yields `Nothing`. An
   earlier version of this proposal used the
-  [fixed-tree reduction contract](../design/facilities/03-concurrency/parallel-reduce.md)
+  [fixed-tree reduction contract](../../design/facilities/03-concurrency/parallel-reduce.md)
   of `reduce_tree`, so worker count and chunk boundaries could not change the
   grouping. That required collecting every item before reducing, which made
   `reduce` with a cheap function several times slower than serial. Code that
   needs the fixed tree calls `pool.reduce_tree` directly.
 - **Early termination and effects.** Follow the
-  [fallible mapping contract](../design/facilities/03-concurrency/parallel-map.md):
+  [fallible mapping contract](../../design/facilities/03-concurrency/parallel-map.md):
   `try_collect` selects the lowest original input index's worker error, including
   across chunks. An earlier accepted input's error takes precedence over a later
   submission failure. Accepted work is drained before returning, and partial
@@ -834,7 +834,7 @@ benefit and whether effect checks are sufficient.
 deprecated: it had no users outside the repository's tests, and there is no
 deprecation-warning mechanism. Its tests now exercise fluent generator
 pipelines and `std.error.map_error`. The tutorial lesson moved to
-[Transform a stream of values](../tutorial/10-functions/streams.md), after the
+[Transform a stream of values](../../tutorial/10-functions/streams.md), after the
 borrowed-collection pipeline lesson. The items below record the original plan.
 
 - **`std.iter`.** Mark `map`, `filter`, `take`, `fold` and `try_fold`
@@ -850,8 +850,8 @@ borrowed-collection pipeline lesson. The items below record the original plan.
   lessons. Review lessons that build lists by looping only to fold them, and the
   comprehension lessons for the equivalence note.
 - **Reference.** Add a pipeline page under
-  [iteration](../design/language/09-iteration/index.md); update
-  [adapters](../design/language/09-iteration/04-adapters.md) (enumerate/zip
+  [iteration](../../design/language/09-iteration/index.md); update
+  [adapters](../../design/language/09-iteration/04-adapters.md) (enumerate/zip
   become pipeline starts), the `std.iter` page, `std.math` (its list helpers
   stay; pipelines use the stage 3 terminals), parallel mapping, the cheat sheet and
   `support.md`.
@@ -866,7 +866,7 @@ Lets `numbers(3).map(sq)` call `std.iter.map`. Cheap to add, but keeps the 9x
 per-item cost and the generator-only, owned-capture limits, and an import that
 adds methods contradicts the protocol rule that imports never add methods.
 
-The related [protocol method bodies proposal](protocol-method-bodies.md)
+The related [protocol method bodies proposal](../protocol-method-bodies.md)
 distinguishes provided methods selected through a bound or protocol qualification
 from automatic method injection. Its agreed, unimplemented design preserves
 that import rule. Provided bodies could share adapter implementation logic,
@@ -928,7 +928,7 @@ terminals above replace them for pipelines.
    with the verification suite above. Issue #371, fixed, removed the stored-range
    slow path that would have misled the benchmarks.
    Small scalar leaf callback substitution and SSA scalar captures are also
-   implemented; [measurements](../development/profiling-pipeline-results.md#serial-pipeline-callbacks)
+   implemented; [measurements](../../development/profiling-pipeline-results.md#serial-pipeline-callbacks)
    cover the original workload. Generator fluent entry and the explicit owned
    `.generator()` bridge also landed independently of composition.
 2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
@@ -956,12 +956,12 @@ terminals above replace them for pipelines.
    and written back on every exit. Pipelines of reference items can be lent;
    their items cannot be returned. A pipeline holding a stored closure with
    borrowed captures cannot be lent; write the closure literal inside the
-   adapter instead. The [reference](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
+   adapter instead. The [reference](../../design/language/09-iteration/06-pipelines.md#lending-a-pipeline)
    states the rules and limits.
 4. **Stage 4 — parallel (implemented).** `.par(&pool)` with chunked fused jobs
    (one chunk per pool worker by default, or `chunks=N`), the allowed-step
    rules, and `collect`/`try_collect`/`reduce`/`count`/`any`/`all`/`sum`/`min`/`max`.
-   The [reference](../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
+   The [reference](../../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
    lists the implemented contract. `try_collect` reports
    `ParallelError[E | AllocError]`, since a chunk's output list can fail to
    allocate on the worker; `any`/`all` do not stop early.

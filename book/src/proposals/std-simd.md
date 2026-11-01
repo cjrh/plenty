@@ -60,7 +60,7 @@ contract before direct vector loads become an everyday list optimization.
 
 Both transformations need source bounds, visible callback bodies, effect
 summaries, and a cost model. Share that analysis and explanation machinery with
-B24 and the [fluent pipeline design](fluent-iterators.md), but keep the decisions
+B24 and the [fluent pipeline design](completed/fluent-iterators.md), but keep the decisions
 separate. SIMD runs on the current thread and does not introduce scheduling,
 thread transfer, cancellation, synchronization or thread-pool overhead.
 
