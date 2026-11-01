@@ -48,29 +48,29 @@ impl FloatOp {
 /// These move bits between register classes without floating-point arithmetic.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FloatBits {
-    F32ToBits,
-    F32FromBits,
-    F64ToBits,
-    F64FromBits,
+    F32ToU32,
+    U32ToF32,
+    F64ToU64,
+    U64ToF64,
 }
 
 impl FloatBits {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
-            "__encoding_f32_bits" => Self::F32ToBits,
-            "__encoding_f32_from_bits" => Self::F32FromBits,
-            "__encoding_f64_bits" => Self::F64ToBits,
-            "__encoding_f64_from_bits" => Self::F64FromBits,
+            "__encoding_f32_bits" => Self::F32ToU32,
+            "__encoding_f32_from_bits" => Self::U32ToF32,
+            "__encoding_f64_bits" => Self::F64ToU64,
+            "__encoding_f64_from_bits" => Self::U64ToF64,
             _ => return None,
         })
     }
 
     pub fn signature(self) -> (Ty, Ty) {
         match self {
-            Self::F32ToBits => (Ty::F32, Ty::U32),
-            Self::F32FromBits => (Ty::U32, Ty::F32),
-            Self::F64ToBits => (Ty::F64, Ty::U64),
-            Self::F64FromBits => (Ty::U64, Ty::F64),
+            Self::F32ToU32 => (Ty::F32, Ty::U32),
+            Self::U32ToF32 => (Ty::U32, Ty::F32),
+            Self::F64ToU64 => (Ty::F64, Ty::U64),
+            Self::U64ToF64 => (Ty::U64, Ty::F64),
         }
     }
 }
@@ -206,10 +206,10 @@ mod tests {
     #[test]
     fn representation_operations_accept_only_their_same_width_input() {
         for kind in [
-            FloatBits::F32ToBits,
-            FloatBits::F32FromBits,
-            FloatBits::F64ToBits,
-            FloatBits::F64FromBits,
+            FloatBits::F32ToU32,
+            FloatBits::U32ToF32,
+            FloatBits::F64ToU64,
+            FloatBits::U64ToF64,
         ] {
             let operation = NumericOp::Bits(kind);
             let (input, output) = kind.signature();
