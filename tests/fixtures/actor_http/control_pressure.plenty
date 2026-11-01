@@ -1,0 +1,44 @@
+# Exercise control delivery after application timers or mailboxes fill up.
+pub class App:
+    pub mode: i64
+
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], ServerError]) -> Result[(), AppError]:
+        match event:
+            case Event.Head(_, target):
+                self.mode = 0
+                if target.path == "/exhaust":
+                    self.mode = 1
+                elif target.path == "/fail":
+                    self.mode = 2
+            case Event.End:
+                if self.mode == 1:
+                    # Keep every spare timer record occupied until teardown.
+                    # Phase timers already owned by live connections can still
+                    # cancel and reuse their own records.
+                    while True:
+                        match context.after(&std.time.seconds(60u32), 77):
+                            case Ok(_):
+                                pass
+                            case Err(_):
+                                break
+                    response.send_text(200, "exhausted")?
+                elif self.mode == 2:
+                    response.send_text(200, "sent")?
+                    # Admission cannot acknowledge into this full mailbox.
+                    # The first queued event then fails the handler while the
+                    # completed response still awaits its acknowledgement.
+                    for _ in range(16):
+                        drop(context.send(context.address(), Notice[i64].Message(1)))
+                else:
+                    response.send_text(200, "ready")?
+            case Event.Message(_):
+                return Err(HttpError.Broken)
+            case _:
+                pass
+        Ok(())
+
+def factory() -> Result[App, AllocError]:
+    Ok(App(0))
+
+def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
+    std.actor.http.server.serve_events(listener, factory, config, stop).unwrap()
