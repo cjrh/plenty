@@ -40,7 +40,9 @@ pub enum Notice[M]:
     Message(M)
     Drain
     Resume
+    # Reserved for completion credit between admission and connection actors.
     Completed
+    CompletedBy(Address)
     Rejected
 
 pub enum Event[M]:
@@ -391,7 +393,35 @@ class Acceptor[F]:
     requests: u64
     rejected: u64
     protocol_errors: u64
+    # A child cannot submit its next completion until this credit is returned,
+    # so at most one address per admitted child is retained here.
+    acknowledgements: Option[list[Address]]
+    resuming: bool
 
+    def flush_acknowledgements[M](self: &mut Acceptor[F], context: &mut Context[Notice[M], ServerError]) -> ():
+        match &mut self.acknowledgements:
+            case Some(pending):
+                mut index = 0
+                while index < len(pending):
+                    match context.send(pending[index], Notice[M].Completed):
+                        case Ok(_):
+                            pass
+                        case Err(std.actor.Undelivered.Full(_)):
+                            index += 1
+                            continue
+                        case Err(std.actor.Undelivered.Gone(_)):
+                            pass
+                    last = pending.pop().unwrap()
+                    if index < len(pending):
+                        pending[index] = last
+                if len(pending) > 0 and not self.resuming:
+                    match context.send(context.address(), Notice[M].Resume):
+                        case Ok(_):
+                            self.resuming = True
+                        case Err(_):
+                            pass
+            case Nothing:
+                pass
 
     def receive[M](self: &mut Acceptor[F], mail: Mail[Notice[M], ServerError], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
         match mail:
@@ -424,6 +454,15 @@ class Acceptor[F]:
                         pass
             case Mail.Message(Notice.Completed):
                 self.requests += 1u64
+            case Mail.Message(Notice.CompletedBy(child)):
+                self.requests += 1u64
+                match &mut self.acknowledgements:
+                    case Some(pending):
+                        storage(pending.append(child))?
+                    case Nothing:
+                        pass
+            case Mail.Message(Notice.Resume):
+                self.resuming = False
             case Mail.Message(Notice.Rejected):
                 self.protocol_errors += 1u64
             case Mail.Message(Notice.Drain):
@@ -441,6 +480,7 @@ class Acceptor[F]:
                         pass
             case _:
                 pass
+        self.flush_acknowledgements(context)
         Ok(())
 
     def done(self) -> bool:
@@ -473,6 +513,8 @@ class Client[F, H]:
     shutdown_pending: bool
     retiring: bool
     failure: Option[ServerError]
+    retry: Option[Timer]
+    awaiting: bool
 
 
     def set_deadline[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
@@ -499,7 +541,7 @@ class Client[F, H]:
         Ok(())
 
     def resume[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
-        if not self.resuming:
+        if not self.resuming and self.retry.is_none() and not self.awaiting:
             # A bounded continuation yields without a timer. A full mailbox
             # already makes this actor runnable, so it needs no extra wakeup.
             match context.send(context.address(), Notice[M].Resume):
@@ -510,9 +552,11 @@ class Client[F, H]:
         Ok(())
 
     def has_control(self) -> bool:
-        self.shutdown_pending or self.completing
+        self.shutdown_pending or self.completing or self.awaiting
 
     def flush_control[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> ():
+        if self.retry.is_some():
+            return
         if self.shutdown_pending:
             match context.send(self.parent, Notice[M].Drain):
                 case Ok(_):
@@ -520,12 +564,26 @@ class Client[F, H]:
                 case Err(_):
                     pass
         if self.completing:
-            match context.send(self.parent, Notice[M].Completed):
+            # One accepted notification per connection remains outstanding.
+            # Waiting for its acknowledgement prevents fast connections from
+            # continually taking the acceptor slots that others need.
+            match context.send(self.parent, Notice[M].CompletedBy(context.address())):
                 case Ok(_):
                     self.completing = False
-                    self.reported = True
+                    self.awaiting = True
                 case Err(_):
                     pass
+        if self.shutdown_pending or self.completing:
+            # The acceptor handles one message per scheduling round. Spinning
+            # all blocked children every round only refills the same mailbox.
+            # A private timer lets it drain; live application mail still runs.
+            match context.after(&milliseconds(1u32), -2):
+                case Ok(timer):
+                    self.retry = Some(timer)
+                case Err(_):
+                    # Application timers share this bounded pool. Preserve
+                    # control delivery even when none is available.
+                    drop(self.resume(context))
 
     def stop[M](self: &mut Client[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]:
         self.retiring = True
@@ -539,6 +597,20 @@ class Client[F, H]:
         match &mail:
             case Mail.Message(Notice.Resume):
                 self.resuming = False
+            case Mail.Message(Notice.Completed):
+                if self.awaiting:
+                    self.awaiting = False
+                    self.reported = True
+            case _:
+                pass
+        match &mail:
+            case Mail.Timer(timer):
+                match self.retry:
+                    case Some(retry):
+                        if retry.key() == timer.key():
+                            self.retry = Nothing
+                    case Nothing:
+                        pass
             case _:
                 pass
         self.flush_control(context)
@@ -596,6 +668,8 @@ class Client[F, H]:
                         self.call(&mut handler, Event[M].Actor(Mail[Notice[M], ServerError].Timer(timer)), &mut reply, context)?
                 case Mail.Message(Notice.Resume):
                     self.resuming = False
+                case Mail.Message(Notice.Completed):
+                    pass
                 case Mail.Message(Notice.Message(message)):
                     self.call(&mut handler, Event[M].Message(message), &mut reply, context)?
                 case Mail.Message(Notice.Drain):
@@ -767,13 +841,11 @@ class Client[F, H]:
             return Ok(())
         if reply.is_done() and reply.pending() == 0 and wire.pending() == 0:
             if not self.reported:
-                match context.send(self.parent, Notice[M].Completed):
-                    case Ok(_):
-                        self.reported = True
-                    case Err(_):
-                        self.completing = True
-                        self.resume(context)?
-                        return Ok(())
+                if not self.completing and not self.awaiting:
+                    self.completing = True
+                    self.flush_control(context)
+                if not self.reported:
+                    return Ok(())
             if not reply._keep or self.draining:
                 self.close_after_flush(wire, context)?
                 return Ok(())
@@ -784,7 +856,9 @@ class Client[F, H]:
             self.reported = False
             self.phase = 1
             self.set_deadline(context)?
-            progress = wire.available() > 0
+            # EOF may have arrived while the completion awaited its credit;
+            # there is then no further readiness to close the idle connection.
+            progress = wire.available() > 0 or not wire.reading()
         if progress or (reply.pending() > 0 and wire.pending() == 0):
             self.resume(context)?
         Ok(())
@@ -805,6 +879,7 @@ pub class Node[F, H]:
             case State.Accepting(acceptor):
                 acceptor.address = Some(context.address())
                 acceptor.children = Some(storage(list[Address].with_capacity(acceptor.config.capacity))?)
+                acceptor.acknowledgements = Some(storage(list[Address].with_capacity(acceptor.config.capacity))?)
                 acceptor.watch = Some(network(context.watch(&acceptor.socket, Interest.Read))?)
             case State.Serving(client):
                 mut socket = match replace(client.socket, Nothing):
@@ -853,7 +928,7 @@ pub class Node[F, H]:
                 # TLS configs cannot be copied. The session is constructed in
                 # the child heap under isolated admission; any failure retires
                 # this child. User factory and socket buffers run in started.
-                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, False, 0, False, False, False, False, False, Nothing)))))
+                Ok(Some(Node[F, H](State[F, H].Serving(Client[F, H](stream, storage(copy(&acceptor.factory))?, storage(copy(&acceptor.config))?, session, acceptor.address.unwrap(), Nothing, Nothing, Nothing, Nothing, 0, 1, Nothing, False, 0, False, False, False, False, False, Nothing, Nothing, False)))))
             case State.Serving(_):
                 Ok(Nothing)
 
@@ -967,8 +1042,8 @@ def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], c
     if config.limits.max_line < 1 or config.limits.max_head < 1 or config.limits.max_headers < 1 or config.limits.max_body < 0:
         return Err(ServerError.InvalidConfig)
     mut actors = std.actor.stage[Node[F, H], Notice[M], ServerError](config.capacity + 1, 16, 64)?
-    actors.add_timers(4 * config.capacity + 8)?
-    acceptor = Acceptor(factory=factory, socket=listener, config=copy(config)?, tls=tls, children=Nothing, watch=Nothing, address=Nothing, draining=False, requests=0u64, rejected=0u64, protocol_errors=0u64)
+    actors.add_timers(5 * config.capacity + 8)?
+    acceptor = Acceptor(factory=factory, socket=listener, config=copy(config)?, tls=tls, children=Nothing, watch=Nothing, address=Nothing, draining=False, requests=0u64, rejected=0u64, protocol_errors=0u64, acknowledgements=Nothing, resuming=False)
     root = actors.start(Node[F, H](State[F, H].Accepting(acceptor)), 1048576)?
     never = CancellationToken()?
     mut stopping = False
