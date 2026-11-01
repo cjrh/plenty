@@ -349,7 +349,15 @@ fn reference_keyword_list_matches_parser() {
         env!("CARGO_MANIFEST_DIR"),
         "/book/src/design/language/02-source/index.md"
     );
-    let text = std::fs::read_to_string(page).unwrap();
+    let text = std::fs::read_to_string(page).unwrap().replace("\r\n", "\n");
+    for text in [text.clone(), text.replace('\n', "\r\n")] {
+        assert_reference_keywords(&text);
+    }
+}
+
+fn assert_reference_keywords(text: &str) {
+    // Git may check the reference out with CRLF on Windows (issue #649).
+    let text = text.replace("\r\n", "\n");
     let section = text
         .split("\n## Keywords\n")
         .nth(1)
