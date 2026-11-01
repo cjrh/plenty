@@ -14,12 +14,12 @@ def main() -> Result[(), IoError]:
     match parse_small("300"):
         case Ok(number):
             print(number)?
-        case Err(cause):
-            match cause:
-                case parse: ParseError:
-                    print("not an integer")?
-                case range: RangeError:
-                    print("outside u8 range")?
+        case Err(ParseError.Invalid):
+            print("not an integer")?
+        case Err(ParseError.OutOfRange):
+            print("outside i64 range")?
+        case Err(RangeError.OutOfRange):
+            print("outside u8 range")?
     Ok(())
 ```
 
@@ -29,9 +29,13 @@ outside u8 range
 
 `?` forwards the original parse error. The direct return widens the conversion
 result to the declared set. Neither step creates a heap wrapper or loses the
-payload. `case name: Type:` selects one whole member and binds it; every
-member needs a case unless you use `_`. An enum member can then be matched
-again by its constructors.
+payload. Each variant pattern selects its enum member and then its variant,
+so the errors can be handled directly inside `Err`. Every variant of every
+member needs coverage unless you use `_`.
+
+Use `case name: Type:` when you need one whole member and its value. The
+[matching reference](../../design/language/04-expressions/matching.md) describes
+how whole-member patterns and variant patterns combine.
 
 Use a module-level [type alias](../../design/language/03-types/aliases.md) to
 name a recurring group: `SmallNumberError` means exactly `ParseError |

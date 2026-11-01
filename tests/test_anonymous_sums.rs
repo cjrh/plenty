@@ -729,3 +729,234 @@ def main() -> Result[(), AllocError | IoError]:
         "9\n[3, 4]\n",
     );
 }
+
+#[test]
+fn member_variants_match_directly_at_root_and_nested_positions() {
+    runs(
+        r#"
+enum A:
+    Empty
+    Value(i64)
+enum B:
+    Value(i64)
+type Alias = A
+def read(value: A | B) -> i64:
+    match value:
+        case Alias.Empty:
+            0
+        case A.Value(0):
+            10
+        case A.Value(n) | B.Value(n):
+            n
+def nested(value: Result[Option[A | B], AllocError]) -> i64:
+    match value:
+        case Ok(Some(A.Value(n) | B.Value(n))):
+            n
+        case Ok(Some(A.Empty)) | Ok(Nothing) | Err(_):
+            -1
+def main() -> ():
+    print(read(A.Empty), read(A.Value(0)), read(A.Value(7)), read(B.Value(8))).unwrap()
+    print(nested(Ok(Some(A.Value(9)))), nested(Ok(Some(B.Value(10)))), nested(Ok(Nothing))).unwrap()
+"#,
+        "0 10 7 8\n9 10 -1\n",
+    );
+}
+
+#[test]
+fn member_variant_coverage_keeps_inner_variants_and_payloads_distinct() {
+    let declarations = "enum A:\n    X\n    Y(i64)\nenum B:\n    Z\n";
+    rejects(
+        &format!(
+            "{declarations}def read(value: A | B) -> ():\n    match value:\n        case A.X:\n            pass\n        case B.Z:\n            pass\ndef main() -> ():\n    pass\n"
+        ),
+        &["A.Y(_)"],
+    );
+    rejects(
+        &format!(
+            "{declarations}def read(value: A | B) -> ():\n    match value:\n        case A.X:\n            pass\n        case A.Y(0):\n            pass\n        case B.Z:\n            pass\ndef main() -> ():\n    pass\n"
+        ),
+        &["A.Y(_)"],
+    );
+    for cases in [
+        "        case A.X:\n            pass\n        case A.X:\n            pass\n        case _:\n            pass\n",
+        "        case member: A:\n            pass\n        case A.Y(n):\n            pass\n        case _:\n            pass\n",
+        "        case A.X:\n            pass\n        case A.Y(n):\n            pass\n        case member: A:\n            pass\n        case _:\n            pass\n",
+    ] {
+        rejects(
+            &format!(
+                "{declarations}def read(value: A | B) -> ():\n    match value:\n{cases}def main() -> ():\n    pass\n"
+            ),
+            &["unreachable", "duplicate"],
+        );
+    }
+}
+
+#[test]
+fn member_variant_bindings_move_and_borrow_without_double_destruction() {
+    runs(
+        r#"
+class Item:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+enum A:
+    Pair(Item, Item)
+    Empty
+enum B:
+    Item(Item)
+def consume(value: A | B) -> ():
+    match value:
+        case A.Pair(kept, _):
+            print("keep", kept.id).unwrap()
+        case B.Item(kept):
+            print("keep", kept.id).unwrap()
+        case A.Empty:
+            pass
+def change(value: &mut (A | B)) -> ():
+    match value:
+        case A.Pair(first, second):
+            first.id += 10
+            second.id += 20
+        case B.Item(item):
+            item.id += 30
+        case A.Empty:
+            pass
+def inspect(value: &(A | B)) -> ():
+    match value:
+        case A.Pair(first, second):
+            print("borrow", first.id, second.id).unwrap()
+        case B.Item(item):
+            print("borrow", item.id).unwrap()
+        case A.Empty:
+            pass
+def main() -> ():
+    mut pair: A | B = A.Pair(Item(1), Item(2))
+    change(&mut pair)
+    inspect(&pair)
+    consume(pair)
+    mut single: A | B = B.Item(Item(3))
+    change(&mut single)
+    inspect(&single)
+    consume(single)
+"#,
+        "borrow 11 22\ndrop 22\nkeep 11\ndrop 11\nborrow 33\nkeep 33\ndrop 33\n",
+    );
+}
+
+#[test]
+fn member_variants_infer_generic_arguments_and_reject_ambiguous_owners() {
+    runs(
+        r#"
+enum Value[T]:
+    Present(T)
+    Missing
+enum Other:
+    Empty
+def read[T](value: Value[T] | Other, fallback: T) -> T:
+    match value:
+        case Value.Present(item):
+            item
+        case Value.Missing | Other.Empty:
+            fallback
+def read_option(value: Option[i64] | Other) -> i64:
+    match value:
+        case Some(item):
+            item
+        case Nothing | Other.Empty:
+            -1
+def main() -> ():
+    print(read[i64](Value[i64].Present(12), 0), read[str](Value[str].Missing, "fallback")).unwrap()
+    print(read_option(Some(13)), read_option(Nothing), read_option(Other.Empty)).unwrap()
+"#,
+        "12 fallback\n13 -1 -1\n",
+    );
+    rejects(
+        "enum Value[T]:\n    Present(T)\ndef read(value: Value[i64] | Value[str]) -> ():\n    match value:\n        case Value.Present(item):\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n",
+        &["variant pattern is ambiguous between members"],
+    );
+}
+
+#[test]
+fn typed_member_patterns_disambiguate_generic_variant_owners() {
+    runs(
+        r#"
+enum Value[T]:
+    Present(T)
+def read(value: Value[i64] | Value[str]) -> i64:
+    match value:
+        case number: Value[i64]:
+            match number:
+                case Value.Present(item):
+                    item
+        case text: Value[str]:
+            match text:
+                case Value.Present(item):
+                    len(item)
+def main() -> ():
+    print(read(Value[i64].Present(15)), read(Value[str].Present("abc"))).unwrap()
+"#,
+        "15 3\n",
+    );
+}
+
+#[test]
+fn member_variant_payload_errors_keep_the_ordinary_enum_rules() {
+    let declarations = "enum A:\n    Empty\n    Value(i64)\nenum B:\n    Value(str)\n";
+    for (pattern, expected) in [
+        ("A.Empty()", "no parentheses for nullary variants"),
+        ("A.Value", "requires 1 payload bindings"),
+        ("A.Value(1u8)", "this pattern has type u8"),
+        ("A.Value(n) | B.Value(n)", "must have one type"),
+    ] {
+        rejects(
+            &format!(
+                "{declarations}def read(value: A | B) -> ():\n    match value:\n        case {pattern}:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n"
+            ),
+            &[expected],
+        );
+    }
+}
+
+#[test]
+fn computed_format_errors_match_their_member_variant_directly() {
+    runs(
+        r#"
+def main() -> ():
+    width = -1
+    match f"{1:{width}}":
+        case Ok(text):
+            print("unexpected", text).unwrap()
+        case Err(FormatError.InvalidSpec):
+            print("invalid spec").unwrap()
+        case Err(_):
+            print("other error").unwrap()
+"#,
+        "invalid spec\n",
+    );
+}
+
+#[test]
+fn member_variants_match_through_boxes_and_preserve_payload_loans() {
+    runs(
+        r#"
+enum A:
+    Item(i64)
+enum B:
+    Empty
+def read(value: Box[A | B]) -> i64:
+    match value:
+        case A.Item(number):
+            number
+        case B.Empty:
+            0
+def main() -> ():
+    value: A | B = A.Item(14)
+    print(read(Box(value).unwrap())).unwrap()
+"#,
+        "14\n",
+    );
+    rejects(
+        "enum A:\n    Value(list[i64])\nenum B:\n    Empty\ndef read(value: &(A | B)) -> list[i64]:\n    match value:\n        case A.Value(items):\n            *items\n        case B.Empty:\n            [1].unwrap()\ndef main() -> ():\n    pass\n",
+        &["cannot move out of a reference"],
+    );
+}

@@ -43,34 +43,13 @@ viable members, such as `list[f64] | list[i64]`, are ambiguous and rejected;
 bind the value with a member type first.
 
 Match a whole member with `case name: MemberType:`. An ordinary wildcard
-matches any remaining value. Each member must be covered, and duplicate or
-unreachable arms are rejected. Match an enum payload's constructors in a
-nested match. A member annotation must name a single normalized type; pattern
-`|` still means alternatives and does not change into type union syntax.
-Typed member patterns are supported at the case position, not inside other
-patterns. Case guards remain unsupported; test payloads inside the arm.
+matches any remaining value. A member annotation names a single normalized
+type; pattern `|` means alternatives, not a type union. Typed member patterns
+are supported at the case position, not inside other patterns.
 
-A member's variant cannot qualify a pattern on the sum, because the sum's
-alternatives are its members, not their variants:
-
-```plenty-error
-def parse(text: &str) -> Result[i64, AllocError | ParseError]:
-    Ok(i64.parse(text)?)
-
-def main() -> ():
-    match parse("x"):
-        case Ok(value):
-            pass
-        case Err(ParseError.Invalid):
-            pass
-        case Err(_):
-            pass
-```
-```error
-expected AllocError | ParseError, got ParseError; a sum pattern names a whole member: write `case value: ParseError:` in a `match` on the sum, then match `ParseError` variants on `value` in a nested `match`
-```
-
-Bind the error, match its member, then match the member's variants:
+An enum variant pattern also selects its member directly, including inside
+`Err` or another payload. The compiler tests the member before testing its
+variant, so equal variant names in different enums remain distinct:
 
 ```plenty
 def parse(text: &str) -> Result[i64, AllocError | ParseError]:
@@ -80,21 +59,28 @@ def main() -> Result[(), IoError]:
     match parse("x"):
         case Ok(value):
             print(value)?
-        case Err(error):
-            match error:
-                case parse_error: ParseError:
-                    match parse_error:
-                        case ParseError.Invalid:
-                            print("not a number")?
-                        case _:
-                            print("other parse error")?
-                case _:
-                    print("out of memory")?
+        case Err(ParseError.Invalid):
+            print("not a number")?
+        case Err(ParseError.OutOfRange):
+            print("outside i64 range")?
+        case Err(_):
+            print("out of memory")?
     Ok(())
 ```
 ```output
 not a number
 ```
+
+Every member and each enum member's variants must be covered, whether by
+variant patterns, a whole-member pattern, or a wildcard. Duplicate and
+unreachable cases are rejected; covering one variant does not cover its
+siblings. Payload literals still need a fallback for the other payload values.
+
+The matched value supplies generic arguments, as in ordinary enum patterns.
+If a qualifier names several members, such as `Choice[i64] | Choice[str]`,
+`Choice.Value(value)` is ambiguous even when only one payload type would fit
+its subpattern. Use a whole-member pattern with an explicit type and match
+that value's variants inside the arm. Case guards remain unsupported.
 
 An owned match moves noncopyable payloads. Matching `&value` or `&mut value`
 borrows the active member with the same permission and lifetime. Only the
