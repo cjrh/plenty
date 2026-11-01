@@ -61,7 +61,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.websocket`](websocket.md) | RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` client, bounded framed messages, pings and the closing handshake | `WebSocketError` |
 | [`std.http.wss`](websocket.md#wss) | `std.http.websocket` clients for `wss` URLs through [`std.tls`](tls.md) | `WebSocketError` |
 | [`std.image`](image.md) | Owned 8-bit pixel buffers, bounded PNG decoding and encoding, cropping, colour conversion and resizing | `ImageError` |
-| [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
+| [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, file and process-stream adapters, and checked sequential binary fields in an owned memory cursor | `StreamError`, `Partial`, `CopyError`, `CloseError`, `BinaryError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.jwt`](jwt.md) | JSON Web Tokens: compact JWS signing and verification with the algorithm fixed by the key, strict decoding, and explicit-clock claim checks | `JwtError` |
