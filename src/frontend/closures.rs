@@ -147,6 +147,25 @@ impl Lower<'_> {
                 args.len()
             )));
         }
+        if closure.mutable
+            && let Expression::Name(name) = &ungroup(callee).kind
+            && self
+                .names
+                .get(name)
+                .is_some_and(|local| matches!(local.ty, Ty::Ref(_, false)))
+        {
+            let captures: Vec<_> = closure
+                .captures
+                .iter()
+                .zip(&closure.writable)
+                .filter(|(_, writable)| **writable)
+                .map(|((name, _), _)| format!("`{name}`"))
+                .collect();
+            return Err(callee.at.error(format!(
+                "cannot call this mutable closure through a shared reference: it writes its capture {}; take the callback as `&mut F` and pass it with `&mut`",
+                captures.join(", ")
+            )));
+        }
         let (_, loan) = self.borrow(callee, closure.mutable, ops)?;
         self.closure_arguments(args, closure, loan, &callee.at, ops)
     }
