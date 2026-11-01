@@ -17,6 +17,7 @@ additional-css = ["theme/plenty-highlight.css"]
 enable = true
 
 [output.html.redirect]
+"proposals/flat-class-layout.html" = "completed/flat-class-layout.html"
 "proposals/error-formatting.html" = "completed/error-formatting.html"
 "proposals/entrypoints-modules-and-tutorials.html" = "completed/entrypoints-modules-and-tutorials.html"
 "proposals/next-language-phase.html" = "completed/next-language-phase.html"

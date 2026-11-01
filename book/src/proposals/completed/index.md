@@ -11,6 +11,7 @@ designs and the policy for moving completed proposals.
 
 | Proposal | Reference | Further work |
 | --- | --- | --- |
+| [Flat class layout](flat-class-layout.md) | [Value representations](../../design/toolchain/02-architecture/values.md), [memory](../../design/toolchain/02-architecture/memory.md) | B19 performance extensions; related B35 |
 | [Runtime allocation audit](allocation-audit.md) | [Allocation and traps](../../design/language/08-errors/02-allocation-and-traps.md) | B13 |
 | [References, ownership, and explicit copying](references-and-copying.md) | [Ownership](../../design/language/05-ownership/index.md) | B11 |
 | [One immutable `str` with explicit lengths](strings.md) | [Text](../../design/facilities/01-builtins/text.md) | B12, B27 |

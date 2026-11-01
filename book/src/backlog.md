@@ -147,7 +147,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   sum tags/niches, relocation/release plans for records holding ranges/sums/other
   managed fields, records over 192 bytes and tuple release plans. Measure inline
   copies beyond current runtime-copy paths; owned temporaries and nonscalar list
-  rows still use runtime helpers. [Flat-layout rationale](proposals/flat-class-layout.md).
+  rows still use runtime helpers. [Flat-layout rationale](proposals/completed/flat-class-layout.md).
 - **Serial frontend efficiency:** module-scope name hashing and `op::check`'s
   signature map, builtin-sum interning and nominal-handle refcounts. Whole-program
   table/cache misses still increase per-function cost at scale (issue #57);
