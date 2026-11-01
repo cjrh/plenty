@@ -17,6 +17,7 @@ const capacity: i64 = 64
 const input_size: i64 = 1024
 const output_size: i64 = 1024
 const plain_size: i64 = 1024
+const forward_chunk: i64 = 0
 const heap: i64 = 262144
 const read_ms: u32 = 0u32
 
@@ -66,7 +67,10 @@ pub class Echo:
                 missing.unwrap()
         # Forwarding frees input room, so more may be decrypted at once.
         while self.tls.available() > 0:
-            if self.tls.forward(self.tls.available(), context)? == 0:
+            mut count = self.tls.available()
+            if forward_chunk > 0 and count > forward_chunk:
+                count = forward_chunk
+            if self.tls.forward(count, context)? == 0:
                 break
         if not self.tls.reading() and self.tls.available() == 0:
             self.tls.shutdown_write(context)?
