@@ -72,8 +72,7 @@ fn malformed_radix_integers_are_rejected_at_the_literal() {
 fn unicode_escapes_name_scalars_in_strings_and_f_strings() {
     support::assert_stdout(
         r#"
-from std.fmt import FormatError
-def main() -> Result[(), IoError | FormatError]:
+def main() -> Result[(), IoError | AllocError]:
     print(len("e\u{301}"), "e\u{301}" == "e\u{0301}", "\u{1F600}".byte_len())?
     print("\u{63}af\u{E9}", '\u{10ffff}'.byte_len(), """a\u{200d}b""".byte_len())?
     name = "x"

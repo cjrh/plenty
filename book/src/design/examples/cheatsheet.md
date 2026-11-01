@@ -90,7 +90,7 @@ See [numbers](../language/03-types/numbers.md#checked-blocks) and
 ## Text
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     name = "Ada"
     greeting = ("Hello, " + name)?
     print(greeting)?
@@ -111,7 +111,9 @@ A a el 42
 
 `str` is immutable. Operations that build text return
 `Result[str, AllocError]`; `?` binds tighter than `+`, so write `(a + b)?`.
-An f-string has type `Result[str, FormatError]`. Escapes are `\n`, `\t`,
+An f-string has type `Result[str, AllocError]`, or
+`Result[str, AllocError | FormatError]` when a field runs a `display` or
+`debug` method or a spec is computed. Escapes are `\n`, `\t`,
 `\r`, `\0`, `\\`, quotes, and `\u{H...}` (`"e\u{301}"`); there is no `\x` or
 `\N{...}`. `len` counts Unicode scalars;
 `text.byte_len()` counts bytes. A [slice](../language/04-expressions/slices.md)

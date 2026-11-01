@@ -139,13 +139,17 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
         case _:
             print("repr other")?
     match f"{[Bad(1)]?}":
-        case Err(FormatError.InvalidSpec):
-            print("field invalid")?
+        case Err(error):
+            match error:
+                case cause: FormatError:
+                    print("field invalid", cause == FormatError.InvalidSpec)?
+                case _:
+                    print("field alloc")?
         case _:
             print("field other")?
     Ok(())
 "#),
-        "invalid\nrepr True\nfield invalid"
+        "invalid\nrepr True\nfield invalid True"
     );
 }
 

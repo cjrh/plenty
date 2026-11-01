@@ -30,12 +30,12 @@ pub enum Route:
     Hello
 
 pub class Greeter:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | FormatError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.http.HttpError | AllocError]:
         name = exchange.params[0]
         exchange.send_text(200, &f"hello, {name}"?)?
         Ok(())
 
-type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type VisitError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     with stop.cancel_on_exit():

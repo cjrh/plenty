@@ -1018,9 +1018,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         match format {
-            Format::Literal(template, values) => {
-                self.format_literal(template, values, None, at, ops)
-            }
+            Format::Literal(template, values) => self.format_string(template, values, at, ops),
             Format::Field(template, index, values) => {
                 let Piece::Field(field) = template
                     .pieces
@@ -1035,6 +1033,76 @@ impl Lower<'_> {
                 self.expr(&write, ops)
             }
         }
+    }
+
+    /// `f"..."` as a `str`: `Result[str, AllocError]` when only allocation
+    /// can fail, otherwise `Result[str, AllocError | FormatError]` (B92).
+    /// The generated function returns `FormatError`; a `std.fmt` conversion
+    /// gives the narrower type once the fields' concrete types are known.
+    fn format_string(
+        &mut self,
+        template: &Arc<Template>,
+        values: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let start = self.locals.len();
+        let call_start = ops.len();
+        let built = self.format_literal(template, values, None, at, ops)?;
+        let callee = ops[call_start..]
+            .iter()
+            .rev()
+            .find_map(|op| match op {
+                Op::Call(callee) => Some(callee.clone()),
+                _ => None,
+            })
+            .expect("an f-string calls its generated function");
+        let inputs: Vec<Ty> = self.sigs[&callee]
+            .inputs
+            .iter()
+            .map(|(_, ty)| ty.clone())
+            .collect();
+        let convert = if self.format_can_fail(template, &inputs, at)? {
+            "allocation_or_format"
+        } else {
+            "allocation_only"
+        };
+        let built = built.expect("an f-string returns a Result");
+        let hidden = self.hide(built, at, ops)?;
+        let converted = self.expr(&call(at, &fmt(convert), vec![name(at, &hidden)]), ops);
+        self.names.remove(&hidden);
+        let converted = converted?;
+        self.cleanup(start, ops);
+        Ok(converted)
+    }
+
+    /// Whether an f-string with these generated parameter types can fail
+    /// other than by allocation: a field runs a user `display` or `debug`
+    /// method, a nested spec field can be invalid, or `c` can receive a
+    /// value that is not a scalar.
+    fn format_can_fail(&self, template: &Template, inputs: &[Ty], at: &Token) -> Result<bool> {
+        let mut parameters = inputs.iter();
+        for piece in &template.pieces {
+            let Piece::Field(field) = piece else {
+                continue;
+            };
+            let ty = parameters.next().expect("one parameter per field");
+            for _ in &field.nested {
+                parameters.next();
+            }
+            if !field.nested.is_empty()
+                || matches!(&field.spec, Some(FieldSpec::Static(spec)) if spec.kind == Some('c'))
+            {
+                return Ok(true);
+            }
+            let ty = referent(ty);
+            let ty = ty.nonzero_element().unwrap_or_else(|| ty.clone());
+            let top_display = matches!(field.conversion, Conversion::None | Conversion::Str);
+            if !self.hooked_types(&ty, top_display, at)?.is_empty() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// `out.format(f"...")` when `out` is a `std.fmt.Formatter` or a

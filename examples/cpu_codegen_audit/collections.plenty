@@ -1,6 +1,4 @@
 # CPU-bound string-key workload adapted from examples/collection_bench.py.
-import std.fmt
-
 def lookup(xs: &dict[str, i64], keys: &list[str], count: i64) -> i64:
     mut total = 0
     mut i = 0
@@ -10,7 +8,7 @@ def lookup(xs: &dict[str, i64], keys: &list[str], count: i64) -> i64:
         i = i + 1
     total
 
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     keys = [f"application.configuration.worker.http.client.header.request.name.{i}"? for i in range(2048)]?
     xs = {keys[i]: i for i in range(1024)}?
     print(lookup(&xs, &keys, 400000))?

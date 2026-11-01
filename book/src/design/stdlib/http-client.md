@@ -36,7 +36,7 @@ pub class Echoer:
         exchange.read_all(&mut body)?
         exchange.send(200, "text/plain", &body)
 
-type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | ClientError | RangeError
+type VisitError = AllocError | IoError | std.bytes.BytesError | ClientError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     with stop.cancel_on_exit():
