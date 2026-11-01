@@ -17,7 +17,7 @@ def main() -> Result[(), IoError | RangeError | std.bytes.BytesError | std.io.Bi
     # Check that a payload size fits its wire field before converting it.
     packet.write_u32(u32.try_from(len(payload))?, Endian.Big)?
     packet.write_f32(1.5f32, Endian.Big)?
-    packet.write_bytes(payload, 64)?
+    packet.write_bytes(&payload, 64)?
     drop(packet.seek(SeekFrom.Start(0))?)
 
     version = packet.read_u8()?
@@ -30,7 +30,7 @@ def main() -> Result[(), IoError | RangeError | std.bytes.BytesError | std.io.Bi
     Ok(())
 ```
 ```output
-1 1.5 14
+1 1.5 hello 14
 ```
 
 The checked `u32` conversion propagates `RangeError` if a payload length cannot
