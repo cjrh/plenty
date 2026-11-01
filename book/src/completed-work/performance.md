@@ -32,7 +32,7 @@ only to the [backlog](../backlog.md).
   string-offset cleanup plans shipped (issue #550, local PR #669).
   Class components of tuples/multifield variants are flat; single-field
   Option/Result payloads keep the address layout (issue #551, local PR #670).
-  See [flat-layout evidence](../proposals/flat-class-layout.md).
+  See [flat-layout evidence](../proposals/completed/flat-class-layout.md).
 - Release builds inline small constructors/`__init__`/`new`, avoid release of
   fields initialized first and omit provably zero releases
   (issues #548/#549, local PRs #665/#667).

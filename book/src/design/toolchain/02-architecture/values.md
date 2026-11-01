@@ -23,7 +23,7 @@ carries the field's layout under the class's name, so formatting still prints
 `Wrap(x=1)` and columnar lists still see one column. A one-field class with
 `__del__` needs the cleanup state word and keeps the record layout, as do
 classes with two or more fields. The
-[flat class layout proposal](../../../proposals/flat-class-layout.md) records
+[flat class layout proposal](../../../proposals/completed/flat-class-layout.md) records
 why the record holds an address and the layout contract C interop depends on.
 
 A field whose type is a class with a record (after looking through one-field

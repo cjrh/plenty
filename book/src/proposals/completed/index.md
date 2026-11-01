@@ -13,6 +13,7 @@ designs and the policy for moving completed proposals.
 | --- | --- | --- |
 | [Fluent iterator pipelines](fluent-iterators.md) | [Pipelines](../../design/language/09-iteration/06-pipelines.md) | B75 extensions; related B12, B22, B24 |
 | [Owned response experiment](typestate-response-experiment.md) | [Field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) | B72: real HTTP integration remains unexplored |
+| [Flat class layout](flat-class-layout.md) | [Value representations](../../design/toolchain/02-architecture/values.md), [memory](../../design/toolchain/02-architecture/memory.md) | B19 performance extensions; related B35 |
 | [Runtime allocation audit](allocation-audit.md) | [Allocation and traps](../../design/language/08-errors/02-allocation-and-traps.md) | B13 |
 | [References, ownership, and explicit copying](references-and-copying.md) | [Ownership](../../design/language/05-ownership/index.md) | B11 |
 | [One immutable `str` with explicit lengths](strings.md) | [Text](../../design/facilities/01-builtins/text.md) | B12, B27 |
