@@ -1,6 +1,6 @@
 # Three disjoint blocks, graph peeling, then reverse fingerprint assignment.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.sketch import SketchError, hash_u64
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
@@ -12,16 +12,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
 
 # Offsets into sketch buffers are computed here, so only allocation can fail;
 # another byte error is a bug in this module and traps.
-def stored[T](result: Result[T, BytesError]) -> Result[T, SketchError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(SketchError.Allocation(cause))
-        case Err(error):
-            unexpected: Result[SketchError, BytesError] = Err(error)
-            Err(unexpected.unwrap())
-
 const key_limit: i64 = 1 << 24
 
 def positions(hash: u64, block: i64) -> (i64, i64, i64):

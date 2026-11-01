@@ -4,7 +4,7 @@ from std.sync import CancellationToken
 # request, draining pipes without deadlock, decoding the status and deciding
 # when to reap are checked Plenty; the runtime spawns, waits, signals and
 # polls. See book/src/design/stdlib/process.md.
-from std.bytes import Bytes, BytesError, with_capacity, write_file
+from std.bytes import Bytes, with_capacity, write_file
 from std.env import valid_name
 from std.io import StreamError, classify
 from std.path import Path
@@ -228,17 +228,6 @@ def closed_end(end: Option[File]) -> Result[(), IoError]:
             owned.close()
         case Nothing:
             Ok(())
-
-def stored(result: Result[(), BytesError]) -> Result[(), StreamError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(StreamError.Allocation(cause))
-                case _:
-                    Err(StreamError.OutOfRange)
 
 def failed[T](result: Result[T, IoError]) -> Result[T, StreamError]:
     match result:

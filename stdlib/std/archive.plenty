@@ -7,7 +7,7 @@ import std.compress
 import std.fs
 import std.io
 import std.path
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.compress import CompressError, Format, Inflater
 from std.fs import FsError, Root, TempDir
 from std.io import SeekFrom, StreamError
@@ -98,20 +98,6 @@ const directory_bits: i64 = 16384
 const symlink_bits: i64 = 40960
 
 # Error conversion
-
-def bytes_failure(error: BytesError) -> ArchiveError:
-    match error:
-        case BytesError.Allocation(cause):
-            ArchiveError.Allocation(cause)
-        case _:
-            ArchiveError.Corrupt
-
-def held[T](result: Result[T, BytesError]) -> Result[T, ArchiveError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            Err(bytes_failure(error))
 
 def owned[T](result: Result[T, AllocError]) -> Result[T, ArchiveError]:
     match result:

@@ -486,15 +486,6 @@ def owns_watch(mine: &Option[Watch], watch: &Watch) -> bool:
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))
 
-def lifted[T](result: Result[T, BytesError]) -> Result[T, NetError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(error)):
-            Err(NetError.Stream(StreamError.Allocation(error)))
-        case Err(_):
-            Err(invalid())
-
 # A connection over `stream` with buffers sized by `limits`, allocated in
 # the current heap. Call `start` from the owning actor.
 pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]:

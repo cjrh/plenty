@@ -136,7 +136,6 @@ when growth fails, contents and length remain unchanged and the error is
 
 ```text
 pub enum EncodingError:
-    OutOfRange
     InvalidLength
     InvalidByte(i64)
     InvalidPadding(i64)
@@ -149,7 +148,6 @@ pub enum EncodingError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | Appending a field would overflow the buffer length |
 | `InvalidLength` | The encoded length is impossible for the codec |
 | `InvalidByte(index)` | The byte at `index` is outside the alphabet |
 | `InvalidPadding(index)` | A configured padding byte at `index` where the codec does not accept it |

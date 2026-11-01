@@ -128,8 +128,8 @@ def bytes_fault(error: BytesError) -> MarkdownFault:
             MarkdownFault.Allocation(cause)
         case BytesError.InvalidUtf8:
             MarkdownFault.InvalidUtf8
-        case BytesError.OutOfRange:
-            MarkdownFault.InvalidState
+        case _:
+            __trap("byte text conversion: unexpected range error")
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, MarkdownFault]:
     std.error.map_error(result, def once (cause: AllocError) -> MarkdownFault: MarkdownFault.Allocation(cause))

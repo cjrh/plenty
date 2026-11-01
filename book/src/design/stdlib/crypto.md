@@ -106,7 +106,6 @@ Both are [redacted](../language/03-types/classes.md#redacted-types): printing on
 
 ```text
 pub enum CryptoError:
-    OutOfRange
     Finished
     InvalidKeyLength
     UnsupportedAlgorithm
@@ -115,7 +114,6 @@ pub enum CryptoError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | Reserved by existing error adapters; output offsets trap |
 | `Finished` | The state has already produced its output |
 | `InvalidKeyLength` | A BLAKE3 key does not contain exactly 32 bytes |
 | `UnsupportedAlgorithm` | `hmac` was called with `Algorithm.Blake3`; use native keyed BLAKE3 |

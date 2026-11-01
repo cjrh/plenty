@@ -11,7 +11,6 @@ const max_port: i64 = i64(u16.MAX)
 pub enum UrlError:
     InvalidLimit
     LimitExceeded
-    OutOfRange
     MissingScheme
     MissingHost
     InvalidByte(i64)
@@ -319,8 +318,8 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:
                     Err(UrlError.Allocation(cause))
                 case BytesError.InvalidUtf8:
                     Err(UrlError.InvalidUtf8)
-                case BytesError.OutOfRange:
-                    Err(UrlError.OutOfRange)
+                case _:
+                    __trap("byte text conversion: unexpected range error")
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
     match result:

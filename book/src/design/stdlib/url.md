@@ -157,7 +157,6 @@ same; `query_text` always writes the `=`. The empty query has no pairs.
 pub enum UrlError:
     InvalidLimit
     LimitExceeded
-    OutOfRange
     MissingScheme
     MissingHost
     InvalidByte(i64)
@@ -172,7 +171,6 @@ pub enum UrlError:
 |---|---|
 | `InvalidLimit` | `max_bytes` is negative |
 | `LimitExceeded` | The text is longer than `max_bytes` |
-| `OutOfRange` | A byte range lies outside its buffer |
 | `MissingScheme` | No scheme and `:` before the first `/`, `?`, or `#` |
 | `MissingHost` | `to_string` was given userinfo or a port without a host |
 | `InvalidByte(index)` | The byte at `index` is not allowed where it appears |

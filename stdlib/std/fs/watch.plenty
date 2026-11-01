@@ -3,7 +3,7 @@
 import std.bytes
 import std.path
 import std.ready
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.path import Path
 from std.ready import Interest, Selector, WaitError
 from std.sync import CancellationToken
@@ -29,15 +29,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, WatchError]:
             Ok(value)
         case Err(error):
             Err(WatchError.Allocation(error))
-
-def buffered[T](result: Result[T, BytesError]) -> Result[T, WatchError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(error)):
-            Err(WatchError.Allocation(error))
-        case Err(_):
-            Err(WatchError.OutOfRange)
 
 if const target.endian != "little":
     assert False, "std.fs.watch decodes inotify_event fields as little-endian"

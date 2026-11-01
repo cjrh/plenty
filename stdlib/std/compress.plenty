@@ -3,7 +3,7 @@
 # buffering, the output limit and the trailing-data policy. See
 # book/src/design/stdlib/compress.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.io import StreamError
 
 def compress_error_allocated[T](result: Result[T, AllocError]) -> Result[T, CompressError]:
@@ -50,17 +50,6 @@ def kind(format: Format, decoding: bool) -> u8:
             return 8u8
         return base + 3u8
     base
-
-def reported[T](result: Result[T, BytesError]) -> Result[T, CompressError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(CompressError.Allocation(cause))
-                case _:
-                    Err(CompressError.OutOfRange)
 
 # A codec state: a `Bytes` whose bytes are the codec's pending output, which a
 # step never grows past the capacity reserved here. A zero capacity leaves no

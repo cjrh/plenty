@@ -5,7 +5,7 @@
 import std.bytes
 import std.compress
 import std.io
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.compress import CompressError
 from std.io import StreamError
 
@@ -220,17 +220,6 @@ pub def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) ->
     if pixels.len() != total:
         return Err(ImageError.OutOfRange)
     Ok(Image(width, height, color, pixels))
-
-def held[T](result: Result[T, BytesError]) -> Result[T, ImageError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(ImageError.Allocation(cause))
-                case _:
-                    Err(ImageError.OutOfRange)
 
 def listed[T](result: Result[T, AllocError]) -> Result[T, ImageError]:
     match result:

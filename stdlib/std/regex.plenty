@@ -4,7 +4,7 @@
 # nesting, repetition counts, program size, matcher memory, and matcher work
 # are bounded by `Limits`. See book/src/design/stdlib/regex.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
 pub enum Limit:
     PatternBytes

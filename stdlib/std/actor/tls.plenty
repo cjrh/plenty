@@ -6,7 +6,7 @@
 import std.bytes
 from std.actor import Context, Mail, TimerError
 from std.actor.net import Connection, Events
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.io import StreamError
 from std.net import NetError
 from std.time import Duration
@@ -332,15 +332,6 @@ def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
 
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))
-
-def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(TlsError.Allocation(cause))
-        case Err(_):
-            Err(TlsError.Net(invalid()))
 
 def net_only[T](result: Result[T, NetError]) -> Result[T, TlsError]:
     match result:

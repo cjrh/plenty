@@ -21,7 +21,7 @@ import std.net
 import std.text
 import std.time
 import std.url
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.http import Header, HttpError, Limits, RequestHead, ResponseHead
 from std.http.typed import Body, FramingError
 from std.io import Reader, StreamError
@@ -340,17 +340,6 @@ pub class Fetched:
 
 def alloc[T](result: Result[T, AllocError]) -> Result[T, ClientError]:
     std.error.map_error(result, def once (cause: AllocError) -> ClientError: ClientError.Allocation(cause))
-
-def bytes_of[T](result: Result[T, BytesError]) -> Result[T, ClientError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(ClientError.Allocation(cause))
-                case _:
-                    Err(ClientError.Http(HttpError.Stream(StreamError.OutOfRange)))
 
 def http_of(error: HttpError) -> ClientError:
     match error:

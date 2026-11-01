@@ -226,7 +226,6 @@ written, or read when the call failed, and `line` and `column` are 0.
 | `InputTooLarge`, `OutputTooLarge` | A size limit was reached |
 | `NotATable` | `encode` was given a root that is not a table |
 | `InvalidLimits` | `Limits` outside the valid ranges |
-| `OutOfRange` | An internal range check failed; not expected |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |
 | `Allocation(AllocError)` | Memory was refused |
 

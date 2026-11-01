@@ -6,7 +6,7 @@ import std.bytes
 import std.env
 import std.fs
 import std.random
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.fs import FsError, Root, TempDir
 from std.io import StreamError
 from std.path import Path, from_text
@@ -334,15 +334,6 @@ pub class FakeStream:
 
     pub def flush(self: &mut FakeStream) -> Result[(), StreamError]:
         self.begin()
-
-def stream_bytes(result: Result[(), BytesError]) -> Result[(), StreamError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(BytesError.Allocation(cause)):
-            Err(StreamError.Allocation(cause))
-        case Err(_):
-            Err(StreamError.OutOfRange)
 
 # Reads return `input`; nothing is limited or failing until asked.
 pub def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]:

@@ -4,7 +4,7 @@
 # validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.fmt import Formatter, FormatError
 
 def crypto_error_allocated[T](result: Result[T, AllocError]) -> Result[T, CryptoError]:
@@ -22,7 +22,6 @@ def advanced_error_allocated[T](result: Result[T, AllocError]) -> Result[T, Adva
             Err(AdvancedError.Allocation(cause))
 
 pub enum CryptoError:
-    OutOfRange
     Finished
     InvalidKeyLength
     UnsupportedAlgorithm
@@ -67,17 +66,6 @@ def kind(algorithm: Algorithm, keyed: bool) -> u8:
             5u8
         case Algorithm.Blake3:
             7u8
-
-def reported[T](result: Result[T, BytesError]) -> Result[T, CryptoError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(CryptoError.Allocation(cause))
-                case _:
-                    Err(CryptoError.OutOfRange)
 
 # A hasher state behind a `Bytes` that byte operations see as empty. The
 # native operations on it return false (or -1) once it has finished.
@@ -284,17 +272,6 @@ pub enum AdvancedError:
 pub enum AeadAlgorithm:
     Aes256Gcm
     ChaCha20Poly1305
-
-def advanced_bytes[T](result: Result[T, BytesError]) -> Result[T, AdvancedError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(AdvancedError.Allocation(cause))
-                case _:
-                    Err(AdvancedError.InvalidLength)
 
 # A runtime key state behind a `Bytes` that byte operations see as empty.
 def advanced_state(result: Result[ByteStorage, AllocError]) -> Result[Bytes, AdvancedError]:

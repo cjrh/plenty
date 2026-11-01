@@ -1,7 +1,7 @@
 # Four fingerprints per bucket. Layers double geometrically; each has its own
 # bucket mask. Failed eviction chains roll back before growth or an error.
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.sketch import SketchError, hash_u64
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
@@ -13,16 +13,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
 
 # Offsets into sketch buffers are computed here, so only allocation can fail;
 # another byte error is a bug in this module and traps.
-def stored[T](result: Result[T, BytesError]) -> Result[T, SketchError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(SketchError.Allocation(cause))
-        case Err(error):
-            unexpected: Result[SketchError, BytesError] = Err(error)
-            Err(unexpected.unwrap())
-
 const initial_limit: i64 = 1 << 20
 const bucket_limit: i64 = 1 << 24
 # Layer sizes double from at least one bucket and their total stays within

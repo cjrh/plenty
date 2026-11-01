@@ -4,7 +4,7 @@
 import std.bytes
 import std.http
 import std.io
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.http import Framing, Header, HttpError, Limits, RequestHead, RequestTarget
 from std.io import StreamError
 
@@ -256,15 +256,6 @@ pub def decoder(limits: &Limits) -> Result[Decoder, HttpError]:
         return Err(HttpError.InvalidLimit)
     owned = Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
     Ok(Decoder(owned, head, allocated(std.bytes.empty())?, allocated(std.bytes.empty())?, False, False, 0, 0, 0))
-
-def mapped_bytes[T](result: Result[T, BytesError]) -> Result[T, HttpError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(cause)):
-            Err(HttpError.Allocation(cause))
-        case Err(_):
-            Err(HttpError.Stream(StreamError.OutOfRange))
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, HttpError]:
     match result:
