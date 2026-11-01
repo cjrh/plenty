@@ -12,6 +12,11 @@ Caddy in Docker (see [Reverse proxies](#reverse-proxies)). The benchmark is
 `examples/http_server_bench.py`. Everything runs on loopback; only the proxy
 tests need a network, once, to pull their images.
 
+The [current side-by-side TLS comparison](actor-http-tls-comparison.md)
+records worker and actor throughput, handshake latency, idle RSS and trap recovery
+after actor TLS heap isolation and completion-credit changes. The original
+baselines on this page remain historical measurements of their recorded revision.
+
 ## Gates
 
 | Gate | Status | Evidence |
