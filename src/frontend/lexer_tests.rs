@@ -339,3 +339,49 @@ fn malformed_unicode_escapes_are_rejected() {
         assert_eq!(lex(source).unwrap_err(), error, "{source}");
     }
 }
+
+/// The reference's keyword list matches the parser's reserved words
+/// (issue #637). The section has two paragraphs made only of backticked
+/// words: keywords with a meaning, then words reserved only to be rejected.
+#[test]
+fn reference_keyword_list_matches_parser() {
+    let page = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/book/src/design/language/02-source/index.md"
+    );
+    let text = std::fs::read_to_string(page).unwrap();
+    let section = text
+        .split("\n## Keywords\n")
+        .nth(1)
+        .expect("Keywords section");
+    let section = section.split("\n## ").next().unwrap();
+    let lists: Vec<Vec<&str>> = section
+        .split("\n\n")
+        .map(|paragraph| paragraph.split([',', ' ', '\n']).filter(|w| !w.is_empty()))
+        .map(|words| words.collect::<Vec<_>>())
+        .filter(|words| {
+            words.iter().all(|w| {
+                w.len() > 2
+                    && w.starts_with('`')
+                    && w.ends_with('`')
+                    && !w[1..w.len() - 1].contains('`')
+            })
+        })
+        .map(|words| words.iter().map(|w| &w[1..w.len() - 1]).collect())
+        .collect();
+    let [meaningful, rejected] = lists.as_slice() else {
+        panic!("expected two keyword lists, found {lists:?}");
+    };
+    fn sorted<'a>(words: &[&'a str]) -> Vec<&'a str> {
+        let mut words = words.to_vec();
+        words.sort_unstable();
+        words
+    }
+    assert_eq!(sorted(rejected), sorted(super::REJECTED_KEYWORDS));
+    let mut all = meaningful.clone();
+    all.extend(rejected);
+    assert_eq!(sorted(&all), sorted(super::KEYWORDS));
+    for word in super::KEYWORDS {
+        assert!(super::reserved(word), "{word}");
+    }
+}

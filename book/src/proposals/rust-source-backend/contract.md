@@ -94,7 +94,7 @@ callbacks and destructor panics. Wrapping a whole generated function in
 is insufficient: cleanup may already have run before the catch, and aborting
 panics are not caught.
 
-Plenty also has [required direct recursive tail transfers](../../design/language/06-functions/05-tail-calls.md).
+Plenty also has [required direct recursive tail transfers](../../design/language/06-functions/06-tail-calls.md).
 An ordinary generated Rust call cannot be assumed to preserve that guarantee.
 Translate admitted self-tail recursion to a loop, use an explicit dispatch
 machine for supported mutual cycles, or reject the subset until implemented.

@@ -1,7 +1,7 @@
 # Visibility
 
-`pub` exposes top-level functions, aliases, classes, enums, protocols, and numeric
-constants. Other declarations are private to their module. Class fields and methods require their
+`pub` exposes top-level functions, aliases, classes, enums, protocols, and
+[constants](modules.md#constants). Other declarations are private to their module. Class fields and methods require their
 own `pub`; public enums expose every variant, but enum methods need their own `pub`.
 
 Generic functions check access in their **defining module**, including protocol
