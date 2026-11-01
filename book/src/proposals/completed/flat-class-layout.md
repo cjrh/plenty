@@ -4,8 +4,8 @@
 > class records), stage 3 (fewer runtime walks) and stage 4 (flat tuple and
 > variant payloads) implemented.** Issue #547 asked why a class
 > value is an address into its own storage, and whether classes could instead
-> be laid out flat inside their owner. [Values](../design/toolchain/02-architecture/values.md)
-> and [memory](../design/toolchain/02-architecture/memory.md) own the shipped
+> be laid out flat inside their owner. [Values](../../design/toolchain/02-architecture/values.md)
+> and [memory](../../design/toolchain/02-architecture/memory.md) own the shipped
 > contract; this page records the findings and the design.
 
 ## Why a class value holds an address

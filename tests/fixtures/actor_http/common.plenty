@@ -18,6 +18,7 @@ from std.thread import spawn
 const capacity: i64 = 32
 const heap_limit: i64 = 1048576
 const timeout_ms: u32 = 1000u32
+const response_timeout_ms: u32 = 5000u32
 const factory_fails: bool = False
 const secure: bool = False
 const signal_stop: bool = False
@@ -57,7 +58,7 @@ def main() -> ():
     config.head_timeout = std.time.milliseconds(timeout_ms)
     config.body_timeout = std.time.milliseconds(timeout_ms)
     config.write_timeout = std.time.milliseconds(timeout_ms)
-    config.response_timeout = std.time.seconds(5u32)
+    config.response_timeout = std.time.milliseconds(response_timeout_ms)
     config.handshake_timeout = std.time.milliseconds(timeout_ms)
     config.drain_timeout = std.time.seconds(2u32)
     stop = CancellationToken().unwrap()
