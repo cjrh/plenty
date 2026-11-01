@@ -589,7 +589,7 @@ def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     buffer.extend(&tail[-2:])?
     buffer.extend(b"!")?
     buffer.extend(&tail[5:9])?
-    print(buffer, buffer.matches(1, &xs)?, buffer.find_bytes(&tail[1:], 0, buffer.len())?)?
+    print(buffer, buffer.matches(1, &xs), buffer.find_bytes(&tail[1:], 0, buffer.len()))?
     Ok(())
 "#,
     );

@@ -693,7 +693,7 @@ class Decoder:
                 self.stride = 1 + self.scan.row_bytes(self.columns)
                 self.row = 0
                 self.filled = 0
-                held(self.lines.fill(self.previous, self.previous + self.stride, 0u8))?
+                self.lines.fill(self.previous, self.previous + self.stride, 0u8)
                 return Ok(())
             self.stage += 1
         Ok(())
@@ -707,7 +707,7 @@ class Decoder:
             mut count = self.stride - self.filled
             if count > total - at:
                 count = total - at
-            held(self.lines.overwrite(self.current + self.filled, &source[at:at + count]))?
+            self.lines.overwrite(self.current + self.filled, &source[at:at + count])
             self.filled += count
             at += count
             if self.filled == self.stride:
@@ -769,7 +769,7 @@ class Decoder:
                     entry = sample(line, at, k, depth)
                     if entry >= scan.entries:
                         return Err(ImageError.Corrupt)
-                    held(self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels]))?
+                    self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels])
                     to += step
             case 4:
                 for k in range(0, self.columns):
@@ -952,7 +952,7 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
         at = y * count
         mut best = 0
         if level == 0:
-            held(rows.overwrite(1, &pixels[at:at + count]))?
+            rows.overwrite(1, &pixels[at:at + count])
         elif y == 0:
             best = filtered(&mut rows, pixels, at, &zero, 0, count, step)
         else:

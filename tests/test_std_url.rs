@@ -103,7 +103,7 @@ fn parse_all(inputs: &[String]) -> Vec<String> {
 blob = std.encoding.hex_from_text("{blob}")?
 mut start = 0
 while start < blob.len():
-    stop = blob.find(255u8, start, blob.len())?.unwrap()
+    stop = blob.find(255u8, start, blob.len()).unwrap()
     text = blob.slice(start, stop)?.to_text()?
     show(&text, 4096)?
     start = stop + 1
@@ -1033,7 +1033,7 @@ fn arbitrary_text_never_traps_the_parser_or_decoder() {
 blob = std.encoding.hex_from_text("{blob}")?
 mut start = 0
 while start < blob.len():
-    stop = blob.find(255u8, start, blob.len())?.unwrap()
+    stop = blob.find(255u8, start, blob.len()).unwrap()
     match std.url.decode_bytes(&blob[start:stop]):
         case Ok(decoded):
             coded = std.url.encode_bytes(&decoded, Component.QueryPart)?

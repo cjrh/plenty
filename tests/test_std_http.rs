@@ -191,7 +191,7 @@ fn each(helper: &str, inputs: &[&[u8]]) -> Vec<String> {
 blob = std.encoding.hex_from_text("{blob}")?
 mut start = 0
 while start < blob.len():
-    stop = blob.find(255u8, start, blob.len())?.unwrap()
+    stop = blob.find(255u8, start, blob.len()).unwrap()
     print("--")?
     shown({helper}(blob.slice(start, stop)?, &std.http.limits()))?
     start = stop + 1

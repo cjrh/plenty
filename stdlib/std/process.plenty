@@ -283,12 +283,12 @@ def drained(file: &mut File, out: &mut Bytes, limit: i64) -> Result[bool, Stream
     stream_error_allocated(out.resize(before + wanted, 0u8))?
     match out.read_file(file, before, before + wanted):
         case Ok(count):
-            stored(out.truncate(before + count))?
+            out.truncate(before + count)
             if before + count > limit:
                 return Err(StreamError.OutOfRange)
             Ok(count == 0)
         case Err(error):
-            stored(out.truncate(before))?
+            out.truncate(before)
             cause = classify(error)
             if interrupted(&cause):
                 return Ok(False)

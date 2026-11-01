@@ -195,14 +195,14 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Re
         match outcome:
             case Ok(count):
                 if count < 0 or count > step:
-                    drop(out.truncate(filled))
+                    out.truncate(filled)
                     return Err(Partial(total, StreamError.InvalidProgress))
-                drop(out.truncate(filled + count))
+                out.truncate(filled + count)
                 if count == 0:
                     return Ok(total)
                 total += count
             case Err(cause):
-                drop(out.truncate(filled))
+                out.truncate(filled)
                 if not interrupted(&cause):
                     return Err(Partial(total, cause))
     Ok(total)
@@ -269,7 +269,7 @@ pub class BufReader[R]:
         mut count = stop - start
         if count > self._stop - self._start:
             count = self._stop - self._start
-        bytes_result(buffer.overwrite(start, &self._buffer[self._start:self._start + count]))?
+        buffer.overwrite(start, &self._buffer[self._start:self._start + count])
         self._start += count
         Ok(count)
 
@@ -296,15 +296,11 @@ pub class BufReader[R]:
                     stop = self._start + (limit - total)
                 mut found = False
                 match self._buffer.find(delimiter, self._start, stop):
-                    case Ok(position):
-                        match position:
-                            case Some(index):
-                                stop = index + 1
-                                found = True
-                            case Nothing:
-                                pass
-                    case Err(_):
-                        return Err(StreamError.OutOfRange)
+                    case Some(index):
+                        stop = index + 1
+                        found = True
+                    case Nothing:
+                        pass
                 stream_error_allocated(out.extend(&self._buffer[self._start:stop]))?
                 total += stop - self._start
                 self._start = stop
@@ -432,7 +428,7 @@ pub class Cursor:
         mut count = stop - start
         if count > size - self._position:
             count = size - self._position
-        bytes_result(buffer.overwrite(start, &self.data[self._position:self._position + count]))?
+        buffer.overwrite(start, &self.data[self._position:self._position + count])
         self._position += count
         Ok(count)
 
@@ -449,7 +445,7 @@ pub class Cursor:
             inside = count
         # Reserving first means a failed write changes nothing but the gap.
         stream_error_allocated(self.data.reserve(count - inside))?
-        bytes_result(self.data.overwrite(self._position, &source[:inside]))?
+        self.data.overwrite(self._position, &source[:inside])
         stream_error_allocated(self.data.extend(&source[inside:]))?
         self._position = end
         Ok(count)

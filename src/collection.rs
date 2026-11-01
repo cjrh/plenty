@@ -187,6 +187,9 @@ pub enum CollectionOp {
     /// Std only: writes the nearest non-std caller's `file:line:column: `
     /// to standard error; false when there is none.
     CallerLocation,
+    /// Std only: `__trap(message)` reports `message` at the call's site, like
+    /// any run-time trap, and exits. Never returns.
+    Trap,
     /// Std only: `(kind, count, code)` arms or, with a negative count,
     /// disarms failure injection. False outside `plenty test` builds.
     TestFault,
@@ -569,6 +572,7 @@ impl CollectionOp {
                 (vec![], crate::sum::result(Ty::Unit, crate::sum::io_error()))
             }
             CallerLocation => (vec![], Ty::Bool),
+            Trap => (vec![Ty::Str], Ty::Unit),
             IsTerminal => (vec![Ty::U8], Ty::Bool),
             TestFault => (vec![Ty::I64, Ty::I64, Ty::I32], Ty::Bool),
             ActorHeap => (vec![Ty::I64, Ty::I64], Ty::I64),
@@ -896,7 +900,7 @@ impl CollectionOp {
             Self::Net(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
-            Self::CallerLocation | Self::TestFault | Self::ActorHeap => {
+            Self::CallerLocation | Self::Trap | Self::TestFault | Self::ActorHeap => {
                 unreachable!("lowered to direct calls, not the collection dispatcher")
             }
             Self::WriteStderr => 82,

@@ -433,32 +433,32 @@ enum BytesError
 class Bytes
     def len(self) -> i64
     def is_empty(self) -> bool
-    def write_float(self: &mut Bytes, value: f64) -> Result[i64, BytesError]
-    def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]
+    def write_float(self: &mut Bytes, value: f64) -> i64
+    def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> i64
     def capacity(self) -> i64
-    def get(self, index: i64) -> Result[u8, BytesError]
-    def set(self: &mut Bytes, index: i64, value: u8) -> Result[(), BytesError]
+    def get(self, index: i64) -> u8
+    def set(self: &mut Bytes, index: i64, value: u8) -> ()
     def push(self: &mut Bytes, value: u8) -> Result[(), AllocError]
     def pop(self: &mut Bytes) -> Option[u8]
     def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]
     def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), AllocError]
-    def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]
+    def truncate(self: &mut Bytes, count: i64) -> ()
     def clear(self: &mut Bytes) -> ()
-    def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]
+    def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> ()
     def extend(self: &mut Bytes, source: &[u8]) -> Result[(), AllocError]
-    def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]
-    def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]
-    def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]
+    def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> ()
+    def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> ()
+    def slice(self, start: i64, stop: i64) -> Result[Bytes, AllocError]
     def copy(self) -> Result[Bytes, AllocError]
-    def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]
-    def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]
-    def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]
-    def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
-    def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
+    def find(self, value: u8, start: i64, stop: i64) -> Option[i64]
+    def find_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]
+    def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]
+    def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Option[i64]
+    def count(self, value: u8, start: i64, stop: i64) -> i64
+    def matches(self, offset: i64, source: &[u8]) -> bool
+    def matches_text(self, offset: i64, text: &str) -> bool
+    def ascii_run(self, start: i64, stop: i64) -> i64
+    def utf8_run(self, start: i64, stop: i64) -> i64
     def to_list(self) -> Result[list[u8], AllocError]
     def to_text(self) -> Result[str, BytesError]
     def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
@@ -2760,7 +2760,7 @@ Caller-owned seeded generators with unbiased ranges, shuffling, and index sampli
 
 ```text
 enum RandomError
-    EmptyRange | OutOfRange | ZeroState | Allocation(AllocError)
+    EmptyRange | ZeroState
 class Rng
     def next_u64(self: &mut Rng) -> u64
     def next_u32(self: &mut Rng) -> u32
@@ -2770,8 +2770,8 @@ class Rng
     def between(self: &mut Rng, low: i64, high: i64) -> Result[i64, RandomError]
     def index(self: &mut Rng, count: i64) -> Result[i64, RandomError]
     def shuffle[T](self: &mut Rng, items: &mut list[T]) -> ()
-    def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], RandomError]
-    def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> Result[(), RandomError]
+    def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], AllocError]
+    def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> ()
     def state(self) -> (u64, u64, u64, u64)
 def seeded(seed: u64) -> Rng
 def from_state(a: u64, b: u64, c: u64, d: u64) -> Result[Rng, RandomError]

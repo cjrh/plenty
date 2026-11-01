@@ -96,17 +96,6 @@ def expected(dialect: &Dialect) -> i64:
             else:
                 count
 
-def allocated(result: Result[Bytes, BytesError]) -> Result[Bytes, CsvError]:
-    match result:
-        case Ok(buffer):
-            Ok(buffer)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(CsvError.Allocation(cause))
-                case _:
-                    Err(CsvError.OutOfRange)
-
 def listed[T](result: Result[T, AllocError]) -> Result[T, CsvError]:
     match result:
         case Ok(value):
@@ -123,35 +112,23 @@ def interrupted(cause: &StreamError) -> bool:
 
 # Callers pass an index they have already bounded.
 def at(buffer: &Bytes, index: i64) -> u8:
-    match buffer.get(index):
-        case Ok(value):
-            value
-        case Err(_):
-            0u8
+    buffer.get(index)
 
 # The first index in [start, stop) holding `value`, or `stop`. One native scan;
 # callers pass a range they have already bounded.
 def first(buffer: &Bytes, value: u8, start: i64, stop: i64) -> i64:
     match buffer.find(value, start, stop):
-        case Ok(found):
-            match found:
-                case Some(index):
-                    index
-                case Nothing:
-                    stop
-        case Err(_):
+        case Some(index):
+            index
+        case Nothing:
             stop
 
 # As `first`, for any byte of `set`.
 def first_in(buffer: &Bytes, set: &Bytes, start: i64, stop: i64) -> i64:
     match buffer.find_in(set, start, stop):
-        case Ok(found):
-            match found:
-                case Some(index):
-                    index
-                case Nothing:
-                    stop
-        case Err(_):
+        case Some(index):
+            index
+        case Nothing:
             stop
 
 # The bytes that end an unquoted field or force a written field to be quoted.
@@ -208,7 +185,7 @@ pub class Record:
         Ok(self._ends[index])
 
     pub def bytes(self, index: i64) -> Result[Bytes, CsvError]:
-        allocated(self._data.slice(self.start(index)?, self.stop(index)?))
+        listed(self._data.slice(self.start(index)?, self.stop(index)?))
 
     pub def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]:
         listed(out.extend(&self._data[self.start(index)?:self.stop(index)?]))
@@ -544,7 +521,7 @@ pub class Writer[W]:
                 self._content += len(source)
                 Ok(())
             case Err(cause):
-                drop(self._pending.truncate(held))
+                self._pending.truncate(held)
                 Err(cause)
 
     pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
@@ -562,7 +539,7 @@ pub class Writer[W]:
 
     # Discards the record in progress. Finished records are unaffected.
     pub def discard(self: &mut Writer[W]) -> ():
-        drop(self._pending.truncate(self._ready))
+        self._pending.truncate(self._ready)
         self._fields = 0
         self._content = 0
 
@@ -580,7 +557,7 @@ pub class Writer[W]:
             case Ok(_):
                 pass
             case Err(cause):
-                drop(self._pending.truncate(held))
+                self._pending.truncate(held)
                 return Err(cause)
         if self._expected == -1:
             self._expected = self._fields

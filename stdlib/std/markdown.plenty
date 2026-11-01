@@ -890,7 +890,7 @@ pub class Parser:
                 break
             start += used
         if start > 0:
-            rest = faulted(self._blocks[index].content.slice(start, self._blocks[index].content.len()))?
+            rest = reserved(self._blocks[index].content.slice(start, self._blocks[index].content.len()))?
             self._blocks[index].content = rest
         Ok(not is_blank(&self._blocks[index].content, 0))
 
@@ -907,7 +907,7 @@ pub class Parser:
         elif kind == k_html:
             size = self._blocks[index].content.len()
             if size > 0 and i64(self._blocks[index].content[size - 1]) == 10:
-                faulted(self._blocks[index].content.truncate(size - 1))?
+                self._blocks[index].content.truncate(size - 1)
         elif kind == k_list:
             self.finalize_list(index)
         elif kind == k_item:
@@ -931,7 +931,7 @@ pub class Parser:
                 last -= 1
             info = unescaped(&self._blocks[index].content, first, last, &mut self._scratch)?
             self._blocks[index].info = info
-            rest = faulted(self._blocks[index].content.slice(newline + 1, size))?
+            rest = reserved(self._blocks[index].content.slice(newline + 1, size))?
             self._blocks[index].content = rest
             return Ok(())
         # Trailing blank lines are not part of an indented block.
@@ -943,8 +943,8 @@ pub class Parser:
             if skip_spaces(&self._blocks[index].content, line_start, end - 1) != end - 1:
                 break
             end = line_start
-        lines = faulted(self._blocks[index].content.count(10u8, 0, end))?
-        faulted(self._blocks[index].content.truncate(end))?
+        lines = self._blocks[index].content.count(10u8, 0, end)
+        self._blocks[index].content.truncate(end)
         self._blocks[index].end_line = self._blocks[index].start_line + lines - 1
         Ok(())
 
@@ -1178,7 +1178,7 @@ pub class Parser:
             size = end - start
             mut fenced = size >= 3
             if fenced and c == 96:
-                found = faulted(self._text.find(96u8, end, stop))?
+                found = self._text.find(96u8, end, stop)
                 fenced = found.is_none()
             if fenced:
                 self.close_unmatched()?
@@ -1310,7 +1310,7 @@ pub class Parser:
         size = self._text.len()
         mut start = 0
         while start < size:
-            found = faulted(self._text.find(10u8, start, size))?
+            found = self._text.find(10u8, start, size)
             stop = found.unwrap_or(size)
             self.incorporate_line(start, stop)?
             start = stop + 1
@@ -2417,12 +2417,8 @@ pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> R
             kept = source._out.len() - partial.completed
             # Shifted in place: a failure path must not need memory.
             for index in range(kept):
-                match source._out.get(partial.completed + index):
-                    case Ok(byte):
-                        drop(source._out.set(index, byte))
-                    case Err(_):
-                        pass
-            drop(source._out.truncate(kept))
+                source._out.set(index, source._out.get(partial.completed + index))
+            source._out.truncate(kept)
             Err(MarkdownError(MarkdownFault.Stream(partial.cause), source._written, 0))
 
 def is_done(event: &Event) -> bool:

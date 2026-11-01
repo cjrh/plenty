@@ -34,18 +34,18 @@ import std.bytes
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\nHost: a\r\n\r\n")?
     crlf = std.bytes.from_text("\r\n")?
-    print(head.find_bytes(b"\r\n", 0, head.len())?, head.find_bytes(&crlf, 15, head.len())?)?
-    print(head.find_bytes(b"", 3, 9)?, head.find_bytes(b"\r\n\r\n", 0, head.len())?)?
-    print(head.find_in(b" :", 0, head.len())?, head.find_not_in(b"GET", 0, head.len())?)?
-    print(head.find_in(b"", 0, head.len())?)?
-    print(head.matches(0, b"GET")?, head.matches(0, &b"xGET"[1:4])?, head.matches(25, b"\r\n\r\n")?)?
+    print(head.find_bytes(b"\r\n", 0, head.len()), head.find_bytes(&crlf, 15, head.len()))?
+    print(head.find_bytes(b"", 3, 9), head.find_bytes(b"\r\n\r\n", 0, head.len()))?
+    print(head.find_in(b" :", 0, head.len()), head.find_not_in(b"GET", 0, head.len()))?
+    print(head.find_in(b"", 0, head.len()))?
+    print(head.matches(0, b"GET"), head.matches(0, &b"xGET"[1:4]), head.matches(25, b"\r\n\r\n"))?
     literal = b"\x00\xff"
     mut out = std.bytes.empty()?
     out.extend(&literal)?
     out.extend(b"abc")?
     out.extend(&b"abc"[1:3])?
     out.extend(&crlf)?
-    out.overwrite(2, &b"XYZ"[:2])?
+    out.overwrite(2, &b"XYZ"[:2])
     print(out)?
     Ok(())
 "#,
@@ -74,18 +74,14 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut out = std.bytes.from_text("abcd")?
     out.extend(&b"xy"[1:9])?
     out.extend(&b"xy"[-1:1])?
-    print(out, out.matches(0, &b"ab"[:3])?)?
-    print(str.repr(out.overwrite(4, b"xy"))?)?
-    print(str.repr(out.matches(6, b"ab"))?)?
-    print(out.matches(3, b"dy")?, out.len())?
+    print(out, out.matches(0, &b"ab"[:3]))?
+    print(out.matches(3, b"dy"), out.len())?
     Ok(())
 "#,
     );
     assert_eq!(
         printed,
         "b\"abcdy\" True\n\
-         Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
-         Result[bool, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\n\
          True 5\n"
     );
 }
@@ -413,13 +409,13 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Pa
     mut stdout = std.io.stdout()
     mut memory = std.io.cursor(std.bytes.with_capacity(64)?)
     print("__test_begin_no_allocations__")?
-    found = head.find_bytes(b"\r\n\r\n", 0, head.len())?
-    also = head.find_bytes(&crlf, 0, head.len())?
-    spaces = head.find_in(b" ", 0, head.len())?
-    same = head.matches(0, b"GET")?
+    found = head.find_bytes(b"\r\n\r\n", 0, head.len())
+    also = head.find_bytes(&crlf, 0, head.len())
+    spaces = head.find_in(b" ", 0, head.len())
+    same = head.matches(0, b"GET")
     out.extend(b"abc")?
     out.extend(&crlf[:2])?
-    head.overwrite(0, b"PUT")?
+    head.overwrite(0, b"PUT")
     std.io.write_all(&mut stdout, b"written\n")?
     std.io.write_all(&mut memory, b"memory")?
     sums = tally(b"\x01\x02") + tally(&crlf)

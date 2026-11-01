@@ -208,22 +208,22 @@ class Token:
         if self.pos == self.data.len():
             Nothing
         else:
-            Some(self.data.get(self.pos).unwrap())
+            Some(self.data.get(self.pos))
 
     def whitespace(self: &mut Token) -> bool:
         start = self.pos
-        while self.pos < self.data.len() and space(self.data.get(self.pos).unwrap()):
+        while self.pos < self.data.len() and space(self.data.get(self.pos)):
             self.pos += 1
         self.pos > start
 
     def name(self: &mut Token) -> Result[str, Fault]:
         start = self.pos
         while self.pos < self.data.len():
-            c = self.data.get(self.pos).unwrap()
+            c = self.data.get(self.pos)
             if space(c) or c == 61u8 or c == 47u8:
                 break
             self.pos += 1
-        name = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+        name = bytes_result(allocated(self.data.slice(start, self.pos))?.to_text())?
         check_name(name)?
         Ok(name)
 
@@ -256,7 +256,7 @@ class Token:
                 self.pos += 1
             if self.peek().is_none():
                 return Err(Fault.UnexpectedEnd)
-            raw = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+            raw = bytes_result(allocated(self.data.slice(start, self.pos))?.to_text())?
             value = unescape(raw, True)?
             self.pos += 1
             allocated(attributes.append(Attribute(name, value)))?
@@ -319,7 +319,7 @@ pub class Reader[R]:
                             continue
                         case _:
                             return Err(Fault.Stream(error))
-        Ok(Some(self._buffer.get(self._pos).unwrap()))
+        Ok(Some(self._buffer.get(self._pos)))
 
     def raw(self: &mut Reader[R]) -> Result[Option[u8], Fault]:
         value = self.peek()?
@@ -354,10 +354,10 @@ pub class Reader[R]:
             if out.len() >= ending.len():
                 mut matches = True
                 for index in range(ending.len()):
-                    if out.get(out.len() - ending.len() + index).unwrap() != ending.get(index).unwrap():
+                    if out.get(out.len() - ending.len() + index) != ending.get(index):
                         matches = False
                 if matches:
-                    return bytes_result(out.slice(0, out.len() - ending.len()))
+                    return allocated(out.slice(0, out.len() - ending.len()))
 
         Err(Fault.UnexpectedEnd)
 
@@ -422,7 +422,7 @@ pub class Reader[R]:
             separated = token.whitespace()
             if token.pos < token.data.len() and not separated:
                 return Err(Fault.Syntax)
-            value = bytes_result(bytes_result(token.data.slice(token.pos, token.data.len()))?.to_text())?
+            value = bytes_result(allocated(token.data.slice(token.pos, token.data.len()))?.to_text())?
             check_text(value)?
             return Ok(Event.ProcessingInstruction(target, value))
         mut data = allocated(std.bytes.empty())?

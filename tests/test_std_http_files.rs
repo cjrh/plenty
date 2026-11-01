@@ -36,7 +36,7 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -460,7 +460,7 @@ pub class Script:
             count = 7
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -656,7 +656,7 @@ def ask(port: u16, request: &str, marker: &str) -> str:
         at = out.len()
         out.resize(at + 64, 0u8).unwrap()
         count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
-        out.truncate(at + count).unwrap()
+        out.truncate(at + count)
     out.to_text().unwrap().replace("\r\n", "|").unwrap()
 
 def client(port: u16, cookie: str, stop: CancellationToken) -> ():

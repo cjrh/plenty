@@ -628,7 +628,7 @@ pub class TlsStream:
     # the peer's close_notify.
     pub def try_read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
         if start == stop:
-            stored(buffer.slice(start, stop))?
+            within(start, stop, buffer.len())?
             return Ok(Some(0))
         if not self.try_handshake()?:
             return Ok(Nothing)
@@ -675,7 +675,7 @@ pub class TlsStream:
     # Truncated, since an attacker can cut a connection short.
     pub def read_before(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
         if start == stop:
-            stored(buffer.slice(start, stop))?
+            within(start, stop, buffer.len())?
             return Ok(0)
         while True:
             count = counted(decrypted(&self._session, buffer, start, stop))?
@@ -731,7 +731,7 @@ pub class TlsStream:
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:
-            flowed(stored(buffer.slice(start, stop)))?
+            flowed(within(start, stop, buffer.len()))?
             return Ok(0)
         while True:
             count = flowed(counted(decrypted(&self._session, buffer, start, stop)))?

@@ -241,11 +241,11 @@ pub class Decoder:
         mut values: list[Header] = allocated(list[Header].new())?
         mut at = 0
         while at < self._section.len():
-            end = mapped_bytes(self._section.find(10u8, at, self._section.len()))?.ok_or(HttpError.Truncated)?
+            end = self._section.find(10u8, at, self._section.len()).ok_or(HttpError.Truncated)?
             size = end - at - 1
             if size == 0:
                 break
-            line = mapped_bytes(self._section.slice(at, end - 1))?
+            line = allocated(self._section.slice(at, end - 1))?
             allocated(values.append(std.http.parse_field(&line[:size])?))?
             at = end + 1
         self._section.clear()

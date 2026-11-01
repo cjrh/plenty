@@ -159,7 +159,7 @@ pub class Formatter[W]:
         Ok(())
 
     def byte(self: &mut Formatter[W], value: u8) -> Result[(), FormatError]:
-        stored(self.scratch_set(0, value))?
+        self.scratch_set(0, value)
         self.emit(1)
 
     pub def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
@@ -193,22 +193,22 @@ pub class Formatter[W]:
         for scalar in value:
             code = ord(scalar).unwrap()
             if code < 128u32:
-                stored(self.scratch_set(offset, u8(code)))?
+                self.scratch_set(offset, u8(code))
                 offset += 1
             elif code < 2048u32:
-                stored(self.scratch_set(offset, u8(192u32 + code // 64u32)))?
-                stored(self.scratch_set(offset + 1, u8(128u32 + code % 64u32)))?
+                self.scratch_set(offset, u8(192u32 + code // 64u32))
+                self.scratch_set(offset + 1, u8(128u32 + code % 64u32))
                 offset += 2
             elif code < 65536u32:
-                stored(self.scratch_set(offset, u8(224u32 + code // 4096u32)))?
-                stored(self.scratch_set(offset + 1, u8(128u32 + code // 64u32 % 64u32)))?
-                stored(self.scratch_set(offset + 2, u8(128u32 + code % 64u32)))?
+                self.scratch_set(offset, u8(224u32 + code // 4096u32))
+                self.scratch_set(offset + 1, u8(128u32 + code // 64u32 % 64u32))
+                self.scratch_set(offset + 2, u8(128u32 + code % 64u32))
                 offset += 3
             else:
-                stored(self.scratch_set(offset, u8(240u32 + code // 262144u32)))?
-                stored(self.scratch_set(offset + 1, u8(128u32 + code // 4096u32 % 64u32)))?
-                stored(self.scratch_set(offset + 2, u8(128u32 + code // 64u32 % 64u32)))?
-                stored(self.scratch_set(offset + 3, u8(128u32 + code % 64u32)))?
+                self.scratch_set(offset, u8(240u32 + code // 262144u32))
+                self.scratch_set(offset + 1, u8(128u32 + code // 4096u32 % 64u32))
+                self.scratch_set(offset + 2, u8(128u32 + code // 64u32 % 64u32))
+                self.scratch_set(offset + 3, u8(128u32 + code % 64u32))
                 offset += 4
             if self._destination != Destination.Collected:
                 self.emit(offset)?
@@ -233,7 +233,7 @@ pub class Formatter[W]:
         if width < 0:
             return Err(FormatError.InvalidSpec)
         self.ensure_scratch(32)?
-        size = stored(self.scratch_float(value))?
+        size = self.scratch_float(value)
         if size < 0:
             return Err(FormatError.InvalidSpec)
         mut padding = width - size
@@ -242,7 +242,7 @@ pub class Formatter[W]:
             padding -= 1
         # Padding reuses byte zero, so restore the spelling before emission.
         if width > size:
-            drop(stored(self.scratch_float(value))?)
+            drop(self.scratch_float(value))
         self.emit(size)
 
     # Numeric width includes a minus sign and counts ASCII bytes. Bases are
@@ -374,33 +374,35 @@ pub class Formatter[W]:
         self._scratch = Some(scratch)
         Ok(())
 
-    def scratch_set(self: &mut Formatter[W], at: i64, value: u8) -> Result[(), BytesError]:
+    # The scratch buffer is reserved before any spelling uses it, so Nothing
+    # here is a std defect.
+    def scratch_set(self: &mut Formatter[W], at: i64, value: u8) -> ():
         match &mut self._scratch:
             case Some(scratch):
                 scratch.set(at, value)
             case Nothing:
-                Err(BytesError.OutOfRange)
+                __trap("Formatter: scratch buffer used before it was reserved")
 
-    def scratch_get(self, at: i64) -> Result[u8, BytesError]:
+    def scratch_get(self, at: i64) -> u8:
         match &self._scratch:
             case Some(scratch):
                 scratch.get(at)
             case Nothing:
-                Err(BytesError.OutOfRange)
+                __trap("Formatter: scratch buffer used before it was reserved")
 
-    def scratch_float(self: &mut Formatter[W], value: f64) -> Result[i64, BytesError]:
+    def scratch_float(self: &mut Formatter[W], value: f64) -> i64:
         match &mut self._scratch:
             case Some(scratch):
                 scratch.write_float(value)
             case Nothing:
-                Err(BytesError.OutOfRange)
+                __trap("Formatter: scratch buffer used before it was reserved")
 
-    def scratch_float_spec(self: &mut Formatter[W], value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]:
+    def scratch_float_spec(self: &mut Formatter[W], value: f64, style: i64, precision: i64, offset: i64) -> i64:
         match &mut self._scratch:
             case Some(scratch):
                 scratch.write_float_spec(value, style, precision, offset)
             case Nothing:
-                Err(BytesError.OutOfRange)
+                __trap("Formatter: scratch buffer used before it was reserved")
 
     def repeat_fill(self: &mut Formatter[W], fill: &str, count: i64) -> Result[(), FormatError]:
         mut left = count
@@ -509,9 +511,9 @@ pub class Formatter[W]:
             at -= 1
             digit = u8(rest % radix)
             if digit >= 10u8:
-                stored(self.scratch_set(at, letters + digit))?
+                self.scratch_set(at, letters + digit)
             else:
-                stored(self.scratch_set(at, 48u8 + digit))?
+                self.scratch_set(at, 48u8 + digit)
             rest //= radix
         mut group = 3
         if base != 10:
@@ -557,19 +559,19 @@ pub class Formatter[W]:
         if spec.alternate:
             style += 16
         self.ensure_scratch(32)?
-        mut size = stored(self.scratch_float_spec(scaled, style, precision, SPELLING))?
+        mut size = self.scratch_float_spec(scaled, style, precision, SPELLING)
         if size < 0:
             self.ensure_scratch(-size)?
-            size = stored(self.scratch_float_spec(scaled, style, precision, SPELLING))?
+            size = self.scratch_float_spec(scaled, style, precision, SPELLING)
         end = SPELLING + size
         if kind == "E" or kind == "F" or kind == "G":
             mut at = SPELLING
             while at < end:
-                code = stored(self.scratch_get(at))?
+                code = self.scratch_get(at)
                 if code >= 97u8 and code <= 122u8:
-                    stored(self.scratch_set(at, code - 32u8))?
+                    self.scratch_set(at, code - 32u8)
                 at += 1
-        negative = stored(self.scratch_get(SPELLING))? == 45u8
+        negative = self.scratch_get(SPELLING) == 45u8
         mut start = SPELLING
         if negative:
             start += 1
@@ -581,7 +583,7 @@ pub class Formatter[W]:
             mut nonzero = False
             mut at = start
             while at < end:
-                code = stored(self.scratch_get(at))?
+                code = self.scratch_get(at)
                 if code == 101u8 or code == 69u8:
                     break
                 if code >= 48u8 and code <= 57u8:
@@ -592,7 +594,7 @@ pub class Formatter[W]:
             signed = digits == 0 or nonzero
         mut digits_end = start
         while digits_end < end:
-            code = stored(self.scratch_get(digits_end))?
+            code = self.scratch_get(digits_end)
             if code < 48u8 or code > 57u8:
                 break
             digits_end += 1
@@ -600,7 +602,7 @@ pub class Formatter[W]:
         if negative:
             mut at = SPELLING
             while at + 1 < end:
-                stored(self.scratch_set(at, stored(self.scratch_get(at + 1))?))?
+                self.scratch_set(at, self.scratch_get(at + 1))
                 at += 1
             return self.number(signed, "", digits_end - 1, end - 1, suffix, 3, spec)
         self.number(False, "", digits_end, end, suffix, 3, spec)

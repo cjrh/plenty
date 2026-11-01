@@ -99,7 +99,7 @@ def main() -> Result[(), IoError | AllocError | CompressedStreamError]:
         count = reader.read(&mut buffer, 0, 4096)?
         if count == 0:
             break
-        lines += buffer.count(10u8, 0, count)?
+        lines += buffer.count(10u8, 0, count)
     print(lines)?
     Ok(())
 ```
@@ -129,7 +129,7 @@ def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std
     data = std.bytes.from_text("checked at the end")?
     mut packed = std.compress.compress(Format.Gzip, &data, 6)?
     last = packed.len() - 1
-    packed.set(last, packed.get(last)? + 1u8)?
+    packed.set(last, packed.get(last) + 1u8)
     print(str.repr(std.compress.decompress(Format.Gzip, &packed, 100))?)?
     mut reader = std.compress.decompressor(Format.Gzip, std.io.cursor(packed), 100)?
     mut out = std.bytes.empty()?

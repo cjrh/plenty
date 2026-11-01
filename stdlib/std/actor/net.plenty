@@ -184,7 +184,7 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         count = self.make_room(len(source), at)
-        lifted(self._output.overwrite(self._output_stop, &source[:count]))?
+        self._output.overwrite(self._output_stop, &source[:count])
         self._output_stop += count
         mut events = no_events()
         self.flush(&mut events, at)?
@@ -243,7 +243,7 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         moved = self.make_room(count, at)
-        lifted(self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved]))?
+        self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved])
         self._output_stop += moved
         self._input_start += moved
         if self._input_start == self._input_stop:
@@ -462,7 +462,7 @@ pub class Connection:
 # trip through the buffer. Callers keep 0 <= start <= stop <= len, so the copy
 # cannot fail.
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
-    drop(buffer.copy_within(start, stop, 0))
+    buffer.copy_within(start, stop, 0)
 
 def watched[T](result: Result[T, WaitError]) -> Result[T, NetError]:
     match result:

@@ -58,7 +58,18 @@ fn native(body: &str, expected: &str) {
     );
 }
 
-const OUT_OF_RANGE: &str = "std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)";
+/// B92 phase 3: each `call` after `setup` stops the program with `message`,
+/// so an argument outside a range is a caller bug, not a value to handle.
+fn traps(setup: &str, calls: &[(&str, &str)]) {
+    for (call, message) in calls {
+        let (status, stderr) = failure(&program(&format!("{setup}\n{call}\n")));
+        assert_eq!(status, Some(1), "{call}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(": {message}\n")),
+            "{call}\n{stderr}"
+        );
+    }
+}
 
 #[test]
 fn buffers_grow_shrink_and_report_explicit_capacity() {
@@ -68,13 +79,13 @@ mut buffer = std.bytes.with_capacity(16)?
 print(buffer.len(), buffer.capacity(), buffer.is_empty())?
 for n in range(16):
     buffer.push(u8.try_from(n * 16)?)?
-print(buffer.len(), buffer.capacity(), buffer.get(15)?)?
+print(buffer.len(), buffer.capacity(), buffer.get(15))?
 buffer.push(255u8)?
 print(buffer.len(), buffer.capacity() >= 17)?
 print(buffer.pop(), buffer.pop())?
-buffer.truncate(2)?
+buffer.truncate(2)
 buffer.resize(4, 9u8)?
-buffer.set(0, 7u8)?
+buffer.set(0, 7u8)
 print(buffer.to_list()?)?
 buffer.reserve(100)?
 print(buffer.capacity() >= buffer.len() + 100, buffer.len())?
@@ -101,7 +112,7 @@ fn every_byte_value_survives_including_nul_and_invalid_utf8() {
     native(
         r#"
 mut buffer = std.bytes.from_text("a\0é")?
-print(buffer.len(), buffer.get(1)?, buffer.to_text()? == "a\0é")?
+print(buffer.len(), buffer.get(1), buffer.to_text()? == "a\0é")?
 buffer.push(255u8)?
 print(str.repr(buffer.to_text())?)?
 print(buffer)?
@@ -180,9 +191,6 @@ print(buffer.to_text_range(0, 5)? == "aé\0z", buffer.to_text_range(1, 3)?, buff
 print(str.repr(buffer.to_text_range(2, 2))?)?
 print(str.repr(buffer.to_text_range(0, 2))?)?
 print(str.repr(buffer.to_text_range(2, 5))?)?
-print(str.repr(buffer.to_text_range(-1, 2))?)?
-print(str.repr(buffer.to_text_range(3, 2))?)?
-print(str.repr(buffer.to_text_range(0, 6))?)?
 mut invalid = std.bytes.from_text("ok")?
 invalid.push(255u8)?
 print(str.repr(invalid.to_text_range(0, 2))?, str.repr(invalid.to_text_range(1, 3))?)?
@@ -192,11 +200,17 @@ True é z
 Result[str, std.bytes.BytesError].Ok("")
 Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
 Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
-Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
-Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
-Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
 Result[str, std.bytes.BytesError].Ok("ok") Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
 "#,
+    );
+    let message = "Bytes.to_text_range: start..stop is outside 0..=len()";
+    traps(
+        "buffer = std.bytes.from_text(\"a\u{e9}\\0z\")?",
+        &[
+            ("print(buffer.to_text_range(-1, 2)?)?", message),
+            ("print(buffer.to_text_range(3, 2)?)?", message),
+            ("print(buffer.to_text_range(0, 6)?)?", message),
+        ],
     );
 }
 
@@ -225,41 +239,64 @@ Result[str, std.bytes.BytesError].Ok("a text too long for inline string storage"
 
 #[test]
 fn ranges_follow_one_rule_without_clamping_or_negative_offsets() {
-    let expected = format!(
-        "0 0 True Option[i64].Nothing\n\
-         Result[u8, {OUT_OF_RANGE}\n\
-         Result[u8, {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[std.bytes.Bytes, {OUT_OF_RANGE}\n\
-         Result[std.bytes.Bytes, {OUT_OF_RANGE}\n\
-         Result[std.bytes.Bytes, {OUT_OF_RANGE}\n\
-         Result[Option[i64], {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         Result[(), {OUT_OF_RANGE}\n\
-         [97, 98, 99] 3"
-    );
     native(
         r#"
 mut buffer = std.bytes.from_text("abc")?
-other = std.bytes.from_text("xy")?
 tail = buffer.slice(3, 3)?
-print(tail.len(), tail.capacity(), tail.to_text()? == "", buffer.find(97u8, 1, 1)?)?
-print(str.repr(buffer.get(3))?)?
-print(str.repr(buffer.get(-1))?)?
-print(str.repr(buffer.set(3, 0u8))?)?
-print(str.repr(buffer.slice(-1, 2))?)?
-print(str.repr(buffer.slice(2, 1))?)?
-print(str.repr(buffer.slice(0, 4))?)?
-print(str.repr(buffer.find(0u8, 0, 4))?)?
-print(str.repr(buffer.fill(1, 4, 0u8))?)?
-print(str.repr(buffer.overwrite(2, &other[:2]))?)?
-print(str.repr(buffer.overwrite(-1, &other[:1]))?)?
-print(str.repr(buffer.truncate(4))?)?
+print(tail.len(), tail.capacity(), tail.to_text()? == "", buffer.find(97u8, 1, 1))?
 print(buffer.to_list()?, buffer.len())?
 "#,
-        &expected,
+        "0 0 True Option[i64].Nothing\n[97, 98, 99] 3",
+    );
+    traps(
+        "mut buffer = std.bytes.from_text(\"abc\")?\nother = std.bytes.from_text(\"xy\")?",
+        &[
+            (
+                "print(buffer.get(3))?",
+                "Bytes.get: index is outside 0..len()",
+            ),
+            (
+                "print(buffer.get(-1))?",
+                "Bytes.get: index is outside 0..len()",
+            ),
+            ("buffer.set(3, 0u8)", "Bytes.set: index is outside 0..len()"),
+            (
+                "print(buffer.slice(-1, 2)?)?",
+                "Bytes.slice: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(buffer.slice(2, 1)?)?",
+                "Bytes.slice: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(buffer.slice(0, 4)?)?",
+                "Bytes.slice: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(str.repr(buffer.find(0u8, 0, 4))?)?",
+                "Bytes.find: start..stop is outside 0..=len()",
+            ),
+            (
+                "buffer.fill(1, 4, 0u8)",
+                "Bytes.fill: start..stop is outside 0..=len()",
+            ),
+            (
+                "buffer.overwrite(2, &other[:2])",
+                "Bytes.overwrite: offset..offset + len(source) is outside 0..=len()",
+            ),
+            (
+                "buffer.overwrite(-1, &other[:1])",
+                "Bytes.overwrite: offset..offset + len(source) is outside 0..=len()",
+            ),
+            (
+                "buffer.truncate(4)",
+                "Bytes.truncate: count is outside 0..=len()",
+            ),
+            (
+                "buffer.truncate(-1)",
+                "Bytes.truncate: count is outside 0..=len()",
+            ),
+        ],
     );
 }
 
@@ -271,14 +308,14 @@ mut buffer = std.bytes.from_text("hello world")?
 mut word = buffer.slice(6, 11)?
 mut whole = buffer.copy()?
 print(whole == buffer, word == buffer, word.capacity())?
-word.set(0, 87u8)?
-whole.fill(0, 5, 45u8)?
+word.set(0, 87u8)
+whole.fill(0, 5, 45u8)
 print(buffer.to_text()?, word.to_text()?, whole.to_text()?)?
-buffer.overwrite(0, &word[:5])?
+buffer.overwrite(0, &word[:5])
 buffer.extend(&word)?
 buffer.extend(&word[:1])?
 buffer.extend(&word[5:5])?
-print(buffer.to_text()?, buffer.find(87u8, 1, buffer.len())?, buffer.find(0u8, 0, buffer.len())?)?
+print(buffer.to_text()?, buffer.find(87u8, 1, buffer.len()), buffer.find(0u8, 0, buffer.len()))?
 "#,
         r#"
 True False 5
@@ -293,32 +330,29 @@ fn shared_views_read_ranges_and_exclusive_views_write_in_place() {
     let source = format!(
         "{HEADER}{}",
         r#"
-def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+def checksum(view: &Bytes, start: i64, stop: i64) -> i64:
     mut total = 0
     for index in range(start, stop):
-        total += i64(view.get(index)?)
-    Ok(total)
+        total += i64(view.get(index))
+    total
 
-def upper(view: &mut Bytes, start: i64, stop: i64) -> Result[(), AllocError | BytesError]:
+def upper(view: &mut Bytes, start: i64, stop: i64) -> ():
     for index in range(start, stop):
-        value = view.get(index)?
+        value = view.get(index)
         if value >= 97u8 and value <= 122u8:
-            view.set(index, value - 32u8)?
-    Ok(())
+            view.set(index, value - 32u8)
+    ()
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut buffer = std.bytes.from_text("abc def")?
     view = &buffer
-    print(checksum(view, 0, 3)?, checksum(view, 3, 3)?, str.repr(checksum(view, 4, 8))?)?
-    upper(&mut buffer, 4, 7)?
+    print(checksum(view, 0, 3), checksum(view, 3, 3))?
+    upper(&mut buffer, 4, 7)
     print(buffer.to_text()?)?
     Ok(())
 "#
     );
-    assert_eq!(
-        output(&source),
-        "294 0 Result[i64, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)\nabc DEF"
-    );
+    assert_eq!(output(&source), "294 0\nabc DEF");
 }
 
 #[test]
@@ -336,9 +370,9 @@ fn growth_mutation_and_movement_are_rejected_while_a_view_is_live() {
         "buffer.push(1u8)?",
         "buffer.reserve(64)?",
         "buffer.resize(64, 0u8)?",
-        "buffer.set(0, 1u8)?",
+        "buffer.set(0, 1u8)",
         "buffer.clear()",
-        "buffer.truncate(0)?",
+        "buffer.truncate(0)",
     ] {
         check(
             &format!(
@@ -523,13 +557,24 @@ fn fill_writes_a_validated_range_natively() {
     native(
         r#"
 mut buffer = std.bytes.from_text("abcdef")?
-buffer.fill(1, 4, 46u8)?
-buffer.fill(6, 6, 0u8)?
+buffer.fill(1, 4, 46u8)
+buffer.fill(6, 6, 0u8)
 print(buffer.to_text()?)?
-print(str.repr(buffer.fill(4, 7, 0u8))?)?
-print(str.repr(buffer.fill(3, 2, 0u8))?)?
 "#,
-        &format!("a...ef\nResult[(), {OUT_OF_RANGE}\nResult[(), {OUT_OF_RANGE}"),
+        "a...ef",
+    );
+    traps(
+        "mut buffer = std.bytes.from_text(\"abcdef\")?",
+        &[
+            (
+                "buffer.fill(4, 7, 0u8)",
+                "Bytes.fill: start..stop is outside 0..=len()",
+            ),
+            (
+                "buffer.fill(3, 2, 0u8)",
+                "Bytes.fill: start..stop is outside 0..=len()",
+            ),
+        ],
     );
 }
 
@@ -538,25 +583,41 @@ fn copy_within_moves_overlapping_ranges_in_place() {
     native(
         r#"
 mut buffer = std.bytes.from_text("abcdef")?
-buffer.copy_within(2, 6, 0)?
+buffer.copy_within(2, 6, 0)
 print(buffer.to_text()?)?
-buffer.copy_within(0, 4, 2)?
+buffer.copy_within(0, 4, 2)
 print(buffer.to_text()?)?
-buffer.copy_within(6, 6, 6)?
-buffer.copy_within(1, 1, 0)?
-buffer.copy_within(0, 6, 0)?
+buffer.copy_within(6, 6, 6)
+buffer.copy_within(1, 1, 0)
+buffer.copy_within(0, 6, 0)
 print(buffer.to_text()?, buffer.len(), buffer.capacity())?
-print(str.repr(buffer.copy_within(0, 2, 5))?)?
-print(str.repr(buffer.copy_within(0, 2, -1))?)?
-print(str.repr(buffer.copy_within(4, 7, 0))?)?
-print(str.repr(buffer.copy_within(3, 2, 0))?)?
-print(str.repr(buffer.copy_within(0, 0, 7))?)?
-print(buffer.to_text()?)?
 "#,
-        &format!(
-            "cdefef\ncdcdef\ncdcdef 6 6\n{}\ncdcdef",
-            vec![format!("Result[(), {OUT_OF_RANGE}"); 5].join("\n")
-        ),
+        "cdefef\ncdcdef\ncdcdef 6 6",
+    );
+    traps(
+        "mut buffer = std.bytes.from_text(\"abcdef\")?",
+        &[
+            (
+                "buffer.copy_within(0, 2, 5)",
+                "Bytes.copy_within: the destination is outside 0..=len()",
+            ),
+            (
+                "buffer.copy_within(0, 2, -1)",
+                "Bytes.copy_within: the destination is outside 0..=len()",
+            ),
+            (
+                "buffer.copy_within(4, 7, 0)",
+                "Bytes.copy_within: start..stop is outside 0..=len()",
+            ),
+            (
+                "buffer.copy_within(3, 2, 0)",
+                "Bytes.copy_within: start..stop is outside 0..=len()",
+            ),
+            (
+                "buffer.copy_within(0, 0, 7)",
+                "Bytes.copy_within: the destination is outside 0..=len()",
+            ),
+        ],
     );
 }
 
@@ -588,7 +649,7 @@ fn buffers_move_across_threads_channels_and_collections() {
         "{HEADER}{}",
         r#"
 def work(data: Bytes) -> ():
-    print(data.len(), data.get(3).unwrap()).unwrap()
+    print(data.len(), data.get(3)).unwrap()
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ChannelError | SendError[std.bytes.Bytes] | RecvError | SpawnError[()]]:
     mut buffer = std.bytes.from_text("abc")?
@@ -621,13 +682,13 @@ buffer.push(1u8)?
 buffer.extend(&source)?
 buffer.extend(&source[1:3])?
 buffer.resize(20, 0u8)?
-buffer.overwrite(12, &source[:4])?
-buffer.fill(16, 20, 7u8)?
-buffer.set(0, 65u8)?
-buffer.truncate(18)?
-first = buffer.get(0)?
+buffer.overwrite(12, &source[:4])
+buffer.fill(16, 20, 7u8)
+buffer.set(0, 65u8)
+buffer.truncate(18)
+first = buffer.get(0)
 last = buffer.pop()
-found = buffer.find(100u8, 0, buffer.len())?
+found = buffer.find(100u8, 0, buffer.len())
 same = buffer == source
 count = buffer.len()
 room = buffer.capacity()
@@ -651,13 +712,13 @@ mut buffer = std.bytes.with_capacity(4500)?
 buffer.resize(4500, 0u8)?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
-fixed = buffer.write_float_spec(-1.7976931348623157e308, 17, 4096, 0)?
-exponent = buffer.write_float_spec(1234.5, 2, 2, 0)?
-general = buffer.write_float_spec(0.00001, 3, 6, 0)?
-point = buffer.write_float_spec(12.0, 4, 3, 0)?
-display = buffer.write_float_spec(0.1, 5, 0, 0)?
-single = buffer.write_float_spec(0.1, 6, 0, 0)?
-short = buffer.write_float_spec(1.5, 1, 4096, 4490)?
+fixed = buffer.write_float_spec(-1.7976931348623157e308, 17, 4096, 0)
+exponent = buffer.write_float_spec(1234.5, 2, 2, 0)
+general = buffer.write_float_spec(0.00001, 3, 6, 0)
+point = buffer.write_float_spec(12.0, 4, 3, 0)
+display = buffer.write_float_spec(0.1, 5, 0, 0)
+single = buffer.write_float_spec(0.1, 6, 0, 0)
+short = buffer.write_float_spec(1.5, 1, 4096, 4490)
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
 print(fixed, exponent, general, point, display, single, short)?
@@ -678,7 +739,7 @@ fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {
          Result[(), {allocation}\n\
          Result[(), {allocation}\n\
          Result[(), {allocation}\n\
-         Result[std.bytes.Bytes, {failure}\n\
+         Result[std.bytes.Bytes, {allocation}\n\
          Result[std.bytes.Bytes, {allocation}\n\
          Result[list[u8], {allocation}\n\
          Result[str, {failure}\n\
@@ -735,12 +796,10 @@ fn second_allocation_failure_releases_the_first() {
     // Storage takes two allocations (buffer, then owner); `to_text` and
     // `to_list` likewise build in steps. Failing each later step must free
     // the earlier ones, which the exit-time balance check verifies.
-    let failure =
-        "std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))";
     let constructor = "Result[std.bytes.Bytes, AllocError].Err(AllocError.OutOfMemory)";
     let expected = format!(
         "{constructor}\n\
-         Result[std.bytes.Bytes, {failure}\n\
+         {constructor}\n\
          {constructor}\n\
          Result[list[u8], AllocError].Err(AllocError.OutOfMemory)\n\
          {constructor}"
@@ -813,8 +872,6 @@ mut buffer = std.bytes.with_capacity(8)?
 buffer.resize(8, 46u8)?
 print(buffer.read_file(&mut file, 2, 8)?, buffer.to_list()?, buffer.capacity())?
 print(buffer.read_file(&mut file, 0, 8)?, buffer.read_file(&mut file, 3, 3)?)?
-print(str.repr(buffer.read_file(&mut file, 0, 9))?)?
-print(str.repr(buffer.read_stdin(-1, 2))?)?
 print(buffer.read_stdin(0, 8)?, write_stderr_bytes(&source[4:4])?)?
 print(write_stdout_bytes(&source[4:5])?, write_stdout_bytes(b"")?)?
 file.close()?
@@ -823,15 +880,28 @@ print(str.repr(std.bytes.write_file(&mut file, &source))?)?
 "#,
         path.display()
     );
-    let invalid = "Result[i64, IoError].Err(IoError.InvalidInput)";
     let closed = "Result[i64, IoError].Err(IoError.Closed)";
     native(
         &body,
-        &format!(
-            "4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n{invalid}\n{invalid}\n0 0\nA1 0\n{closed}\n{closed}"
-        ),
+        &format!("4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n0 0\nA1 0\n{closed}\n{closed}"),
     );
-    assert_eq!(std::fs::read(path).unwrap(), [255, 13, 10, 65]);
+    assert_eq!(std::fs::read(&path).unwrap(), [255, 13, 10, 65]);
+    traps(
+        &format!(
+            "mut file = open(\"{}\", \"r\")?\nmut buffer = std.bytes.with_capacity(8)?\nbuffer.resize(8, 46u8)?",
+            path.display()
+        ),
+        &[
+            (
+                "print(buffer.read_file(&mut file, 0, 9)?)?",
+                "Bytes.read_file: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(buffer.read_stdin(-1, 2)?)?",
+                "Bytes.read_stdin: start..stop is outside 0..=len()",
+            ),
+        ],
+    );
 }
 
 // B90: `from_bytes` copies any byte view, not only a literal.
@@ -858,21 +928,21 @@ fn scans_find_bytes_sets_and_subsequences_at_absolute_offsets() {
         r#"
 data = std.bytes.from_text("key = \"a,b\"; next\r\nrest")?
 count = data.len()
-print(str.repr(data.find(61u8, 0, count)?)?, str.repr(data.find(61u8, 5, count)?)?)?
-print(str.repr(data.find(61u8, 0, 4)?)?, str.repr(data.find(116u8, 16, count)?)?)?
+print(str.repr(data.find(61u8, 0, count))?, str.repr(data.find(61u8, 5, count))?)?
+print(str.repr(data.find(61u8, 0, 4))?, str.repr(data.find(116u8, 16, count))?)?
 stops = std.bytes.from_text(",;\"")?
-print(str.repr(data.find_in(&stops, 0, count)?)?, str.repr(data.find_in(&stops, 7, count)?)?)?
-print(str.repr(data.find_in(&stops, 12, count)?)?, str.repr(data.find_in(&stops, 0, 6)?)?)?
+print(str.repr(data.find_in(&stops, 0, count))?, str.repr(data.find_in(&stops, 7, count))?)?
+print(str.repr(data.find_in(&stops, 12, count))?, str.repr(data.find_in(&stops, 0, 6))?)?
 blank = std.bytes.from_text(" \r\n")?
-print(str.repr(data.find_not_in(&blank, 3, count)?)?, str.repr(data.find_not_in(&blank, 18, count)?)?)?
-print(str.repr(data.find_not_in(&blank, 17, 19)?)?)?
+print(str.repr(data.find_not_in(&blank, 3, count))?, str.repr(data.find_not_in(&blank, 18, count))?)?
+print(str.repr(data.find_not_in(&blank, 17, 19))?)?
 none = std.bytes.empty()?
-print(str.repr(data.find_in(&none, 0, count)?)?, str.repr(data.find_not_in(&none, 4, count)?)?)?
-print(str.repr(data.find_in(&data, 9, count)?)?, str.repr(data.find_not_in(&data, 0, count)?)?)?
+print(str.repr(data.find_in(&none, 0, count))?, str.repr(data.find_not_in(&none, 4, count))?)?
+print(str.repr(data.find_in(&data, 9, count))?, str.repr(data.find_not_in(&data, 0, count))?)?
 line = std.bytes.from_text("\r\n")?
-print(str.repr(data.find_bytes(&line, 0, count)?)?, str.repr(data.find_bytes(&line, 0, 18)?)?)?
-print(str.repr(data.find_bytes(&none, 7, count)?)?, str.repr(data.find_bytes(&data, 0, count)?)?)?
-print(str.repr(none.find_bytes(&none, 0, 0)?)?, str.repr(none.find_bytes(&line, 0, 0)?)?)?
+print(str.repr(data.find_bytes(&line, 0, count))?, str.repr(data.find_bytes(&line, 0, 18))?)?
+print(str.repr(data.find_bytes(&none, 7, count))?, str.repr(data.find_bytes(&data, 0, count))?)?
+print(str.repr(none.find_bytes(&none, 0, 0))?, str.repr(none.find_bytes(&line, 0, 0))?)?
 "#,
         "Option[i64].Some(4) Option[i64].Nothing\n\
          Option[i64].Nothing Option[i64].Some(16)\n\
@@ -902,10 +972,10 @@ mut needle = std.bytes.with_capacity(201)?
 for _ in range(100):
     needle.extend(b"ab")?
 needle.push(98u8)?
-print(str.repr(data.find_bytes(&needle, 0, data.len())?)?)?
-print(str.repr(data.find_bytes(&needle, 0, data.len() - 3)?)?)?
-print(str.repr(data.find_bytes(&needle, 3900, data.len())?)?)?
-print(str.repr(data.find_bytes(b"bb", 1, data.len())?)?)?
+print(str.repr(data.find_bytes(&needle, 0, data.len()))?)?
+print(str.repr(data.find_bytes(&needle, 0, data.len() - 3))?)?
+print(str.repr(data.find_bytes(&needle, 3900, data.len()))?)?
+print(str.repr(data.find_bytes(b"bb", 1, data.len()))?)?
 "#,
         "Option[i64].Some(3802)\n\
          Option[i64].Nothing\n\
@@ -931,7 +1001,7 @@ for start in range(0, 300, 13):
         mut outside = -1
         mut total = 0
         for index in range(start, stop):
-            value = data.get(index)?
+            value = data.get(index)
             member = value == 0u8 or value == 255u8 or value == 128u8 or value == 44u8 or value == 45u8
             if value == 44u8:
                 total += 1
@@ -941,30 +1011,30 @@ for start in range(0, 300, 13):
                 inside = index
             if not member and outside < 0:
                 outside = index
-        match data.find(44u8, start, stop)?:
+        match data.find(44u8, start, stop):
             case Some(index):
                 if index != first:
                     wrong += 1
             case Nothing:
                 if first >= 0:
                     wrong += 1
-        match data.find_in(&set, start, stop)?:
+        match data.find_in(&set, start, stop):
             case Some(index):
                 if index != inside:
                     wrong += 1
             case Nothing:
                 if inside >= 0:
                     wrong += 1
-        match data.find_not_in(&set, start, stop)?:
+        match data.find_not_in(&set, start, stop):
             case Some(index):
                 if index != outside:
                     wrong += 1
             case Nothing:
                 if outside >= 0:
                     wrong += 1
-        if data.count(44u8, start, stop)? != total:
+        if data.count(44u8, start, stop) != total:
             wrong += 1
-print(wrong, data.count(44u8, 0, 300)?, data.count(1u8, 0, 0)?)?
+print(wrong, data.count(44u8, 0, 300), data.count(1u8, 0, 0))?
 "#,
         "0 1 0",
     );
@@ -976,12 +1046,12 @@ fn ranges_are_compared_with_bytes_and_text_without_copying() {
         r#"
 data = std.bytes.from_text("true,false,né")?
 word = std.bytes.from_text("xfalsey")?
-print(data.matches(5, &word[1:6])?, data.matches(4, &word[1:6])?, data.matches(5, &word[1:7])?)?
-print(data.matches(0, &word[3:3])?, data.matches(data.len(), &word[3:3])?)?
-print(data.matches(11, &word[1:6])?, data.matches(data.len(), &word[1:2])?, data.matches(0, &data)?)?
-print(data.matches_text(0, "true")?, data.matches_text(0, "true,")?, data.matches_text(1, "true")?)?
-print(data.matches_text(11, "né")?, data.matches_text(11, "néx")?, data.matches_text(data.len(), "")?)?
-print(data.matches_text(data.len(), "x")?)?
+print(data.matches(5, &word[1:6]), data.matches(4, &word[1:6]), data.matches(5, &word[1:7]))?
+print(data.matches(0, &word[3:3]), data.matches(data.len(), &word[3:3]))?
+print(data.matches(11, &word[1:6]), data.matches(data.len(), &word[1:2]), data.matches(0, &data))?
+print(data.matches_text(0, "true"), data.matches_text(0, "true,"), data.matches_text(1, "true"))?
+print(data.matches_text(11, "né"), data.matches_text(11, "néx"), data.matches_text(data.len(), ""))?
+print(data.matches_text(data.len(), "x"))?
 "#,
         "True False False\nTrue True\nFalse False True\nTrue True False\nTrue False True\nFalse",
     );
@@ -993,12 +1063,12 @@ fn runs_stop_at_the_first_non_ascii_or_invalid_byte() {
         r#"
 mut data = std.bytes.from_text("plain text, then né and 日本")?
 count = data.len()
-print(count, data.ascii_run(0, count)?, data.ascii_run(18, count)?, data.ascii_run(19, count)?)?
-print(data.ascii_run(5, 9)?, data.ascii_run(count, count)?)?
-print(data.utf8_run(0, count)?, data.utf8_run(0, 18)?, data.utf8_run(0, 19)?, data.utf8_run(18, count)?)?
-print(data.utf8_run(19, count)?, data.utf8_run(0, count - 1)?)?
-data.set(3, 255u8)?
-print(data.utf8_run(0, count)?, data.utf8_run(4, count)?, data.ascii_run(0, count)?)?
+print(count, data.ascii_run(0, count), data.ascii_run(18, count), data.ascii_run(19, count))?
+print(data.ascii_run(5, 9), data.ascii_run(count, count))?
+print(data.utf8_run(0, count), data.utf8_run(0, 18), data.utf8_run(0, 19), data.utf8_run(18, count))?
+print(data.utf8_run(19, count), data.utf8_run(0, count - 1))?
+data.set(3, 255u8)
+print(data.utf8_run(0, count), data.utf8_run(4, count), data.ascii_run(0, count))?
 "#,
         "31 18 18 19\n9 31\n31 18 18 31\n19 28\n3 31 3",
     );
@@ -1010,23 +1080,62 @@ fn scans_reject_ranges_outside_the_buffer() {
         r#"
 data = std.bytes.from_text("abcd")?
 chars = std.bytes.from_text("b")?
-print(str.repr(data.find(98u8, -1, 2))?, str.repr(data.find(98u8, 3, 2))?)?
-print(str.repr(data.find_in(&chars, 0, 5))?, str.repr(data.find_not_in(&chars, 5, 5))?)?
-print(str.repr(data.find_bytes(&chars, 2, 1))?)?
-print(str.repr(data.count(98u8, 0, 5))?, str.repr(data.ascii_run(-1, 0))?, str.repr(data.utf8_run(4, 5))?)?
-print(str.repr(data.matches(-1, &chars[:1]))?, str.repr(data.matches(5, &chars[:0]))?)?
-print(data.matches(0, &chars[:2])?, data.matches(0, &chars[1:0])?)?
-print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?)?
+print(data.matches(0, &chars[:2]), data.matches(0, &chars[1:0]))?
 "#,
-        &{
-            let found = format!("Result[Option[i64], {OUT_OF_RANGE}");
-            let counted = format!("Result[i64, {OUT_OF_RANGE}");
-            let matched = format!("Result[bool, {OUT_OF_RANGE}");
-            format!(
-                "{found} {found}\n{found} {found}\n{found}\n{counted} {counted} {counted}\n\
-                 {matched} {matched}\nFalse True\n{matched} {matched}"
-            )
-        },
+        "False True",
+    );
+    traps(
+        "data = std.bytes.from_text(\"abcd\")?\nchars = std.bytes.from_text(\"b\")?",
+        &[
+            (
+                "print(str.repr(data.find(98u8, -1, 2))?)?",
+                "Bytes.find: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(str.repr(data.find(98u8, 3, 2))?)?",
+                "Bytes.find: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(str.repr(data.find_in(&chars, 0, 5))?)?",
+                "Bytes.find_in: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(str.repr(data.find_not_in(&chars, 5, 5))?)?",
+                "Bytes.find_not_in: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(str.repr(data.find_bytes(&chars, 2, 1))?)?",
+                "Bytes.find_bytes: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(data.count(98u8, 0, 5))?",
+                "Bytes.count: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(data.ascii_run(-1, 0))?",
+                "Bytes.ascii_run: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(data.utf8_run(4, 5))?",
+                "Bytes.utf8_run: start..stop is outside 0..=len()",
+            ),
+            (
+                "print(data.matches(-1, &chars[:1]))?",
+                "Bytes.matches: offset is outside 0..=len()",
+            ),
+            (
+                "print(data.matches(5, &chars[:0]))?",
+                "Bytes.matches: offset is outside 0..=len()",
+            ),
+            (
+                "print(data.matches_text(-1, \"a\"))?",
+                "Bytes.matches_text: offset is outside 0..=len()",
+            ),
+            (
+                "print(data.matches_text(5, \"\"))?",
+                "Bytes.matches_text: offset is outside 0..=len()",
+            ),
+        ],
     );
 }
 
@@ -1039,6 +1148,17 @@ fn adopting_native_storage_is_reserved_for_std() {
     ));
     assert!(
         error.contains("`__bytes_adopt` is reserved for the standard library"),
+        "{error}"
+    );
+}
+
+// Issue #632: `__trap` reports a std argument-contract violation at the
+// caller; user code reports its own failures with `Result`.
+#[test]
+fn trap_intrinsic_is_reserved_for_std() {
+    let error = rejected(&program("__trap(\"no\")\n"));
+    assert!(
+        error.contains("`__trap` is reserved for the standard library"),
         "{error}"
     );
 }

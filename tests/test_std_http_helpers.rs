@@ -47,7 +47,7 @@ pub class Script:
             count = 7
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -780,7 +780,7 @@ pub class Quiet:
         mut count = stop - start
         if count > self.input.len() - self.at:
             count = self.input.len() - self.at
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 

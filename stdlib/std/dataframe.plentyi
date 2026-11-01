@@ -350,7 +350,7 @@ class BinaryValues:
             if valid[i] == 0u8:
                 allocated(result.append(Nothing))?
             else:
-                value = buffered(packed.slice(offsets[i], offsets[i + 1]))?
+                value = allocated(packed.slice(offsets[i], offsets[i + 1]))?
                 allocated(result.append(Some(value)))?
         Ok(result)
 

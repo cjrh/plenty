@@ -69,7 +69,7 @@ mut h = sketch.hyperloglog(4)?
 h.add(0u64)
 h.add(1u64)
 wire = h.to_bytes()?
-print(wire.len() == 36 and wire.matches(0, &gold)?)?
+print(wire.len() == 36 and wire.matches(0, &gold))?
 read = sketch.hyperloglog_from_bytes(&gold)?
 print(read.estimate() == h.estimate())?
 "#,
@@ -248,7 +248,7 @@ for raw in [b"", b"PSH1", b"PSQ1", b"PSX1", b"PSC1", b"PSF1"]?:
             pass
 print(rejected)?
 mut h = sketch.hyperloglog(4)?.to_bytes()?
-h.set(20, 255u8)?
+h.set(20, 255u8)
 match sketch.hyperloglog_from_bytes(&h):
     case Err(_):
         print(True)?
@@ -323,7 +323,7 @@ drop(q.add(f64.INF))
 print(before.to_list()? == q.to_bytes()?.to_list()?)?
 mut huge = before.copy()?
 for at in range(12, 20):
-    huge.set(at, 255u8)?
+    huge.set(at, 255u8)
 mut restored = sketch.quantiles_from_bytes(&huge)?
 match restored.add(4.0):
     case Ok(_):
@@ -334,9 +334,9 @@ mut f = sketch.frequent_items(1)?
 f.add(8u64)?
 mut raw = f.to_bytes()?
 for at in range(12, 20):
-    raw.set(at, 255u8)?
+    raw.set(at, 255u8)
 for at in range(36, 44):
-    raw.set(at, 255u8)?
+    raw.set(at, 255u8)
 mut full = sketch.frequent_items_from_bytes(&raw)?
 match full.add(8u64):
     case Ok(_):

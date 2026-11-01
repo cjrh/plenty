@@ -351,11 +351,7 @@ pub class Decompressor[R]:
                 mut count = stop - start
                 if count > pending:
                     count = pending
-                match buffer.overwrite(start, &self._decoder._state[self._start:self._start + count]):
-                    case Ok(_):
-                        pass
-                    case Err(_):
-                        return Err(StreamError.OutOfRange)
+                buffer.overwrite(start, &self._decoder._state[self._start:self._start + count])
                 self._start += count
                 if self._start == self._decoder._state.len():
                     self._decoder._state.clear()

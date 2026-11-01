@@ -56,7 +56,7 @@ def stdin() -> Result[Bytes, AllocError | IoError | BytesError]:
         if count == 0:
             break
         used = used + count
-    data.truncate(used)?
+    data.truncate(used)
     Ok(data)
 
 def jwk(text: &Bytes) -> Result[Bytes, EncodingError]:

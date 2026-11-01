@@ -17,7 +17,7 @@ pub class Wire:
         if self.delivered:
             return Err(StepError[TransportError].Source(TransportError.Disconnected(104)))
         # The copy helper calls this with nonempty scratch; fill just one byte.
-        buffer.set(start, 65u8).unwrap()
+        buffer.set(start, 65u8)
         self.delivered = True
         Ok(1)
 

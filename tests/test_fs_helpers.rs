@@ -83,7 +83,7 @@ pub class Source:
     pub def read(self: &mut Source, target: &mut std.bytes.Bytes, start: i64, stop: i64) -> Result[i64, io.StreamError]:
         self.calls += 1
         if self.calls == 1:
-            drop(target.set(start, 42u8))
+            target.set(start, 42u8)
             return Ok(1)
         if self.cancel:
             self.token.cancel()

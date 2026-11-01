@@ -121,7 +121,7 @@ pub def until(stream: &mut TcpStream, marker: &str) -> Result[str, NetError]:
         at = out.len()
         out.resize(at + 512, 0u8).unwrap()
         count = stream.read_before(&mut out, at, at + 512, &deadline, &never)?
-        out.truncate(at + count).unwrap()
+        out.truncate(at + count)
         if count == 0:
             break
         if marker.byte_len() > 0 and out.to_text().unwrap().endswith(marker):
@@ -881,11 +881,11 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
                 answer.resize(at + 512, 0u8)?
                 match tls.read_before(&mut answer, at, at + 512, &deadline, &never):
                     case Ok(count):
-                        answer.truncate(at + count)?
+                        answer.truncate(at + count)
                         if count == 0:
                             break
                     case Err(_):
-                        answer.truncate(at)?
+                        answer.truncate(at)
                         ending = "failed"
                         break
             print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?

@@ -810,12 +810,12 @@ pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Res
         outcome = body.read_body(out, filled, filled + 4096)
         match outcome:
             case Ok(count):
-                lifted(out.truncate(filled + count))?
+                out.truncate(filled + count)
                 if count == 0:
                     return Ok(total)
                 total += count
             case Err(error):
-                lifted(out.truncate(filled))?
+                out.truncate(filled)
                 return Err(error)
     Ok(total)
 

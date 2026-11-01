@@ -328,7 +328,7 @@ pub def client(net: Connection, config: &ClientConfig, server_name: &str, input:
 
 # Callers keep 0 <= start <= stop <= len, so the overlapping copy cannot fail.
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
-    drop(buffer.copy_within(start, stop, 0))
+    buffer.copy_within(start, stop, 0)
 
 def invalid() -> NetError:
     NetError.Stream(StreamError.Io(IoError.InvalidInput))

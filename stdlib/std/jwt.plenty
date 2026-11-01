@@ -419,12 +419,12 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
     if token.byte_len() > max_size:
         return Err(JwtError.TooLarge)
     source = jwt_error_allocated(std.bytes.from_text(token))?
-    first = match from_bytes(source.find(46u8, 0, source.len()))?:
+    first = match source.find(46u8, 0, source.len()):
         case Some(index):
             index
         case Nothing:
             return Err(JwtError.Malformed)
-    second = match from_bytes(source.find(46u8, first + 1, source.len()))?:
+    second = match source.find(46u8, first + 1, source.len()):
         case Some(index):
             index
         case Nothing:
@@ -622,7 +622,7 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
         return Err(JwtError.AlgorithmMismatch)
     payload = from_encoding(std.encoding.base64url_decode(&parts.source[parts.first + 1:parts.second]))?
     signature = from_encoding(std.encoding.base64url_decode(&parts.source[parts.second + 1:]))?
-    from_bytes(parts.source.truncate(parts.second))?
+    parts.source.truncate(parts.second)
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)
     claims = object(&payload, claims_depth)?

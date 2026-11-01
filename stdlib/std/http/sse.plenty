@@ -103,9 +103,9 @@ def lines(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
 # An event name or id, which must be one line.
 def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), SseError]:
     text = allocated(std.bytes.from_text(value))?
-    if bytes_of(text.find_in(b"\r\n", 0, text.len()))?.is_some():
+    if text.find_in(b"\r\n", 0, text.len()).is_some():
         return Err(SseError.InvalidField)
-    if id and bytes_of(text.find(0u8, 0, text.len()))?.is_some():
+    if id and text.find(0u8, 0, text.len()).is_some():
         return Err(SseError.InvalidField)
     field(out, name, &text)
 

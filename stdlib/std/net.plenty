@@ -397,7 +397,7 @@ def hex(value: u8) -> i64:
     digit(value)
 
 def found(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, NetError]:
-    match lifted(source.find(value, start, stop))?:
+    match source.find(value, start, stop):
         case Some(at):
             Ok(at)
         case Nothing:
@@ -642,11 +642,11 @@ pub class Lookup:
             # end blocks.
             match self._reply.read(&mut self._data, at, at + lookup_chunk):
                 case Ok(count):
-                    lifted(self._data.truncate(at + count))?
+                    self._data.truncate(at + count)
                     if count == 0:
                         return addresses_in(&allocated(self._data.to_list())?, self._port)
                 case Err(error):
-                    lifted(self._data.truncate(at))?
+                    self._data.truncate(at)
                     return Err(streamed(error))
         Err(NetError.WouldBlock)
 

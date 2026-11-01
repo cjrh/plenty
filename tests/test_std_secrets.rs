@@ -32,7 +32,7 @@ pub class Script:
         if step > stop - start:
             step = stop - start
         for offset in range(step):
-            drop(buffer.set(start + offset, self.value))
+            buffer.set(start + offset, self.value)
             self.value = self.value.wrapping_add(1u8)
         Ok(step)
 
@@ -103,11 +103,11 @@ target.resize(12, 9u8)?
 mut failing = std.secrets.source_from(Script([3, -1, 2, -2]?, 0, 1u8))
 print(str.repr(failing.fill(&mut target, 2, 10))?, target.to_list()?, failing.inner.at)?
 
-target.fill(0, 12, 9u8)?
+target.fill(0, 12, 9u8)
 mut ended = std.secrets.source_from(Script([4, 0]?, 0, 1u8))
 print(str.repr(ended.fill(&mut target, 2, 10))?, target.to_list()?)?
 
-target.fill(0, 12, 9u8)?
+target.fill(0, 12, 9u8)
 mut broken = std.secrets.source_from(Script([2, -3]?, 0, 1u8))
 print(str.repr(broken.fill(&mut target, 2, 10))?, target.to_list()?)?
 
@@ -196,7 +196,7 @@ first = std.secrets.token_bytes(32)?
 second = std.secrets.token_bytes(32)?
 mut same = True
 for index in range(32):
-    if first.get(index)? != second.get(index)?:
+    if first.get(index) != second.get(index):
         same = False
 print(first.len(), second.len(), same)?
 
@@ -238,13 +238,13 @@ target.resize(size + 2, 0u8)?
 std.secrets.fill(&mut target, 1, size + 1)?
 mut tail = 0
 for index in range(size - 4096, size + 1):
-    if target.get(index)? != 0u8:
+    if target.get(index) != 0u8:
         tail += 1
 mut head = 0
 for index in range(1, 4097):
-    if target.get(index)? != 0u8:
+    if target.get(index) != 0u8:
         head += 1
-print(target.get(0)?, target.get(size + 1)?, head > 3900, tail > 3900)?
+print(target.get(0), target.get(size + 1), head > 3900, tail > 3900)?
 print(str.repr(std.secrets.fill(&mut target, 0, size + 3))?)?
 mut handle = std.secrets.os_entropy()
 print(str.repr(handle.read(&mut target, 0, 16))?)?

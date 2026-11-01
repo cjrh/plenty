@@ -15,7 +15,7 @@ import std.http.server
 import std.io
 import std.secrets
 import std.url
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.crypto import Algorithm, CryptoError
 from std.encoding import EncodingError, Endian
 from std.http import Header, HttpError, RequestHead, ResponseHead
@@ -106,17 +106,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, WebSocketError]:
             Ok(value)
         case Err(cause):
             Err(WebSocketError.Allocation(cause))
-
-def bytes_of[T](result: Result[T, BytesError]) -> Result[T, WebSocketError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(WebSocketError.Allocation(cause))
-                case _:
-                    Err(WebSocketError.OutOfRange)
 
 def encoded[T](result: Result[T, EncodingError]) -> Result[T, WebSocketError]:
     match result:
@@ -248,7 +237,7 @@ pub class WebSocket[T]:
             case Ok(_):
                 pass
             case Err(error):
-                drop(out.truncate(base))
+                out.truncate(base)
                 self.fail(error, deadline, cancel)
         outcome
 
@@ -358,7 +347,7 @@ pub class WebSocket[T]:
                         self.frame(op_pong, &out[mark:mark + length], True, deadline, cancel)?
                 elif opcode != op_pong:
                     return Err(WebSocketError.Protocol)
-                bytes_of(out.truncate(mark))?
+                out.truncate(mark)
             else:
                 if opcode == op_continuation:
                     if kind == op_continuation:
@@ -374,7 +363,7 @@ pub class WebSocket[T]:
                 self.take(out, length, deadline, cancel)?
                 if fin:
                     if kind == op_text:
-                        if bytes_of(out.utf8_run(base, out.len()))? != out.len():
+                        if out.utf8_run(base, out.len()) != out.len():
                             return Err(WebSocketError.InvalidText)
                         return Ok(Message.Text)
                     return Ok(Message.Binary)
@@ -393,7 +382,7 @@ pub class WebSocket[T]:
             if not valid_code(code):
                 return Err(WebSocketError.Protocol)
             reason = mark + 2
-            if bytes_of(out.utf8_run(reason, out.len()))? != out.len():
+            if out.utf8_run(reason, out.len()) != out.len():
                 return Err(WebSocketError.InvalidText)
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
@@ -402,7 +391,7 @@ pub class WebSocket[T]:
         size = out.len() - reason
         for index in range(size):
             out[base + index] = out[reason + index]
-        bytes_of(out.truncate(base + size))?
+        out.truncate(base + size)
         self.shut(state_done)
         Ok(Message.Close(code))
 

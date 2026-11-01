@@ -70,7 +70,7 @@ pub class HyperLogLog:
             rank += 1u8
             tail = tail >> 1u64
         if rank > self._registers[index]:
-            drop(self._registers.set(index, rank))
+            self._registers.set(index, rank)
 
     pub def estimate(self) -> f64:
         size = f64(self._registers.len())
@@ -101,7 +101,7 @@ pub class HyperLogLog:
             return Err(SketchError.Incompatible)
         for index in range(self._registers.len()):
             if other._registers[index] > self._registers[index]:
-                drop(self._registers.set(index, other._registers[index]))
+                self._registers.set(index, other._registers[index])
         Ok(())
 
     pub def to_bytes(self) -> Result[Bytes, AllocError]:
@@ -138,7 +138,7 @@ pub def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[H
             return Err(SketchError.InvalidData)
     mut result = hyperloglog(i64(precision), read_word(data, 12))?
     for index in range(size):
-        drop(result._registers.set(index, data[20 + index]))
+        result._registers.set(index, data[20 + index])
     Ok(result)
 
 # Algorithm R keeps a uniform sample without replacement. Samples are kept
@@ -223,8 +223,8 @@ pub class Quantiles:
 # finite f64 fits in 32 ASCII bytes; fixed slots make length validation simple.
 def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), AllocError]:
     # The 32-byte scratch holds every spelling, so neither call can fail.
-    scratch.fill(0, 32, 32u8).unwrap()
-    drop(scratch.write_float(value).unwrap())
+    scratch.fill(0, 32, 32u8)
+    drop(scratch.write_float(value))
     out.extend(scratch)
 
 def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError]:

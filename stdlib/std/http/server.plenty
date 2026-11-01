@@ -334,12 +334,7 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
         mut end = size
         if bound < end:
             end = bound
-        found = match input.data.find(line_feed, input.searched, end):
-            case Ok(position):
-                position
-            case Err(_):
-                return True
-        match found:
+        match input.data.find(line_feed, input.searched, end):
             case Some(index):
                 count = index + 1 - input.line
                 if count < 2 or input.data[index - 1] != carriage_return:
@@ -403,10 +398,10 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
     net_allocated(input.data.resize(have + room, 0u8))?
     match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
         case Ok(count):
-            drop(input.data.truncate(have + count))
+            input.data.truncate(have + count)
             Ok(count)
         case Err(error):
-            drop(input.data.truncate(have))
+            input.data.truncate(have)
             Err(error)
 
 # Reads what has arrived of a request head until the parser could take it
@@ -514,19 +509,16 @@ pub class Conn[T]:
         StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
         unread = self._input.data.len() - self._at
         if unread > 0 and stop > start:
             mut count = stop - start
             if count > unread:
                 count = unread
-            match buffer.overwrite(start, &self._input.data[self._at:self._at + count]):
-                case Ok(_):
-                    self._at += count
-                    return Ok(count)
-                case Err(BytesError.Allocation(cause)):
-                    return Err(StreamError.Allocation(cause))
-                case Err(_):
-                    return Err(StreamError.OutOfRange)
+            buffer.overwrite(start, &self._input.data[self._at:self._at + count])
+            self._at += count
+            return Ok(count)
         if not self._idle:
             match read_some(&mut self._stream, buffer, start, stop, &deadline_of(self._until), &self._cancel):
                 case Ok(count):

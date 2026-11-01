@@ -42,11 +42,7 @@ pub class Fake:
             count = step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
-            case Ok(_):
-                pass
-            case Err(_):
-                return Err(StreamError.OutOfRange)
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -563,7 +559,7 @@ print(stream.seek(SeekFrom.Start(4))?, stream.write(&buffer[:4])?, stream.data.t
 print(stream.seek(SeekFrom.End(-3))?, stream.seek(SeekFrom.Current(-2))?)?
 print(stream.write(&buffer[2:3])?, stream.position(), stream.data.to_text()?)?
 print(stream.seek(SeekFrom.End(2))?, stream.read(&mut buffer, 0, 4)?)?
-print(stream.write(&buffer[:1])?, stream.data.len(), stream.data.get(9)?, stream.data.get(10)?)?
+print(stream.write(&buffer[:1])?, stream.data.len(), stream.data.get(9), stream.data.get(10))?
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(-12)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(i64.MAX)))?, stream.position())?
@@ -634,7 +630,7 @@ print(stream.seek(SeekFrom.Current(0))?, stream.seek(SeekFrom.Start(1))?)?
 mut buffer = blank(8)?
 print(stream.read(&mut buffer, 0, 8)?, buffer.to_list()?)?
 print(stream.read(&mut buffer, 0, 8)?, stream.read(&mut buffer, 2, 2)?)?
-print(stream.seek(SeekFrom.End(-2))?, stream.read(&mut buffer, 0, 1)?, buffer.get(0)?)?
+print(stream.seek(SeekFrom.End(-2))?, stream.read(&mut buffer, 0, 1)?, buffer.get(0))?
 print(stream.seek(SeekFrom.Current(-3))?, stream.seek(SeekFrom.End(4))?)?
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, str.repr(stream.seek(SeekFrom.Current(-100)))?)?
 print(str.repr(stream.read(&mut buffer, 4, 9))?, str.repr(stream.write(&source[4:7]))?)?

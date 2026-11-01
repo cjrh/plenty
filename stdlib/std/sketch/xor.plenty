@@ -140,7 +140,7 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
                 slot = slots[index]
                 (a, b, c) = positions(hash, block)
                 value = fingerprint(hash) ^ prints[a] ^ prints[b] ^ prints[c]
-                drop(prints.set(slot, value))
+                prints.set(slot, value)
             return Ok(XorFilter(attempt_seed, unique, block, prints))
     Err(SketchError.ConstructionFailed)
 

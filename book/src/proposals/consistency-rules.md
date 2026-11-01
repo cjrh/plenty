@@ -545,11 +545,18 @@ and an argument bug traps.
    (new `MimeError`) carry the variant; `std.actor.stage` returns
    `StageError`. `Bytes` methods that fail only to allocate, and sketch
    `to_bytes`, return `AllocError`. Out-of-domain arguments that depend on
-   run-time state (a range beyond a buffer's length, a random index into an
-   empty population) still return named `Err` variants: converting them to
-   traps needs a function-scope `assert` or a std trap with a message.
-   Statically checkable domains (positive capacities and limits) wait for a
-   type that expresses them.
+   run-time state trap through the std-only `__trap` statement, with a
+   message naming the operation and argument: `Bytes` ranges and indices
+   (including `read_file` and `read_stdin`), and `Rng.index`,
+   `sample_indices` and `fill` counts and ranges. Their results narrow:
+   `Bytes.get` returns `u8`, `slice` `Result[Bytes, AllocError]`, the scans
+   plain values, and `RandomError` loses `OutOfRange` and `Allocation`. An
+   empty random population stays `EmptyRange`, since data can produce it.
+   Stream `read` ranges, `std.encoding` offsets and `std.uuid`
+   `write_bytes` keep their `OutOfRange` contracts. Statically checkable
+   domains (positive capacities and limits) wait for a type that expresses
+   them; `BytesError.OutOfRange` remains for `std.actor.net` connection
+   limits.
 
 ## Rule 6: every callable form is a value wherever a callback is accepted
 

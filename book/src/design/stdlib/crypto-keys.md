@@ -33,7 +33,7 @@ def main() -> Result[(), IoError | AllocError | BytesError | AdvancedError | Enc
     signature = std.encoding.base64url_from_text("DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q")?
     print(key.verify(&message, &signature)?)?
 
-    message.set(0, 0u8)?
+    message.set(0, 0u8)
     print(key.verify(&message, &signature)?)?
     Ok(())
 ```

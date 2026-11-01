@@ -38,8 +38,8 @@ def slot_value(current: &Layer, slot: i64) -> u16:
     u16(current.slots[slot * 2]) | (u16(current.slots[slot * 2 + 1]) << 8u16)
 
 def set_slot(current: &mut Layer, slot: i64, value: u16) -> ():
-    drop(current.slots.set(slot * 2, u8(value & 255u16)))
-    drop(current.slots.set(slot * 2 + 1, u8(value >> 8u16)))
+    current.slots.set(slot * 2, u8(value & 255u16))
+    current.slots.set(slot * 2 + 1, u8(value >> 8u16))
 
 def fingerprint(hash: u64) -> u16:
     value = u16((hash >> 32u64) & 65535u64)
@@ -236,7 +236,7 @@ pub def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, Sketch
         if index > 0:
             allocated(result._layers.append(layer(buckets)?))?
         for slot in range(buckets * 8):
-            drop(result._layers[index].slots.set(slot, data[offset]))
+            result._layers[index].slots.set(slot, data[offset])
             offset += 1
         buckets *= 2
     result._used_buckets = i64(used)

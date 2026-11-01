@@ -120,8 +120,7 @@ pub class BufReader[E, R]:
         mut count = stop - start
         if count > self.stop - self.start:
             count = self.stop - self.start
-        if buffer.overwrite(start, &self.buffer[self.start:self.start + count]).is_err():
-            return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].OutOfRange))
+        buffer.overwrite(start, &self.buffer[self.start:self.start + count])
         self.start += count
         Ok(count)
 

@@ -487,7 +487,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     if window.ended:
         return Ok(False)
     if window.at >= 16384:
-        rest = lifted(window.data.slice(window.at, window.data.len()))?
+        rest = allocated(window.data.slice(window.at, window.data.len()))?
         window.data = rest
         window.at = 0
     size = window.chunk.len()
@@ -632,7 +632,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
     mut parts = allocated(list[Part].new())?
     # The preamble before the first delimiter is discarded.
     while True:
-        match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+        match window.data.find_bytes(&delimiter, window.at, window.data.len()):
             case Some(found):
                 window.at = found + width
                 break
@@ -668,7 +668,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
         # window, so positions are taken only after the search ends.
         mut head_end = -1
         while head_end < 0:
-            match lifted(window.data.find_bytes(&blank_line, window.at, window.data.len()))?:
+            match window.data.find_bytes(&blank_line, window.at, window.data.len()):
                 case Some(found):
                     head_end = found
                 case Nothing:
@@ -693,7 +693,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
         # The content runs to the next delimiter. Bytes that could begin one
         # are held back until more of the body arrives.
         while True:
-            match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+            match window.data.find_bytes(&delimiter, window.at, window.data.len()):
                 case Some(found):
                     size = emit(&window.data, window.at, found, &mut file, &mut text, size, limits)?
                     window.at = found + width

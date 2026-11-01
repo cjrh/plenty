@@ -18,17 +18,16 @@ pub class Trickle:
     pub at: i64
 
     pub def read(self: &mut Trickle, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
         mut count = stop - start
         if count > 3:
             count = 3
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
-            case Ok(_):
-                self.at += count
-                Ok(count)
-            case Err(_):
-                Err(StreamError.OutOfRange)
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
+        self.at += count
+        Ok(count)
 
 def main() -> Result[(), AllocError | IoError | StreamError | std.bytes.BytesError]:
     mut source = Trickle(std.bytes.from_text("0123456789")?, 0)
@@ -47,7 +46,10 @@ Result[(), std.io.Partial].Err(std.io.Partial(completed=3, cause=std.io.StreamEr
 0
 ```
 
-`read` fills part of `buffer[start:stop]` and returns the count. Three of eight
+`read` fills part of `buffer[start:stop]` and returns the count. A reader
+checks the range itself and reports `OutOfRange`, as the
+[stream contract](../../design/stdlib/io.md#stream-contracts) requires;
+`overwrite` would otherwise trap on it. Three of eight
 bytes is a short read, not an error; zero means end of input. `read_exact`
 calls `read` until the range is full. When the input ends first, the error says
 how many bytes arrived, and they are in the buffer.

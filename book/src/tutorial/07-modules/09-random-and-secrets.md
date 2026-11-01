@@ -60,7 +60,6 @@ def main() -> Result[(), AllocError | IoError | std.random.RandomError]:
     print(first.between(0, 100)? == resumed.between(0, 100)?)?
     print(str.repr(first.between(5, 5))?)?
     print(str.repr(first.below(0u64))?)?
-    print(str.repr(first.sample_indices(3, 4))?)?
     Ok(())
 ```
 ```output
@@ -68,11 +67,14 @@ True
 True
 Result[i64, std.random.RandomError].Err(std.random.RandomError.EmptyRange)
 Result[u64, std.random.RandomError].Err(std.random.RandomError.EmptyRange)
-Result[list[i64], std.random.RandomError].Err(std.random.RandomError.OutOfRange)
 ```
 
-An empty range is an error, never a clamped or default value. A rejected
-request does not advance the generator.
+An empty range is an error, never a clamped or default value, because it can
+come from data such as an empty list. A rejected request does not advance the
+generator. An argument no call could accept, such as
+`sample_indices(3, 4)` asking for four of three positions, is a bug in the
+caller: it stops the program with a
+[trap report](../../design/language/08-errors/02-allocation-and-traps.md#trap-reports).
 
 The sequence for a seed is part of the language's contract and does not change
 between Plenty versions. It is also predictable by anyone who sees a few

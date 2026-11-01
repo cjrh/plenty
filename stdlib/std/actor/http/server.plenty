@@ -241,8 +241,8 @@ pub class Response:
 
     def compact(self: &mut Response) -> Result[(), BytesError]:
         if self._start > 0:
-            self._output.copy_within(self._start, self._output.len(), 0)?
-            self._output.truncate(self.pending())?
+            self._output.copy_within(self._start, self._output.len(), 0)
+            self._output.truncate(self.pending())
             self._start = 0
         Ok(())
 

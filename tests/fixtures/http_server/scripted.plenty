@@ -28,7 +28,7 @@ pub class Script:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -93,7 +93,7 @@ pub def replay(blob_hex: &str, step: i64) -> Result[(), std.bytes.BytesError | s
     blob = std.encoding.hex_from_text(blob_hex)?
     mut start = 0
     while start < blob.len():
-        stop_at = blob.find(255u8, start, blob.len())?.unwrap()
+        stop_at = blob.find(255u8, start, blob.len()).unwrap()
         print("--")?
         script = Script(blob.slice(start, stop_at)?, 0, step)
         report = std.http.server.serve_connection(script, &table, &app, &config, &stop, &stop)

@@ -458,7 +458,7 @@ def split_lines(text: &str) -> Result[list[str], AllocError]:
     size = data.len()
     while start < size:
         mut end = size
-        match allocated(data.find(10u8, start, size))?:
+        match data.find(10u8, start, size):
             case Some(found):
                 end = found + 1
             case Nothing:

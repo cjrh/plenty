@@ -27,11 +27,7 @@ pub class Trickle:
         if mode == 3:
             return Ok(stop - start + 1)
         count = min(min(self.step, stop - start), self.data.len() - self.at)
-        match target.overwrite(start, &self.data[self.at:self.at + count]):
-            case Err(_):
-                return Err(StreamError.OutOfRange)
-            case Ok(_):
-                pass
+        target.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 

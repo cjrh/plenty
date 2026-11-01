@@ -56,7 +56,7 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -422,7 +422,7 @@ pub class Pieces:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.data[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 

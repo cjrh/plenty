@@ -144,7 +144,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
         host_start = index + 2
         # Neither userinfo nor a host may contain `@`, so the first one
         # separates them and any other is an error in the host.
-        match lifted(source.find(64u8, host_start, end))?:
+        match source.find(64u8, host_start, end):
             case Some(at):
                 user_start = host_start
                 user_end = at
@@ -154,7 +154,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
                 pass
         host_end = end
         if host_start < end and i64(source[host_start]) == 91:
-            match lifted(source.find(93u8, host_start, end))?:
+            match source.find(93u8, host_start, end):
                 case Some(close):
                     host_end = close + 1
                 case Nothing:
@@ -164,7 +164,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
                     return Err(UrlError.InvalidHost(host_end))
                 port = port_number(&source, host_end + 1, end)?
         else:
-            match lifted(source.find(58u8, host_start, end))?:
+            match source.find(58u8, host_start, end):
                 case Some(separator):
                     host_end = separator
                     port = port_number(&source, separator + 1, end)?
@@ -266,13 +266,13 @@ pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
     mut start = 0
     while start <= count:
         mut stop = count
-        match lifted(source.find(38u8, start, count))?:
+        match source.find(38u8, start, count):
             case Some(found):
                 stop = found
             case Nothing:
                 pass
         mut split = stop
-        match lifted(source.find(61u8, start, stop))?:
+        match source.find(61u8, start, stop):
             case Some(found):
                 split = found
             case Nothing:
@@ -366,7 +366,7 @@ def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlE
     Ok(end)
 
 def earliest(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, UrlError]:
-    match lifted(source.find(value, start, stop))?:
+    match source.find(value, start, stop):
         case Some(found):
             Ok(found)
         case Nothing:

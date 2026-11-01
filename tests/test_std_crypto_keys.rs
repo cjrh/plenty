@@ -289,10 +289,10 @@ print(from_spki.verify(RsaScheme.Pkcs1Sha256, &message, &expected)?)?
 print(from_jwk.verify(RsaScheme.Pkcs1Sha256, &message, &expected)?)?
 print(derived.verify(RsaScheme.Pkcs1Sha256, &message, &expected)?)?
 mut tampered = message.copy()?
-tampered.set(0, 0u8)?
+tampered.set(0, 0u8)
 print(from_jwk.verify(RsaScheme.Pkcs1Sha256, &tampered, &expected)?)?
 mut forged = expected.copy()?
-forged.set(255, forged[255] ^ 1u8)?
+forged.set(255, forged[255] ^ 1u8)
 print(from_jwk.verify(RsaScheme.Pkcs1Sha256, &message, &forged)?)?
 print(from_jwk.verify(RsaScheme.PssSha256, &message, &expected)?)?
 print(str.repr(from_jwk.verify(RsaScheme.Pkcs1Sha256, &message, &message))?)?
@@ -315,7 +315,7 @@ print(public.verify(RsaScheme.PssSha384, &message, &unhex("$PS384_SIG")?)?)?
 print(public.verify(RsaScheme.PssSha512, &message, &unhex("$PS512_SIG")?)?)?
 print(public.verify(RsaScheme.PssSha384, &message, &unhex("$PS256_SIG")?)?)?
 mut tampered = message.copy()?
-tampered.set(3, 0u8)?
+tampered.set(3, 0u8)
 for scheme in [RsaScheme.Pkcs1Sha256, RsaScheme.Pkcs1Sha384, RsaScheme.Pkcs1Sha512, RsaScheme.PssSha256, RsaScheme.PssSha384, RsaScheme.PssSha512]?:
     signature = private.sign(scheme, &message)?
     print(public.verify(scheme, &message, &signature)?, public.verify(scheme, &tampered, &signature)?)?
@@ -336,9 +336,9 @@ from_jwk = std.crypto.p256_public_key_from_coordinates(&unhex("$EC_X")?, &unhex(
 from_spki = std.crypto.p256_public_key_from_spki(&unhex("$EC_SPKI")?)?
 print(from_jwk.verify(&message, &expected)?, from_spki.verify(&message, &expected)?)?
 mut tampered = message.copy()?
-tampered.set(0, 0u8)?
+tampered.set(0, 0u8)
 mut forged = expected.copy()?
-forged.set(63, forged[63] ^ 1u8)?
+forged.set(63, forged[63] ^ 1u8)
 print(from_jwk.verify(&tampered, &expected)?, from_jwk.verify(&message, &forged)?)?
 print(str.repr(from_jwk.verify(&message, &unhex("$ES256_DER")?))?)?
 private = std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?

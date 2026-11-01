@@ -62,7 +62,7 @@ pub class Proxies:
         source = allocated(std.bytes.from_text(network))?
         count = source.len()
         mut slash = count
-        match lifted(source.find(47u8, 0, count))?:
+        match source.find(47u8, 0, count):
             case Some(found):
                 slash = found
             case Nothing:
@@ -178,7 +178,7 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
     mut start = 0
     mut stop = count
     if count > 0 and node[0] == 91u8:
-        close = match lifted(node.find(93u8, 1, count))?:
+        close = match node.find(93u8, 1, count):
             case Some(found):
                 found
             case Nothing:
@@ -188,9 +188,9 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
         start = 1
         stop = close
     else:
-        match lifted(node.find(58u8, 0, count))?:
+        match node.find(58u8, 0, count):
             case Some(first):
-                match lifted(node.find(58u8, first + 1, count))?:
+                match node.find(58u8, first + 1, count):
                     case Some(_):
                         pass
                     case Nothing:
@@ -215,7 +215,7 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
         mut at = 0
         while at <= count:
             mut stop = count
-            match lifted(data.find(44u8, at, count))?:
+            match data.find(44u8, at, count):
                 case Some(found):
                     stop = found
                 case Nothing:
@@ -229,7 +229,7 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
             if last > first:
                 if len(out) >= limit:
                     return Err(ProxyError.TooManyHops)
-                allocated(out.append(lifted(data.slice(first, last))?))?
+                allocated(out.append(allocated(data.slice(first, last))?))?
             at = stop + 1
     Ok(out)
 
@@ -324,7 +324,7 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
             if at < count and data[at] == 34u8:
                 quoted = not quoted
             if at == count or (data[at] == 44u8 and not quoted):
-                piece = lifted(data.slice(start, at))?
+                piece = allocated(data.slice(start, at))?
                 mut blank = True
                 for position in range(piece.len()):
                     if not is_blank(piece[position]):

@@ -38,32 +38,32 @@ literal, a buffer, a list, or part of any of them without copying.
 | `len()` | shared | `i64` | Number of bytes |
 | `is_empty()` | shared | `bool` | Whether the length is zero |
 | `capacity()` | shared | `i64` | Bytes storable without reallocating |
-| `get(index)` | shared | `Result[u8, BytesError]` | Read one byte |
-| `find(value, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index of `value` within the range |
-| `find_in(set, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index holding any byte of `set` |
-| `find_not_in(set, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index holding no byte of `set`: the end of a run |
-| `find_bytes(needle, start, stop)` | shared | `Result[Option[i64], BytesError]` | First index where all of `needle` occurs inside the range |
-| `count(value, start, stop)` | shared | `Result[i64, BytesError]` | Occurrences of `value` within the range |
-| `matches(offset, source)` | shared | `Result[bool, BytesError]` | Whether `source` occurs at `offset` |
-| `matches_text(offset, text: &str)` | shared | `Result[bool, BytesError]` | Whether the UTF-8 bytes of `text` occur at `offset` |
-| `ascii_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the run of bytes below 128 that begins at `start` |
-| `utf8_run(start, stop)` | shared | `Result[i64, BytesError]` | Index after the longest valid UTF-8 that begins at `start` |
-| `slice(start, stop)` | shared | `Result[Bytes, BytesError]` | Independent copy of a range, with exact capacity |
+| `get(index)` | shared | `u8` | Read one byte |
+| `find(value, start, stop)` | shared | `Option[i64]` | First index of `value` within the range |
+| `find_in(set, start, stop)` | shared | `Option[i64]` | First index holding any byte of `set` |
+| `find_not_in(set, start, stop)` | shared | `Option[i64]` | First index holding no byte of `set`: the end of a run |
+| `find_bytes(needle, start, stop)` | shared | `Option[i64]` | First index where all of `needle` occurs inside the range |
+| `count(value, start, stop)` | shared | `i64` | Occurrences of `value` within the range |
+| `matches(offset, source)` | shared | `bool` | Whether `source` occurs at `offset` |
+| `matches_text(offset, text: &str)` | shared | `bool` | Whether the UTF-8 bytes of `text` occur at `offset` |
+| `ascii_run(start, stop)` | shared | `i64` | Index after the run of bytes below 128 that begins at `start` |
+| `utf8_run(start, stop)` | shared | `i64` | Index after the longest valid UTF-8 that begins at `start` |
+| `slice(start, stop)` | shared | `Result[Bytes, AllocError]` | Independent copy of a range, with exact capacity |
 | `copy()` | shared | `Result[Bytes, AllocError]` | Independent copy of the whole buffer |
 | `to_list()` | shared | `Result[list[u8], AllocError]` | Independent `list[u8]` for the transport builtins |
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
 | `to_text_range(start, stop)` | shared | `Result[str, BytesError]` | `to_text` of one range, validated and copied once with no intermediate `Bytes`; a range that splits a UTF-8 sequence is `InvalidUtf8` |
-| `set(index, value)` | exclusive | `Result[(), BytesError]` | Replace one byte |
-| `write_float(value: f64)` | exclusive | `Result[i64, BytesError]` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32`, returns bytes written, never allocates or changes length |
-| `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `Result[i64, BytesError]` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length are `OutOfRange`. Never allocates |
-| `fill(start, stop, value)` | exclusive | `Result[(), BytesError]` | Replace every byte of a range |
-| `overwrite(offset, source)` | exclusive | `Result[(), BytesError]` | Copy `source` over existing bytes at `offset`; never grows |
-| `copy_within(start, stop, to)` | exclusive | `Result[(), BytesError]` | Copy `self[start:stop]` to `to` in the same buffer, like `memmove`; the ranges may overlap; never grows |
+| `set(index, value)` | exclusive | `()` | Replace one byte |
+| `write_float(value: f64)` | exclusive | `i64` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32` and traps otherwise; returns bytes written, never allocates or changes length |
+| `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `i64` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length trap. Never allocates |
+| `fill(start, stop, value)` | exclusive | `()` | Replace every byte of a range |
+| `overwrite(offset, source)` | exclusive | `()` | Copy `source` over existing bytes at `offset`; never grows |
+| `copy_within(start, stop, to)` | exclusive | `()` | Copy `self[start:stop]` to `to` in the same buffer, like `memmove`; the ranges may overlap; never grows |
 | `push(value)` | exclusive | `Result[(), AllocError]` | Append one byte |
 | `extend(source)` | exclusive | `Result[(), AllocError]` | Append `source`; pass `&other[a:b]` to append part of a buffer |
 | `reserve(additional)` | exclusive | `Result[(), AllocError]` | Ensure room for `additional` more bytes |
 | `resize(count, fill)` | exclusive | `Result[(), AllocError]` | Set the length, appending `fill` or dropping the tail |
-| `truncate(count)` | exclusive | `Result[(), BytesError]` | Shorten to `count`; longer than the length is `OutOfRange` |
+| `truncate(count)` | exclusive | `()` | Shorten to `count`; a negative count or one longer than the length traps |
 | `pop()` | exclusive | `Option[u8]` | Remove and return the last byte, or `Nothing` |
 | `clear()` | exclusive | `()` | Set the length to zero, keeping capacity |
 
@@ -131,7 +131,7 @@ def main() -> Result[(), AllocError | std.bytes.BytesError | IoError]:
     head.extend(b"\r\n")?
     mut name = std.bytes.empty()?
     name.extend(&head[:4])?
-    print(head.find_bytes(b": ", 0, head.len())?, ends_line(&head), ends_line(b"no"), name)?
+    print(head.find_bytes(b": ", 0, head.len()), ends_line(&head), ends_line(b"no"), name)?
     Ok(())
 ```
 ```output
@@ -175,8 +175,8 @@ buffer, and the body of a shared loop cannot write to it.
 [Slice syntax](../language/04-expressions/slices.md) `buffer[a:b:c]?` copies the
 selected bytes into a new `Bytes` with Python's clamping and returns
 `Result[Bytes, AllocError]`; it also slices `bytes` literals. The `slice(start,
-stop)` method keeps the [range rule](#the-range-rule) and reports `BytesError`,
-which suits functions that already return it. A [slice view](#views),
+stop)` method keeps the [range rule](#the-range-rule): a range outside the
+buffer traps instead of clamping. A [slice view](#views),
 `&buffer[a:b]`, borrows the bytes without a copy.
 
 ## Scanning
@@ -208,13 +208,18 @@ without a `get` call per byte.
 Every range must satisfy `0 <= start <= stop <= len`, and every index passed to
 a method `0 <= index < len`. Methods have no negative indexing and no clamping,
 unlike [list slicing](../facilities/01-builtins/lists.md) and
-[index syntax](#index-syntax-and-iteration). A violation returns
-`Err(BytesError.OutOfRange)` and changes nothing. A zero-length range is valid
+[index syntax](#index-syntax-and-iteration). A violation is a caller bug: it
+[traps](../language/08-errors/02-allocation-and-traps.md#trap-reports) with a
+message naming the method and argument, such as
+`Bytes.get: index is outside 0..len()`, and the report's note names the
+calling line. Check a range that comes from input before passing it. A zero-length range is valid
 anywhere from `0` to `len` inclusive. `overwrite` additionally requires
 `offset + len(source) <= len` of the destination, and `copy_within` requires
 `0 <= to` and `to + (stop - start) <= len`. `matches` and
-`matches_text` take an `offset` from `0` to `len` inclusive and never report a
-short remainder as an error.
+`matches_text` take an `offset` from `0` to `len` inclusive and report a short
+remainder as `False`. The same rule applies to the range arguments of
+[`read_file` and `read_stdin`](#transport) and of
+`to_text_range`.
 
 ## Errors
 
@@ -226,9 +231,13 @@ pub enum BytesError:
 ```
 
 The constructors and the methods that can fail only to allocate (`push`,
-`extend`, `reserve`, `resize`, `copy`, `to_list`) return `AllocError`; a
-negative `reserve` or `resize` count is `CapacityOverflow`. Every other
-fallible operation in the module returns `Result[T, BytesError]`. The only other result shape is `pop`, whose `Option[u8]` reports an empty buffer.
+`extend`, `reserve`, `resize`, `copy`, `slice`, `to_list`) return
+`AllocError`; a negative `reserve` or `resize` count is `CapacityOverflow`.
+`to_text` and `to_text_range` return `BytesError` for `InvalidUtf8`. A range
+outside the buffer traps, so no `Bytes` method returns `OutOfRange`; it names
+a size or limit argument below its minimum elsewhere in `std`, such as
+[`std.actor.net`](actor-net.md) `connection` limits. The only other result shape is
+`pop`, whose `Option[u8]` reports an empty buffer.
 `Allocation` carries the storage `AllocError`: `OutOfMemory` when the allocator
 refuses, `CapacityOverflow` when the requested total cannot be a size. A failed
 operation leaves the buffer's length and contents unchanged and releases
@@ -343,7 +352,7 @@ never changes a buffer's length or capacity.
 | `std.bytes.write_file(file: &mut File, source: &[u8])` | Write a prefix of `source` |
 
 A count below the requested length is normal. A read range outside the buffer
-is `IoError.InvalidInput`; a write takes a view, which carries its own range.
+traps under the [range rule](#the-range-rule); a write takes a view, which carries its own range.
 A closed file is `Closed`, and the open mode is enforced with `NotReadable`
 and `NotWritable`. An interrupted call is `IoError.System(4)`. File transfers
 are raw bytes with no newline translation. `write_file` is a module function,

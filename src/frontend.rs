@@ -3030,10 +3030,17 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
 /// that another std module created, such as a hasher or codec.
 const BYTES_ADOPT: &str = "__bytes_adopt";
 
+/// `__trap("<operation>: <argument> ...")`: std's statement for an argument
+/// outside a domain that depends on run-time state, such as a range beyond a
+/// buffer's length. It reports the message at the call, with the user caller,
+/// and exits like any run-time trap.
+const TRAP: &str = "__trap";
+
 /// Native intrinsics that only std modules call. Each family belongs to the
 /// std module that validates its operands and maps its results.
 fn std_only_intrinsic(name: &str) -> bool {
     name == BYTES_ADOPT
+        || name == TRAP
         || name == "__io_entropy_read"
         || [
             "__crypto_",
@@ -3076,6 +3083,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "write_stderr"
                 | "__caller_location"
                 | BYTES_ADOPT
+                | TRAP
                 | "__min_replaces"
                 | "__max_replaces"
                 | "__test_fault"
@@ -3343,6 +3351,33 @@ enum Tail {
 enum BlockResult {
     Continues(Type),
     Exits,
+}
+
+impl Lower<'_> {
+    /// `__trap("message")`. The message is a literal so that reporting it
+    /// cannot itself fail to allocate.
+    fn trap_statement(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<()> {
+        let standard = at
+            .source()
+            .as_ref()
+            .is_some_and(|source| self.generics.source_facts(source).1);
+        if !standard {
+            return Err(at.error(format!("`{TRAP}` is reserved for the standard library")));
+        }
+        let [
+            Expr {
+                kind: Expression::Text(message),
+                ..
+            },
+        ] = args
+        else {
+            return Err(at.error("`__trap` takes one string literal"));
+        };
+        ops.push(Op::PushStr(self.heap.add_str(message.clone())));
+        ops.push(Op::Collection(CollectionOp::Trap));
+        ops.push(Op::Unreachable);
+        Ok(())
+    }
 }
 
 fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
@@ -4783,6 +4818,11 @@ impl Lower<'_> {
                     if name == BYTES_ADOPT {
                         return self.bytes_adopt(args, &e.at, ops);
                     }
+                    if name == TRAP {
+                        return Err(e
+                            .at
+                            .error("`__trap` is a statement; it does not produce a value"));
+                    }
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
                     let exclusive = |index| operation.exclusive(index);
@@ -5582,6 +5622,16 @@ impl Lower<'_> {
                         BlockResult::Continues(ty) => ty,
                         BlockResult::Exits => return exited_block(body, i),
                     }
+                }
+                Statement::Expr(Expr {
+                    kind: Expression::Call(name, args),
+                    at,
+                }) if name == TRAP
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name) =>
+                {
+                    self.trap_statement(args, at, ops)?;
+                    return exited_block(body, i);
                 }
                 Statement::Expr(e) if matches!(tail, Tail::Return) => {
                     self.return_statement(Some(e), &e.at, temporary_start, ops)?;

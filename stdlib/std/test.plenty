@@ -321,7 +321,7 @@ pub class FakeStream:
             count = left
         if count <= 0:
             return Ok(0)
-        stream_bytes(buffer.overwrite(start, &self.input[self._read:self._read + count]))?
+        buffer.overwrite(start, &self.input[self._read:self._read + count])
         self._read += count
         Ok(count)
 

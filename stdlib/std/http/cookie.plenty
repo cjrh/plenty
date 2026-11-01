@@ -67,11 +67,7 @@ def all_in(data: &Bytes, start: i64, stop: i64, tokens: bool) -> bool:
             data.find_not_in(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", start, stop)
         case False:
             data.find_not_in(b"!#$%&'()*+-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~", start, stop)
-    match found:
-        case Ok(Nothing):
-            True
-        case _:
-            False
+    found.is_none()
 
 # Whether all of `text` is in one set: 0 tchar, 1 cookie-octet, 2 path (any
 # visible ASCII or space except `;`), 3 domain (letters, digits, `-` and
@@ -109,7 +105,7 @@ def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(
     mut at = 0
     while at < count:
         mut stop = count
-        match lifted(data.find(59u8, at, count))?:
+        match data.find(59u8, at, count):
             case Some(found):
                 stop = found
             case Nothing:
@@ -121,7 +117,7 @@ def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(
         while last > first and (code(&data, last - 1) == 32 or code(&data, last - 1) == 9):
             last -= 1
         if last > first:
-            match lifted(data.find(61u8, first, last))?:
+            match data.find(61u8, first, last):
                 case Some(equals):
                     mut value_start = equals + 1
                     mut value_stop = last

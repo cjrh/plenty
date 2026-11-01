@@ -26,11 +26,7 @@ pub class Trickle:
             count = self.step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
-            case Ok(_):
-                pass
-            case Err(_):
-                return Err(StreamError.OutOfRange)
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -79,11 +75,7 @@ pub class Faulty:
             count = 2
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
-            case Ok(_):
-                pass
-            case Err(_):
-                return Err(StreamError.OutOfRange)
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 

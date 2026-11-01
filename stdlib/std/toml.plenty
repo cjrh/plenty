@@ -189,12 +189,12 @@ def numeric_bytes() -> Result[Bytes, TomlFault]:
     Ok(set)
 
 # The first index in [start, stop) that `found` located, or `stop`.
-def run_end(found: Result[Option[i64], BytesError], stop: i64) -> Result[i64, TomlFault]:
-    match faulted(found)?:
+def run_end(found: Option[i64], stop: i64) -> i64:
+    match found:
         case Some(index):
-            Ok(index)
+            index
         case Nothing:
-            Ok(stop)
+            stop
 
 def hex_value(code: i64) -> i64:
     if code >= 48 and code <= 57:
@@ -266,11 +266,7 @@ class Parser:
 
     def byte_at(self, where: i64) -> i64:
         if where >= 0 and where < self.src.len():
-            match self.src.get(where):
-                case Ok(byte):
-                    return i64(byte)
-                case Err(_):
-                    pass
+            return i64(self.src.get(where))
         -1
 
     def peek(self, ahead: i64) -> i64:
@@ -297,11 +293,7 @@ class Parser:
     def located(self, fault: TomlFault) -> TomlError:
         mut line = 1
         mut column = 1
-        match self.src.count(10u8, 0, self.at):
-            case Ok(count):
-                line += count
-            case Err(_):
-                pass
+        line += self.src.count(10u8, 0, self.at)
         mut index = self.at - 1
         while index >= 0:
             byte = self.byte_at(index)
@@ -337,7 +329,7 @@ class Parser:
     def comment(self: &mut Parser) -> Result[(), TomlFault]:
         self.at += 1
         stop = self.src.len()
-        self.at = run_end(self.src.find_in(&self.comment_stop, self.at, stop), stop)?
+        self.at = run_end(self.src.find_in(&self.comment_stop, self.at, stop), stop)
         if self.peek(0) < 0 or self.newline() > 0:
             return Ok(())
         Err(TomlFault.ControlCharacter)
@@ -393,7 +385,7 @@ class Parser:
         if byte == 34 or byte == 39:
             return self.quoted(byte, False)
         stop = self.src.len()
-        end = run_end(self.src.find_not_in(&self.bare, self.at, stop), stop)?
+        end = run_end(self.src.find_not_in(&self.bare, self.at, stop), stop)
         if end == self.at:
             return Err(self.unexpected())
         self.scratch.clear()
@@ -577,7 +569,7 @@ class Parser:
         Err(self.unexpected())
 
     def word(self: &mut Parser, text: &str, flag: bool) -> Result[Toml, TomlFault]:
-        if not faulted(self.src.matches_text(self.at, text))?:
+        if not self.src.matches_text(self.at, text):
             return Err(TomlFault.UnexpectedByte)
         self.at += text.byte_len()
         Ok(Toml.Bool(flag))
@@ -595,9 +587,9 @@ class Parser:
         while True:
             mut end = stop
             if quote == 34:
-                end = run_end(self.src.find_in(&self.basic_stop, self.at, stop), stop)?
+                end = run_end(self.src.find_in(&self.basic_stop, self.at, stop), stop)
             else:
-                end = run_end(self.src.find_in(&self.literal_stop, self.at, stop), stop)?
+                end = run_end(self.src.find_in(&self.literal_stop, self.at, stop), stop)
             reserved(self.scratch.extend(&self.src[self.at:end]))?
             self.at = end
             byte = self.peek(0)
@@ -693,7 +685,7 @@ class Parser:
     def number(self: &mut Parser) -> Result[Toml, TomlFault]:
         start = self.at
         stop = self.src.len()
-        end = run_end(self.src.find_not_in(&self.numeric, start, stop), stop)?
+        end = run_end(self.src.find_not_in(&self.numeric, start, stop), stop)
         value = self.numeral(start, end)?
         self.at = end
         Ok(value)
@@ -705,11 +697,11 @@ class Parser:
         if signed:
             at += 1
         if at + 3 == end:
-            if faulted(self.src.matches_text(at, "inf"))?:
+            if self.src.matches_text(at, "inf"):
                 if first == 45:
                     return Ok(Toml.Float(-f64.INF))
                 return Ok(Toml.Float(f64.INF))
-            if faulted(self.src.matches_text(at, "nan"))?:
+            if self.src.matches_text(at, "nan"):
                 return Ok(Toml.Float(f64.NAN))
         if not signed and self.byte_at(at) == 48:
             prefix = self.byte_at(at + 1)
@@ -941,13 +933,10 @@ def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
     if count > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
     mut state = started(parser(source, bounds))?
-    match state.src.utf8_run(0, count):
-        case Ok(valid_end):
-            if valid_end != count:
-                state.at = valid_end
-                return Err(state.located(TomlFault.InvalidUtf8))
-        case Err(_):
-            return Err(TomlError(TomlFault.OutOfRange, 0, 0, 0))
+    valid_end = state.src.utf8_run(0, count)
+    if valid_end != count:
+        state.at = valid_end
+        return Err(state.located(TomlFault.InvalidUtf8))
     match state.document():
         case Ok(_):
             pass
@@ -998,13 +987,13 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
             case Ok(count):
                 if count < 0 or count > room:
                     return Err(TomlError(TomlFault.Stream(StreamError.InvalidProgress), have, 0, 0))
-                drop(data.truncate(have + count))
+                data.truncate(have + count)
                 if count == 0:
                     break
                 if data.len() > bounds.max_input:
                     return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
             case Err(cause):
-                drop(data.truncate(have))
+                data.truncate(have)
                 match cause:
                     case StreamError.Interrupted:
                         pass
@@ -1142,13 +1131,13 @@ class Emitter:
         while True:
             digit = (10 - rest % 10) % 10
             at -= 1
-            faulted(self.spelling.set(at, u8(48 + digit)))?
+            self.spelling.set(at, u8(48 + digit))
             rest = (rest + digit) // 10
             if rest == 0:
                 break
         if value < 0:
             at -= 1
-            faulted(self.spelling.set(at, u8(45)))?
+            self.spelling.set(at, u8(45))
         self.spelled(at, stop)
 
     # A basic string. `"`, `\`, and control characters are escaped; every
@@ -1159,9 +1148,9 @@ class Emitter:
         count = source.len()
         self.put(34)?
         mut run = 0
-        mut index = run_end(source.find_in(&self.escaped, 0, count), count)?
+        mut index = run_end(source.find_in(&self.escaped, 0, count), count)
         while index < count:
-            byte = i64(faulted(source.get(index))?)
+            byte = i64(source.get(index))
             self.extend(&source, run, index)?
             self.put(92)?
             if byte == 34 or byte == 92:
@@ -1185,7 +1174,7 @@ class Emitter:
                 else:
                     self.put(55 + digit)?
             run = index + 1
-            index = run_end(source.find_in(&self.escaped, run, count), count)?
+            index = run_end(source.find_in(&self.escaped, run, count), count)
         self.extend(&source, run, count)?
         self.put(34)
 
@@ -1193,7 +1182,7 @@ class Emitter:
     def key(self: &mut Emitter, name: &str) -> Result[(), TomlFault]:
         source = reserved(std.bytes.from_text(name))?
         count = source.len()
-        if count > 0 and run_end(source.find_not_in(&self.bare, 0, count), count)? == count:
+        if count > 0 and run_end(source.find_not_in(&self.bare, 0, count), count) == count:
             return self.extend(&source, 0, count)
         self.quote(name)
 
@@ -1552,7 +1541,7 @@ pub class Document:
 
 def document_newline(target: &mut Emitter) -> Result[(), TomlFault]:
     count = target.out.len()
-    if count > 0 and faulted(target.out.get(count - 1))? != 10u8:
+    if count > 0 and target.out.get(count - 1) != 10u8:
         target.put(10)?
     Ok(())
 
@@ -1626,7 +1615,7 @@ def document_state(source: Bytes, bounds: &Limits) -> Result[Parser, TomlError]:
     mut state = started(parser(source, bounds))?
     state.tracking = True
     count = state.src.len()
-    valid_end = started(faulted(state.src.utf8_run(0, count)))?
+    valid_end = state.src.utf8_run(0, count)
     if valid_end != count:
         state.at = valid_end
         return Err(state.located(TomlFault.InvalidUtf8))

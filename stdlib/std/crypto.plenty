@@ -355,7 +355,8 @@ pub def open_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &
         case AeadAlgorithm.ChaCha20Poly1305:
             __crypto_chacha_open(key, nonce, aad, data)
     advanced_status(status)?
-    advanced_bytes(data.truncate(data.len() - 16))
+    data.truncate(data.len() - 16)
+    Ok(())
 
 # The seed must contain 32 cryptographically random bytes. Signatures are
 # deterministic; reuse of a signing seed is permitted.
@@ -803,7 +804,7 @@ pub def ed25519_seed_from_pkcs8(der: &[u8]) -> Result[Bytes, AdvancedError]:
         case Err(_):
             pass
     # The seed is secret; do not leave a copy in freed memory.
-    advanced_bytes(seed.fill(0, 32, 0u8))?
+    seed.fill(0, 32, 0u8)
     match outcome:
         case Err(error):
             Err(error)

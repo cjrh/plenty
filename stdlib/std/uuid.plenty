@@ -59,8 +59,8 @@ pub class Uuid:
             return Err(BytesError.OutOfRange)
         for index in range(8):
             shift = u64((7 - index) * 8)
-            target.set(offset + index, u8((self._high >> shift) & 255u64))?
-            target.set(offset + index + 8, u8((self._low >> shift) & 255u64))?
+            target.set(offset + index, u8((self._high >> shift) & 255u64))
+            target.set(offset + index + 8, u8((self._low >> shift) & 255u64))
         Ok(())
 
     pub def to_bytes(self) -> Result[Bytes, BytesError]:

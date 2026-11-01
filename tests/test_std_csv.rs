@@ -42,11 +42,7 @@ pub class Fake:
             count = step
         if count > self.data.len() - self.at:
             count = self.data.len() - self.at
-        match buffer.overwrite(start, &self.data[self.at:self.at + count]):
-            case Ok(_):
-                pass
-            case Err(_):
-                return Err(StreamError.OutOfRange)
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -567,7 +563,7 @@ print(record.start(2)?, record.stop(2)?, str.repr(record.text(2)?)?)?
 mut out = std.bytes.from_text(">")?
 record.append_to(0, &mut out)?
 record.append_to(3, &mut out)?
-print(out.to_text()?, record.bytes(1)?.to_list()?, record.data().get(2)?)?
+print(out.to_text()?, record.bytes(1)?.to_list()?, record.data().get(2))?
 print(str.repr(record.text(1))?)?
 print(str.repr(record.texts())?)?
 print(str.repr(record.stop(4))?, str.repr(record.text(-1))?)?

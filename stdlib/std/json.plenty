@@ -265,12 +265,12 @@ def escaped_bytes() -> Result[Bytes, JsonFault]:
     Ok(set)
 
 # The first index in [start, stop) that `found` located, or `stop`.
-def run_end(found: Result[Option[i64], BytesError], stop: i64) -> Result[i64, JsonFault]:
-    match faulted(found)?:
+def run_end(found: Option[i64], stop: i64) -> i64:
+    match found:
         case Some(index):
-            Ok(index)
+            index
         case Nothing:
-            Ok(stop)
+            stop
 
 # A recognizer whose whole state lives in these fields, so input may stop and
 # resume between any two bytes. It examines one byte at a time, except that a
@@ -381,7 +381,7 @@ pub class Decoder:
                 if not self._finished:
                     return Ok(Event.Pending)
                 return self.at_end()
-            byte = i64(faulted(self._window.get(self._at))?)
+            byte = i64(self._window.get(self._at))
             mode = self._mode
             mut step: Option[Event] = Nothing
             if mode == mode_none:
@@ -467,7 +467,7 @@ pub class Decoder:
         count = self._stack.len()
         if count == 0:
             return Err(JsonFault.TrailingData)
-        top = i64(faulted(self._stack.get(count - 1))?)
+        top = i64(self._stack.get(count - 1))
         if byte == 44:
             self.bump(byte)
             if top == in_object:
@@ -559,7 +559,7 @@ pub class Decoder:
         # Plain content: one scan and one copy for the whole run. Each byte is
         # one column, and none is a line feed.
         available = self._window.len()
-        stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)?
+        stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)
         reserved(self._scratch.extend(&self._window[self._at:stop]))?
         count = stop - self._at
         self._at = stop
@@ -729,7 +729,7 @@ def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFa
                 if count < 0 or count > room:
                     source._window.clear()
                     return Err(JsonFault.Stream(StreamError.InvalidProgress))
-                drop(source._window.truncate(count))
+                source._window.truncate(count)
                 if count == 0:
                     source._finished = True
                 elif count > source._max_input - source._fed:
@@ -999,7 +999,7 @@ pub class Encoder:
         count = self._stack.len()
         if count == 0:
             return Err(JsonFault.InvalidState)
-        Ok(i64(faulted(self._stack.get(count - 1))?))
+        Ok(i64(self._stack.get(count - 1)))
 
     def before_value(self: &mut Encoder) -> Result[(), JsonFault]:
         if self._broken:
@@ -1025,9 +1025,9 @@ pub class Encoder:
         count = source.len()
         self.put(34)?
         mut run = 0
-        mut index = run_end(source.find_in(&self._escaped, 0, count), count)?
+        mut index = run_end(source.find_in(&self._escaped, 0, count), count)
         while index < count:
-            byte = i64(faulted(source.get(index))?)
+            byte = i64(source.get(index))
             self.extend(&source[run:index])?
             self.put(92)?
             if byte == 34 or byte == 92:
@@ -1049,7 +1049,7 @@ pub class Encoder:
                 self.put(hex_digit(byte >> 4))?
                 self.put(hex_digit(byte & 15))?
             run = index + 1
-            index = run_end(source.find_in(&self._escaped, run, count), count)?
+            index = run_end(source.find_in(&self._escaped, run, count), count)
         self.extend(&source[run:count])?
         self.put(34)
 
@@ -1076,7 +1076,7 @@ pub class Encoder:
         source = reserved(std.bytes.from_text(text))?
         mut state = 0
         for index in range(source.len()):
-            state = number_step(state, i64(faulted(source.get(index))?))
+            state = number_step(state, i64(source.get(index)))
             if state <= 0:
                 return Err(JsonFault.InvalidNumber)
         if not number_complete(state):
@@ -1276,12 +1276,8 @@ pub def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result
             kept = source._out.len() - partial.completed
             # Shifted in place: a failure path must not need memory.
             for index in range(kept):
-                match source._out.get(partial.completed + index):
-                    case Ok(byte):
-                        drop(source._out.set(index, byte))
-                    case Err(_):
-                        pass
-            drop(source._out.truncate(kept))
+                source._out.set(index, source._out.get(partial.completed + index))
+            source._out.truncate(kept)
             Err(JsonError(JsonFault.Stream(partial.cause), source._written, 0, 0))
 
 def complete(source: &Encoder) -> Result[(), JsonError]:

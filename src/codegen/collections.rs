@@ -509,6 +509,17 @@ impl Lowerer<'_, '_> {
             self.stack.push((written, Ty::Bool));
             return Ok(());
         }
+        if let CollectionOp::Trap = operation {
+            let (message, _) = self.pop_typed(Ty::Str)?;
+            let site = self.trap_site()?;
+            let helper = self
+                .module
+                .declare_func_in_func(self.runtime.trap_message, self.bcx.func);
+            self.bcx.ins().call(helper, &[message, site]);
+            self.bcx.ins().trap(TrapCode::unwrap_user(3));
+            self.terminated = true;
+            return Ok(());
+        }
         if let CollectionOp::ActorHeap = operation {
             let (argument, _) = self.pop_typed(Ty::I64)?;
             let (op, _) = self.pop_typed(Ty::I64)?;
