@@ -534,7 +534,8 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn allocation_failure_is_a_format_error_value() {
+fn allocation_failure_is_an_alloc_error() {
+    // B92 phase 2: formatting storage failure surfaces as `AllocError`.
     assert_eq!(
         run(r#"
 def main() -> Result[(), AllocError | IoError]:
@@ -549,7 +550,7 @@ def main() -> Result[(), AllocError | IoError]:
             print(str.repr(error)?)?
     Ok(())
 "#),
-        "std.fmt.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))"
+        "AllocError.OutOfMemory"
     );
 }
 
