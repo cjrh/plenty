@@ -82,7 +82,7 @@ references are rebuilt; only storage survives. Both cache hits and misses clear
 the function before reuse. Storage lasts until the worker finishes, and a large
 function can leave larger buffers for later small functions. Generator bodies
 and generated adapters still construct fresh IR. See the
-[allocation measurements](../../../development/profiling.md#reusing-function-storage).
+[allocation measurements](../../../development/profiling-allocation-results.md#reusing-function-storage).
 
 Workers claim one job at a time to balance functions of different sizes, but
 send completed results in batches of up to 32 jobs. This reduces result-channel
@@ -141,7 +141,7 @@ fails, emission reports the error of the first failing function in that order.
 Integer literal and lowered enum-tag dispatch uses a jump table when at least
 256 distinct keys form one contiguous range (issue #395). Other sets retain
 source-order comparison chains. This conservative threshold follows the
-[dense-match measurements](../../../development/profiling.md#dense-match-dispatch);
+[dense-match measurements](../../../development/profiling-match-results.md#dense-match-dispatch);
 small tables regressed for some input distributions.
 
 The lowerer sorts keys with their original arm blocks, checks contiguity and
@@ -166,7 +166,7 @@ offsets followed by the bytes. `plenty_str_match` binary-searches it and
 returns the entry index, or `n` for no match; `br_table` maps the index to the
 arm block, with `n` going to the wildcard. The scrutinee is released once
 before the branch. Other `str` matches keep their `plenty_str_eq` chain; see
-the [string match measurements](../../../development/profiling.md#string-match-dispatch).
+the [string match measurements](../../../development/profiling-match-results.md#string-match-dispatch).
 
 ## Symbol references
 

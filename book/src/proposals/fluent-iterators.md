@@ -928,7 +928,7 @@ terminals above replace them for pipelines.
    with the verification suite above. Issue #371, fixed, removed the stored-range
    slow path that would have misled the benchmarks.
    Small scalar leaf callback substitution and SSA scalar captures are also
-   implemented; [measurements](../development/profiling.md#serial-pipeline-callbacks)
+   implemented; [measurements](../development/profiling-pipeline-results.md#serial-pipeline-callbacks)
    cover the original workload. Generator fluent entry and the explicit owned
    `.generator()` bridge also landed independently of composition.
 2. **Stage 2 — composition.** `chain`, `flat_map`, closure-literal splicing,
