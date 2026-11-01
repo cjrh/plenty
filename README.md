@@ -1,6 +1,6 @@
 # Plenty
 
-Plenty is a programming language and compiler.
+Plenty is a statically typed language with Python-inspired syntax and native compilation.
 
 ```python
 type int = i64
@@ -20,7 +20,7 @@ def main() -> ():
 
 ## Documentation
 
-- [Learn Plenty](book/src/tutorial/index.md) and [setup](book/src/tutorial/00-setting-up.md)
+- [Install Plenty](book/src/design/toolchain/01-building/installing.md) and [Learn Plenty](book/src/tutorial/index.md)
 - [Language and standard library reference](book/src/design/index.md)
 - [Development workflow](book/src/development/workflow.md) and [backlog](book/src/backlog.md)
 - [Online documentation](https://cjrh.info/plenty/) and [current development documentation](https://cjrh.info/plenty/dev/)
