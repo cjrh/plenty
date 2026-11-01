@@ -784,10 +784,10 @@ esac
         self.archive = self.root / "dist" / f"{self.name}.tar.gz"
         self.archive.parent.mkdir()
 
-    def pack(self, **env):
+    def pack(self, marker=" ", **env):
         subprocess.run(["python3", "-B", RELEASE / "archive.py", self.stage, self.name, self.archive], check=True)
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
-        self.archive.with_name(self.archive.name + ".sha256").write_text(f"{digest}  {self.archive.name}\n")
+        self.archive.with_name(self.archive.name + ".sha256").write_text(f"{digest} {marker}{self.archive.name}\n")
         return run(["python3", "-B", RELEASE / "smoke-native.py", self.archive],
                    env={**os.environ, "SMOKE_EXPECTED": env.get("expected", self.smoke.EXPECTED)})
 
@@ -795,6 +795,23 @@ esac
         result = self.pack()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS plenty-0.4.0-aarch64-apple-darwin", result.stdout)
+
+    def test_binary_mode_checksum_passes(self):
+        result = self.pack(marker="*")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS plenty-0.4.0-aarch64-apple-darwin", result.stdout)
+
+    def test_wrong_checksum_filename_and_extra_records_fail(self):
+        self.assertEqual(self.pack().returncode, 0)
+        digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        for recorded in (f"{digest} *wrong.zip\n", f"{digest} ?{self.archive.name}\n",
+                         f"{digest} **{self.archive.name}\n",
+                         f"{digest}  {self.archive.name}\n{digest}  other.zip\n"):
+            with self.subTest(recorded=recorded):
+                self.archive.with_name(self.archive.name + ".sha256").write_text(recorded)
+                result = run(["python3", "-B", RELEASE / "smoke-native.py", self.archive])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("checksum file does not match", result.stderr)
 
     def test_wrong_output_missing_file_and_bad_checksum_fail(self):
         result = self.pack(expected="wrong\n")
