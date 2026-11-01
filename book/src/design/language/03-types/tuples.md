@@ -59,9 +59,10 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 A [slice](../04-expressions/slices.md) with integer-literal bounds and step
-selects components at compile time: `(1, "two", 3.0)[1:]?` has type
-`Result[(str, f64), AllocError]`, and `pair[::-1]?` reverses a pair. Slices of
-affine components are rejected for now.
+selects components at compile time: `(1, "two", 3.0)[1:]` has type
+`(str, f64)`, and `pair[::-1]` reverses a pair. It allocates nothing, so it
+returns no `Result` and takes no `?`. Slices of affine components are rejected
+for now.
 
 Nested and starred unpacking are unsupported. Unit components can be discarded
 or used as unit expressions without enabling standalone unit storage.

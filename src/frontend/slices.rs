@@ -94,6 +94,7 @@ impl Lower<'_> {
         // A slice is never its own payload; name the `Result` as collection
         // literals do.
         if let (Some(expected), Ty::Enum(result)) = (&expected, &ty)
+            && result.is_result()
             && *expected == result.get().variants[0].fields[0]
         {
             return Err(e.at.error(format!(
@@ -270,7 +271,9 @@ impl Lower<'_> {
     }
 
     /// A tuple slice selects components at compile time, so its bounds are
-    /// literals. `base` is a tuple place.
+    /// literals, and allocates nothing, so it returns the selected tuple, or
+    /// `()` when it selects nothing, without a `Result`. `base` is a tuple
+    /// place.
     fn tuple_slice(&mut self, base: &Expr, bounds: &SliceBounds, ops: &mut Vec<Op>) -> Result<Ty> {
         let Some(Ty::Enum(t)) = self.place_type(base) else {
             unreachable!("a tuple place")
@@ -311,23 +314,16 @@ impl Lower<'_> {
             };
             types.push(self.index(&component, ops)?);
         }
-        let selected = if types.is_empty() {
+        if types.is_empty() {
             ops.push(Op::PushUnit);
-            Ty::Unit
-        } else {
-            let tuple = crate::sum::tuple(types);
-            let Ty::Enum(nominal) = &tuple else {
-                unreachable!()
-            };
-            ops.push(Op::Enum(crate::sum::EnumOp::New(nominal.clone(), 0)));
-            tuple
-        };
-        let result = crate::sum::result(selected, crate::sum::alloc_error());
-        let Ty::Enum(nominal) = &result else {
+            return Ok(Ty::Unit);
+        }
+        let tuple = crate::sum::tuple(types);
+        let Ty::Enum(nominal) = &tuple else {
             unreachable!()
         };
         ops.push(Op::Enum(crate::sum::EnumOp::New(nominal.clone(), 0)));
-        Ok(result)
+        Ok(tuple)
     }
 }
 

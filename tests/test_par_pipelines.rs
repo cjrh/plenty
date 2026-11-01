@@ -523,7 +523,7 @@ fn runtime_chunk_counts_must_be_positive() {
                 "{MAIN}    with ThreadPoolExecutor(2, 1)? as pool:\n        n = {chunks}\n        print(\"start\")?\n        print(iter(range(0, 4)).par(&pool, chunks=n).count()?)?\n    Ok(())\n"
             ),
             "start\n",
-            "integer cast out of range",
+            &format!("par chunks must be positive, got chunks={chunks}"),
         );
     }
 }

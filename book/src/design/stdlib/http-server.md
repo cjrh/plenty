@@ -22,7 +22,6 @@ import std.http.client
 import std.http.server
 import std.net
 import std.time
-from std.fmt import FormatError
 from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken

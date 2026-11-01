@@ -7,7 +7,6 @@ its serialized formats. Also see [xor filters](sketch-xor.md) and
 
 ```plenty
 from std.bytes import BytesError
-from std.fmt import FormatError
 from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
 
 def main() -> Result[(), SketchError | AllocError | BytesError | FormatError | IoError]:

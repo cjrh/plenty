@@ -113,6 +113,6 @@ The [reference](../../design/language/04-expressions/format-strings.md) lists
 every option and conversion.
 
 An f-string suits a fixed number of pieces of any type. Its error type is
-always `std.fmt.FormatError`. A function that reports only `AllocError` can
-combine two strings with `a.concat(b)?` and any number of strings from a list,
+always `FormatError`, which needs no import. A function that reports only
+`AllocError` can combine two strings with `a.concat(b)?` and any number of strings from a list,
 set, or generator with [`separator.join(pieces)?`](../../design/facilities/01-builtins/text-building.md#joining).

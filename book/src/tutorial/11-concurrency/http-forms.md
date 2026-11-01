@@ -17,7 +17,6 @@ import std.http.proxy
 import std.http.server
 import std.net
 import std.time
-from std.fmt import FormatError
 from std.http.body import FormLimits
 from std.http.proxy import Forwarding, Proxies
 from std.http.server import Exchange
