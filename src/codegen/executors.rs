@@ -136,6 +136,9 @@ pub(super) fn build_adapter(
 
 impl Lowerer<'_, '_> {
     pub(super) fn lower_executor(&mut self, operation: &ExecutorOp) -> Result<()> {
+        if let ExecutorOp::Chunks = operation {
+            return self.check_chunks();
+        }
         let (inputs, output) = operation.signature();
         let mut values = Vec::new();
         for input in inputs.iter().rev() {
@@ -223,6 +226,29 @@ impl Lowerer<'_, '_> {
             self.release(values[1], &inputs[1]);
         }
         self.stack.push((value, output));
+        Ok(())
+    }
+
+    /// Traps unless the `chunks=` count on top of the stack is positive, and
+    /// leaves it there.
+    fn check_chunks(&mut self) -> Result<()> {
+        let (count, ty) = self.pop_typed(Ty::I64)?;
+        let invalid = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, count, 1);
+        let failure = self.bcx.create_block();
+        let valid = self.bcx.create_block();
+        self.bcx.ins().brif(invalid, failure, &[], valid, &[]);
+        self.bcx.switch_to_block(failure);
+        self.bcx.set_cold_block(failure);
+        let site = self.trap_site()?;
+        let helper = self
+            .module
+            .declare_func_in_func(self.runtime.trap_par_chunks, self.bcx.func);
+        self.bcx.ins().call(helper, &[count, site]);
+        self.bcx.ins().trap(TrapCode::unwrap_user(3));
+        self.bcx.seal_block(failure);
+        self.bcx.switch_to_block(valid);
+        self.bcx.seal_block(valid);
+        self.stack.push((count, ty));
         Ok(())
     }
 }

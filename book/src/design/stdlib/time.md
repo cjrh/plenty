@@ -147,7 +147,6 @@ resolved by the `tz.Disambiguation` the caller passes:
 
 ```plenty fragment
 import tz
-from std.fmt import FormatError
 
 def main() -> Result[(), tz.TzError | FormatError | AllocError | IoError]:
     new_york = tz.zone("America/New_York")?
