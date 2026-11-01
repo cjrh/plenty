@@ -120,6 +120,22 @@ admitted construction attempts. `requests` counts completed responses,
 `rejected` counts admission refusals, and `protocol_errors` counts reported
 parse failures. A selector or setup failure returns `Err` instead of a report.
 
+A connection submits one completion at a time and waits for admission to
+acknowledge it before starting another request. A full admission mailbox uses
+a private 1 ms retry timer instead of runnable retries on every scheduling
+round. Live application messages and timers continue to dispatch while it
+waits; retirement retains pending completion and shutdown control. If the
+shared timer pool is exhausted, runnable retries preserve control delivery.
+Admission retains at most one pending acknowledgement per connection and retries
+it when the child's mailbox is full. This bounds the added queue by `capacity`;
+the stage reserves one additional timer record per connection. Phase deadlines
+and the external forced-drain deadline continue to apply.
+
+`Notice.CompletedBy(Address)` submits completion credit and `Notice.Completed`
+returns it. These variants, `Resume`, `Rejected` and `Drain` are reserved for
+server control; applications send `Notice.Message(value)`. The additional enum
+variant requires updating exhaustive matches over `Notice`.
+
 Cancel the external stop token, or call `Response.shutdown_server()` from an
 authorized application route, to start draining. Admission stops, idle
 connections close, and active responses get the configured grace period.

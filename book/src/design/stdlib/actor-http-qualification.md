@@ -121,7 +121,9 @@ for this fixture, not the configured maximum actor heap reservation.
 
 The 64-client actor HTTP samples recorded roughly 617,000 full-mailbox retry
 attempts for 5,000 completed responses, without lost messages or failed HTTP
-requests. Issue #644 tracks this measured scheduling/accounting overhead.
+requests. These are the original measurements before the completion-credit
+fix for issue #644; the [retry comparison](#completion-retry-comparison) records
+the changed behavior.
 The raw actor statistics also distinguish abrupt TLS peer closure from an
 HTTP request failure: curl/ApacheBench can receive the complete response and
 close without TLS close notification.
@@ -139,6 +141,62 @@ python3 examples/http_server_bench.py --compiler target/debug/plenty \
 
 For the recorded samples, each invocation used `--runs 1` and the six
 configurations alternated for three rounds. Adapt CPU affinity to the machine.
+
+
+## Completion retry comparison
+
+Issue #644 replaces repeated runnable completion retries with one outstanding
+completion per connection, an admission acknowledgement, and a private 1 ms
+retry after a full admission mailbox. Retrying a full child acknowledgement is
+bounded by connection capacity; application mail and timers remain live.
+
+The [raw comparison](../../assets/actor-http-retry-comparison.json) freezes the
+module before the change at `5fad016c`, the changed module, the shared fixture,
+and a replay script. Both snapshots were imported as the same local `server`
+module and compiled with the **same compiler/runtime** and `--release`;
+only the fixture's module imports changed. The compiler SHA-256 is
+`7da9d5da6d3bbab8a5ae08ea18f5d8fa7ce755e38f6cb0bedf0654cc82875dcf`.
+This is a controlled HTTP comparison on x86-64 GNU/Linux, not a new TLS or
+worker-server qualification. CPU affinities remain server `0`, clients
+`8,10,12,14`. Three alternating before/after runs of all six workloads completed
+180,000 measured requests with zero failures or missing responses. Each run's
+actor statistics include its additional `/stop` request and final drain;
+`requests` was exactly 5,001.
+
+| HTTP workload | Before median requests/s | After median requests/s |
+|---|---:|---:|
+| Keep-alive, 1 client | 27,524 | 27,664 |
+| Keep-alive, 16 clients | 26,087 | 34,867 |
+| Keep-alive, 64 clients | 12,054 | 31,511 |
+| New connection, 16 clients | 10,812 | 10,449 |
+| Keep-alive 16 KiB response, 16 clients | 12,228 | 13,422 |
+| Keep-alive 1 KiB POST echo, 16 clients | 23,155 | 29,999 |
+
+At 64 clients, median full-mailbox attempts fell from 616,899 to 6,707 and
+mail deliveries from 319,895 to 26,840. This improves throughput, but **p99
+latency rose from 12.464 to 16.854 ms** in this workload. The retry delay and
+credit exchange are a throughput/latency tradeoff; this does not establish an
+across-the-board latency improvement. Incremental idle RSS with 984 connections
+was 21.73 KiB before and 21.80 KiB after per connection; setup RSS and raw runs
+are in the artifact. No task-local builds ran during measurement; unrelated
+activity on the shared host was not controlled, and the recorded load snapshot
+was taken after the run. Short local runs do not establish long-term soak
+behavior or precise performance across environments.
+
+Replay the frozen sources from a checkout with a compiler, ApacheBench and
+`taskset`; adapt the script's affinities on other machines:
+
+```sh
+python3 - <<'PYREPLAY'
+import json
+from pathlib import Path
+record = json.loads(Path("book/src/assets/actor-http-retry-comparison.json").read_text())
+Path("/tmp/actor-http-retry-comparison.py").write_text(record["reproduction_script"])
+PYREPLAY
+python3 /tmp/actor-http-retry-comparison.py \
+    book/src/assets/actor-http-retry-comparison.json target/debug/plenty \
+    target/actor-http-retry-comparison
+```
 
 ## Mixed failures
 

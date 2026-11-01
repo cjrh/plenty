@@ -80,6 +80,6 @@ rewrite rules, new domain settings, token, or extra Pages environment are needed
 Local admission experiments can use `--manifest /tmp/releases.json` and
 `--output /tmp/docs-preview` without changing the reviewed manifest. The output
 directory must not exist, or must contain a previous builder's `versions.json`.
-Follow [the deployment recovery procedure](workflow.md#first-publication-and-recovery)
+Follow [the deployment recovery procedure](documentation-deployment.md#first-publication-and-recovery)
 for failures. No archive is retained solely in short-lived Actions artifacts:
 each deployment rebuilds the complete admitted catalog from Git.

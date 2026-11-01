@@ -198,6 +198,9 @@ TLS sessions reconstruct a private configuration graph within their actor heap,
 so trapped sessions and repeated configuration rotation release retired generations
 without dropping interrupted rustls state (issue #641). This adds per-session
 configuration memory and setup work; the original TLS comparison predates that
-change. Measured mailbox retry overhead is tracked as issue #644.
+change. Completion acknowledgements and bounded retry timers reduce concurrent
+keep-alive mailbox retry overhead while preserving application mail, completion
+accounting and shutdown control (issue #644). The qualification record retains
+the original comparison and adds a controlled before/after HTTP measurement.
 
 Remaining stages stay **B85** in the [backlog](../backlog.md).

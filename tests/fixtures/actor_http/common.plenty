@@ -68,5 +68,8 @@ def main() -> ():
         print("protocol_errors", report.protocol_errors).unwrap()
         print("trapped", report.actors.trapped).unwrap()
         print("failed", report.actors.failed).unwrap()
+        print("full", report.actors.full).unwrap()
+        print("delivered", report.actors.delivered).unwrap()
+        print("lost", report.actors.lost).unwrap()
         print("heaps", heaps_live()).unwrap()
         print("heap_bytes", heap_bytes_used()).unwrap()
