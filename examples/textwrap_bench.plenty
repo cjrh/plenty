@@ -1,0 +1,60 @@
+# Text wrapping probes. Compile with the current compiler:
+#   plenty --release --compile examples/textwrap_bench.plenty -o /tmp/textwrap-bench
+#   /tmp/textwrap-bench prose 262144 3
+# Modes: prose, unicode, dashes, tabs, dedent, indent, shorten.
+# The size argument is a workload scale in approximate input bytes; prose uses
+# a 60-byte unit with a 59-byte divisor to preserve the review's baseline.
+# Prints elapsed nanoseconds for all repetitions, followed by a byte checksum.
+# Input construction and output printing are outside the timed section.
+import std.text
+import std.time
+
+enum BenchmarkError:
+    InvalidArguments
+
+def main() -> Result[(), AllocError | IoError | ParseError | std.text.TextError | BenchmarkError]:
+    options = args()?
+    mut mode = "prose"
+    mut size = 262144
+    mut count = 3
+    if len(options) == 4:
+        mode = options[1]
+        size = i64.parse(&options[2])?
+        count = i64.parse(&options[3])?
+    elif len(options) != 1:
+        return Err(BenchmarkError.InvalidArguments)
+    if size <= 0 or size > 1048576 or count <= 0:
+        return Err(BenchmarkError.InvalidArguments)
+    mut text = ""
+    if mode == "prose" or mode == "shorten":
+        text = "A small paragraph with ordinary words and some punctuation. ".repeat(size // 59)?
+    elif mode == "unicode":
+        text = "é🙂".repeat(size // 6)?
+    elif mode == "dashes":
+        text = "-".repeat(size)?
+    elif mode == "dedent":
+        text = "    first line\n      second line\n".repeat(size // 33)?
+    elif mode == "indent":
+        text = "first line\nsecond line\n".repeat(size // 23)?
+    elif mode == "tabs":
+        text = "a\tb\t".repeat(size // 4)?
+    else:
+        return Err(BenchmarkError.InvalidArguments)
+    mut total = 0
+    start = std.time.monotonic_now()
+    for iteration in range(count):
+        if mode == "dedent":
+            result = std.text.dedent(&text, 8388608, 8388608)?
+            total += result.byte_len()
+        elif mode == "indent":
+            result = std.text.indent(&text, "> ", 8388608, 8388608)?
+            total += result.byte_len()
+        elif mode == "shorten":
+            result = std.text.shorten(&text, 70, max_bytes=8388608, max_input_bytes=8388608)?
+            total += result.byte_len()
+        else:
+            result = std.text.fill(&text, 70, 8388608, 8388608)?
+            total += result.byte_len()
+    elapsed = std.time.monotonic_now().saturating_duration_since(&start)
+    print(elapsed.as_nanoseconds(), total)?
+    Ok(())

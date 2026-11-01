@@ -205,7 +205,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B41 | Error context | Native-cause OS description text (B14/B71). |
 | B43 | Processes | Native process-readiness wakeups for deadline waits, file/child redirection, stderr merging, dropped-child reaping policy and process groups. [Polling deadline/cancellation waits delivered](completed-work.md#typed-time-and-cancellable-waits). |
 | B46 | Logs | JSON-lines sink, sampling/rate limits, per-module thresholds and span context. |
-| B47 | Text/Unicode | Grapheme-aware `std.text.wrap` and broader classification; keep the external `unicode_text` package's Unicode version aligned with `std.unicode`. |
+| B47 | Text/Unicode | Grapheme-aware text wrapping and broader classification; keep the external `unicode_text` package's Unicode version aligned with `std.unicode`. [Delivered paragraph tools](design/stdlib/text-wrapping.md). |
 | B48 | Regex | Lazy DFA/one-pass acceleration and literal prefilters; full Unicode case folding, script and general-category properties. |
 | B49 | Collections/iterators | User iterator protocol (B12, needs B11 stored references); `len()` and `in` on user and std containers (issues #623, #645); further collections need use cases. |
 | B50 | Random/secrets | Jump/split streams, distributions/float ranges, weighted choice/element sampling, scratch-free secret integers and a zero-on-drop buffer. |
