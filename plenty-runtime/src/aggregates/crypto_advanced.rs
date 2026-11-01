@@ -295,7 +295,7 @@ mod tests {
         unsafe {
             let state = exchange_state(state);
             assert!((*state).key.is_some());
-            let mut peer = Storage {
+            let peer = Storage {
                 header: Header::new(destroy),
                 bytes: vec![0; 32],
             };
