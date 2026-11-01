@@ -285,7 +285,7 @@ HTTP/1.1 and HTTPS on isolated connection actors, bounded request/response handl
 enum ServerError
     InvalidConfig | AdmissionStopped | Allocation(AllocError) | Bytes(BytesError) | Http(HttpError) | Net(NetError) | Tls(TlsError) | Timer(TimerError) | Wait(WaitError) | Actor(std.actor.StartError) | Range(RangeError) | Handler
 enum Notice[M]
-    Message(M) | Drain | Resume | Completed | Rejected
+    Message(M) | Drain | Resume | Completed | CompletedBy(Address) | Rejected
 enum Event[M]
     Head(RequestHead, RequestTarget) | Body(Bytes) | Trailers(list[std.http.Header]) | End | Writable | Actor(Mail[Notice[M], ServerError]) | Message(M) | Stopping
 class Config
