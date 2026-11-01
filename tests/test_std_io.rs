@@ -1070,7 +1070,7 @@ for pattern in [0u32, 0x80000000u32, 1u32, 0x7f800000u32, 0xff800000u32, 0x7fc12
     value = field.read_f32(std.encoding.Endian.Big)?
     drop(field.seek(SeekFrom.Start(0))?)
     field.write_f32(value, std.encoding.Endian.Little)?
-    print(std.encoding.unpack_u32(&field.data, 0, std.encoding.Endian.Little)? == pattern)?
+    print(std.encoding.unpack_u32(&field.data, 0, std.encoding.Endian.Little) == pattern)?
 for pattern in [0u64, 0x8000000000000000u64, 1u64, 0x7ff0000000000000u64, 0xfff0000000000000u64, 0x7ff8123456789abcu64, 0xfff0123456789abcu64]?:
     mut encoded = std.bytes.empty()?
     std.encoding.append_u64(&mut encoded, pattern, std.encoding.Endian.Little)?
@@ -1078,7 +1078,7 @@ for pattern in [0u64, 0x8000000000000000u64, 1u64, 0x7ff0000000000000u64, 0xfff0
     value = field.read_f64(std.encoding.Endian.Little)?
     drop(field.seek(SeekFrom.Start(0))?)
     field.write_f64(value, std.encoding.Endian.Big)?
-    print(std.encoding.unpack_u64(&field.data, 0, std.encoding.Endian.Big)? == pattern)?
+    print(std.encoding.unpack_u64(&field.data, 0, std.encoding.Endian.Big) == pattern)?
 "#,
         "3fc0000000000000000004c0\n0\n1.5 -2.5\nTrue 12\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
     );

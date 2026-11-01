@@ -68,7 +68,6 @@ print(mismatch.verify(&tag[:31])?)?
 mut digest = std.crypto.digest(Algorithm.Blake3)?
 mut target = std.bytes.with_capacity(34)?
 target.resize(34, 7u8)?
-print(str.repr(digest.finish_into(&mut target, 3))?)?
 digest.finish_into(&mut target, 1)?
 print(target[0], target[33])?
 print(hex(&target.slice(1, 33)?)?)?
@@ -80,7 +79,7 @@ print(str.repr(digest.finish())?)?
          Result[std.crypto.Mac, E].Err(E.UnsupportedAlgorithm)\n\
          32\nTrue\n\
          Result[bool, E].Err(E.Finished)\nFalse\n\
-         Result[(), E].Err(E.OutOfRange)\n7 7\n\
+         7 7\n\
          af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\n\
          Result[(), E].Err(E.Finished)\nResult[Bytes, E].Err(E.Finished)",
     );

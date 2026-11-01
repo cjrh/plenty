@@ -505,10 +505,10 @@ pub class WebSocket[T]:
         mut at = self._start + 2
         mut length = small
         if small == 126:
-            length = i64(encoded(std.encoding.unpack_u16(&self._input, at, Endian.Big))?)
+            length = i64(std.encoding.unpack_u16(&self._input, at, Endian.Big))
             at += 2
         elif small == 127:
-            large = encoded(std.encoding.unpack_u64(&self._input, at, Endian.Big))?
+            large = std.encoding.unpack_u64(&self._input, at, Endian.Big)
             if large > 9223372036854775807u64:
                 return Err(WebSocketError.Protocol)
             length = i64(large)

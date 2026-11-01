@@ -552,8 +552,10 @@ and an argument bug traps.
    `Bytes.get` returns `u8`, `slice` `Result[Bytes, AllocError]`, the scans
    plain values, and `RandomError` loses `OutOfRange` and `Allocation`. An
    empty random population stays `EmptyRange`, since data can produce it.
-   Stream `read` ranges, `std.encoding` offsets and `std.uuid`
-   `write_bytes` keep their `OutOfRange` contracts. Statically checkable
+   Encoding offsets, UUID `write_bytes`, crypto `finish_into`, and CSV
+   field positions now trap on caller bounds errors (issue #667). Encoding
+   pack/unpack, UUID writes, and CSV positions return plain values.
+   Stream `read` ranges await issue #666. Statically checkable
    domains (positive capacities and limits) wait for a type that expresses
    them; `BytesError.OutOfRange` remains for `std.actor.net` connection
    limits.

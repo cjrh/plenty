@@ -177,8 +177,9 @@ same way (`std.graph`).
 
 Another run-time value the caller supplies (a limit or configuration) that the
 operation cannot accept is an `Err` with a named variant: `OutOfRange`,
-`InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. `std.encoding` offsets and
-`std.uuid` `write_bytes` still use this form. Builtins follow several policies
+`InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Buffer
+ranges, encoding and UUID offsets, crypto output offsets, and CSV field
+indices trap. Builtins follow several policies
 today (issue #629); see the
 [consistency proposal](../../proposals/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail).
 

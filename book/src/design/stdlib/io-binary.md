@@ -57,7 +57,6 @@ fills the gap with zeros after successfully allocating the whole extent.
 | `OutOfRange` | Negative count/cap or position arithmetic overflow |
 | `LimitExceeded` | Requested owned copy or final write buffer exceeds its cap |
 | `Allocation(AllocError)` | Buffer creation/growth failed |
-| `Encoding(EncodingError)` | Underlying codec cause, retained intact |
 
 Scalar reads and writes within capacity allocate nothing. Growth uses `Bytes`
 allocation, and owned payload reads allocate one buffer and copy `count` bytes.

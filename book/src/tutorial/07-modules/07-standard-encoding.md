@@ -17,9 +17,9 @@ def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std
     print(std.encoding.hex_text(&frame)?)?
     print(std.encoding.base64_text(&frame)?)?
     print(std.encoding.base64url_text(&frame[:7])?)?
-    print(std.encoding.unpack_u16(&frame, 0, Endian.Big)?, std.encoding.unpack_u16(&frame, 0, Endian.Little)?)?
-    std.encoding.pack_u32(&mut frame, 2, 8u32, Endian.Little)?
-    print(std.encoding.unpack_u32(&frame, 2, Endian.Little)?, frame.len())?
+    print(std.encoding.unpack_u16(&frame, 0, Endian.Big), std.encoding.unpack_u16(&frame, 0, Endian.Little))?
+    std.encoding.pack_u32(&mut frame, 2, 8u32, Endian.Little)
+    print(std.encoding.unpack_u32(&frame, 2, Endian.Little), frame.len())?
     Ok(())
 ```
 ```output
@@ -53,9 +53,9 @@ def main() -> Result[(), AllocError | IoError | std.encoding.EncodingError]:
     std.encoding.append_f32(&mut record, 1.5f32, Endian.Big)?
     std.encoding.append_f64(&mut record, -2.5, Endian.Little)?
     print(std.encoding.hex_text(&record)?)?
-    print(std.encoding.unpack_u16(&record, 0, Endian.Big)?)?
-    print(std.encoding.unpack_f32(&record, 2, Endian.Big)?)?
-    print(std.encoding.unpack_f64(&record, 6, Endian.Little)?)?
+    print(std.encoding.unpack_u16(&record, 0, Endian.Big))?
+    print(std.encoding.unpack_f32(&record, 2, Endian.Big))?
+    print(std.encoding.unpack_f64(&record, 6, Endian.Little))?
     Ok(())
 ```
 ```output
@@ -91,8 +91,6 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encod
     print(str.repr(std.encoding.base64_from_text("aG k"))?)?
     print(str.repr(std.encoding.base64_from_text("aGl="))?)?
     print(str.repr(std.encoding.base64url_from_text("aGk="))?)?
-    short = std.bytes.from_text("abc")?
-    print(str.repr(std.encoding.unpack_u32(&short, 0, Endian.Big))?)?
     Ok(())
 ```
 ```output
@@ -103,13 +101,14 @@ Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingErr
 Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingError.InvalidByte(2))
 Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingError.NonCanonical(2))
 Result[std.bytes.Bytes, std.encoding.EncodingError].Err(std.encoding.EncodingError.InvalidPadding(3))
-Result[u32, std.encoding.EncodingError].Err(std.encoding.EncodingError.OutOfRange)
 ```
 
 The number in an error is the index of the offending byte. `aGl=` is
 `NonCanonical` because its last symbol carries bits that belong to no byte:
 `aGk=` is the only accepted text for `hi`. Reading four bytes from a
-three-byte buffer is `OutOfRange`, never a partial value.
+three-byte buffer traps. Validate untrusted record lengths before unpacking;
+[Cursor field reads](../../design/stdlib/io-binary.md) return `Truncated`
+when input can legitimately end before a field is complete.
 
 Decoded bytes are not text. Call `to_text()` on the result when you expect
 UTF-8; it validates and can fail on its own.

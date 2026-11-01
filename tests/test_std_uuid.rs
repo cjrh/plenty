@@ -30,6 +30,17 @@ pub class Entropy:
 
 "#;
 
+fn program(body: &str) -> String {
+    let body = body
+        .trim_matches('\n')
+        .lines()
+        .map(|line| format!("    {line}\n"))
+        .collect::<String>();
+    format!(
+        "{HEADER}def main() -> Result[(), AllocError | IoError | ParseError | BytesError | SecretsError | RangeError]:\n{body}    Ok(())\n"
+    )
+}
+
 fn native(body: &str, expected: &str) {
     let body = body
         .trim_matches('\n')
@@ -187,20 +198,11 @@ fn writes_are_bounded_and_do_not_change_surrounding_bytes() {
 id = uuid.parse("00112233-4455-6677-8899-aabbccddeeff")?
 mut target = std.bytes.empty()?
 target.resize(18, 90u8)?
-for offset in [-1, 3, i64.MAX]?:
-    match id.write_bytes(&mut target, offset):
-        case Ok(_):
-            print("unexpected success")?
-        case Err(error):
-            print(error)?
 print(target.count(90u8, 0, 18))?
-id.write_bytes(&mut target, 1)?
+id.write_bytes(&mut target, 1)
 print(target.to_list()?)?
 "#,
-        "std.bytes.BytesError.OutOfRange
-std.bytes.BytesError.OutOfRange
-std.bytes.BytesError.OutOfRange
-18
+        "18
 [90, 0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255, 90]",
     );
 }
@@ -235,7 +237,7 @@ print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
 id = uuid.parse("00112233-4455-6677-8899-aabbccddeeff")?
 same = uuid.from_bytes(&b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff")?
-id.write_bytes(&mut target, 0)?
+id.write_bytes(&mut target, 0)
 comparison = id.compare(&same)
 key = id.as_u64_pair()
 text = id.to_string()
@@ -272,4 +274,37 @@ std.bytes.BytesError.Allocation(AllocError.OutOfMemory)
 std.secrets.SecretsError.Allocation(AllocError.OutOfMemory)
 std.secrets.SecretsError.Allocation(AllocError.OutOfMemory)",
     );
+}
+
+fn assert_trap(source: &str, message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+    assert!(
+        stderr.contains(&format!(": {message}\n")),
+        "{source}\n{stderr}"
+    );
+}
+
+#[test]
+fn write_bytes_offsets_trap() {
+    for (length, offset) in [(15, 0), (18, -1), (18, 3), (18, i64::MAX)] {
+        assert_trap(
+            &program(&format!(
+                r#"
+id = uuid.parse("00112233-4455-6677-8899-aabbccddeeff")?
+mut target = std.bytes.empty()?
+target.resize({length}, 90u8)?
+id.write_bytes(&mut target, {offset})
+"#
+            )),
+            "Uuid.write_bytes: offset outside target buffer",
+        );
+    }
 }

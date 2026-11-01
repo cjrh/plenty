@@ -172,23 +172,23 @@ pub class Record:
     pub def data(self) -> &Bytes:
         &self._data
 
-    pub def start(self, index: i64) -> Result[i64, CsvError]:
+    pub def start(self, index: i64) -> i64:
         if index < 0 or index >= len(self._ends):
-            return Err(CsvError.OutOfRange)
+            __trap("Record.start: index outside record")
         if index == 0:
-            return Ok(0)
-        Ok(self._ends[index - 1])
+            return 0
+        self._ends[index - 1]
 
-    pub def stop(self, index: i64) -> Result[i64, CsvError]:
+    pub def stop(self, index: i64) -> i64:
         if index < 0 or index >= len(self._ends):
-            return Err(CsvError.OutOfRange)
-        Ok(self._ends[index])
+            __trap("Record.stop: index outside record")
+        self._ends[index]
 
     pub def bytes(self, index: i64) -> Result[Bytes, CsvError]:
-        listed(self._data.slice(self.start(index)?, self.stop(index)?))
+        listed(self._data.slice(self.start(index), self.stop(index)))
 
     pub def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]:
-        listed(out.extend(&self._data[self.start(index)?:self.stop(index)?]))
+        listed(out.extend(&self._data[self.start(index):self.stop(index)]))
 
     pub def text(self, index: i64) -> Result[str, CsvError]:
         field = self.bytes(index)?
@@ -569,7 +569,7 @@ pub class Writer[W]:
 
     def copy(self: &mut Writer[W], record: &Record) -> Result[(), CsvError]:
         for index in range(len(record._ends)):
-            self.field(&record._data[record.start(index)?:record.stop(index)?])?
+            self.field(&record._data[record.start(index):record.stop(index)])?
         self.end_record()
 
     def encode_texts(self: &mut Writer[W], fields: &list[str]) -> Result[(), CsvError]:

@@ -27,7 +27,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingE
     mut header = std.bytes.with_capacity(4)?
     std.encoding.append_u32(&mut header, 258u32, Endian.Big)?
     print(std.encoding.hex_text(&header)?)?
-    print(std.encoding.unpack_u32(&header, 0, Endian.Big)?)?
+    print(std.encoding.unpack_u32(&header, 0, Endian.Big))?
     Ok(())
 ```
 ```output
@@ -91,13 +91,13 @@ Decoder checks, in order:
 
 | Function | Result | Contract |
 |---|---|---|
-| `pack_u16`, `pack_u32`, `pack_u64`, `pack_i16`, `pack_i32`, `pack_i64` `(target: &mut Bytes, offset, value, order)` | `Result[(), EncodingError]` | Overwrite the bytes at `offset`; never grows |
+| `pack_u16`, `pack_u32`, `pack_u64`, `pack_i16`, `pack_i32`, `pack_i64` `(target: &mut Bytes, offset, value, order)` | `()` | Overwrite the bytes at `offset`; never grows |
 | `append_u16`, `append_u32`, `append_u64`, `append_i16`, `append_i32`, `append_i64` `(target: &mut Bytes, value, order)` | `Result[(), EncodingError]` | Grow by exactly the width |
-| `unpack_u16`, `unpack_u32`, `unpack_u64`, `unpack_i16`, `unpack_i32`, `unpack_i64` `(source: &[u8], offset, order)` | `Result[u16, EncodingError]`, and so on | Read the bytes at `offset` |
+| `unpack_u16`, `unpack_u32`, `unpack_u64`, `unpack_i16`, `unpack_i32`, `unpack_i64` `(source: &[u8], offset, order)` | `u16`, and so on | Read the bytes at `offset` |
 
 `Endian.Big` puts the most significant byte at the lowest offset. Signed values
 use two's complement. `pack_` and `unpack_` require
-`0 <= offset <= len - width`; a short buffer is `OutOfRange` and nothing is
+`0 <= offset <= len - width`; a short buffer or invalid offset traps before anything is
 read or written. Bytes are accessed one at a time, so no offset has an
 alignment requirement. A single byte needs no order: use `Bytes.get`, `set`,
 and `push`.
@@ -106,9 +106,9 @@ and `push`.
 
 | Function | Result | Contract |
 |---|---|---|
-| `pack_f32`, `pack_f64` `(target: &mut Bytes, offset: i64, value, order: Endian)` | `Result[(), EncodingError]` | Overwrite exactly four/eight existing bytes; never grows |
+| `pack_f32`, `pack_f64` `(target: &mut Bytes, offset: i64, value, order: Endian)` | `()` | Overwrite exactly four/eight existing bytes; never grows |
 | `append_f32`, `append_f64` `(target: &mut Bytes, value, order: Endian)` | `Result[(), EncodingError]` | Append exactly four/eight bytes |
-| `unpack_f32`, `unpack_f64` `(source: &[u8], offset: i64, order: Endian)` | `Result[f32, EncodingError]`, `Result[f64, EncodingError]` | Read exactly four/eight bytes |
+| `unpack_f32`, `unpack_f64` `(source: &[u8], offset: i64, order: Endian)` | `f32`, `f64` | Read exactly four/eight bytes |
 
 The value type is the width in the name: `f32` is IEEE 754 binary32 and `f64`
 is binary64. Endianness is explicit, with no native-order default, alignment,
@@ -126,7 +126,8 @@ float equality cannot distinguish signed zeros or verify NaNs.
 The integer bounds and failure guarantees apply unchanged. `pack_` and
 `unpack_` require `0 <= offset <= len - width`, including at unaligned offsets
 inside a larger record. Negative, excessively large, and truncated ranges
-return `OutOfRange` before reading or modifying bytes. Packing leaves length,
+trap before reading or modifying bytes. The messages are `pack: offset outside target buffer`
+and `unpack: offset outside source buffer`. Packing leaves length,
 capacity, and surrounding bytes unchanged. Appending keeps the existing prefix;
 when growth fails, contents and length remain unchanged and the error is
 `Allocation(cause)`. Range checks avoid overflowing offset arithmetic.
@@ -148,7 +149,7 @@ pub enum EncodingError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | An offset lies outside the buffer |
+| `OutOfRange` | Appending a field would overflow the buffer length |
 | `InvalidLength` | The encoded length is impossible for the codec |
 | `InvalidByte(index)` | The byte at `index` is outside the alphabet |
 | `InvalidPadding(index)` | A configured padding byte at `index` where the codec does not accept it |

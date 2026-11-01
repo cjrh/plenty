@@ -102,6 +102,11 @@ The fields are private, so a state can only be made by the module's constructors
 Both are [redacted](../language/03-types/classes.md#redacted-types): printing one shows `std.crypto.Digest(@redacted)` or
 `std.crypto.Mac(@redacted)`.
 
+`Digest.finish_into` and `Mac.finish_into` require the complete digest to fit
+at `offset`. Invalid offsets trap with `finish_into: offset outside target buffer`
+before touching the buffer or finalizing the state. A valid output range on
+an already-finished state still returns `CryptoError.Finished`.
+
 ## Errors
 
 ```text
@@ -115,7 +120,7 @@ pub enum CryptoError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A range outside its buffer, or an output that does not fit at `offset`; the state is unchanged |
+| `OutOfRange` | Reserved by existing error adapters; output offsets trap |
 | `Finished` | The state has already produced its output |
 | `InvalidKeyLength` | A BLAKE3 key does not contain exactly 32 bytes |
 | `UnsupportedAlgorithm` | `hmac` was called with `Algorithm.Blake3`; use native keyed BLAKE3 |
@@ -216,6 +221,8 @@ only through its own runtime entry symbols, so a program that does not use
 - No MD5, SHA-3, BLAKE2, or truncated SHA-512 variants.
 - No zero-on-drop buffer type; see [Key material](#key-material).
 - One target, x86-64 Linux GNU.
+
+
 
 ## Acknowledgements
 
