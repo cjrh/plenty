@@ -86,7 +86,7 @@ def emit(path: &pathmod.Path, pattern: &list[u8], glob: bool, full_path: bool, n
         matched = glob_matches(pattern, bytes, start) if glob else literal_matches(pattern, bytes, start)
         if matched:
             write_stdout_bytes(bytes)?
-            write_stdout_bytes(encode_utf8("\0")?)?
+            write_stdout_bytes(b"\0")?
     else:
         text = path.to_text()?
         needle = decode_utf8(pattern)?

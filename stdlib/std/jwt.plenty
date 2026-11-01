@@ -308,17 +308,12 @@ pub class VerifyingKey:
     pub def algorithm(self) -> Algorithm:
         self._algorithm
 
-def copied(source: &[u8]) -> Result[Bytes, JwtError]:
-    mut owned = from_bytes(std.bytes.with_capacity(len(source)))?
-    from_bytes(owned.extend(source))?
-    Ok(owned)
-
 def hmac_secret(algorithm: Algorithm, secret: &[u8]) -> Result[Bytes, JwtError]:
     match hmac_hash(algorithm):
         case Some(pair):
             if len(secret) < pair[1]:
                 return Err(JwtError.InvalidKey)
-            copied(secret)
+            from_bytes(std.bytes.from_bytes(secret))
         case Nothing:
             Err(JwtError.InvalidKey)
 
@@ -355,7 +350,7 @@ pub def es256_verifying_key(key: P256PublicKey) -> VerifyingKey:
 pub def ed25519_signing_key(seed: &[u8]) -> Result[SigningKey, JwtError]:
     if len(seed) != 32:
         return Err(JwtError.InvalidKey)
-    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(copied(seed)?)))
+    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(from_bytes(std.bytes.from_bytes(seed))?)))
 
 # A 32-byte Ed25519 public key, copied. A small-order key is rejected here
 # rather than at each verification.
@@ -365,7 +360,7 @@ pub def ed25519_verifying_key(public_key: &[u8]) -> Result[VerifyingKey, JwtErro
     mut probe = from_bytes(std.bytes.with_capacity(64))?
     from_bytes(probe.resize(64, 0u8))?
     from_crypto(std.crypto.ed25519_verify(public_key, &probe, &probe), JwtError.InvalidKey)?
-    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(copied(public_key)?)))
+    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(from_bytes(std.bytes.from_bytes(public_key))?)))
 
 pub const default_max_size: i64 = 8192
 pub const max_leeway: i64 = 86400

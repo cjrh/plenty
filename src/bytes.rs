@@ -36,8 +36,6 @@ pub enum BytesOp {
     SetItem,
     // `Item` on a temporary buffer value rather than a named place.
     ValueItem,
-    // A copy of a `bytes` literal, which shares the text layout.
-    FromStatic,
     // A memmove inside one buffer: `copy_within(start, stop, to)`.
     CopyWithin,
     // `source[start:stop:step]`: the bounds and the slice flags.
@@ -76,7 +74,6 @@ impl BytesOp {
             "__bytes_fill" => Self::Fill,
             "__bytes_item" => Self::Item,
             "__bytes_set_item" => Self::SetItem,
-            "__bytes_from_static" => Self::FromStatic,
             "__bytes_copy_within" => Self::CopyWithin,
             _ => return None,
         })
@@ -133,7 +130,6 @@ impl BytesOp {
             Self::FromList => (vec![list()], storage()),
             Self::ToList => (vec![storage()], list()),
             Self::FromText => (vec![Ty::Str], storage()),
-            Self::FromStatic => (vec![Ty::ByteStr], storage()),
             Self::ToText => (vec![view()], sum::option(Ty::Str)),
             Self::SliceLiteral => unreachable!("a literal slice defers to `Slice`"),
         };
@@ -171,7 +167,6 @@ impl BytesOp {
             Self::WriteFloatSpec => 281,
             Self::CopyWithin => 282,
             Self::Slice | Self::SliceLiteral => crate::collection_opcodes::BYTES_SLICE,
-            Self::FromStatic => Self::FromText.opcode(),
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,
             Self::SetItem => 239,

@@ -627,12 +627,7 @@ def rsa_public(der: &[u8], start: i64, stop: i64) -> Result[RsaPublicKey, Advanc
     if e.stop != key.stop:
         return Err(AdvancedError.InvalidKey)
     size = rsa_size(der, n, der, e)?
-    Ok(RsaPublicKey(copied(&der[start:stop])?, size))
-
-def copied(source: &[u8]) -> Result[Bytes, AdvancedError]:
-    mut owned = advanced_bytes(std.bytes.with_capacity(len(source)))?
-    advanced_bytes(owned.extend(source))?
-    Ok(owned)
+    Ok(RsaPublicKey(advanced_bytes(std.bytes.from_bytes(&der[start:stop]))?, size))
 
 def der_length_size(size: i64) -> i64:
     if size < 128:
@@ -696,7 +691,7 @@ def p256_checked(point: Bytes) -> Result[P256PublicKey, AdvancedError]:
 pub def p256_public_key_from_point(point: &[u8]) -> Result[P256PublicKey, AdvancedError]:
     if len(point) != 65 or point[0] != 4u8:
         return Err(AdvancedError.InvalidKey)
-    p256_checked(copied(point)?)
+    p256_checked(advanced_bytes(std.bytes.from_bytes(point))?)
 
 # 32-byte big-endian coordinates, as in a JWK's decoded `x` and `y`.
 pub def p256_public_key_from_coordinates(x: &[u8], y: &[u8]) -> Result[P256PublicKey, AdvancedError]:
@@ -715,7 +710,7 @@ pub def p256_public_key_from_spki(der: &[u8]) -> Result[P256PublicKey, AdvancedE
     bits = spki(der, b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07")?
     if bits.stop - bits.start != 65 or der[bits.start] != 4u8:
         return Err(AdvancedError.InvalidKey)
-    p256_checked(copied(&der[bits.start:bits.stop])?)
+    p256_checked(advanced_bytes(std.bytes.from_bytes(&der[bits.start:bits.stop]))?)
 
 # Unencrypted PKCS #8 v1 holding a P-256 ECPrivateKey (RFC 5915) that
 # includes its public key, as `openssl genpkey` writes it. The public key
@@ -733,7 +728,7 @@ pub def ed25519_public_key_from_spki(der: &[u8]) -> Result[Bytes, AdvancedError]
         return Err(AdvancedError.InvalidKey)
     if ed25519_small_order(der, bits.start)?:
         return Err(AdvancedError.SmallOrderKey)
-    copied(&der[bits.start:bits.stop])
+    advanced_bytes(std.bytes.from_bytes(&der[bits.start:bits.stop]))
 
 # Whether data[at:at + 32] encodes a point of order 1, 2, 4 or 8. For such
 # a key A, the signature (R, S) = ([r]B, r) verifies whenever [k]A is the
@@ -780,7 +775,7 @@ pub def ed25519_seed_from_pkcs8(der: &[u8]) -> Result[Bytes, AdvancedError]:
     mut at = wrapped.stop
     if at < outer.stop and der[at] == 160u8:
         at = der_at(der, at, outer.stop, 160u8)?.stop
-    mut seed = copied(&der[inner.start:inner.stop])?
+    mut seed = advanced_bytes(std.bytes.from_bytes(&der[inner.start:inner.stop]))?
     if at == outer.stop:
         return Ok(seed)
     mut outcome: Result[bool, AdvancedError] = Ok(False)

@@ -197,7 +197,7 @@ def main() -> Result[(), std.bytes.BytesError | IoError]:
     request.push(255u8)?
     print(request.len())?
     print(std.bytes.from_bytes(b"")?.len())?
-    std.bytes.stdout_write(b"done\n")?
+    write_stdout_bytes(b"done\n")?
     Ok(())
 "#,
     );

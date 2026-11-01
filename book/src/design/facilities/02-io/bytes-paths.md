@@ -16,10 +16,14 @@ order and remain available. Results use `IoError`; allocation failures are
 | `decode_utf8(bytes)` | `Result[str, IoError]` | Strict validation and independent text; invalid input returns `DataError.InvalidUtf8` |
 | `args_bytes()` | `Result[list[list[u8]], IoError]` | Independent snapshot including invocation name at index zero; no decoding |
 | `input_bytes(delimiter: u8)` | `Result[Option[list[u8]], IoError]` | Read one stdin record, removing only its delimiter |
-| `write_stdout_bytes(bytes)` | `Result[i64, IoError]` | Exact bytes with no added framing; returns byte count |
-| `write_stderr_bytes(bytes)` | `Result[i64, IoError]` | Same contract on stderr |
+| `write_stdout_bytes(source: &[u8])` | `Result[i64, IoError]` | Exact bytes with no added framing; returns byte count |
+| `write_stderr_bytes(source: &[u8])` | `Result[i64, IoError]` | Same contract on stderr |
 | `read_bytes(path)` | `Result[list[u8], IoError]` | Read whole file without decoding or newline translation |
-| `write_bytes(path, bytes)` | `Result[i64, IoError]` | Create or truncate, write exact bytes, check close, return byte count |
+| `write_bytes(path, source: &[u8])` | `Result[i64, IoError]` | Create or truncate, write exact bytes, check close, return byte count |
+
+The writers read `source` as a [slice view](../../language/04-expressions/slices.md#slice-views):
+pass `&bytes` for a `list[u8]` or `std.bytes.Bytes`, `&buffer[a:b]` for part of
+one, or a `b"..."` literal. Nothing is copied or converted.
 
 `input_bytes(0u8)` provides NUL framing for Unix paths, whose names cannot contain
 NUL. `Some(empty)` represents an empty record; `Nothing` means EOF before any
@@ -28,7 +32,7 @@ special meaning. Input reads no bytes beyond the delimiter and retries interrupt
 reads. Allocation or I/O failure can consume part of a record; no rollback or
 resynchronization is promised. Construction may fail even at EOF.
 
-Writers use bounded stack chunks without allocating an output buffer. They retry
+Writers read the view in place without allocating an output buffer. They retry
 interrupted writes and complete all bytes on success, but errors can follow a
 written prefix. Use the existing `flush_stdout()` or `flush_stderr()` to report
 deferred output errors. Calls and NUL records are not atomic against concurrent

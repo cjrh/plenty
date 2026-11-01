@@ -243,17 +243,14 @@ pub def from_list(values: &list[u8]) -> Result[Bytes, BytesError]:
 pub def from_text(text: &str) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__bytes_from_text(text))?))
 
-# An owned, growable copy of a `b"..."` literal.
-pub def from_bytes(value: bytes) -> Result[Bytes, BytesError]:
-    Ok(Bytes(allocated(__bytes_from_static(value))?))
+# An owned, growable copy of any byte view: a literal, `Bytes`, `list[u8]`
+# or a subview of one.
+pub def from_bytes(source: &[u8]) -> Result[Bytes, BytesError]:
+    mut owned = with_capacity(len(source))?
+    owned.extend(source)?
+    Ok(owned)
 
 # Direct transport out of a view: at most one native write, returning the
 # bytes moved. The view carries its own range, so there is no range error.
 pub def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]:
     __io_file_write(source, file)
-
-pub def stdout_write(source: &[u8]) -> Result[i64, IoError]:
-    __io_std_write(source, 1u8)
-
-pub def stderr_write(source: &[u8]) -> Result[i64, IoError]:
-    __io_std_write(source, 2u8)

@@ -813,16 +813,9 @@ pub class Match:
     pub def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]:
         if self.start < 0 or self.start > self.end or self.end > len(data):
             return Err(RegexError.OutOfRange)
-        match std.bytes.with_capacity(self.end - self.start):
-            case Ok(value):
-                mut owned = value
-                match owned.extend(&data[self.start:self.end]):
-                    case Ok(_):
-                        Ok(owned)
-                    case Err(BytesError.Allocation(cause)):
-                        Err(RegexError.Allocation(cause))
-                    case Err(_):
-                        Err(RegexError.OutOfRange)
+        match std.bytes.from_bytes(&data[self.start:self.end]):
+            case Ok(owned):
+                Ok(owned)
             case Err(BytesError.Allocation(cause)):
                 Err(RegexError.Allocation(cause))
             case Err(_):

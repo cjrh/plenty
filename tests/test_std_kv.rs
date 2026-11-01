@@ -53,7 +53,7 @@ mut store = kv.memory()?
 table = "quotes'\"; DROP TABLE plenty_kv; --\0"
 value = buffers.from_bytes(b"\xff\0")?
 for literal in [b"b", b"\xff", b"", b"a\0", b"a"]?:
-    key = buffers.from_bytes(literal)?
+    key = buffers.from_bytes(&literal)?
     store.put(&table, &key, &value)?
 key = buffers.from_bytes(b"a")?
 replacement = buffers.from_bytes(b"new")?
@@ -82,7 +82,7 @@ fn scans_have_bounds_limits_direction_and_owned_rows() {
 mut store = kv.memory()?
 empty = buffers.empty()?
 for literal in [b"a", b"b", b"c", b"d"]?:
-    key = buffers.from_bytes(literal)?
+    key = buffers.from_bytes(&literal)?
     store.put("t", &key, &empty)?
 start = buffers.from_bytes(b"b")?
 stop = buffers.from_bytes(b"d")?

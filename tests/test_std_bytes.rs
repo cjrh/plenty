@@ -812,8 +812,8 @@ print(buffer.read_file(&mut file, 2, 8)?, buffer.to_list()?, buffer.capacity())?
 print(buffer.read_file(&mut file, 0, 8)?, buffer.read_file(&mut file, 3, 3)?)?
 print(str.repr(buffer.read_file(&mut file, 0, 9))?)?
 print(str.repr(buffer.read_stdin(-1, 2))?)?
-print(buffer.read_stdin(0, 8)?, std.bytes.stderr_write(&source[4:4])?)?
-print(std.bytes.stdout_write(&source[4:5])?, std.bytes.stdout_write(b"")?)?
+print(buffer.read_stdin(0, 8)?, write_stderr_bytes(&source[4:4])?)?
+print(write_stdout_bytes(&source[4:5])?, write_stdout_bytes(b"")?)?
 file.close()?
 print(str.repr(buffer.read_file(&mut file, 0, 8))?)?
 print(str.repr(std.bytes.write_file(&mut file, &source))?)?
@@ -829,6 +829,24 @@ print(str.repr(std.bytes.write_file(&mut file, &source))?)?
         ),
     );
     assert_eq!(std::fs::read(path).unwrap(), [255, 13, 10, 65]);
+}
+
+// B90: `from_bytes` copies any byte view, not only a literal.
+#[test]
+fn from_bytes_copies_every_view_source() {
+    native(
+        r#"
+owned = std.bytes.from_text("owned")?
+listed = [1u8, 2u8, 3u8]?
+literal = b"lit"
+print(std.bytes.from_bytes(b"ab")?, std.bytes.from_bytes(&literal)?, std.bytes.from_bytes(&literal[1:])?)?
+print(std.bytes.from_bytes(&owned)?, std.bytes.from_bytes(&owned[1:3])?, std.bytes.from_bytes(&owned[9:])?)?
+mut copy = std.bytes.from_bytes(&listed)?
+copy.push(4u8)?
+print(copy, listed)?
+"#,
+        "b\"ab\" b\"lit\" b\"it\"\nb\"owned\" b\"wn\" b\"\"\nb\"\\x01\\x02\\x03\\x04\" [1, 2, 3]",
+    );
 }
 
 #[test]

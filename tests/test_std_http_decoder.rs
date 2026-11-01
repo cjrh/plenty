@@ -326,7 +326,7 @@ def run(source: &[u8]) -> ():
 def main() -> ():
     literal = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc"
     run(&literal)
-    owned = std.bytes.from_bytes(literal).unwrap()
+    owned = std.bytes.from_bytes(&literal).unwrap()
     run(&owned)
     ensure(std.http.parse_chunk_size(b"a;ext=yes").unwrap() == 10)
     ensure(std.http.parse_chunk_size(b"a;ext=\x7f").is_err())

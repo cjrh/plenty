@@ -220,7 +220,7 @@ fn malformed_and_limited_wire_inputs() {
         r#"
 mut rejected = 0
 for raw in [b"", b"PSH1", b"PSQ1", b"PSX1", b"PSC1", b"PSF1"]?:
-    data = std.bytes.from_bytes(raw)?
+    data = std.bytes.from_bytes(&raw)?
     match sketch.hyperloglog_from_bytes(&data):
         case Err(_):
             rejected += 1

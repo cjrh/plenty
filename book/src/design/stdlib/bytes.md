@@ -19,7 +19,7 @@ available on the supported x86-64 Linux GNU target.
 | `std.bytes.with_capacity(capacity)` | `Result[Bytes, BytesError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `OutOfRange` |
 | `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, BytesError]` | Independent copy of the list's bytes |
 | `std.bytes.from_text(text: &str)` | `Result[Bytes, BytesError]` | Independent copy of the exact UTF-8 bytes |
-| `std.bytes.from_bytes(value: bytes)` | `Result[Bytes, BytesError]` | Independent copy of a [byte literal](../language/03-types/bytes.md) |
+| `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, BytesError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
 
 `Bytes` has no public constructor and its storage field is private. Every
 constructor allocates and can report `Allocation`.
@@ -144,7 +144,7 @@ The operations taking `&[u8]` are `extend`, `overwrite`, `find_in`,
 read-only inputs of [`std.crypto`](crypto.md). Each is one compiled body for
 every byte owner; native operations read the view's bytes in place. A view has
 `len()`, indexing, slicing, `==`, and iteration, but no methods. The receiver
-of a `Bytes` method is always a buffer: copy a literal with `from_bytes` to
+of a `Bytes` method is always a buffer: copy a literal or view with `from_bytes` to
 scan it with `find` or `count`, or to change it.
 
 `std.bytes.ByteSource`, the protocol these operations took before, is
@@ -339,15 +339,16 @@ never changes a buffer's length or capacity.
 | `buffer.read_file(file: &mut File, start, stop)` | Read into `buffer[start:stop]`; zero for a nonempty range is end of input |
 | `buffer.read_stdin(start, stop)` | Read standard input into `buffer[start:stop]` |
 | `std.bytes.write_file(file: &mut File, source: &[u8])` | Write a prefix of `source` |
-| `std.bytes.stdout_write(source: &[u8])`, `stderr_write(source)` | Write a prefix of `source` to the process stream (buffered stdout, unbuffered stderr) |
 
 A count below the requested length is normal. A read range outside the buffer
 is `IoError.InvalidInput`; a write takes a view, which carries its own range.
 A closed file is `Closed`, and the open mode is enforced with `NotReadable`
 and `NotWritable`. An interrupted call is `IoError.System(4)`. File transfers
-are raw bytes with no newline translation. The writers are module functions,
-not methods, so a `b"..."` literal or a subview needs no owned buffer; the
-names differ from the prelude's text `write_stdout` and `write_stderr`.
+are raw bytes with no newline translation. `write_file` is a module function,
+not a method, so a `b"..."` literal or a subview needs no owned buffer. For the
+process streams, the prelude's
+[`write_stdout_bytes` and `write_stderr_bytes`](../facilities/02-io/bytes-paths.md)
+take the same `&[u8]` view and write all of it.
 
 Programs normally use these through [`std.io`](io.md), which adds retry, end
 of input, seeking, and bounded buffering on top.

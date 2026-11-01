@@ -76,8 +76,8 @@ owned `Bytes` rather than producing another `bytes`. `bytes` and
 ## Owned buffers
 
 [`std.bytes.Bytes`](../../stdlib/bytes.md) is the owned, growable buffer.
-`std.bytes.from_bytes(value)` copies a literal into a new `Bytes` and returns a
-`Result`, because the copy allocates.
+`std.bytes.from_bytes(source: &[u8])` copies a literal, or any other byte view,
+into a new `Bytes` and returns a `Result`, because the copy allocates.
 
 Operations that only read bytes, such as `find_bytes`, `matches`, `extend`, and
 every `std.io`, `std.net`, and `std.tls` stream write, take a

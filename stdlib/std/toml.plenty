@@ -127,11 +127,6 @@ def unplaced[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
 
 # A fault before scanning starts, such as an allocation failure while setting
 # up, points at the start of the document.
-def copied(source: &[u8]) -> Result[Bytes, TomlFault]:
-    mut owned = faulted(std.bytes.with_capacity(len(source)))?
-    faulted(owned.extend(source))?
-    Ok(owned)
-
 def started[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
     match result:
         case Ok(value):
@@ -971,7 +966,7 @@ pub def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]:
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(started(copied(source))?, bounds)
+    run(started(faulted(std.bytes.from_bytes(source)))?, bounds)
 
 pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
@@ -1646,7 +1641,7 @@ pub def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]:
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
     if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    state = document_state(started(copied(source))?, bounds)?
+    state = document_state(started(faulted(std.bytes.from_bytes(source)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
 
 pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:
