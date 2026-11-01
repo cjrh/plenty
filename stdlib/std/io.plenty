@@ -36,6 +36,14 @@ def binary_bytes[T](result: Result[T, BytesError]) -> Result[T, BinaryError]:
         case Err(_):
             Err(BinaryError.OutOfRange)
 
+# Avoid a callback adapter: these field operations also run in owned workers.
+def binary_encoding[T](result: Result[T, EncodingError]) -> Result[T, BinaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BinaryError.Encoding(cause))
+
 # A multi-step helper stopped after moving `completed` bytes.
 pub class Partial:
     pub completed: i64
@@ -517,97 +525,97 @@ pub class Cursor:
 
     pub def read_u16(self: &mut Cursor, order: Endian) -> Result[u16, BinaryError]:
         end = self.field_end(2)?
-        value = std.encoding.unpack_u16(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_u16(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_u16(self: &mut Cursor, value: u16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(2, max_bytes)?
-        std.encoding.pack_u16(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_u16(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_i16(self: &mut Cursor, order: Endian) -> Result[i16, BinaryError]:
         end = self.field_end(2)?
-        value = std.encoding.unpack_i16(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_i16(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_i16(self: &mut Cursor, value: i16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(2, max_bytes)?
-        std.encoding.pack_i16(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_i16(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_u32(self: &mut Cursor, order: Endian) -> Result[u32, BinaryError]:
         end = self.field_end(4)?
-        value = std.encoding.unpack_u32(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_u32(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_u32(self: &mut Cursor, value: u32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(4, max_bytes)?
-        std.encoding.pack_u32(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_u32(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_i32(self: &mut Cursor, order: Endian) -> Result[i32, BinaryError]:
         end = self.field_end(4)?
-        value = std.encoding.unpack_i32(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_i32(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_i32(self: &mut Cursor, value: i32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(4, max_bytes)?
-        std.encoding.pack_i32(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_i32(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_u64(self: &mut Cursor, order: Endian) -> Result[u64, BinaryError]:
         end = self.field_end(8)?
-        value = std.encoding.unpack_u64(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_u64(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_u64(self: &mut Cursor, value: u64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(8, max_bytes)?
-        std.encoding.pack_u64(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_u64(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_i64(self: &mut Cursor, order: Endian) -> Result[i64, BinaryError]:
         end = self.field_end(8)?
-        value = std.encoding.unpack_i64(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_i64(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_i64(self: &mut Cursor, value: i64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(8, max_bytes)?
-        std.encoding.pack_i64(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_i64(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_f32(self: &mut Cursor, order: Endian) -> Result[f32, BinaryError]:
         end = self.field_end(4)?
-        value = std.encoding.unpack_f32(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_f32(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_f32(self: &mut Cursor, value: f32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(4, max_bytes)?
-        std.encoding.pack_f32(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_f32(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
     pub def read_f64(self: &mut Cursor, order: Endian) -> Result[f64, BinaryError]:
         end = self.field_end(8)?
-        value = std.encoding.unpack_f64(&self.data, self._position, order).map_error(BinaryError.Encoding)?
+        value = binary_encoding(std.encoding.unpack_f64(&self.data, self._position, order))?
         self._position = end
         Ok(value)
 
     pub def write_f64(self: &mut Cursor, value: f64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
         end = self.prepare_field(8, max_bytes)?
-        std.encoding.pack_f64(&mut self.data, self._position, value, order).map_error(BinaryError.Encoding)?
+        binary_encoding(std.encoding.pack_f64(&mut self.data, self._position, value, order))?
         self._position = end
         Ok(())
 
