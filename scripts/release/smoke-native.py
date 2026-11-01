@@ -161,7 +161,9 @@ def main(argv):
 
     step("checksum")
     recorded = (archive.parent / f"{archive.name}.sha256").read_text().split()
-    if recorded != [hashlib.sha256(archive.read_bytes()).hexdigest(), archive.name]:
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    # sha256sum uses a binary-mode marker on Windows (" *filename").
+    if recorded not in ([digest, archive.name], [digest, f"*{archive.name}"]):
         fail("checksum file does not match the archive")
 
     step("layout and modes")
