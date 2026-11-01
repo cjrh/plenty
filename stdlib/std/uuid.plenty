@@ -54,19 +54,18 @@ pub class Uuid:
     # Writes into existing storage without allocating or growing it. Validate
     # the entire span before changing any byte, using subtraction to avoid
     # overflow for an untrusted offset.
-    pub def write_bytes(self, target: &mut Bytes, offset: i64) -> Result[(), BytesError]:
+    pub def write_bytes(self, target: &mut Bytes, offset: i64) -> ():
         if offset < 0 or offset > target.len() or target.len() - offset < 16:
-            return Err(BytesError.OutOfRange)
+            __trap("Uuid.write_bytes: offset outside target buffer")
         for index in range(8):
             shift = u64((7 - index) * 8)
             target.set(offset + index, u8((self._high >> shift) & 255u64))
             target.set(offset + index + 8, u8((self._low >> shift) & 255u64))
-        Ok(())
 
     pub def to_bytes(self) -> Result[Bytes, BytesError]:
         mut result = bytes_error_allocated(std.bytes.with_capacity(16))?
         bytes_error_allocated(result.resize(16, 0u8))?
-        self.write_bytes(&mut result, 0)?
+        self.write_bytes(&mut result, 0)
         Ok(result)
 
     pub def to_string(self) -> Result[str, BytesError]:

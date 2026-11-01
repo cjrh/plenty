@@ -575,10 +575,10 @@ out.clear()
 std.encoding.append_{ty}(&mut out, {value}{ty}, Endian.Big)?
 std.encoding.append_{ty}(&mut out, {value}{ty}, Endian.Little)?
 out.resize({total}, 0u8)?
-std.encoding.pack_{ty}(&mut out, {second}, {value}{ty}, Endian.Little)?
-std.encoding.pack_{ty}(&mut out, {third}, {value}{ty}, Endian.Big)?
+std.encoding.pack_{ty}(&mut out, {second}, {value}{ty}, Endian.Little)
+std.encoding.pack_{ty}(&mut out, {third}, {value}{ty}, Endian.Big)
 print(std.encoding.hex_text(&out)?)?
-print(std.encoding.unpack_{ty}(&out, 0, Endian.Big)?, std.encoding.unpack_{ty}(&out, {width}, Endian.Little)?, std.encoding.unpack_{ty}(&out, {third}, Endian.Big)?)?
+print(std.encoding.unpack_{ty}(&out, 0, Endian.Big), std.encoding.unpack_{ty}(&out, {width}, Endian.Little), std.encoding.unpack_{ty}(&out, {third}, Endian.Big))?
 "#,
             total = width * 4,
             second = width * 2,
@@ -618,12 +618,12 @@ fn byte_order_changes_the_value_read_from_the_same_bytes() {
     native(
         r#"
 data = std.encoding.hex_from_text("0102030405060708ff")?
-print(std.encoding.unpack_u16(&data, 0, Endian.Big)?, std.encoding.unpack_u16(&data, 0, Endian.Little)?)?
-print(std.encoding.unpack_u32(&data, 0, Endian.Big)?, std.encoding.unpack_u32(&data, 0, Endian.Little)?)?
-print(std.encoding.unpack_u64(&data, 0, Endian.Big)?, std.encoding.unpack_u64(&data, 0, Endian.Little)?)?
-print(std.encoding.unpack_u16(&data, 7, Endian.Big)?, std.encoding.unpack_i16(&data, 7, Endian.Big)?)?
-print(std.encoding.unpack_u16(&data, 7, Endian.Little)?, std.encoding.unpack_i16(&data, 7, Endian.Little)?)?
-print(std.encoding.unpack_i32(&data, 5, Endian.Little)?, std.encoding.unpack_i64(&data, 1, Endian.Little)?)?
+print(std.encoding.unpack_u16(&data, 0, Endian.Big), std.encoding.unpack_u16(&data, 0, Endian.Little))?
+print(std.encoding.unpack_u32(&data, 0, Endian.Big), std.encoding.unpack_u32(&data, 0, Endian.Little))?
+print(std.encoding.unpack_u64(&data, 0, Endian.Big), std.encoding.unpack_u64(&data, 0, Endian.Little))?
+print(std.encoding.unpack_u16(&data, 7, Endian.Big), std.encoding.unpack_i16(&data, 7, Endian.Big))?
+print(std.encoding.unpack_u16(&data, 7, Endian.Little), std.encoding.unpack_i16(&data, 7, Endian.Little))?
+print(std.encoding.unpack_i32(&data, 5, Endian.Little), std.encoding.unpack_i64(&data, 1, Endian.Little))?
 "#,
         &format!(
             "258 513\n16909060 67305985\n{} {}\n2303 2303\n65288 -248\n{} {}",
@@ -636,50 +636,52 @@ print(std.encoding.unpack_i32(&data, 5, Endian.Little)?, std.encoding.unpack_i64
 }
 
 #[test]
-fn short_buffers_and_bad_offsets_are_out_of_range_and_change_nothing() {
-    native(
-        r#"
-mut buffer = std.encoding.hex_from_text("00112233445566")?
-room = buffer.capacity()
-print(str.repr(std.encoding.unpack_u16(&buffer, 6, Endian.Big))?)?
-print(str.repr(std.encoding.unpack_u16(&buffer, -1, Endian.Big))?)?
-print(str.repr(std.encoding.unpack_i32(&buffer, 4, Endian.Little))?)?
-print(str.repr(std.encoding.unpack_u64(&buffer, 0, Endian.Little))?)?
-print(str.repr(std.encoding.unpack_i64(&buffer, 9223372036854775807, Endian.Little))?)?
-print(str.repr(std.encoding.unpack_i16(&buffer, -9223372036854775808, Endian.Little))?)?
-print(str.repr(std.encoding.pack_u16(&mut buffer, 6, 65535u16, Endian.Big))?)?
-print(str.repr(std.encoding.pack_i16(&mut buffer, 7, -1i16, Endian.Big))?)?
-print(str.repr(std.encoding.pack_u32(&mut buffer, 4, 4294967295u32, Endian.Little))?)?
-print(str.repr(std.encoding.pack_i32(&mut buffer, -1, -1i32, Endian.Little))?)?
-print(str.repr(std.encoding.pack_u64(&mut buffer, 0, 1u64, Endian.Big))?)?
-print(str.repr(std.encoding.pack_i64(&mut buffer, 9223372036854775807, 1, Endian.Big))?)?
-print(std.encoding.hex_text(&buffer)?, buffer.capacity() == room)?
-print(std.encoding.unpack_u16(&buffer, 5, Endian.Big)?, std.encoding.unpack_u32(&buffer, 3, Endian.Big)?)?
-std.encoding.pack_u16(&mut buffer, 5, 43981u16, Endian.Big)?
-std.encoding.pack_u32(&mut buffer, 0, 1u32, Endian.Little)?
-print(std.encoding.hex_text(&buffer)?, buffer.len())?
-empty = std.bytes.empty()?
-print(str.repr(std.encoding.unpack_u16(&empty, 0, Endian.Big))?)?
-"#,
-        r#"
-Result[u16, E].Err(E.OutOfRange)
-Result[u16, E].Err(E.OutOfRange)
-Result[i32, E].Err(E.OutOfRange)
-Result[u64, E].Err(E.OutOfRange)
-Result[i64, E].Err(E.OutOfRange)
-Result[i16, E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-Result[(), E].Err(E.OutOfRange)
-00112233445566 True
-21862 860116326
-0100000044abcd 7
-Result[u16, E].Err(E.OutOfRange)
-"#,
-    );
+fn fixed_width_offsets_trap_before_reading_or_writing() {
+    for (kind, value) in [
+        ("u16", "1u16"),
+        ("i16", "-1i16"),
+        ("u32", "1u32"),
+        ("i32", "-1i32"),
+        ("u64", "1u64"),
+        ("i64", "-1i64"),
+        ("f32", "1.0f32"),
+        ("f64", "1.0"),
+    ] {
+        let width: i64 = if kind.ends_with("16") {
+            2
+        } else if kind.ends_with("32") {
+            4
+        } else {
+            8
+        };
+        for offset in [i64::MIN, -1, 9 - width, i64::MAX] {
+            for (call, message) in [
+                (
+                    format!("std.encoding.pack_{kind}(&mut buffer, {offset}, {value}, Endian.Big)"),
+                    "pack: offset outside target buffer",
+                ),
+                (
+                    format!("drop(std.encoding.unpack_{kind}(&buffer, {offset}, Endian.Little))"),
+                    "unpack: offset outside source buffer",
+                ),
+            ] {
+                assert_trap(
+                    &program(&format!(
+                        "mut buffer = std.bytes.with_capacity(8)?\nbuffer.resize(8, 0u8)?\n{call}"
+                    )),
+                    message,
+                );
+            }
+        }
+        for length in 0..width {
+            assert_trap(
+                &program(&format!(
+                    "mut buffer = std.bytes.with_capacity(8)?\nbuffer.resize({length}, 0u8)?\ndrop(std.encoding.unpack_{kind}(&buffer, 0, Endian.Big))"
+                )),
+                "unpack: offset outside source buffer",
+            );
+        }
+    }
 }
 
 #[test]
@@ -693,8 +695,8 @@ from std.encoding import Endian
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError]:
     mut frame = std.bytes.from_text("abcd")?
     view = &frame
-    std.encoding.pack_u16(&mut frame, 0, 1u16, Endian.Big)?
-    print(std.encoding.unpack_u16(view, 0, Endian.Big)?)?
+    std.encoding.pack_u16(&mut frame, 0, 1u16, Endian.Big)
+    print(std.encoding.unpack_u16(view, 0, Endian.Big))?
     Ok(())
 "#,
     );
@@ -711,11 +713,11 @@ def work(data: Bytes) -> ():
     mut field = std.bytes.with_capacity(12).unwrap()
     std.encoding.append_f32(&mut field, 1.0f32, Endian.Big).unwrap()
     std.encoding.append_f64(&mut field, -2.5, Endian.Little).unwrap()
-    std.encoding.pack_f32(&mut field, 0, 2.5f32, Endian.Big).unwrap()
-    std.encoding.pack_f64(&mut field, 4, 1.0, Endian.Little).unwrap()
-    a = std.encoding.unpack_f32(&field, 0, Endian.Big).unwrap()
-    b = std.encoding.unpack_f64(&field, 4, Endian.Little).unwrap()
-    print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap(), a == 2.5f32, b == 1.0).unwrap()
+    std.encoding.pack_f32(&mut field, 0, 2.5f32, Endian.Big)
+    std.encoding.pack_f64(&mut field, 4, 1.0, Endian.Little)
+    a = std.encoding.unpack_f32(&field, 0, Endian.Big)
+    b = std.encoding.unpack_f64(&field, 4, Endian.Little)
+    print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big), a == 2.5f32, b == 1.0).unwrap()
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | SpawnError[()]]:
     data = std.bytes.from_text("foobar")?
@@ -736,19 +738,18 @@ mut buffer = std.bytes.with_capacity(32)?
 buffer.resize(16, 0u8)?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
-std.encoding.pack_u64(&mut buffer, 0, 72623859790382856u64, Endian.Big)?
-std.encoding.pack_i32(&mut buffer, 8, -2i32, Endian.Little)?
+std.encoding.pack_u64(&mut buffer, 0, 72623859790382856u64, Endian.Big)
+std.encoding.pack_i32(&mut buffer, 8, -2i32, Endian.Little)
 std.encoding.append_u16(&mut buffer, 258u16, Endian.Big)?
 std.encoding.append_i64(&mut buffer, -1, Endian.Little)?
-a = std.encoding.unpack_u64(&buffer, 0, Endian.Little)?
-b = std.encoding.unpack_i32(&buffer, 8, Endian.Little)?
-c = std.encoding.unpack_u16(&buffer, 16, Endian.Big)?
-short = std.encoding.unpack_u64(&buffer, 20, Endian.Big)
+a = std.encoding.unpack_u64(&buffer, 0, Endian.Little)
+b = std.encoding.unpack_i32(&buffer, 8, Endian.Little)
+c = std.encoding.unpack_u16(&buffer, 16, Endian.Big)
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
-print(a, b, c, buffer.len(), buffer.capacity(), str.repr(short)?)?
+print(a, b, c, buffer.len(), buffer.capacity())?
 "#,
-        "578437695752307201 -2 258 26 32 Result[u64, E].Err(E.OutOfRange)",
+        "578437695752307201 -2 258 26 32",
     );
 }
 
@@ -977,11 +978,11 @@ buffer.push(170u8)?
 std.encoding.append_f{width}(&mut buffer, {value}, Endian.{order})?
 buffer.push(187u8)?
 print(std.encoding.hex_text(&buffer)?)?
-std.encoding.pack_f{width}(&mut buffer, 1, {value}, Endian.{order})?
+std.encoding.pack_f{width}(&mut buffer, 1, {value}, Endian.{order})
 print(std.encoding.hex_text(&buffer)?)?
 source = std.encoding.hex_from_text("{expected}")?
-print(std.encoding.unpack_f{width}(&source, 0, Endian.{order})? == {value})?
-print(std.encoding.unpack_f{width}(&buffer[1:buffer.len() - 1], 0, Endian.{order})? == {value})?
+print(std.encoding.unpack_f{width}(&source, 0, Endian.{order}) == {value})?
+print(std.encoding.unpack_f{width}(&buffer[1:buffer.len() - 1], 0, Endian.{order}) == {value})?
 "#
                     ),
                     &format!("aa{expected}bb\naa{expected}bb\nTrue\nTrue"),
@@ -1040,12 +1041,12 @@ source = std.encoding.hex_from_text("{data}")?
 mut buffer = std.bytes.with_capacity(16)?
 mut failures = 0
 for offset in range(0, source.len(), {size}):
-    value = std.encoding.unpack_f{width}(&source, offset, Endian.Big)?
+    value = std.encoding.unpack_f{width}(&source, offset, Endian.Big)
     buffer.clear()
     std.encoding.append_f{width}(&mut buffer, value, Endian.Little)?
     # A second decode/encode crosses both byte orders and a Result return.
-    little = std.encoding.unpack_f{width}(&buffer, 0, Endian.Little)?
-    std.encoding.pack_f{width}(&mut buffer, 0, little, Endian.Big)?
+    little = std.encoding.unpack_f{width}(&buffer, 0, Endian.Little)
+    std.encoding.pack_f{width}(&mut buffer, 0, little, Endian.Big)
     for index in range({size}):
         if buffer[index] != source[offset + index]:
             failures += 1
@@ -1059,50 +1060,17 @@ print(failures)?
 }
 
 #[test]
-fn ieee_float_field_bounds_are_checked_before_mutation() {
+fn ieee_float_fields_support_final_valid_offsets_and_adjacent_fields() {
     native(
         r#"
 mut buffer = std.encoding.hex_from_text("aa0000000000000000bb")?
-mut failures = 0
-for offset in [i64.MIN, -1, 3, 9, 10, i64.MAX]?:
-    if not std.encoding.pack_f64(&mut buffer, offset, 1.0, Endian.Big).is_err():
-        failures += 1
-    if not std.encoding.unpack_f64(&buffer, offset, Endian.Big).is_err():
-        failures += 1
-for offset in [i64.MIN, -1, 7, 9, 10, i64.MAX]?:
-    if not std.encoding.pack_f32(&mut buffer, offset, 1.0f32, Endian.Little).is_err():
-        failures += 1
-    if not std.encoding.unpack_f32(&buffer, offset, Endian.Little).is_err():
-        failures += 1
-for length in range(8):
-    mut truncated = std.bytes.with_capacity(8)?
-    truncated.resize(length, 204u8)?
-    if not std.encoding.pack_f64(&mut truncated, 0, 1.0, Endian.Big).is_err():
-        failures += 1
-    if not std.encoding.unpack_f64(&truncated, 0, Endian.Big).is_err():
-        failures += 1
-    if length < 4:
-        if not std.encoding.pack_f32(&mut truncated, 0, 1.0f32, Endian.Big).is_err():
-            failures += 1
-        if not std.encoding.unpack_f32(&truncated, 0, Endian.Big).is_err():
-            failures += 1
-    if truncated.len() != length or truncated.capacity() != 8:
-        failures += 1
-    for index in range(length):
-        if truncated[index] != 204u8:
-            failures += 1
-print(failures, buffer.len(), buffer.capacity(), std.encoding.hex_text(&buffer)?)?
-# Final valid positions, unaligned fields and adjacent integer fields.
-std.encoding.pack_f64(&mut buffer, 2, -2.5, Endian.Big)?
-std.encoding.pack_u16(&mut buffer, 0, 513u16, Endian.Big)?
+std.encoding.pack_f64(&mut buffer, 2, -2.5, Endian.Big)
+std.encoding.pack_u16(&mut buffer, 0, 513u16, Endian.Big)
 print(std.encoding.hex_text(&buffer)?)?
-std.encoding.pack_f32(&mut buffer, 6, 1.0f32, Endian.Little)?
+std.encoding.pack_f32(&mut buffer, 6, 1.0f32, Endian.Little)
 print(std.encoding.hex_text(&buffer)?)?
-short = std.encoding.hex_from_text("000000")?
-print(std.encoding.unpack_f32(&short, 0, Endian.Big).is_err())?
-print(std.encoding.unpack_f64(b"1234567", 0, Endian.Little).is_err())?
 "#,
-        "0 10 10 aa0000000000000000bb\n0201c004000000000000\n0201c00400000000803f\nTrue\nTrue",
+        "0201c004000000000000\n0201c00400000000803f",
     );
 }
 
@@ -1116,12 +1084,12 @@ buffer.resize(16, 170u8)?
 mut full = std.encoding.hex_from_text("abcd")?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
-std.encoding.pack_f32(&mut buffer, 1, -2.5f32, Endian.Big)?
-std.encoding.pack_f64(&mut buffer, 5, 1.0, Endian.Little)?
+std.encoding.pack_f32(&mut buffer, 1, -2.5f32, Endian.Big)
+std.encoding.pack_f64(&mut buffer, 5, 1.0, Endian.Little)
 std.encoding.append_f32(&mut buffer, 1.0f32, Endian.Little)?
 std.encoding.append_f64(&mut buffer, -2.5, Endian.Big)?
-a = std.encoding.unpack_f32(&buffer, 1, Endian.Big)?
-b = std.encoding.unpack_f64(&buffer, 5, Endian.Little)?
+a = std.encoding.unpack_f32(&buffer, 1, Endian.Big)
+b = std.encoding.unpack_f64(&buffer, 5, Endian.Little)
 c = std.encoding.append_f32(&mut full, 1.0f32, Endian.Big)
 d = std.encoding.append_f64(&mut full, 1.0, Endian.Little)
 print("__test_restore_allocations__")?
@@ -1166,7 +1134,7 @@ mut record = std.bytes.with_capacity(12)?
 std.encoding.append_f32(&mut record, -2.5f32, Endian.Big)?
 std.encoding.append_f64(&mut record, 1.0, Endian.Little)?
 print(std.encoding.hex_text(&record)?)?
-print(std.encoding.unpack_f32(&record, 0, Endian.Big)?, std.encoding.unpack_f64(&record, 4, Endian.Little)?)?
+print(std.encoding.unpack_f32(&record, 0, Endian.Big), std.encoding.unpack_f64(&record, 4, Endian.Little))?
 "#)).unwrap();
     let check = Command::new(&compiler)
         .arg("--check")
@@ -1202,4 +1170,20 @@ print(std.encoding.unpack_f32(&record, 0, Endian.Big)?, std.encoding.unpack_f64(
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(run.stdout, b"c0200000000000000000f03f\n-2.5 1.0\n");
+}
+
+fn assert_trap(source: &str, message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+    assert!(
+        stderr.contains(&format!(": {message}\n")),
+        "{source}\n{stderr}"
+    );
 }

@@ -419,7 +419,7 @@ short = std.bytes.from_list(&[239u8, 187u8]?)?
 for capacity in range(1, 5):
     mut input = std.csv.reader(std.io.cursor(full.copy()?), &marked, capacity)?
     mut record = std.csv.record()?
-    print(input.read(&mut record)?, record.len(), record.stop(0)?, record.text(1)?)?
+    print(input.read(&mut record)?, record.len(), record.stop(0), record.text(1)?)?
 mut input = std.csv.reader(std.io.cursor(part.copy()?), &marked, 2)?
 mut record = std.csv.record()?
 print(input.read(&mut record)?, record.len(), record.bytes(0)?.to_list()?, record.text(1)?)?
@@ -556,30 +556,26 @@ fn fields_are_read_as_ranges_copies_or_validated_text() {
 source = std.bytes.from_list(&[97u8, 98u8, 44u8, 255u8, 44u8, 44u8, 99u8, 10u8]?)?
 mut input = std.csv.reader(std.io.cursor(source), &loose(), 16)?
 mut record = std.csv.record()?
-print(record.number(), record.len(), str.repr(record.start(0))?)?
+print(record.number(), record.len())?
 input.read(&mut record)?
-print(record.len(), record.data().len(), record.start(0)?, record.stop(0)?, record.start(3)?, record.stop(3)?)?
-print(record.start(2)?, record.stop(2)?, str.repr(record.text(2)?)?)?
+print(record.len(), record.data().len(), record.start(0), record.stop(0), record.start(3), record.stop(3))?
+print(record.start(2), record.stop(2), str.repr(record.text(2)?)?)?
 mut out = std.bytes.from_text(">")?
 record.append_to(0, &mut out)?
 record.append_to(3, &mut out)?
 print(out.to_text()?, record.bytes(1)?.to_list()?, record.data().get(2))?
 print(str.repr(record.text(1))?)?
 print(str.repr(record.texts())?)?
-print(str.repr(record.stop(4))?, str.repr(record.text(-1))?)?
-print(str.repr(record.append_to(4, &mut out))?)?
 record.clear()
 print(record.len(), record.data().len(), record.number())?
 "#,
         r#"
-0 0 Result[i64, std.csv.CsvError].Err(std.csv.CsvError.OutOfRange)
+0 0
 4 4 0 2 3 4
 3 3 ""
 >abc [255] 255
 Result[str, std.csv.CsvError].Err(std.csv.CsvError.InvalidUtf8(1, 1))
 Result[list[str], std.csv.CsvError].Err(std.csv.CsvError.InvalidUtf8(1, 1))
-Result[i64, std.csv.CsvError].Err(std.csv.CsvError.OutOfRange) Result[str, std.csv.CsvError].Err(std.csv.CsvError.OutOfRange)
-Result[(), std.csv.CsvError].Err(std.csv.CsvError.OutOfRange)
 0 0 1
 "#,
     );
@@ -947,4 +943,47 @@ fn an_unknown_module_lists_std_csv() {
     std::fs::write(&path, "import std.nothing\n\ndef main() -> ():\n    pass\n").unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(error.contains("std.csv"), "{error}");
+}
+
+fn assert_trap(source: &str, message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+    assert!(
+        stderr.contains(&format!(": {message}\n")),
+        "{source}\n{stderr}"
+    );
+}
+
+#[test]
+fn record_indices_trap_even_for_empty_records() {
+    for (call, message) in [
+        (
+            "drop(record.start(0))",
+            "Record.start: index outside record",
+        ),
+        ("drop(record.stop(-1))", "Record.stop: index outside record"),
+        ("drop(record.text(0))", "Record.start: index outside record"),
+        (
+            "drop(record.bytes(i64.MAX))",
+            "Record.start: index outside record",
+        ),
+        (
+            "drop(record.append_to(0, &mut out))",
+            "Record.start: index outside record",
+        ),
+    ] {
+        assert_trap(
+            &program(&format!(
+                "mut record = std.csv.record()?\nmut out = std.bytes.empty()?\n{call}"
+            )),
+            message,
+        );
+    }
 }

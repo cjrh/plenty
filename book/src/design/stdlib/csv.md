@@ -98,7 +98,7 @@ program.
 | `EmptyRecord(record)` | A writer was asked to end a record with no fields |
 | `InvalidUtf8(record, field)` | `Record.text` found bytes that are not UTF-8 |
 | `InvalidDialect` | The dialect breaks the rules above |
-| `OutOfRange` | A field index, byte range, or buffer capacity is invalid |
+| `OutOfRange` | A reader buffer capacity is invalid |
 | `Stopped` | The reader already failed |
 | `Stream(StreamError)` | The inner stream failed |
 | `Allocation(AllocError)` | A record or buffer could not grow |
@@ -171,10 +171,12 @@ of field ends. A reader overwrites it, keeping its capacity.
 | `bytes(index)` | `Result[Bytes, CsvError]` | An owned copy of one field |
 | `append_to(index, out: &mut Bytes)` | `Result[(), CsvError]` | Append one field to the caller's buffer |
 | `data()` | `&Bytes` | Every field's bytes, borrowed |
-| `start(index)`, `stop(index)` | `Result[i64, CsvError]` | Field `index` is `data()[start:stop]` |
+| `start(index)`, `stop(index)` | `i64` | Field `index` is `data()[start:stop]` |
 | `clear()` | `()` | Remove the fields; `number()` and `line()` are kept |
 
-An index outside `0 <= index < len()` is `OutOfRange`.
+An index outside `0 <= index < len()` traps before reading or appending.
+The message names `Record.start` or `Record.stop` and `index outside record`;
+`bytes`, `text`, and `append_to` validate through those position methods.
 
 `data()` is the borrowed view. It and the offsets describe the current
 contents only. `Reader.read` needs `&mut Record`, so the compiler rejects a

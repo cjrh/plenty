@@ -41,7 +41,7 @@ first. It has ordinary class move semantics; `==` and `!=` compare the complete
 | `nil()` | `Uuid`; all zero bits |
 | `id.to_string()` | `Result[str, BytesError]`; lowercase hyphenated text |
 | `id.to_bytes()` | `Result[Bytes, BytesError]`; an owned 16-byte buffer |
-| `id.write_bytes(target: &mut Bytes, offset: i64)` | `Result[(), BytesError]`; overwrites exactly 16 existing bytes; no growth or allocation |
+| `id.write_bytes(target: &mut Bytes, offset: i64)` | `()`; overwrites exactly 16 existing bytes; no growth or allocation |
 | `id.as_u64_pair()` | `(u64, u64)`; a copyable, numerically ordered sorting key |
 | `id.compare(other: &Uuid)` | `i64`; `-1`, `0`, or `1` in unsigned 128-bit order |
 | `id.is_nil()` | `bool`; all bits are zero |
@@ -54,7 +54,7 @@ versions and non-RFC variants. Parsing does not validate generation history.
 Malformed text and wrong byte lengths return `ParseError.Invalid`. There is no
 trimming, URN/braced/compact spelling, little-endian GUID convention, or implicit
 normalization. `write_bytes` validates the whole range before writing; invalid
-offsets return `BytesError.OutOfRange` and leave the buffer unchanged.
+offsets trap with `Uuid.write_bytes: offset outside target buffer` before writing.
 
 Parsing, reading bytes, comparison, and numeric construction do not allocate.
 `to_bytes` allocates its result; `to_string` uses a 36-byte scratch buffer and

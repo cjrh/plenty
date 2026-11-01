@@ -291,15 +291,13 @@ print(std.crypto.equal(&e, &e), std.crypto.equal(&e, &a))?
 }
 
 #[test]
-fn invalid_offsets_and_finished_states_are_errors() {
+fn finished_states_are_errors() {
     native(
         r#"
 data = std.bytes.from_text("abc")?
 mut digest = std.crypto.digest(Algorithm.Sha256)?
 mut target = std.bytes.empty()?
 target.resize(40, 0u8)?
-print(str.repr(digest.finish_into(&mut target, 9))?)?
-print(str.repr(digest.finish_into(&mut target, -1))?)?
 digest.update(&data[:3])?
 digest.finish_into(&mut target, 8)?
 print(hex(&target.slice(8, 40)?)?)?
@@ -311,9 +309,7 @@ mut mac = std.crypto.hmac(Algorithm.Sha512, &data)?
 print(mac.size(), mac.verify(&data[1:0])?)?
 print(str.repr(mac.verify(&data[:3]))?)?
 "#,
-        "Result[(), E].Err(E.OutOfRange)\n\
-         Result[(), E].Err(E.OutOfRange)\n\
-         ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n\
          Result[(), E].Err(E.Finished)\n\
          Result[(), E].Err(E.Finished)\n\
          Result[Bytes, E].Err(E.Finished)\n\
@@ -495,4 +491,37 @@ print(hex(&std.crypto.hmac_sha256(&frame[1:2], &frame[2:4])?)? == hex(&std.crypt
 "#,
         "True True False\nTrue",
     );
+}
+
+fn assert_trap(source: &str, message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+    assert!(
+        stderr.contains(&format!(": {message}\n")),
+        "{source}\n{stderr}"
+    );
+}
+
+#[test]
+fn finish_into_offsets_trap_for_digests_and_macs() {
+    for constructor in [
+        "std.crypto.digest(Algorithm.Sha256)",
+        "std.crypto.hmac(Algorithm.Sha256, b\"key\")",
+    ] {
+        for offset in [i64::MIN, -1, 9, i64::MAX] {
+            assert_trap(
+                &program(&format!(
+                    "mut state = {constructor}?\nmut target = std.bytes.empty()?\ntarget.resize(40, 0u8)?\ndrop(state.finish_into(&mut target, {offset}))"
+                )),
+                "finish_into: offset outside target buffer",
+            );
+        }
+    }
 }

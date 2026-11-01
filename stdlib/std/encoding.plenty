@@ -453,23 +453,23 @@ pub def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]:
 
 # `pack_` overwrites existing bytes and never grows the buffer; `append_`
 # grows it by exactly the width, or not at all.
-pub def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> Result[(), EncodingError]:
+pub def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> ():
     store(target, offset, u64(value), 2, order)
 
-pub def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> Result[(), EncodingError]:
+pub def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> ():
     store(target, offset, u64(value), 4, order)
 
-pub def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> Result[(), EncodingError]:
+pub def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> ():
     store(target, offset, value, 8, order)
 
 # Signed values are stored in two's complement.
-pub def pack_i16(target: &mut Bytes, offset: i64, value: i16, order: Endian) -> Result[(), EncodingError]:
+pub def pack_i16(target: &mut Bytes, offset: i64, value: i16, order: Endian) -> ():
     store(target, offset, u64.wrapping_from(value), 2, order)
 
-pub def pack_i32(target: &mut Bytes, offset: i64, value: i32, order: Endian) -> Result[(), EncodingError]:
+pub def pack_i32(target: &mut Bytes, offset: i64, value: i32, order: Endian) -> ():
     store(target, offset, u64.wrapping_from(value), 4, order)
 
-pub def pack_i64(target: &mut Bytes, offset: i64, value: i64, order: Endian) -> Result[(), EncodingError]:
+pub def pack_i64(target: &mut Bytes, offset: i64, value: i64, order: Endian) -> ():
     store(target, offset, u64.wrapping_from(value), 8, order)
 
 pub def append_u16(target: &mut Bytes, value: u16, order: Endian) -> Result[(), EncodingError]:
@@ -490,30 +490,30 @@ pub def append_i32(target: &mut Bytes, value: i32, order: Endian) -> Result[(), 
 pub def append_i64(target: &mut Bytes, value: i64, order: Endian) -> Result[(), EncodingError]:
     grow(target, u64.wrapping_from(value), 8, order)
 
-pub def unpack_u16(source: &[u8], offset: i64, order: Endian) -> Result[u16, EncodingError]:
-    Ok(u16.wrapping_from(load(source, offset, 2, order)?))
+pub def unpack_u16(source: &[u8], offset: i64, order: Endian) -> u16:
+    u16.wrapping_from(load(source, offset, 2, order))
 
-pub def unpack_u32(source: &[u8], offset: i64, order: Endian) -> Result[u32, EncodingError]:
-    Ok(u32.wrapping_from(load(source, offset, 4, order)?))
+pub def unpack_u32(source: &[u8], offset: i64, order: Endian) -> u32:
+    u32.wrapping_from(load(source, offset, 4, order))
 
-pub def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, EncodingError]:
+pub def unpack_u64(source: &[u8], offset: i64, order: Endian) -> u64:
     load(source, offset, 8, order)
 
-pub def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]:
-    Ok(i16.wrapping_from(load(source, offset, 2, order)?))
+pub def unpack_i16(source: &[u8], offset: i64, order: Endian) -> i16:
+    i16.wrapping_from(load(source, offset, 2, order))
 
-pub def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]:
-    Ok(i32.wrapping_from(load(source, offset, 4, order)?))
+pub def unpack_i32(source: &[u8], offset: i64, order: Endian) -> i32:
+    i32.wrapping_from(load(source, offset, 4, order))
 
-pub def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]:
-    Ok(i64.wrapping_from(load(source, offset, 8, order)?))
+pub def unpack_i64(source: &[u8], offset: i64, order: Endian) -> i64:
+    i64.wrapping_from(load(source, offset, 8, order))
 
 # Same-width bitcasts preserve signed zero, subnormals and every NaN payload,
 # including signaling NaNs. Integer helpers retain the endian/bounds contracts.
-pub def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> Result[(), EncodingError]:
+pub def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> ():
     pack_u32(target, offset, __encoding_f32_bits(value), order)
 
-pub def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> Result[(), EncodingError]:
+pub def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> ():
     pack_u64(target, offset, __encoding_f64_bits(value), order)
 
 pub def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), EncodingError]:
@@ -522,11 +522,11 @@ pub def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), 
 pub def append_f64(target: &mut Bytes, value: f64, order: Endian) -> Result[(), EncodingError]:
     append_u64(target, __encoding_f64_bits(value), order)
 
-pub def unpack_f32(source: &[u8], offset: i64, order: Endian) -> Result[f32, EncodingError]:
-    Ok(__encoding_f32_from_bits(unpack_u32(source, offset, order)?))
+pub def unpack_f32(source: &[u8], offset: i64, order: Endian) -> f32:
+    __encoding_f32_from_bits(unpack_u32(source, offset, order))
 
-pub def unpack_f64(source: &[u8], offset: i64, order: Endian) -> Result[f64, EncodingError]:
-    Ok(__encoding_f64_from_bits(unpack_u64(source, offset, order)?))
+pub def unpack_f64(source: &[u8], offset: i64, order: Endian) -> f64:
+    __encoding_f64_from_bits(unpack_u64(source, offset, order))
 
 # Ranges are validated before any `Bytes` call and encoder output is ASCII, so
 # only `Allocation` reaches here in practice.
@@ -692,18 +692,17 @@ def big(order: Endian) -> bool:
         case Endian.Little:
             False
 
-def place(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
+def place(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> ():
     forward = big(order)
     for index in range(width):
         mut shift = index
         if forward:
             shift = width - 1 - index
         target[offset + index] = u8.wrapping_from(bits >> u64(shift * 8))
-    Ok(())
 
-def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
+def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> ():
     if offset < 0 or offset > target.len() - width:
-        return Err(EncodingError.OutOfRange)
+        __trap("pack: offset outside target buffer")
     place(target, offset, bits, width, order)
 
 def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
@@ -712,10 +711,11 @@ def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(),
         return Err(EncodingError.OutOfRange)
     encoding_error_allocated(target.resize(offset + width, 0u8))?
     place(target, offset, bits, width, order)
+    Ok(())
 
-def load(source: &[u8], offset: i64, width: i64, order: Endian) -> Result[u64, EncodingError]:
+def load(source: &[u8], offset: i64, width: i64, order: Endian) -> u64:
     if offset < 0 or offset > len(source) - width:
-        return Err(EncodingError.OutOfRange)
+        __trap("unpack: offset outside source buffer")
     forward = big(order)
     mut bits = 0u64
     for index in range(width):
@@ -723,4 +723,4 @@ def load(source: &[u8], offset: i64, width: i64, order: Endian) -> Result[u64, E
         if forward:
             position = index
         bits = bits << 8 | u64(source[offset + position])
-    Ok(bits)
+    bits

@@ -101,7 +101,7 @@ def updated(state: &mut Bytes, data: &[u8]) -> Result[(), CryptoError]:
 def finished(state: &mut Bytes, target: &mut Bytes, offset: i64, size: i64) -> Result[(), CryptoError]:
     count = target.len()
     if offset < 0 or offset > count or size > count - offset:
-        return Err(CryptoError.OutOfRange)
+        __trap("finish_into: offset outside target buffer")
     absorbed(__crypto_finish(state, target, offset))
 
 def output(state: &mut Bytes, size: i64) -> Result[Bytes, CryptoError]:
