@@ -85,6 +85,84 @@ const BUDGETS: [(&str, &str, u64, u64); 2] = [
     ("hello", HELLO, 225_500, 88_900),
 ];
 
+/// The pinned ARM glibc 2.28 image's GNU ld 2.41 separates header R, RX,
+/// rodata R and RW LOAD segments at 64-KiB boundaries. The compact budgets
+/// above were measured with linkers that combine the read-only segments.
+/// Reproduced at 68736d5d on 2026-11-02 using the pinned release image:
+/// checked empty 200,536/31,716 and hello 266,088/82,812 (file/`.text`);
+/// default empty 200,472/28,308 and hello 266,024/76,028.
+/// CI measured 200,488/31,716 and 266,040/82,812; the 48-byte file difference
+/// is outside `.text`. Allow 13% on the separated layout's file sizes only;
+/// compact layouts and every `.text` cap retain their original budgets.
+fn file_budget_for_layout(file: &object::File<'_>, name: &str, compact: u64) -> u64 {
+    if file.architecture() != object::Architecture::Aarch64 {
+        return compact;
+    }
+    let mut code_seen = false;
+    for segment in file.segments() {
+        let object::SegmentFlags::Elf { p_type, p_flags } = segment.flags() else {
+            continue;
+        };
+        if p_type != object::elf::PT_LOAD {
+            continue;
+        }
+        if p_flags & object::elf::PF_X == object::elf::PF_X {
+            code_seen = true;
+        } else if code_seen && p_flags == object::elf::PF_R && segment.align() == 65536 {
+            return match name {
+                "empty" => 227_000,
+                "hello" => 301_000,
+                _ => compact,
+            };
+        }
+    }
+    compact
+}
+
+#[test]
+fn separated_file_budgets_require_arm_readonly_loads_after_code() {
+    // Minimal ELF program headers exercise budget selection independently of
+    // the host linker. No section payloads or executable code are needed.
+    fn elf(machine: u16, flags: &[u32], alignment: u64) -> Vec<u8> {
+        let mut bytes = vec![0; 64 + flags.len() * 56];
+        bytes[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        bytes[16..18].copy_from_slice(&2u16.to_le_bytes());
+        bytes[18..20].copy_from_slice(&machine.to_le_bytes());
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..40].copy_from_slice(&64u64.to_le_bytes());
+        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
+        bytes[54..56].copy_from_slice(&56u16.to_le_bytes());
+        bytes[56..58].copy_from_slice(&(flags.len() as u16).to_le_bytes());
+        for (index, flags) in flags.iter().enumerate() {
+            let header = &mut bytes[64 + index * 56..64 + (index + 1) * 56];
+            header[..4].copy_from_slice(&1u32.to_le_bytes()); // PT_LOAD
+            header[4..8].copy_from_slice(&flags.to_le_bytes());
+            header[48..56].copy_from_slice(&alignment.to_le_bytes());
+        }
+        bytes
+    }
+    // Flags: R=4, RX=5, RW=6. Keep x86, compact and other-alignment caps.
+    for (machine, flags, alignment, separated) in [
+        (183, &[4, 5, 4, 6][..], 65536, true),
+        (183, &[4, 5, 6][..], 65536, false),
+        (183, &[4, 5, 4, 6][..], 4096, false),
+        (183, &[4, 6][..], 65536, false),
+        (62, &[4, 5, 4, 6][..], 65536, false),
+    ] {
+        let data = elf(machine, flags, alignment);
+        let file = object::File::parse(&*data).unwrap();
+        assert_eq!(
+            file_budget_for_layout(&file, "empty", 77_500),
+            if separated { 227_000 } else { 77_500 }
+        );
+        assert_eq!(
+            file_budget_for_layout(&file, "hello", 225_500),
+            if separated { 301_000 } else { 225_500 }
+        );
+        assert_eq!(file_budget_for_layout(&file, "other", 123), 123);
+    }
+}
+
 #[test]
 fn small_programs_stay_within_size_budgets() {
     let artifact_root = std::env::var_os("PLENTY_SIZE_ARTIFACT_DIR");
@@ -127,6 +205,7 @@ fn measure_program(
     let executable = support::compile_file(dir.path(), source);
     let data = std::fs::read(&executable).unwrap();
     let file = object::File::parse(&*data).unwrap();
+    let file_budget = file_budget_for_layout(&file, name, file_budget);
     let text = file.section_by_name(".text").unwrap().size();
     let size = data.len() as u64;
     eprintln!("{name}: file {size} (budget {file_budget}), .text {text} (budget {text_budget})");

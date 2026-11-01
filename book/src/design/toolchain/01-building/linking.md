@@ -107,7 +107,10 @@ grows past its stripped-file or `.text` budget. The measurements and current
 limits live beside `BUDGETS` in that file. x86-64 and ARM64 have separate limits,
 as do ordinary runtimes and the `runtime-checks` feature's allocation accounting.
 Compare both sizes: linker layout and segment alignment can increase the file
-without increasing its code.
+without increasing its code. ARM files with a separate read-only LOAD segment
+after executable code and 64 KiB segment alignment use a separately measured
+file-size budget. Compact layouts keep their smaller file limits, and both
+layouts keep the same `.text` limits.
 
 A failure preserves the measured executable, source, and `layout.txt` in the
 directory printed by the test. The report records sizes, section offsets,
@@ -117,7 +120,9 @@ than preventing artifact retention. Set `PLENTY_SIZE_ARTIFACT_DIR` to a dedicate
 directory to retain successful measurements too; each sample gets its own
 subdirectory. CI uploads these samples as `executable-size-ARCH-shard-N`
 artifacts with seven-day retention, so comparisons can use the actual runner
-ELFs. Local failures and explicitly requested samples remain until removed.
+ELFs. Failed Linux release builds also upload their samples as
+`release-size-evidence-TARGET` artifacts with fourteen-day retention. Local
+failures and explicitly requested samples remain until removed.
 Tool versions queried during the test describe the current environment;
 ELF producer comments can identify the actual linker (mold and lld record
 their versions there).
