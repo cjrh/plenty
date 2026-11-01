@@ -380,7 +380,7 @@ python3 fuzz/http_server/run.py --time 1800 --jobs 2
 
 The curl tests are skipped when curl is not installed. The proxy tests
 need Docker and curl and are skipped, with a message, unless
-`PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/workflow.md#reverse-proxy-tests));
+`PLENTY_DOCKER_TESTS=1` (see [reverse-proxy tests](../../development/proxy-tests.md));
 the `proxy_tests` job in `.github/workflows/ci.yml` runs them on every push
 and pull request. The benchmark needs ApacheBench (`ab`) and `taskset`, and
 with `--tls` also curl. Fuzzing needs clang's libFuzzer; without it the
