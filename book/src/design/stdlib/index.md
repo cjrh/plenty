@@ -91,7 +91,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.system`](system.md) | Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status | `IoError`, `SystemError` |
 | [`std.tempfile`](tempfile.md) | Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer | `IoError`, `FsError`, `StreamError`, `AllocError` |
 | [`std.test`](test.md) | Assertions that explain their failure on standard error, self-removing scratch directories, the seeded generator for `plenty test`, and fake clocks and streams | `TestError` |
-| [`std.text`](text.md) | Bounded reusable builders, joining, and scalar wrapping | `TextError` |
+| [`std.text`](text.md) | Bounded builders, joining, scalar/word wrapping, shortening, and indentation | `TextError` |
 | [`std.thread`](thread.md) | Explicit scoped thread and owned-job imports | `ThreadError`, `SpawnError[F]` |
 | [`std.time`](time.md) | Checked durations, monotonic instants and deadlines, wall timestamps, and sleep | `RangeError` |
 | [`std.tls`](tls.md) | TLS 1.2 and 1.3 client and server streams over `std.net` TCP, with verified certificates, client certificates, ALPN, deadlines, and cancellation | `TlsError` |

@@ -468,6 +468,7 @@
         - [`std.tempfile`](design/stdlib/tempfile.md)
         - [`std.test`](design/stdlib/test.md)
         - [`std.text`](design/stdlib/text.md)
+            - [Word wrapping and indentation](design/stdlib/text-wrapping.md)
         - [`std.thread`](design/stdlib/thread.md)
         - [`std.time`](design/stdlib/time.md)
         - [`std.tls`](design/stdlib/tls.md)

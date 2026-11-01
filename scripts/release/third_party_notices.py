@@ -168,6 +168,14 @@ def uncovered_vendor_dirs(repo, packages):
 # the text together when the upstream version changes.
 EMBEDDED = (
     (
+        "CPython textwrap (std.text paragraph tools)",
+        "PSF-2.0",
+        "stdlib/std/text.plenty adapts the textwrap algorithms to bounded Plenty "
+        "storage and a scanner in place of regular expressions.",
+        "https://github.com/python/cpython/blob/b3714a5fb7a/Lib/textwrap.py",
+        "cpython-textwrap-LICENSE.txt",
+    ),
+    (
         "commonmark.js 0.31.2 (std.markdown parser and renderer)",
         "BSD-2-Clause",
         "stdlib/std/markdown.plenty follows the commonmark.js parsing and "

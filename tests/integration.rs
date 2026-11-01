@@ -576,6 +576,8 @@ mod test_std_test;
 mod test_std_text_set_scans;
 #[path = "test_std_text_unicode.rs"]
 mod test_std_text_unicode;
+#[path = "test_std_textwrap.rs"]
+mod test_std_textwrap;
 #[path = "test_std_tls.rs"]
 mod test_std_tls;
 #[path = "test_std_toml.rs"]

@@ -1,0 +1,3056 @@
+{
+  "source": "CPython Lib/test/test_textwrap.py at b3714a5fb7a; results from Python 3.14.8",
+  "cases": [
+    {
+      "operation": "dedent",
+      "text": "     Foo\n    Bar\n",
+      "expected": " Foo\nBar\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "     Foo\n\n    Bar\n",
+      "expected": " Foo\n\nBar\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "     Foo\n    \n    Bar\n",
+      "expected": " Foo\n\nBar\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "  Hello there.\n  How are ya?\n  Oh good.",
+      "expected": "Hello there.\nHow are ya?\nOh good."
+    },
+    {
+      "operation": "dedent",
+      "text": "  Hello there.\n\n  How are ya?\n  Oh good.\n",
+      "expected": "Hello there.\n\nHow are ya?\nOh good.\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "  Hello there.\n  \n  How are ya?\n  Oh good.\n",
+      "expected": "Hello there.\n\nHow are ya?\nOh good.\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "Hello there.\nHow are you?\nOh good, I'm glad.",
+      "expected": "Hello there.\nHow are you?\nOh good, I'm glad."
+    },
+    {
+      "operation": "dedent",
+      "text": "Hello there.\n\nBoo!",
+      "expected": "Hello there.\n\nBoo!"
+    },
+    {
+      "operation": "dedent",
+      "text": "Hello there.\n  This is indented.",
+      "expected": "Hello there.\n  This is indented."
+    },
+    {
+      "operation": "dedent",
+      "text": "Hello there.\n\n  Boo!\n",
+      "expected": "Hello there.\n\n  Boo!\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "  hello\tthere\n  how are\tyou?",
+      "expected": "hello\tthere\nhow are\tyou?"
+    },
+    {
+      "operation": "dedent",
+      "text": "hello\tthere\nhow are\tyou?",
+      "expected": "hello\tthere\nhow are\tyou?"
+    },
+    {
+      "operation": "dedent",
+      "text": "  hello there\n\thow are you?",
+      "expected": "  hello there\n\thow are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "        hello there\n\thow are you?",
+      "expected": "        hello there\n\thow are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "\thello there\n\thow are you?",
+      "expected": "hello there\nhow are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "  \thello there\n  \thow are you?",
+      "expected": "hello there\nhow are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "  \t  hello there\n  \t  how are you?",
+      "expected": "hello there\nhow are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "  \thello there\n  \t  how are you?",
+      "expected": "hello there\n  how are you?"
+    },
+    {
+      "operation": "dedent",
+      "text": "  \thello there\n   \thow are you?\n \tI'm fine, thanks",
+      "expected": " \thello there\n  \thow are you?\n\tI'm fine, thanks"
+    },
+    {
+      "operation": "dedent",
+      "text": "        def foo():\n            while 1:\n                return foo\n        ",
+      "expected": "def foo():\n    while 1:\n        return foo\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "  Foo\n    Bar\n\n   Baz\n",
+      "expected": "Foo\n  Bar\n\n Baz\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "  Foo\n    Bar\n \n   Baz\n",
+      "expected": "Foo\n  Bar\n\n Baz\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "",
+      "expected": ""
+    },
+    {
+      "operation": "dedent",
+      "text": "    ",
+      "expected": ""
+    },
+    {
+      "operation": "dedent",
+      "text": "\t\t\t\t",
+      "expected": ""
+    },
+    {
+      "operation": "dedent",
+      "text": " \t  \t\t  \t ",
+      "expected": ""
+    },
+    {
+      "operation": "dedent",
+      "text": "\f\n\r\t\u000b ",
+      "expected": "\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "\n",
+      "expected": "\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "\r\n\r\n\r\n\r\n\r\n",
+      "expected": "\n\n\n\n\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "    \n\t\n  \n\t\t\n\n\n       ",
+      "expected": "\n\n\n\n\n\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "a\n \n\t\n",
+      "expected": "a\n\n\n"
+    },
+    {
+      "operation": "dedent",
+      "text": "a\r\n\r\n\r\n",
+      "expected": "a\r\n\n\n"
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\nTesting.",
+      "expected": "  Hi.\n  This is a test.\n  Testing.",
+      "prefix": "  "
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\n\nTesting.",
+      "expected": "  Hi.\n  This is a test.\n\n  Testing.",
+      "prefix": "  "
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\nThis is a test.\nTesting.\n",
+      "expected": "\n  Hi.\n  This is a test.\n  Testing.\n",
+      "prefix": "  "
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\r\nThis is a test.\r\nTesting.\r\n",
+      "expected": "  Hi.\r\n  This is a test.\r\n  Testing.\r\n",
+      "prefix": "  "
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\r\nThis is a test.\n\r\nTesting.\r\n\n",
+      "expected": "\n  Hi.\r\n  This is a test.\n\r\n  Testing.\r\n\n",
+      "prefix": "  "
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\nTesting.",
+      "expected": "Hi.\nThis is a test.\nTesting.",
+      "prefix": ""
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\n\nTesting.",
+      "expected": "Hi.\nThis is a test.\n\nTesting.",
+      "prefix": ""
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\nThis is a test.\nTesting.\n",
+      "expected": "\nHi.\nThis is a test.\nTesting.\n",
+      "prefix": ""
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\r\nThis is a test.\r\nTesting.\r\n",
+      "expected": "Hi.\r\nThis is a test.\r\nTesting.\r\n",
+      "prefix": ""
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\r\nThis is a test.\n\r\nTesting.\r\n\n",
+      "expected": "\nHi.\r\nThis is a test.\n\r\nTesting.\r\n\n",
+      "prefix": ""
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\nTesting.",
+      "expected": " \t  \t Hi.\n \t  \t This is a test.\n \t  \t Testing.",
+      "prefix": " \t  \t "
+    },
+    {
+      "operation": "dedent",
+      "text": " \t  \t Hi.\n \t  \t This is a test.\n \t  \t Testing.",
+      "expected": "Hi.\nThis is a test.\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\n\nTesting.",
+      "expected": " \t  \t Hi.\n \t  \t This is a test.\n\n \t  \t Testing.",
+      "prefix": " \t  \t "
+    },
+    {
+      "operation": "dedent",
+      "text": " \t  \t Hi.\n \t  \t This is a test.\n\n \t  \t Testing.",
+      "expected": "Hi.\nThis is a test.\n\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\nThis is a test.\nTesting.\n",
+      "expected": "\n \t  \t Hi.\n \t  \t This is a test.\n \t  \t Testing.\n",
+      "prefix": " \t  \t "
+    },
+    {
+      "operation": "dedent",
+      "text": "\n \t  \t Hi.\n \t  \t This is a test.\n \t  \t Testing.\n",
+      "expected": "\nHi.\nThis is a test.\nTesting.\n"
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\nTesting.",
+      "expected": "    Hi.\n    This is a test.\n    Testing.",
+      "prefix": "    "
+    },
+    {
+      "operation": "dedent",
+      "text": "    Hi.\n    This is a test.\n    Testing.",
+      "expected": "Hi.\nThis is a test.\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\n\nTesting.",
+      "expected": "    Hi.\n    This is a test.\n\n    Testing.",
+      "prefix": "    "
+    },
+    {
+      "operation": "dedent",
+      "text": "    Hi.\n    This is a test.\n\n    Testing.",
+      "expected": "Hi.\nThis is a test.\n\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\nThis is a test.\nTesting.\n",
+      "expected": "\n    Hi.\n    This is a test.\n    Testing.\n",
+      "prefix": "    "
+    },
+    {
+      "operation": "dedent",
+      "text": "\n    Hi.\n    This is a test.\n    Testing.\n",
+      "expected": "\nHi.\nThis is a test.\nTesting.\n"
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\nTesting.",
+      "expected": "\t\tHi.\n\t\tThis is a test.\n\t\tTesting.",
+      "prefix": "\t\t"
+    },
+    {
+      "operation": "dedent",
+      "text": "\t\tHi.\n\t\tThis is a test.\n\t\tTesting.",
+      "expected": "Hi.\nThis is a test.\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "Hi.\nThis is a test.\n\nTesting.",
+      "expected": "\t\tHi.\n\t\tThis is a test.\n\n\t\tTesting.",
+      "prefix": "\t\t"
+    },
+    {
+      "operation": "dedent",
+      "text": "\t\tHi.\n\t\tThis is a test.\n\n\t\tTesting.",
+      "expected": "Hi.\nThis is a test.\n\nTesting."
+    },
+    {
+      "operation": "indent",
+      "text": "\nHi.\nThis is a test.\nTesting.\n",
+      "expected": "\n\t\tHi.\n\t\tThis is a test.\n\t\tTesting.\n",
+      "prefix": "\t\t"
+    },
+    {
+      "operation": "dedent",
+      "text": "\n\t\tHi.\n\t\tThis is a test.\n\t\tTesting.\n",
+      "expected": "\nHi.\nThis is a test.\nTesting.\n"
+    },
+    {
+      "operation": "wrap",
+      "text": "This paragraph will be filled, first without any indentation,\nand then with some (including a hanging indent).",
+      "options": {
+        "width": 40,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This paragraph will be filled, first",
+        "without any indentation, and then with",
+        "some (including a hanging indent)."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This paragraph will be filled, first without any indentation,\nand then with some (including a hanging indent).",
+      "options": {
+        "width": 40,
+        "initial_indent": "     ",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "     This paragraph will be filled,",
+        "first without any indentation, and then",
+        "with some (including a hanging indent)."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This paragraph will be filled, first without any indentation,\nand then with some (including a hanging indent).",
+      "options": {
+        "width": 40,
+        "initial_indent": "  * ",
+        "subsequent_indent": "    ",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "  * This paragraph will be filled, first",
+        "    without any indentation, and then",
+        "    with some (including a hanging",
+        "    indent)."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Did you say \"supercalifragilisticexpialidocious?\"\nHow *do* you spell that odd word, anyways?\n",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Did you say \"supercalifragilis",
+        "ticexpialidocious?\" How *do*",
+        "you spell that odd word,",
+        "anyways?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Did you say \"supercalifragilisticexpialidocious?\"\nHow *do* you spell that odd word, anyways?\n",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Did you say \"supercalifragilisticexpialidocious?\"",
+        "How *do* you spell that odd word, anyways?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "----------hello",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "               ",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "----------",
+        "               h",
+        "               e",
+        "               l",
+        "               l",
+        "               o"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Did you say \"supercalifragilisticexpialidocious?\"\nHow *do* you spell that odd word, anyways?\n",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Did you say",
+        "\"supercalifr",
+        "agilisticexp",
+        "ialidocious?",
+        "\" How *do*",
+        "you spell",
+        "that odd",
+        "word,",
+        "anyways?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Did you say \"supercalifragilisticexpialidocious?\"\nHow *do* you spell that odd word, anyways?\n",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 4,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Did you say",
+        "\"supercalifr",
+        "agilisticexp",
+        "[...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Did you say \"supercalifragilisticexpialidocious?\"\nHow *do* you spell that odd word, anyways?\n",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Did you say",
+        "\"supercalifragilisticexpialidocious?\"",
+        "How *do* you spell that odd",
+        "word, anyways?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexad",
+        "iene-1-carboxylate synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used",
+        "enyzme 2-s",
+        "uccinyl-6-",
+        "hydroxy-2,",
+        "4-cyclohex",
+        "adiene-1-c",
+        "arboxylate",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "1234567890-1234567890--this_is_a_very_long_option_indeed-good-bye\"\n",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "1234567890",
+        "-123456789",
+        "0--this_is",
+        "_a_very_lo",
+        "ng_option_",
+        "indeed-",
+        "good-bye\""
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used enyzme 2-succinyl-6-hydroxy-2,4-",
+        "cyclohexadiene-1-carboxylate synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used",
+        "enyzme 2-",
+        "succinyl-",
+        "6-hydroxy-",
+        "2,4-",
+        "cyclohexad",
+        "iene-1-",
+        "carboxylat",
+        "e",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used enyzme",
+        "2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used",
+        "enyzme",
+        "2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used enyzme",
+        "2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "We used enyzme 2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate synthase.\n",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "We used",
+        "enyzme",
+        "2-succinyl-6-hydroxy-2,4-cyclohexadiene-1-carboxylate",
+        "synthase."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "..."
+      },
+      "expected": [
+        "Hello..."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 2,
+        "placeholder": "..."
+      },
+      "expected": [
+        "Hello there,",
+        "how are..."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 16,
+        "initial_indent": "    ",
+        "subsequent_indent": "  ",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 2,
+        "placeholder": " [truncated]..."
+      },
+      "expected": [
+        "    Hello there,",
+        "  [truncated]..."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 16,
+        "initial_indent": "  ",
+        "subsequent_indent": "    ",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [truncated]..."
+      },
+      "expected": [
+        "  [truncated]..."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 80,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": "........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................"
+      },
+      "expected": [
+        "Hello there, how are you this fine day?  I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Good grief Python features are advancing quickly!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 3,
+        "placeholder": "*****"
+      },
+      "expected": [
+        "Good grief",
+        "Python*****"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 0,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 2,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 13,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 2,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how are [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 80,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, how are you this fine day?  I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 6,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how are you",
+        "this fine",
+        "day?  I'm",
+        "glad to hear",
+        "it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 4,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how are you",
+        "this fine",
+        "day? [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 2,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello",
+        "[...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!          ",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 6,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how are you",
+        "this fine",
+        "day?  I'm",
+        "glad to hear",
+        "it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "Helloo",
+      "options": {
+        "width": 5,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "[...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 17,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "$$"
+      },
+      "expected": [
+        "Hello there,$$"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 18,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "$$"
+      },
+      "expected": [
+        "Hello there, how$$"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 18,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " $$"
+      },
+      "expected": [
+        "Hello there, $$"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "$$"
+      },
+      "expected": [
+        "Hello there, how are you this fine day? I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 59,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "$$"
+      },
+      "expected": [
+        "Hello there, how are you this fine day? I'm glad to hear$$"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 18,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, how are you this fine day? I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day? I'm glad to hear it!",
+      "options": {
+        "width": 59,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, how are you this fine day? I'm glad to [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a paragraph that already has line breaks and tabs too.",
+      "options": {
+        "width": 62,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a paragraph that already has line breaks and tabs too."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a paragraph that already has line breaks and tabs too.",
+      "options": {
+        "width": 61,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a paragraph that already has line breaks and [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "hello world!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "hello world!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "hello world!",
+      "options": {
+        "width": 11,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "hello [...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "hello world!",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "[...]"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "xxxxxxxxxxxxxxxxxxxx",
+      "options": {
+        "width": 8,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": 1,
+        "placeholder": "(......)"
+      },
+      "expected": [
+        "(......)"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "yaba daba-doo",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "yaba daba-",
+        "doo"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "yaba daba-doo",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "yaba",
+        "daba-doo"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": " This is a    sentence with     much whitespace.",
+      "options": {
+        "width": 10,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        " This is a",
+        "    ",
+        "sentence ",
+        "with     ",
+        "much white",
+        "space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "   ",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "   "
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "   ",
+      "options": {
+        "width": 6,
+        "initial_indent": "  ",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "     "
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": " This is a sentence with leading whitespace.",
+      "options": {
+        "width": 50,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        " This is a sentence with leading whitespace."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": " This is a sentence with leading whitespace.",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        " This is a sentence with",
+        "leading whitespace."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "abcd efgh",
+      "options": {
+        "width": 6,
+        "initial_indent": "  ",
+        "subsequent_indent": "  ",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "  abcd",
+        "  efgh"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "abcd    efgh",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "abcd",
+        "    ",
+        "efgh"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "abcd    efgh",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "abcd",
+        "efgh"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "  ",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "  ",
+      "options": {
+        "width": 6,
+        "initial_indent": "++",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "Em-dashes should be written -- thus.",
+      "options": {
+        "width": 25,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Em-dashes should be",
+        "written -- thus."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Em-dashes should be written -- thus.",
+      "options": {
+        "width": 29,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Em-dashes should be written",
+        "-- thus."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Em-dashes should be written -- thus.",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Em-dashes should be written --",
+        "thus."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Em-dashes should be written -- thus.",
+      "options": {
+        "width": 35,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Em-dashes should be written --",
+        "thus."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Em-dashes should be written -- thus.",
+      "options": {
+        "width": 36,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Em-dashes should be written -- thus."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 15,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do",
+        "--this or even",
+        "---this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 16,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do",
+        "--this or even",
+        "---this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 17,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--",
+        "this or even---",
+        "this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 19,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--",
+        "this or even---",
+        "this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 29,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--this or even",
+        "---this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 31,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--this or even",
+        "---this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 32,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--this or even---",
+        "this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You can also do--this or even---this.",
+      "options": {
+        "width": 35,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You can also do--this or even---",
+        "this."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "",
+      "options": {
+        "width": 6,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "",
+      "options": {
+        "width": 6,
+        "initial_indent": "++",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "",
+      "options": {
+        "width": 6,
+        "initial_indent": "++",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": false,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": []
+    },
+    {
+      "operation": "wrap",
+      "text": "A short line. Note the single space.",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "A short line.  Note the single space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Well, Doctor? What do you think?",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Well, Doctor?  What do you think?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Well, Doctor?\nWhat do you think?",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Well, Doctor?  What do you think?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I say, chaps! Anyone for \"tennis?\"\nHmmph!",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I say, chaps!  Anyone for \"tennis?\"  Hmmph!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I say, chaps! Anyone for \"tennis?\"\nHmmph!",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I say, chaps!",
+        "Anyone for \"tennis?\"",
+        "Hmmph!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "And she said, \"Go to hell!\"\nCan you believe that?",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "And she said, \"Go to",
+        "hell!\"  Can you",
+        "believe that?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "And she said, \"Go to hell!\"\nCan you believe that?",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "And she said, \"Go to hell!\"  Can you believe that?"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "File stdio.h is nice.",
+      "options": {
+        "width": 60,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "File stdio.h is nice."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "this-is-a-useful-feature-for-reformatting-posts-from-tim-peters'ly",
+      "options": {
+        "width": 40,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "this-is-a-useful-feature-for-",
+        "reformatting-posts-from-tim-peters'ly"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "this-is-a-useful-feature-for-reformatting-posts-from-tim-peters'ly",
+      "options": {
+        "width": 41,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "this-is-a-useful-feature-for-",
+        "reformatting-posts-from-tim-peters'ly"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "this-is-a-useful-feature-for-reformatting-posts-from-tim-peters'ly",
+      "options": {
+        "width": 42,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "this-is-a-useful-feature-for-reformatting-",
+        "posts-from-tim-peters'ly"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "this-is-a-useful-feature-for-reformatting-posts-from-tim-peters'ly",
+      "options": {
+        "width": 1,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "this-",
+        "is-",
+        "a-",
+        "useful-",
+        "feature-",
+        "for-",
+        "reformatting-",
+        "posts-",
+        "from-",
+        "tim-",
+        "peters'ly"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Python 1.0.0 was released on 1994-01-26.  Python 1.0.1 was\nreleased on 1994-02-15.",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Python 1.0.0 was released on",
+        "1994-01-26.  Python 1.0.1 was",
+        "released on 1994-02-15."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Python 1.0.0 was released on 1994-01-26.  Python 1.0.1 was\nreleased on 1994-02-15.",
+      "options": {
+        "width": 40,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Python 1.0.0 was released on 1994-01-26.",
+        "Python 1.0.1 was released on 1994-02-15."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Python 1.0.0 was released on 1994-01-26.  Python 1.0.1 was\nreleased on 1994-02-15.",
+      "options": {
+        "width": 1,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Python",
+        "1.0.0",
+        "was",
+        "released",
+        "on",
+        "1994-01-26.",
+        "Python",
+        "1.0.1",
+        "was",
+        "released",
+        "on",
+        "1994-02-15."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I do all my shopping at 7-11.",
+      "options": {
+        "width": 25,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I do all my shopping at",
+        "7-11."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I do all my shopping at 7-11.",
+      "options": {
+        "width": 27,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I do all my shopping at",
+        "7-11."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I do all my shopping at 7-11.",
+      "options": {
+        "width": 29,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I do all my shopping at 7-11."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "I do all my shopping at 7-11.",
+      "options": {
+        "width": 1,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": false,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "I",
+        "do",
+        "all",
+        "my",
+        "shopping",
+        "at",
+        "7-11."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a sentence with non-breaking space.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a sentence",
+        "with non-",
+        "breaking space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a sentence with non-breaking space.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a sentence",
+        "with",
+        "non-breaking space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Die Empfänger-Auswahl",
+      "options": {
+        "width": 13,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Die",
+        "Empfänger-",
+        "Auswahl"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a sentence with non-breaking space.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a sentence",
+        "with non-",
+        "breaking space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a sentence with non-breaking space.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": false,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a sentence",
+        "with",
+        "non-breaking space."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 12,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there,",
+        "how are you",
+        "this fine",
+        "day?  I'm",
+        "glad to hear",
+        "it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 42,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, how are you this fine day?",
+        "I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "Hello there, how are you this fine day?  I'm glad to hear it!",
+      "options": {
+        "width": 80,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "Hello there, how are you this fine day?  I'm glad to hear it!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "aa ää-ää",
+      "options": {
+        "width": 7,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "aa ää-",
+        "ää"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the",
+        "-n option, or --dry-",
+        "run in its long",
+        "form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 21,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n",
+        "option, or --dry-run",
+        "in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 32,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or",
+        "--dry-run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 34,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or",
+        "--dry-run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 35,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or",
+        "--dry-run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 38,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or",
+        "--dry-run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 39,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or --dry-",
+        "run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 41,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or --dry-",
+        "run in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "You should use the -n option, or --dry-run in its long form.",
+      "options": {
+        "width": 42,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "You should use the -n option, or --dry-run",
+        "in its long form."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a paragraph that already has\nline breaks.  But some of its lines are much longer than the others,\nso it needs to be wrapped.\nSome lines are \ttabbed too.\nWhat a mess!\n",
+      "options": {
+        "width": 45,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": true,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a paragraph that already has line",
+        "breaks.  But some of its lines are much",
+        "longer than the others, so it needs to be",
+        "wrapped.  Some lines are  tabbed too.  What a",
+        "mess!"
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "\tTest\tdefault\t\ttabsize.",
+      "options": {
+        "width": 80,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "        Test    default         tabsize."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "\tTest\tcustom\t\ttabsize.",
+      "options": {
+        "width": 80,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 4,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "    Test    custom      tabsize."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a\nshort paragraph.",
+      "options": {
+        "width": 20,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a short",
+        "paragraph."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a\nshort paragraph.",
+      "options": {
+        "width": 40,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a short paragraph."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a short line.",
+      "options": {
+        "width": 30,
+        "initial_indent": "",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "This is a short line."
+      ]
+    },
+    {
+      "operation": "wrap",
+      "text": "This is a short line.",
+      "options": {
+        "width": 30,
+        "initial_indent": "(1) ",
+        "subsequent_indent": "",
+        "expand_tabs": true,
+        "replace_whitespace": true,
+        "fix_sentence_endings": false,
+        "break_long_words": true,
+        "drop_whitespace": true,
+        "break_on_hyphens": true,
+        "tabsize": 8,
+        "max_lines": null,
+        "placeholder": " [...]"
+      },
+      "expected": [
+        "(1) This is a short line."
+      ]
+    }
+  ]
+}
