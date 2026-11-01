@@ -57,7 +57,7 @@ the embedded-module loader, not a filename or symbol prefix. Retained definition
 keep their declaration order. All frontend and ownership checks run before this
 step, including checks of bodies subsequently omitted. This saves native work
 and object space; it does not avoid parsing or lowering imported modules.
-See the [edit-build measurements](../../../development/module-edits.md).
+See the [edit-build measurements](../../../development/module-edits-emission-results.md).
 
 Each function's trap records are merged into one read-only source-site table.
 On AArch64, functions after the table's first record address their own base

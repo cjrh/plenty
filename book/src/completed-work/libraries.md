@@ -194,7 +194,10 @@ measurements. The worker HTTP server remains independently supported.
 The [qualification record](../design/stdlib/actor-http-qualification.md) includes
 540,000 successful matched HTTP/TLS benchmark requests, a mixed-failure run
 with 400 contained traps and stable resources, and relocated native binaries.
-TLS configuration rotation remains limited by issue #641; measured mailbox
-retry overhead is tracked as issue #644.
+TLS sessions reconstruct a private configuration graph within their actor heap,
+so trapped sessions and repeated configuration rotation release retired generations
+without dropping interrupted rustls state (issue #641). This adds per-session
+configuration memory and setup work; the original TLS comparison predates that
+change. Measured mailbox retry overhead is tracked as issue #644.
 
 Remaining stages stay **B85** in the [backlog](../backlog.md).

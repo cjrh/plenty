@@ -194,6 +194,7 @@ const VENDORED: &[Vendored] = &[
     ),
 ];
 const RUNTIME_EXTERNS: &[&str] = &[
+    "zeroize",
     "blake3",
     "sha2",
     "sha1",

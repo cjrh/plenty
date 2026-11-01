@@ -57,7 +57,9 @@ the engine's actual required glibc symbol version rather than enforcing 2.28.
 It also records `build_kind: local` and whether the checkout is dirty (excluding
 the shared issues register); this is provenance information, not an attestation.
 The compiler and generated applications can require newer system libraries too.
-[Portable releases](releasing.md) keep the strict baseline audit unchanged.
+The explicit `--local-install` packaging mode does not produce release archives
+or enforce the portable GLIBC/GCC symbol baseline; the release workflow never
+selects it. [Portable releases](releasing.md) keep the strict baseline audit.
 
 Do not run builds against the same installation concurrently. Recipes stop on
 the first failure; the complete installation is not a transaction. Notices are
@@ -95,7 +97,10 @@ so they take precedence over user-wide Cargo profile settings.
 ## CI build caches and timings
 
 The Cargo workflow (`.github/workflows/ci.yml`) runs on stable Rust for every
-push to `main` and every PR. Its jobs run in parallel:
+push to `main` and every PR. It runs the all-feature suite, doctests and a
+default-feature build on both `ubuntu-24.04` and `ubuntu-24.04-arm`; function
+and build cache keys include runner architecture. Optional engines are built
+and exercised independently. Its jobs run in parallel:
 
 - `test`: four shards of the full all-features suite under
   [cargo-nextest](https://nexte.st), split with `--partition hash:K/4` so a

@@ -2,9 +2,9 @@
 
 This record covers [`std.actor.http.server`](actor-http-server.md).
 Its core HTTP/TLS implementation has passed the checks recorded below.
-**It is not yet labelled production-ready:** fresh TLS configurations can be
-retained after trapped sessions (issue #641), and the platform/sanitizer scope
-below is deliberately limited. The [worker server's qualification](http-qualification.md)
+**It is not yet labelled production-ready:** the platform/sanitizer scope
+below is deliberately limited. TLS configuration retention after traps (issue #641)
+is addressed by [heap-local reconstruction](actor-tls.md#memory). The [worker server's qualification](http-qualification.md)
 is separate evidence and remains in force for that implementation.
 
 ## Gates
@@ -19,7 +19,7 @@ is separate evidence and remains in force for that implementation.
 | Coverage-guided fuzzing | Incremental decoder: 1,688,343 libFuzzer executions in 61 seconds, seed 592601, zero findings; coverage instrumentation, not ASan/TSan. Whole actor lifecycle is covered by socket tests rather than this target |
 | Slow clients and output back-pressure | Socket tests passed for partial heads/bodies, handshakes and slow readers |
 | Shutdown under load and signals | Forced drain with a busy mailbox passed; SIGTERM completes an in-flight streamed response; HTTP/TLS application shutdown is tested, including a TLS peer omitting close notification |
-| Repeated failure/resource stability | Repeated handler traps, heap exhaustion, factory failures and 5,120 connections at concurrency 16 pass; issue #641 remains for fresh TLS configurations retained after traps |
+| Repeated failure/resource stability | Repeated handler traps, heap exhaustion, factory failures and 5,120 connections at concurrency 16 pass; fresh-configuration trap/normal-drop/construction-OOM regressions check actor heaps and process allocation balance |
 | TLS and reverse proxies | curl 8.18.0, nginx 1.30.6 and Caddy 2.11.7 passed streamed/sized/Expect uploads, chunked replies, keep-alive, repeated 413 refusals and proxy TLS verification |
 | Installed/relocated toolchain | Copied compiler alone into an empty environment, compiled HTTP/TLS applications, removed compiler and source, then ran both native binaries through body/echo/trap/recovery/shutdown probes successfully |
 | Comparative measurements | Three alternating runs of all six workloads for HTTP/TLS, actor/one-worker/four-worker: 540,000 measured requests, zero failures; mixed-fault comparison also passed for the actor |
@@ -35,7 +35,7 @@ The actor-specific suites are in `tests/test_std_actor_http_server.rs` and
 `tests/test_std_http_decoder.rs`. Run the integrated suites with
 `cargo test --locked --all-features --test integration test_std_actor_http_`
 and the decoder with the `test_std_http_decoder::` filter. These results do
-not establish behavior on untested platforms or resolve issue #641.
+not establish behavior on untested platforms.
 
 ## Performance comparison
 
@@ -60,6 +60,13 @@ Clean-request throughput alone does not measure the actor server's purpose.
 Machine load and client bottlenecks must accompany any reported comparison.
 
 ## Recorded comparison
+
+These measurements predate the heap-local TLS configuration reconstruction for
+issue #641. Their source/compiler provenance and results remain unchanged. They
+do not establish current TLS setup costs or memory use; actor sessions now own a
+parsed configuration and rebuild their keys and verification state on construction.
+Plain HTTP does not use that path.
+
 
 Measured on 2026-11-01 at source revision `12c021c9`, with compiler SHA-256
 `53e6b1c791bd104ba9795a739b91211025d2b10201ed757ca0e053cfc5ccc8d4`.

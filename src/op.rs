@@ -344,8 +344,9 @@ impl Ty {
     /// heap. A `str` copy shares its storage; shared owners, atomics (and so
     /// `Mutex`), channels, tokens, closures and native handles share or
     /// change state through `&`. `std.bytes.Bytes` has no such method, and
-    /// `std.tls` configurations are immutable and allocated outside every
-    /// heap. A `std.tls.Session` changes only through `&mut` and only reads
+    /// `std.tls` configurations are immutable; sessions opened from another
+    /// heap reconstruct their configuration without retaining foreign owners.
+    /// A `std.tls.Session` changes only through `&mut` and only reads
     /// its own state through `&`. See book/src/design/stdlib/actor.md.
     pub fn actor_barrier(&self) -> Option<(Ty, Option<Ty>)> {
         let mut work: Vec<(Ty, Option<Ty>)> = vec![(self.clone(), None)];

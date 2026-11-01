@@ -113,7 +113,14 @@ impl TlsOp {
             Self::RootsCount | Self::State | Self::Close | Self::Version | Self::Suite => {
                 (vec![handle()], Ty::I64)
             }
-            Self::ClientConfig | Self::Server | Self::Build => (vec![handle()], opened()),
+            Self::ClientConfig | Self::Build => (vec![handle()], opened()),
+            // Construction can trap on an actor heap's allocation limit. A
+            // borrowed handle avoids an abandoned retained configuration
+            // temporary in the caller when recovery skips that call frame.
+            Self::Server => (
+                vec![Ty::Ref(std::sync::Arc::new(handle()), false)],
+                opened(),
+            ),
             // 1 for a server builder, 0 for a client's.
             Self::Builder => (vec![Ty::I64], opened()),
             // Builder, roots, and whether clients must present a certificate.
@@ -129,7 +136,10 @@ impl TlsOp {
             // Certificate chain and private key, both PEM.
             Self::ServerConfig => (vec![Ty::Str, Ty::Str], opened()),
             // Configuration and server name.
-            Self::Client => (vec![handle(), Ty::Str], opened()),
+            Self::Client => (
+                vec![Ty::Ref(std::sync::Arc::new(handle()), false), Ty::Str],
+                opened(),
+            ),
             // Session, buffer, start, stop.
             Self::Feed | Self::Take | Self::Read | Self::Write => (range(), Ty::I64),
             Self::WriteLiteral => {
