@@ -108,10 +108,34 @@ The declaration is checked as a whole:
 - Every field must copy: a scalar, `str`, another `@copy` class, or a tuple or
   enum whose components copy. The error names the field and its type.
 - The class cannot define `__del__`, because each copy would run it.
-- Each type parameter needs an `IntType` or `FloatType`
-  [bound](../07-generics/index.md), which guarantees that its arguments copy.
-  No other bound states that a type argument copies, so the field rule could
-  not be checked at the declaration.
+
+A generic `@copy` class copies when its type arguments copy, as a tuple does.
+`Pair[i64]` and `Pair[str]` copy; `Pair[list[i64]]` is accepted and moves. The
+field rule is checked at the definition, whether or not the class is used: a
+field must copy whenever every type argument copies. `T`, `(T, U)`, `Option[T]`
+and `Pair[T]` qualify; a field such as `items: list[T]` or `b: Box[T]` moves
+for every argument and is reported at its declaration. A
+[`CopyType` bound](../07-generics/index.md#copytype) (or `IntType` or
+`FloatType`) restricts the class to instances that copy:
+
+```plenty
+@copy
+class Pair[T]:
+    left: T
+    right: T
+
+def main() -> Result[(), AllocError | IoError]:
+    numbers = Pair(1, 2)
+    copied = numbers
+    lists = Pair([1]?, [2]?)
+    moved = lists
+    print(numbers, copied, moved)?
+    Ok(())
+```
+
+```output
+Pair[i64](left=1, right=2) Pair[i64](left=1, right=2) Pair[list[i64]](left=[1], right=[2])
+```
 
 Equality, printing, field access, and matching are unchanged. Classes,
 including copy classes, are not yet dictionary keys or set elements, except the

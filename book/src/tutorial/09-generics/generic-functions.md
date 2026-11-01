@@ -55,7 +55,9 @@ Ownership still follows the concrete type: `identity(values)` transfers the
 list, while a function taking `&T` borrows its argument.
 
 `IntType` restricts a parameter to integer types, and `FloatType` to `f32` and
-`f64`. Unconstrained `T` is useful
+`f64`. `CopyType` accepts any type whose values copy, such as numbers, `str`,
+and tuples of them, and rejects lists and other values that move; see
+[`CopyType`](../../design/language/07-generics/index.md#copytype). Unconstrained `T` is useful
 when the body only moves, borrows, or uses operations supported by the chosen
 concrete type. Each specialization is checked against those operations.
 

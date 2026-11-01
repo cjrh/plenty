@@ -759,24 +759,15 @@ impl Items<'_, '_> {
                 .iter()
                 .find(|(_, a)| *a == annotations::Annotation::Copy)
                 .map(|(at, _)| at.clone());
-            if let Some(at) = &c.copy {
-                // A numeric bound guarantees every argument copies, so the
-                // field rule holds for each instance.
-                if c.type_params.iter().any(|(_, bound)| {
-                    !bound.as_ref().is_some_and(|b| {
-                        b.args.is_empty()
-                            && matches!(b.name.as_deref(), Some("IntType" | "FloatType"))
-                    })
-                }) {
-                    return Err(at.error(
-                        "`@copy` class type parameters need an `IntType` or `FloatType` bound, which guarantees they copy; declare a `@copy` class for each other field type",
-                    ));
-                }
-                if let Some(f) = c.methods.iter().find(|f| f.name == "__del__") {
-                    return Err(f
-                        .at
-                        .error("a `@copy` class cannot define `__del__`: each copy would run it"));
-                }
+            if let Some(f) = c
+                .methods
+                .iter()
+                .find(|f| f.name == "__del__")
+                .filter(|_| c.copy.is_some())
+            {
+                return Err(f
+                    .at
+                    .error("a `@copy` class cannot define `__del__`: each copy would run it"));
             }
             c.newtype = annotations
                 .iter()
@@ -2886,7 +2877,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
             continue;
         }
-        if generics::numeric_bound(t).is_some() && t.args.is_empty() {
+        if generics::builtin_bound(t).is_some() && t.args.is_empty() {
             continue;
         }
         if let Some(name) = t.name.as_ref().filter(|n| access.protocols.contains(*n)) {

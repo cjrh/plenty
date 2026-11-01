@@ -16,11 +16,52 @@ generic syntax adds no runtime type lookup or allocation.
 The toolchain documents [specialization limits and caching](../../toolchain/02-architecture/emission.md).
 
 Functions and methods accept unconstrained parameters, `IntType`, `FloatType`,
-structural protocol constraints, and callable constraints. `IntType` accepts the
+`CopyType`, structural protocol constraints, and callable constraints. `IntType` accepts the
 eight fixed-width integer types and `FloatType` accepts `f32` and `f64`,
 including aliases; each is a constraint rather than a value type. No constraint
 admits both integers and floats; an unconstrained parameter does, because a
 body is checked for each instance. Callable capabilities follow [functions](../06-functions/index.md).
+
+## CopyType
+
+`CopyType` accepts every type argument that copies under the
+[copy rule](../05-ownership/01-bindings-moves-and-copies.md): numbers, `bool`,
+`str`, `bytes`, ranges, `NonZero`, unit `()`, named function values, tuples,
+enums, and anonymous sums whose parts copy, and `@copy` classes whose type
+arguments copy. Closures, collections, boxes, and other classes do not satisfy
+it. Type arguments are never references, so `&T` never satisfies it; a
+`&T` parameter borrows a `T` that does.
+
+```plenty
+def twice[T: CopyType](value: T) -> (T, T):
+    (value, value)
+
+def main() -> Result[(), IoError]:
+    print(twice(3), twice("a"), twice((1, Some(2.5))))?
+    Ok(())
+```
+
+```output
+(3, 3) ("a", "a") ((1, Option[f64].Some(2.5)), (1, Option[f64].Some(2.5)))
+```
+
+```plenty-error
+def twice[T: CopyType](value: T) -> (T, T):
+    (value, value)
+
+def main() -> Result[(), AllocError]:
+    pair = twice([1]?)
+    Ok(())
+```
+
+```error
+list[i64] does not satisfy CopyType: it moves on ordinary use
+```
+
+A body is checked per instance, so `twice` with an unconstrained `T` also
+compiles for these calls. The bound states the requirement in the signature
+and reports a moving argument at the call. Functions, methods,
+classes, and enums accept it.
 
 [Argument inference](inference.md) determines parameters from inputs or a complete
 explicit argument list. [Generic data and methods](data.md) retain nominal
