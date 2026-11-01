@@ -785,8 +785,8 @@ class Record
     def number(self) -> i64
     def line(self) -> i64
     def data(self) -> &Bytes
-    def start(self, index: i64) -> Result[i64, CsvError]
-    def stop(self, index: i64) -> Result[i64, CsvError]
+    def start(self, index: i64) -> i64
+    def stop(self, index: i64) -> i64
     def bytes(self, index: i64) -> Result[Bytes, CsvError]
     def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]
     def text(self, index: i64) -> Result[str, CsvError]
@@ -1205,30 +1205,30 @@ def base64url_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64url_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64url_text(source: &[u8]) -> Result[str, EncodingError]
 def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]
-def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> Result[(), EncodingError]
-def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> Result[(), EncodingError]
-def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> Result[(), EncodingError]
-def pack_i16(target: &mut Bytes, offset: i64, value: i16, order: Endian) -> Result[(), EncodingError]
-def pack_i32(target: &mut Bytes, offset: i64, value: i32, order: Endian) -> Result[(), EncodingError]
-def pack_i64(target: &mut Bytes, offset: i64, value: i64, order: Endian) -> Result[(), EncodingError]
+def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> ()
+def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> ()
+def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> ()
+def pack_i16(target: &mut Bytes, offset: i64, value: i16, order: Endian) -> ()
+def pack_i32(target: &mut Bytes, offset: i64, value: i32, order: Endian) -> ()
+def pack_i64(target: &mut Bytes, offset: i64, value: i64, order: Endian) -> ()
 def append_u16(target: &mut Bytes, value: u16, order: Endian) -> Result[(), EncodingError]
 def append_u32(target: &mut Bytes, value: u32, order: Endian) -> Result[(), EncodingError]
 def append_u64(target: &mut Bytes, value: u64, order: Endian) -> Result[(), EncodingError]
 def append_i16(target: &mut Bytes, value: i16, order: Endian) -> Result[(), EncodingError]
 def append_i32(target: &mut Bytes, value: i32, order: Endian) -> Result[(), EncodingError]
 def append_i64(target: &mut Bytes, value: i64, order: Endian) -> Result[(), EncodingError]
-def unpack_u16(source: &[u8], offset: i64, order: Endian) -> Result[u16, EncodingError]
-def unpack_u32(source: &[u8], offset: i64, order: Endian) -> Result[u32, EncodingError]
-def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, EncodingError]
-def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]
-def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]
-def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]
-def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> Result[(), EncodingError]
-def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> Result[(), EncodingError]
+def unpack_u16(source: &[u8], offset: i64, order: Endian) -> u16
+def unpack_u32(source: &[u8], offset: i64, order: Endian) -> u32
+def unpack_u64(source: &[u8], offset: i64, order: Endian) -> u64
+def unpack_i16(source: &[u8], offset: i64, order: Endian) -> i16
+def unpack_i32(source: &[u8], offset: i64, order: Endian) -> i32
+def unpack_i64(source: &[u8], offset: i64, order: Endian) -> i64
+def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> ()
+def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> ()
 def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), EncodingError]
 def append_f64(target: &mut Bytes, value: f64, order: Endian) -> Result[(), EncodingError]
-def unpack_f32(source: &[u8], offset: i64, order: Endian) -> Result[f32, EncodingError]
-def unpack_f64(source: &[u8], offset: i64, order: Endian) -> Result[f64, EncodingError]
+def unpack_f32(source: &[u8], offset: i64, order: Endian) -> f32
+def unpack_f64(source: &[u8], offset: i64, order: Endian) -> f64
 ```
 
 ## `std.env`
@@ -2164,7 +2164,7 @@ Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering,
 enum StreamError
     Interrupted | UnexpectedEof | WriteZero | OutOfRange | InvalidProgress | Io(IoError) | Allocation(AllocError)
 enum BinaryError
-    Truncated(i64, i64, i64) | TrailingData(i64, i64) | OutOfRange | LimitExceeded | Allocation(AllocError) | Encoding(EncodingError)
+    Truncated(i64, i64, i64) | TrailingData(i64, i64) | OutOfRange | LimitExceeded | Allocation(AllocError)
 class Partial
     completed: i64
     cause: StreamError
@@ -3763,7 +3763,7 @@ class Uuid
     def is_rfc_variant(self) -> bool
     def version(self) -> Option[u8]
     def unix_milliseconds(self) -> Option[u64]
-    def write_bytes(self, target: &mut Bytes, offset: i64) -> Result[(), BytesError]
+    def write_bytes(self, target: &mut Bytes, offset: i64) -> ()
     def to_bytes(self) -> Result[Bytes, BytesError]
     def to_string(self) -> Result[str, BytesError]
 def nil() -> Uuid
