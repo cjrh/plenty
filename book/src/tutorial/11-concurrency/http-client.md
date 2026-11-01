@@ -39,7 +39,7 @@ pub class Site:
                 exchange.send(200, "text/plain", &body)?
         Ok(())
 
-type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type VisitError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     with stop.cancel_on_exit():

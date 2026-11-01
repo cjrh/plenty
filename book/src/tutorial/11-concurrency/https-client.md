@@ -42,13 +42,13 @@ pub enum Route:
     Count
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), FormatError | std.http.HttpError | std.bytes.BytesError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError]:
         mut body = std.bytes.empty()?
         exchange.read_all(&mut body)?
         exchange.send_text(200, &f"{body.len()} bytes"?)?
         Ok(())
 
-type VisitError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError
+type VisitError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | std.tls.TlsError | RangeError
 
 def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
     with stop.cancel_on_exit():

@@ -124,6 +124,13 @@ When a field's `str.repr` spelling runs a `debug` method, the f-string calls
 `str.repr` at its own site and passes the result to `repr_text(spelled, &mut
 out)` or `repr_result(spelled)`, which turn `AllocError | FormatError` into a
 `FormatError`.
+An f-string builds its text as `Result[str, FormatError]` and converts the
+result at its site: `allocation_only(built)` gives `Result[str, AllocError]`
+when no field runs a user method or has a computed spec, and
+`allocation_or_format(built)` gives `Result[str, AllocError | FormatError]`
+otherwise. Both report `Bytes(Allocation(cause))` and
+`Output(Allocation(cause))` as `cause`. `allocation_only` traps on any other
+`FormatError`, which the compiler's choice rules out.
 
 f-strings check the values of a spec's nested fields with three functions, each
 returning `InvalidSpec` for a value the spec cannot take: `spec_align(&align)`

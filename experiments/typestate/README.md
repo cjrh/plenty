@@ -3,7 +3,7 @@
 This is a deterministic response-lifecycle model using explicit owned receivers.
 It is not an HTTP implementation or a replacement for `std.http.server`.
 The assessment is in
-[`typestate-response-experiment.md`](../../book/src/proposals/typestate-response-experiment.md).
+[`typestate-response-experiment.md`](../../book/src/proposals/completed/typestate-response-experiment.md).
 
 From this worktree, build the compiler into a disk-backed target directory and run:
 

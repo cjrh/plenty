@@ -50,7 +50,7 @@ and, where marked *probe*, with `plenty --check` or a run on the 2026-10-31
 debug build.
 
 Earlier changes removed features rather than deprecating them (`std.iter` was removed in favour of `iter()`; see
-[fluent iterator pipelines](fluent-iterators.md)). This proposal follows that
+[fluent iterator pipelines](completed/fluent-iterators.md)). This proposal follows that
 precedent: a breaking change ships with a diagnostic that states the new
 spelling, and the same change updates std, tests, the tutorial and the
 reference. [Package language editions](language-editions.md) are not
@@ -423,7 +423,9 @@ everything that works on one iterator works on all.
 
 ### Today
 
-Allocation failure has several shapes (issue #632):
+Allocation failure has several shapes (issue #632). The f-string row and
+its probe describe the state before phasing item 2, which made f-strings
+without user formatting fail with `AllocError`:
 
 | Operation | Allocation failure reported as |
 | --- | --- |
@@ -529,7 +531,9 @@ and an argument bug traps.
    (issue #625); literal `split("")` rejected and the `chunks` message
    (issue #629).
 2. f-strings, `print` and `str.repr` report `AllocError` when no user method
-   runs.
+   runs. Done: `print` and `str.repr` with B89 phase 2 (issue #615),
+   f-strings with B92 phase 2. A `:c` spec counts as computed, since an
+   out-of-range scalar is `InvalidSpec`.
 3. std error types: `Allocation(AllocError)` variants, `std.bytes`
    constructors, negative capacities.
 

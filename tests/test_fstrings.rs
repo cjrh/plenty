@@ -111,10 +111,10 @@ pub class Label:
         out.debug_text(&self.name)?
         out.text(")")
 
-    def tagged(self) -> Result[str, FormatError]:
+    def tagged(self) -> Result[str, AllocError]:
         f"@{self.name}"
 
-def wrap[T](value: &T) -> Result[str, FormatError]:
+def wrap[T](value: &T) -> Result[str, AllocError | FormatError]:
     f"<{value}>"
 
 def numbered(n: i64) -> Generator[str]:
@@ -129,7 +129,7 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     label = Label("ready")
     print(f"{label} {label!r} {label:>7}| {label!r:.6}"?)?
     print(wrap(&5)?, wrap(&"x")?, wrap(&label)?, label.tagged()?)?
-    render = def(n: i64) -> Result[str, FormatError]:
+    render = def(n: i64) -> Result[str, AllocError]:
         f"n={n:03}"
     print(render(7)?)?
     for text in numbered(2):
@@ -167,7 +167,7 @@ enum Mode:
     pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
         out.text("fast")
 
-def wrap[T](value: &T) -> Result[str, FormatError]:
+def wrap[T](value: &T) -> Result[str, AllocError | FormatError]:
     f"({value})"
 
 def main() -> Result[(), AllocError | IoError | FormatError]:
@@ -206,7 +206,7 @@ pub class Hidden:
 pub def make() -> Hidden:
     Hidden(x=1)
 
-pub def show[T](value: &T) -> Result[str, FormatError]:
+pub def show[T](value: &T) -> Result[str, AllocError | FormatError]:
     f"({value})"
 "#;
     let error = module_error(
@@ -304,18 +304,99 @@ fn result_type_and_propagation() {
     );
     assert_eq!(
         run(r#"
-from std.fmt import FormatError
-
-def title(n: i64) -> Result[str, FormatError]:
+def title(n: i64) -> Result[str, AllocError]:
     text = f"n{n}"?
     Ok(text)
 
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     print(title(4)?)?
     Ok(())
 "#),
         "n4"
     );
+}
+
+#[test]
+fn only_user_formatting_and_computed_specs_add_format_error() {
+    // B92 phase 2: built-in spellings fail only by allocation.
+    assert_eq!(
+        run(r#"
+from std.fmt import Formatter
+
+class Tag:
+    name: str
+
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        out.text(&self.name)
+
+def plain(n: i64, x: f64, words: &list[str]) -> Result[str, AllocError]:
+    Ok(f"{n:>4} {x:.2f} {words} {words!r} {n=} {'é'!a} {(n, x)} {Some(n)}"?)
+
+def tagged(tag: &Tag) -> Result[str, AllocError | FormatError]:
+    Ok(f"{tag} {[1]?}"?)
+
+def nested(n: i64, width: i64) -> Result[str, AllocError | FormatError]:
+    Ok(f"[{n:{width}}]"?)
+
+def tags(items: &list[Tag]) -> Result[str, AllocError | FormatError]:
+    Ok(f"{items}"?)
+
+def show(width: i64) -> Result[(), AllocError | IoError]:
+    match nested(1, width):
+        case Ok(text):
+            print(text)?
+        case Err(error):
+            match error:
+                case cause: AllocError:
+                    return Err(cause)
+                case cause: FormatError:
+                    print(cause)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    words = ["a"]?
+    print(plain(7, 1.5, &words)?)?
+    print(tagged(&Tag("t"))?)?
+    show(3)?
+    show(-1)?
+    items = [Tag("u")]?
+    print(tags(&items)?)?
+    Ok(())
+"#),
+        r#"   7 1.50 ["a"] ["a"] n=7 "\u{e9}" (7, 1.5) Option[i64].Some(7)
+t [1]
+[  1]
+std.fmt.FormatError.InvalidSpec
+[Tag(name="u")]"#
+    );
+}
+
+#[test]
+fn stale_format_error_declarations_name_alloc_error() {
+    let cases = [
+        (
+            "def f(n: i64) -> Result[str, FormatError]:\n    Ok(f\"{n}\"?)\n",
+            "`?` operand error AllocError cannot propagate as FormatError; an f-string whose fields use built-in spellings fails only with AllocError: declare Result[_, AllocError], or Result[_, AllocError | FormatError] if the function also returns FormatError",
+        ),
+        (
+            "def f(n: i64) -> Result[str, FormatError]:\n    f\"{n}\"\n",
+            "expected Result[str, std.fmt.FormatError], got Result[str, AllocError]; an f-string whose fields use built-in spellings fails only with AllocError: declare Result[_, AllocError]",
+        ),
+        (
+            "def f(n: i64, w: i64) -> Result[str, FormatError]:\n    f\"{n:{w}}\"\n",
+            "fails with AllocError | FormatError: declare Result[_, AllocError | FormatError]",
+        ),
+        (
+            "def f(n: i64) -> Result[str, IoError | FormatError]:\n    Ok(f\"{n}\"?)\n",
+            "missing alternatives: AllocError; this f-string fails with AllocError",
+        ),
+    ];
+    for (source, expected) in cases {
+        let message = plenty::check_source(&format!("{source}\ndef main() -> ():\n    pass\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains(expected), "{source}: {message}");
+    }
 }
 
 #[test]
@@ -453,7 +534,8 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn allocation_failure_is_a_format_error_value() {
+fn allocation_failure_is_an_alloc_error() {
+    // B92 phase 2: formatting storage failure surfaces as `AllocError`.
     assert_eq!(
         run(r#"
 def main() -> Result[(), AllocError | IoError]:
@@ -468,7 +550,7 @@ def main() -> Result[(), AllocError | IoError]:
             print(str.repr(error)?)?
     Ok(())
 "#),
-        "std.fmt.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))"
+        "AllocError.OutOfMemory"
     );
 }
 
@@ -542,14 +624,20 @@ fn nested_spec_fields_supply_fill_alignment_width_and_precision() {
         run(r#"
 import std.fmt
 
-def check(made: Result[str, std.fmt.FormatError]) -> Result[(), AllocError | IoError]:
+def check(made: Result[str, AllocError | std.fmt.FormatError]) -> Result[(), AllocError | IoError]:
     match made:
         case Ok(text):
             print(text)?
-        case Err(std.fmt.FormatError.InvalidSpec):
-            print("invalid")?
-        case Err(_):
-            print("other")?
+        case Err(error):
+            match error:
+                case cause: AllocError:
+                    return Err(cause)
+                case cause: std.fmt.FormatError:
+                    match cause:
+                        case std.fmt.FormatError.InvalidSpec:
+                            print("invalid")?
+                        case _:
+                            print("other")?
     Ok(())
 
 def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
@@ -662,21 +750,28 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
         run(r#"
 import std.fmt
 
+def invalid(made: Result[str, AllocError | std.fmt.FormatError]) -> bool:
+    match made:
+        case Err(error):
+            match error:
+                case cause: std.fmt.FormatError:
+                    match cause:
+                        case std.fmt.FormatError.InvalidSpec:
+                            True
+                        case _:
+                            False
+                case _:
+                    False
+        case Ok(_):
+            False
+
 def main() -> Result[(), AllocError | IoError]:
     for code in [-1, 55296, 1114112]?:
-        match f"{code:c}":
-            case Err(std.fmt.FormatError.InvalidSpec):
-                print("invalid")?
-            case _:
-                print("unexpected")?
-    match f"{u64.MAX:c}":
-        case Err(std.fmt.FormatError.InvalidSpec):
-            print("invalid")?
-        case _:
-            print("unexpected")?
+        print(invalid(f"{code:c}"))?
+    print(invalid(f"{u64.MAX:c}"))?
     Ok(())
 "#),
-        "invalid\ninvalid\ninvalid\ninvalid"
+        "True\nTrue\nTrue\nTrue"
     );
 }
 
@@ -757,7 +852,7 @@ fn format_error_is_a_prelude_name() {
     // Issue #632: `FormatError` needs no import, with or without an f-string.
     assert_eq!(
         run(
-            "def label(n: i64) -> Result[str, FormatError]:\n    f\"n={n}\"\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.InvalidSpec)\n\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    print(label(3)?, bad().is_err())?\n    Ok(())\n"
+            "def label(n: i64) -> Result[str, AllocError]:\n    f\"n={n}\"\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.InvalidSpec)\n\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    print(label(3)?, bad().is_err())?\n    Ok(())\n"
         ),
         "n=3 True"
     );

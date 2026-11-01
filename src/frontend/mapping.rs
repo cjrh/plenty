@@ -118,10 +118,10 @@ impl Lower<'_> {
     }
 
     /// Hold an evaluated operand in a fresh slot under a name no source can spell.
-    fn hide(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<String> {
+    pub(super) fn hide(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<String> {
         let slot = self.slot(ty.clone(), at)?;
         ops.push(Op::StoreLocal(slot));
-        let name = format!("__plenty_map_error_operand{slot}");
+        let name = format!("__plenty_operand{slot}");
         self.bind(
             name.clone(),
             Local {

@@ -223,7 +223,7 @@ is `PlotError.Write(completed, cause)`, where `completed` counts bytes in the
 
 Other errors are `UnknownColumn`, `DuplicateColumn`, `ShapeMismatch`,
 `MissingAesthetic`, `WrongKind`, `Conflict`, `InvalidSetting`, `Allocation`,
-`Bytes`, and `Format`. No library messages are printed. `ggplot` catches mapping
+and `Bytes`. No library messages are printed. `ggplot` catches mapping
 and setting mistakes; rendering can additionally reject unsupported numeric
 magnification, XML-forbidden text, or insufficient layout space. Allocation
 failure is always returned; no infallible native plotting allocator is involved.

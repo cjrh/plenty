@@ -76,10 +76,10 @@ def field(reply: &str, name: &str) -> Result[str, AllocError | IoError]:
             return Ok(line.split(": ")?[1])
     Ok("")
 
-def get(path: &str, extra: &str) -> Result[str, FormatError]:
+def get(path: &str, extra: &str) -> Result[str, AllocError]:
     Ok(f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{extra}\r\n"?)
 
-def client(port: u16, stop: CancellationToken) -> Result[(), FetchError | FormatError]:
+def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
     with stop.cancel_on_exit():
         page = fetch(port, &get("/files/index.html", "")?)?
         print(page.split("\r\n")?[0])?
@@ -101,7 +101,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), FetchError | Format
 
 type FileSiteError = std.fs.FsError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError | FetchError | FormatError]:
+def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError | FetchError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut directory = std.fs.temporary_dir(&parent, &std.path.from_text("plenty-site-")?, 8)?
     for name in ["index.html", ".env"]?:

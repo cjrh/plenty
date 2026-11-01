@@ -31,13 +31,13 @@ pub enum Route:
 pub class Greeting:
     pub opening: str
 
-    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError]:
+    pub def handle(self, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
         text = f"{self.opening}{exchange.params[0]}\n"?
         exchange.send_text(200, &text)?
         Ok(())
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -45,7 +45,7 @@ pub class App:
                 greeting.handle(exchange)?
         Ok(())
 
-type FetchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.net.NetError | RangeError
+type FetchError = AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError
 
 def get(port: u16, path: &str) -> Result[str, FetchError]:
     never = CancellationToken()?
@@ -161,7 +161,7 @@ signature names it. Every worker thread borrows the same handler and the
 same table, so `handle` takes `self` and `route` by shared borrow and
 cannot change them.
 
-`handle` returns its own error type, here `FormatError | std.http.HttpError`
+`handle` returns its own error type, here `AllocError | std.http.HttpError`
 from the f-string and `send_text`. The server answers an `Err` of any type with
 `500` and counts it in `report.handler_errors`;
 [When a handler fails](../../design/stdlib/http-server.md#when-a-handler-fails)
@@ -194,7 +194,7 @@ import std.http.tls
 from std.http.tls import TlsTransport
 
 pub class App:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), FormatError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TlsTransport]) -> Result[(), AllocError | std.http.HttpError]:
         ...
 
 server = std.tls.server_config(&leaf_pem(), &leaf_key())?

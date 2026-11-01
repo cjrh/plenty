@@ -105,7 +105,7 @@ extend it without turning `clist` into a database prematurely.
 ## Fit with pipelines and SIMD
 
 Column projections should be borrowed sources for the existing
-[fluent pipeline model](fluent-iterators.md), with `zip` for multi-column work.
+[fluent pipeline model](completed/fluent-iterators.md), with `zip` for multi-column work.
 The source carries type, length, stride and ownership information; callbacks
 keep ordinary evaluation order, traps and allocation behavior. A projection
 must not allocate a temporary list. The first implementation may use scalar

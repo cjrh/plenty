@@ -20,7 +20,8 @@ container type names (including `Box` and `Shared`), standard sums and
 variants (`Option`, `Result`, `Some`, `Nothing`, `Ok`, `Err`), callable and
 generator types, and facility names for
 files, errors, threads, channels, executors, and cancellation. `FormatError`,
-the error of every f-string, names `std.fmt.FormatError`; a module that
+the error of user formatting methods and of f-strings that run them, names
+`std.fmt.FormatError`; a module that
 declares or imports its own `FormatError`, such as `std.report`'s, uses that
 one instead. Built-in operations
 include `copy`, `drop`, `len`, `range`, text I/O, worker submission, and channel

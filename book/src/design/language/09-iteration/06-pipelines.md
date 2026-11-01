@@ -473,6 +473,6 @@ rather than one frame per adapter. A generator source inside that frame still
 has its own suspension boundary. Local fluent consumption keeps its fused
 loop without relying on generator-frame fusion as an optimization.
 
-The [proposal](../../../proposals/fluent-iterators.md) describes the broader
+The [proposal](../../../proposals/completed/fluent-iterators.md) describes the broader
 design; [B75](../../../backlog.md) tracks follow-up work. Pipelines
 replace the removed `std.iter` generator functions.

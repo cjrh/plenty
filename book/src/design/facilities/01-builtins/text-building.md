@@ -61,7 +61,8 @@ Choose by the shape of the text:
 
 - an [f-string](../../language/04-expressions/format-strings.md) for a fixed
   number of pieces of mixed types, such as `f"{host}:{port}"?`. It reports
-  `std.fmt.FormatError`, not `AllocError`;
+  `AllocError`, plus `FormatError` when a field runs a user formatting method
+  or a spec is computed;
 - `concat` (or `+`) for two strings in an `AllocError` function;
 - `join` for any number of strings from one iterable.
 
