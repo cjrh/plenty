@@ -4,8 +4,6 @@ Test the processing module without command-line arguments. Save its companion
 as `report_demo.plenty`:
 
 ```plenty-file report_demo.plenty
-from std.fmt import FormatError
-
 pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError | FormatError]:
     mut count = 0
     mut total = 0
@@ -27,7 +25,6 @@ Run this application in a scratch directory; it replaces `numbers.txt` and
 
 ```plenty
 from report_demo import summarize
-from std.fmt import FormatError
 
 def main() -> Result[(), AllocError | IoError | ParseError | FormatError]:
     write_text("numbers.txt", "10\r\n\r\n20\r\n")?

@@ -25,9 +25,8 @@ standard library.
   private to user code, so they stay out of the index and module pages
   (`Bytes.crypto_update`, `std.bytes.compress_state`).
 - A module's error types and protocols are imported from that module. The
-  [prelude](../language/02-source/names.md) holds builtin names only;
-  `FormatError` is missing from it although every f-string produces it
-  (issue #632).
+  [prelude](../language/02-source/names.md) holds builtin names, plus
+  `std.fmt.FormatError`, which every f-string produces (issue #632).
 - Each module page states ownership, allocation, error variants and limits
   for every public function, as described in
   [Reading a module page](index.md#reading-a-module-page), and ends with
@@ -295,7 +294,6 @@ they are one family:
 
 | Area | Deviation | Tracking |
 |---|---|---|
-| Prelude | `FormatError` needs an import | Issue #632 |
 | Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
 | Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
 | Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |

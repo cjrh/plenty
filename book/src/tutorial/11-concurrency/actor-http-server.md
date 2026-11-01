@@ -17,7 +17,6 @@ import std.http.client
 import std.net
 import std.time
 from std.actor.http.server import Request, Response, ServerError
-from std.fmt import FormatError
 from std.sync import CancellationToken
 
 type HandlerError = AllocError | std.http.HttpError | ServerError

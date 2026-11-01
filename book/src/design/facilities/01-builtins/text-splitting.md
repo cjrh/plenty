@@ -8,7 +8,9 @@ reclaims the initialized result prefix and preserves the inputs.
 ## Explicit separators
 
 `text.split(separator)` requires one nonempty string, including a reference.
-Empty separators trap; this invalid-operation error is not an `AllocError`.
+A literal `""` separator is a compile error, `split requires a nonempty
+separator`. A computed empty separator traps; this invalid-argument error is
+not an `AllocError`.
 Maximum-split arguments are unsupported.
 
 Matches are literal, non-overlapping, and scanned left to right. Leading,

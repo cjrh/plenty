@@ -3727,6 +3727,13 @@ impl Lower<'_> {
                     format!("{name} requires one argument")
                 }));
             }
+            if name == "split"
+                && matches!(&ungroup(&args[0]).kind, Expression::Text(t) if t.is_empty())
+            {
+                return Err(args[0].at.error(
+                    "split requires a nonempty separator; split on whitespace with `split()`",
+                ));
+            }
             if name == "join" {
                 let result = self.join_text(&args[0], ops)?;
                 Self::end_reads(loans, ops);

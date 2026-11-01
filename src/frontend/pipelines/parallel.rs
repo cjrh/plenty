@@ -302,28 +302,11 @@ impl Lower<'_> {
             Some(count) => {
                 let actual = self.expr_expected(&count, Some(Ty::I64), ops)?;
                 self.same(actual, Some(Ty::I64), &count.at)?;
-                let parts = self.par_hidden("parts", Ty::I64, &count.at, hidden, ops)?;
-                // A non-positive runtime count stops like an out-of-range cast.
-                let check = Expr {
-                    at: count.at.clone(),
-                    kind: Expression::Call(
-                        "u64".into(),
-                        vec![Expr {
-                            at: count.at.clone(),
-                            kind: Expression::Binary(
-                                "-".into(),
-                                Box::new(parts.clone()),
-                                Box::new(Expr {
-                                    at: count.at.clone(),
-                                    kind: Expression::Number("1".into()),
-                                }),
-                            ),
-                        }],
-                    ),
-                };
-                self.value(&check, ops)?;
-                ops.push(Op::Drop);
-                parts
+                // A computed count below 1 traps naming `chunks`; a literal one
+                // is rejected in `par_arguments`.
+                self.mark(&count.at, ops);
+                ops.push(Op::Executor(crate::executor::ExecutorOp::Chunks));
+                self.par_hidden("parts", Ty::I64, &count.at, hidden, ops)?
             }
             None => {
                 let (_, loans) = self.observe(&pool, ops)?;

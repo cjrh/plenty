@@ -15,7 +15,7 @@ is separate from the writer-generic display/debug methods on this page.
 
 ```plenty
 import std.fmt
-from std.fmt import Formatter, FormatError
+from std.fmt import Formatter
 
 pub class Point:
     x: i64

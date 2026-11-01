@@ -18,7 +18,6 @@ import std.http.server
 import std.http.sse
 import std.net
 import std.time
-from std.fmt import FormatError
 from std.http.server import Exchange
 from std.http.sse import SseError
 from std.net import TcpStream

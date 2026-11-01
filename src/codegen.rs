@@ -1093,6 +1093,9 @@ struct Runtime {
     /// `plenty_trap_list_index(index, length, site) -> !`: an inline scalar
     /// list row index out of bounds.
     trap_list_index: FuncId,
+    /// `plenty_trap_par_chunks(count, site) -> !`: a parallel pipeline's
+    /// `chunks=` count below 1.
+    trap_par_chunks: FuncId,
     /// In an executable whose failed checks trap ([`traps`]):
     /// `plenty_traps_register(table)` and the object's check table. `None`
     /// keeps the helper calls.
@@ -1437,6 +1440,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
                 AbiParam::new(PTR_TY),
             ]);
             module.declare_function("plenty_trap_list_index", Linkage::Import, &sig)?
+        },
+        trap_par_chunks: {
+            let mut sig = module.make_signature();
+            sig.call_conv = crate::target::native_call_conv();
+            sig.params
+                .extend([AbiParam::new(types::I64), AbiParam::new(PTR_TY)]);
+            module.declare_function("plenty_trap_par_chunks", Linkage::Import, &sig)?
         },
         signal_traps: None,
         readline: {
