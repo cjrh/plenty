@@ -10,9 +10,10 @@ modules share no state and no code path.
 > **Entropy comes from the operating system.** Plenty implements no random
 > generator for secrets: native OS services supply every byte.
 
-Policy is checked Plenty code over one native primitive,
-[`Bytes.read_os_entropy`](bytes.md#transport), which makes a single
-OS request. Linux uses `getrandom(2)` (glibc 2.25 or later, Linux 3.17 or later).
+Policy is checked Plenty code over one native primitive, the intrinsic
+`__io_entropy_read`, which is
+[reserved for the standard library](bytes.md#transport) and makes a single OS
+request. Linux uses `getrandom(2)` (glibc 2.25 or later, Linux 3.17 or later).
 The macOS runtime uses `getentropy`, with at most 256 bytes per request;
 Windows uses the system-preferred `BCryptGenRandom` generator, with at most
 `u32::MAX` bytes per request. Short counts are normal and the Plenty layer

@@ -122,6 +122,38 @@ with ThreadPoolExecutor(1, 1).unwrap() as pool:
 }
 
 #[test]
+fn cancel_pending_cancels_queued_jobs_and_keeps_the_pool_open() {
+    runs(
+        r#"
+def block(ready: Sender[i64], gate: Receiver[i64]) -> i64:
+    ready.send(1).unwrap()
+    gate.recv().unwrap()
+def value(n: i64) -> i64:
+    n
+ready, started = channel[i64](1).unwrap()
+signal, gate = channel[i64](1).unwrap()
+with ThreadPoolExecutor(1, 2).unwrap() as pool:
+    running = pool.submit(block, ready, gate).unwrap()
+    started.recv().unwrap()
+    drop(started)
+    first = pool.submit(value, 1).unwrap()
+    second = pool.submit(value, 2).unwrap()
+    pool.cancel_pending()
+    pool.cancel_pending()
+    print(first.done()).unwrap()
+    print(str.repr(second.result()).unwrap()).unwrap()
+    later = pool.submit(value, 3).unwrap()
+    signal.send(7).unwrap()
+    print(running.result().unwrap()).unwrap()
+    print(later.result().unwrap()).unwrap()
+    pool.shutdown()
+    pool.cancel_pending()
+"#,
+        "True\nResult[i64, FutureError].Err(FutureError.Cancelled)\n7\n3\n",
+    );
+}
+
+#[test]
 fn mapping_workers_overlap_and_temporary_futures_compose() {
     runs(
         r#"

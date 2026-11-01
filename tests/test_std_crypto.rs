@@ -353,18 +353,16 @@ fn states_cannot_be_forged_or_copied() {
         "mac = std.crypto.digest(Algorithm.Sha256)?\nother = copy(mac)?\n",
     ));
     assert!(copied.contains("cannot be copied"), "{copied}");
-    // The back-end methods are public on `Bytes`; an ordinary buffer is not a
-    // hasher state, and the runtime stops rather than reading it as one.
-    let output = run(&program(
+    // Issue #633: the hasher primitives are std-only intrinsics, so user
+    // code cannot pass an ordinary buffer as a state.
+    let forged = rejected(&program(
         "mut state = std.bytes.from_text(\"not a state\")?\n\
          data = std.bytes.from_text(\"abc\")?\n\
-         print(state.crypto_update(&data, 0, 3)?)?\n",
+         print(__crypto_update(state, data, 0, 3))?\n",
     ));
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("operand is not a std.crypto state"),
-        "{stderr}"
+        forged.contains("`__crypto_update` is reserved for the standard library"),
+        "{forged}"
     );
 }
 
@@ -469,5 +467,24 @@ unfinished.update(&data, 0, 3)?
          Result[Bytes, E].Err(E.Allocation(AllocError.OutOfMemory))\n\
          Result[Bytes, E].Err(E.Allocation(AllocError.OutOfMemory))\n\
          ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+}
+
+// Issue #633: a hasher's only allocation is the native state; wrapping it as
+// `Bytes` with `__bytes_adopt` adds none and cannot fail.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn a_hasher_allocates_only_its_native_state() {
+    native(
+        r#"
+print("__test_fail_allocations_after_0__")?
+failed = std.crypto.digest(Algorithm.Sha256)
+print("__test_restore_allocations__")?
+print("__test_fail_allocations_after_1__")?
+made = std.crypto.digest(Algorithm.Sha256)
+print("__test_restore_allocations__")?
+print(failed.is_err(), made.is_ok())?
+"#,
+        "True True",
     );
 }

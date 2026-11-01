@@ -342,7 +342,6 @@ as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
 | `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
 | `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
 | `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream (buffered stdout, unbuffered stderr) |
-| `read_os_entropy(start, stop)` | exclusive | One native OS entropy request into `self[start:stop]`; see [`std.secrets`](secrets.md) for per-platform limits |
 
 A count below the range length is normal. A range outside the buffer is
 `IoError.InvalidInput`; a closed file is `Closed`, and the open mode is
@@ -350,18 +349,17 @@ enforced with `NotReadable` and `NotWritable`. An interrupted call is
 `IoError.System(4)`. File transfers are raw bytes with no newline translation.
 
 Programs normally use these through [`std.io`](io.md), which adds retry, end
-of input, seeking, and bounded buffering on top. `read_os_entropy` is the
-single native primitive behind [`std.secrets`](secrets.md); import that module
-for secret bytes and tokens.
+of input, seeking, and bounded buffering on top.
 
-Methods and functions named `crypto_*` are the native back end of
-[`std.crypto`](crypto.md); import that module for its validated APIs.
-Operations taking opaque digest or X25519 state require a state created
-by that module; ordinary byte buffers cannot stand in for one. The
-`compress_*` methods and `compress_state` are likewise the back end of
-[`std.compress`](compress.md). `compress_state` rejects a capacity below 1
-with `OutOfRange`, since a state with no output room could never make
-progress.
+`Bytes` has no native back-end methods. [`std.secrets`](secrets.md),
+[`std.crypto`](crypto.md), [`std.compress`](compress.md),
+[`std.db.sqlite`](sqlite.md), [`std.net`](net.md), [`std.ready`](ready.md) and
+[`std.tls`](tls.md) call compiler intrinsics (`__crypto_*`, `__compress_*`,
+`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`) that take
+`&Bytes` or `&mut Bytes` operands directly and check ranges in Plenty first.
+These intrinsics are reserved for the standard library: user code calling one
+is rejected with `` `__crypto_update` is reserved for the standard library ``.
+Import the module that owns them instead.
 
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with

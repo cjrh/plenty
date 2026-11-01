@@ -496,3 +496,55 @@ fn cancel_shutdown_skips_queued_jobs_but_waits_for_running_work() {
         plenty_release(pool.cast());
     }
 }
+
+#[test]
+#[cfg(not(miri))]
+fn cancel_pending_skips_queued_jobs_and_keeps_accepting() {
+    let gate = Gate {
+        started: AtomicBool::new(false),
+        open: AtomicBool::new(false),
+    };
+    unsafe {
+        let pool = create(1, 2).unwrap();
+        let first = submit(
+            pool,
+            &gate as *const Gate as u128,
+            &NUMBER,
+            &NUMBER,
+            gated,
+            false,
+        )
+        .unwrap();
+        while !gate.started.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        let queued = submit(pool, 7, &NUMBER, &NUMBER, square, false).unwrap();
+        let full = submit(pool, 8, &NUMBER, &NUMBER, square, false).unwrap();
+        assert_eq!(
+            submit(pool, 9, &NUMBER, &NUMBER, square, true).err(),
+            Some(0)
+        );
+        cancel_pending(pool);
+        assert!(done(queued) && done(full));
+        // Cancelling frees the queue slots while the worker is still busy.
+        let later = submit(pool, 5, &NUMBER, &NUMBER, square, true).unwrap();
+        let last = submit(pool, 6, &NUMBER, &NUMBER, square, true).unwrap();
+        gate.open.store(true, Ordering::Release);
+        let mut out = 0;
+        result(first, &mut out);
+        assert_eq!(out, 42);
+        for cancelled in [queued, full] {
+            result(cancelled, &mut out);
+            assert_eq!(out, aggregates::wrap(0, 1));
+        }
+        result(later, &mut out);
+        assert_eq!(out, 25);
+        result(last, &mut out);
+        assert_eq!(out, 36);
+        shutdown(pool, false);
+        for job in [first, queued, full, later, last] {
+            plenty_release(job.cast());
+        }
+        plenty_release(pool.cast());
+    }
+}

@@ -24,6 +24,8 @@ pub enum ExecutorOp {
     Cancel(Ty),
     WaitTimeout(Ty),
     Shutdown,
+    /// Cancel queued jobs without closing the pool or waiting.
+    CancelPending,
     /// The pool's worker count: a parallel pipeline's default chunk count.
     Workers,
     /// A parallel pipeline's `chunks=` count, which traps unless positive.
@@ -79,6 +81,7 @@ impl ExecutorOp {
             Self::Done(t) | Self::Cancel(t) => (vec![Ty::Future(Arc::new(t.clone()))], Ty::Bool),
             Self::WaitTimeout(t) => (vec![Ty::Future(Arc::new(t.clone())), Ty::U64], Ty::Bool),
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
+            Self::CancelPending => (vec![Ty::Executor], Ty::Unit),
             Self::Workers => (vec![Ty::Executor], Ty::I64),
             Self::Chunks => (vec![Ty::I64], Ty::I64),
         }
@@ -97,6 +100,7 @@ impl ExecutorOp {
             Self::Reduce(..) => 9,
             Self::WaitTimeout(_) => 10,
             Self::Workers => 11,
+            Self::CancelPending => 12,
             Self::Chunks => unreachable!("lowered inline"),
         }
     }

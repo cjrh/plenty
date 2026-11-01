@@ -515,24 +515,15 @@ print(std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?)?
         "key = std.crypto.p256_private_key_from_pkcs8(&unhex(\"$EC_PKCS8\")?)?\nother = copy(key)?\n",
     ));
     assert!(copied.contains("cannot be copied"), "{copied}");
-    let forged = run(&program(
-        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(std.bytes.crypto_key_sign(&state, 0, &message, &mut target))?\n",
+    // Issue #633: the key primitives are std-only intrinsics, so user code
+    // cannot pass an ordinary buffer as a key state.
+    let forged = support::check_file_error(&program(
+        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(__crypto_key_sign(state, 0, message, target))?\n",
     ));
-    assert!(!forged.status.success());
-    assert!(String::from_utf8_lossy(&forged.stderr).contains("operand is not a private key"));
-    let reloaded = run(&program(
-        "mut state = std.bytes.crypto_key_new()?\nder = unhex(\"$EC_PKCS8\")?\nprint(std.bytes.crypto_p256_load(&mut state, &der))?\nprint(std.bytes.crypto_p256_load(&mut state, &der))?\n",
-    ));
-    assert!(!reloaded.status.success());
-    assert!(String::from_utf8_lossy(&reloaded.stderr).contains("already loaded"));
-}
-
-#[test]
-fn load_output_cannot_alias_its_input() {
-    let error = support::check_file_error(&program(
-        "mut state = std.bytes.crypto_key_new()?\nprint(std.bytes.crypto_rsa_load(&mut state, &state))?\n",
-    ));
-    assert!(error.contains("borrow"), "{error}");
+    assert!(
+        forged.contains("`__crypto_key_sign` is reserved for the standard library"),
+        "{forged}"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -545,22 +536,27 @@ private = std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?
 public = std.crypto.p256_public_key_from_coordinates(&unhex("$EC_X")?, &unhex("$EC_Y")?)?
 mut signature = std.bytes.empty()?
 signature.resize(64, 0u8)?
-mut point = unhex("04")?
-point.extend(&unhex("$EC_X")?)?
-point.extend(&unhex("$EC_Y")?)?
-der = unhex("$EC_PKCS8")?
-mut state = std.bytes.crypto_key_new()?
 print("__test_fail_allocations_after_0__")?
 print("__test_begin_no_allocations__")?
 private.sign_into(&message, &mut signature)?
 verified = public.verify(&message, &signature)?
-checked = std.bytes.crypto_p256_check(&point)
-loaded = std.bytes.crypto_p256_load(&mut state, &der)
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
-print(verified, checked, loaded)?
+mut point = unhex("04")?
+point.extend(&unhex("$EC_X")?)?
+point.extend(&unhex("$EC_Y")?)?
+der = unhex("$EC_PKCS8")?
+# Checking the point allocates nothing beyond its two-allocation copy, and
+# loading the key nothing beyond its state.
+print("__test_fail_allocations_after_2__")?
+checked = std.crypto.p256_public_key_from_point(&point)
+print("__test_restore_allocations__")?
+print("__test_fail_allocations_after_1__")?
+loaded = std.crypto.p256_private_key_from_pkcs8(&der)
+print("__test_restore_allocations__")?
+print(verified, checked.is_ok(), loaded.is_ok())?
 "#,
-        "True 1 1",
+        "True True True",
     );
 }
 
@@ -673,16 +669,15 @@ def main() -> Result[(), Fault]:
     expected = unhex("$RS256_SIG")?
     public = std.crypto.rsa_public_key_from_spki(&unhex("$RSA_SPKI")?)?
     private = std.crypto.rsa_private_key_from_pkcs8(&der)?
-    # Reading the size and public key runs no ring allocation.
-    mut state = std.bytes.crypto_key_new()?
-    loaded = std.bytes.crypto_rsa_load(&mut state, &der)
-    mut encoded = std.bytes.empty()?
-    encoded.resize(std.bytes.crypto_key_size(&state, 0), 0u8)?
+    # Reading the size runs no ring allocation; reading the public key
+    # allocates only its output buffer.
     print("__test_begin_no_allocations__")?
-    size = std.bytes.crypto_key_size(&state, 1)
-    status = std.bytes.crypto_key_public(&state, &mut encoded)
+    size = private.signature_size()
     print("__test_end_no_allocations__")?
-    print("size", loaded == 1 and size == 256 and status == 1)?
+    print("__test_fail_allocations_after_2__")?
+    encoded = private.public_key()
+    print("__test_restore_allocations__")?
+    print("size", size == 256 and encoded?.signature_size() == 256)?
     markers = [MARKERS]?
     for i in range(len(markers)):
         load(markers[i], &der, &message, &expected)?

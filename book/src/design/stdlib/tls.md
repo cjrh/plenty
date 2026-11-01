@@ -367,9 +367,9 @@ cannot retain another heap's configuration. Starting a
 session draws randomness and verifying a certificate reads the clock; both are
 allowed in workers.
 
-The back-end methods `tls_feed`, `tls_take`, `tls_read`, and `tls_detail` are
-public on `Bytes` only so that `std.tls` can call them. Writing uses the
-builtin `__tls_write`, which `std.tls` calls on any `ByteSource`.
+The `__tls_*` intrinsics behind the session are
+[reserved for the standard library](bytes.md#transport). Writing uses
+`__tls_write`, which `std.tls` calls on any `ByteSource`.
 
 ## Costs
 

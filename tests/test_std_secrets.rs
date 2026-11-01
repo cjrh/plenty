@@ -363,19 +363,30 @@ fn the_native_primitive_checks_its_range_and_never_resizes() {
         r#"
 mut target = std.bytes.with_capacity(64)?
 target.resize(8, 0u8)?
-print(str.repr(target.read_os_entropy(2, 2))?)?
-print(str.repr(target.read_os_entropy(0, 8))?, target.len())?
-print(str.repr(target.read_os_entropy(0, 9))?)?
-print(str.repr(target.read_os_entropy(-1, 4))?)?
-print(str.repr(target.read_os_entropy(5, 4))?)?
 mut handle = std.secrets.os_entropy()
-print(str.repr(handle.read(&mut target, 4, 9))?)?
+print(str.repr(handle.read(&mut target, 2, 2))?)?
+count = handle.read(&mut target, 0, 8).unwrap()
+print(count > 0 and count <= 8, target.len())?
+print(str.repr(handle.read(&mut target, 0, 9))?)?
+print(str.repr(handle.read(&mut target, -1, 4))?)?
+print(str.repr(handle.read(&mut target, 5, 4))?)?
 "#,
-        "Result[i64, IoError].Ok(0)\n\
-         Result[i64, IoError].Ok(8) 8\n\
-         Result[i64, IoError].Err(IoError.InvalidInput)\n\
-         Result[i64, IoError].Err(IoError.InvalidInput)\n\
-         Result[i64, IoError].Err(IoError.InvalidInput)\n\
+        "Result[i64, S].Ok(0)\n\
+         True 8\n\
+         Result[i64, S].Err(S.Io(IoError.InvalidInput))\n\
+         Result[i64, S].Err(S.Io(IoError.InvalidInput))\n\
          Result[i64, S].Err(S.Io(IoError.InvalidInput))",
+    );
+}
+
+// Issue #633: the native primitive is a std-only intrinsic.
+#[test]
+fn the_native_primitive_is_reserved_for_std() {
+    let error = support::check_file_error(&program(
+        "mut target = std.bytes.with_capacity(8)?\ntarget.resize(8, 0u8)?\nprint(__io_entropy_read(target, 0, 8)?)?\n",
+    ));
+    assert!(
+        error.contains("`__io_entropy_read` is reserved for the standard library"),
+        "{error}"
     );
 }

@@ -2,8 +2,7 @@
 # typed, copied-out column values. SQLite itself is vendored C in the runtime;
 # this module owns the error model, row state and transaction ownership. See
 # book/src/design/stdlib/sqlite.md.
-import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
 pub enum Mode:
     ReadOnly
@@ -115,16 +114,13 @@ def handle(result: Result[ByteStorage, i64]) -> Result[ByteStorage, DbError]:
         case Err(code):
             Err(failure(code))
 
-def blob(result: Result[Bytes, BytesError]) -> Result[Bytes, DbError]:
+# A column's blob, copied into storage the new `Bytes` owns.
+def blob(result: Result[ByteStorage, AllocError]) -> Result[Bytes, DbError]:
     match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(DbError.Allocation(cause))
-                case _:
-                    Err(DbError.OutOfRange)
+        case Ok(storage):
+            Ok(__bytes_adopt(storage))
+        case Err(cause):
+            Err(DbError.Allocation(cause))
 
 def value_type(code: i64) -> ValueType:
     match code:
@@ -261,7 +257,7 @@ pub class Statement:
 
     pub def bind_blob(self: &mut Statement, index: i64, value: &Bytes) -> Result[(), DbError]:
         self.rewound()
-        status(value.sqlite_bind(&self._handle, index))
+        status(__sqlite_bind_blob(self._handle, index, value))
 
     # Sets every parameter back to NULL.
     pub def clear_bindings(self: &mut Statement) -> Result[(), DbError]:
@@ -361,7 +357,7 @@ pub class Statement:
                 pass
             case _:
                 return Err(DbError.TypeMismatch(found))
-        blob(std.bytes.sqlite_column(&self._handle, column))
+        blob(__sqlite_column_blob(self._handle, column))
 
     # The optional reads give Nothing for NULL and otherwise match the
     # strict reads.

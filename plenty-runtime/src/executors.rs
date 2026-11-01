@@ -215,6 +215,41 @@ pub(crate) unsafe fn shutdown(pointer: *mut Pool, cancel_pending: bool) {
     }
 }
 
+/// Cancel every job still queued and free its queue slot; the pool stays open.
+/// Each job is released outside the queue lock because dropping its captures
+/// can run destructors.
+pub(crate) unsafe fn cancel_pending(pointer: *mut Pool) {
+    unsafe {
+        let pool = &*pointer;
+        cancel_queued(pool, &lock(&pool.queue));
+        loop {
+            let job = {
+                let mut queue = lock(&pool.queue);
+                if queue.len == 0 {
+                    break;
+                }
+                let job = pool.ring.add(queue.head).read();
+                // A job submitted after the cancellation is still pending.
+                if *lock(&(*job).phase) != Phase::Cancelled {
+                    break;
+                }
+                queue.head = (queue.head + 1) % pool.capacity;
+                queue.len -= 1;
+                job
+            };
+            pool.writable.notify_one();
+            plenty_release(job.cast());
+        }
+    }
+}
+
+unsafe fn cancel_queued(pool: &Pool, queue: &Queue) {
+    for i in 0..queue.len {
+        // SAFETY: the held queue lock keeps these ring slots live and queued.
+        unsafe { cancel(pool.ring.add((queue.head + i) % pool.capacity).read()) };
+    }
+}
+
 unsafe fn stop(pointer: *mut Pool, started: usize, cancel_pending: bool) {
     unsafe {
         if (*pointer).joined {
@@ -225,9 +260,7 @@ unsafe fn stop(pointer: *mut Pool, started: usize, cancel_pending: bool) {
             let mut queue = lock(&pool.queue);
             queue.closed = true;
             if cancel_pending {
-                for i in 0..queue.len {
-                    cancel(pool.ring.add((queue.head + i) % pool.capacity).read());
-                }
+                cancel_queued(pool, &queue);
             }
         }
         pool.readable.notify_all();
@@ -529,6 +562,10 @@ pub(crate) unsafe extern "C" fn plenty_executor(
             5 => out.write(cancel(*args as *mut Job) as u128),
             6 => {
                 shutdown(*args as *mut Pool, *args.add(1) != 0);
+                out.write(0);
+            }
+            12 => {
+                cancel_pending(*args as *mut Pool);
                 out.write(0);
             }
             7 | 8 => {

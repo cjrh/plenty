@@ -823,6 +823,10 @@ impl Lower<'_> {
         }
         let mut loans = Vec::new();
         for (arg, expected) in args.iter().zip(inputs) {
+            if let Some(loan) = self.buffer_storage(arg, &expected, false, false, ops)? {
+                loans.push(loan);
+                continue;
+            }
             let (actual, reads) = self.observe_expected(arg, Some(expected.clone()), ops)?;
             self.same(Some(actual), Some(expected), &arg.at)?;
             loans.extend(reads);

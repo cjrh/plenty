@@ -19,9 +19,11 @@ standard library.
   allocation-failure and error contracts as Plenty code.
 - Everything declared `pub` is public API: it appears in the signature index
   and is documented on the module page. Helpers stay private.
-- Plenty has no visibility limited to `std`, so a native hook that another
-  std module needs is `pub` today. About 35 such hooks on `std.bytes` appear
-  in the index (issue #633). Do not add more; do not call them from user code.
+- Native hooks are std-only compiler intrinsics, not methods or functions
+  of a std module. A std module calls the intrinsic (`__crypto_update`,
+  `__compress_new`) with `&Bytes` operands and checks ranges itself; user
+  code calling one is rejected as
+  [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
   [prelude](../language/02-source/names.md) holds builtin names, plus
   `std.fmt.FormatError`, which every f-string produces (issue #632).
@@ -251,9 +253,10 @@ A choice between modes is an enum: `Shutdown`, `Interest`, `Endian`,
 `DuplicateKeys`. A `bool` parameter is acceptable when its name says what
 `True` means (`enabled`, `descending`, `html`), it has a default, and callers
 pass it by name. Two `bool` parameters that combine into modes are an enum.
-Exceptions: the builtin `ThreadPoolExecutor.shutdown(True)` skips pending jobs
-(issue #631; builtins take no named arguments, B36), and `std.fs.walk(root,
-top_down)` requires a positional `bool`.
+Exception: `std.fs.walk(root, top_down)` requires a positional `bool`. An
+operation that offers a mode by a separate method instead, such as
+`ThreadPoolExecutor.cancel_pending()` before `shutdown()`, needs neither.
+`shutdown(True)` is still accepted until its removal.
 
 ### Integer types
 
@@ -291,11 +294,9 @@ they are one family:
 
 | Area | Deviation | Tracking |
 |---|---|---|
-| Visibility | Runtime hooks public on `std.bytes` | Issue #633 |
 | Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
 | Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
 | Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |
-| Options | `shutdown(True)` skips jobs | Issue #631 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `&Bytes` inputs | B39 |

@@ -235,8 +235,8 @@ other operations act on a handle the caller owns. Extension code must itself
 support the threads on which its functions are used. SQLite's messages are copied per thread, so
 concurrent errors on different threads do not overwrite each other.
 
-The handles are `ByteStorage` values. The `__sqlite_*` primitives and the
-`sqlite_bind` and `sqlite_column` helpers in `std.bytes` exist only for this
+The handles are `ByteStorage` values. The `__sqlite_*` primitives are
+[reserved for the standard library](bytes.md#transport) and exist only for this
 module. Given a handle not made by it, they stop the program with
 `operand is not a std.db.sqlite connection` (or `statement`, or
 `transaction`).

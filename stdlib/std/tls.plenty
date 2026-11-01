@@ -139,6 +139,23 @@ def encrypted[S: ByteSource](session: &ByteStorage, source: &S, start: i64, stop
         return Err(BytesError.OutOfRange)
     Ok(__tls_write(session, source, start, stop))
 
+# Record transfers between a session and buffer[start:stop]. Each gives a
+# byte count or one of the negative codes `counted` maps.
+def fed(session: &ByteStorage, source: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+    if start < 0 or start > stop or stop > source.len():
+        return Err(BytesError.OutOfRange)
+    Ok(__tls_feed(session, source, start, stop))
+
+def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+    if start < 0 or start > stop or stop > target.len():
+        return Err(BytesError.OutOfRange)
+    Ok(__tls_take(session, target, start, stop))
+
+def decrypted(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+    if start < 0 or start > stop or stop > target.len():
+        return Err(BytesError.OutOfRange)
+    Ok(__tls_read(session, target, start, stop))
+
 def counted(result: Result[i64, BytesError]) -> Result[i64, TlsError]:
     count = stored(result)?
     if count < 0 and count != would_block:
@@ -389,15 +406,28 @@ pub def server_builder(chain_pem: &str, key_pem: &str) -> Result[ServerBuilder, 
 pub def server_config(chain_pem: &str, key_pem: &str) -> Result[ServerConfig, TlsError]:
     Ok(ServerConfig(opened(__tls_server_config(chain_pem, key_pem))?))
 
+# A session detail copied into the whole of `target`: the negotiated
+# protocol (0), the requested server name (1) or the peer's leaf certificate
+# (2). The detail's full length, or `absent`.
+def described(session: &ByteStorage, target: &mut Bytes, which: i64) -> i64:
+    count = target.len()
+    match which:
+        case 0:
+            __tls_protocol(session, target, 0, count)
+        case 1:
+            __tls_server_name(session, target, 0, count)
+        case _:
+            __tls_peer_certificate(session, target, 0, count)
+
 # A session detail as bytes, or Nothing when absent.
 def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]:
     mut probe = stored(std.bytes.with_capacity(0))?
-    length = probe.tls_detail(session, which)
+    length = described(session, &mut probe, which)
     if length == absent:
         return Ok(Nothing)
     mut value = stored(std.bytes.with_capacity(length))?
     stored(value.resize(length, 0u8))?
-    value.tls_detail(session, which)
+    described(session, &mut value, which)
     Ok(Some(value))
 
 def text_detail(session: &ByteStorage, which: i64) -> Result[Option[str], TlsError]:
@@ -445,7 +475,7 @@ pub class TlsStream:
         self._out_stop = 0
         if (__tls_state(self._session) & wants_write) == 0:
             return Ok(0)
-        self._out_stop = counted(self._outgoing.tls_take(&self._session, 0, buffer_size))?
+        self._out_stop = counted(taken(&self._session, &mut self._outgoing, 0, buffer_size))?
         Ok(self._out_stop)
 
     def flush_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
@@ -469,7 +499,7 @@ pub class TlsStream:
     def feed_pending(self: &mut TlsStream) -> Result[bool, TlsError]:
         if self._in_start == self._in_stop:
             return Ok(False)
-        used = counted(self._incoming.tls_feed(&self._session, self._in_start, self._in_stop))?
+        used = counted(fed(&self._session, &self._incoming, self._in_start, self._in_stop))?
         self._in_start += used
         if self._acknowledge_handshake:
             self.acknowledge_handshake()
@@ -496,7 +526,7 @@ pub class TlsStream:
         self._in_stop = count
         if count == 0:
             self._eof = True
-            counted(self._incoming.tls_feed(&self._session, 0, 0))?
+            counted(fed(&self._session, &self._incoming, 0, 0))?
             return Ok(())
         self.feed_pending()?
         Ok(())
@@ -600,7 +630,7 @@ pub class TlsStream:
         if not self.try_handshake()?:
             return Ok(Nothing)
         while True:
-            count = counted(buffer.tls_read(&self._session, start, stop))?
+            count = counted(decrypted(&self._session, buffer, start, stop))?
             if count != would_block:
                 return Ok(Some(count))
             self.try_flush()?
@@ -648,7 +678,7 @@ pub class TlsStream:
             stored(buffer.slice(start, stop))?
             return Ok(0)
         while True:
-            count = counted(buffer.tls_read(&self._session, start, stop))?
+            count = counted(decrypted(&self._session, buffer, start, stop))?
             if count != would_block:
                 return Ok(count)
             self.flush_before(deadline, cancel)?
@@ -707,7 +737,7 @@ pub class TlsStream:
             flowed(stored(buffer.slice(start, stop)))?
             return Ok(0)
         while True:
-            count = flowed(counted(buffer.tls_read(&self._session, start, stop)))?
+            count = flowed(counted(decrypted(&self._session, buffer, start, stop)))?
             if count != would_block:
                 return Ok(count)
             self.flush_blocking()?
@@ -827,20 +857,20 @@ pub class Session:
         if start == stop:
             within(start, stop, source.len())?
             return Ok(0)
-        counted(source.tls_feed(&self._handle, start, stop))
+        counted(fed(&self._handle, source, start, stop))
 
     # Tells the session that the peer's stream has ended. Without the peer's
     # close_notify, `read` then fails with Truncated. Allocates one empty
     # buffer.
     pub def feed_end(self: &mut Session) -> Result[(), TlsError]:
         empty = stored(std.bytes.with_capacity(0))?
-        counted(empty.tls_feed(&self._handle, 0, 0))?
+        counted(fed(&self._handle, &empty, 0, 0))?
         Ok(())
 
     # Moves ciphertext to send into target[start:stop]; the count, 0 when
     # none waits.
     pub def take(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, TlsError]:
-        counted(target.tls_take(&self._handle, start, stop))
+        counted(taken(&self._handle, target, start, stop))
 
     # Decrypted bytes into target[start:stop]. Nothing while none is ready;
     # Some(0) is the peer's close_notify, or an empty range.
@@ -848,7 +878,7 @@ pub class Session:
         if start == stop:
             within(start, stop, target.len())?
             return Ok(Some(0))
-        count = counted(target.tls_read(&self._handle, start, stop))?
+        count = counted(decrypted(&self._handle, target, start, stop))?
         if count == would_block:
             return Ok(Nothing)
         Ok(Some(count))

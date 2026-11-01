@@ -1012,3 +1012,32 @@ print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?
         },
     );
 }
+
+// Issue #633: wrapping native storage as `Bytes` is a std-only intrinsic, so
+// user code cannot turn a raw handle into a buffer that bypasses `Bytes`.
+#[test]
+fn adopting_native_storage_is_reserved_for_std() {
+    let error = rejected(&program(
+        "storage = __bytes_new(4)?\ndata = __bytes_adopt(storage)\n",
+    ));
+    assert!(
+        error.contains("`__bytes_adopt` is reserved for the standard library"),
+        "{error}"
+    );
+}
+
+// Issue #633: only std code may pass a `Bytes` buffer for a `ByteStorage`
+// operand that is not a read-only source; user calls behave as before.
+#[test]
+fn user_intrinsic_calls_do_not_take_buffers_for_storage() {
+    for body in [
+        "data = std.bytes.from_text(\"abc\")?\nprint(__bytes_len(data))?\n",
+        "mut data = std.bytes.from_text(\"abc\")?\nprint(__io_stdin_read(data, 0, 3))?\n",
+    ] {
+        let error = rejected(&program(body));
+        assert!(
+            error.contains("expected ByteStorage, got std.bytes.Bytes"),
+            "{error}"
+        );
+    }
+}

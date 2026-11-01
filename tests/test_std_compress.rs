@@ -429,32 +429,25 @@ print(str.repr(std.compress.crc32(-1, &data, 0, 1))?)?
     );
 }
 
-// Issue #238: a zero-capacity state could never make step or flush progress.
-#[test]
-fn codec_states_need_output_room() {
-    native(
-        r#"
-print(str.repr(std.bytes.compress_state(1u8, 6, 0))?)?
-print(str.repr(std.bytes.compress_state(1u8, 6, -1))?)?
-print(std.bytes.compress_state(1u8, 6, 1).is_ok())?
-"#,
-        "Result[Bytes, BytesError].Err(BytesError.OutOfRange)\nResult[Bytes, BytesError].Err(BytesError.OutOfRange)\nTrue",
-    );
-}
-
+// Issue #633: the codec primitives are std-only intrinsics, so user code
+// can neither forge a state nor create one without output room (issue #238).
 #[test]
 fn codec_states_cannot_be_forged() {
-    let output = run(&program(
-        "mut state = std.bytes.from_text(\"not a state\")?\n\
-         data = std.bytes.from_text(\"abc\")?\n\
-         print(state.compress_step(&data, 0, 3)?)?\n",
-    ));
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("operand is not a std.compress state"),
-        "{stderr}"
-    );
+    for (name, body) in [
+        ("__compress_new", "state = __compress_new(1u8, 6, 0)\n"),
+        (
+            "__compress_step",
+            "mut state = std.bytes.from_text(\"not a state\")?\n\
+             data = std.bytes.from_text(\"abc\")?\n\
+             print(__compress_step(state, data, 0, 3))?\n",
+        ),
+    ] {
+        let error = support::check_file_error(&program(body));
+        assert!(
+            error.contains(&format!("`{name}` is reserved for the standard library")),
+            "{error}"
+        );
+    }
 }
 
 #[test]
