@@ -9,11 +9,11 @@ fn compile(directory: &Path, body: &str) -> PathBuf {
         format!(
             r#"
 import std.cli.progress as progress
-import std.report as report
+import std.fmt as fmt
 import std.time as time
 import std.io as io
 from std.cli.progress import ProgressError
-from std.report import FormatError
+from std.fmt import FormatError
 def main() -> Result[(), ProgressError | FormatError | IoError]:
 {body}
     Ok(())
@@ -42,9 +42,9 @@ fn deterministic_render_metrics_and_redirected_streams() {
         r#"    mut bar = progress.bar_at(100u64, &time.instant_at(0u64))
     bar.set_position_at(25u64, &time.instant_at(2000000000u64))?
     now = time.instant_at(2000000000u64)
-    mut output = report.string_formatter(128, 0)?
+    mut output = fmt.string_formatter(128, 0)?
     bar.render(&now, &mut output)?
-    print(report.finish(&output)?)?
+    print(fmt.finish(&output)?)?
     print(bar.position(), bar.total(), bar.rate(&now).unwrap(), bar.eta(&now).unwrap())?
     print(io.stdin().is_terminal(), io.stdout().is_terminal(), io.stderr().is_terminal())?
     bar.finish_at(&now)?
@@ -59,21 +59,21 @@ fn zero_unknown_extreme_and_backwards_time_are_bounded() {
     run(
         r#"    now = time.instant_at(1u64)
     mut empty = progress.bar_at(0u64, &now)
-    mut output = report.string_formatter(128, 0)?
+    mut output = fmt.string_formatter(128, 0)?
     empty.render(&now, &mut output)?
-    print(report.finish(&output)?)?
+    print(fmt.finish(&output)?)?
     mut spin = progress.spinner_at(&now)
     spin.set_position_at(u64.MAX, &time.instant_at(2u64))?
-    mut spin_output = report.string_formatter(128, 0)?
+    mut spin_output = fmt.string_formatter(128, 0)?
     spin.render(&time.instant_at(2u64), &mut spin_output)?
-    print(report.finish(&spin_output)?)?
+    print(fmt.finish(&spin_output)?)?
     print(spin.rate(&time.instant_at(0u64)).is_none(), spin.eta(&now).is_none())?
     print(spin.advance().is_err(), spin.position() == u64.MAX)?
     mut full = progress.bar_at(u64.MAX, &now)
     full.set_position_at(u64.MAX, &now)?
-    mut full_output = report.string_formatter(128, 0)?
+    mut full_output = fmt.string_formatter(128, 0)?
     full.render(&now, &mut full_output)?
-    print(report.finish(&full_output)?)?"#,
+    print(fmt.finish(&full_output)?)?"#,
         "[##########] 0/0 --/s ETA 0s\n| 18E 18E/s ETA --\nTrue True\nTrue True\n[##########] 18E/18E --/s ETA 0s\n",
     );
 }
@@ -84,7 +84,7 @@ fn invalid_positions_are_transactional_and_render_preserves_errors() {
         r#"    mut bar = progress.bar(10u64)
     bar.advance(4u64)?
     print(bar.set_position(3u64).is_err(), bar.set_position(11u64).is_err(), bar.position())?
-    mut output = report.string_formatter(0, 0)?
+    mut output = fmt.string_formatter(0, 0)?
     print(bar.render(&time.monotonic_now(), &mut output).is_err())?
     bar.finish()?
     print(bar.advance().is_err(), bar.tick().is_err(), bar.position())?"#,

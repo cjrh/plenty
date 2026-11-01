@@ -7093,7 +7093,7 @@ fn lower(
     };
     // The reporting contract is optional: types without its exact public
     // implementation retain the existing structural entrypoint diagnostic.
-    // Its canonical types imply that the trusted std.report module is loaded.
+    // Its canonical types imply that the trusted std.fmt module is loaded.
     let entry_report = if require_main {
         match (
             sigs["main"].outputs.as_slice(),
@@ -7116,7 +7116,7 @@ fn lower(
                 {
                     let main = sigs.intern("main");
                     let (symbol, function) = generics.instantiate(
-                        "std.report.entry_report",
+                        "std.fmt.entry_report",
                         vec![error.clone()],
                         &protocol.at,
                         &aliases,

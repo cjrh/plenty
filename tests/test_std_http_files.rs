@@ -328,7 +328,7 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | Al
     print(std.http.cookie.verify(&old, "session", "user42")?)?
     print(std.http.cookie.verify(&old, "session", "user42.!!")?)?
     print(std.http.cookie.sign(&rotated, "session", "user42")? == signed)?
-    print(std.http.cookie.signed_cookie(&rotated, "session", "")?.format()?)?
+    print(std.http.cookie.signed_cookie(&rotated, "session", "")?.to_string()?)?
     short = [std.bytes.from_text("too short")?]?
     for result in [std.http.cookie.sign(&short, "session", "x"), std.http.cookie.sign(&[]?, "session", "x"), std.http.cookie.sign(&old, "bad name", "x"), std.http.cookie.sign(&old, "session", "a;b")]?:
         match result:

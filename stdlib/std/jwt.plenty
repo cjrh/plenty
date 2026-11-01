@@ -12,7 +12,7 @@ from std.bytes import Bytes, BytesError
 from std.crypto import AdvancedError, CryptoError, P256PrivateKey, P256PublicKey, RsaPrivateKey, RsaPublicKey, RsaScheme
 from std.encoding import EncodingError
 from std.json import DuplicateKeys, Json, JsonError, JsonFault, Limits, Member
-from std.report import Formatter, FormatError
+from std.fmt import Formatter, FormatError
 
 # No HS384: std.crypto has no SHA-384 HMAC.
 pub enum Algorithm:
@@ -59,7 +59,7 @@ pub enum JwtError:
     Allocation(AllocError)
 
     # The std.report message. None repeats token contents or key material.
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         message = match self:
             case JwtError.Malformed:
                 "malformed token, or claims that cannot be encoded: a token is three strict base64url segments holding a JSON header and claims"

@@ -10,22 +10,24 @@ fn check(source: &str) -> Result<(), String> {
 }
 
 const PRELUDE: &str = r#"
+import std.io
 from std.error import Context, Subject
-from std.report import Formatter, FormatError, Formattable
+from std.fmt import Formatter, FormatError
+from std.fmt import Formattable
 pub enum Good:
     Value
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("good")
 pub enum Other:
     Value
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("other")
 pub enum Bad:
     Value
 def accepts[T: Formattable](value: &T) -> ():
     pass
 pub protocol SameShape:
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         pass
 def same_shape[T: SameShape](value: &T) -> ():
     pass
@@ -61,7 +63,7 @@ fn unused_protocol_bounds_reject_unformattable_cause() {
 #[test]
 fn direct_call_rejects_unformattable_cause() {
     let error = check(&format!(
-        "{PRELUDE}\ndef format_bad(value: &Context[Bad], output: &mut Formatter) -> Result[(), FormatError]:\n    value.format(output)\ndef main() -> ():\n    pass\n"
+        "{PRELUDE}\ndef format_bad(value: &Context[Bad], output: &mut Formatter[std.io.Cursor]) -> Result[(), FormatError]:\n    value.format(output)\ndef main() -> ():\n    pass\n"
     ))
     .unwrap_err();
     assert!(error.contains("missing method `format`"), "{error}");
@@ -70,7 +72,7 @@ fn direct_call_rejects_unformattable_cause() {
 #[test]
 fn direct_calls_lower_nested_context_methods() {
     check(&format!(
-        "{PRELUDE}\ndef format_good(value: &Context[Context[Good]], output: &mut Formatter) -> Result[(), FormatError]:\n    value.format(output)\ndef main() -> ():\n    pass\n"
+        "{PRELUDE}\ndef format_good(value: &Context[Context[Good]], output: &mut Formatter[std.io.Cursor]) -> Result[(), FormatError]:\n    value.format(output)\ndef main() -> ():\n    pass\n"
     ))
     .unwrap();
 }
@@ -89,10 +91,11 @@ fn private_cause_formatter_does_not_satisfy_context_bounds() {
 fn local_context_name_keeps_ordinary_structural_behavior() {
     check(
         r#"
-from std.report import Formatter, FormatError, Formattable
+from std.fmt import Formatter, FormatError
+from std.fmt import Formattable
 pub class Context[E]:
     cause: E
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("independent")
 def accepts[T: Formattable](value: &T) -> ():
     pass

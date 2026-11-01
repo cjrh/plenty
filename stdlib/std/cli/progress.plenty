@@ -1,6 +1,6 @@
 from std.io import stderr
 from std.time import Instant, monotonic_now, nanoseconds
-from std.report import Formatter, FormatError, stderr_formatter
+from std.fmt import Formatter, FormatError, stderr_formatter
 
 pub enum ProgressError:
     InvalidPosition
@@ -8,7 +8,7 @@ pub enum ProgressError:
     Output(FormatError)
 
 # Keep the entire default line within 80 columns even for u64.MAX counts.
-def compact(output: &mut Formatter, count: u64) -> Result[(), FormatError]:
+def compact[W](output: &mut Formatter[W], count: u64) -> Result[(), FormatError]:
     mut value = count
     mut unit = 0
     while value >= 1000u64:
@@ -84,7 +84,7 @@ pub class Progress:
 
     # Plain text, no cursor controls or newline: useful for custom reporting
     # and deterministic tests. Rendering does not change redraw state.
-    pub def render(self, now: &Instant, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def render[W](self, now: &Instant, output: &mut Formatter[W]) -> Result[(), FormatError]:
         match self._total:
             case Some(total):
                 mut filled = 10

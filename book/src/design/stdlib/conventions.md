@@ -62,11 +62,11 @@ not add it.
 | `describe()` | One-line error description as `Result[str, AllocError]` |
 | `display[W](self, out)` | Write to a `std.fmt.Formatter[W]`; `print` and f-string fields call it |
 | `debug[W](self, out)` | Write a diagnostic form; `str.repr`, `!r` and aggregate elements call it |
-| `format(self, output)` | Write to a `std.report.Formatter`; the `Formattable` protocol for reports |
+| `format[W](self, output)` | Write to a `std.fmt.Formatter[W]`; the `Formattable` protocol for reports |
 
-`format` is reserved for the formatter protocol. `Url`, `MediaType`,
-`SocketAddress` and `SetCookie` instead have `format() -> Result[str, E]`
-(issue #634). `display` and `debug` are reserved for the formatter form:
+`format` is reserved for writing to a formatter. `Url`, `MediaType`,
+`SocketAddress` and `SetCookie` return owned canonical text through `to_string()`.
+`display` and `debug` are reserved for the formatter form:
 formatting a type whose method of either name has another signature is a
 compile error. See [Formatting](#formatting).
 
@@ -272,15 +272,15 @@ operation that offers a mode by a separate method instead, such as
 
 ## Formatting
 
-`std.fmt` and `std.report` each define a `Formatter` and a `FormatError`,
-with the same helper names and different output errors (issue #634). Until
-they are one family:
+`std.fmt.Formatter[W]` and its `FormatError` serve value formatting and
+reports. Import types, constructors, and the writer-generic `Formattable`
+protocol from `std.fmt`; `std.report` provides rendering helpers.
 
-- a value that f-strings display implements `display[W]` against
-  `std.fmt.Formatter[W]`;
-- an error that renders into a report implements `format(self, output)`
-  against `std.report.Formatter`;
-- an owned canonical string is `to_string() -> Result[str, E]`;
+- a value that f-strings display implements `display[W]`;
+- an error that renders into a report implements
+  `format[W](self, output: &mut Formatter[W])`;
+- an owned canonical string is `to_string() -> Result[str, E]`; reserve
+  `format` for writing to a formatter (including compiler-handled f-strings).
 - `print` and f-strings call `display`; `str.repr`, `!r` and elements of
   formatted aggregates call `debug`. A type without `display` uses its
   `debug`, and one without `debug` uses its structure. When a user method can
@@ -294,7 +294,6 @@ they are one family:
 
 | Area | Deviation | Tracking |
 |---|---|---|
-| Formatting | Two `Formatter`/`FormatError` families; `format` returning `str` | Issue #634 |
 | Time | Raw milliseconds and seconds; deadlines without a token | Issue #635, B42 |
 | Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |
 | Invalid arguments | Builtin policies differ | Issue #629 |

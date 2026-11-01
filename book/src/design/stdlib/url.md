@@ -76,7 +76,7 @@ no `//` authority. An address literal keeps its brackets: `[::1]`.
 | Function | Result | Contract |
 |---|---|---|
 | `std.url.parse(text: &str, max_bytes)` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
-| `url.format()` | `Result[str, UrlError]` | Validate every component and join them |
+| `url.to_string()` | `Result[str, UrlError]` | Validate every component and join them |
 
 `parse` checks the length first: `InvalidLimit` for a negative `max_bytes`,
 `LimitExceeded` for a longer text. It then reports the first violation from

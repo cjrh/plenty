@@ -57,7 +57,7 @@ hello from the server
 | `parse_ip(text)` | `Result[IpAddress, NetError]` |
 | `parse_address(text)` | `Result[SocketAddress, NetError]` from `1.2.3.4:80`, `[::1]:80` or `[fe80::1%2]:80` |
 | `format_ip(ip)` | `Result[str, NetError]` |
-| `address.format()` | `Result[str, NetError]`, which `parse_address` reads back |
+| `address.to_string()` | `Result[str, NetError]`, which `parse_address` reads back |
 
 `IpAddress` is copyable; `SocketAddress` is a class and moves. Parsing is
 strict and repairs nothing: IPv4 needs four decimal parts of at most three

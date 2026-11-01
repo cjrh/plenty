@@ -90,7 +90,7 @@ pub class MediaType:
 
     # Canonical text: lowercase names, `; ` before each parameter, and a
     # quoted-string for a value that is not a token.
-    pub def format(self) -> Result[str, AllocError]:
+    pub def to_string(self) -> Result[str, AllocError]:
         mut parts = list[str].with_capacity(3 + 4 * len(self._params))?
         parts.append(self._type)?
         parts.append("/")?

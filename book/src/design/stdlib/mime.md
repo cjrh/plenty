@@ -11,12 +11,12 @@ import std.mime
 
 def main() -> Result[(), AllocError | IoError | ParseError]:
     value = std.mime.parse("Text/HTML; Charset=\"UTF-8\"; title=\"a \\\"b\\\"\"")?
-    print(value.format()?)?
+    print(value.to_string()?)?
     print(value.type_name(), value.subtype(), value.param("charset"), value.param("TITLE"))?
     print(value.matches(&std.mime.parse("text/*")?), value.matches(&std.mime.parse("image/*")?))?
     mut upload = std.mime.new("multipart", "form-data")?
     upload.set_param("boundary", "x7 y")?
-    print(upload.format()?)?
+    print(upload.to_string()?)?
     print(std.mime.from_file_name("logo.SVG"), std.mime.from_extension("woff2"))?
     Ok(())
 ```
@@ -43,7 +43,7 @@ image/svg+xml Option[str].Some("font/woff2")
 | `value.matches(&pattern)` | `bool`: `value` falls within the media range `pattern` |
 | `value.set_param(name, value)` | `Result[(), AllocError \| ParseError]`: add a parameter, or replace the value of one with the same name |
 | `value.remove_param(name)` | `bool`: remove the parameter `name`; `False` when absent |
-| `value.format()` | `Result[str, AllocError]`: canonical text |
+| `value.to_string()` | `Result[str, AllocError]`: canonical text |
 
 `parse` follows the `media-type` rule of
 [RFC 9110 section 8.3.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.3.1):

@@ -170,7 +170,7 @@ impl DataTypes {
             .iter()
             .find(|method| method.name == "format")?
             .clone();
-        let name = "std.report.Formattable".to_owned();
+        let name = "std.fmt.Formattable".to_owned();
         method.inputs[0].1 = TypeRef {
             concrete: None,
             parameter: false,

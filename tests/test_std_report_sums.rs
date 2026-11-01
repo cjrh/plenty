@@ -31,15 +31,16 @@ fn rejects(source: &str, expected: &str) {
 }
 
 const TYPES: &str = r#"
+import std.fmt
 import std.report
-from std.report import Formatter, FormatError
+from std.fmt import Formatter, FormatError
 pub class Label:
     text: str
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.text)
 pub enum Code:
     Value(i64)
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         match self:
             case Code.Value(number):
                 output.integer(*number)
@@ -49,18 +50,18 @@ pub enum Code:
 fn every_member_dispatches_through_generic_and_direct_calls() {
     let source = format!(
         r#"{TYPES}
-from std.report import Formattable as Reporting
+from std.fmt import Formattable as Reporting
 type Error = Code | Label
-def generic[T: Reporting](value: &T, out: &mut Formatter) -> Result[(), FormatError]:
+def generic[T: Reporting, W](value: &T, out: &mut Formatter[W]) -> Result[(), FormatError]:
     value.format(out)
 def report(value: &Error) -> Result[(), FormatError | IoError]:
-    mut out = std.report.string_formatter(100, 1)?
+    mut out = std.fmt.string_formatter(100, 1)?
     std.report.render(value, &mut out)?
     out.text("/")?
     generic(value, &mut out)?
     out.text("/")?
     value.format(&mut out)?
-    print(std.report.finish(&out)?)?
+    print(std.fmt.finish(&out)?)?
     Ok(())
 def main() -> Result[(), FormatError | IoError]:
     a: Error = Label("é🙂")
@@ -81,7 +82,7 @@ fn normalized_aliases_singletons_generic_members_and_temporaries() {
         r#"{TYPES}
 pub class Wrapped[T]:
     value: T
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("wrapped")
 type Alias = Wrapped[i64]
 type Nested = (Code | Alias) | (Alias | Code)
@@ -94,9 +95,9 @@ def main() -> Result[(), FormatError | IoError]:
     print(std.report.to_string(&value, 100, 1)?)?
     print(std.report.to_string(&other, 100, 1)?)?
     print(std.report.to_string(&one, 100, 1)?)?
-    mut out = std.report.string_formatter(100, 0)?
+    mut out = std.fmt.string_formatter(100, 0)?
     choose().format(&mut out)?
-    print(std.report.finish(&out)?)?
+    print(std.fmt.finish(&out)?)?
     Ok(())
 "#
     );
@@ -111,27 +112,27 @@ fn rejects_any_member_with_missing_wrong_or_private_method() {
             "missing method `format`",
         ),
         (
-            "pub class Bad:\n    value: i64\n    pub def format(self: &mut Bad, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "pub class Bad:\n    value: i64\n    pub def format[W](self: &mut Bad, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\n",
             "signature of `format` does not match",
         ),
         (
-            "pub class Bad:\n    value: i64\n    pub def format(self, output: &Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "pub class Bad:\n    value: i64\n    pub def format[W](self, output: &Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\n",
             "signature of `format` does not match",
         ),
         (
-            "pub class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> ():\n        pass\n",
+            "pub class Bad:\n    value: i64\n    pub def format[W](self, output: &mut Formatter[W]) -> ():\n        pass\n",
             "signature of `format` does not match",
         ),
         (
-            "pub class Bad:\n    value: i64\n    pub def format[T](self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "pub class Bad:\n    value: i64\n    pub def format[T, W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\n",
             "signature of `format` does not match",
         ),
         (
-            "pub class Bad:\n    value: i64\n    def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "pub class Bad:\n    value: i64\n    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\n",
             "private to its defining module",
         ),
         (
-            "class Bad:\n    value: i64\n    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:\n        Ok(())\n",
+            "class Bad:\n    value: i64\n    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\n",
             "private to its defining module",
         ),
     ] {
@@ -145,7 +146,7 @@ fn rejects_any_member_with_missing_wrong_or_private_method() {
 {declaration}
 def main() -> Result[(), FormatError]:
     value: Label | Bad = Label("active valid member")
-    mut out = std.report.string_formatter(100, 1)?
+    mut out = std.fmt.string_formatter(100, 1)?
     {call}
 "#
                 ),
@@ -161,18 +162,18 @@ fn user_protocol_does_not_gain_forwarding_after_report_dispatch_exists() {
         &format!(
             r#"{TYPES}
 protocol Formattable:
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         pass
-def custom[T: Formattable](value: &T, out: &mut Formatter) -> Result[(), FormatError]:
+def custom[T: Formattable, W](value: &T, out: &mut Formatter[W]) -> Result[(), FormatError]:
     value.format(out)
 def main() -> Result[(), FormatError]:
     value: Label | Code = Code.Value(7)
-    mut out = std.report.string_formatter(100, 1)?
+    mut out = std.fmt.string_formatter(100, 1)?
     value.format(&mut out)?
     custom(&value, &mut out)
 "#
         ),
-        "anonymous sums only forward std.report.Formattable",
+        "anonymous sums only forward std.fmt.Formattable",
     );
 }
 
@@ -181,10 +182,10 @@ fn even_unused_local_bounds_require_public_forwarding_members() {
     rejects(
         &format!(
             r#"{TYPES}
-from std.report import Formattable
+from std.fmt import Formattable
 pub class Private:
     value: i64
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         Ok(())
 def accept[T: Formattable](value: &T) -> ():
     pass
@@ -203,13 +204,13 @@ fn shared_dispatch_preserves_payload_and_cleans_up_once_after_failure() {
         r#"{TYPES}
 pub class Owned:
     text: str
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.text)
     def __del__(self) -> ():
         print("drop", self.text).unwrap()
 def main() -> Result[(), FormatError | IoError]:
     value: Owned | Code = Owned("payload")
-    mut small = std.report.string_formatter(1, 1)?
+    mut small = std.fmt.string_formatter(1, 1)?
     match std.report.render(&value, &mut small):
         case Err(_):
             print("failed")?
@@ -232,7 +233,7 @@ def main() -> Result[(), FormatError | IoError]:
     a: Label | Code = Label("text")
     b: Label | Code = Code.Value(-42)
     print("__test_fail_allocations_after_0__")?
-    mut out = std.report.stderr_formatter(100, 1)?
+    mut out = std.fmt.stderr_formatter(100, 1)?
     std.report.render(&a, &mut out)?
     std.report.render(&b, &mut out)?
     a.format(&mut out)?
@@ -254,11 +255,11 @@ import std.env
 import std.path
 pub class Global:
     value: i64
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         std.env.set_current_dir(&std.path.from_text(".").unwrap()).unwrap()
         Ok(())
 def worker(value: &(Code | Global)) -> ():
-    mut out = std.report.stderr_formatter(100, 1).unwrap()
+    mut out = std.fmt.stderr_formatter(100, 1).unwrap()
     value.format(&mut out).unwrap()
 def main() -> Result[(), AllocError | IoError | ThreadError]:
     value: Code | Global = Code.Value(1)
