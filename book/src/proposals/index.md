@@ -39,6 +39,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 
 | Topic | Start here | Related decisions |
 | --- | --- | --- |
+| Runtime-independent networking protocols | [Codec, session and driver architecture](sans-io-protocols.md) | [Session contract](sans-io-protocols/contract.md), [runtime integration](sans-io-protocols/drivers.md), [WebSocket acceptance](sans-io-protocols/websocket.md) |
 | Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](library-owned-operations.md) |
@@ -83,6 +84,7 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
 | [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |
 | [Async/await exploration](async-await.md) — owned movable frames, fallible admission and synchronous cancellation; isolated spike only | Unscheduled exploration; async implementation remains out of scope pending an adoption decision |
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
