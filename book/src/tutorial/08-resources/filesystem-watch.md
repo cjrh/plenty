@@ -26,7 +26,7 @@ def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.fs.watch.Wa
             if event.overflowed():
                 print("rescan the directory")?
             elif event.created():
-                print("created", event.name.display()?)?
+                print("created", event.name.to_string()?)?
         watcher.close()?
         scratch.cleanup()?
     Ok(())

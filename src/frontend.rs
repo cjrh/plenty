@@ -4668,10 +4668,11 @@ impl Lower<'_> {
                         reads.extend(loans);
                     }
                     let operation = if args.len() == 1 {
-                        CollectionOp::TryPrint(types.remove(0))
+                        CollectionOp::TryPrint(types[0].clone())
                     } else {
-                        CollectionOp::TryPrintMany(types)
+                        CollectionOp::TryPrintMany(types.clone())
                     };
+                    let operation = self.formatted(operation, &types, true, &e.at)?;
                     let output = operation.signature().1;
                     ops.push(Op::Collection(operation));
                     Self::end_reads(reads, ops);

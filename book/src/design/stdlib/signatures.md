@@ -44,65 +44,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.encoding`](#stdencoding): 1211-1272
 - [`std.env`](#stdenv): 1274-1288
 - [`std.error`](#stderror): 1290-1310
-- [`std.fmt`](#stdfmt): 1312-1371
-- [`std.fs`](#stdfs): 1373-1456
-- [`std.fs.dirs`](#stdfsdirs): 1458-1468
-- [`std.fs.watch`](#stdfswatch): 1470-1505
-- [`std.graph`](#stdgraph): 1507-1595
-- [`std.http`](#stdhttp): 1597-1667
-- [`std.http.decoder`](#stdhttpdecoder): 1669-1686
-- [`std.http.body`](#stdhttpbody): 1688-1723
-- [`std.http.client`](#stdhttpclient): 1725-1835
-- [`std.http.cookie`](#stdhttpcookie): 1837-1869
-- [`std.http.files`](#stdhttpfiles): 1871-1884
-- [`std.http.https`](#stdhttphttps): 1886-1900
-- [`std.http.proxy`](#stdhttpproxy): 1902-1923
-- [`std.http.server`](#stdhttpserver): 1925-2010
-- [`std.http.sse`](#stdhttpsse): 2012-2031
-- [`std.http.tls`](#stdhttptls): 2033-2050
-- [`std.http.typed`](#stdhttptyped): 2052-2085
-- [`std.http.websocket`](#stdhttpwebsocket): 2087-2122
-- [`std.http.wss`](#stdhttpwss): 2124-2130
-- [`std.image`](#stdimage): 2132-2178
-- [`std.io`](#stdio): 2180-2260
-- [`std.io.typed`](#stdiotyped): 2262-2300
-- [`std.json`](#stdjson): 2302-2366
-- [`std.jwt`](#stdjwt): 2368-2415
-- [`std.log`](#stdlog): 2417-2484
-- [`std.markdown`](#stdmarkdown): 2486-2520
-- [`std.template`](#stdtemplate): 2522-2543
-- [`std.math`](#stdmath): 2545-2611
-- [`std.mime`](#stdmime): 2613-2637
-- [`std.net`](#stdnet): 2639-2721
-- [`std.path`](#stdpath): 2723-2740
-- [`std.process`](#stdprocess): 2742-2788
-- [`std.random`](#stdrandom): 2790-2811
-- [`std.ready`](#stdready): 2813-2843
-- [`std.regex`](#stdregex): 2845-2898
-- [`std.report`](#stdreport): 2900-2923
-- [`std.secrets`](#stdsecrets): 2925-2951
-- [`std.shlex`](#stdshlex): 2953-2962
-- [`std.sketch`](#stdsketch): 2964-3002
-- [`std.sketch.xor`](#stdsketchxor): 3004-3015
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3017-3032
-- [`std.signal`](#stdsignal): 3034-3051
-- [`std.simd`](#stdsimd): 3053-3154
-- [`std.stat`](#stdstat): 3156-3189
-- [`std.plot`](#stdplot): 3191-3280
-- [`std.linalg`](#stdlinalg): 3282-3323
-- [`std.sync`](#stdsync): 3325-3334
-- [`std.system`](#stdsystem): 3336-3394
-- [`std.tempfile`](#stdtempfile): 3396-3428
-- [`std.test`](#stdtest): 3430-3472
-- [`std.text`](#stdtext): 3474-3493
-- [`std.thread`](#stdthread): 3495-3499
-- [`std.time`](#stdtime): 3501-3545
-- [`std.tls`](#stdtls): 3547-3629
-- [`std.toml`](#stdtoml): 3631-3680
-- [`std.unicode`](#stdunicode): 3682-3694
-- [`std.url`](#stdurl): 3696-3724
-- [`std.uuid`](#stduuid): 3726-3749
-- [`std.xml`](#stdxml): 3751-3784
+- [`std.fmt`](#stdfmt): 1312-1373
+- [`std.fs`](#stdfs): 1375-1458
+- [`std.fs.dirs`](#stdfsdirs): 1460-1470
+- [`std.fs.watch`](#stdfswatch): 1472-1507
+- [`std.graph`](#stdgraph): 1509-1597
+- [`std.http`](#stdhttp): 1599-1669
+- [`std.http.decoder`](#stdhttpdecoder): 1671-1688
+- [`std.http.body`](#stdhttpbody): 1690-1725
+- [`std.http.client`](#stdhttpclient): 1727-1837
+- [`std.http.cookie`](#stdhttpcookie): 1839-1871
+- [`std.http.files`](#stdhttpfiles): 1873-1886
+- [`std.http.https`](#stdhttphttps): 1888-1902
+- [`std.http.proxy`](#stdhttpproxy): 1904-1925
+- [`std.http.server`](#stdhttpserver): 1927-2012
+- [`std.http.sse`](#stdhttpsse): 2014-2033
+- [`std.http.tls`](#stdhttptls): 2035-2052
+- [`std.http.typed`](#stdhttptyped): 2054-2087
+- [`std.http.websocket`](#stdhttpwebsocket): 2089-2124
+- [`std.http.wss`](#stdhttpwss): 2126-2132
+- [`std.image`](#stdimage): 2134-2180
+- [`std.io`](#stdio): 2182-2262
+- [`std.io.typed`](#stdiotyped): 2264-2302
+- [`std.json`](#stdjson): 2304-2368
+- [`std.jwt`](#stdjwt): 2370-2417
+- [`std.log`](#stdlog): 2419-2486
+- [`std.markdown`](#stdmarkdown): 2488-2522
+- [`std.template`](#stdtemplate): 2524-2545
+- [`std.math`](#stdmath): 2547-2613
+- [`std.mime`](#stdmime): 2615-2639
+- [`std.net`](#stdnet): 2641-2723
+- [`std.path`](#stdpath): 2725-2742
+- [`std.process`](#stdprocess): 2744-2790
+- [`std.random`](#stdrandom): 2792-2813
+- [`std.ready`](#stdready): 2815-2845
+- [`std.regex`](#stdregex): 2847-2900
+- [`std.report`](#stdreport): 2902-2925
+- [`std.secrets`](#stdsecrets): 2927-2953
+- [`std.shlex`](#stdshlex): 2955-2964
+- [`std.sketch`](#stdsketch): 2966-3004
+- [`std.sketch.xor`](#stdsketchxor): 3006-3017
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3019-3034
+- [`std.signal`](#stdsignal): 3036-3053
+- [`std.simd`](#stdsimd): 3055-3156
+- [`std.stat`](#stdstat): 3158-3191
+- [`std.plot`](#stdplot): 3193-3282
+- [`std.linalg`](#stdlinalg): 3284-3325
+- [`std.sync`](#stdsync): 3327-3336
+- [`std.system`](#stdsystem): 3338-3396
+- [`std.tempfile`](#stdtempfile): 3398-3430
+- [`std.test`](#stdtest): 3432-3474
+- [`std.text`](#stdtext): 3476-3495
+- [`std.thread`](#stdthread): 3497-3501
+- [`std.time`](#stdtime): 3503-3547
+- [`std.tls`](#stdtls): 3549-3631
+- [`std.toml`](#stdtoml): 3633-3682
+- [`std.unicode`](#stdunicode): 3684-3696
+- [`std.url`](#stdurl): 3698-3726
+- [`std.uuid`](#stduuid): 3728-3751
+- [`std.xml`](#stdxml): 3753-3786
 
 ## `std.actor`
 
@@ -1363,6 +1363,8 @@ def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatEr
 def repr_string[T](value: &T) -> Result[str, FormatError]
 def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_view_string[T](value: &[T]) -> Result[str, FormatError]
+def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Formatter[W]) -> Result[(), FormatError]
+def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]
 def debug_string(value: &str) -> Result[str, FormatError]
 def repr_substr_string(value: &substr) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
@@ -2728,7 +2730,7 @@ Lossless Linux paths, lexical operations, checked text conversion and escaped di
 class Path
     def as_bytes(self) -> &list[u8]
     def to_text(self) -> Result[str, IoError]
-    def display(self) -> Result[str, IoError]
+    def to_string(self) -> Result[str, IoError]
     def copy(self) -> Result[Path, AllocError]
     def join(self, child: &Path) -> Result[Path, IoError]
     def is_absolute(self) -> bool

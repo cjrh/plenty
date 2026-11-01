@@ -3,16 +3,17 @@ use super::*;
 
 fn blob(module: &mut ObjectModule, bytes: Vec<u8>, links: &[(usize, DataId)]) -> Result<DataId> {
     let id = module.declare_anonymous_data(false, false)?;
-    define(module, id, bytes, links, None)?;
+    define(module, id, bytes, links, &[])?;
     Ok(id)
 }
-/// `hook` is a class's `__del__` adapter, stored at the descriptor's byte 56.
+/// `functions` are adapter addresses by byte offset: a class's `__del__` at
+/// the descriptor's byte 56, and formatting adapters at 88 and 96.
 fn define(
     module: &mut ObjectModule,
     id: DataId,
     bytes: Vec<u8>,
     links: &[(usize, DataId)],
-    hook: Option<FuncId>,
+    functions: &[(u32, FuncId)],
 ) -> Result<()> {
     let mut data = DataDescription::new();
     data.set_align(8);
@@ -21,9 +22,9 @@ fn define(
         let reference = module.declare_data_in_data(target, &mut data);
         data.write_data_addr(offset as u32, reference, 0);
     }
-    if let Some(hook) = hook {
-        let reference = module.declare_func_in_data(hook, &mut data);
-        data.write_function_addr(56, reference);
+    for &(offset, function) in functions {
+        let reference = module.declare_func_in_data(function, &mut data);
+        data.write_function_addr(offset, reference);
     }
     module.define_data(id, &data)?;
     Ok(())
@@ -100,7 +101,16 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 88];
+    let mut bytes = vec![0; 104];
+    // The formatting adapters belong to the type as written: a newtype's
+    // methods are its own, not its field's.
+    let formats: Vec<(u32, FuncId)> = [(88, false), (96, true)]
+        .into_iter()
+        .filter_map(|(offset, display)| {
+            let hook = runtime.format_hooks.get(&(ty.clone(), display))?;
+            Some((offset, *hook))
+        })
+        .collect();
     // Taken before a newtype is replaced by its field: a redacted wrapper
     // formats as `Name(@redacted)`, and a plain wrapper over a redacted type
     // reaches the field's own descriptor through the wrapper link.
@@ -259,7 +269,12 @@ fn define_type(
         // Absent only when no live body arms the class (`reachability`), so
         // no instance can reach the hook.
         .and_then(|name| runtime.drop_hooks.get(name).copied());
-    define(module, id, bytes, &links, hook)
+    let functions: Vec<_> = hook
+        .map(|hook| (56, hook))
+        .into_iter()
+        .chain(formats)
+        .collect();
+    define(module, id, bytes, &links, &functions)
 }
 
 /// The descriptor kind byte of `ty`, after `define_type` has replaced a

@@ -210,7 +210,7 @@ def main() -> Result[(), AllocError | IoError]:
     absolute = base.join(&path.from_text("/root")?)?
     print(absolute.to_text()?)?
     raw = path.from_bytes([255u8, 10u8]?)
-    print(raw.display()?)?
+    print(raw.to_string()?)?
     match raw.to_text():
         case Ok(_):
             return Err(IoError.Closed)

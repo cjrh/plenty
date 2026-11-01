@@ -3209,7 +3209,8 @@ impl Lower<'_> {
                 if source.recursive_data() {
                     return Err(base.at.error("automatic formatting is not supported for recursive data; format selected fields"));
                 }
-                let operation = CollectionOp::FormatValue(source);
+                let operation = CollectionOp::FormatValue(source.clone());
+                let operation = self.formatted(operation, &[source], false, &base.at)?;
                 let output = operation.signature().1;
                 ops.push(Op::Collection(operation));
                 Self::end_reads(loans, ops);

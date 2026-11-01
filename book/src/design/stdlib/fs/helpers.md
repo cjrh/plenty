@@ -24,7 +24,7 @@ def main() -> Result[(), AllocError | IoError]:
     while True:
         match names.next()?:
             case Some(name):
-                print(name.display()?)?
+                print(name.to_string()?)?
             case Nothing:
                 break
     Ok(())

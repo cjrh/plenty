@@ -24,7 +24,7 @@ def main() -> Result[(), IoError | std.archive.ArchiveError | std.bytes.BytesErr
     while True:
         match reader.next()?:
             case Some(entry):
-                print(entry.name.display()?, entry.kind, entry.size)?
+                print(entry.name.to_string()?, entry.kind, entry.size)?
             case Nothing:
                 break
     Ok(())

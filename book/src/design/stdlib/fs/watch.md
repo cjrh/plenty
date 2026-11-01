@@ -20,9 +20,9 @@ def main() -> Result[(), AllocError | IoError | watch.WatchError]:
         if event.overflowed():
             print("rescan")?
         elif event.created():
-            print("created", event.name.display()?)?
+            print("created", event.name.to_string()?)?
         elif event.closed_after_write():
-            print("written", event.name.display()?)?
+            print("written", event.name.to_string()?)?
     watcher.close()?
     Ok(())
 ```
@@ -72,7 +72,7 @@ Each `Event` exposes `watch: i32`, `cookie: u32`, and `name: Path`. The name is
 the immediate child's **native filename bytes**, not an absolute path. It is
 empty for events about the watched object itself. Use `Path.join` with the
 appropriate watched directory when a path is needed; `name.to_text()` validates
-UTF-8, while `name.display()` provides display text.
+UTF-8, while `name.to_string()` provides display text.
 
 Predicates report the event's flags:
 

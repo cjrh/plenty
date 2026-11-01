@@ -15,6 +15,8 @@ static INTEGER: Type = Type {
     plan: None,
     redacted: false,
     transparent: false,
+    debug: None,
+    display: None,
 };
 static MAP: Type = Type {
     kind: b'D',

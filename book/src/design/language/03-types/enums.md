@@ -43,7 +43,8 @@ they are not dictionary keys or set elements.
 Equality compares nominal identity, variant, and payload contents, including IEEE
 float comparisons; it never calls user methods, and comparison and hashing
 hooks are [rejected](../04-expressions/operators.md#equality-ordering-and-hashing).
-Printing uses qualified variant names. Automatic equality and formatting reject
+Printing uses qualified variant names unless the enum defines
+[`display` or `debug`](../../facilities/01-builtins/formatting.md#user-formatting-methods). Automatic equality and formatting reject
 recursive data types.
 
 [Matching](../04-expressions/matching.md) selects variants and binds payloads.

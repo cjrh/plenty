@@ -12,7 +12,7 @@ from std.path import Path
 def show(label: &str, dir: Option[Path]) -> Result[(), IoError]:
     match dir:
         case Some(path):
-            print(label, path.display()?)?
+            print(label, path.to_string()?)?
         case Nothing:
             print(label, "-")?
     Ok(())

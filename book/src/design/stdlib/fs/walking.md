@@ -21,7 +21,7 @@ def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     top = path.from_text("site")?
     mut walker = fs.walk(&top, False)?
     while walker.next()?:
-        print(walker.current.path.display()?, len(walker.current.files))?
+        print(walker.current.path.to_string()?, len(walker.current.files))?
     Ok(())
 ```
 ```output

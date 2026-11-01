@@ -171,7 +171,7 @@ fn display_spells_both_parts_with_their_signs() {
          NaN+infi -inf-infi 1e20+1e-7i\n\
          [   1.25-0.5i] std.complex.Complex(re=1.25, im=-0.5)\n\
          2.0+3.0i\n\
-         std.complex.Complex(re=1.5, im=2.0)\n"
+         1.5+2.0i\n"
     );
 }
 
@@ -216,13 +216,14 @@ fn small_integral_powers_are_exact() {
 fn complex_values_copy() {
     let output = run_program(
         r#"from std.complex import Complex
+from std.fmt import FormatError
 
 def conj_by_value(z: Complex) -> Complex:
     mut w = z
     w.im = -w.im
     w
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     a = Complex(1.0, 2.0)
     mut b = a
     b.re = 5.0
@@ -238,7 +239,7 @@ def main() -> Result[(), AllocError | IoError]:
     );
     assert_eq!(
         output,
-        "std.complex.Complex(re=1.0, im=2.0) std.complex.Complex(re=5.0, im=2.0) std.complex.Complex(re=1.0, im=-2.0)\n\
+        "1.0+2.0i 5.0+2.0i 1.0-2.0i\n\
          9.0 True True\n"
     );
 }

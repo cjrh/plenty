@@ -139,17 +139,18 @@ print(p, q, p == q)?
 }
 
 #[test]
-fn an_explicit_display_method_still_formats_f_strings() {
+fn an_explicit_display_method_formats_print_and_f_strings() {
     // Author-written `display` is explicit formatting, like a std.report
-    // Formattable implementation; only automatic formatting is redacted.
+    // Formattable implementation; only structural formatting is redacted.
+    // Inside an aggregate the type has no `debug`, so it stays redacted.
     expect(
         "from std.fmt import Formatter, FormatError\n\n\
          @redacted\npub class Shown:\n    value: str\n    \
          pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        \
          out.text(\"shown\")\n\n\
          def main() -> Result[(), AllocError | IoError | FormatError]:\n    \
-         s = Shown(\"x\")\n    print(f\"{s}\"?, s)?\n    Ok(())\n",
-        "shown Shown(@redacted)\n",
+         s = Shown(\"x\")\n    print(f\"{s}\"?, s, [Shown(\"y\")]?)?\n    Ok(())\n",
+        "shown shown [Shown(@redacted)]\n",
     );
 }
 

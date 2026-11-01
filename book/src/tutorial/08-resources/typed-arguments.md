@@ -27,7 +27,7 @@ def main() -> Result[(), AllocError | IoError | std.cli.CliError]:
             case Value.Integer(limit):
                 print("limit:", limit)?
             case Value.Path(path):
-                print("file:", path.display()?)?
+                print("file:", path.to_string()?)?
             case _:
                 pass
     Ok(())

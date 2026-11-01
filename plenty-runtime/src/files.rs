@@ -497,6 +497,8 @@ mod tests {
         plan: None,
         redacted: false,
         transparent: false,
+        debug: None,
+        display: None,
     };
 
     #[test]

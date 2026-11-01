@@ -414,7 +414,7 @@ impl Lowerer<'_, '_> {
     }
 
     /// Retag packed values without retaining, releasing, or allocating payloads.
-    fn widen_sum(
+    pub(super) fn widen_sum(
         &mut self,
         value: cranelift_codegen::ir::Value,
         source: &Ty,

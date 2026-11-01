@@ -8,7 +8,7 @@ pub class Path:
     pub def to_text(self) -> Result[str, IoError]:
         decode_utf8(self._bytes)
 
-    pub def display(self) -> Result[str, IoError]:
+    pub def to_string(self) -> Result[str, IoError]:
         __path_display(self._bytes)
 
     pub def copy(self) -> Result[Path, AllocError]:
