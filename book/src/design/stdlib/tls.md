@@ -298,6 +298,12 @@ a TLS failure the session has queued an alert: send what `take` returns
 before closing the socket. A session is allocated where it is made; in an
 actor handler that is the actor's heap.
 
+Read ranges follow the [Reader contract](io.md): invalid buffer bounds trap
+with `read: start/stop outside buffer` before I/O or handshake work. The
+nonblocking session `take` operation also validates its caller buffer first
+and traps with `take: start/stop outside buffer`. Empty ranges must still
+be within the buffer.
+
 ## Errors
 
 ```text
@@ -441,11 +447,6 @@ certificates and application protocols.
   framing.
 - One target, x86-64 Linux GNU.
 
-Read ranges follow the [Reader contract](io.md): invalid buffer bounds trap
-with `read: start/stop outside buffer` before I/O or handshake work. The
-nonblocking session `take` operation also validates its caller buffer first
-and traps with `take: start/stop outside buffer`. Empty ranges must still
-be within the buffer.
 
 ## Acknowledgements
 
