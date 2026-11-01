@@ -198,3 +198,40 @@ print(wrapper.fill("still usable")? == "* still usable")?
 "#);
     assert_eq!(output, format!("{}True\n", "True\nTrue True\n".repeat(4)));
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn scalar_builder_writes_reuse_capacity_and_grow_geometrically() {
+    let output = run(r#"
+mut reusable = std.text.builder(512)?
+reusable.append(&" ".repeat(256)?)?
+reusable.clear()
+std.test.fail_allocations_after(0u32)?
+a = reusable.append("a")
+b = reusable.append("é")
+c = reusable.append("🙂")
+d = reusable.append("abcd")
+e = reusable.append("")
+std.test.restore_allocations()?
+print(a.is_ok(), b.is_ok(), c.is_ok(), d.is_ok(), e.is_ok())?
+print(reusable.to_text()? == "aé🙂abcd")?
+mut growing = std.text.builder(65536)?
+std.test.fail_allocations_after(32u32)?
+mut failed = False
+for index in range(65536):
+    if growing.append("x").is_err():
+        failed = True
+        break
+std.test.restore_allocations()?
+print(not failed, growing.byte_len() == 65536)?
+mut empty = std.text.builder(4)?
+std.test.fail_allocations_after(0u32)?
+result = empty.append("🙂")
+std.test.restore_allocations()?
+print(result.is_err(), empty.byte_len() == 0)?
+"#);
+    assert_eq!(
+        output,
+        "True True True True True\nTrue\nTrue True\nTrue True\n"
+    );
+}

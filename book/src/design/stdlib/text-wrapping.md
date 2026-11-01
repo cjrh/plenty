@@ -148,14 +148,55 @@ than exact resident memory: list slots, geometric capacities, temporary string
 copies, and old allocations during growth also take space.
 
 Scanning and copying are O(input + expanded input + output), with storage
-proportional to the capped intermediate, output, and per-scalar/per-chunk/per-line metadata.
-A split long word retains an offset, avoiding repeated copies of its remaining
-suffix. Builders currently allocate a small temporary encoding per appended
-scalar. Allocation failure is recoverable as `Allocation(AllocError)` or
+proportional to the capped intermediate, output, and per-chunk/per-line metadata,
+plus four bytes per expanded input scalar for the splitter's lookaround array.
+A split long word retains scalar and UTF-8 byte cursors, avoiding repeated
+suffix scans and copies without another scalar array. Unchanged whitespace
+preparation shares the immutable input; tab expansion fills each space run in
+one bulk operation. Complete chunks are reused during line
+assembly, and `dedent` keeps only the common ASCII margin rather than allocating
+one list per line. `shorten` uses native whitespace splitting and joining and
+releases that word list before wrapping. Small builder appends write bytes
+directly into geometrically grown storage; empty appends allocate nothing.
+Allocation failure is recoverable as `Allocation(AllocError)` or
 `Bytes(BytesError)` with the original byte-buffer cause. Failure discards the
 partial result and preserves borrowed inputs and wrapper configuration; a
-predicate's own effects are not undone. No global state, native worker, regex
-engine, or additional dependency is needed.
+predicate's own effects are not undone. `fill` materializes the bounded line
+list before joining it, so it retains line metadata and an additional output
+copy. No global state, native worker, regex engine, or additional dependency is
+needed.
+
+## Performance qualification
+
+`examples/textwrap_bench.plenty` in the repository provides seven repeatable
+workloads. Optimized Plenty executables were compared
+against commit `7d253e5b` on Linux x86-64, AMD Ryzen 7 7840HS, pinned to CPU 0.
+Each number below is the median time per operation from three alternating
+before/after process pairs, each doing three operations, at workload scale
+262144 (approximately 256 KiB of input). Input construction and printing are
+outside the timed region; both binaries produced the same byte-count checksums.
+Both used 8 MiB input/output limits to cover expanded tabs.
+
+| Workload | Before | After | Speedup |
+|---|---:|---:|---:|
+| Prose fill | 109.39 ms | 27.71 ms | 3.95× |
+| Long Unicode word | 31.67 ms | 7.02 ms | 4.51× |
+| Long dash run | 94.71 ms | 15.70 ms | 6.03× |
+| Tab-heavy fill | 296.89 ms | 101.99 ms | 2.91× |
+| Dedent | 12.56 ms | 3.62 ms | 3.47× |
+| Indent | 7.60 ms | 3.73 ms | 2.04× |
+| Shorten | 110.22 ms | 18.96 ms | 5.81× |
+
+The 16, 64 and 256 KiB scale probes showed approximately linear growth.
+At the largest scale, peak whole-process RSS for dash wrapping fell from
+15,684 to 4,072 KiB, and tab wrapping from 27,132 to 14,032 KiB; RSS includes
+input construction, allocator retention and all three repetitions.
+At scale 65536, allocation-failure budget probes required 28,912 successful
+checked allocations for prose fill instead of 236,498, and 6,725 for shorten
+instead of 309,813. These counts measure Plenty's injected allocation checks,
+not operating-system allocation calls. The remaining costs include eager
+chunk/line storage and encoding larger pieces for the builder. These are local
+measurements; elapsed time and allocator retention depend on the platform.
 
 ## Acknowledgements
 

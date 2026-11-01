@@ -22,9 +22,11 @@ paragraph tools. Import `std.text`; every allocating operation returns
 `Bytes(BytesError)` variants. Byte-buffer failures preserve their typed cause;
 normalization uses the direct allocation variant. Limits apply to output bytes,
 not characters. Appending checks the complete input size without allocating,
-then encodes a temporary buffer and appends atomically. Invalid UTF-8 must be
+then appends atomically. Appends of at most four UTF-8 bytes reserve capacity
+before writing directly, without a temporary encoding; larger appends encode a
+temporary buffer. Empty appends allocate nothing. Invalid UTF-8 must be
 handled at [byte decoding](bytes.md); `str` is always valid UTF-8. Embedded NUL
-is preserved. Builders cannot expose or mutate incomplete UTF-8.
+is preserved. Public builder operations preserve complete UTF-8.
 
 Hard wrapping preserves every input scalar and existing LF, including final LF.
 It never inserts an extra LF before an existing LF. It does not collapse spaces,
@@ -111,12 +113,13 @@ remain available for reuse. Both operations currently copy the bytes into a
 new string; `finish` does not promise zero-copy conversion. Other methods borrow it; `append` and
 `clear` require exclusive access, and ordinary loan checking rejects mutation
 while shared access remains live. There is no global mutable state or thread
-affinity. Appending takes O(input bytes) amortized time and a temporary copy of
-that input; growth can temporarily retain old and replacement allocations.
+affinity. Appending takes O(input bytes) amortized time; inputs longer than four
+UTF-8 bytes need a temporary encoding. Small appends reuse spare capacity, and
+reserve geometrically when they grow; growth can temporarily retain old and replacement allocations.
 Storage capacity grows geometrically and may exceed the logical byte limit;
 the limit is not an exact resident-memory quota. `to_text` copies O(output bytes).
 Joining and hard wrapping take O(input + output bytes) amortized time, plus output
-storage. Hard wrapping currently allocates a small temporary byte buffer per scalar.
+storage. Hard wrapping writes scalars directly into geometrically grown storage.
 
 Algorithms are checked Plenty using `std.bytes`; no new OS backend is required.
 Sources and storage primitives are bundled for offline compilation with a
