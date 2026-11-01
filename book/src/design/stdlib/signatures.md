@@ -94,15 +94,15 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.system`](#stdsystem): 3298-3356
 - [`std.tempfile`](#stdtempfile): 3358-3390
 - [`std.test`](#stdtest): 3392-3434
-- [`std.text`](#stdtext): 3436-3455
-- [`std.thread`](#stdthread): 3457-3461
-- [`std.time`](#stdtime): 3463-3507
-- [`std.tls`](#stdtls): 3509-3591
-- [`std.toml`](#stdtoml): 3593-3642
-- [`std.unicode`](#stdunicode): 3644-3656
-- [`std.url`](#stdurl): 3658-3686
-- [`std.uuid`](#stduuid): 3688-3711
-- [`std.xml`](#stdxml): 3713-3746
+- [`std.text`](#stdtext): 3436-3479
+- [`std.thread`](#stdthread): 3481-3485
+- [`std.time`](#stdtime): 3487-3531
+- [`std.tls`](#stdtls): 3533-3615
+- [`std.toml`](#stdtoml): 3617-3666
+- [`std.unicode`](#stdunicode): 3668-3680
+- [`std.url`](#stdurl): 3682-3710
+- [`std.uuid`](#stduuid): 3712-3735
+- [`std.xml`](#stdxml): 3737-3770
 
 ## `std.actor`
 
@@ -3435,7 +3435,7 @@ def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
 
 ## `std.text`
 
-Bounded reusable builders, joining, and scalar wrapping. Errors: `TextError`. [Reference](text.md).
+Bounded builders, joining, scalar/word wrapping, shortening, and indentation. Errors: `TextError`. [Reference](text.md).
 
 ```text
 def find_in[S: ByteSource](text: &str, set: &S) -> Option[i64]
@@ -3452,6 +3452,30 @@ class Builder
 def builder(max_bytes: i64) -> Result[Builder, TextError]
 def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]
 def wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]
+class TextWrapper
+    width: i64
+    initial_indent: str
+    subsequent_indent: str
+    expand_tabs: bool
+    replace_whitespace: bool
+    fix_sentence_endings: bool
+    break_long_words: bool
+    drop_whitespace: bool
+    break_on_hyphens: bool
+    tabsize: i64
+    max_lines: Option[i64]
+    placeholder: str
+    max_bytes: i64
+    max_input_bytes: i64
+    def wrap(self, text: &str) -> Result[list[str], TextError]
+    def fill(self, text: &str) -> Result[str, TextError]
+def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper
+def word_wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]
+def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
+def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
+def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
+def indent(text: &str, prefix: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
+def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
 ```
 
 ## `std.thread`

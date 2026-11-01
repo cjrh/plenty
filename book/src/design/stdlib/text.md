@@ -1,7 +1,8 @@
 # `std.text`
 
 Bounded reusable text construction, joining, scalar wrapping, and byte-set
-scans. Import `std.text`; every allocating operation returns
+scans. [Word wrapping and indentation](text-wrapping.md) add Python-style
+paragraph tools. Import `std.text`; every allocating operation returns
 `Result[..., TextError]`.
 
 | Operation | Behavior |
@@ -122,6 +123,11 @@ Sources and storage primitives are bundled for offline compilation with a
 relocated matching toolchain on x86_64 Linux GNU. See the
 [runnable lesson](../../tutorial/08-resources/25-text-unicode.md).
 
+See [word wrapping and indentation](text-wrapping.md) for `word_wrap`, `fill`,
+`shorten`, `dedent`, `indent`, `indent_with`, and reusable `TextWrapper`.
+
 ## Acknowledgements
 
 - `Builder` is modelled on Go's [`strings.Builder`](https://pkg.go.dev/strings#Builder); `join` follows Python's [`str.join`](https://docs.python.org/3/library/stdtypes.html#str.join).
+
+- Python's [`textwrap`](https://docs.python.org/3/library/textwrap.html) supplies the paragraph algorithms and API model; adapted CPython code is PSF-2.0, credited on the [paragraph tools page](text-wrapping.md).

@@ -50,3 +50,31 @@ the ligature above. Choose it only when that loss is intended. Byte decoding
 still rejects malformed UTF-8 before normalization; embedded NUL is ordinary
 text. See [`std.text`](../../design/stdlib/text.md) and
 [`std.unicode`](../../design/stdlib/unicode.md) for costs and complete contracts.
+
+For prose, use `fill` to wrap at word boundaries. `shorten` collapses whitespace
+and truncates to one line; `dedent` removes a common space/tab margin. These
+helpers use default input and output caps of 1 MiB, which you can change with
+`max_input_bytes` and `max_bytes`.
+
+```plenty
+import std.text
+
+def main() -> Result[(), IoError | std.text.TextError]:
+    print(std.text.fill("one two three four", 9)?)?
+    print(std.text.shorten("one two three four", 13)?)?
+    print(std.text.indent(&std.text.dedent("    first\n      second")?, "> ")?)?
+    Ok(())
+```
+```output
+one two
+three
+four
+one two [...]
+> first
+>   second
+```
+
+Widths count scalars rather than display columns. Use a reusable
+[`TextWrapper`](../../design/stdlib/text-wrapping.md#reusable-configuration)
+when you need indentation, tab options, or a maximum number of lines. Wrap
+each paragraph separately: the default settings treat input newlines as spaces.
