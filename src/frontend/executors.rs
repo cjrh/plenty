@@ -159,9 +159,11 @@ impl Lower<'_> {
                 ops.push(Op::PushBool(false));
             }
             ExecutorOp::Shutdown
+        } else if name == "cancel_pending" && args.is_empty() {
+            ExecutorOp::CancelPending
         } else {
             return Err(base.at.error(
-                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, reduce_tree, and shutdown",
+                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, reduce_tree, cancel_pending, and shutdown",
             ));
         };
         let output = op.signature().1;

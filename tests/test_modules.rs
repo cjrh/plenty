@@ -618,6 +618,41 @@ fn absolute_imports_aliases_forward_calls_and_private_helpers() {
     );
 }
 
+// Issue #633: `_`-prefixed private names of std modules are shared between std
+// modules only; user modules keep ordinary privacy for the same spelling.
+#[test]
+fn underscore_names_are_shared_only_between_std_modules() {
+    let lib = "pub class Cell:\n    value: i64\n    def _peek(self) -> i64:\n        self.value\npub def cell() -> Cell:\n    Cell(1)\ndef _helper() -> i64:\n    2\n";
+    for (main, expected) in [
+        (
+            "import lib\ndef main() -> ():\n    print(lib.cell()._peek()).unwrap()\n",
+            "`lib.Cell._peek` is private to its defining module",
+        ),
+        (
+            "import lib\ndef main() -> ():\n    print(lib._helper()).unwrap()\n",
+            "`lib._helper` is private",
+        ),
+        (
+            "import std.bytes\ndef main() -> Result[(), Failure]:\n    mut data = std.bytes.with_capacity(8)?\n    data.resize(8, 0u8)?\n    print(data._read_os_entropy(0, 8)?)?\n    Ok(())\n",
+            "`std.bytes.Bytes._read_os_entropy` is private to its defining module",
+        ),
+        (
+            "import std.bytes\ndef main() -> Result[(), Failure]:\n    state = std.bytes._crypto_key_new()?\n    Ok(())\n",
+            "`std.bytes._crypto_key_new` is private",
+        ),
+        (
+            "from std.bytes import _compress_state\ndef main() -> ():\n    pass\n",
+            "_compress_state",
+        ),
+    ] {
+        let dir = workspace(&[("main.plenty", main), ("lib.plenty", lib)]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
 #[test]
 fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
     let dir = workspace(&[("lib.plenty", "pub def main(n: i64) -> i64:\n    n + 1\n")]);

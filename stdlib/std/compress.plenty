@@ -119,13 +119,13 @@ pub class Inflater:
     pub def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
         if start < 0 or start > stop or stop > input.len():
             return Err(CompressError.OutOfRange)
-        if self._state.compress_ended():
+        if self._state._compress_ended():
             if start == stop:
                 return Ok(0)
             if not self._gzip or reported(input.get(start))? != gzip_magic:
                 return Err(CompressError.TrailingData)
-            self._state.compress_restart()
-        consumed = reported(self._state.compress_step(input, start, stop))?
+            self._state._compress_restart()
+        consumed = reported(self._state._compress_step(input, start, stop))?
         if consumed < 0:
             return Err(failed(consumed))
         produced = self._state.len()
@@ -133,13 +133,13 @@ pub class Inflater:
             return Err(CompressError.LimitExceeded)
         self._produced += produced
         # Codecs consume or produce whenever input and output room remain.
-        if start != stop and consumed == 0 and produced == 0 and not self._state.compress_ended():
+        if start != stop and consumed == 0 and produced == 0 and not self._state._compress_ended():
             return Err(CompressError.Corrupt)
         Ok(consumed)
 
     # Whether the input seen so far is a complete stream.
     pub def complete(self) -> bool:
-        self._state.compress_ended()
+        self._state._compress_ended()
 
     # The output of the last step, at most 16384 bytes.
     pub def output(self) -> &Bytes:
@@ -151,7 +151,7 @@ pub class Inflater:
 pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
     if limit < 0:
         return Err(CompressError.OutOfRange)
-    state = reported(std.bytes.compress_state(kind(format, True), 0, window))?
+    state = reported(std.bytes._compress_state(kind(format, True), 0, window))?
     gzip = match format:
         case Format.Gzip:
             True
@@ -162,19 +162,19 @@ pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
 # Compresses all data: DEFLATE levels 0-9, Brotli qualities 0-11.
 pub def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, CompressError]:
     leveled(format, level)?
-    mut state = reported(std.bytes.compress_state(kind(format, False), level, window))?
+    mut state = reported(std.bytes._compress_state(kind(format, False), level, window))?
     mut out = reported(std.bytes.empty())?
     mut at = 0
     total = data.len()
     while at < total:
-        consumed = reported(state.compress_step(data, at, total))?
+        consumed = reported(state._compress_step(data, at, total))?
         if consumed < 0:
             return Err(failed(consumed))
         at += consumed
         reported(out.extend(&state))?
         state.clear()
     while True:
-        done = state.compress_flush(finish_flush)
+        done = state._compress_flush(finish_flush)
         if done < 0:
             return Err(failed(done))
         reported(out.extend(&state))?
@@ -208,7 +208,7 @@ pub def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, Co
 pub def crc32(seed: i64, data: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]:
     if seed < 0 or seed > 4294967295:
         return Err(CompressError.OutOfRange)
-    reported(data.compress_crc32(seed, start, stop))
+    reported(data._compress_crc32(seed, start, stop))
 
 # A Writer that compresses into `inner`. Input is accepted once the codec has
 # consumed it; output reaches `inner` on later writes, `flush` and `finish`.
@@ -242,13 +242,13 @@ pub class Compressor[W]:
     pub def write[S: ByteSource](self: &mut Compressor[W], source: &S, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start < 0 or start > stop or stop > source.len():
             return Err(StreamError.OutOfRange)
-        if self._finished or self._state.compress_ended():
+        if self._finished or self._state._compress_ended():
             return Err(StreamError.Io(IoError.Closed))
         if start == stop:
             return Ok(0)
         while True:
             self.drain()?
-            consumed = streamed(reported(self._state.compress_step(source, start, stop)))?
+            consumed = streamed(reported(self._state._compress_step(source, start, stop)))?
             if consumed < 0:
                 return Err(stream_error(failed(consumed)))
             if consumed > 0:
@@ -263,9 +263,9 @@ pub class Compressor[W]:
     def flushed(self: &mut Compressor[W], mode: i64) -> Result[(), StreamError]:
         while True:
             self.drain()?
-            if self._state.compress_ended():
+            if self._state._compress_ended():
                 return Ok(())
-            done = self._state.compress_flush(mode)
+            done = self._state._compress_flush(mode)
             if done < 0:
                 return Err(stream_error(failed(done)))
             if done == 1:
@@ -291,7 +291,7 @@ pub class Compressor[W]:
 
 pub def compressor[W](format: Format, inner: W, level: i64) -> Result[Compressor[W], CompressError]:
     leveled(format, level)?
-    state = reported(std.bytes.compress_state(kind(format, False), level, window))?
+    state = reported(std.bytes._compress_state(kind(format, False), level, window))?
     Ok(Compressor(inner, state, 0, False))
 
 # A Reader of the decompressed contents of `inner`. A failure other than an

@@ -186,9 +186,9 @@ passes the ordinary worker-effect checks, and may be used from any thread;
 moving a stream to a worker moves its ownership.
 
 The codec state is held in a `Bytes` whose contents are the pending output.
-The back-end methods `compress_step`, `compress_flush`, and their siblings
-are public on `Bytes` only so that `std.compress` can call them. On a buffer
-not made by `std.compress` they stop the program with
+The back-end methods on `Bytes` are
+[visible only to std modules](../language/02-source/visibility.md). On a
+buffer not made by `std.compress` they stop the program with
 `operand is not a std.compress state`.
 
 ## Costs

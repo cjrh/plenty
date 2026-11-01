@@ -11,8 +11,15 @@ has `InvalidSize`, `Allocation(AllocError)`, and `Thread(ThreadError)`.
 | `pool.submit(job)` | `Result[Future[T], SubmitError[F]]` | Move an owned zero-argument job; wait for space |
 | `pool.submit(function, arguments...)` | Same, with a bound job type | Bind a statically named function and owned arguments |
 | `pool.submit_nowait(...)` | Same | Return `Full(job)` if the queue is full |
+| `pool.cancel_pending()` | `()` | Cancel every queued job; running jobs continue and the pool stays open |
 | `pool.shutdown()` | `()` | Stop accepting, drain accepted work, join workers |
-| `pool.shutdown(True)` | `()` | Skip pending jobs and join running workers |
+
+`cancel_pending()` does not wait for running jobs. It removes the queued jobs,
+so their queue slots are free for later submissions; their futures report
+`FutureError.Cancelled`, and each job's captures are dropped with its future. To stop without running queued work, call
+`pool.cancel_pending()` and then `pool.shutdown()`. `shutdown(True)` does the
+same in one call and is kept for existing code; it will be removed, so new code
+uses `cancel_pending()`.
 
 Methods observe the pool; `mut` is unnecessary. Executors are affine and do not
 support copying or equality. Jobs may differ in concrete argument/result types on

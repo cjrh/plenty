@@ -158,9 +158,9 @@ passes the ordinary worker-effect checks, and may be used from any thread;
 moving a state to a worker moves its ownership.
 
 `update` and `finish_into` take buffers, not states, as operands. The
-back-end methods `crypto_update`, `crypto_finish`, and their siblings are
-public on `Bytes` only so that `std.crypto` can call them. On a buffer not
-made by `std.crypto` they stop the program with
+back-end methods on `Bytes` are
+[visible only to std modules](../language/02-source/visibility.md). On a
+buffer not made by `std.crypto` they stop the program with
 `operand is not a std.crypto state`.
 
 ## Costs

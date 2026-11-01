@@ -331,6 +331,8 @@ struct Module {
     protocols: Vec<protocols::Protocol>,
     imports: Vec<Import>,
     exports: HashSet<String>,
+    /// Loaded from the toolchain's standard library.
+    standard: bool,
     /// `include_str`/`include_bytes` constants whose file the loader has not
     /// read yet.
     embeds: Vec<Embed>,
@@ -361,6 +363,8 @@ pub(super) struct AccessMap {
     types: HashMap<String, Access>,
     enums: HashSet<String>,
     protocols: HashSet<String>,
+    /// Standard library sources: their `_` members are visible to each other.
+    standard: HashSet<Arc<str>>,
 }
 
 pub(super) struct Resolved {
@@ -962,6 +966,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         loader.module_import_error(import, 0)
     })?;
     result.standard_sources.extend(standard_sources);
+    result.access.standard = result.standard_sources.clone();
     Ok(result)
 }
 
@@ -1139,6 +1144,7 @@ impl Loader {
         let (mut module, at) = parse(&text, Some(&source.path()), name)?;
         if let ModuleSource::Standard(name) = &source {
             module.facility_exports = facility_exports(name);
+            module.standard = true;
         }
         if let ModuleSource::File(path) = &source {
             self.embed(path, package, &mut module)?;
@@ -1405,6 +1411,7 @@ pub(super) fn load_graph_with(
             ModuleSource::Standard(_) => Some(source.path().to_string_lossy().into_owned().into()),
             ModuleSource::File(_) => None,
         }));
+    result.access.standard = result.standard_sources.clone();
     result.source_paths = loader
         .loaded
         .into_keys()
@@ -2299,6 +2306,24 @@ fn resolve(
             )
         })
         .collect();
+    // A standard module also sees another standard module's `_` names: the
+    // hooks std modules share without making them public API.
+    let internal: Vec<Option<Arc<HashMap<String, String>>>> = modules
+        .iter()
+        .zip(&exports)
+        .map(|(m, public)| {
+            m.standard.then(|| {
+                let mut names = (**public).clone();
+                names.extend(
+                    m.names()
+                        .chain(&m.constants)
+                        .filter(|name| name.starts_with('_'))
+                        .map(|name| (name.clone(), qualified(&m.name, name))),
+                );
+                Arc::new(names)
+            })
+        })
+        .collect();
     // `import p` and `import p.other` coexist unless module `p` has a member
     // `other`, which `p.other` would also name (issue #568). Collect member
     // names only for modules bound by such an enclosing import. Dependencies
@@ -2352,6 +2377,11 @@ fn resolve(
         // in `earlier`, already resolved.
         let (earlier, rest) = modules.split_at_mut(i);
         let m = &mut rest[0];
+        let standard = m.standard;
+        let visible = |dependency: usize| match &internal[dependency] {
+            Some(names) if standard => names,
+            _ => &exports[dependency],
+        };
         let mut scope = Scope {
             captures: HashSet::default(),
             uncaptured: HashSet::default(),
@@ -2421,7 +2451,7 @@ fn resolve(
                 bound.push((import, *dependency));
             }
             if let Some(item) = &import.item {
-                let name = exports[*dependency].get(item).ok_or_else(|| {
+                let name = visible(*dependency).get(item).ok_or_else(|| {
                     // The module's declarations, already resolved, are in `result`.
                     let declared = earlier.get(*dependency).is_some_and(|d| {
                         let symbol = qualified(&d.name, item);
@@ -2453,7 +2483,7 @@ fn resolve(
                 Arc::make_mut(&mut scope.imported).insert(import.binding.clone(), name.clone());
             } else {
                 Arc::make_mut(&mut scope.namespaces)
-                    .insert(import.binding.clone(), exports[*dependency].clone());
+                    .insert(import.binding.clone(), visible(*dependency).clone());
             }
         }
         // Resolving one function reads only the scope, so functions resolve
@@ -2700,6 +2730,7 @@ pub(super) fn check_member_at(
     if let Some(rule) = access.members.get(&(class.into(), member.into()))
         && !rule.public
         && rule.owner != context.source()
+        && !shared_in_std(access, rule, member, context)
     {
         if access.types.get(class).is_some_and(|ty| !ty.public) {
             let kind = if access.enums.contains(class) {
@@ -2728,6 +2759,17 @@ pub(super) fn check_member_at(
             )));
     }
     Ok(())
+}
+
+/// A `_` member of a standard library type is visible to every standard
+/// module, so std modules share native hooks without publishing them.
+fn shared_in_std(access: &AccessMap, rule: &Access, member: &str, context: &Token) -> bool {
+    let standard = |source: &Option<Arc<str>>| {
+        source
+            .as_ref()
+            .is_some_and(|source| access.standard.contains(source))
+    };
+    member.starts_with('_') && standard(&rule.owner) && standard(&context.source())
 }
 
 /// Collects the public-API types of a function signature: its inputs (minus

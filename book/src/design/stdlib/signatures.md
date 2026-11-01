@@ -24,85 +24,85 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.actor.http.server`](#stdactorhttpserver): 280-343
 - [`std.archive`](#stdarchive): 345-411
 - [`std.atomic`](#stdatomic): 413-422
-- [`std.bytes`](#stdbytes): 424-519
-- [`std.cache.lru`](#stdcachelru): 521-543
-- [`std.channel`](#stdchannel): 545-549
-- [`std.cli`](#stdcli): 551-581
-- [`std.cli.fileinput`](#stdclifileinput): 583-592
-- [`std.cli.progress`](#stdcliprogress): 594-618
-- [`std.collections`](#stdcollections): 620-647
-- [`std.complex`](#stdcomplex): 649-675
-- [`std.compress`](#stdcompress): 677-707
-- [`std.concurrent`](#stdconcurrent): 709-713
-- [`std.crypto`](#stdcrypto): 715-796
-- [`std.csv`](#stdcsv): 798-861
-- [`std.dataframe`](#stddataframe): 863-1062
-- [`std.db.kv`](#stddbkv): 1064-1096
-- [`std.db.sqlite`](#stddbsqlite): 1098-1162
-- [`std.deque`](#stddeque): 1164-1178
-- [`std.diff`](#stddiff): 1180-1209
-- [`std.encoding`](#stdencoding): 1211-1272
-- [`std.env`](#stdenv): 1274-1288
-- [`std.error`](#stderror): 1290-1310
-- [`std.fmt`](#stdfmt): 1312-1373
-- [`std.fs`](#stdfs): 1375-1458
-- [`std.fs.dirs`](#stdfsdirs): 1460-1470
-- [`std.fs.watch`](#stdfswatch): 1472-1507
-- [`std.graph`](#stdgraph): 1509-1597
-- [`std.http`](#stdhttp): 1599-1669
-- [`std.http.decoder`](#stdhttpdecoder): 1671-1688
-- [`std.http.body`](#stdhttpbody): 1690-1725
-- [`std.http.client`](#stdhttpclient): 1727-1837
-- [`std.http.cookie`](#stdhttpcookie): 1839-1871
-- [`std.http.files`](#stdhttpfiles): 1873-1886
-- [`std.http.https`](#stdhttphttps): 1888-1902
-- [`std.http.proxy`](#stdhttpproxy): 1904-1925
-- [`std.http.server`](#stdhttpserver): 1927-2012
-- [`std.http.sse`](#stdhttpsse): 2014-2033
-- [`std.http.tls`](#stdhttptls): 2035-2052
-- [`std.http.typed`](#stdhttptyped): 2054-2087
-- [`std.http.websocket`](#stdhttpwebsocket): 2089-2124
-- [`std.http.wss`](#stdhttpwss): 2126-2132
-- [`std.image`](#stdimage): 2134-2180
-- [`std.io`](#stdio): 2182-2262
-- [`std.io.typed`](#stdiotyped): 2264-2302
-- [`std.json`](#stdjson): 2304-2368
-- [`std.jwt`](#stdjwt): 2370-2417
-- [`std.log`](#stdlog): 2419-2486
-- [`std.markdown`](#stdmarkdown): 2488-2522
-- [`std.template`](#stdtemplate): 2524-2545
-- [`std.math`](#stdmath): 2547-2613
-- [`std.mime`](#stdmime): 2615-2639
-- [`std.net`](#stdnet): 2641-2723
-- [`std.path`](#stdpath): 2725-2742
-- [`std.process`](#stdprocess): 2744-2790
-- [`std.random`](#stdrandom): 2792-2813
-- [`std.ready`](#stdready): 2815-2845
-- [`std.regex`](#stdregex): 2847-2900
-- [`std.report`](#stdreport): 2902-2925
-- [`std.secrets`](#stdsecrets): 2927-2953
-- [`std.shlex`](#stdshlex): 2955-2964
-- [`std.sketch`](#stdsketch): 2966-3004
-- [`std.sketch.xor`](#stdsketchxor): 3006-3017
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3019-3034
-- [`std.signal`](#stdsignal): 3036-3053
-- [`std.simd`](#stdsimd): 3055-3156
-- [`std.stat`](#stdstat): 3158-3191
-- [`std.plot`](#stdplot): 3193-3282
-- [`std.linalg`](#stdlinalg): 3284-3325
-- [`std.sync`](#stdsync): 3327-3336
-- [`std.system`](#stdsystem): 3338-3396
-- [`std.tempfile`](#stdtempfile): 3398-3430
-- [`std.test`](#stdtest): 3432-3474
-- [`std.text`](#stdtext): 3476-3495
-- [`std.thread`](#stdthread): 3497-3501
-- [`std.time`](#stdtime): 3503-3547
-- [`std.tls`](#stdtls): 3549-3631
-- [`std.toml`](#stdtoml): 3633-3682
-- [`std.unicode`](#stdunicode): 3684-3696
-- [`std.url`](#stdurl): 3698-3726
-- [`std.uuid`](#stduuid): 3728-3751
-- [`std.xml`](#stdxml): 3753-3786
+- [`std.bytes`](#stdbytes): 424-476
+- [`std.cache.lru`](#stdcachelru): 478-500
+- [`std.channel`](#stdchannel): 502-506
+- [`std.cli`](#stdcli): 508-538
+- [`std.cli.fileinput`](#stdclifileinput): 540-549
+- [`std.cli.progress`](#stdcliprogress): 551-575
+- [`std.collections`](#stdcollections): 577-604
+- [`std.complex`](#stdcomplex): 606-632
+- [`std.compress`](#stdcompress): 634-664
+- [`std.concurrent`](#stdconcurrent): 666-670
+- [`std.crypto`](#stdcrypto): 672-753
+- [`std.csv`](#stdcsv): 755-818
+- [`std.dataframe`](#stddataframe): 820-1019
+- [`std.db.kv`](#stddbkv): 1021-1053
+- [`std.db.sqlite`](#stddbsqlite): 1055-1119
+- [`std.deque`](#stddeque): 1121-1135
+- [`std.diff`](#stddiff): 1137-1166
+- [`std.encoding`](#stdencoding): 1168-1229
+- [`std.env`](#stdenv): 1231-1245
+- [`std.error`](#stderror): 1247-1267
+- [`std.fmt`](#stdfmt): 1269-1330
+- [`std.fs`](#stdfs): 1332-1415
+- [`std.fs.dirs`](#stdfsdirs): 1417-1427
+- [`std.fs.watch`](#stdfswatch): 1429-1464
+- [`std.graph`](#stdgraph): 1466-1554
+- [`std.http`](#stdhttp): 1556-1626
+- [`std.http.decoder`](#stdhttpdecoder): 1628-1645
+- [`std.http.body`](#stdhttpbody): 1647-1682
+- [`std.http.client`](#stdhttpclient): 1684-1794
+- [`std.http.cookie`](#stdhttpcookie): 1796-1828
+- [`std.http.files`](#stdhttpfiles): 1830-1843
+- [`std.http.https`](#stdhttphttps): 1845-1859
+- [`std.http.proxy`](#stdhttpproxy): 1861-1882
+- [`std.http.server`](#stdhttpserver): 1884-1969
+- [`std.http.sse`](#stdhttpsse): 1971-1990
+- [`std.http.tls`](#stdhttptls): 1992-2009
+- [`std.http.typed`](#stdhttptyped): 2011-2044
+- [`std.http.websocket`](#stdhttpwebsocket): 2046-2081
+- [`std.http.wss`](#stdhttpwss): 2083-2089
+- [`std.image`](#stdimage): 2091-2137
+- [`std.io`](#stdio): 2139-2219
+- [`std.io.typed`](#stdiotyped): 2221-2259
+- [`std.json`](#stdjson): 2261-2325
+- [`std.jwt`](#stdjwt): 2327-2374
+- [`std.log`](#stdlog): 2376-2443
+- [`std.markdown`](#stdmarkdown): 2445-2479
+- [`std.template`](#stdtemplate): 2481-2502
+- [`std.math`](#stdmath): 2504-2570
+- [`std.mime`](#stdmime): 2572-2596
+- [`std.net`](#stdnet): 2598-2680
+- [`std.path`](#stdpath): 2682-2699
+- [`std.process`](#stdprocess): 2701-2747
+- [`std.random`](#stdrandom): 2749-2770
+- [`std.ready`](#stdready): 2772-2802
+- [`std.regex`](#stdregex): 2804-2857
+- [`std.report`](#stdreport): 2859-2882
+- [`std.secrets`](#stdsecrets): 2884-2910
+- [`std.shlex`](#stdshlex): 2912-2921
+- [`std.sketch`](#stdsketch): 2923-2961
+- [`std.sketch.xor`](#stdsketchxor): 2963-2974
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2976-2991
+- [`std.signal`](#stdsignal): 2993-3010
+- [`std.simd`](#stdsimd): 3012-3113
+- [`std.stat`](#stdstat): 3115-3148
+- [`std.plot`](#stdplot): 3150-3239
+- [`std.linalg`](#stdlinalg): 3241-3282
+- [`std.sync`](#stdsync): 3284-3293
+- [`std.system`](#stdsystem): 3295-3353
+- [`std.tempfile`](#stdtempfile): 3355-3387
+- [`std.test`](#stdtest): 3389-3431
+- [`std.text`](#stdtext): 3433-3452
+- [`std.thread`](#stdthread): 3454-3458
+- [`std.time`](#stdtime): 3460-3504
+- [`std.tls`](#stdtls): 3506-3588
+- [`std.toml`](#stdtoml): 3590-3639
+- [`std.unicode`](#stdunicode): 3641-3653
+- [`std.url`](#stdurl): 3655-3683
+- [`std.uuid`](#stduuid): 3685-3708
+- [`std.xml`](#stdxml): 3710-3743
 
 ## `std.actor`
 
@@ -468,54 +468,11 @@ class Bytes
     def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]
     def write_stdout(self, start: i64, stop: i64) -> Result[i64, IoError]
     def write_stderr(self, start: i64, stop: i64) -> Result[i64, IoError]
-    def read_os_entropy(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]
-    def crypto_update(self: &mut Bytes, data: &Bytes, start: i64, stop: i64) -> Result[bool, BytesError]
-    def crypto_update_text(self: &mut Bytes, text: &str) -> bool
-    def crypto_finish(self: &mut Bytes, target: &mut Bytes, offset: i64, size: i64) -> Result[bool, BytesError]
-    def crypto_verify(self: &mut Bytes, expected: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]
-    def crypto_equal(self, other: &Bytes) -> bool
-    def compress_step[S: ByteSource](self: &mut Bytes, input: &S, start: i64, stop: i64) -> Result[i64, BytesError]
-    def compress_flush(self: &mut Bytes, mode: i64) -> i64
-    def compress_ended(self) -> bool
-    def compress_restart(self: &mut Bytes) -> bool
-    def compress_crc32(self, seed: i64, start: i64, stop: i64) -> Result[i64, BytesError]
-    def sqlite_bind(self, statement: &ByteStorage, index: i64) -> i64
-    def net_receive_from(self: &mut Bytes, socket: &mut File, start: i64, stop: i64, sender: &mut Bytes) -> Result[i64, IoError]
-    def ready_select(self: &mut Bytes, selector: &File, timeout: u64, cancel: &CancellationToken) -> Result[i64, IoError]
-    def tls_feed(self, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]
-    def tls_take(self: &mut Bytes, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]
-    def tls_read(self: &mut Bytes, session: &ByteStorage, start: i64, stop: i64) -> Result[i64, BytesError]
-    def tls_detail(self: &mut Bytes, session: &ByteStorage, which: i64) -> i64
 def empty() -> Result[Bytes, BytesError]
 def with_capacity(capacity: i64) -> Result[Bytes, BytesError]
 def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
 def from_text(text: &str) -> Result[Bytes, BytesError]
 def from_bytes(value: bytes) -> Result[Bytes, BytesError]
-def crypto_state(kind: u8) -> Result[Bytes, BytesError]
-def crypto_derive_state(context: &str) -> Result[Bytes, BytesError]
-def crypto_keyed_state(kind: u8, key: &Bytes, start: i64, stop: i64) -> Result[Bytes, BytesError]
-def compress_state(kind: u8, level: i64, capacity: i64) -> Result[Bytes, BytesError]
-def sqlite_column(statement: &ByteStorage, column: i64) -> Result[Bytes, BytesError]
-def crypto_aes_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
-def crypto_aes_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
-def crypto_chacha_seal(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
-def crypto_chacha_open(key: &Bytes, nonce: &Bytes, aad: &Bytes, target: &mut Bytes) -> i64
-def crypto_ed_public(seed: &Bytes, target: &mut Bytes) -> i64
-def crypto_ed_sign(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> i64
-def crypto_ed_verify(key: &Bytes, message: &Bytes, signature: &Bytes) -> i64
-def crypto_hkdf(salt: &Bytes, key: &Bytes, info: &Bytes, target: &mut Bytes) -> i64
-def crypto_x_public(state: &Bytes, target: &mut Bytes) -> i64
-def crypto_x_agree(state: &mut Bytes, peer: &Bytes, target: &mut Bytes) -> i64
-def crypto_x_new() -> Result[Bytes, BytesError]
-def crypto_key_new() -> Result[Bytes, BytesError]
-def crypto_rsa_load(state: &mut Bytes, der: &Bytes) -> i64
-def crypto_p256_load(state: &mut Bytes, der: &Bytes) -> i64
-def crypto_key_size(state: &Bytes, which: i64) -> i64
-def crypto_key_public(state: &Bytes, target: &mut Bytes) -> i64
-def crypto_key_sign(state: &Bytes, scheme: i64, message: &Bytes, target: &mut Bytes) -> i64
-def crypto_rsa_verify(key: &Bytes, scheme: i64, message: &Bytes, signature: &Bytes) -> i64
-def crypto_p256_verify(point: &Bytes, message: &Bytes, signature: &Bytes) -> i64
-def crypto_p256_check(point: &Bytes) -> i64
 ```
 
 ## `std.cache.lru`
