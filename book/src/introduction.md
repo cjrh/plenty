@@ -36,13 +36,6 @@ The primary influences on Plenty are:
 - Rust, for ownership and borrowing, and getting the details right
 - Zig, for emphasizing fallible memory allocation
 
-Plenty has features similar to Rust, but does not compete with Rust.
-The Plenty compiler itself is written in Rust, and self-hosting the
-compiler is not a goal. The Plentiful view is that Rust is appropriate
-for some tasks, but a simpler language with different trade-offs can
-be appropriate for others. Rust is a great language for writing a
-compiler.
-
 ## Getting Started
 
 This book provides:
