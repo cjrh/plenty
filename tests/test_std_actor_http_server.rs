@@ -483,16 +483,43 @@ fn actor_http_tls_handshake_timeouts_and_close_notify() {
 
 #[test]
 fn actor_http_stalled_reader_expires_while_other_clients_progress() {
-    let server = Server::start(EVENTS, &[("timeout_ms", "200u32")]);
+    let server = Server::start(
+        EVENTS,
+        &[
+            ("timeout_ms", "200u32"),
+            ("response_timeout_ms", "0u32"),
+            ("observe_blocked", "True"),
+        ],
+    );
     let mut blocked = server.connect();
     blocked
         .get_mut()
         .write_all(b"GET /blocked HTTP/1.1\r\nHost: x\r\n\r\n")
         .unwrap();
-    // Sixteen MiB exceeds the socket send window. Not reading forces the
-    // actor to wait for writable readiness under its write deadline.
-    std::thread::sleep(Duration::from_millis(800));
+    assert_eq!(
+        server.lines.recv_timeout(WAIT).unwrap_or_else(|error| {
+            panic!(
+                "blocked response did not start: {error}: {}",
+                server.errors()
+            )
+        }),
+        "blocked started"
+    );
     assert_eq!(server.ask("/health").body, b"healthy");
+    // Keep all response bytes unread until this connection actor is dropped.
+    // A fixed sleep races server scheduling: starting to read too soon frees
+    // its socket window and lets the entire response complete (issue #651).
+    // Disable the overall response timeout so only the write-stall deadline
+    // can retire the still-producing handler. WAIT only bounds this test.
+    assert_eq!(
+        server.lines.recv_timeout(WAIT).unwrap_or_else(|error| {
+            panic!(
+                "write deadline did not retire stalled actor: {error}: {}",
+                server.errors()
+            )
+        }),
+        "blocked stopped"
+    );
     let mut partial = Vec::new();
     match blocked.read_to_end(&mut partial) {
         Ok(_) => (),
@@ -506,7 +533,9 @@ fn actor_http_stalled_reader_expires_while_other_clients_progress() {
     );
     drop(blocked);
     let summary = server.finish();
-    assert_eq!(counter(&summary, "trapped"), 0);
+    assert_eq!(counter(&summary, "requests"), 1, "{summary}");
+    assert_eq!(counter(&summary, "failed"), 0, "{summary}");
+    assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
 }
 
 #[test]
@@ -775,19 +804,33 @@ fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
         ],
     );
     let url = format!("https://127.0.0.1:{}/?[1-5000]", server.port);
+    // This workload requires fresh connections, not multiplexing. Curl's default
+    // parallel mode can leave transfers waiting for multiplexing until their
+    // entire timeout expires, before connecting to the server (issue #650).
     let output = Command::new("python3")
         .args(["-c", "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[1:], timeout=40).returncode)",
-            "curl", "-sS", "-k", "-Z", "--parallel-max", "16", "--max-time", "5",
-            "-H", "Connection: close", "-o", "/dev/null", "-w", "%{http_code}\n", &url])
+            "curl", "-sS", "-k", "-Z", "--parallel-immediate", "--parallel-max", "16", "--max-time", "5",
+            "-H", "Connection: close", "-o", "/dev/null", "-w",
+            "%{http_code} connects=%{num_connects} connect=%{time_connect} tls=%{time_appconnect} first_byte=%{time_starttransfer} total=%{time_total} url=%{url_effective}\n", &url])
         .output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
     let statuses = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(statuses.lines().count(), 5000);
-    assert!(statuses.lines().all(|line| line == "200"));
+    let failures: Vec<_> = statuses
+        .lines()
+        .filter(|line| !line.starts_with("200 "))
+        .take(16)
+        .collect();
+    if !output.status.success() || statuses.lines().count() != 5000 || !failures.is_empty() {
+        // Cancel through stdin and collect accounting even when curl fails;
+        // dropping the process at the assertion would lose this evidence.
+        let errors = server.errors();
+        let summary = server.finish();
+        panic!(
+            "HTTPS churn: curl {}; {} transfers; failures: {failures:?}\n{}\nserver:\n{summary}\n{errors}",
+            output.status,
+            statuses.lines().count(),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
     request_https_shutdown(&server);
     assert_eq!(
         server
