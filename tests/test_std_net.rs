@@ -153,17 +153,11 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocErr
     mut client = connect(&listener.local_address()?, &deadline, &cancel)?
     mut server = listener.accept_now()?
     mut buffer = zeroed(4)?
-    for bounds in [(-1, 1), (3, 2), (0, 5), (1, i64.MAX)]?:
-        (start, stop) = bounds
-        print(outcome(server.read_now(&mut buffer, start, stop))?)?
     print(outcome(server.read_now(&mut buffer, 0, 4))?)?
     print(buffer[0], buffer[3])?
     Ok(())
 "#,
-        &format!(
-            "{}std.net.NetError.WouldBlock\n0 0\n",
-            "std.net.NetError.Stream(std.io.StreamError.OutOfRange)\n".repeat(4)
-        ),
+        "std.net.NetError.WouldBlock\n0 0\n",
     );
 }
 
@@ -1002,4 +996,30 @@ def main() -> Result[(), RangeError | AllocError | IoError]:
 "#,
         "True True True\n",
     );
+}
+
+#[test]
+fn immediate_tcp_invalid_read_ranges_trap() {
+    for (start, stop) in [(-1, 1), (3, 2), (0, 5), (5, 5), (1, i64::MAX)] {
+        let source = format!(
+            r#"{PRELUDE}
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError]:
+    cancel = CancellationToken()?
+    deadline = within(5000u32)?
+    listener = listen(&loopback_v4(0u16), 1)?
+    mut client = connect(&listener.local_address()?, &deadline, &cancel)?
+    mut server = listener.accept_now()?
+    mut buffer = zeroed(4)?
+    drop(server.read_now(&mut buffer, {start}, {stop}))
+    Ok(())
+"#
+        );
+        let output = support::run_file(&source);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains(": read: start/stop outside buffer\n"),
+            "{stderr}"
+        );
+    }
 }
