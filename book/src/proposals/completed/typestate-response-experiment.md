@@ -1,12 +1,12 @@
 # Owned response experiment and consuming receivers
 
-**Status: experiment complete; consuming methods implemented.** The source is
+**Status: Experiment complete; consuming methods implemented.** The source is
 in `experiments/typestate/`. The original model used consuming free functions
 against baseline `344dfdbd`; it now exercises explicit owned receivers. This
-refreshes the [typestate assessment](typestate-and-owned-transitions.md).
-The HTTP server is unchanged. Individual [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of owned bindings were
+refreshes the [typestate assessment](../typestate-and-owned-transitions.md).
+The HTTP server is unchanged. Individual [field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of owned bindings were
 implemented later (issue #534), and the model now uses them.
-Scheduling remains in [B72](../backlog.md).
+Real HTTP integration remains unexplored and is tracked in [B72](../../backlog.md).
 
 ## What the experiment establishes
 
@@ -71,7 +71,7 @@ verbose; then terminal transport failure still needs a runtime broken-state
 check. Typestate is most promising at coarse begin/finish boundaries. Discarding
 an unfinished writer remains legal: deterministic resource cleanup is not a
 guarantee that a response completed. That stronger requirement belongs to
-[linear obligations](linear-obligations.md).
+[linear obligations](../linear-obligations.md).
 
 ## Consuming methods use existing ownership
 
@@ -114,4 +114,4 @@ reassignment and early returns, plus a rule for custom destructors that might
 inspect an extracted field. The implemented rules track each moved field like a
 binding, reject whole use of the owner until the field is assigned again, clean
 up only initialized fields, and reject moves out of a class with `__del__`. See
-[field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields). Whole-object destructuring is still not included.
+[field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields). Whole-object destructuring is still not included.
