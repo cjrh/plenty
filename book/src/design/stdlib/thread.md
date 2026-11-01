@@ -32,10 +32,14 @@ lexical handles and cannot escape. Borrowed arguments retain their loans until
 join. The ordinary worker eligibility, foreign-effect, and channel hang checks
 apply to every imported spelling.
 
-Named/borrowed starts report `ThreadError.System(code)`. An owned start reports
-`SpawnError[F].Unavailable(job)`, retaining the job for recovery;
-`spawn(job).drop_job()` drops it and reports the job-free `SpawnError[()]`. See
-[owned jobs](../facilities/03-concurrency/jobs.md). Job handoff and bookkeeping
+A start with only owned or copied arguments, `spawn(job)` or
+`spawn(worker, arguments...)`, reports `SpawnError[F].Unavailable(job, code)`,
+retaining the job for recovery; a named start's job binds its arguments.
+`.drop_job()` on the start drops the job and reports the job-free
+`SpawnError[()]`. A start that borrows, such as `spawn(total, &values, 0, 50)`,
+reports `ThreadError.System(code)`. See
+[owned jobs](../facilities/03-concurrency/jobs.md) and
+[start failures](../facilities/03-concurrency/threads.md#start-failures). Job handoff and bookkeeping
 allocate no Plenty heap storage; native thread creation uses OS resources.
 There is no hidden clone. Start/join bookkeeping has fixed overhead apart from
 argument/result transfer and cleanup, but scheduling and joining have no bounded

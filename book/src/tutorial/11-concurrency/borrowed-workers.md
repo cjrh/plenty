@@ -52,9 +52,9 @@ def total(values: list[i64]) -> i64:
         result = result + value
     result
 
-def main() -> Result[(), ThreadError | IoError | AllocError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError]:
     values = [2, 3, 4]?
-    with spawn(total, values)? as task:
+    with spawn(total, values).drop_job()? as task:
         print(task.join())?
     Ok(())
 ```
@@ -62,15 +62,16 @@ def main() -> Result[(), ThreadError | IoError | AllocError]:
 9
 ```
 
-`values` moves and cannot be used again. If startup fails, the moved arguments
-drop on the parent thread. To retain them for retry, use `spawn(job)` with an
-owned closure; the
-[consuming jobs lesson](owned-worker-jobs.md) shows recovery after a failed
-start.
+`values` moves and cannot be used again. Because every argument is owned, the
+start reports `SpawnError`, like the [scoped threads](scoped-threads.md) lesson's
+starts: without `drop_job()` a failed start would return `values` inside the
+error. A start that borrows reports `ThreadError` instead, because an error
+cannot yet hold a borrow. If such a start fails, its moved arguments drop on the
+parent thread.
 
-To preserve creation error details, put the scope in a helper returning
-`Result[T, ThreadError]` and match its result. `ThreadError.System(code)` contains
-the native error code.
+To preserve creation error details, put the scope in a helper and match its
+result. `ThreadError.System(code)` and `SpawnError.Unavailable(job, code)` both
+contain the native error code.
 
 The compiler checks worker helpers, captured data, and destructors. Foreign
 calls, File values, indirect function calls, and generators are not yet eligible.

@@ -82,11 +82,11 @@ fn executor_jobs_share_one_client_and_its_connections() {
     runs(
         SHARED,
         r##"
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         client = Shared(hc.client(hc.config()?)?)?
         mut sum = 0
@@ -148,11 +148,11 @@ def bounded(url: &str, max_idle: i64, per_origin: i64) -> Result[(), std.bytes.B
     print("closed:", client.idle(), closed.opened == closed.discarded)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         bounded(&url, 16, 2)?
         bounded(&url, 1, 4)?
@@ -177,11 +177,11 @@ fn expired_connections_are_closed_by_the_next_user_of_the_pool() {
     runs(
         SHARED,
         r##"
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | ThreadError | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         mut config = hc.config()?
         config.idle_timeout = std.time.milliseconds(50u32)
@@ -252,11 +252,11 @@ def run(url: &str) -> Result[(), std.bytes.BytesError | hc.ClientError | RangeEr
     print(line(&*client)?)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         run(&url)?
     Ok(())
@@ -331,11 +331,11 @@ def run(url: &str) -> Result[(), hc.ClientError | FutureError | PoolError | Rang
     print(line(&*client)?)?
     Ok(())
 
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | ThreadError | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         run(&url)?
     Ok(())
@@ -410,14 +410,14 @@ def run(url: &str, quiet_url: &str, received: &CancellationToken) -> Result[(), 
     print(line(&*client)?)?
     Ok(())
 
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | ThreadError | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     quiet = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     quiet_url = "http://127.0.0.1:".concat(&str.from(i64(quiet.local_address()?.port))?)?.concat("/")?
     stop = CancellationToken()?
     received = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit(), spawn(silent, quiet, received.share(), stop.share())? as sink, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit(), spawn(silent, quiet, received.share(), stop.share()).drop_job()? as sink, stop.cancel_on_exit():
         url = "http://127.0.0.1:".concat(&str.from(i64(port))?)?.concat("/")?
         run(&url, &quiet_url, &received)?
     Ok(())

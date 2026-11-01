@@ -20,9 +20,9 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ThreadError | ChannelError | IoError]:
+def main() -> Result[(), SpawnError[()] | ChannelError | IoError]:
     sender, receiver = channel[i64](2)?
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(drain(inbox))?
     Ok(())
 ```
@@ -31,7 +31,7 @@ def main() -> Result[(), ThreadError | ChannelError | IoError]:
 30
 ```
 
-`spawn(produce, sender)?` moves the only sender into the producer. When the
+`spawn(produce, sender)` moves the only sender into the producer. When the
 producer returns, its sender drops; the receiver drains the queue, then reports
 disconnection, which ends the loop. A blocking `recv` fails only on
 disconnection, so `case Err(_)` is enough here.
@@ -50,9 +50,9 @@ def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-def main() -> Result[(), ThreadError | ChannelError | RecvError | IoError]:
+def main() -> Result[(), SpawnError[()] | ChannelError | RecvError | IoError]:
     sender, receiver = channel[i64](2)?
-    with spawn(produce, sender)?:
+    with spawn(produce, sender).drop_job()?:
         print(receiver.recv()?)?
     Ok(())
 ```
@@ -88,9 +88,9 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ThreadError | ChannelError | IoError | SendError[i64]]:
+def main() -> Result[(), SpawnError[()] | ChannelError | IoError | SendError[i64]]:
     sender, receiver = channel[i64](2)?
-    with spawn(produce, sender)? as task:
+    with spawn(produce, sender).drop_job()? as task:
         mut total = 0
         with receiver as inbox:
             total = drain(inbox)
@@ -126,9 +126,9 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ThreadError | ChannelError | IoError | SendError[i64]]:
+def main() -> Result[(), SpawnError[()] | ChannelError | IoError | SendError[i64]]:
     sender, receiver = channel[i64](2)?
-    with spawn(produce, sender)? as task:
+    with spawn(produce, sender).drop_job()? as task:
         print("receiving")?
         mut total = 0
         with receiver as inbox:
@@ -160,9 +160,9 @@ def consume(receiver: Receiver[i64]) -> ():
         case Err(_):
             pass
 
-def main() -> Result[(), ThreadError | ChannelError | SendError[i64]]:
+def main() -> Result[(), SpawnError[()] | ChannelError | SendError[i64]]:
     sender, receiver = channel[i64](1)?
-    with spawn(consume, receiver)?, sender as outbox:
+    with spawn(consume, receiver).drop_job()?, sender as outbox:
         outbox.send(42)?
     Ok(())
 ```
@@ -187,7 +187,7 @@ up front; sending and receiving introduce no further allocations. Messages still
 use their ordinary types: sending a list moves it, and receiving returns its
 ownership. A failed send returns the unsent value inside its error.
 
-Starting a named function with arguments reports `ThreadError`, and a failed
-start drops the moved arguments, including endpoints. A closure job instead
-returns inside `SpawnError`, as in [owned worker jobs](owned-worker-jobs.md);
-the next lesson shows why its endpoints matter.
+A failed start returns its owned arguments, including endpoints, inside
+`SpawnError`, as in [owned worker jobs](owned-worker-jobs.md). `drop_job()`
+drops them at the start instead, so the error holds no endpoint;
+[wait habits](wait-habits.md) shows why that matters.

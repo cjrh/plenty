@@ -460,7 +460,7 @@ def cancel_later(token: CancellationToken) -> ():
     sleep(&milliseconds(30u32))
     token.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     deadline = within(5000u32)?
@@ -472,7 +472,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | Alloc
     while result.is_ok():
         result = stream.write_before(&data, 0, data.len(), &short, &cancel)
     print(outcome(result)?)?
-    with spawn(cancel_later, cancel.share())?:
+    with spawn(cancel_later, cancel.share()).drop_job()?:
         mut cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
         while cancelled.is_ok():
             cancelled = stream.write_before(&data, 0, data.len(), &deadline, &cancel)
@@ -588,7 +588,7 @@ def cancel_later(token: CancellationToken) -> ():
     sleep(&milliseconds(30u32))
     token.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     expired = within(0u32)?
@@ -596,7 +596,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | Alloc
     start = monotonic_now()
     print(outcome(listener.accept(&within(50u32)?, &cancel))?)?
     print(monotonic_now().saturating_duration_since(&start).as_milliseconds() >= 50u64)?
-    with spawn(cancel_later, cancel.share())?:
+    with spawn(cancel_later, cancel.share()).drop_job()?:
         print(outcome(listener.accept(&within(5000u32)?, &cancel))?)?
     print(outcome(connect(&listener.local_address().unwrap(), &within(1000u32)?, &cancel))?)?
 
@@ -811,12 +811,12 @@ def client(port: u16) -> Result[i64, NetError]:
     stream.write_all_before(&message, 0, message.len(), &deadline, &cancel)?
     Ok(message.len())
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     port = listener.local_address().unwrap().port
-    with spawn(client, port)? as task:
+    with spawn(client, port).drop_job()? as task:
         mut stream = listener.accept(&deadline, &cancel).unwrap()
         print(read_all(&mut stream, &deadline, &cancel).unwrap().to_text()?)?
         print(task.join().unwrap())?
@@ -923,7 +923,7 @@ def selecting(cancel: CancellationToken) -> Result[Instant, WaitError]:
         case _:
             Err(WaitError.TimedOut)
 
-def main() -> Result[(), ThreadError | AllocError | IoError]:
+def main() -> Result[(), ThreadError | SpawnError[()] | AllocError | IoError]:
     listener = listen(&loopback_v4(0u16), 1).unwrap()
     mut worst = 0u64
     for _ in range(20):
@@ -936,7 +936,7 @@ def main() -> Result[(), ThreadError | AllocError | IoError]:
             if latency > worst:
                 worst = latency
         other = CancellationToken()?
-        with spawn(selecting, other.share())? as task:
+        with spawn(selecting, other.share()).drop_job()? as task:
             sleep(&milliseconds(5u32))
             at = monotonic_now()
             other.cancel()

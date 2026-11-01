@@ -429,10 +429,10 @@ def work(path: str) -> Result[(), AllocError | IoError | std.db.sqlite.DbError]:
     report(db.execute("SELECT * FROM missing"))?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | SpawnError[()]]:
     mut db = std.db.sqlite.connect({path}, Mode.Create, 4096)?
     db.execute("CREATE TABLE t(x TEXT)")?
-    with spawn(work, {path})?:
+    with spawn(work, {path}).drop_job()?:
         pass
     mut query = db.prepare("SELECT x FROM t")?
     query.step()?

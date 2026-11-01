@@ -701,9 +701,9 @@ def work(data: Bytes) -> ():
     encoded = std.encoding.base64_encode(&data, 0, data.len()).unwrap()
     print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | SpawnError[()]]:
     data = std.bytes.from_text("foobar")?
-    with spawn(work, data)?:
+    with spawn(work, data).drop_job()?:
         pass
     Ok(())
 "#

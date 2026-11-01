@@ -371,7 +371,7 @@ fn a_user_module_named_like_std_does_not_gain_standard_provenance() {
 fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
     let error = trap(&[(
         "main.plenty",
-        "from std.math import abs\nfrom std.thread import spawn\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | ThreadError | IoError]:\n    print(abs(1))?\n    with spawn(positive, -9223372036854775808)? as task:\n        print(task.join())?\n    Ok(())\n",
+        "from std.math import abs\nfrom std.thread import spawn\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    print(abs(1))?\n    with spawn(positive, -9223372036854775808).drop_job()? as task:\n        print(task.join())?\n    Ok(())\n",
     )]);
     assert!(
         error.ends_with("note: called from main.plenty:4:5\n"),
@@ -504,7 +504,7 @@ fn standard_indirect_calls_still_restore_the_caller_context() {
 fn a_check_failing_in_a_worker_thread_names_its_site() {
     let error = trap(&[(
         "main.plenty",
-        "def worker(big: i8) -> i8:\n    big + 1i8\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    with spawn(worker, 127i8)? as task:\n        print(task.join())?\n    Ok(())\n",
+        "def worker(big: i8) -> i8:\n    big + 1i8\ndef main() -> Result[(), AllocError | IoError | SpawnError[()]]:\n    with spawn(worker, 127i8).drop_job()? as task:\n        print(task.join())?\n    Ok(())\n",
     )]);
     assert_eq!(error, "error: main.plenty:2:5: integer overflow\n");
 }

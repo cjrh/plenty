@@ -226,7 +226,7 @@ pub fn producer_conflict(target: &Ty, source: &Ty) -> Option<Ty> {
         let Ty::Enum(t) = ty else { return None };
         let (base, _) = t.name.split_once('[')?;
         match t.get().variants.first()?.fields.as_slice() {
-            [closure @ Ty::Closure(_)] => Some((base, closure.clone())),
+            [closure @ Ty::Closure(_), ..] => Some((base, closure.clone())),
             _ => None,
         }
     }
@@ -326,10 +326,10 @@ pub fn thread_error() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(ty))
 }
 
-/// A failed consuming start returns the complete job, without allocating an
-/// error object. Every native start failure is `Unavailable`: the caller can
-/// only retry or run the job itself, so the OS code is not kept. Borrowed
-/// starts retain their raw OS code.
+/// A failed owned start returns the complete job and the native start code,
+/// without allocating an error object. Every native start failure is
+/// `Unavailable(job, code)`: the job comes first, as in the other errors that
+/// return a moved input. Borrowed starts report `ThreadError.System(code)`.
 pub fn spawn_error(job: Ty) -> Ty {
     let Ty::Enum(template) = option(job.clone()) else {
         unreachable!()
@@ -338,7 +338,7 @@ pub fn spawn_error(job: Ty) -> Ty {
     ty.name = format!("SpawnError[{job}]");
     ty.variants = vec![Variant {
         name: "Unavailable".into(),
-        fields: vec![job.clone()],
+        fields: vec![job.clone(), Ty::I32],
     }];
     structural(ty, format!("SpawnError[{}]", job.identity_name()))
 }

@@ -172,37 +172,44 @@ impl Lowerer<'_, '_> {
                 self.write_local(*slot, token);
                 let fail = self.bcx.create_block();
                 let done = self.bcx.create_block();
-                self.bcx.ins().brif(failed, fail, &[], done, &[]);
+                self.bcx.append_block_param(done, types::I128);
+                let ok = self.bcx.ins().iconst(types::I64, 0);
+                let ok = self.bcx.ins().uextend(types::I128, ok);
+                self.bcx.ins().brif(failed, fail, &[], done, &[ok.into()]);
                 self.bcx.switch_to_block(fail);
                 self.bcx.seal_block(fail);
-                if task.owned_job().is_none() {
+                let result = task.start_result();
+                let Ty::Enum(result_enum) = &result else {
+                    unreachable!()
+                };
+                let error = if let Some(job) = task.owned_job() {
+                    // The source environment is inert after the move into task
+                    // storage. On failure it becomes the residual owner; on
+                    // success only the worker owns its relocated copy. Every
+                    // nonzero status is `Unavailable`: EAGAIN is the usual one,
+                    // but a seccomp filter can make clone fail with another
+                    // code such as EPERM, and the job must still come back.
+                    self.stack.push((arguments[0].0, job.clone()));
+                    self.stack.push((status, Ty::I32));
+                    let Ty::Enum(error) = result_enum.get().variants[1].fields[0].clone() else {
+                        unreachable!()
+                    };
+                    self.lower_enum(&crate::sum::EnumOp::New(error, 0))?;
+                    self.lower_enum(&crate::sum::EnumOp::New(result_enum.clone(), 1))?;
+                    self.stack.pop().ok_or("missing spawn error")?.0
+                } else {
                     for (value, ty) in arguments.iter().rev() {
                         self.release(*value, ty);
                     }
-                }
-                self.bcx.ins().jump(done, &[]);
-                self.bcx.switch_to_block(done);
-                self.bcx.seal_block(done);
-                let result = if let Some(job) = task.owned_job() {
-                    // The source environment is inert after the move into task
-                    // storage. On failure it becomes the residual owner; on
-                    // success only the worker owns its relocated copy.
-                    let payload = self.pack(arguments[0].0, job);
-                    // Every nonzero status is `Unavailable`. EAGAIN is the
-                    // usual one; a seccomp filter can make clone fail with
-                    // another code such as EPERM, and the job must still
-                    // come back.
-                    let error = self.wrap_sum(payload, 0);
-                    let error = self.wrap_sum(error, 1);
-                    let zero = self.bcx.ins().iconst(types::I64, 0);
-                    let zero = self.bcx.ins().uextend(types::I128, zero);
-                    self.bcx.ins().select(failed, error, zero)
-                } else {
                     let payload = self.bcx.ins().uextend(types::I128, status);
-                    let tag = self.bcx.ins().uextend(types::I64, failed);
                     let (payload, _) = self.bcx.ins().isplit(payload);
+                    let tag = self.bcx.ins().iconst(types::I64, 1);
                     self.bcx.ins().iconcat(payload, tag)
                 };
+                self.bcx.ins().jump(done, &[error.into()]);
+                self.bcx.switch_to_block(done);
+                self.bcx.seal_block(done);
+                let result = self.bcx.block_params(done)[0];
                 self.stack.push((result, task.start_result()));
             }
             ThreadOp::Join(task) => {

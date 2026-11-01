@@ -15,8 +15,9 @@ def main() -> Result[(), AllocError | IoError | SpawnError[OnceClosure[[], list[
 [3, 4]
 ```
 
-If thread creation fails, the error is `SpawnError[F].Unavailable(job)`, which
-retains the complete job. `F` is the closure's own type. The signature writes
+If thread creation fails, the error is `SpawnError[F].Unavailable(job, code)`,
+which retains the complete job and the native error code. `F` is the closure's
+own type. The signature writes
 `OnceClosure[[], list[i64]]`, and `?` fills in the concrete closure it
 propagates, so `main` returns the unstarted job unchanged.
 
@@ -57,7 +58,7 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
     match attempt(job):
         case Ok(value):
             value
-        case Err(SpawnError.Unavailable(job)):
+        case Err(SpawnError.Unavailable(job, _)):
             job()
 
 def main() -> Result[(), IoError]:

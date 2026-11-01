@@ -7,8 +7,8 @@ continues until `join()` waits for the result:
 def squares(n: i64) -> Result[list[i64], AllocError]:
     [i * i for i in range(n)]
 
-def main() -> Result[(), ThreadError | AllocError | IoError]:
-    with spawn(squares, 4)? as first, spawn(squares, 3)? as second:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
+    with spawn(squares, 4).drop_job()? as first, spawn(squares, 3).drop_job()? as second:
         print(first.join()?)?
         print(second.join()?)?
     Ok(())
@@ -20,7 +20,8 @@ def main() -> Result[(), ThreadError | AllocError | IoError]:
 
 The `?` after `spawn(...)` handles failure to create the thread. The `?` after
 `join()` handles the worker's own Result, here an allocation failure while
-building its list. They are separate failures. Join consumes the task binding,
+building its list. They are separate failures. `drop_job()` is explained in
+[error types at thread start](#error-types-at-thread-start). Join consumes the task binding,
 so it cannot be called twice.
 
 Every started thread finishes before its `with` block exits. This includes
@@ -33,10 +34,15 @@ them a shutdown protocol. Fatal traps terminate the process without unwinding.
 
 ## Error types at thread start
 
-A failed start reports `ThreadError`; an owned closure job reports
-`SpawnError[F]`, which returns the job. Like any `?`, the start error widens
-into the enclosing Result's error sum, so `main` above lists `ThreadError`
-beside the worker's `AllocError` and the printing `IoError`. A sum without the start error is rejected.
+A failed start reports `SpawnError[F]`, which returns the unstarted job: here
+the function and its arguments. `drop_job()` drops that job at the start, so the
+error becomes `SpawnError[()]`, one member for every start. Keep the job when
+you want to retry it, as [owned worker jobs](owned-worker-jobs.md) shows.
+[Borrowed workers](borrowed-workers.md) report `ThreadError` instead.
+
+Like any `?`, the start error widens into the enclosing Result's error sum, so
+`main` above lists `SpawnError[()]` beside the worker's `AllocError` and the
+printing `IoError`. A sum without the start error is rejected.
 
 Later lessons use module-level [error aliases](../03-absence/anonymous-sums.md)
 to keep longer signatures readable. Each alias names that example's propagated

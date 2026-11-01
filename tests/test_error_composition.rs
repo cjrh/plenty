@@ -201,8 +201,8 @@ def classify(cause: ParseError) -> IoError:
     IoError.InvalidInput
 def worker() -> Result[i64, IoError]:
     map_error(i64.parse("42"), def once (cause: ParseError) -> IoError: classify(cause))
-def main() -> Result[(), IoError | ThreadError]:
-    with spawn(worker)? as task:
+def main() -> Result[(), IoError | SpawnError[()]]:
+    with spawn(worker).drop_job()? as task:
         print(task.join()?)?
     Ok(())
 "#,

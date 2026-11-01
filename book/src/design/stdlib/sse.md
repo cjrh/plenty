@@ -46,13 +46,13 @@ def watch(port: u16, stop: CancellationToken) -> Result[(), WatchError]:
         print(reply.body.to_text()?.strip()?)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | WatchError]:
+def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.NetError | WatchError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/events", Route.Events)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(watch, port, stop.share())? as task:
+    with spawn(watch, port, stop.share()).drop_job()? as task:
         drop(std.http.server.serve(listener, &routes, &Feed(), &std.http.server.config(), &stop)?)
         task.join()?
     Ok(())

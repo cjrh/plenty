@@ -74,9 +74,9 @@ const JOINS: &str =
 fn a_question_mark_before_the_cancel_is_rejected() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?:
+    with spawn(spin, stop.share()).drop_job()?:
         fails()?
         stop.cancel()
     Ok(())
@@ -109,9 +109,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
 fn return_break_and_continue_before_the_cancel_are_rejected() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?:
+    with spawn(spin, stop.share()).drop_job()?:
         if True:
             return Err("early")
         stop.cancel()
@@ -121,10 +121,10 @@ def main() -> Result[(), AllocError | ThreadError | str]:
     );
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     for i in range(3):
-        with spawn(spin, stop.share())?:
+        with spawn(spin, stop.share()).drop_job()?:
             if i == 0:
                 break
             stop.cancel()
@@ -134,10 +134,10 @@ def main() -> Result[(), AllocError | ThreadError | str]:
     );
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     for i in range(3):
-        with spawn(spin, stop.share())?:
+        with spawn(spin, stop.share()).drop_job()?:
             if i == 0:
                 continue
             stop.cancel()
@@ -151,9 +151,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
 fn a_failed_later_start_is_rejected() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())? as a, spawn(quick)? as b:
+    with spawn(spin, stop.share()).drop_job()? as a, spawn(quick).drop_job()? as b:
         stop.cancel()
     Ok(())
 "#,
@@ -165,9 +165,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
 fn a_guard_before_the_task_is_rejected() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with stop.cancel_on_exit(), spawn(spin, stop.share())?:
+    with stop.cancel_on_exit(), spawn(spin, stop.share()).drop_job()?:
         fails()?
     Ok(())
 "#,
@@ -183,9 +183,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
 fn an_explicit_join_before_the_cancel_is_rejected() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())? as task, stop.cancel_on_exit():
+    with spawn(spin, stop.share()).drop_job()? as task, stop.cancel_on_exit():
         task.join()
         stop.cancel()
     Ok(())
@@ -241,9 +241,9 @@ def client(stop: CancellationToken) -> Result[(), str]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(client, stop.share())? as task:
+    with spawn(client, stop.share()).drop_job()? as task:
         stop.wait()
         task.join()?
     Ok(())
@@ -259,9 +259,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
 fn guarded_tasks_pools_and_workers_are_accepted() {
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | ThreadError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?, stop.cancel_on_exit():
+    with spawn(spin, stop.share()).drop_job()?, stop.cancel_on_exit():
         fails()?
     with spawn(watch, &stop)?, stop.cancel_on_exit():
         fails()?
@@ -283,9 +283,9 @@ def main() -> Result[(), AllocError | PoolError | SubmitError[()] | FutureError 
     // Two tasks hold `stop`: a guard after each cancels before each join.
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?, stop.cancel_on_exit(), spawn(spin, stop.share())?, stop.cancel_on_exit():
+    with spawn(spin, stop.share()).drop_job()?, stop.cancel_on_exit(), spawn(spin, stop.share()).drop_job()?, stop.cancel_on_exit():
         fails()?
     Ok(())
 "#,
@@ -293,9 +293,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
     // A nested guard ends before the join inside the outer block.
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())? as task:
+    with spawn(spin, stop.share()).drop_job()? as task:
         with stop.cancel_on_exit():
             fails()?
         task.join()
@@ -309,9 +309,9 @@ def client(stop: CancellationToken) -> Result[(), str]:
         fails()?
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(client, stop.share())? as task:
+    with spawn(client, stop.share()).drop_job()? as task:
         stop.wait()
         task.join()?
     Ok(())
@@ -324,9 +324,9 @@ fn unrelated_or_missing_cancels_are_accepted() {
     // The function never cancels `stop`, so an early exit skips nothing.
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(quick)?:
+    with spawn(quick).drop_job()?:
         fails()?
     Ok(())
 "#,
@@ -334,12 +334,12 @@ def main() -> Result[(), AllocError | ThreadError | str]:
     // The later cancel is of a token that the task does not hold.
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
     other = CancellationToken()?
-    with spawn(spin, stop.share())? as task, stop.cancel_on_exit():
+    with spawn(spin, stop.share()).drop_job()? as task, stop.cancel_on_exit():
         fails()?
-    with spawn(quick)?:
+    with spawn(quick).drop_job()?:
         fails()?
         other.cancel()
     Ok(())
@@ -348,9 +348,9 @@ def main() -> Result[(), AllocError | ThreadError | str]:
     // A cancel already made before the exit is enough.
     accepted(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?:
+    with spawn(spin, stop.share()).drop_job()?:
         stop.cancel()
         fails()?
         stop.cancel()
@@ -407,9 +407,9 @@ def main() -> Result[(), AllocError]:
 fn guarded_error_paths_do_not_hang() {
     fails_promptly(
         r#"
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(spin, stop.share())?, stop.cancel_on_exit():
+    with spawn(spin, stop.share()).drop_job()?, stop.cancel_on_exit():
         fails()?
     Ok(())
 "#,
@@ -433,9 +433,9 @@ def client(stop: CancellationToken) -> Result[(), str]:
         fails()?
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | str]:
     stop = CancellationToken()?
-    with spawn(client, stop.share())? as task:
+    with spawn(client, stop.share()).drop_job()? as task:
         stop.wait()
         task.join()?
     Ok(())

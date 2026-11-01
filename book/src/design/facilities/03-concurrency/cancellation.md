@@ -45,7 +45,7 @@ Contexts exit in reverse order, so put the guard directly after each task or
 pool that holds the token:
 
 ```text
-with spawn(serve, listener, stop.share())?, stop.cancel_on_exit():
+with spawn(serve, listener, stop.share()).drop_job()?, stop.cancel_on_exit():
     ...
 with ThreadPoolExecutor(2, 8)? as pool, stop.cancel_on_exit():
     ...
@@ -55,7 +55,7 @@ To join inside the block, or to wait for a job's `result()`, cancel first:
 either call `stop.cancel()` before the wait, or end a nested guard before it:
 
 ```text
-with spawn(serve, stop.share())? as task:
+with spawn(serve, stop.share()).drop_job()? as task:
     with stop.cancel_on_exit():
         ...
     task.join()

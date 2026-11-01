@@ -155,19 +155,19 @@ fn receiving_joins_check_every_exit_and_failed_later_start() {
         );
     }
     rejected(
-        "def main() -> Result[(), ChannelError | ThreadError]:
+        "def main() -> Result[(), ChannelError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     other = receiver.share()
-    with spawn(consume, receiver)?, spawn(consume, other)?, sender as outbox:
+    with spawn(consume, receiver).drop_job()?, spawn(consume, other).drop_job()?, sender as outbox:
         pass
     Ok(())
 ",
     );
     // Moving the sender later does not release it on an earlier failing path.
     rejected(
-        "def main() -> Result[(), ChannelError | IoError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(consume, receiver)? as task:
+    with spawn(consume, receiver).drop_job()? as task:
         print(1)?
         drop(sender)
         task.join()
@@ -180,10 +180,10 @@ fn receiving_joins_check_every_exit_and_failed_later_start() {
 fn receiving_joins_allow_guarded_early_exits() {
     for exit in ["return Ok(())", "break", "continue", "print(1)?"] {
         support::check_source(&format!(
-            "{CONSUME}def main() -> Result[(), ChannelError | IoError | ThreadError]:
+            "{CONSUME}def main() -> Result[(), ChannelError | IoError | SpawnError[()]]:
     for i in range(1):
         sender, receiver = channel[i64](1)?
-        with spawn(consume, receiver)?, sender as outbox:
+        with spawn(consume, receiver).drop_job()?, sender as outbox:
             {exit}
     Ok(())
 "

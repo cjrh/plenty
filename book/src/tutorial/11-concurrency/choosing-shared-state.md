@@ -22,8 +22,8 @@ def total(start: i64, end: i64) -> i64:
         sum = sum + value
     sum
 
-def main() -> Result[(), ThreadError | IoError]:
-    with spawn(total, 0, 500)? as low, spawn(total, 500, 1000)? as high:
+def main() -> Result[(), SpawnError[()] | IoError]:
+    with spawn(total, 0, 500).drop_job()? as low, spawn(total, 500, 1000).drop_job()? as high:
         print(low.join() + high.join())?
     Ok(())
 ```

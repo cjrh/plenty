@@ -151,7 +151,7 @@ def worker(t: Tagged) -> Tagged:
 def width(t: &Tagged) -> i64:
     t.span.hi.x - t.span.lo.x
 
-def main() -> Result[(), AllocError | IoError | ThreadError | ChannelError | SendError[Tagged] | RecvError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | ChannelError | SendError[Tagged] | RecvError]:
     mut tags: list[Tagged] = []?
     for i in range(4):
         tags.append(Tagged(Span(Point(i, 0), Point(10 - i * 3, 5)), ("t" + str.from(i)?)?))?
@@ -182,7 +182,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError | ChannelError | Sen
     sender.send(Tagged(Span(Point(1, 2), Point(3, 4)), "sent"))?
     got = receiver.recv()?
     print(got)?
-    with spawn(worker, got)? as task:
+    with spawn(worker, got).drop_job()? as task:
         back = task.join()
         print(back.span, back.name)?
     first = tags.pop()

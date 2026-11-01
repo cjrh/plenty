@@ -306,7 +306,7 @@ def worker(t: (Point, Point, i64)) -> (Point, Point, i64):
     a, b, n = t
     (b, a, n * 2)
 
-def main() -> Result[(), AllocError | IoError | ThreadError | ChannelError | SendError[(Pair, Point)] | RecvError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | ChannelError | SendError[(Pair, Point)] | RecvError]:
     print(left_of(Event.Two(Guard("a"), Point(1, 2), Guard("b")))?)?
     print(left_of(Event.Nested(Pair(Guard("pl"), Guard("pr")), Guard("g")))?)?
     t = (Guard("t1"), Guard("t2"))
@@ -329,7 +329,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError | ChannelError | Sen
     sender.send((Pair(Guard("c1"), Guard("c2")), Point(7, 8)))?
     got, at = receiver.recv()?
     print(got.left.name, at)?
-    with spawn(worker, (Point(1, 2), Point(3, 4), 21))? as task:
+    with spawn(worker, (Point(1, 2), Point(3, 4), 21)).drop_job()? as task:
         print(task.join())?
     print("end")?
     Ok(())

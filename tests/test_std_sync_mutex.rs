@@ -236,14 +236,14 @@ fn locks_nest_and_workers_start_inside_them() {
 def double(value: i64) -> i64:
     value * 2
 
-def main() -> Result[(), IoError | ThreadError]:
+def main() -> Result[(), IoError | SpawnError[()]]:
     nested = Mutex(Mutex(3))
     with nested.lock() as inner:
         with inner.lock() as value:
             *value = *value + 1
     counter = Mutex(5)
     with counter.lock() as value:
-        with spawn(double, *value)? as task:
+        with spawn(double, *value).drop_job()? as task:
             *value = task.join()
     print(nested.into_inner().into_inner())?
     print(counter.into_inner())?

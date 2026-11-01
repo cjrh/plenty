@@ -76,7 +76,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
 
 type ServerSetupError = std.http.server.ServerError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError | FetchError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | ServerSetupError | FetchError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
@@ -84,7 +84,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | ServerSetupError |
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &routes, &App(), &std.http.server.config(), &stop)?
         task.join()?
         print(report.requests)?

@@ -17,13 +17,13 @@ def stopped(stop: Stop) -> bool:
     stop.wait()
     stop.is_cancelled()
 
-type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | ThreadError | PoolError | FutureError | SubmitError[()]
+type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | SpawnError[()] | PoolError | FutureError | SubmitError[()]
 
 def main() -> Result[(), Errors]:
     sender, receiver = bounded[str](1)?
     sender.send("hello")?
     drop(sender)
-    with threads.spawn(receive, receiver)? as task:
+    with threads.spawn(receive, receiver).drop_job()? as task:
         print(task.join()?)?
     stop = Stop()?
     with Pool(1, 1)? as pool:
@@ -55,5 +55,5 @@ need no network or separately installed Plenty sources.
 A failed submission returns its unstarted job inside `SubmitError`;
 `drop_job()` drops it and leaves `SubmitError[()]`, as the
 [executor lesson](executors-and-futures.md) explains. A spawn of a named
-function with arguments reports `ThreadError`: its moved arguments are dropped,
-not returned.
+function with owned arguments works the same way: it returns them inside
+`SpawnError`, and `drop_job()` leaves `SpawnError[()]`.

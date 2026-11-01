@@ -73,8 +73,8 @@ import std.path
 def worker() -> Result[(), AllocError | IoError]:
     std.env.set_current_dir(&std.path.from_text("/")?)
 
-def main() -> Result[(), ThreadError]:
-    with spawn(worker)?:
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(worker).drop_job()?:
         pass
     Ok(())
 ```

@@ -34,8 +34,8 @@ def make(offset: i64) -> Closure[[i64], i64]:
     def [offset](n: i64) -> i64:
         offset + n
 
-def main() -> Result[(), ThreadError | IoError]:
-    with spawn(make, 10)? as task:
+def main() -> Result[(), SpawnError[()] | IoError]:
+    with spawn(make, 10).drop_job()? as task:
         callback = task.join()
         print(callback(3))?
     Ok(())

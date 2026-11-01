@@ -154,6 +154,22 @@ with ThreadPoolExecutor(1, 2).unwrap() as pool:
 }
 
 #[test]
+fn shutdown_takes_no_argument_and_names_cancel_pending() {
+    // Issue #631 replaced `shutdown(True)` with `cancel_pending()`.
+    for argument in ["True", "False"] {
+        let error = support::check_error(&format!(
+            "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n    pool.shutdown({argument})\n"
+        ));
+        assert!(
+            error.contains(
+                "shutdown() takes no argument; to drop queued jobs, call pool.cancel_pending() before pool.shutdown()"
+            ),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn mapping_workers_overlap_and_temporary_futures_compose() {
     runs(
         r#"
@@ -955,7 +971,6 @@ fn every_way_a_pool_shuts_down_is_checked_for_surviving_receivers() {
 
     for (shutdown, at) in [
         ("pool.shutdown()", "13:5"),
-        ("pool.shutdown(True)", "13:5"),
         ("drop(pool)", "13:10"),
         ("pool = ThreadPoolExecutor(1, 1)?", "13:5"),
     ] {

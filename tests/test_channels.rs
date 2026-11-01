@@ -302,17 +302,18 @@ queue(job)
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_producer_start_drops_its_endpoint_and_successful_peers_finish() {
-    // A named-argument start reports `ThreadError` and drops its moved
-    // arguments before the earlier consumer is joined.
+    // Issue #630: a named start with owned arguments binds them into a job.
+    // `drop_job()` drops the sender at the failed start, before the earlier
+    // consumer is joined, and keeps the native code.
     runs(
         r#"
 def produce(sender: Sender[i64]) -> ():
     sender.send(42).unwrap()
     pass
-def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | ThreadError]:
+def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[()]]:
     consumer = def once [receiver]() -> Result[i64, RecvError]:
         receiver.recv()
-    with spawn(consumer)? as task, spawn(produce, sender)?:
+    with spawn(consumer).drop_job()? as task, spawn(produce, sender).drop_job()?:
         task.join()?
     Ok(())
 sender, receiver = channel[i64](1).unwrap()
@@ -320,7 +321,7 @@ print("__test_one_thread_start__").unwrap()
 match start(sender, receiver):
     case Err(error):
         match error:
-            case failed: ThreadError:
+            case failed: SpawnError[()]:
                 print(str.repr(failed).unwrap()).unwrap()
             case _:
                 print("other error").unwrap()
@@ -328,7 +329,32 @@ match start(sender, receiver):
         print("started").unwrap()
 print("__test_restore_thread_starts__").unwrap()
 "#,
-        "__test_one_thread_start__\nThreadError.System(11)\n__test_restore_thread_starts__\n",
+        "__test_one_thread_start__\nSpawnError[()].Unavailable((), 11)\n__test_restore_thread_starts__\n",
+    );
+}
+
+#[test]
+fn failed_named_start_keeps_its_endpoint_arguments_in_the_error() {
+    // Issue #630: a failed named start returns its owned arguments in the
+    // error, so without `drop_job()` the sender outlives the consumer's join,
+    // as a captured one does.
+    let error = support::check_source(
+        "def produce(sender: Sender[i64]) -> ():
+    sender.send(42).unwrap()
+    pass
+def start(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), RecvError | SpawnError[()] | SpawnError[OnceClosure[[], ()]]]:
+    consumer = def once [receiver]() -> Result[i64, RecvError]:
+        receiver.recv()
+    with spawn(consumer).drop_job()? as task, spawn(produce, sender)?:
+        task.join()?
+    Ok(())
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("the error that `?` propagates still holds `Sender[i64]`"),
+        "{error}"
     );
 }
 
@@ -354,7 +380,7 @@ print("__test_one_thread_start__").unwrap()
 print(str.repr(start(sender, receiver)).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 "#,
-        "__test_one_thread_start__\nResult[(), RecvError | SpawnError[()]].Err(SpawnError[()].Unavailable(()))\n__test_restore_thread_starts__\n",
+        "__test_one_thread_start__\nResult[(), RecvError | SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n",
     );
 }
 
@@ -391,8 +417,7 @@ def main() -> ():
          error that `?` propagates still holds `Sender[i64]`: an empty queue could block the \
          worker's receive, and this join, forever\n  \
          4:36: note: the error that `?` propagates here holds `Sender[i64]` until this function \
-         returns; call `drop_job()` on the start, which drops the job before `?` returns, or \
-         pass the endpoint to `spawn` as a named argument, which a failed start drops; \
+         returns; call `drop_job()` on the start, which drops the job before `?` returns; \
          `Failure` also drops the job, as a last resort\n  \
          4:36: note: `?` leaves the block here"
     );
@@ -422,11 +447,11 @@ def main() -> ():
 #[test]
 fn failed_job_start_cannot_keep_its_receiver_alive_through_an_earlier_join() {
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | ThreadError]:
+        "def main() -> Result[(), ChannelError | SpawnError[OnceClosure[[], Result[i64, RecvError]]] | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     consumer = def once [receiver]() -> Result[i64, RecvError]:
         receiver.recv()
-    with spawn(produce, sender)?, spawn(consumer)?:
+    with spawn(produce, sender).drop_job()?, spawn(consumer)?:
         pass
     Ok(())
 ",
@@ -870,9 +895,9 @@ fn blocked_join(body: &str) -> String {
 fn receiver_outside_the_task_block_cannot_reach_the_automatic_join() {
     // Issue #12: without the check this program hangs in the automatic join.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(produce, sender)?:
+    with spawn(produce, sender).drop_job()?:
         print(receiver.recv()?)?
     Ok(())
 ",
@@ -892,9 +917,9 @@ fn receiver_outside_the_task_block_cannot_reach_the_automatic_join() {
 fn receiver_guard_order_decides_whether_it_outlives_the_join() {
     runs(
         &format!(
-            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     print(\"done\")?
     Ok(())
@@ -904,9 +929,9 @@ fn receiver_guard_order_decides_whether_it_outlives_the_join() {
     );
     // Contexts exit in reverse order: this guard outlives the task.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with receiver as inbox, spawn(produce, sender)?:
+    with receiver as inbox, spawn(produce, sender).drop_job()?:
         print(inbox.recv()?)?
     Ok(())
 ",
@@ -935,7 +960,7 @@ fn every_exit_from_a_task_block_is_checked_for_surviving_receivers() {
     for (exit, line) in [("return Ok(())", 13), ("break", 13), ("continue", 13)] {
         let keyword = exit.split(' ').next().unwrap();
         let error = blocked_join(&format!(
-            "def main() -> Result[(), ThreadError]:
+            "def main() -> Result[(), SpawnError[()]]:
     sender, receiver = channel[i64](1).unwrap()
     for i in range(1):
         with spawn(produce, sender.share()).unwrap():
@@ -953,9 +978,9 @@ fn every_exit_from_a_task_block_is_checked_for_surviving_receivers() {
     }
     // The receiver is gone at the end of the block, but not when `?` leaves it.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(produce, sender)? as task:
+    with spawn(produce, sender).drop_job()? as task:
         print(receiver.recv()?)?
         drop(receiver)
         task.join()
@@ -968,16 +993,16 @@ fn every_exit_from_a_task_block_is_checked_for_surviving_receivers() {
     );
     // A later start that fails leaves before the receiver is guarded.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     other = sender.share()
-    with spawn(produce, sender)?, spawn(produce, other)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, spawn(produce, other).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     Ok(())
 ",
     );
     assert!(
-        error.contains("11:35: note: `?` leaves the block here"),
+        error.contains("11:46: note: `?` leaves the block here"),
         "{error}"
     );
 }
@@ -986,10 +1011,10 @@ fn every_exit_from_a_task_block_is_checked_for_surviving_receivers() {
 fn every_surviving_owner_of_a_matching_receiver_is_reported() {
     // A shared handle outside the guard keeps the queue connected.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     spare = receiver.share()
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     Ok(())
 ",
@@ -1072,9 +1097,9 @@ def main() -> Result[(), AllocError | ChannelError]:
 fn explicit_joins_wait_only_after_matching_receivers_are_gone() {
     // Draining to disconnection does not make the guard's handle disappear.
     let error = blocked_join(
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(produce, sender)? as task, receiver as inbox:
+    with spawn(produce, sender).drop_job()? as task, receiver as inbox:
         print(inbox.recv()?)?
         task.join()
     Ok(())
@@ -1085,7 +1110,7 @@ fn explicit_joins_wait_only_after_matching_receivers_are_gone() {
         "12:9: this join waits for a task whose worker holds `Sender[i64]` while `receiver` \
          still holds `Receiver[i64]`: a full queue could block the worker's send, and this join, \
          forever\n  \
-         10:43: note: `receiver` holds `Receiver[i64]`; drop it, or end its `with` block, before \
+         10:54: note: `receiver` holds `Receiver[i64]`; drop it, or end its `with` block, before \
          joining\n  \
          10:10: note: the task starts here"
     );
@@ -1094,9 +1119,9 @@ fn explicit_joins_wait_only_after_matching_receivers_are_gone() {
             "{PRODUCE}def count(sender: Sender[i64]) -> i64:
     produce(sender)
     7
-def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(count, sender)? as task:
+    with spawn(count, sender).drop_job()? as task:
         with receiver as inbox:
             print(inbox.recv()?)?
         print(task.join())?
@@ -1106,7 +1131,7 @@ def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
         drop(right)
         print(task.join()).unwrap()
     partial, last = channel[i64](1)?
-    with spawn(count, partial)? as task:
+    with spawn(count, partial).drop_job()? as task:
         with last as inbox:
             print(inbox.recv()?)?
         if len(\"x\") == 1:
@@ -1123,10 +1148,10 @@ fn nested_task_blocks_check_each_join_against_live_receivers() {
     let error = blocked_join(
         "def idle() -> ():
     pass
-def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
-    with spawn(idle)?:
-        with spawn(produce, sender)?:
+    with spawn(idle).drop_job()?:
+        with spawn(produce, sender).drop_job()?:
             print(receiver.recv()?)?
     Ok(())
 ",
@@ -1138,10 +1163,10 @@ def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
     // The outer producer is joined after the inner guard has dropped the receiver.
     runs(
         &format!(
-            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+            "{PRODUCE}def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     other = sender.share()
-    with spawn(produce, sender)?:
+    with spawn(produce, sender).drop_job()?:
         with spawn(produce, other).unwrap(), receiver as inbox:
             print(inbox.recv()?)?
     print(\"done\")?
@@ -1167,32 +1192,32 @@ fn joins_without_a_matching_live_receiver_are_accepted() {
     count
 def idle(n: i64) -> i64:
     n + 1
-def drain(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), IoError | RecvError | ThreadError]:
-    with spawn(produce, sender)?, receiver as inbox:
+def drain(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), IoError | RecvError | SpawnError[()]]:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     Ok(())
-def main() -> Result[(), ChannelError | IoError | RecvError | SendError[str] | ThreadError]:
+def main() -> Result[(), ChannelError | IoError | RecvError | SendError[str] | SpawnError[()]]:
     # A receiver for another message type cannot release this worker.
     sender, receiver = channel[i64](1)?
     names, labels = channel[str](1)?
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     names.send(\"label\")?
     print(labels.recv()?)?
     # This worker holds no sender.
-    with spawn(idle, 1)? as task:
+    with spawn(idle, 1).drop_job()? as task:
         names.send(\"idle\")?
         print(task.join())?
     # The receiver belongs to another worker, which ends at disconnection.
     first, queued = channel[i64](1)?
     second = first.share()
     # A failed first producer start must not join while second is still alive.
-    with spawn(consume, queued)? as consumer, spawn(produce, first).unwrap(), spawn(produce, second)?:
+    with spawn(consume, queued).drop_job()? as consumer, spawn(produce, first).unwrap(), spawn(produce, second).drop_job()?:
         print(consumer.join())?
     # A helper that owns the receiver ends it before the outer join.
     outer, handed = channel[i64](1)?
     inner = outer.share()
-    with spawn(produce, outer)?:
+    with spawn(produce, outer).drop_job()?:
         drain(inner, handed)?
     Ok(())
 "
@@ -1208,10 +1233,10 @@ fn receivers_are_matched_by_message_type_not_by_queue() {
     // them; the reference lists them as its known false positives.
     for body in [
         // An independent queue of the same message type.
-        "def main() -> Result[(), ChannelError | IoError | RecvError | ThreadError]:
+        "def main() -> Result[(), ChannelError | IoError | RecvError | SpawnError[()]]:
     sender, receiver = channel[i64](1)?
     unrelated, other = channel[i64](1)?
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     Ok(())
 ",

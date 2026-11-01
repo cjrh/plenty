@@ -40,12 +40,12 @@ def produce(sender: Sender[i64]) -> Result[(), AllocError | IoError | SendError[
         sender.send(n * n)?
     Ok(())
 
-def first_square() -> Result[i64, ThreadError | ChannelError | RecvError]:
+def first_square() -> Result[i64, SpawnError[()] | ChannelError | RecvError]:
     sender, receiver = channel[i64](1)?
-    with spawn(produce, sender)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, receiver as inbox:
         return Ok(inbox.recv()?)
 
-def main() -> Result[(), ThreadError | ChannelError | RecvError | IoError]:
+def main() -> Result[(), SpawnError[()] | ChannelError | RecvError | IoError]:
     print(first_square()?)?
     Ok(())
 ```

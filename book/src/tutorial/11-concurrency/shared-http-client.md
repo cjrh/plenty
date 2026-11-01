@@ -44,13 +44,13 @@ def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64)
     Ok(ok)
 
 type PoolJobError = PoolError | FutureError | SubmitError[()]
-type ClientRunError = AllocError | IoError | ThreadError | RangeError | FormatError | ClientError | std.net.NetError | PoolJobError
+type ClientRunError = AllocError | IoError | SpawnError[()] | RangeError | FormatError | ClientError | std.net.NetError | PoolJobError
 
 def main() -> Result[(), ClientRunError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(serve, listener, stop.share())? as server, stop.cancel_on_exit():
+    with spawn(serve, listener, stop.share()).drop_job()? as server, stop.cancel_on_exit():
         url = f"http://127.0.0.1:{port}/"?
         client = Shared(std.http.client.client(std.http.client.config()?)?)?
         mut answered = 0
