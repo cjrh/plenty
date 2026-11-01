@@ -84,7 +84,7 @@ fn slots(ops: &[Op], out: &mut BTreeSet<u8>) {
             | Op::Access(slot, ..)
             | Op::Tokens(crate::op::TokenMark::Guard(slot))
             | Op::Thread(
-                crate::threading::ThreadOp::Start(_, slot)
+                crate::threading::ThreadOp::Start(_, slot, _)
                 | crate::threading::ThreadOp::Finish(_, slot),
             )
             | Op::Mutex(crate::mutex::MutexOp::Lock(slot) | crate::mutex::MutexOp::Unlock(slot)) => {
@@ -265,8 +265,8 @@ impl Relocation<'_> {
                 Op::Tokens(crate::op::TokenMark::Guard(i)) => {
                     Op::Tokens(crate::op::TokenMark::Guard(self.slot(*i)?))
                 }
-                Op::Thread(crate::threading::ThreadOp::Start(task, i)) => Op::Thread(
-                    crate::threading::ThreadOp::Start(task.clone(), self.slot(*i)?),
+                Op::Thread(crate::threading::ThreadOp::Start(task, i, discard_job)) => Op::Thread(
+                    crate::threading::ThreadOp::Start(task.clone(), self.slot(*i)?, *discard_job),
                 ),
                 Op::Thread(crate::threading::ThreadOp::Finish(task, i)) => Op::Thread(
                     crate::threading::ThreadOp::Finish(task.clone(), self.slot(*i)?),

@@ -165,7 +165,7 @@ impl Liveness {
             | Op::Next(slot)
             | Op::Mutex(crate::mutex::MutexOp::Lock(slot) | crate::mutex::MutexOp::Unlock(slot))
             | Op::Thread(
-                crate::threading::ThreadOp::Start(_, slot)
+                crate::threading::ThreadOp::Start(_, slot, _)
                 | crate::threading::ThreadOp::Finish(_, slot),
             ) => {
                 live.insert(*slot);

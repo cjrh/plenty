@@ -17,8 +17,12 @@ impl Task {
         self.closure.as_ref()?;
         self.inputs.first().filter(|t| matches!(t, Ty::Closure(_)))
     }
-    pub fn start_result(&self) -> Ty {
-        let job = self.owned_job().cloned().unwrap_or(Ty::Unit);
+    pub fn start_result(&self, drop_job: bool) -> Ty {
+        let job = if drop_job {
+            Ty::Unit
+        } else {
+            self.owned_job().cloned().unwrap_or(Ty::Unit)
+        };
         crate::sum::result(Ty::Unit, crate::sum::spawn_error(job))
     }
     // pthread_t occupies the first word and the runtime's thread entry the
@@ -38,7 +42,8 @@ impl Task {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ThreadOp {
-    Start(Arc<Task>, u8),
+    /// Start with a job-free error when the direct call uses `drop_job()`.
+    Start(Arc<Task>, u8, bool),
     Join(Arc<Task>),
     Finish(Arc<Task>, u8),
     /// std.actor: call the task's worker on this thread with an actor heap
@@ -69,7 +74,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         if let Op::DefineFn(name, function) = op {
             definitions.push((name.as_str(), function.as_ref()));
         }
-        if let Op::Thread(ThreadOp::Start(task, _)) = op {
+        if let Op::Thread(ThreadOp::Start(task, _, _)) = op {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
             roots.push(("worker", vec![task.worker.clone()], types));
@@ -599,7 +604,7 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
         | Op::FunctionAddress(name, _)
         | Op::BoxedCallableNew(_, name, _) => require(name),
         Op::ClosureNew(t) | Op::ClosureCall(t) => require(&t.name),
-        Op::Thread(ThreadOp::Start(task, _) | ThreadOp::Run(task)) => {
+        Op::Thread(ThreadOp::Start(task, _, _) | ThreadOp::Run(task)) => {
             require(&task.worker);
             if let Some(closure) = &task.closure {
                 require(&closure.name);
