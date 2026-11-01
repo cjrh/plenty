@@ -1,4 +1,4 @@
-//! `std.encoding`: canonical binary codecs and integer packing over `Bytes`.
+//! `std.encoding`: canonical binary codecs and integer/IEEE float packing over `Bytes`.
 mod support;
 use support::{check_file_error as rejected, hex};
 
@@ -17,11 +17,20 @@ fn program(body: &str) -> String {
 
 /// Runs a program and shortens the qualified names in rendered results.
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable).output().unwrap();
     assert!(
@@ -699,7 +708,14 @@ fn codecs_run_in_worker_threads() {
         r#"
 def work(data: Bytes) -> ():
     encoded = std.encoding.base64_encode(&data).unwrap()
-    print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap()).unwrap()
+    mut field = std.bytes.with_capacity(12).unwrap()
+    std.encoding.append_f32(&mut field, 1.0f32, Endian.Big).unwrap()
+    std.encoding.append_f64(&mut field, -2.5, Endian.Little).unwrap()
+    std.encoding.pack_f32(&mut field, 0, 2.5f32, Endian.Big).unwrap()
+    std.encoding.pack_f64(&mut field, 4, 1.0, Endian.Little).unwrap()
+    a = std.encoding.unpack_f32(&field, 0, Endian.Big).unwrap()
+    b = std.encoding.unpack_f64(&field, 4, Endian.Little).unwrap()
+    print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap(), a == 2.5f32, b == 1.0).unwrap()
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | SpawnError[()]]:
     data = std.bytes.from_text("foobar")?
@@ -708,7 +724,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encod
     Ok(())
 "#
     );
-    assert_eq!(output(&source), "Zm9vYmFy 26223");
+    assert_eq!(output(&source), "Zm9vYmFy 26223 True True");
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -913,4 +929,277 @@ Result[Bytes, E].Err(E.InvalidByte(39))
 Result[Bytes, E].Err(E.NonCanonical(38))
 "#,
     );
+}
+
+#[test]
+fn ieee_float_known_answers_cover_both_widths_and_orders() {
+    // The expected hex is specified independently of either codec direction.
+    for (width, values) in [
+        (
+            32,
+            vec![
+                ("1.0f32", "3f800000"),
+                ("-2.5f32", "c0200000"),
+                ("0.0f32", "00000000"),
+                ("-0.0f32", "80000000"),
+                ("f32.INF", "7f800000"),
+                ("-f32.INF", "ff800000"),
+                ("1.401298464324817e-45f32", "00000001"),
+                ("3.4028234663852886e38f32", "7f7fffff"),
+            ],
+        ),
+        (
+            64,
+            vec![
+                ("1.0", "3ff0000000000000"),
+                ("-2.5", "c004000000000000"),
+                ("0.0", "0000000000000000"),
+                ("-0.0", "8000000000000000"),
+                ("f64.INF", "7ff0000000000000"),
+                ("-f64.INF", "fff0000000000000"),
+                ("5e-324", "0000000000000001"),
+                ("1.7976931348623157e308", "7fefffffffffffff"),
+            ],
+        ),
+    ] {
+        for (value, big) in values {
+            let little: String = big
+                .as_bytes()
+                .rchunks(2)
+                .map(|pair| std::str::from_utf8(pair).unwrap())
+                .collect();
+            for (order, expected) in [("Big", big), ("Little", little.as_str())] {
+                native(
+                    &format!(
+                        r#"
+mut buffer = std.bytes.with_capacity(32)?
+buffer.push(170u8)?
+std.encoding.append_f{width}(&mut buffer, {value}, Endian.{order})?
+buffer.push(187u8)?
+print(std.encoding.hex_text(&buffer)?)?
+std.encoding.pack_f{width}(&mut buffer, 1, {value}, Endian.{order})?
+print(std.encoding.hex_text(&buffer)?)?
+source = std.encoding.hex_from_text("{expected}")?
+print(std.encoding.unpack_f{width}(&source, 0, Endian.{order})? == {value})?
+print(std.encoding.unpack_f{width}(&buffer[1:buffer.len() - 1], 0, Endian.{order})? == {value})?
+"#
+                    ),
+                    &format!("aa{expected}bb\naa{expected}bb\nTrue\nTrue"),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn ieee_float_raw_representations_survive_calls_results_and_endianness() {
+    // Include signaling/quiet NaNs of both signs, payloads, subnormals and
+    // largest finite values, then deterministic varied patterns. Rust builds
+    // the input byte strings; no float operation generates them.
+    let mut cases32 = vec![
+        0u32, 0x80000000, 1, 0x007fffff, 0x00800000, 0x7f7fffff, 0x7f800000, 0xff800000,
+        0x7fc12345, 0xffc54321, 0x7f812345, 0xff854321,
+    ];
+    let mut cases64 = vec![
+        0u64,
+        0x8000000000000000,
+        1,
+        0x000fffffffffffff,
+        0x0010000000000000,
+        0x7fefffffffffffff,
+        0x7ff0000000000000,
+        0xfff0000000000000,
+        0x7ff8123456789abc,
+        0xfff8fedcba987654,
+        0x7ff0123456789abc,
+        0xfff0fedcba987654,
+    ];
+    let mut seed = 0x5eed123489abcdefu64;
+    for _ in 0..256 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        cases32.push(seed as u32);
+        cases64.push(seed);
+    }
+    for (width, bytes) in [
+        (
+            32,
+            cases32
+                .iter()
+                .flat_map(|n| n.to_be_bytes())
+                .collect::<Vec<_>>(),
+        ),
+        (64, cases64.iter().flat_map(|n| n.to_be_bytes()).collect()),
+    ] {
+        let data = hex(&bytes);
+        let size = width / 8;
+        let source = program(&format!(
+            r#"
+source = std.encoding.hex_from_text("{data}")?
+mut buffer = std.bytes.with_capacity(16)?
+mut failures = 0
+for offset in range(0, source.len(), {size}):
+    value = std.encoding.unpack_f{width}(&source, offset, Endian.Big)?
+    buffer.clear()
+    std.encoding.append_f{width}(&mut buffer, value, Endian.Little)?
+    # A second decode/encode crosses both byte orders and a Result return.
+    little = std.encoding.unpack_f{width}(&buffer, 0, Endian.Little)?
+    std.encoding.pack_f{width}(&mut buffer, 0, little, Endian.Big)?
+    for index in range({size}):
+        if buffer[index] != source[offset + index]:
+            failures += 1
+print(failures)?
+"#
+        ));
+        for optimize in [false, true] {
+            assert_eq!(output_with_optimization(&source, optimize), "0");
+        }
+    }
+}
+
+#[test]
+fn ieee_float_field_bounds_are_checked_before_mutation() {
+    native(
+        r#"
+mut buffer = std.encoding.hex_from_text("aa0000000000000000bb")?
+mut failures = 0
+for offset in [i64.MIN, -1, 3, 9, 10, i64.MAX]?:
+    if not std.encoding.pack_f64(&mut buffer, offset, 1.0, Endian.Big).is_err():
+        failures += 1
+    if not std.encoding.unpack_f64(&buffer, offset, Endian.Big).is_err():
+        failures += 1
+for offset in [i64.MIN, -1, 7, 9, 10, i64.MAX]?:
+    if not std.encoding.pack_f32(&mut buffer, offset, 1.0f32, Endian.Little).is_err():
+        failures += 1
+    if not std.encoding.unpack_f32(&buffer, offset, Endian.Little).is_err():
+        failures += 1
+for length in range(8):
+    mut truncated = std.bytes.with_capacity(8)?
+    truncated.resize(length, 204u8)?
+    if not std.encoding.pack_f64(&mut truncated, 0, 1.0, Endian.Big).is_err():
+        failures += 1
+    if not std.encoding.unpack_f64(&truncated, 0, Endian.Big).is_err():
+        failures += 1
+    if length < 4:
+        if not std.encoding.pack_f32(&mut truncated, 0, 1.0f32, Endian.Big).is_err():
+            failures += 1
+        if not std.encoding.unpack_f32(&truncated, 0, Endian.Big).is_err():
+            failures += 1
+    if truncated.len() != length or truncated.capacity() != 8:
+        failures += 1
+    for index in range(length):
+        if truncated[index] != 204u8:
+            failures += 1
+print(failures, buffer.len(), buffer.capacity(), std.encoding.hex_text(&buffer)?)?
+# Final valid positions, unaligned fields and adjacent integer fields.
+std.encoding.pack_f64(&mut buffer, 2, -2.5, Endian.Big)?
+std.encoding.pack_u16(&mut buffer, 0, 513u16, Endian.Big)?
+print(std.encoding.hex_text(&buffer)?)?
+std.encoding.pack_f32(&mut buffer, 6, 1.0f32, Endian.Little)?
+print(std.encoding.hex_text(&buffer)?)?
+short = std.encoding.hex_from_text("000000")?
+print(std.encoding.unpack_f32(&short, 0, Endian.Big).is_err())?
+print(std.encoding.unpack_f64(b"1234567", 0, Endian.Little).is_err())?
+"#,
+        "0 10 10 aa0000000000000000bb\n0201c004000000000000\n0201c00400000000803f\nTrue\nTrue",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn ieee_float_fields_do_not_allocate_and_failed_growth_is_atomic() {
+    native(
+        r#"
+mut buffer = std.bytes.with_capacity(32)?
+buffer.resize(16, 170u8)?
+mut full = std.encoding.hex_from_text("abcd")?
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+std.encoding.pack_f32(&mut buffer, 1, -2.5f32, Endian.Big)?
+std.encoding.pack_f64(&mut buffer, 5, 1.0, Endian.Little)?
+std.encoding.append_f32(&mut buffer, 1.0f32, Endian.Little)?
+std.encoding.append_f64(&mut buffer, -2.5, Endian.Big)?
+a = std.encoding.unpack_f32(&buffer, 1, Endian.Big)?
+b = std.encoding.unpack_f64(&buffer, 5, Endian.Little)?
+c = std.encoding.append_f32(&mut full, 1.0f32, Endian.Big)
+d = std.encoding.append_f64(&mut full, 1.0, Endian.Little)
+print("__test_restore_allocations__")?
+print("__test_end_no_allocations__")?
+print(a, b, buffer.len(), buffer.capacity())?
+print(str.repr(c)?, str.repr(d)?)?
+print(full.len(), full.capacity(), std.encoding.hex_text(&full)?)?
+"#,
+        "-2.5 1.0 28 32\nResult[(), E].Err(E.Allocation(AllocError.OutOfMemory)) Result[(), E].Err(E.Allocation(AllocError.OutOfMemory))\n2 2 abcd",
+    );
+}
+
+#[test]
+fn float_representation_intrinsics_are_reserved_for_std() {
+    for (name, value) in [
+        ("f32_bits", "1.0f32"),
+        ("f64_bits", "1.0"),
+        ("f32_from_bits", "1u32"),
+        ("f64_from_bits", "1u64"),
+    ] {
+        let intrinsic = format!("__encoding_{name}");
+        let error = rejected(&program(&format!("drop({intrinsic}({value}))")));
+        assert!(
+            error.contains("reserved for the standard library"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn relocated_compiler_keeps_float_encoding_embedded() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let compiler = dir.path().join("compiler");
+    support::install_executable(
+        std::path::Path::new(env!("CARGO_BIN_EXE_plenty")),
+        &compiler,
+    );
+    let source = dir.path().join("main.plenty");
+    std::fs::write(&source, program(r#"
+mut record = std.bytes.with_capacity(12)?
+std.encoding.append_f32(&mut record, -2.5f32, Endian.Big)?
+std.encoding.append_f64(&mut record, 1.0, Endian.Little)?
+print(std.encoding.hex_text(&record)?)?
+print(std.encoding.unpack_f32(&record, 0, Endian.Big)?, std.encoding.unpack_f64(&record, 4, Endian.Little)?)?
+"#)).unwrap();
+    let check = Command::new(&compiler)
+        .arg("--check")
+        .arg(&source)
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let executable = dir.path().join("program");
+    let compile = Command::new(&compiler)
+        .arg("--compile")
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .env("PATH", "/usr/bin:/bin")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(executable).output().unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(run.stdout, b"c0200000000000000000f03f\n-2.5 1.0\n");
 }

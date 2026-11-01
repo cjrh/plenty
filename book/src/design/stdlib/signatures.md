@@ -41,68 +41,68 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.db.sqlite`](#stddbsqlite): 1050-1114
 - [`std.deque`](#stddeque): 1116-1130
 - [`std.diff`](#stddiff): 1132-1161
-- [`std.encoding`](#stdencoding): 1163-1224
-- [`std.env`](#stdenv): 1226-1240
-- [`std.error`](#stderror): 1242-1262
-- [`std.fmt`](#stdfmt): 1264-1331
-- [`std.fs`](#stdfs): 1333-1416
-- [`std.fs.dirs`](#stdfsdirs): 1418-1428
-- [`std.fs.watch`](#stdfswatch): 1430-1465
-- [`std.graph`](#stdgraph): 1467-1555
-- [`std.http`](#stdhttp): 1557-1627
-- [`std.http.decoder`](#stdhttpdecoder): 1629-1646
-- [`std.http.body`](#stdhttpbody): 1648-1683
-- [`std.http.client`](#stdhttpclient): 1685-1795
-- [`std.http.cookie`](#stdhttpcookie): 1797-1829
-- [`std.http.files`](#stdhttpfiles): 1831-1844
-- [`std.http.https`](#stdhttphttps): 1846-1860
-- [`std.http.proxy`](#stdhttpproxy): 1862-1883
-- [`std.http.server`](#stdhttpserver): 1885-1970
-- [`std.http.sse`](#stdhttpsse): 1972-1991
-- [`std.http.tls`](#stdhttptls): 1993-2010
-- [`std.http.typed`](#stdhttptyped): 2012-2045
-- [`std.http.websocket`](#stdhttpwebsocket): 2047-2082
-- [`std.http.wss`](#stdhttpwss): 2084-2090
-- [`std.image`](#stdimage): 2092-2138
-- [`std.io`](#stdio): 2140-2220
-- [`std.io.typed`](#stdiotyped): 2222-2260
-- [`std.json`](#stdjson): 2262-2326
-- [`std.jwt`](#stdjwt): 2328-2375
-- [`std.log`](#stdlog): 2377-2444
-- [`std.markdown`](#stdmarkdown): 2446-2480
-- [`std.template`](#stdtemplate): 2482-2503
-- [`std.math`](#stdmath): 2505-2571
-- [`std.mime`](#stdmime): 2573-2597
-- [`std.net`](#stdnet): 2599-2681
-- [`std.path`](#stdpath): 2683-2700
-- [`std.process`](#stdprocess): 2702-2751
-- [`std.random`](#stdrandom): 2753-2774
-- [`std.ready`](#stdready): 2776-2807
-- [`std.regex`](#stdregex): 2809-2862
-- [`std.report`](#stdreport): 2864-2871
-- [`std.secrets`](#stdsecrets): 2873-2899
-- [`std.shlex`](#stdshlex): 2901-2910
-- [`std.sketch`](#stdsketch): 2912-2950
-- [`std.sketch.xor`](#stdsketchxor): 2952-2963
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2965-2980
-- [`std.signal`](#stdsignal): 2982-2999
-- [`std.simd`](#stdsimd): 3001-3102
-- [`std.stat`](#stdstat): 3104-3137
-- [`std.plot`](#stdplot): 3139-3228
-- [`std.linalg`](#stdlinalg): 3230-3271
-- [`std.sync`](#stdsync): 3273-3291
-- [`std.system`](#stdsystem): 3293-3351
-- [`std.tempfile`](#stdtempfile): 3353-3385
-- [`std.test`](#stdtest): 3387-3429
-- [`std.text`](#stdtext): 3431-3474
-- [`std.thread`](#stdthread): 3476-3480
-- [`std.time`](#stdtime): 3482-3526
-- [`std.tls`](#stdtls): 3528-3610
-- [`std.toml`](#stdtoml): 3612-3661
-- [`std.unicode`](#stdunicode): 3663-3675
-- [`std.url`](#stdurl): 3677-3705
-- [`std.uuid`](#stduuid): 3707-3730
-- [`std.xml`](#stdxml): 3732-3765
+- [`std.encoding`](#stdencoding): 1163-1230
+- [`std.env`](#stdenv): 1232-1246
+- [`std.error`](#stderror): 1248-1268
+- [`std.fmt`](#stdfmt): 1270-1337
+- [`std.fs`](#stdfs): 1339-1422
+- [`std.fs.dirs`](#stdfsdirs): 1424-1434
+- [`std.fs.watch`](#stdfswatch): 1436-1471
+- [`std.graph`](#stdgraph): 1473-1561
+- [`std.http`](#stdhttp): 1563-1633
+- [`std.http.decoder`](#stdhttpdecoder): 1635-1652
+- [`std.http.body`](#stdhttpbody): 1654-1689
+- [`std.http.client`](#stdhttpclient): 1691-1801
+- [`std.http.cookie`](#stdhttpcookie): 1803-1835
+- [`std.http.files`](#stdhttpfiles): 1837-1850
+- [`std.http.https`](#stdhttphttps): 1852-1866
+- [`std.http.proxy`](#stdhttpproxy): 1868-1889
+- [`std.http.server`](#stdhttpserver): 1891-1976
+- [`std.http.sse`](#stdhttpsse): 1978-1997
+- [`std.http.tls`](#stdhttptls): 1999-2016
+- [`std.http.typed`](#stdhttptyped): 2018-2051
+- [`std.http.websocket`](#stdhttpwebsocket): 2053-2088
+- [`std.http.wss`](#stdhttpwss): 2090-2096
+- [`std.image`](#stdimage): 2098-2144
+- [`std.io`](#stdio): 2146-2226
+- [`std.io.typed`](#stdiotyped): 2228-2266
+- [`std.json`](#stdjson): 2268-2332
+- [`std.jwt`](#stdjwt): 2334-2381
+- [`std.log`](#stdlog): 2383-2450
+- [`std.markdown`](#stdmarkdown): 2452-2486
+- [`std.template`](#stdtemplate): 2488-2509
+- [`std.math`](#stdmath): 2511-2577
+- [`std.mime`](#stdmime): 2579-2603
+- [`std.net`](#stdnet): 2605-2687
+- [`std.path`](#stdpath): 2689-2706
+- [`std.process`](#stdprocess): 2708-2757
+- [`std.random`](#stdrandom): 2759-2780
+- [`std.ready`](#stdready): 2782-2813
+- [`std.regex`](#stdregex): 2815-2868
+- [`std.report`](#stdreport): 2870-2877
+- [`std.secrets`](#stdsecrets): 2879-2905
+- [`std.shlex`](#stdshlex): 2907-2916
+- [`std.sketch`](#stdsketch): 2918-2956
+- [`std.sketch.xor`](#stdsketchxor): 2958-2969
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2971-2986
+- [`std.signal`](#stdsignal): 2988-3005
+- [`std.simd`](#stdsimd): 3007-3108
+- [`std.stat`](#stdstat): 3110-3143
+- [`std.plot`](#stdplot): 3145-3234
+- [`std.linalg`](#stdlinalg): 3236-3277
+- [`std.sync`](#stdsync): 3279-3297
+- [`std.system`](#stdsystem): 3299-3357
+- [`std.tempfile`](#stdtempfile): 3359-3391
+- [`std.test`](#stdtest): 3393-3435
+- [`std.text`](#stdtext): 3437-3480
+- [`std.thread`](#stdthread): 3482-3486
+- [`std.time`](#stdtime): 3488-3532
+- [`std.tls`](#stdtls): 3534-3616
+- [`std.toml`](#stdtoml): 3618-3667
+- [`std.unicode`](#stdunicode): 3669-3681
+- [`std.url`](#stdurl): 3683-3711
+- [`std.uuid`](#stduuid): 3713-3736
+- [`std.xml`](#stdxml): 3738-3771
 
 ## `std.actor`
 
@@ -1162,7 +1162,7 @@ def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost
 
 ## `std.encoding`
 
-Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
+Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer and IEEE 754 float packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
 
 ```text
 enum EncodingError
@@ -1221,6 +1221,12 @@ def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, Encodin
 def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]
 def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]
 def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]
+def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> Result[(), EncodingError]
+def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> Result[(), EncodingError]
+def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), EncodingError]
+def append_f64(target: &mut Bytes, value: f64, order: Endian) -> Result[(), EncodingError]
+def unpack_f32(source: &[u8], offset: i64, order: Endian) -> Result[f32, EncodingError]
+def unpack_f64(source: &[u8], offset: i64, order: Endian) -> Result[f64, EncodingError]
 ```
 
 ## `std.env`

@@ -3034,6 +3034,7 @@ const BYTES_ADOPT: &str = "__bytes_adopt";
 /// std module that validates its operands and maps its results.
 fn std_only_intrinsic(name: &str) -> bool {
     name == BYTES_ADOPT
+        || crate::numeric::FloatBits::named(name).is_some()
         || name == "__io_entropy_read"
         || [
             "__crypto_",
@@ -3049,6 +3050,7 @@ fn std_only_intrinsic(name: &str) -> bool {
 
 pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
+        || crate::numeric::FloatBits::named(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
         || crate::bytes::BytesOp::named(name).is_some()
         || crate::stream::StreamOp::named(name).is_some()
@@ -4783,6 +4785,9 @@ impl Lower<'_> {
                     if name == BYTES_ADOPT {
                         return self.bytes_adopt(args, &e.at, ops);
                     }
+                }
+                if let Some(operation) = crate::numeric::FloatBits::named(name) {
+                    return self.float_bits_call(operation, args, &e.at, ops).map(Some);
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
                     let exclusive = |index| operation.exclusive(index);
