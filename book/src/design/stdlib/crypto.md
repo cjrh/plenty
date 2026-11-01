@@ -102,6 +102,11 @@ The fields are private, so a state can only be made by the module's constructors
 Both are [redacted](../language/03-types/classes.md#redacted-types): printing one shows `std.crypto.Digest(@redacted)` or
 `std.crypto.Mac(@redacted)`.
 
+`Digest.finish_into` and `Mac.finish_into` require the complete digest to fit
+at `offset`. Invalid offsets trap with `finish_into: offset outside target buffer`
+before touching the buffer or finalizing the state. A valid output range on
+an already-finished state still returns `CryptoError.Finished`.
+
 ## Errors
 
 ```text
@@ -217,10 +222,6 @@ only through its own runtime entry symbols, so a program that does not use
 - No zero-on-drop buffer type; see [Key material](#key-material).
 - One target, x86-64 Linux GNU.
 
-`Digest.finish_into` and `Mac.finish_into` require the complete digest to fit
-at `offset`. Invalid offsets trap with `finish_into: offset outside target buffer`
-before touching the buffer or finalizing the state. A valid output range on
-an already-finished state still returns `CryptoError.Finished`.
 
 
 ## Acknowledgements
