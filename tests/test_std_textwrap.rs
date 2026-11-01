@@ -110,7 +110,7 @@ fn cpython_textwrap_reference_cases() {
 #[test]
 fn bounded_textwrap_and_public_helpers() {
     let output = run(r#"
-print(std.text.word_wrap("one two three", 7)? == ["one two", "three"]?)?
+print(std.text.wrap("one two three", 7)? == ["one two", "three"]?)?
 print(std.text.fill("one two three", 7)? == "one two\nthree")?
 print(std.text.shorten("Hello  world!", 12)? == "Hello world!")?
 print(std.text.shorten("Hello  world!", 11)? == "Hello [...]")?
@@ -122,7 +122,7 @@ print(std.text.indent_with("a\r\n\r\nb", ">", def(line: &str) -> bool: True)? ==
 print(std.text.indent_with("a\nb\nc", ">", def(line: &str) -> bool: line.startswith("b"))? == "a\n>b\nc")?
 print(std.text.fill("é🙂x", 2, 8)? == "é🙂\nx")?
 print(std.text.fill("é🙂x", 2, 7).is_err())?
-print(std.text.word_wrap("a b", 1, 2)? == ["a", "b"]?)?
+print(std.text.wrap("a b", 1, 2)? == ["a", "b"]?)?
 print(std.text.fill("a b", 1, 2).is_err())?
 print(std.text.fill("a", 0).is_err(), std.text.dedent("x", -1).is_err())?
 print(std.text.fill("1234", 3, 100, 3).is_err())?
@@ -148,12 +148,12 @@ wrapper.initial_indent = ""
 wrapper.width = i64.MAX
 print(wrapper.wrap("one two")? == ["one two"]?)?
 print(std.text.fill("", 4, 0, 0)? == "")?
-print(std.text.word_wrap("ab\u{a0}\u{a0}", 2)? == ["ab"]?)?
+print(std.text.wrap("ab\u{a0}\u{a0}", 2)? == ["ab"]?)?
 long_word = "é".repeat(4096)?
-lines = std.text.word_wrap(&long_word, 1)?
+lines = std.text.wrap(&long_word, 1)?
 print(len(lines) == 4096, std.text.join(&lines, "", 8192)? == long_word)?
 dash_word = "-".repeat(8192)?
-dash_lines = std.text.word_wrap(&dash_word, 7)?
+dash_lines = std.text.wrap(&dash_word, 7)?
 print(std.text.join(&dash_lines, "", 8192)? == dash_word)?
 margin = " ".repeat(8192)?
 indented = (margin + "text")?

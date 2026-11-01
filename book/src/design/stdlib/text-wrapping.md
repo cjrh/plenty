@@ -3,8 +3,8 @@
 The paragraph tools in [`std.text`](text.md) follow Python's
 [`textwrap`](https://docs.python.org/3/library/textwrap.html). They operate on
 owned UTF-8 strings through borrowed inputs, return independent results, and
-report failures through `TextError`. The existing `std.text.wrap` still performs
-literal scalar wrapping; `word_wrap` finds word boundaries and returns lines.
+report failures through `TextError`. `wrap` finds word boundaries and returns
+lines; `hard_wrap` inserts literal line breaks at scalar counts.
 
 ## Quick use
 
@@ -12,7 +12,7 @@ literal scalar wrapping; `word_wrap` finds word boundaries and returns lines.
 import std.text
 
 def main() -> Result[(), IoError | std.text.TextError]:
-    print(std.text.word_wrap("Hello there, how are you?", 12)?)?
+    print(std.text.wrap("Hello there, how are you?", 12)?)?
     print(std.text.fill("Hello there, how are you?", 12)?)?
     print(std.text.shorten("Hello  world!", 11)?)?
     print(std.text.indent(&std.text.dedent("    first\n      second")?, "> ")?)?
@@ -29,7 +29,7 @@ Hello [...]
 
 | Function | Result and policy |
 |---|---|
-| `word_wrap(text, width=70, max_bytes=1048576, max_input_bytes=1048576)` | `list[str]`, without appended line terminators |
+| `wrap(text, width=70, max_bytes=1048576, max_input_bytes=1048576)` | `list[str]`, without appended line terminators |
 | `fill(text, width=70, max_bytes=1048576, max_input_bytes=1048576)` | The same lines joined with LF |
 | `shorten(text, width, placeholder=" [...]", max_bytes=1048576, max_input_bytes=1048576, fix_sentence_endings=False, break_long_words=True, break_on_hyphens=True)` | Collapse Unicode whitespace, then keep enough whole chunks to fit one line with the placeholder when truncated |
 | `dedent(text, max_bytes=1048576, max_input_bytes=1048576)` | Remove a common literal space/tab prefix from nonblank LF-delimited lines |
@@ -137,7 +137,7 @@ checked when an operation is called; constructing or editing a wrapper is
 infallible. Indent strings and an active placeholder are each bounded by
 `max_input_bytes`, as is the prefix for `indent` and `indent_with`.
 
-`max_bytes` counts the sum of the UTF-8 bytes in `word_wrap`/`TextWrapper.wrap`
+`max_bytes` counts the sum of the UTF-8 bytes in `wrap`/`TextWrapper.wrap`
 lines. For `fill`, the inserted LF bytes count too. `max_input_bytes` bounds the
 original input and tab-expanded intermediate separately, so even `shorten`
 rejects an input above that cap instead of allocating an unbounded temporary.

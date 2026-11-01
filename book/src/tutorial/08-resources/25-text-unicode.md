@@ -17,7 +17,7 @@ def main() -> Result[(), AllocError | IoError | std.text.TextError]:
     print(message.finish()?)?
     words = ["one", "two", "three"]?
     print(std.text.join(&words, " / ", 32)?)?
-    print(str.repr(std.text.wrap("é🙂abc", 2, 32)?)?)?
+    print(str.repr(std.text.hard_wrap("é🙂abc", 2, 32)?)?)?
     print(std.unicode.version())?
     print(std.unicode.nfc("é", 16)? == "é")?
     print(std.unicode.nfkc("ﬃ", 16)?)?
@@ -37,7 +37,7 @@ Use `to_text()` for a snapshot when keeping the builder, and `finish()` when
 done. `finish` consumes it even if allocating the final string fails; `to_text`
 keeps it available for retry. Both currently copy the output bytes.
 
-`wrap` counts Unicode scalars, preserves LF, and can split a combining sequence;
+`hard_wrap` counts Unicode scalars, preserves LF, and can split a combining sequence;
 it does not measure terminal columns or find word boundaries. Normalization
 has a separate **scalar** limit covering the input and decomposed intermediate.
 For example, decomposing `é` needs room for two scalars even though NFC can

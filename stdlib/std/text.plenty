@@ -98,7 +98,7 @@ pub def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str,
 
 # Hard wrap by Unicode scalar count, preserving explicit LF and every input
 # scalar. This is deliberately not display-width or grapheme/word wrapping.
-pub def wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]:
+pub def hard_wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]:
     if width <= 0:
         return Err(TextError.InvalidLimit)
     mut output = builder(max_bytes)?
@@ -375,7 +375,7 @@ pub class TextWrapper:
 pub def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper:
     TextWrapper(width, "", "", True, True, False, True, True, True, 8, Nothing, " [...]", max_bytes, max_input_bytes)
 
-pub def word_wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]:
+pub def wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]:
     text_wrapper(width, max_bytes, max_input_bytes).wrap(text)
 
 pub def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]:

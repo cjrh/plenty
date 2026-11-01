@@ -3451,7 +3451,7 @@ class Builder
     def finish(self: Builder) -> Result[str, TextError]
 def builder(max_bytes: i64) -> Result[Builder, TextError]
 def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]
-def wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]
+def hard_wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]
 class TextWrapper
     width: i64
     initial_indent: str
@@ -3470,7 +3470,7 @@ class TextWrapper
     def wrap(self, text: &str) -> Result[list[str], TextError]
     def fill(self, text: &str) -> Result[str, TextError]
 def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper
-def word_wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]
+def wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]
 def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
 def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
 def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]

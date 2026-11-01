@@ -44,9 +44,9 @@ print(builder.finish()?)?
 pieces = ["é", "", "🙂"]?
 print(std.text.join(&pieces, ":", 8)?)?
 print(failed(std.text.join(&pieces, ":", 7)))?
-print(str.repr(std.text.wrap("é🙂ab\nc\n", 2, 32)?)?)?
-print(str.repr(std.text.wrap("éx", 1, 32)?)?)?
-print(failed(std.text.wrap("x", 0, 4)), failed(std.text.builder(-1)))?
+print(str.repr(std.text.hard_wrap("é🙂ab\nc\n", 2, 32)?)?)?
+print(str.repr(std.text.hard_wrap("éx", 1, 32)?)?)?
+print(failed(std.text.hard_wrap("x", 0, 4)), failed(std.text.builder(-1)))?
 empty = std.text.builder(0)?
 print(empty.finish()? == "", std.text.join(&list[str].new()?, "", 0)? == "")?
 bad = std.bytes.from_list(&[255u8]?)?
