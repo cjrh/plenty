@@ -210,6 +210,16 @@ Nongeneric `@copy` classes copy on ordinary use when every field copies and no
 closed declaration-annotation mechanism. See [copy classes](../design/language/03-types/classes.md#copy-classes).
 Generic `@copy` classes copy when their type arguments copy, and a field that moves for every argument is rejected at the class; the built-in `CopyType` bound requires a type argument that copies (local PR #785). Dictionary keys remain **B74** in the [backlog](../backlog.md).
 
+## B90: Owner-to-view conversion
+
+`&xs`, `&mut xs`, `&s`, reference bindings and `b"..."`/`str` literals convert
+to whole views at view types, and `&Shared[T]` converts to `&T` like `Box`
+(local PR #784). Byte-reading std APIs, including the prelude byte writers and
+every public read-only `&Bytes` input, take `&[u8]`, and `ByteSource` is
+removed; `&b"..."[a:b]` views literal data and a shared view argument can view
+a call result (local PR #800). See [slice views](../design/language/04-expressions/slices.md#slice-views)
+and the [proposal](../proposals/consistency-rules.md#rule-3-an-owner-converts-to-its-view).
+
 ## Retired foundations
 
 These original B IDs have no separate active initial-delivery task. A delivery
