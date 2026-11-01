@@ -84,6 +84,7 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |
 | [Async/await exploration](async-await.md) — owned movable frames, fallible admission and synchronous cancellation; isolated spike only | Unscheduled exploration; async implementation remains out of scope pending an adoption decision |
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
 | [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |

@@ -19,6 +19,8 @@ actor messages and shutdown without blocking the stage. Request heads are
 owned transient callback inputs; persistent application state obeys the existing
 actor heap rules. Factory and connection initialization run in the child heap.
 No compiler heap-boundary relaxation is part of this design.
+The separate [blocking-work proposal](actor-blocking-work.md) describes bounded
+background workers for existing blocking clients, without blocking callbacks.
 
 ## Protocol and lifecycle
 
