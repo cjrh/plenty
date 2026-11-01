@@ -37,11 +37,17 @@ pub enum FsOp {
     WatchAdd,
     WatchRemove,
     OpenFilePath,
+    ApplyCopyMetadata,
+    IsWithin,
+    ChildMetadata,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_apply_copy_metadata" => Self::ApplyCopyMetadata,
+            "__fs_is_within" => Self::IsWithin,
+            "__fs_child_metadata" => Self::ChildMetadata,
             "__fs_open_file_path" => Self::OpenFilePath,
             "__fs_open" => Self::Open,
             "__fs_next" => Self::Next,
@@ -110,6 +116,9 @@ impl FsOp {
             Self::Publish => (vec![Ty::File, Ty::File, bytes()], Ty::Unit),
             Self::SameDir => (vec![Ty::File, Ty::File, bytes()], Ty::Bool),
             Self::FileMetadata => (vec![Ty::File], Ty::FsMetadata),
+            Self::ApplyCopyMetadata => (vec![Ty::File, Ty::FsMetadata], Ty::Unit),
+            Self::IsWithin => (vec![Ty::File, Ty::File], Ty::Bool),
+            Self::ChildMetadata => (vec![Ty::File, bytes()], Ty::FsMetadata),
             Self::WatchOpen => (vec![], Ty::File),
             Self::WatchAdd => (vec![Ty::File, bytes()], Ty::I32),
             Self::WatchRemove => (vec![Ty::File, Ty::I32], Ty::Unit),
