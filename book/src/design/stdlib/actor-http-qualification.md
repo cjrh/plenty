@@ -22,7 +22,7 @@ is separate evidence and remains in force for that implementation.
 | Repeated failure/resource stability | Repeated handler traps, heap exhaustion, factory failures and 5,120 connections at concurrency 16 pass; fresh-configuration trap/normal-drop/construction-OOM regressions check actor heaps and process allocation balance |
 | TLS and reverse proxies | curl 8.18.0, nginx 1.30.6 and Caddy 2.11.7 passed streamed/sized/Expect uploads, chunked replies, keep-alive, repeated 413 refusals and proxy TLS verification |
 | Installed/relocated toolchain | Copied compiler alone into an empty environment, compiled HTTP/TLS applications, removed compiler and source, then ran both native binaries through body/echo/trap/recovery/shutdown probes successfully |
-| Comparative measurements | Three alternating runs of all six workloads for HTTP/TLS, actor/one-worker/four-worker: 540,000 measured requests, zero failures; mixed-fault comparison also passed for the actor |
+| Comparative measurements | Original HTTP/TLS comparison: 540,000 successful requests; [refreshed TLS comparison](actor-http-tls-comparison.md): 270,000 successful requests and 9,000 verified handshakes after issues #641/#644; actor mixed-fault checks passed |
 
 This table records evidence rather than inheriting a pass from a shared
 component. The [B85 backlog entry](../../backlog.md) owns remaining work.
@@ -58,6 +58,10 @@ with trapped handlers, heap exhaustion, slow clients and overload, and record
 healthy-request latency, recovery, lost connections and resource growth.
 Clean-request throughput alone does not measure the actor server's purpose.
 Machine load and client bottlenecks must accompany any reported comparison.
+
+The [refreshed TLS comparison](actor-http-tls-comparison.md) records current
+throughput, handshake latency, idle memory and trap recovery after issues
+#641 and #644; the original comparison below remains historical evidence.
 
 ## Recorded comparison
 
