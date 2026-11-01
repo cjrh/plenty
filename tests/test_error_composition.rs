@@ -138,7 +138,7 @@ fn mapping_does_not_change_propagation_or_accept_wrong_callbacks() {
     for (body, expected) in [
         (
             "def f() -> Result[i64, IoError]:\n    i64.parse(\"bad\")?\n    Ok(0)\n",
-            "identical Result error types",
+            "cannot propagate as",
         ),
         (
             "def wrong(error: IoError) -> i64:\n    0\ndef f() -> ():\n    drop(map_error(i64.parse(\"bad\"), wrong))\n",
@@ -359,7 +359,7 @@ fn result_method_rejects_wrong_receivers_and_mappers() {
     let error = check_error(
         "enum E:\n    Io(IoError)\ndef f() -> Result[(), E]:\n    print(\"x\")?\n    Ok(())\ndef main() -> ():\n    drop(f())\n",
     );
-    assert!(error.contains("identical Result error types"), "{error}");
+    assert!(error.contains("cannot propagate as"), "{error}");
 }
 
 #[test]

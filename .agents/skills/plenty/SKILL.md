@@ -51,13 +51,18 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
   and `float`. No implicit numeric widening; cast with `f64(n)`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
-- Scalars, `str`, and `@copy` classes copy. Assigning or passing a
-  collection, box, or other class instance moves it; the old name is then
-  unusable. Borrow with `&x` (shared) or `&mut x`
+- Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
+  tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
+  its parts copy. A class copies only when it is declared [`@copy`](../../../book/src/design/language/03-types/classes.md#copy-classes).
+  Every other value moves: collections, boxes, closures that capture,
+  generators, and other class instances.
+  A moved name is unusable. Borrow with `&x` (shared) or `&mut x`
   (exclusive), or copy explicitly with `copy(x)?`. Iterating `&list[T]`
   yields `&T`; dereference with `*value`. `for x in owner` moves `owner`;
   write `for x in &self.items` to borrow.
-- Tuples: `pair = (3, "a")`, `pair[0]`, `pair[-1]` (literal indices only), `count, word = pair`. <!-- issue #577: drop once the cheat sheet covers tuples -->
+- A binding made inside an `if`, loop, or `match` arm ends with that block.
+  Declare `mut name = default` before it and assign inside, or use
+  `a if cond else b`. Only `if const` arms open no scope.
 - Methods that mutate declare `self: &mut ClassName`; bare `self` is a shared
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or

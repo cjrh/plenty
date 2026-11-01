@@ -281,6 +281,7 @@ impl Lower<'_> {
                 fields.truncate(element);
             }
             self.loans[loan].precise = false;
+            self.loans[loan].retargetable = true;
         }
         if let Some(Op::Loan(fact)) = ops
             .iter_mut()
@@ -378,6 +379,9 @@ impl Lower<'_> {
         {
             return Ok(id);
         }
+        if matches!(&ungroup(e).kind, Expression::Conditional { .. }) {
+            return Err(e.at.error("a conditional expression cannot produce a reference; choose with an `if` statement that returns or assigns each borrow"));
+        }
         Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
     }
 
@@ -392,10 +396,26 @@ impl Lower<'_> {
             }
             ancestor = self.loans[loan].parent;
         }
-        if Some(self.loans[id].root) != self.return_origin {
-            return Err(e
-                .at
-                .error("returned reference must originate from the first reference parameter"));
+        let root = self.loans[id].root;
+        if let Some(origin) = self.return_origin.filter(|origin| *origin != root) {
+            let name = |slot: u8| self.slot_names.get(slot as usize).cloned().flatten();
+            let mut message = String::from(
+                "returned reference must originate from the first reference parameter",
+            );
+            if let Some(origin) = name(origin) {
+                message.push_str(&format!(", `{origin}`"));
+            }
+            let parameter = self.sigs.get(&self.function_name).is_some_and(|sig| {
+                sig.inputs
+                    .get(root as usize)
+                    .is_some_and(|(_, ty)| lends(ty))
+            });
+            if let Some(source) = name(root).filter(|_| parameter) {
+                message.push_str(&format!(
+                    "; this one borrows `{source}`: make `{source}` the first reference parameter"
+                ));
+            }
+            return Err(e.at.error(message));
         }
         Ok(id)
     }
@@ -467,6 +487,7 @@ impl Lower<'_> {
             parent,
             through: parent.and_then(|id| self.loans[id].binding.or(self.loans[id].through)),
             binding: None,
+            retargetable: false,
         };
         self.loans.push(loan.clone());
         ops.push(Op::Loan(loan));
@@ -585,7 +606,10 @@ impl Lower<'_> {
                     Some(Ty::Enum(t)) if !mutating && t.tuple() => return Ok(()),
                     Some(Ty::List(_) | Ty::View(..)) => Ty::I64,
                     Some(Ty::Dict(key, _)) => (*key).clone(),
-                    _ => return Err(e.at.error("indexed assignment requires list or dict")),
+                    Some(Ty::Enum(t)) if t.tuple() => {
+                        return Err(e.at.error("tuples have no indexed assignment; assign through a component reference: `item = &mut pair[0]`, then `*item = value`"));
+                    }
+                    _ => return Err(e.at.error("indexed assignment requires a list")),
                 };
                 let actual = self.expr_expected(index, Some(key.clone()), ops)?;
                 self.same(actual, Some(key.clone()), &index.at)?;

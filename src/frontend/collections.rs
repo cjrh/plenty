@@ -1580,7 +1580,12 @@ impl Lower<'_> {
                 else {
                     unreachable!()
                 };
-                self.check_propagation(iterable, &source, target, true)?;
+                self.check_propagation(
+                    iterable,
+                    &source,
+                    target,
+                    Some(super::FixedError::Collection),
+                )?;
             }
             let target = self.slot(Ty::I64, &iterable.at)?;
             let step = self.slot(Ty::I64, &iterable.at)?;
@@ -3865,8 +3870,13 @@ impl Lower<'_> {
                 }));
             }
             if element.affine() {
+                let (place, borrowed) = if collection == "list" {
+                    ("index", "")
+                } else {
+                    ("key", ", `get_mut(key)` for an optional exclusive borrow")
+                };
                 return Err(base.at.error(format!(
-                    "get cannot return owned {collection} values; use pop to remove and take ownership"
+                    "get cannot return owned {collection} values; borrow with `&items[{place}]`, which traps when absent{borrowed}, copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
                 )));
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;

@@ -118,13 +118,45 @@ Forwarded operations build the result through the class constructor, which is
 why a `@newtype` class cannot define `__init__`. The declaration rules are in
 [annotations](../03-types/classes.md#annotations).
 
+## Equality, ordering and hashing
+
+Equality, ordering and hashing never call user code:
+
+- `==` and `!=` compare fields structurally, including inside collections.
+- `<`, `<=`, `>` and `>=` on a class come only from
+  [newtype forwarding](#newtype-forwarding).
+- Dictionary keys and set elements use built-in structural hashing. Classes
+  and enums defined in Plenty are not keys yet.
+
+A class, enum or protocol that declares `__eq__`, `__ne__`, `__lt__`,
+`__le__`, `__gt__`, `__ge__`, `__cmp__`, `__hash__` or `__key__` is rejected,
+so a Python-style hook cannot compile and then be ignored. Rename a method
+that is not meant as a hook, or compare explicitly:
+
+```plenty
+class Money:
+    cents: i64
+
+    def same_amount(self, other: &Money) -> bool:
+        self.cents == other.cents
+
+def main() -> Result[(), IoError]:
+    print(Money(1) == Money(2), Money(1).same_amount(&Money(1)))?
+    Ok(())
+```
+```output
+False True
+```
+
+User-defined ordering through one `__cmp__` hook is planned under
+[B37](../../../backlog.md), and user-defined keys under
+[B74](../../../backlog.md); see the [ordering](../../../proposals/user-type-ordering.md)
+and [hashing](../../../proposals/user-type-hashing.md) proposals.
+
 ## Boundaries
 
-Equality remains structural, including inside collections. `__eq__` and
-`__ne__` are ordinary methods, not hooks. Rich comparison hooks and the
-proposed `__cmp__` ordering contract are not implemented; only
-[newtype forwarding](#newtype-forwarding) provides ordering for a class. Nor are custom truthiness,
-indexing, membership, assignment, dereference, `**`, or `@` operators.
+Custom truthiness, indexing, membership, assignment, dereference, `**`, and
+`@` operators are not implemented.
 `and`, `or`, and `not` keep their boolean and short-circuit rules. Numeric
 operators retain their existing overflow checks and division rules. Inside a
 [`checked:` block](../03-types/numbers.md#checked-blocks), operators a newtype

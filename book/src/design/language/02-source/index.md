@@ -5,10 +5,10 @@ to an existing level. Blank lines and comment-only lines do not affect
 indentation. Parentheses permit multiline expressions. Comments start with `#`.
 
 Identifiers contain ASCII letters, digits, and underscores and cannot start with
-a digit. Keywords and names beginning `__plenty_` are reserved. Diagnostics use
-one-based line and column positions.
+a digit. [Keywords](#keywords) and names beginning `__plenty_` are reserved.
+Diagnostics use one-based line and column positions.
 
-Plenty uses `def`, `True`, `False`, `and`, `or`, `not`, and `pass`. Strings accept
+Strings accept
 single, double, or triple quotes; triple quotes permit physical newlines. The
 first standalone string in an indented function body is its documentation. Use
 `return "text"` when that first string should be the returned value. A `b`
@@ -37,3 +37,24 @@ See [annotations](../03-types/classes.md#annotations).
 Names follow [lexical scope and prelude rules](names.md). Modules use
 [explicit imports](modules.md), with [visibility](visibility.md) controlled by
 `pub`. An application has a [main entrypoint](entrypoint.md).
+
+## Keywords
+
+A keyword cannot name a binding, parameter, field, function, type, or module.
+These keywords have a meaning in Plenty:
+
+`and`, `as`, `break`, `case`, `class`, `const`, `continue`, `def`, `elif`,
+`else`, `enum`, `export`, `extern`, `False`, `for`, `from`, `if`, `import`,
+`in`, `match`, `mut`, `not`, `opaque`, `or`, `pass`, `protocol`, `pub`,
+`return`, `True`, `type`, `while`, `with`, `yield`
+
+These are reserved but have no meaning, so a Python or Rust habit is rejected
+instead of becoming a name:
+
+`async`, `await`, `lambda`, `None`, `struct`, `trait`, `try`
+
+`None`, `try`, and `lambda` have diagnostics that name the replacement:
+`Nothing`, a `Result`, and an [anonymous function](../06-functions/02-function-values.md).
+`self` and `is` are not keywords. `except`, `finally`, and `raise` are not
+reserved either, but a statement that begins like Python exception handling
+is rejected.

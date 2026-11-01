@@ -821,6 +821,10 @@ impl Items<'_, '_> {
             }
             module.imports.extend(imports);
             return Ok(());
+        } else if let Kind::Word(word) = &at.kind
+            && let Some(message) = super::unused_keyword(word)
+        {
+            return Err(at.error(message));
         } else {
             return Err(at.error(if public {
             "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"

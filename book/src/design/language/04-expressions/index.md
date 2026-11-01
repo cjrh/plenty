@@ -11,9 +11,13 @@ Operator precedence, from highest to lowest:
 | Group | Operators or forms |
 | --- | --- |
 | Postfix | Calls, member access, indexing, [slicing](slices.md), error propagation `?` |
-| Unary | `+`, `-`, dereference `*`, borrowing `&` and `&mut` |
+| Unary | `+`, `-`, bitwise not `~`, dereference `*`, borrowing `&` and `&mut` |
 | Multiplication | `*`, `/`, `//`, `%` |
 | Addition | `+`, `-` |
+| Shift | `<<`, `>>` |
+| Bitwise and | `&` |
+| Bitwise exclusive or | `^` |
+| Bitwise or | `\|` |
 | Comparison and membership | `==`, `!=`, `<`, `>`, `<=`, `>=`, `in`, `not in` |
 | Boolean negation | `not` |
 | Boolean conjunction | `and` |

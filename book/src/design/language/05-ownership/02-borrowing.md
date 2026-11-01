@@ -17,7 +17,9 @@ reference, independently of the referent's shared or exclusive access mode.
 Loans are checked through branches, loops, and early exits and normally end at
 their last use. Moving, replacing, or destroying an owner conflicts with any
 live loan into it. References cannot be stored in aggregates or retained across
-generator suspension. Partial moves and general lifetime annotations are unsupported.
+generator suspension. General lifetime annotations are unsupported. Fields can
+move out of an owned binding; see
+[moving fields](01-bindings-moves-and-copies.md#moving-fields).
 
 Class fields and fixed tuple indices are projected places. Disjoint fields can
 be borrowed independently; access to an ancestor or whole owner overlaps its
