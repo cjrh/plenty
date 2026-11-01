@@ -19,12 +19,6 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Edits closer together than this are checked once.
 const DEBOUNCE: Duration = Duration::from_millis(150);
 
-const KEYWORDS: &[&str] = &[
-    "and", "as", "break", "case", "class", "continue", "def", "elif", "else", "enum", "False",
-    "for", "from", "if", "import", "in", "is", "match", "mut", "not", "or", "pass", "protocol",
-    "pub", "return", "self", "True", "type", "while", "with", "yield",
-];
-
 /// Serve one client on stdin and stdout until it exits.
 pub fn serve() -> Result<()> {
     let (sender, messages) = mpsc::channel();
@@ -776,8 +770,9 @@ fn names(analysis: &Analysis, file: &File, line: u32) -> Vec<Value> {
         }
     }
     items.extend(
-        KEYWORDS
+        crate::frontend::KEYWORDS
             .iter()
+            .filter(|k| !crate::frontend::REJECTED_KEYWORDS.contains(k))
             .filter(|k| offered.insert(k.to_string()))
             .map(|k| json!({"label": k, "kind": 14})),
     );

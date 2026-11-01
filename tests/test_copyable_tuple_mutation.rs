@@ -108,10 +108,7 @@ print(saved[0]).unwrap()
     "exclusively borrowed"
 )]
 #[case("mut pair = (1, 2)\nshared = &pair\nitem = &mut shared[0]", "shared")]
-#[case(
-    "mut pair = (1, 2)\npair[0] = 3",
-    "indexed assignment requires list or dict"
-)]
+#[case("mut pair = (1, 2)\npair[0] = 3", "tuples have no indexed assignment")]
 fn tuple_mutation_respects_loans_and_assignment_contract(
     #[case] source: &str,
     #[case] expected: &str,

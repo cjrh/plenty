@@ -15,7 +15,9 @@ nullary declarations omit parentheses. `Reading.Value(7)` and
 Construction allocates nothing. Payload expressions evaluate first and transfer
 their values into the enum; their own allocation and error contracts still apply.
 Payloads can include primitive values, classes, collections, tuples, other enums,
-unit, and resolved owned closures. References and generator-containing values
+unit, and resolved owned closures. An enum copies when every payload of every
+variant copies, and moves otherwise; `@copy` does not apply to enums. See
+[the copy rule](../05-ownership/01-bindings-moves-and-copies.md). References and generator-containing values
 cannot be user enum payloads. Standard `Option`/`Result` wrappers can contain
 generators, including through nested standard wrappers. A function result may
 carry a reference in the `Some` or `Ok` payload; such a value is held only in a
