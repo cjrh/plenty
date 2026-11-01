@@ -791,10 +791,6 @@ fn actor_http_connection_churn_reclaims_admission_slots_while_mail_keeps_arrivin
 
 #[test]
 fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
-    if Command::new("curl").arg("--version").output().is_err() {
-        eprintln!("curl unavailable; HTTPS connection churn test skipped");
-        return;
-    }
     let server = Server::start(
         SIMPLE,
         &[
@@ -803,15 +799,17 @@ fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
             ("timeout_ms", "5000u32"),
         ],
     );
-    let url = format!("https://127.0.0.1:{}/?[1-5000]", server.port);
-    // This workload requires fresh connections, not multiplexing. Curl's default
-    // parallel mode can leave transfers waiting for multiplexing until their
-    // entire timeout expires, before connecting to the server (issue #650).
+    // Separate processes bound the whole workload as well as each socket wait.
+    // The client uses fresh connections and 16 workers, including on release
+    // images whose system curl predates parallel mode (issue #670).
     let output = Command::new("python3")
-        .args(["-c", "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[1:], timeout=40).returncode)",
-            "curl", "-sS", "-k", "-Z", "--parallel-immediate", "--parallel-max", "16", "--max-time", "5",
-            "-H", "Connection: close", "-o", "/dev/null", "-w",
-            "%{http_code} connects=%{num_connects} connect=%{time_connect} tls=%{time_appconnect} first_byte=%{time_starttransfer} total=%{time_total} url=%{url_effective}\n", &url])
+        .args([
+            "-c",
+            "import subprocess,sys; raise SystemExit(subprocess.run(sys.argv[1:], timeout=40).returncode)",
+            "python3", "-c", include_str!("fixtures/actor/http_churn.py"),
+            &server.port.to_string(),
+            &format!("{}/ca.pem", support::tls_fixtures()),
+        ])
         .output().unwrap();
     let statuses = String::from_utf8(output.stdout).unwrap();
     let failures: Vec<_> = statuses
@@ -820,12 +818,12 @@ fn actor_https_many_new_connections_preserve_admission_and_shutdown_control() {
         .take(16)
         .collect();
     if !output.status.success() || statuses.lines().count() != 5000 || !failures.is_empty() {
-        // Cancel through stdin and collect accounting even when curl fails;
+        // Cancel through stdin and collect accounting even when the client fails;
         // dropping the process at the assertion would lose this evidence.
         let errors = server.errors();
         let summary = server.finish();
         panic!(
-            "HTTPS churn: curl {}; {} transfers; failures: {failures:?}\n{}\nserver:\n{summary}\n{errors}",
+            "HTTPS churn: client {}; {} transfers; failures: {failures:?}\n{}\nserver:\n{summary}\n{errors}",
             output.status,
             statuses.lines().count(),
             String::from_utf8_lossy(&output.stderr),
