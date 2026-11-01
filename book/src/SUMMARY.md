@@ -677,6 +677,9 @@
 # Development
 
 - [Development workflow](development/workflow.md)
+    - [CI and repository configuration](development/ci-workflow.md)
+    - [Reverse-proxy tests](development/proxy-tests.md)
+    - [Documentation site deployment](development/documentation-deployment.md)
     - [Linux AArch64 development](development/linux-aarch64.md)
     - [ARM fault diagnostics](development/arm-fault-diagnostics.md)
     - [Documentation versions](development/documentation-versions.md)
