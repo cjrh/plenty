@@ -209,7 +209,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B46 | Logs | JSON-lines sink, sampling/rate limits, per-module thresholds and span context. |
 | B47 | Text/Unicode | Grapheme-aware `std.text.wrap` and broader classification; keep the external `unicode_text` package's Unicode version aligned with `std.unicode`. |
 | B48 | Regex | Lazy DFA/one-pass acceleration and literal prefilters; full Unicode case folding, script and general-category properties. |
-| B49 | Collections/iterators | User iterator protocol (B12, needs B11 stored references); further collections need use cases. |
+| B49 | Collections/iterators | User iterator protocol (B12, needs B11 stored references); `len()` and `in` on user and std containers (issues #623, #645); further collections need use cases. |
 | B50 | Random/secrets | Jump/split streams, distributions/float ranges, weighted choice/element sampling, scratch-free secret integers and a zero-on-drop buffer. |
 | B51 | JSON | Bulk scans outside string runs, pretty-printing, JSON Lines and derived codecs (B77). |
 | B52 | TOML | Independent conformance checks (`toml-test`/reference crate); evaluate TOML 1.1. |
