@@ -36,8 +36,14 @@ an [`Atomic`](../../stdlib/atomic.md), a [`Mutex`](../03-concurrency/mutex.md),
 a channel endpoint, or a cancellation token. `&mut *handle`, assignment to a
 field or element, `&mut self` methods, and mutating collection methods are
 rejected. `*handle` copies copyable content; moving affine content out is
-rejected, since other owners may still use it. There is no implicit conversion
-from `Shared[T]` to `T` or from `&Shared[T]` to `&T`; write `&*handle`.
+rejected, since other owners may still use it.
+
+Where a `&T` is expected, `&handle` converts to `&T` as a borrowed
+[`Box`](boxes.md) does: a `&T` parameter or an annotated `r: &T = &handle`
+borrows the content, and the loan is rooted at the handle as `&*handle`'s is.
+The same holds where a view is expected: `&handle` of a `Shared[list[T]]` is a
+`&[T]`. The conversion is shared only, so `&mut handle` for a `&mut T`
+parameter is rejected. There is no conversion from `Shared[T]` to `T`.
 
 A temporary handle, such as `Shared(5)?.share()`, has no binding to root a
 borrow at and must be named first.

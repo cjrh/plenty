@@ -5072,12 +5072,17 @@ impl Lower<'_> {
             }
             if let Ty::Ref(inner, mutable) = expected {
                 let (ty, loan) = self.call_borrow(arg, *mutable, Some((**inner).clone()), ops)?;
-                // A borrowed box also lends its content.
+                // A borrowed Box or Shared owner also lends its content.
                 let ty = if ty == *expected {
                     ty
                 } else {
-                    self.unbox_reference(ty, ops)
+                    self.lend_content(ty, expected, ops)
                 };
+                if ty != *expected
+                    && matches!(&ty, Ty::Ref(inner, true) if matches!(**inner, Ty::Shared(_)))
+                {
+                    return Err(arg.at.error(shared::MUTATION));
+                }
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 argument_loans.push(loan);
                 continue;
@@ -5707,6 +5712,13 @@ impl Lower<'_> {
                         self.names.get(name).map(|l| l.ty.clone())
                     };
                     let value_start = ops.len();
+                    let converted = match &context {
+                        Some(view @ Ty::View(_, mutable)) => {
+                            self.owner_view(value, *mutable, *view == text_view(), ops)?
+                        }
+                        _ => None,
+                    };
+                    let value = converted.as_ref().unwrap_or(value);
                     let (ty, origin) = self.binding_value(value, context, ops)?;
                     let diagnostic_origin = annotation
                         .as_ref()

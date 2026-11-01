@@ -201,8 +201,38 @@ the other starts, at one literal or non-`mut` `i64` name, so `&mut xs[:m]` and
 [Disjoint slice views](../05-ownership/02-borrowing.md#disjoint-slice-views)
 states the full rule and why it is sound.
 
-A `&[T]` or `&mut [T]` parameter takes a view, `&xs[a:b]` or a view binding.
-A list is not converted to a view implicitly; pass the whole list as `&xs[:]`.
+Where a view type is expected, a borrow of its owner converts to the whole
+view, as `[:]` would: `&xs` or `&mut xs` for a list, `&buffer` or a `b"..."`
+literal for `&[u8]`, and `&handle` for a `Shared` list. A reference binding to
+an owner, such as an `xs: &list[i64]` parameter, converts too. The conversion
+copies nothing and allocates nothing. Expected view types are parameters,
+including a generic `&[T]`, and annotated locals:
+
+```plenty
+def total(values: &[i64]) -> i64:
+    mut sum = 0
+    for x in values:
+        sum += *x
+    sum
+
+def width(data: &[u8]) -> i64:
+    len(data)
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2, 3]?
+    whole: &[i64] = &xs
+    print(total(&xs), total(&xs[1:]), total(whole), width(b"abc"))?
+    Ok(())
+```
+
+```output
+6 5 6 3
+```
+
+`&xs[:]` keeps working. An owned list, `total(xs)`, is not a view and is
+rejected. A `&T` type parameter, such as a
+[`ByteSource`](../../stdlib/bytes.md#byte-sources) operand, takes a reference
+to a whole value, not a view.
 A function with a view parameter may return a reference into it: the first
 reference or view parameter is the
 [origin](../05-ownership/04-returned-references.md) of a returned reference.
@@ -255,8 +285,8 @@ stores its byte length and scalar count ahead of the text, and every `str`
 operation reads them. A run inside a string has no such prefix, so a view
 holds the run's address and byte length instead. `substr` is only written as
 `&substr`; there is no owned `substr` and no `&mut substr`, since a `str` is
-immutable. A `&substr` parameter takes a view, `&s[a:b]` or a view binding;
-pass a whole string as `&s[:]`.
+immutable. A `&substr` parameter or annotated local also takes a whole string
+as `&s`, a `&str` binding, or a `str` literal, converted as `&s[:]` would be.
 
 | Operation | Meaning |
 | --- | --- |
@@ -293,7 +323,7 @@ until stored references land (backlog B11).
 | `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
-| `total(&xs)` for `total(v: &[i64])` | ``this parameter takes a slice view, `&xs[a:b]`; pass a whole list or buffer as `&xs[:]` `` |
+| `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
 | `x in v` for a view `v` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |

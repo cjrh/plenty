@@ -1109,6 +1109,13 @@ impl Lower<'_> {
                 loans.push(loan);
                 ty
             } else if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
+                if self.is_view(arg) {
+                    // A view is not a `&T`, and without this check `&xs[:]`
+                    // reads as a borrow of the copying slice `xs[:]`.
+                    return Err(arg.at.error(
+                        "a slice view is passed to a `&[T]` or `&substr` parameter, not to a `&T` type parameter; pass a reference to the whole value, such as `&buffer`",
+                    ));
+                }
                 let (ty, loan) =
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
