@@ -5,6 +5,7 @@
 /// An in-memory `Transport` and a handler for each helper. `$STORAGE` is
 /// replaced with a directory the test owns.
 const PRELUDE: &str = r##"import std.bytes
+import std.time
 import std.fs
 import std.http
 import std.http.body
@@ -134,7 +135,7 @@ pub class App:
                     text = text.concat("[")?.concat(&cookie.name)?.concat("=")?.concat(&cookie.value)?.concat("]")?
                 mut head = std.http.response(200, "OK")?
                 mut session = std.http.cookie.set_cookie("session", "abc123")?
-                session.max_age = Some(3600)
+                session.max_age = Some(std.time.seconds(3600u32))
                 std.http.cookie.add(&mut head, &session)?
                 std.http.cookie.add(&mut head, &std.http.cookie.removal("old")?)?
                 head.add("Content-Type", "text/plain")?
@@ -633,8 +634,9 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | st
     cross.same_site = SameSite.Strict
     cross.path = ""
     cross.domain = "a.example"
-    cross.max_age = Some(-1)
+    cross.domain = ".invalid"
     print(cross.format().is_err())?
+    cross.domain = "a.example"
     cross.max_age = Nothing
     cross.http_only = False
     print(cross.format()?)?

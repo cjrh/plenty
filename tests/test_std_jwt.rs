@@ -27,6 +27,7 @@ const EXPECTED_RS256: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImsxIn
 const EXPECTED_EDDSA: &str = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImsxIn0.$INTEROP.7KcP0DPAN_4XCRqafgTiX2lGuMPgLHo9xlOsMBYME2yscjuGzQb4top3FOPqNCYEkVL130v7Iuj8TbxY8LhfBQ";
 
 const HEADER: &str = r#"import std.bytes
+import std.time
 import std.crypto
 import std.encoding
 import std.json
@@ -151,7 +152,7 @@ fn rfc7515_a1_hs256_verifies_until_expiry() {
     native(
         r#"
 key = std.jwt.hmac_verifying_key(Algorithm.Hs256, &std.encoding.base64url_from_text("$HS256_RFC_KEY")?)?
-mut rules = std.jwt.validation(1300819379)
+mut rules = std.jwt.validation(&std.time.Timestamp(1300819379, 0u32))
 check("$HS256_RFC", &key, &rules)?
 token = std.jwt.verify("$HS256_RFC", &key, &rules)?
 print(token.header.token_type)?
@@ -164,9 +165,9 @@ match std.json.find(&token.claims, "iss"):
                 print("not text")?
     case Nothing:
         print("missing")?
-rules.now = 1300819380
+rules.now = std.time.Timestamp(1300819380, 0u32)
 check("$HS256_RFC", &key, &rules)?
-rules.leeway = 1
+rules.leeway = std.time.seconds(1u32)
 check("$HS256_RFC", &key, &rules)?
 "#,
         r#"
@@ -183,7 +184,7 @@ ok HS256 3
 fn rfc7515_a2_rs256_and_deterministic_signing() {
     native(
         r#"
-rules = std.jwt.validation(1300819379)
+rules = std.jwt.validation(&std.time.Timestamp(1300819379, 0u32))
 check("$RS256_RFC", &rsa_public(Algorithm.Rs256)?, &rules)?
 check("$RS256_RFC", &rsa_public(Algorithm.Ps256)?, &rules)?
 check("$RS256_RFC", &rsa_public(Algorithm.Rs512)?, &rules)?
@@ -209,7 +210,7 @@ RS256 Option[str].Some("k1") Option[str].Some("JWT")
 fn rfc7515_a3_es256_and_random_signing() {
     native(
         r#"
-rules = std.jwt.validation(1300819379)
+rules = std.jwt.validation(&std.time.Timestamp(1300819379, 0u32))
 key = es256_public()?
 check("$ES256_RFC", &key, &rules)?
 check("$INTEROP_ES256", &key, &rules)?
@@ -217,7 +218,7 @@ signer = std.jwt.es256_signing_key(std.crypto.p256_private_key_from_pkcs8(&unhex
 first = signed(&signer, "{\"n\":1}")?
 second = signed(&signer, "{\"n\":1}")?
 print(first == second)?
-rules2 = Validation(0, 0, False, Nothing, Nothing, 8192)
+rules2 = Validation(std.time.Timestamp(0, 0u32), std.time.seconds(0u32), False, Nothing, Nothing, 8192)
 check(&first, &key, &rules2)?
 check(&second, &signer.verifying_key()?, &rules2)?
 "#,
@@ -237,7 +238,7 @@ ok ES256 1
 fn rfc8037_eddsa_checks_the_signature_before_the_claims() {
     native(
         r#"
-rules = std.jwt.validation(0)
+rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 key = ed_public()?
 check("$EDDSA_RFC", &key, &rules)?
 check("eyJhbGciOiJFZERTQSJ9.RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc.hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAw", &key, &rules)?
@@ -259,7 +260,7 @@ ok EdDSA 2
 fn interoperates_with_python_cryptography() {
     native(
         r#"
-rules = std.jwt.validation(0)
+rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 check("$INTEROP_PS384", &rsa_public(Algorithm.Ps384)?, &rules)?
 check("$INTEROP_RS512", &rsa_public(Algorithm.Rs512)?, &rules)?
 mut wide = std.bytes.empty()?
@@ -288,7 +289,7 @@ ok RS384 1
 fn header_never_chooses_the_algorithm() {
     native(
         r#"
-rules = std.jwt.validation(0)
+rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 hmac = hs256()?.verifying_key()?
 check(&forge("{\"alg\":\"none\"}", "{\"exp\":9}")?, &hmac, &rules)?
 none = segment("{\"alg\":\"none\"}")?.to_text()?
@@ -326,7 +327,7 @@ AlgorithmMismatch
 fn tampering_is_an_invalid_signature() {
     native(
         r#"
-rules = std.jwt.validation(0)
+rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 signer = hs256()?
 key = signer.verifying_key()?
 token = signed(&signer, "{\"admin\":false,\"exp\":9}")?
@@ -339,8 +340,8 @@ check(&token.slice(0, len(token) - 1)?, &key, &rules)?
 check(&f"{parts[0]}.{parts[1]}."?, &key, &rules)?
 other = std.jwt.hmac_verifying_key(Algorithm.Hs256, &std.bytes.from_text("another secret of thirty-two b!!")?)?
 check(&token, &other, &rules)?
-check(&"$RS256_RFC".replace("cC4hiUPoj9", "cC4hiUPoj8")?, &rsa_public(Algorithm.Rs256)?, &std.jwt.validation(1300819379))?
-check(&"$ES256_RFC".replace("DtEhU3ljbE", "DtEhU3ljbF")?, &es256_public()?, &std.jwt.validation(1300819379))?
+check(&"$RS256_RFC".replace("cC4hiUPoj9", "cC4hiUPoj8")?, &rsa_public(Algorithm.Rs256)?, &std.jwt.validation(&std.time.Timestamp(1300819379, 0u32)))?
+check(&"$ES256_RFC".replace("DtEhU3ljbE", "DtEhU3ljbF")?, &es256_public()?, &std.jwt.validation(&std.time.Timestamp(1300819379, 0u32)))?
 "#,
         r#"
 ok HS256 2
@@ -358,7 +359,7 @@ InvalidSignature
 fn malformed_tokens_are_rejected() {
     native(
         r#"
-rules = std.jwt.validation(0)
+rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 key = hs256()?.verifying_key()?
 good = signed(&hs256()?, "{\"exp\":9}")?
 parts = good.split(".")?
@@ -412,24 +413,25 @@ fn size_limit_and_validation_settings() {
 signer = hs256()?
 key = signer.verifying_key()?
 token = signed(&signer, "{\"exp\":9}")?
-mut rules = std.jwt.validation(0)
+mut rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 rules.max_size = token.byte_len()
 check(&token, &key, &rules)?
 rules.max_size = token.byte_len() - 1
 check(&token, &key, &rules)?
 print(str.repr(std.jwt.decode_header(&token, token.byte_len() - 1))?)?
 huge = "a".repeat(std.jwt.default_max_size + 1)?
-check(&huge, &key, &std.jwt.validation(0))?
+check(&huge, &key, &std.jwt.validation(&std.time.Timestamp(0, 0u32)))?
 for setting in [0, std.jwt.max_token_size + 1]?:
     rules.max_size = setting
     check(&token, &key, &rules)?
 rules.max_size = std.jwt.default_max_size
-rules.leeway = -1
+rules.now.nanoseconds = 1000000000u32
 check(&token, &key, &rules)?
-rules.leeway = std.jwt.max_leeway + 1
+rules.now.nanoseconds = 0u32
+rules.leeway = std.time.seconds(u32(std.jwt.max_leeway + 1))
 check(&token, &key, &rules)?
-rules.leeway = 0
-rules.now = -1
+rules.leeway = std.time.seconds(0u32)
+rules.now = std.time.Timestamp(-1, 0u32)
 check(&token, &key, &rules)?
 "#,
         r#"
@@ -454,11 +456,11 @@ fn time_claims_use_the_explicit_clock() {
         r#"
 signer = hs256()?
 key = signer.verifying_key()?
-mut rules = std.jwt.validation(1000)
+mut rules = std.jwt.validation(&std.time.Timestamp(1000, 0u32))
 for text in ["{\"exp\":1001}", "{\"exp\":1000}", "{\"exp\":1000.9}", "{\"exp\":1001.5}", "{}", "{\"exp\":\"1001\"}", "{\"exp\":1e300}", "{\"exp\":9223372036854775807}", "{\"exp\":-9223372036854775808}", "{\"exp\":2000,\"nbf\":1000}", "{\"exp\":2000,\"nbf\":1001}", "{\"exp\":2000,\"nbf\":1000.1}", "{\"exp\":2000,\"iat\":1001}", "{\"exp\":2000,\"iat\":999}", "{\"exp\":2000,\"nbf\":9223372036854775807}", "{\"exp\":2000,\"nbf\":null}", "{\"exp\":2000,\"iat\":true}"]?:
     check(&signed(&signer, text)?, &key, &rules)?
 print("leeway")?
-rules.leeway = 5
+rules.leeway = std.time.seconds(5u32)
 for text in ["{\"exp\":996}", "{\"exp\":995}", "{\"exp\":2000,\"nbf\":1005}", "{\"exp\":2000,\"nbf\":1006}", "{\"exp\":2000,\"iat\":1005}", "{\"exp\":2000,\"iat\":1006}"]?:
     check(&signed(&signer, text)?, &key, &rules)?
 print("optional")?
@@ -502,7 +504,7 @@ fn issuer_and_audience() {
         r#"
 signer = hs256()?
 key = signer.verifying_key()?
-mut rules = std.jwt.validation(0)
+mut rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
 rules.require_expiry = False
 check(&signed(&signer, "{\"iss\":\"a\"}")?, &key, &rules)?
 rules.issuer = Some("a")
@@ -665,7 +667,7 @@ def signs(marker: &str, label: &str, key: &SigningKey, claims: &Json, expected: 
             report(label, Err(error))
 
 def main() -> Result[(), Fault]:
-    rules = std.jwt.validation(1300819379)
+    rules = std.jwt.validation(&std.time.Timestamp(1300819379, 0u32))
     hmac = std.jwt.hmac_verifying_key(Algorithm.Hs256, &std.encoding.base64url_from_text("$HS256_RFC_KEY")?)?
     es256 = es256_public()?
     eddsa = ed_public()?
@@ -711,4 +713,24 @@ def main() -> Result[(), Fault]:
             "{operation}: {results:?}"
         );
     }
+}
+
+#[test]
+fn timestamp_fraction_and_duration_leeway_keep_boundary_precision() {
+    native(
+        r#"
+signer = hs256()?
+key = signer.verifying_key()?
+mut rules = std.jwt.validation(&std.time.Timestamp(1000, 500000000u32))
+rules.leeway = std.time.milliseconds(750u32)
+check(&signed(&signer, "{\"exp\":1000}")?, &key, &rules)?
+check(&signed(&signer, "{\"exp\":999}")?, &key, &rules)?
+check(&signed(&signer, "{\"exp\":2000,\"nbf\":1001}")?, &key, &rules)?
+check(&signed(&signer, "{\"exp\":2000,\"nbf\":1002}")?, &key, &rules)?
+rules.now.nanoseconds = 750000000u32
+check(&signed(&signer, "{\"exp\":1000}")?, &key, &rules)?
+check(&signed(&signer, "{\"exp\":-9223372036854775808}")?, &key, &rules)?
+"#,
+        "ok HS256 1\nExpired\nok HS256 2\nNotYetValid\nExpired\nExpired",
+    );
 }

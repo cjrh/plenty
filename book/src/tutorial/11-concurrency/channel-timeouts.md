@@ -6,15 +6,15 @@ Timeouts are `u64` milliseconds; zero performs an immediate check.
 ```plenty
 def main() -> Result[(), IoError | RecvTimeoutError | SendTimeoutError[i64] | ChannelError]:
     sender, receiver = channel[i64](1)?
-    match receiver.recv_timeout(0):
+    match receiver.recv_timeout_ms(0):
         case Ok(value):
             print(value)?
         case Err(RecvTimeoutError.TimedOut):
             print("nothing yet")?
         case Err(RecvTimeoutError.Disconnected):
             print("senders finished")?
-    sender.send_timeout(42, 0)?
-    print(receiver.recv_timeout(0)?)?
+    sender.send_timeout_ms(42, 0)?
+    print(receiver.recv_timeout_ms(0)?)?
     Ok(())
 ```
 
@@ -23,7 +23,7 @@ nothing yet
 42
 ```
 
-`send_timeout(value, milliseconds)` returns an unsent value in
+`send_timeout_ms(value, milliseconds)` returns an unsent value in
 `SendTimeoutError[T].TimedOut(value)` or `.Disconnected(value)`. You can retry,
 store, or drop it. A timeout does not discard the message.
 

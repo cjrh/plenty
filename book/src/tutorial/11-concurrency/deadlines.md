@@ -5,28 +5,29 @@ A timeout bounds one wait. When a task makes several waits, give it a
 budget that every wait draws from.
 
 ```plenty
+import std.sync
 from std.time import Deadline, monotonic_now, deadline_after, milliseconds
 
-def collect(inbox: &Receiver[i64], deadline: &Deadline) -> i64:
+def collect(inbox: &Receiver[i64], deadline: &Deadline, cancel: &CancellationToken) -> i64:
     mut total = 0
     while True:
-        budget = deadline.remaining(&monotonic_now()).as_timeout_ms()
-        match inbox.recv_timeout(budget):
+        match std.sync.recv_before(inbox, deadline, cancel):
             case Ok(value):
                 total += value
-            case Err(RecvTimeoutError.TimedOut):
+            case Err(std.sync.WaitError.TimedOut):
                 break
-            case Err(RecvTimeoutError.Disconnected):
+            case Err(std.sync.WaitError.Disconnected) | Err(std.sync.WaitError.Cancelled):
                 break
     total
 
-def main() -> Result[(), IoError | RangeError | SendError[i64] | ChannelError]:
+def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | ChannelError]:
     sender, receiver = channel[i64](4)?
     sender.send(1)?
     sender.send(2)?
     sender.send(3)?
     deadline = deadline_after(&monotonic_now(), &milliseconds(20))?
-    print(collect(&receiver, &deadline))?
+    cancel = CancellationToken()?
+    print(collect(&receiver, &deadline, &cancel))?
     print(deadline.expired(&monotonic_now()))?
     print(deadline.remaining(&monotonic_now()).as_timeout_ms())?
     Ok(())
@@ -38,12 +39,14 @@ True
 0
 ```
 
-The loop makes four waits against one 20-millisecond budget instead of
+`recv_before` checks caller cancellation between bounded waits and shares
+one deadline. The loop makes four waits against one 20-millisecond budget instead of
 granting each wait its own. `remaining` takes the current instant and returns
 zero once the deadline has passed. A zero budget still receives a message that
 is already queued, so the three sent values always arrive.
 
-`as_timeout_ms()` converts a span to the `u64` milliseconds that
+`as_timeout_ms()` is available for the low-level `_timeout_ms` methods.
+It converts a span to the `u64` milliseconds that
 [timed waits](channel-timeouts.md) accept. It rounds up: a wait never returns
 before its deadline, and a remainder below a millisecond does not turn the loop
 into a zero-timeout spin.
@@ -58,7 +61,7 @@ asks you to stop, wait on a
 from std.time import seconds
 
 def pause(stop: &CancellationToken) -> bool:
-    stop.wait_timeout(seconds(3600).as_timeout_ms())
+    stop.wait_timeout_ms(seconds(3600).as_timeout_ms())
 
 def main() -> Result[(), AllocError | IoError | ThreadError]:
     stop = CancellationToken()?

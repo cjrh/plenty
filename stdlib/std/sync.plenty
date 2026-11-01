@@ -11,3 +11,100 @@ pub class Mutex[T]:
     pub def __init__(self, value: T) -> ():
         self.state = Atomic[u32](0)
         self.value = value
+
+# Typed total-budget waits over the compiler's millisecond primitives. Polling
+# is bounded because channel and future condition variables do not observe a
+# separate cancellation token. A failed send always returns the owned value.
+from std.time import Deadline, monotonic_now
+
+pub enum WaitError:
+    TimedOut
+    Cancelled
+    Disconnected
+
+pub enum SendBeforeError[T]:
+    TimedOut(T)
+    Cancelled(T)
+    Disconnected(T)
+
+# At most ten milliseconds of sleeping before checking caller cancellation.
+def wait_slice(deadline: &Deadline) -> u64:
+    remaining = deadline.remaining(&monotonic_now()).as_timeout_ms()
+    if remaining > 10u64:
+        10u64
+    else:
+        remaining
+
+pub def recv_before[T](receiver: &Receiver[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[T, WaitError]:
+    while True:
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        match receiver.recv_timeout_ms(wait_slice(deadline)):
+            case Ok(value):
+                return Ok(value)
+            case Err(RecvTimeoutError.Disconnected):
+                return Err(WaitError.Disconnected)
+            case Err(RecvTimeoutError.TimedOut):
+                if cancel.is_cancelled():
+                    return Err(WaitError.Cancelled)
+                if deadline.expired(&monotonic_now()):
+                    return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)
+
+pub def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SendBeforeError[T]]:
+    mut pending = value
+    while True:
+        if cancel.is_cancelled():
+            return Err(SendBeforeError[T].Cancelled(pending))
+        match sender.send_timeout_ms(pending, wait_slice(deadline)):
+            case Ok(_):
+                return Ok(())
+            case Err(SendTimeoutError.Disconnected(unsent)):
+                return Err(SendBeforeError[T].Disconnected(unsent))
+            case Err(SendTimeoutError.TimedOut(unsent)):
+                pending = unsent
+                if cancel.is_cancelled():
+                    return Err(SendBeforeError[T].Cancelled(pending))
+                if deadline.expired(&monotonic_now()):
+                    return Err(SendBeforeError[T].TimedOut(pending))
+    Err(SendBeforeError[T].TimedOut(pending))
+
+pub def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
+    while True:
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        if future.wait_timeout_ms(wait_slice(deadline)):
+            return Ok(())
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        if deadline.expired(&monotonic_now()):
+            return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)
+
+pub def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
+    while True:
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        if token.wait_timeout_ms(wait_slice(deadline)):
+            return Ok(())
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        if deadline.expired(&monotonic_now()):
+            return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)
+
+pub def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[A, B], WaitError]:
+    while True:
+        if cancel.is_cancelled():
+            return Err(WaitError.Cancelled)
+        match select_recv_timeout_ms(first, second, wait_slice(deadline)):
+            case Ok(selected):
+                return Ok(selected)
+            case Err(SelectError.Disconnected):
+                return Err(WaitError.Disconnected)
+            case Err(SelectError.TimedOut) | Err(SelectError.Empty):
+                if cancel.is_cancelled():
+                    return Err(WaitError.Cancelled)
+                if deadline.expired(&monotonic_now()):
+                    return Err(WaitError.TimedOut)
+    Err(WaitError.TimedOut)

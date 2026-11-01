@@ -295,6 +295,7 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "select_recv",
             "select_recv_nowait",
             "select_recv_timeout",
+            "select_recv_timeout_ms",
         ],
         "std.concurrent" => &[
             "ThreadPoolExecutor",

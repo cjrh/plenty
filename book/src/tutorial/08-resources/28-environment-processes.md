@@ -108,10 +108,10 @@ A program that cannot be started is an error, and a child that runs too long
 can be stopped:
 
 ```plenty
-import std.process
 import std.time
+import std.process
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | std.process.WaitError]:
     mut missing = std.process.command("plenty-no-such-program")?
     match missing.spawn():
         case Ok(_):
@@ -121,7 +121,8 @@ def main() -> Result[(), AllocError | IoError]:
     mut sleeper = std.process.command("sleep")?
     sleeper.arg("60")?
     mut child = sleeper.spawn()?
-    match child.wait_timeout(&std.time.milliseconds(50u32))?:
+    cancel = CancellationToken()?
+    match child.wait_timeout(&std.time.milliseconds(50u32), &cancel)?:
         case Some(_):
             print("ended")?
         case Nothing:

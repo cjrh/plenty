@@ -12,13 +12,13 @@ stream. The client, on another thread, reads the whole response with the
 [HTTP client](http-client.md) and prints it without its final blank line.
 
 ```plenty
+import std.time
 import std.bytes
 import std.http
 import std.http.client
 import std.http.server
 import std.http.sse
 import std.net
-import std.time
 from std.http.server import Exchange
 from std.http.sse import SseError
 from std.net import TcpStream
@@ -33,20 +33,21 @@ pub enum Route:
 
 pub class Clock:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), SseError | FormatError | RangeError]:
+        wait_cancel = exchange.cancel_token()
         mut events = std.http.sse.accept(exchange)?
-        events.retry(2000, &after(1000)?)?
+        events.retry(&std.time.milliseconds(2000u32), &after(1000)?, &wait_cancel)?
         for n in range(3):
-            match events.wait(&after(20)?):
+            match events.wait(&after(20)?, &wait_cancel):
                 case Ok(_):
                     pass
                 case Err(SseError.Stopping):
-                    events.send("server stopping", &after(1000)?, event="end")?
+                    events.send("server stopping", &after(1000)?, &wait_cancel, event="end")?
                     return Ok(())
                 case Err(error):
                     return Err(error)
             id = f"{n}"?
-            events.send(&f"tick {n}\nall well"?, &after(1000)?, event="tick", id=Some(id))?
-        events.send("done", &after(1000)?, event="end")?
+            events.send(&f"tick {n}\nall well"?, &after(1000)?, &wait_cancel, event="tick", id=Some(id))?
+        events.send("done", &after(1000)?, &wait_cancel, event="end")?
         events.close()
         Ok(())
 

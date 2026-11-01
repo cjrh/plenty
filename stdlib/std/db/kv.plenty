@@ -2,6 +2,7 @@
 # bound; logical table names are data, never SQL identifiers.
 import std.db.sqlite as sqlite
 from std.bytes import Bytes
+from std.time import Duration
 
 pub enum Mode:
     ReadOnly
@@ -113,8 +114,8 @@ pub class Store:
         mode = sqlite.Begin.Immediate if immediate else sqlite.Begin.Deferred
         Ok(Transaction(checked(self._connection.begin(mode))?))
 
-    pub def set_busy_timeout(self: &mut Store, milliseconds: i64) -> Result[(), KvError]:
-        checked(self._connection.set_busy_timeout(milliseconds))
+    pub def set_busy_timeout(self: &mut Store, budget: &Duration) -> Result[(), KvError]:
+        checked(self._connection.set_busy_timeout(budget))
 
     pub def close(self: &mut Store) -> Result[(), KvError]:
         checked(self._connection.close())

@@ -7,7 +7,7 @@ cancellation without consuming the handle. `pool.cancel_pending()` cancels
 every job still queued without waiting, and a following `pool.shutdown()` waits
 for running jobs; ordinary scope exit drains all work.
 
-For a future, `future.wait_timeout(milliseconds)` returns a boolean: true means
+For a future, `future.wait_timeout_ms(milliseconds)` returns a boolean: true means
 completed or cancelled. This only observes the future; call `result()` afterward
 to take its result. A false return leaves the job running or queued.
 
@@ -112,7 +112,7 @@ def main() -> Result[(), ChannelError | FutureError | IoError | PoolError | Send
 ```
 
 A failed `submit(...)?` has submitted nothing, so it can come before the guard.
-`done()` and `wait_timeout()` do not prove the channel protocol to the checker:
+`done()` and `wait_timeout_ms()` do not prove the channel protocol to the checker:
 the result wait is rejected while a matching receiver lives, even after they
 report completion.
 

@@ -52,7 +52,7 @@ Integer encodings must be chosen deliberately if numerical ordering matters.
 | `remove(table, key)` | `Result[bool, KvError]` | True if an entry was removed |
 | `clear(table)` | `Result[i64, KvError]` | Remove all entries; return their count |
 | `len(table)` | `Result[i64, KvError]` | Count entries (a table scan, not a cached counter) |
-| `set_busy_timeout(milliseconds)` | `Result[(), KvError]` | Retry lock conflicts for up to this timeout; default zero |
+| `set_busy_timeout(budget: &Duration)` | `Result[(), KvError]` | Retry lock conflicts for this duration (rounded up to milliseconds); default zero |
 | `close()` | `Result[(), KvError]` | Close, or `Database(InUse)` while transactions/scans still own handles |
 
 All methods take `&mut Store`. Key/value arguments are borrowed and copied

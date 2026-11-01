@@ -1,3 +1,4 @@
+import std.time
 # A Plenty-only search/database trial. Embeddings arrive as JSON so the
 # inference engine is independent of the CLI and document lifecycle.
 import std.db.sqlite as sqlite
@@ -392,7 +393,7 @@ def corpus(root: &str, issues: &str) -> Result[list[Document], SearchFailure]:
             kind = "doc" if markdown else "source"
             documents.append(Document(f"repo:{kind}:{filename}"?, filename, text))?
     mut register = sqlite.connect(issues, Mode.ReadOnly, max_value_bytes)?
-    register.set_busy_timeout(5000)?
+    register.set_busy_timeout(&std.time.milliseconds(5000u32))?
     mut snapshot = register.begin(Begin.Deferred)?
     mut records = register.prepare("SELECT 'issue', number, title, details FROM issues UNION ALL SELECT 'pr', number, title, details FROM pull_requests ORDER BY 1, 2")?
     while records.step()?:
@@ -528,7 +529,7 @@ def main() -> Result[(), SearchFailure]:
     mode = Mode.Create if command == "init" else Mode.ReadOnly if command == "check" else Mode.ReadWrite
     mut db = sqlite.connect(arguments[2], mode, max_value_bytes)?
     db.load_extension(arguments[1], "sqlite3_vec_init")?
-    db.set_busy_timeout(5000)?
+    db.set_busy_timeout(&std.time.milliseconds(5000u32))?
     db.execute("PRAGMA foreign_keys=ON")?
     if command == "init" and len(arguments) == 6:
         configure(&mut db, arguments[3], i64.parse(arguments[5])?)?

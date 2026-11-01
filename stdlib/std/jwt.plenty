@@ -1,3 +1,4 @@
+from std.time import Duration, Timestamp, nanoseconds
 # JSON Web Tokens: RFC 7519 claims in RFC 7515 compact JWS form, with the
 # RFC 7518 and RFC 8037 algorithms that std.crypto provides. This module only
 # parses, validates and dispatches; every signature and MAC is computed by
@@ -365,24 +366,24 @@ pub const default_max_size: i64 = 8192
 pub const max_leeway: i64 = 86400
 pub const max_token_size: i64 = 1048576
 
-# Rules for `verify`. `now` is Unix seconds from a clock the caller chooses,
-# such as `std.time.wall_now().seconds`. `leeway` (0..=max_leeway seconds)
+# Rules for `verify`. `now` is a wall timestamp from a clock the caller chooses.
+# `leeway` (0..=max_leeway seconds)
 # widens every time check. An `aud` claim is accepted only when `audience`
 # names one of its values. `max_size` (1..=max_token_size) bounds the token
 # in bytes before anything is decoded.
 pub class Validation:
-    pub now: i64
-    pub leeway: i64
+    pub now: Timestamp
+    pub leeway: Duration
     pub require_expiry: bool
     pub issuer: Option[str]
     pub audience: Option[str]
     pub max_size: i64
 
-pub def validation(now: i64) -> Validation:
-    Validation(now, 0, True, Nothing, Nothing, default_max_size)
+pub def validation(now: &Timestamp) -> Validation:
+    Validation(Timestamp(now.seconds, now.nanoseconds), nanoseconds(0u64), True, Nothing, Nothing, default_max_size)
 
 def valid_rules(rules: &Validation) -> bool:
-    rules.now >= 0 and rules.leeway >= 0 and rules.leeway <= max_leeway and rules.max_size > 0 and rules.max_size <= max_token_size
+    rules.now.seconds >= 0 and rules.now.nanoseconds < 1000000000u32 and rules.leeway.as_nanoseconds() <= u64(max_leeway) * 1000000000u64 and rules.max_size > 0 and rules.max_size <= max_token_size
 
 # `token_type` is the `typ` member. Before verification, every field is
 # unauthenticated.
@@ -520,7 +521,13 @@ def numeric_date(claims: &list[Member], name: &str, claim: Claim, down: bool) ->
 
 # `later - now > leeway` without overflow: `now` is nonnegative.
 def in_future(moment: i64, rules: &Validation) -> bool:
-    moment > rules.now and moment - rules.now > rules.leeway
+    if moment <= rules.now.seconds:
+        return False
+    delta = u64(moment - rules.now.seconds)
+    whole = rules.leeway.as_seconds()
+    if delta > whole + 1u64:
+        return True
+    delta * 1000000000u64 > rules.leeway.as_nanoseconds() + u64(rules.now.nanoseconds)
 
 def audience_contains(value: &Json, expected: &str) -> Result[bool, JwtError]:
     match value:
@@ -543,7 +550,12 @@ def check_claims(claims: &list[Member], rules: &Validation) -> Result[(), JwtErr
     match numeric_date(claims, "exp", Claim.Expiry, True)?:
         case Some(expiry):
             # RFC 7519 section 4.1.4: invalid on or after `exp`.
-            if rules.now - rules.leeway >= expiry:
+            threshold = rules.now.seconds - i64(rules.leeway.as_seconds())
+            fraction = rules.leeway.as_nanoseconds() % 1000000000u64
+            if u64(rules.now.nanoseconds) < fraction:
+                if threshold - 1 >= expiry:
+                    return Err(JwtError.Expired)
+            elif threshold >= expiry:
                 return Err(JwtError.Expired)
         case Nothing:
             if rules.require_expiry:

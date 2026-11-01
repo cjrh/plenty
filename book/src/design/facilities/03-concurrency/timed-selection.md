@@ -1,6 +1,8 @@
 # Timed waits and selection
 
-Timeouts are `u64` milliseconds using a monotonic total budget, including repeated
+Prefer the [typed deadline waits in `std.sync`](../../stdlib/sync.md#typed-deadline-waits)
+for cancellable application code. They take `&Deadline` and `&CancellationToken`.
+The low-level primitives below use `u64` milliseconds using a monotonic total budget, including repeated
 wakeups. Zero checks immediately. Readiness or disconnection at the final check
 wins over timeout. Lock contention, cleanup, and scheduling may delay return
 beyond the budget; timeouts are not hard execution deadlines.
@@ -9,10 +11,12 @@ beyond the budget; timeouts are not hard execution deadlines.
 
 | Operation | Result |
 | --- | --- |
-| `sender.send_timeout(value, timeout_ms)` | `Result[(), SendTimeoutError[T]]` |
-| `receiver.recv_timeout(timeout_ms)` | `Result[T, RecvTimeoutError]` |
-| `future.wait_timeout(timeout_ms)` | `bool` |
-| `token.wait_timeout(timeout_ms)` | `bool` |
+| `sender.send_timeout_ms(value, timeout_ms)` | `Result[(), SendTimeoutError[T]]` |
+| `receiver.recv_timeout_ms(timeout_ms)` | `Result[T, RecvTimeoutError]` |
+| `future.wait_timeout_ms(timeout_ms)` | `bool` |
+| `token.wait_timeout_ms(timeout_ms)` | `bool` |
+
+The original `_timeout` spellings remain compatibility aliases.
 
 `SendTimeoutError[T]` has `Disconnected(value)` and `TimedOut(value)`, both
 returning ownership of the unsent message without copying or allocating.
@@ -29,7 +33,7 @@ without consuming or resetting it. Neither timed observation allocates.
 | --- | --- |
 | `select_recv(&first, &second)` | `Result[Selected[A, B], SelectError]` |
 | `select_recv_nowait(&first, &second)` | Same |
-| `select_recv_timeout(&first, &second, timeout_ms)` | Same |
+| `select_recv_timeout_ms(&first, &second, timeout_ms)` | Same |
 
 Selection borrows both receivers and transfers exactly one message.
 `Selected[A, B]` has `First(A)` and `Second(B)` variants. Shared `&` markers are

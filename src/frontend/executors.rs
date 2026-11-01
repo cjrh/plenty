@@ -67,10 +67,10 @@ impl Lower<'_> {
         if let Some(Ty::Future(output)) = self.place_type(base) {
             if !matches!(
                 (name, args.len()),
-                ("result" | "done" | "cancel", 0) | ("wait_timeout", 1)
+                ("result" | "done" | "cancel", 0) | ("wait_timeout" | "wait_timeout_ms", 1)
             ) {
                 return Err(base.at.error(
-                    "Future supports result(), done(), cancel(), and wait_timeout(timeout_ms)",
+                    "Future supports result(), done(), cancel(), and wait_timeout_ms(timeout_ms)",
                 ));
             }
             let loans = if name == "result" {
@@ -83,7 +83,7 @@ impl Lower<'_> {
             let op = match name {
                 "result" => ExecutorOp::Result((*output).clone()),
                 "done" => ExecutorOp::Done((*output).clone()),
-                "wait_timeout" => {
+                "wait_timeout" | "wait_timeout_ms" => {
                     let actual = self.expr_expected(&args[0], Some(Ty::U64), ops)?;
                     self.same(actual, Some(Ty::U64), &args[0].at)?;
                     ExecutorOp::WaitTimeout((*output).clone())
