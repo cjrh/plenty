@@ -751,8 +751,8 @@ pub class BodyReader[R]:
     # without reading, as `std.io` readers do; check `is_done()`. A chunked
     # body's trailer fields are in `trailers` once it ends.
     pub def read_body(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
-        if start < 0 or start > stop or stop > buffer.len():
-            return Err(HttpError.Stream(StreamError.OutOfRange))
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop and self._state != failed:
             return Ok(0)
         match self.step(buffer, start, stop):
@@ -763,6 +763,8 @@ pub class BodyReader[R]:
                 Err(error)
 
     pub def read(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match self.read_body(buffer, start, stop):
             case Ok(count):
                 Ok(count)

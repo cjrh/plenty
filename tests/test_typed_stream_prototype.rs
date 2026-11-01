@@ -165,11 +165,6 @@ from std.http.typed import close_body
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StepError[FramingError[Transport]]]:
     mut buffer = scratch()?
     mut body = close_body(Source(1, 0))
-    match body.read(&mut buffer, -1, 0):
-        case Err(StepError.Source(FramingError.OutOfRange)):
-            print("range")?
-        case _:
-            print("wrong")?
     print(body.read(&mut buffer, 0, 0)?)?
     mut sink = Sink(0, 0, 0)
     match copy_all(&mut body, &mut sink, &mut buffer):
@@ -198,7 +193,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | StepError
             print("wrong")?
     Ok(())
 "#,
-        "range\n0\n2\n47\nhandshake\nbroken\nprogress\ncancelled\n",
+        "0\n2\n47\nhandshake\nbroken\nprogress\ncancelled\n",
         true,
     );
 }
@@ -511,7 +506,6 @@ def main() -> Result[(), IoError]:
     mut source = std.io.typed.buffered_reader(Source(1, 0), 4).unwrap()
     mut bytes = scratch().unwrap()
     print(source.read(&mut bytes, 1, 1).unwrap(), source.inner.calls)?
-    print(source.read(&mut bytes, -1, 1).is_err(), source.inner.calls)?
     match source.read(&mut bytes, 0, 1):
         case Err(StepError.Interrupted):
             print("retry")?
@@ -533,7 +527,7 @@ def main() -> Result[(), IoError]:
                 print("wrong")?
     Ok(())
 "#,
-        "0 0\nTrue 0\nretry\n1 1 2\n1 0 2\n47 handshake\ninvalid\ninvalid\n",
+        "0 0\nretry\n1 1 2\n1 0 2\n47 handshake\ninvalid\ninvalid\n",
         true,
     );
 }
@@ -648,11 +642,6 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | HttpError
     mut buffer = scratch()?
     for mode in range(1, 6):
         mut body = std.http.typed.response_body(Source(mode, 0), &head, "GET", True, &limits)?
-        match body.read(&mut buffer, -1, 1):
-            case Err(StepError.Source(FramingError.OutOfRange)):
-                pass
-            case _:
-                print("wrong")?
         print(body.read(&mut buffer, 0, 0)?, body.total())?
         match read_exact(&mut body, &mut buffer, 0, 4):
             case Err(partial):
@@ -738,11 +727,6 @@ fn chunked_body_preserves_interruptions_trailers_and_message_boundary() {
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage] | StepError[FramingError[Transport]]]:
     mut body = chunked_body(wire("2; x=y\r\nAB\r\n1\r\nC\r\n0\r\nX-Tag: yes \t\r\n\r\n@")?, &Limits(32, 32, 1, 3))?
     mut buffer = scratch()?
-    match body.read(&mut buffer, -1, 0):
-        case Err(StepError.Source(FramingError.OutOfRange)):
-            print("range")?
-        case _:
-            print("wrong")?
     print(body.read(&mut buffer, 2, 2)?)?
     print(body.is_done())?
     mut sink = Sink(0, 0, 0)
@@ -754,7 +738,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingEr
     Ok(())
 "#
         ),
-        "range\n0\nFalse\n3\n3 True\n1 X-Tag yes\n0\n0\n",
+        "0\nFalse\n3\n3 True\n1 X-Tag yes\n0\n0\n",
         true,
     );
 }
@@ -1074,7 +1058,6 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
                         print("tls")?
     mut source = Source(0, 0)
     drop(read_exact[Transport, Source](&mut source, &mut buffer, 2, 2))
-    drop(read_exact[Transport, Source](&mut source, &mut buffer, -1, 2))
     print(source.calls)?
     Ok(())
 "#,

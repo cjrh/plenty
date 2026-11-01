@@ -668,6 +668,8 @@ pub class TcpStream:
     _stream: FileStream
 
     pub def read(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         while True:
             match self._stream.read(buffer, start, stop):
                 case Ok(count):
@@ -716,6 +718,8 @@ pub class TcpStream:
     # Waits for input, then makes one read. Zero is the end of the peer's
     # output.
     pub def read_before(self: &mut TcpStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         while True:
             ready_for(&self._stream.file, Interest.Read, deadline, cancel)?
             match self._stream.read(buffer, start, stop):

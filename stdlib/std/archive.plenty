@@ -596,8 +596,8 @@ pub class TarReader[R]:
     # Errors from `inner` leave the reader intact, so Interrupted and other
     # transient failures can be retried.
     pub def read(self: &mut TarReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > buffer.len():
-            return Err(StreamError.OutOfRange)
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match self._failure:
             case Some(error):
                 return Err(stream_error(error))
@@ -1170,8 +1170,8 @@ pub class ZipReader[R]:
     # Errors from `inner` leave the entry intact, so Interrupted and other
     # transient failures can be retried.
     pub def read(self: &mut ZipReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > buffer.len():
-            return Err(StreamError.OutOfRange)
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         match self._failure:
             case Some(error):
                 return Err(stream_error(error))

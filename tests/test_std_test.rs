@@ -736,7 +736,6 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError 
     mut rest = std.bytes.empty()?
     std.test.equal(&std.io.read_up_to(&mut stream, &mut rest, 100)?, &7)?
     std.test.equal(&rest.to_text()?, &"o world")?
-    std.test.is_err(&stream.read(&mut buffer, 4, 20))?
 
     stream.limit(0)
     message = std.bytes.from_text("abc")?

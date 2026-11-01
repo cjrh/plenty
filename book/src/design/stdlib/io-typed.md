@@ -29,7 +29,10 @@ header
 
 `Reader[E].read(&mut self, &mut Bytes, start, stop)` and
 `Writer[E].write(&mut self, &[u8])` return `Result[i64, StepError[E]]`. The
-read range is half-open; a writer takes the bytes as a view. A successful call reports
+read range is half-open and must satisfy `0 <= start <= stop <= buffer.len()`;
+an invalid range traps with `read: start/stop outside buffer` before consulting
+the transport. `read_exact` traps with `read_exact: start/stop outside buffer`.
+A writer takes the bytes as a view. A successful call reports
 the bytes moved; a failed call reports no progress from that attempt.
 `StepError.Interrupted` requests retry. `Source(E)` preserves every other
 cause, including cancellation and allocation failure. Reader `Ok(0)` is EOF

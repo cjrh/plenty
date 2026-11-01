@@ -151,12 +151,12 @@ def fed(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
 
 def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
     if start < 0 or start > stop or stop > target.len():
-        return Err(BytesError.OutOfRange)
+        __trap("take: start/stop outside buffer")
     Ok(__tls_take(session, target, start, stop))
 
 def decrypted(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
     if start < 0 or start > stop or stop > target.len():
-        return Err(BytesError.OutOfRange)
+        __trap("read: start/stop outside buffer")
     Ok(__tls_read(session, target, start, stop))
 
 def counted(result: Result[i64, BytesError]) -> Result[i64, TlsError]:
@@ -627,8 +627,9 @@ pub class TlsStream:
     # waiting, finishing the handshake first; Nothing otherwise. Some(0) is
     # the peer's close_notify.
     pub def try_read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, buffer.len())?
             return Ok(Some(0))
         if not self.try_handshake()?:
             return Ok(Nothing)
@@ -674,8 +675,9 @@ pub class TlsStream:
     # Zero is the peer's close_notify; a stream that ends without one is
     # Truncated, since an attacker can cut a connection short.
     pub def read_before(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, buffer.len())?
             return Ok(0)
         while True:
             count = counted(decrypted(&self._session, buffer, start, stop))?
@@ -730,8 +732,9 @@ pub class TlsStream:
         net(self._tcp.shutdown(direction))
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
-            flowed(within(start, stop, buffer.len()))?
             return Ok(0)
         while True:
             count = flowed(counted(decrypted(&self._session, buffer, start, stop)))?
@@ -865,8 +868,9 @@ pub class Session:
     # Decrypted bytes into target[start:stop]. Nothing while none is ready;
     # Some(0) is the peer's close_notify, or an empty range.
     pub def read(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
+        if not (0 <= start and start <= stop and stop <= target.len()):
+            __trap("read: start/stop outside buffer")
         if start == stop:
-            within(start, stop, target.len())?
             return Ok(Some(0))
         count = counted(decrypted(&self._handle, target, start, stop))?
         if count == would_block:
@@ -929,7 +933,3 @@ pub def client_session(config: &ClientConfig, server_name: &str) -> Result[Sessi
 pub def server_session(config: &ServerConfig) -> Result[Session, TlsError]:
     Ok(Session(opened(__tls_server(config._handle))?, False))
 
-def within(start: i64, stop: i64, length: i64) -> Result[(), TlsError]:
-    if start < 0 or start > stop or stop > length:
-        return Err(TlsError.Net(NetError.Stream(StreamError.OutOfRange)))
-    Ok(())

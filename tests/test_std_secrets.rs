@@ -367,15 +367,8 @@ mut handle = std.secrets.os_entropy()
 print(str.repr(handle.read(&mut target, 2, 2))?)?
 count = handle.read(&mut target, 0, 8).unwrap()
 print(count > 0 and count <= 8, target.len())?
-print(str.repr(handle.read(&mut target, 0, 9))?)?
-print(str.repr(handle.read(&mut target, -1, 4))?)?
-print(str.repr(handle.read(&mut target, 5, 4))?)?
 "#,
-        "Result[i64, S].Ok(0)\n\
-         True 8\n\
-         Result[i64, S].Err(S.Io(IoError.InvalidInput))\n\
-         Result[i64, S].Err(S.Io(IoError.InvalidInput))\n\
-         Result[i64, S].Err(S.Io(IoError.InvalidInput))",
+        "Result[i64, S].Ok(0)\nTrue 8",
     );
 }
 
