@@ -291,6 +291,24 @@ mod native {
         })
     }
 
+    fn apply_copy_metadata(fd: i32, observation: &Stat) -> Result<u128, Error> {
+        // Refuse incomplete observations before mutating the target. The policy
+        // intentionally excludes ownership, ACLs, xattrs and special mode bits.
+        if observation.mask & 0x62 != 0x62 {
+            return Err(Kind::Unsupported.into());
+        }
+        let times = [observation.accessed, observation.modified].map(|time| libc::timespec {
+            tv_sec: time.seconds,
+            tv_nsec: time.nanos as _,
+        });
+        // SAFETY: both timespec entries are initialized and borrowed until return;
+        // descriptor validity and permission failures are reported by the kernel.
+        unsafe {
+            checked(libc::futimens(fd, times.as_ptr()))?;
+            checked(libc::fchmod(fd, u32::from(observation.mode & 0o777)))
+        }
+    }
+
     // Inlined so each operation's entry symbol keeps only its own arm.
     #[inline(always)]
     pub(super) unsafe fn rooted_call(
@@ -400,6 +418,35 @@ mod native {
                 // AT_EMPTY_PATH: the open file itself, however it was reached,
                 // so the observation cannot be redirected by a renamed path.
                 273 => owned_metadata(stat_at(fd, b"\0", 0x1000)?),
+                516 => apply_copy_metadata(fd, &(*(b as *const Metadata)).data),
+                517 => {
+                    let ancestor = stat_at(fd, b"\0", 0x1000)?;
+                    let descendant = crate::files::descriptor(b as *const crate::files::File)?;
+                    let mut current = open_at(descendant, b".\0", DIRECTORY)?;
+                    // A fixed traversal cap bounds unusual mount namespaces.
+                    // At most two transient ancestor descriptors are live.
+                    for _ in 0..4096 {
+                        let here = stat_at(current.as_raw_fd(), b"\0", 0x1000)?;
+                        let same = |other: &Stat| {
+                            here.inode == other.inode
+                                && here.dev_major == other.dev_major
+                                && here.dev_minor == other.dev_minor
+                        };
+                        if same(&ancestor) {
+                            return Ok(1);
+                        }
+                        let parent = open_at(current.as_raw_fd(), b"..\0", DIRECTORY | NOFOLLOW)?;
+                        if same(&stat_at(parent.as_raw_fd(), b"\0", 0x1000)?) {
+                            return Ok(0);
+                        }
+                        current = parent;
+                    }
+                    Err(Kind::InvalidInput.into())
+                }
+                518 => {
+                    let name = leaf(contiguous(b)?)?;
+                    owned_metadata(stat_at(fd, &name, 0x100)?)
+                }
                 _ => unreachable!("rooted filesystem opcode"),
             }
         }
@@ -786,6 +833,34 @@ mod native {
                     memory::plenty_release(self.0 as *mut Header);
                 }
             }
+        }
+
+        #[test]
+        fn copy_metadata_rejects_missing_times_before_changing_permissions() {
+            use std::os::unix::fs::PermissionsExt;
+            let fixture = Fixture::new();
+            let path = fixture.0.join("target");
+            std::fs::write(&path, b"data").unwrap();
+            let target = std::fs::File::open(&path).unwrap();
+            target
+                .set_permissions(std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+            let observation = Stat {
+                mode: 0o777,
+                ..Stat::default()
+            };
+            assert!(matches!(
+                apply_copy_metadata(target.as_raw_fd(), &observation),
+                Err(Error::Kind(Kind::Unsupported))
+            ));
+            assert_eq!(target.metadata().unwrap().mode() & 0o777, 0o600);
+            let observation = Stat {
+                mask: 0x62,
+                ..observation
+            };
+            assert!(
+                matches!(apply_copy_metadata(-1, &observation), Err(Error::System(error)) if error.raw_os_error() == Some(libc::EBADF))
+            );
         }
 
         #[test]

@@ -47,7 +47,9 @@ available for publication. Unsupported filesystems and unavailable procfs
 produce `IoError` (normally a native `System` code); there is no named-file
 fallback. A successful publish is not a durability promise; call
 `stream.sync()` before publishing if needed. Directory durability is not
-provided here. No metadata, ownership, xattrs or source permissions are copied.
+provided here. Temporary creation itself copies no metadata.
+[`copy_file` and `copy_tree`](copying.md) can preserve ordinary permission
+bits and access/modification times before completing their copy operation.
 
 `temporary_dir_named(&root, &name)` exclusively creates a 0700 directory and
 returns `Result[TempDir, FsError]`. A collision is reported and never removed.

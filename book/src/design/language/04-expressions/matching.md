@@ -39,6 +39,13 @@ module path to it, or an alias of the matched type. `Some`, `Nothing`, `Ok`, and
 matched value supplies them: `case Choice.Value(v)` matches a `Choice[i64]` and
 a `Choice[str]` alike, and `case Choice[i64].Value(v)` is an error.
 
+At an anonymous-sum position, an enum variant pattern selects that enum
+member before testing its variant. This also works in nested payloads, such
+as `Err(ParseError.Invalid)` for `Result[T, AllocError | ParseError]`.
+Coverage includes every variant of every member. A generic qualifier that
+names several members is ambiguous; select one with a typed member pattern
+before matching its variants. See [anonymous sums](../03-types/anonymous-sums.md).
+
 A bare name binds only at a payload or field position; the case's own pattern
 is a variant, a class pattern, a literal, `_`, alternatives of those,
 `_ as name`, or a typed member pattern. A bare name as the case's own pattern is an error, and a payload name equal to a variant of

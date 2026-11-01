@@ -30,7 +30,7 @@ def main() -> Result[(), AllocError | IoError | std.io.StreamError | fs.FsError]
     staged.close()?
 
     cancel = CancellationToken()?
-    print(fs.copy_file(directory.root(), &original, &copied, 1024, &cancel)?)?
+    print(fs.copy_file(directory.root(), &original, &copied, 1024, &cancel, preserve=fs.CopyMetadata.PermissionsAndTimes)?)?
     pattern = path.from_text("*.txt")?
     names = fs.glob(directory.root(), &pattern, 10, 10, 1000)?
     print(len(names))?
@@ -47,8 +47,11 @@ def main() -> Result[(), AllocError | IoError | std.io.StreamError | fs.FsError]
 
 These operations require Linux, a filesystem supporting `O_TMPFILE`, and
 `/proc/self/fd` for publication. Unsupported environments return errors rather
-than using a weaker fallback. Copying uses bounded scratch storage, returns
+than using a weaker fallback. Single-file copying uses bounded scratch storage, returns
 errors for byte limits/cancellation, and leaves no partial destination name.
+To preserve ordinary permission bits and access/modification times, pass
+`preserve=fs.CopyMetadata.PermissionsAndTimes` to `copy_file`; ownership,
+ACLs, xattrs and special permission bits are excluded.
 
 Temporary-directory cleanup removes only an empty directory. Its destructor
 is best-effort; call `cleanup()` when you need to observe failure. Other actors
@@ -60,3 +63,10 @@ it can leave partial progress on cancellation or errors.
 See the reference for [root contracts](../../design/stdlib/fs/helpers.md),
 [temporary-resource limits](../../design/stdlib/fs/temporary.md), and
 [copy, deletion and glob budgets](../../design/stdlib/fs/operations.md).
+
+For a directory tree, use `copy_tree` with explicit entry, depth, byte and
+handle budgets from `copy_limits()`. Its default copies contents only.
+The destination must be new, symlinks and special files are rejected, and a
+failure after creation leaves partial output for the caller to inspect or
+remove. The [recursive-copy example and recovery contract](../../design/stdlib/fs/copying.md)
+show the complete call and explain `TreeCopyError.Setup` versus partial-output `Partial`/`Entry` errors.

@@ -8,8 +8,9 @@ def encoding_error_allocated[T](result: Result[T, AllocError]) -> Result[T, Enco
         case Err(cause):
             Err(EncodingError.Allocation(cause))
 
-# Binary-to-text codecs and fixed-width integer packing over `std.bytes`.
-# Everything here is checked Plenty: ranges are validated before reads and
+# Binary-to-text codecs and fixed-width integer/IEEE 754 float packing over Bytes.
+# Byte manipulation is checked Plenty; four std-only compiler bitcasts preserve
+# float representations without arithmetic. Ranges are validated before reads and
 # writes, and an index outside the buffer would trap rather than reach past
 # it. Ordinary codecs accept one canonical form; only the explicitly named
 # MIME decoder skips ASCII whitespace.
@@ -507,6 +508,26 @@ pub def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, Enc
 pub def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]:
     Ok(i64.wrapping_from(load(source, offset, 8, order)?))
 
+# Same-width bitcasts preserve signed zero, subnormals and every NaN payload,
+# including signaling NaNs. Integer helpers retain the endian/bounds contracts.
+pub def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> Result[(), EncodingError]:
+    pack_u32(target, offset, __encoding_f32_bits(value), order)
+
+pub def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> Result[(), EncodingError]:
+    pack_u64(target, offset, __encoding_f64_bits(value), order)
+
+pub def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), EncodingError]:
+    append_u32(target, __encoding_f32_bits(value), order)
+
+pub def append_f64(target: &mut Bytes, value: f64, order: Endian) -> Result[(), EncodingError]:
+    append_u64(target, __encoding_f64_bits(value), order)
+
+pub def unpack_f32(source: &[u8], offset: i64, order: Endian) -> Result[f32, EncodingError]:
+    Ok(__encoding_f32_from_bits(unpack_u32(source, offset, order)?))
+
+pub def unpack_f64(source: &[u8], offset: i64, order: Endian) -> Result[f64, EncodingError]:
+    Ok(__encoding_f64_from_bits(unpack_u64(source, offset, order)?))
+
 # Ranges are validated before any `Bytes` call and encoder output is ASCII, so
 # only `Allocation` reaches here in practice.
 def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
@@ -687,6 +708,8 @@ def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian)
 
 def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
     offset = target.len()
+    if offset > i64.MAX - width:
+        return Err(EncodingError.OutOfRange)
     encoding_error_allocated(target.resize(offset + width, 0u8))?
     place(target, offset, bits, width, order)
 

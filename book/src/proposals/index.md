@@ -91,6 +91,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |
 | [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
 | [Value generic parameters](value-generics.md) — accepted design for `const N` and inline arrays | B83; related B13, B23 |
+| [Positive and NonNegative domain types](domain-types.md) — accepted design for integer types stating fixed lower bounds on std parameters | Proposes B95; related B92, B83 |
 | [Using Rust crates in Plenty](rust-crate-dependencies.md) — three prototypes favor generated C adapters over a Cargo/rustc graph; production integration remains | B17, related B20 |
 | [Compiling Plenty to Rust source](rust-source-backend.md) — checked-IR scalar emitter, native companion round-trip and Rust build-cost measurements; ownership probes remain hand-lowered, no production backend | B20, related B17 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |

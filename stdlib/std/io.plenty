@@ -5,6 +5,9 @@
 # input and failure-after-progress policy. See book/src/design/stdlib/io.md.
 from std.bytes import Bytes, BytesError, with_capacity
 from std.path import Path
+from std.encoding import Endian, EncodingError
+import std.encoding
+import std.bytes
 
 def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
     match result:
@@ -21,6 +24,30 @@ pub enum StreamError:
     InvalidProgress
     Io(IoError)
     Allocation(AllocError)
+
+# Checked in-memory fields retain position and size context on truncation.
+pub enum BinaryError:
+    Truncated(i64, i64, i64)
+    TrailingData(i64, i64)
+    OutOfRange
+    LimitExceeded
+    Allocation(AllocError)
+    Encoding(EncodingError)
+
+def binary_allocated[T](result: Result[T, AllocError]) -> Result[T, BinaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BinaryError.Allocation(cause))
+
+# Avoid a callback adapter: these field operations also run in owned workers.
+def binary_encoding[T](result: Result[T, EncodingError]) -> Result[T, BinaryError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BinaryError.Encoding(cause))
 
 # A multi-step helper stopped after moving `completed` bytes.
 pub class Partial:
@@ -420,6 +447,179 @@ pub class Cursor:
     pub def position(self) -> i64:
         self._position
 
+    pub def remaining(self) -> i64:
+        if self._position >= self.data.len():
+            return 0
+        self.data.len() - self._position
+
+    pub def require_end(self) -> Result[(), BinaryError]:
+        if self.remaining() > 0:
+            return Err(BinaryError.TrailingData(self._position, self.remaining()))
+        Ok(())
+
+    def field_end(self, count: i64) -> Result[i64, BinaryError]:
+        if count < 0:
+            return Err(BinaryError.OutOfRange)
+        if count > self.remaining():
+            return Err(BinaryError.Truncated(self._position, count, self.remaining()))
+        Ok(self._position + count)
+
+    def prepare_field(self: &mut Cursor, count: i64, max_bytes: i64) -> Result[i64, BinaryError]:
+        if max_bytes < 0 or count < 0 or count > i64.MAX - self._position:
+            return Err(BinaryError.OutOfRange)
+        end = self._position + count
+        if end > max_bytes or self.data.len() > max_bytes:
+            return Err(BinaryError.LimitExceeded)
+        if end > self.data.len():
+            binary_allocated(self.data.resize(end, 0u8))?
+        Ok(end)
+
+    # This explicit owned copy is capped before allocation; views cannot escape.
+    pub def read_bytes(self: &mut Cursor, count: i64, max_bytes: i64 = 1048576) -> Result[Bytes, BinaryError]:
+        if count < 0 or max_bytes < 0:
+            return Err(BinaryError.OutOfRange)
+        if count > max_bytes:
+            return Err(BinaryError.LimitExceeded)
+        end = self.field_end(count)?
+        if count == 0:
+            return binary_allocated(std.bytes.empty())
+        result = binary_allocated(std.bytes.from_bytes(&self.data[self._position:end]))?
+        self._position = end
+        Ok(result)
+
+    pub def write_bytes(self: &mut Cursor, source: &[u8], max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        # An empty write follows Writer: it neither fills a gap nor moves position.
+        if len(source) == 0:
+            if max_bytes < 0:
+                return Err(BinaryError.OutOfRange)
+            if self.data.len() > max_bytes:
+                return Err(BinaryError.LimitExceeded)
+            return Ok(())
+        end = self.prepare_field(len(source), max_bytes)?
+        self.data.overwrite(self._position, source)
+        self._position = end
+        Ok(())
+
+    pub def read_u8(self: &mut Cursor) -> Result[u8, BinaryError]:
+        end = self.field_end(1)?
+        value = u8.wrapping_from(self.data[self._position])
+        self._position = end
+        Ok(value)
+
+    pub def write_u8(self: &mut Cursor, value: u8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(1, max_bytes)?
+        self.data[self._position] = u8.wrapping_from(value)
+        self._position = end
+        Ok(())
+
+    pub def read_i8(self: &mut Cursor) -> Result[i8, BinaryError]:
+        end = self.field_end(1)?
+        value = i8.wrapping_from(self.data[self._position])
+        self._position = end
+        Ok(value)
+
+    pub def write_i8(self: &mut Cursor, value: i8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(1, max_bytes)?
+        self.data[self._position] = u8.wrapping_from(value)
+        self._position = end
+        Ok(())
+
+    pub def read_u16(self: &mut Cursor, order: Endian) -> Result[u16, BinaryError]:
+        end = self.field_end(2)?
+        value = binary_encoding(std.encoding.unpack_u16(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_u16(self: &mut Cursor, value: u16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(2, max_bytes)?
+        binary_encoding(std.encoding.pack_u16(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_i16(self: &mut Cursor, order: Endian) -> Result[i16, BinaryError]:
+        end = self.field_end(2)?
+        value = binary_encoding(std.encoding.unpack_i16(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_i16(self: &mut Cursor, value: i16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(2, max_bytes)?
+        binary_encoding(std.encoding.pack_i16(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_u32(self: &mut Cursor, order: Endian) -> Result[u32, BinaryError]:
+        end = self.field_end(4)?
+        value = binary_encoding(std.encoding.unpack_u32(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_u32(self: &mut Cursor, value: u32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(4, max_bytes)?
+        binary_encoding(std.encoding.pack_u32(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_i32(self: &mut Cursor, order: Endian) -> Result[i32, BinaryError]:
+        end = self.field_end(4)?
+        value = binary_encoding(std.encoding.unpack_i32(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_i32(self: &mut Cursor, value: i32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(4, max_bytes)?
+        binary_encoding(std.encoding.pack_i32(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_u64(self: &mut Cursor, order: Endian) -> Result[u64, BinaryError]:
+        end = self.field_end(8)?
+        value = binary_encoding(std.encoding.unpack_u64(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_u64(self: &mut Cursor, value: u64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(8, max_bytes)?
+        binary_encoding(std.encoding.pack_u64(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_i64(self: &mut Cursor, order: Endian) -> Result[i64, BinaryError]:
+        end = self.field_end(8)?
+        value = binary_encoding(std.encoding.unpack_i64(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_i64(self: &mut Cursor, value: i64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(8, max_bytes)?
+        binary_encoding(std.encoding.pack_i64(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_f32(self: &mut Cursor, order: Endian) -> Result[f32, BinaryError]:
+        end = self.field_end(4)?
+        value = binary_encoding(std.encoding.unpack_f32(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_f32(self: &mut Cursor, value: f32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(4, max_bytes)?
+        binary_encoding(std.encoding.pack_f32(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
+    pub def read_f64(self: &mut Cursor, order: Endian) -> Result[f64, BinaryError]:
+        end = self.field_end(8)?
+        value = binary_encoding(std.encoding.unpack_f64(&self.data, self._position, order))?
+        self._position = end
+        Ok(value)
+
+    pub def write_f64(self: &mut Cursor, value: f64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]:
+        end = self.prepare_field(8, max_bytes)?
+        binary_encoding(std.encoding.pack_f64(&mut self.data, self._position, value, order))?
+        self._position = end
+        Ok(())
+
     pub def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         ranged(start, stop, buffer.len())?
         size = self.data.len()
@@ -437,16 +637,11 @@ pub class Cursor:
         if count == 0:
             return Ok(0)
         end = displaced(self._position, count)?
-        # A position past the end leaves a gap, which reads back as zeros.
-        if self._position > self.data.len():
-            stream_error_allocated(self.data.resize(self._position, 0u8))?
-        mut inside = self.data.len() - self._position
-        if inside > count:
-            inside = count
-        # Reserving first means a failed write changes nothing but the gap.
-        stream_error_allocated(self.data.reserve(count - inside))?
-        self.data.overwrite(self._position, &source[:inside])
-        stream_error_allocated(self.data.extend(&source[inside:]))?
+        # Reserve the entire extent before changing a seek gap or existing data.
+        if end > self.data.len():
+            stream_error_allocated(self.data.reserve(end - self.data.len()))?
+            stream_error_allocated(self.data.resize(end, 0u8))?
+        self.data.overwrite(self._position, source)
         self._position = end
         Ok(count)
 

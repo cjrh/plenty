@@ -62,12 +62,10 @@ def main() -> i32:
             match run(&arguments):
                 case Ok(_):
                     0i32
-                case Err(error):
-                    match error:
-                        case usage: UsageError:
-                            2i32
-                        case _:
-                            1i32
+                case Err(UsageError.Arguments):
+                    2i32
+                case Err(_):
+                    1i32
         case Err(_):
             1i32
 ```
@@ -75,9 +73,9 @@ def main() -> i32:
 hello, Ada
 ```
 
-Match a union member by type with `case name: Type:`; `_` covers the rest.
-A variant pattern such as `Err(UsageError.Arguments)` does not select a union
-member.
+Match an enum member's variant directly with `case Err(UsageError.Arguments):`.
+To bind a whole union member, match the error with `case name: Type:`; `_`
+covers the rest.
 
 ## Add meaning with an enum and `map_error`
 

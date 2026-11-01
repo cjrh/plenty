@@ -944,12 +944,12 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     let scoped = &rest[..rest.find("\n==== ").unwrap_or(rest.len())];
     // The local frame is the entry block's first slot: 16 bytes each for the
     // borrowed `values` and `output`, none for `total`, `round`, `index`, or
-    // the task tokens. Each task's storage is a separate slot. The owned start
-    // `spawn(square, round).drop_job()` adds two 80-byte hidden values that
-    // hold its bound job until `drop_job()`; issue #653 tracks returning to 32.
+    // the task tokens. Each task's storage is a separate slot. The direct
+    // `drop_job()` on the owned start builds only a job-free error, avoiding
+    // the two hidden 80-byte job-carrying locals from issue #653.
     let first = scoped
         .lines()
         .find(|line| line.contains("explicit_slot"))
         .unwrap_or_else(|| panic!("{scoped}"));
-    assert!(first.contains("ss0 = explicit_slot 192,"), "{scoped}");
+    assert!(first.contains("ss0 = explicit_slot 32,"), "{scoped}");
 }

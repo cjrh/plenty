@@ -231,7 +231,7 @@ pub(super) fn check<'a>(checker: &Checker<'a, '_>) -> Result<()> {
     let mut starts = vec![&[][..]; locals.len()];
     sequences(body, &mut |ops| {
         for (index, op) in ops.iter().enumerate() {
-            if let Op::Thread(ThreadOp::Start(_, slot)) = op {
+            if let Op::Thread(ThreadOp::Start(_, slot, _)) = op {
                 starts[*slot as usize] = holds(ops, index);
             }
         }
@@ -501,7 +501,7 @@ impl Walk<'_, '_, '_> {
                     }
                     path.joined[slot] = false;
                 }
-                Op::Thread(ThreadOp::Start(_, slot)) => path.joined[*slot as usize] = false,
+                Op::Thread(ThreadOp::Start(_, slot, _)) => path.joined[*slot as usize] = false,
                 Op::Thread(ThreadOp::Join(_)) => {
                     let Some(slot) = local(operand(ops, index)) else {
                         continue;

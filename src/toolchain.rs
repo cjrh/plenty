@@ -666,7 +666,18 @@ mod tests {
         }
         script.push_str("*) printf '%s\\n' \"${1#-print-file-name=}\" ;;\nesac\n");
         let clang = root.join("clang");
-        std::fs::write(&clang, script).unwrap();
+        let staged = root.join("clang.staged");
+        std::fs::write(&staged, script).unwrap();
+        // A fork in another test thread can inherit our writable descriptors
+        // until exec. Only a child opens the executable for writing, so no
+        // unrelated child can keep it busy (ETXTBSY, issues #125 and #646).
+        let status = Command::new("cp")
+            .arg(&staged)
+            .arg(&clang)
+            .status()
+            .unwrap();
+        assert!(status.success(), "install fake clang: {status}");
+        std::fs::remove_file(staged).unwrap();
         std::fs::set_permissions(&clang, std::fs::Permissions::from_mode(0o755)).unwrap();
         clang
     }
@@ -693,7 +704,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn libfuzzer_discovery_prefers_generic_and_rejects_failed_or_missing_paths() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = tempfile::Builder::new()
+            .prefix("clang 'fixture ")
+            .tempdir()
+            .unwrap();
         let archive = temp.path().join("generic.a");
         std::fs::write(&archive, "fixture").unwrap();
         let clang = fake_clang(

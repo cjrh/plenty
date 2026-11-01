@@ -166,3 +166,6 @@ For applications that parse flags, pass the chosen `list[Path]` to
 use chunked buffering, not a system call for each character, and decode strict
 UTF-8. Breaking out closes owned files, never stdin; any bytes read ahead into
 the iterator's buffer are discarded, so do not interleave other stdin readers.
+
+For fixed-width in-memory fields, use the [binary packet cursor](binary-packets.md)
+instead of manually tracking offsets or expecting stream reads to be atomic.

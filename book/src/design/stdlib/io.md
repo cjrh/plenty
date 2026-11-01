@@ -236,6 +236,10 @@ bytes and extend the buffer at its end; writing past the end first fills the
 gap with zeros. `seek` accepts any nonnegative position. A write can report
 `Allocation`; it reserves before changing existing bytes.
 
+The same cursor also provides [checked sequential binary fields](io-binary.md),
+bounded owned payload reads, and `remaining`/`require_end` validation. These
+methods share its position while retaining stricter per-field failure atomicity.
+
 ## Ownership and threads
 
 Transport methods take `&mut self`, so a stream has one user at a time and a

@@ -1284,7 +1284,9 @@ impl Checker<'_, '_> {
         nodes
             .iter()
             .filter(|node| match &node.op {
-                Some(Op::StoreLocal(i) | Op::Thread(ThreadOp::Start(_, i))) => *i as usize == slot,
+                Some(Op::StoreLocal(i) | Op::Thread(ThreadOp::Start(_, i, _))) => {
+                    *i as usize == slot
+                }
                 _ => false,
             })
             .filter_map(|node| node.site)
@@ -1866,7 +1868,7 @@ impl Checker<'_, '_> {
                         }
                     }
                 }
-                Op::Thread(ThreadOp::Start(_, slot)) => state[*slot as usize] = Slot::Owned,
+                Op::Thread(ThreadOp::Start(_, slot, _)) => state[*slot as usize] = Slot::Owned,
                 Op::Thread(ThreadOp::Join(task)) => self.join(task, state, site, false)?,
                 Op::Thread(ThreadOp::Finish(task, slot)) => {
                     // A task joined explicitly on every path is not waited for again.

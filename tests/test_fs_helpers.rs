@@ -473,3 +473,468 @@ fn unsupported_anonymous_files_are_errors_without_named_fallback() {
     let text = String::from_utf8(program.run(Path::new("/proc")).stdout).unwrap();
     assert!(text.contains("IoError.System"), "{text}");
 }
+
+#[test]
+fn copied_file_preserves_only_selected_permissions_and_observed_times() {
+    use std::os::unix::fs::MetadataExt;
+    use std::time::{Duration, UNIX_EPOCH};
+    let fixture = tempfile::tempdir().unwrap();
+    let source = fixture.path().join("source");
+    std::fs::write(&source, b"binary\0\xff").unwrap();
+    let input = std::fs::File::open(&source).unwrap();
+    input
+        .set_permissions(std::fs::Permissions::from_mode(0o6751))
+        .unwrap();
+    input
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(UNIX_EPOCH + Duration::new(1_500_000_001, 123_456_789))
+                .set_modified(UNIX_EPOCH + Duration::new(1_500_000_002, 987_654_321)),
+        )
+        .unwrap();
+    let expected = input.metadata().unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    destination = path.from_text("preserved")?
+    ordinary = path.from_text("ordinary")?
+    cancel = CancellationToken()?
+    print(fs.copy_file(&parent, &source, &destination, 100, &cancel, preserve=fs.CopyMetadata.PermissionsAndTimes)?)?
+    print(fs.copy_file(&parent, &source, &ordinary, 100, &cancel)?)?
+"#,
+    );
+    program.run(fixture.path());
+    let copied = std::fs::metadata(fixture.path().join("preserved")).unwrap();
+    assert_eq!(copied.mode() & 0o7777, 0o751);
+    assert_eq!(
+        (copied.atime(), copied.atime_nsec()),
+        (expected.atime(), expected.atime_nsec())
+    );
+    assert_eq!(
+        (copied.mtime(), copied.mtime_nsec()),
+        (expected.mtime(), expected.mtime_nsec())
+    );
+    assert_eq!(
+        std::fs::metadata(fixture.path().join("ordinary"))
+            .unwrap()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::read(source).unwrap(),
+        std::fs::read(fixture.path().join("preserved")).unwrap()
+    );
+}
+
+#[test]
+fn recursive_copy_streams_names_and_applies_directory_metadata_after_children() {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = tempfile::tempdir().unwrap();
+    let source = fixture.path().join("source");
+    std::fs::create_dir_all(source.join("nested/empty")).unwrap();
+    std::fs::write(source.join(".hidden"), b"hidden").unwrap();
+    std::fs::write(
+        source
+            .join("nested")
+            .join(std::ffi::OsStr::from_bytes(b"raw\xff")),
+        [0, 255, 13, 10],
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        source.join("nested"),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    let before = std::fs::metadata(source.join("nested")).unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    destination = path.from_text("copied")?
+    cancel = CancellationToken()?
+    limits = fs.copy_limits()
+    match fs.copy_tree(&parent, &source, &parent, &destination, &limits, &cancel, preserve=fs.CopyMetadata.PermissionsAndTimes):
+        case Ok(count):
+            print(count)?
+        case Err(error):
+            print(error)?
+"#,
+    );
+    assert_eq!(
+        String::from_utf8(program.run(fixture.path()).stdout).unwrap(),
+        "10\n"
+    );
+    let copied = fixture.path().join("copied");
+    assert!(copied.join("nested/empty").is_dir());
+    assert_eq!(std::fs::read(copied.join(".hidden")).unwrap(), b"hidden");
+    assert_eq!(
+        std::fs::read(
+            copied
+                .join("nested")
+                .join(std::ffi::OsStr::from_bytes(b"raw\xff"))
+        )
+        .unwrap(),
+        [0, 255, 13, 10]
+    );
+    let after = std::fs::metadata(copied.join("nested")).unwrap();
+    assert_eq!(after.mode() & 0o7777, 0o555);
+    assert_eq!(
+        (after.mtime(), after.mtime_nsec()),
+        (before.mtime(), before.mtime_nsec())
+    );
+}
+
+#[test]
+fn recursive_copy_rejects_links_special_files_overlap_and_existing_destination() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir(fixture.path().join("source")).unwrap();
+    std::os::unix::fs::symlink("../source", fixture.path().join("source/cycle")).unwrap();
+    std::os::unix::fs::symlink("missing", fixture.path().join("dangling")).unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    destination = path.from_text("copy")?
+    cancel = CancellationToken()?
+    limits = fs.copy_limits()
+    show(fs.copy_tree(&parent, &source, &parent, &destination, &limits, &cancel))?
+    child = parent.open_dir(&source)?
+    show(fs.copy_tree(&parent, &source, &child, &destination, &limits, &cancel))?
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("dangling")?, &limits, &cancel))?
+    show(fs.copy_tree(&parent, &source, &parent, &source, &limits, &cancel))?
+"#,
+    );
+    let output = String::from_utf8(program.run(fixture.path()).stdout).unwrap();
+    assert!(output.contains("FsError.UnsupportedType"), "{output}");
+    assert!(output.contains("FsError.Overlap"), "{output}");
+    assert_eq!(output.matches("FsError.Io").count(), 2, "{output}");
+    assert!(fixture.path().join("copy").is_dir());
+    assert!(!fixture.path().join("source/copy").exists());
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("copy"))
+            .unwrap()
+            .count(),
+        0
+    );
+
+    std::fs::remove_file(fixture.path().join("source/cycle")).unwrap();
+    let fifo = fixture.path().join("source/fifo");
+    let status = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(status.success());
+    std::fs::remove_dir(fixture.path().join("copy")).unwrap();
+    let output = String::from_utf8(program.run(fixture.path()).stdout).unwrap();
+    assert!(output.contains("FsError.UnsupportedType"), "{output}");
+}
+
+#[test]
+fn recursive_copy_budgets_cancellation_and_partial_cleanup_are_explicit() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(fixture.path().join("source/nested")).unwrap();
+    std::fs::write(fixture.path().join("source/nested/file"), b"0123456789").unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    cancel = CancellationToken()?
+    mut limits = fs.copy_limits()
+    limits.max_depth = 1
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("depth")?, &limits, &cancel))?
+    limits = fs.copy_limits()
+    limits.max_entries = 1
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("entries")?, &limits, &cancel))?
+    limits = fs.copy_limits()
+    limits.max_bytes = 9
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("bytes")?, &limits, &cancel))?
+    limits = fs.copy_limits()
+    limits.max_open_handles = 11
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("handles")?, &limits, &cancel))?
+    limits.max_depth = 65
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("invalid")?, &limits, &cancel))?
+    limits = fs.copy_limits()
+    cancel.cancel()
+    show(fs.copy_tree(&parent, &source, &parent, &path.from_text("cancelled")?, &limits, &cancel))?
+    fresh = CancellationToken()?
+    fs.remove_tree(&parent, &path.from_text("bytes")?, 10, 4, &fresh)?
+"#,
+    );
+    let output = String::from_utf8(program.run(fixture.path()).stdout).unwrap();
+    assert_eq!(output.matches("FsError.Limit").count(), 4, "{output}");
+    assert!(output.contains("FsError.InvalidLimits"), "{output}");
+    assert!(output.contains("FsError.Cancelled"), "{output}");
+    assert!(!fixture.path().join("invalid").exists());
+    assert!(!fixture.path().join("cancelled").exists());
+    assert!(!fixture.path().join("bytes").exists());
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn copy_failures_release_descriptors_and_leave_only_documented_outputs() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir(fixture.path().join("source")).unwrap();
+    std::fs::write(fixture.path().join("source/file"), b"complete").unwrap();
+    std::fs::write(fixture.path().join("file"), b"complete").unwrap();
+    let declarations = r#"
+def descriptors() -> Result[i64, AllocError | IoError]:
+    location = path.from_text("/proc/self/fd")?
+    mut directory = fs.read_dir(&location)?
+    mut count = 0
+    while True:
+        match directory.next()?:
+            case Some(_):
+                count += 1
+            case Nothing:
+                return Ok(count)
+    Ok(count)
+
+def probe(parent: &fs.Root, source: &path.Path, file: &path.Path, destination: &path.Path, cancel: &CancellationToken, limits: &fs.CopyLimits, marker: &str, tree: bool) -> Result[(), AllocError | IoError | fs.FsError]:
+    before = descriptors()?
+    print(marker).unwrap()
+    if tree:
+        result = fs.copy_tree(parent, source, parent, destination, limits, cancel, preserve=fs.CopyMetadata.PermissionsAndTimes)
+        print("__test_restore_allocations__").unwrap()
+        drop(result)
+        match parent.open_dir(destination):
+            case Ok(owner):
+                drop(owner)
+                fs.remove_tree(parent, destination, 10, 4, cancel)?
+            case Err(_):
+                pass
+    else:
+        result = fs.copy_file(parent, file, destination, 100, cancel, preserve=fs.CopyMetadata.PermissionsAndTimes)
+        print("__test_restore_allocations__").unwrap()
+        drop(result)
+        match parent.read_file(destination):
+            case Ok(stream):
+                metadata = fs.file_metadata(&stream)?
+                if metadata.size() != 8u64:
+                    return Err(IoError.Closed)
+                drop(stream)
+                parent.remove_file(destination)?
+            case Err(_):
+                pass
+    if descriptors()? != before:
+        return Err(IoError.Closed)
+    Ok(())
+"#;
+    let mut body = String::from(
+        r#"
+    source = path.from_text("source")?
+    file = path.from_text("file")?
+    destination = path.from_text("destination")?
+    cancel = CancellationToken()?
+    limits = fs.copy_limits()
+"#,
+    );
+    for budget in 0..100 {
+        for tree in ["False", "True"] {
+            body.push_str(&format!("    probe(&parent, &source, &file, &destination, &cancel, &limits, \"__test_fail_allocations_after_{budget}__\", {tree})?\n"));
+        }
+    }
+    Program::new(declarations, &body).run(fixture.path());
+    assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn denied_metadata_syscall_never_publishes_staged_file() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("source"), b"contents").unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    plain = path.from_text("plain")?
+    selected = path.from_text("selected")?
+    cancel = CancellationToken()?
+    print(fs.copy_file(&parent, &source, &plain, 100, &cancel)?)?
+    show(fs.copy_file(&parent, &source, &selected, 100, &cancel, preserve=fs.CopyMetadata.PermissionsAndTimes))?
+"#,
+    );
+    let native = tempfile::tempdir().unwrap();
+    let source = native.path().join("deny.c");
+    let library = native.path().join("deny.so");
+    std::fs::write(&source,"#include <errno.h>\n#include <sys/types.h>\nint fchmod(int fd, mode_t mode) { (void)fd; (void)mode; errno = EPERM; return -1; }\n").unwrap();
+    let built = Command::new("cc")
+        .args(["-shared", "-fPIC"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&library)
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{built:?}");
+    let output = Command::new(&program.executable)
+        .arg(fixture.path())
+        .env("LD_PRELOAD", library)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("8\n"), "{text}");
+    assert!(text.contains("IoError.System(1)"), "{text}");
+    assert_eq!(
+        std::fs::read(fixture.path().join("plain")).unwrap(),
+        b"contents"
+    );
+    assert!(!fixture.path().join("selected").exists());
+    assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn recursive_copy_never_follows_a_concurrently_replaced_file_link() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let fixture = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret"), b"outside-secret").unwrap();
+    let source = fixture.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("racing"), b"safe").unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    cancel = CancellationToken()?
+    limits = fs.copy_limits()
+    for index in range(80):
+        destination = path.from_text(f"copy-{index}"?)?
+        show(fs.copy_tree(&parent, &source, &parent, &destination, &limits, &cancel))?
+"#,
+    );
+    let stopped = Arc::new(AtomicBool::new(false));
+    let flag = stopped.clone();
+    let external = outside.path().join("secret");
+    let staging = fixture.path().join("swap");
+    let writer = std::thread::spawn(move || {
+        while !flag.load(Ordering::Relaxed) {
+            std::os::unix::fs::symlink(&external, &staging).unwrap();
+            std::fs::rename(&staging, source.join("racing")).unwrap();
+            std::fs::write(&staging, b"safe").unwrap();
+            std::fs::rename(&staging, source.join("racing")).unwrap();
+        }
+    });
+    let output = Command::new(&program.executable)
+        .arg(fixture.path())
+        .output()
+        .unwrap();
+    stopped.store(true, Ordering::Relaxed);
+    writer.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    for index in 0..80 {
+        let destination = fixture.path().join(format!("copy-{index}"));
+        assert!(destination.is_dir());
+        for entry in std::fs::read_dir(destination).unwrap() {
+            let entry = entry.unwrap();
+            assert!(!entry.file_type().unwrap().is_symlink());
+            assert_eq!(std::fs::read(entry.path()).unwrap(), b"safe");
+        }
+    }
+    assert_eq!(
+        std::fs::read(outside.path().join("secret")).unwrap(),
+        b"outside-secret"
+    );
+}
+
+#[test]
+fn empty_tree_exact_budgets_and_distinct_roots_work_without_replacement() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir(fixture.path().join("empty")).unwrap();
+    std::fs::create_dir(fixture.path().join("other")).unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("empty")?
+    destination = path.from_text("copy")?
+    other = parent.open_dir(&path.from_text("other")?)?
+    cancel = CancellationToken()?
+    limits = fs.CopyLimits(1, 1, 0, 11)
+    show(fs.copy_tree(&parent, &source, &other, &destination, &limits, &cancel))?
+    show(fs.copy_tree(&parent, &source, &other, &destination, &limits, &cancel))?
+    bad_entries = fs.CopyLimits(0, 1, 0, 11)
+    show(fs.copy_tree(&parent, &source, &other, &path.from_text("invalid-entries")?, &bad_entries, &cancel))?
+    bad_bytes = fs.CopyLimits(1, 1, -1, 11)
+    show(fs.copy_tree(&parent, &source, &other, &path.from_text("invalid-bytes")?, &bad_bytes, &cancel))?
+    bad_handles = fs.CopyLimits(1, 1, 0, 10)
+    show(fs.copy_tree(&parent, &source, &other, &path.from_text("invalid-handles")?, &bad_handles, &cancel))?
+"#,
+    );
+    let text = String::from_utf8(program.run(fixture.path()).stdout).unwrap();
+    assert!(text.starts_with("Ok\n"), "{text}");
+    assert!(text.contains("IoError.System(17)"), "{text}");
+    assert_eq!(text.matches("FsError.InvalidLimits").count(), 3, "{text}");
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("other"))
+            .unwrap()
+            .count(),
+        1
+    );
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("other/copy"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn bind_mount_alias_of_source_descendant_reports_partial_overlap_without_recursing() {
+    let fixture = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(fixture.path().join("source/child")).unwrap();
+    std::fs::create_dir(fixture.path().join("alias")).unwrap();
+    let available = Command::new("unshare")
+        .args([
+            "-Urnm",
+            "sh",
+            "-ec",
+            "mount --bind \"$1\" \"$2\"",
+            "fs-copy-probe",
+        ])
+        .arg(fixture.path().join("source/child"))
+        .arg(fixture.path().join("alias"))
+        .output();
+    if !matches!(&available, Ok(output) if output.status.success()) {
+        eprintln!(
+            "bind-mount overlap qualification requires permitted user/mount namespaces and bind mounts: {available:?}"
+        );
+        return;
+    }
+    let program = Program::new(
+        "",
+        r#"
+    source = path.from_text("source")?
+    alias = parent.open_dir(&path.from_text("alias")?)?
+    destination = path.from_text("copy")?
+    cancel = CancellationToken()?
+    limits = fs.copy_limits()
+    show(fs.copy_tree(&parent, &source, &alias, &destination, &limits, &cancel))?
+"#,
+    );
+    // The bind exists only in the child mount namespace. Its directory aliases
+    // source/child while dot-dot walks back through the independent alias name.
+    let output = Command::new("unshare")
+        .args([
+            "-Urnm",
+            "sh",
+            "-ec",
+            "mount --bind \"$1\" \"$2\"\nexec \"$3\" \"$4\"",
+            "fs-copy-bind",
+        ])
+        .arg(fixture.path().join("source/child"))
+        .arg(fixture.path().join("alias"))
+        .arg(&program.executable)
+        .arg(fixture.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("TreeCopyError.Entry"), "{text}");
+    assert!(text.contains("FsError.Overlap"), "{text}");
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("source/child/copy"))
+            .unwrap()
+            .count(),
+        0
+    );
+}

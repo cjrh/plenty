@@ -93,6 +93,9 @@ impl FsOp {
             | Self::DuplicateRoot
             | Self::MakeTemporaryDir
             | Self::FileMetadata
+            | Self::ApplyCopyMetadata
+            | Self::IsWithin
+            | Self::ChildMetadata
             | Self::WatchOpen
             | Self::WatchRemove => Effect::Handle,
             Self::Name

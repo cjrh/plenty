@@ -188,6 +188,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 | B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views (issue #624). `len`/`in` on std containers stays B49. Delivered: `find`/`reduce` copy borrowed copyable items, and iterator methods on non-iterators suggest `iter(...)` (issues #621, #622). [Proposal](proposals/consistency-rules.md#rule-4-adapters-belong-to-iterators). |
 | B92 | Error types and invalid arguments | Phase 1 done (issues #625, #629, #632): `FormatError` in the prelude, infallible tuple slices, literal `split("")` rejected, `par(chunks=0)` reports its argument. Phase 2 done: f-strings without user formatting or computed specs return `Result[str, AllocError]` (local PR #795). Remaining: domain errors carry `Allocation(AllocError)`, including `FormatError.Allocation`; the rest of the four-part invalid-argument policy. [Proposal](proposals/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail). |
 | B93 | Callable forms | Phase 1 done (issues #617, #619, #620): pipeline and `sort_by_key` callbacks accept every reusable callable form; `&mut` named functions. Remaining: `par` callbacks for stored capture-free closures and `Callable` values; class constructors and generic variants, including `Some`/`Ok`/`Err`, as function values; inside `checked:`, closures defined in the block report `Err` and may not leave it, and other functions follow their signatures. Callable names stay (issue #24). [Proposal](proposals/consistency-rules.md#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #618. |
+| B95 | Integer domain types | Add `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) beside `NonZero[T]` for signed `T`; migrate std parameters with a fixed lower bound of 0 or 1 so callers check once at construction and the functions drop the invalid-argument `Err`; fixed ceilings trap. Phases: the types, then migration groups A–C, then division by a domain divisor without the zero check (issue #664). `channel`/`ThreadPoolExecutor` take `Positive[i64]` (issue #665). Follows B92 (local PR #804); `Bounded` needs B83. [Proposal](proposals/domain-types.md). |
 
 ### Runtime-independent protocol support
 
@@ -217,7 +218,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B51 | JSON | Bulk scans outside string runs, pretty-printing, JSON Lines and derived codecs (B77). |
 | B52 | TOML | Independent conformance checks (`toml-test`/reference crate); evaluate TOML 1.1. |
 | B53 | CSV | Lenient parsing/recovery, header mapping/typed columns, non-UTF-8 encodings, multibyte delimiters and throughput benchmarks. |
-| B54 | Encodings | Bulk native codec/packing throughput, streaming codecs, float packing and varints. |
+| B54 | Encodings | Bulk native codec/packing throughput, streaming codecs and varints. [IEEE float packing delivered](completed-work/libraries.md) (issue #656). |
 | B55 | Filesystem | Passwd fallback, `XDG_RUNTIME_DIR` and `XDG_*_DIRS` search lists. |
 | B56 | Concurrency primitives | Condition variables, rwlocks and semaphores only with a concrete use case. |
 | B60 | URLs | Relative resolution, normalization/equivalence, IDNA and form encoding. |

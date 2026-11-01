@@ -1,3 +1,5 @@
+# Rooted copy API modelled on Python shutil.copytree/copy2, with explicit
+# limits and no-follow contracts; implemented directly in Plenty.
 from std.path import Path, from_bytes
 from std.time import Timestamp
 import std.bytes
@@ -5,7 +7,7 @@ import std.secrets
 from std.io import FileStream, Reader, StreamError, write_all
 from std.sync import CancellationToken
 from std.secrets import SecretsError
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
 pub enum FsError:
     Io(IoError)
@@ -17,6 +19,9 @@ pub enum FsError:
     Cancelled
     Replaced
     Collisions
+    UnsupportedType
+    Overlap
+    InvalidLimits
 
 def fs_io[T](result: Result[T, IoError]) -> Result[T, FsError]:
     match result:
@@ -38,15 +43,6 @@ def fs_stream[T](result: Result[T, StreamError]) -> Result[T, FsError]:
             Ok(value)
         case Err(error):
             Err(FsError.Stream(error))
-
-def fs_bytes[T](result: Result[T, BytesError]) -> Result[T, FsError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(error)):
-            Err(FsError.Allocation(error))
-        case Err(_):
-            Err(FsError.InvalidInput)
 
 def fs_secret(result: Result[str, SecretsError]) -> Result[str, FsError]:
     match result:
@@ -215,24 +211,19 @@ pub def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[Tem
                         return Err(error)
     Err(FsError.Collisions)
 
-# Caller-defined Reader permits devices and deterministic cancellation tests.
-# A failed transfer leaves no destination name, even after partial writes.
-pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
-    if max_bytes < 0:
-        return Err(FsError.InvalidInput)
-    if cancel.is_cancelled():
-        return Err(FsError.Cancelled)
-    mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
-    fs_alloc(scratch.resize(8192, 0u8))?
-    mut target = fs_io(temporary_file(parent))?
+pub enum CopyMetadata:
+    ContentsOnly
+    PermissionsAndTimes
+
+# Copy contents to an existing unnamed target, with one caller-owned buffer.
+def transfer[R: Reader](source: &mut R, target: &mut FileStream, scratch: &mut Bytes, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
     mut total = 0
     while True:
         if cancel.is_cancelled():
             return Err(FsError.Cancelled)
-        mut count = 0
-        match source.read(&mut scratch, 0, 8192):
+        count = match source.read(scratch, 0, 8192):
             case Ok(value):
-                count = value
+                value
             case Err(StreamError.Interrupted):
                 continue
             case Err(error):
@@ -242,23 +233,180 @@ pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, 
         if count < 0 or count > 8192:
             return Err(FsError.Stream(StreamError.InvalidProgress))
         if count == 0:
-            fs_stream(target.stream.flush())?
-            if cancel.is_cancelled():
-                return Err(FsError.Cancelled)
-            fs_io(target.publish(destination))?
+            fs_stream(target.flush())?
             return Ok(total)
         if count > max_bytes - total:
             return Err(FsError.Limit)
-        match write_all(&mut target.stream, &scratch[:count]):
+        match write_all(target, &scratch[:count]):
             case Ok(_):
                 total += count
             case Err(partial):
                 return Err(FsError.Stream(partial.cause))
     Ok(total)
 
-pub def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
+def copy_buffer() -> Result[Bytes, FsError]:
+    mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
+    fs_alloc(scratch.resize(8192, 0u8))?
+    Ok(scratch)
+
+# Reader has no source filesystem metadata. The unnamed target vanishes on failure.
+pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
+    if max_bytes < 0:
+        return Err(FsError.InvalidInput)
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    mut scratch = copy_buffer()?
+    mut target = fs_io(temporary_file(parent))?
+    total = transfer(source, &mut target.stream, &mut scratch, max_bytes, cancel)?
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    fs_io(target.publish(destination))?
+    Ok(total)
+
+def observe_copy_metadata(handle: &File, preserve: CopyMetadata) -> Result[Option[Metadata], FsError]:
+    if preserve == CopyMetadata.ContentsOnly:
+        Ok(Nothing)
+    else:
+        Ok(Some(Metadata(fs_io(__fs_file_metadata(handle))?)))
+
+def apply_copy_metadata(handle: &File, observation: &Option[Metadata]) -> Result[(), FsError]:
+    match observation:
+        case Some(metadata):
+            fs_io(__fs_apply_copy_metadata(handle, metadata._owner))
+        case Nothing:
+            Ok(())
+
+def copy_open_file(input: &mut FileStream, parent: &Root, destination: &Path, scratch: &mut Bytes, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata) -> Result[i64, FsError]:
+    observation = observe_copy_metadata(input.file, preserve)?
+    mut target = fs_io(temporary_file(parent))?
+    total = transfer(input, &mut target.stream, scratch, max_bytes, cancel)?
+    apply_copy_metadata(target.stream.file, &observation)?
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
+    fs_io(target.publish(destination))?
+    Ok(total)
+
+pub def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]:
+    if max_bytes < 0:
+        return Err(FsError.InvalidInput)
+    if cancel.is_cancelled():
+        return Err(FsError.Cancelled)
     mut input = fs_io(parent.read_file(source))?
-    copy_from(&mut input, parent, destination, max_bytes, cancel)
+    mut scratch = copy_buffer()?
+    copy_open_file(&mut input, parent, destination, &mut scratch, max_bytes, cancel, preserve)
+
+pub class CopyLimits:
+    pub max_entries: i64
+    pub max_depth: i64
+    pub max_bytes: i64
+    pub max_open_handles: i64
+
+pub def copy_limits() -> CopyLimits:
+    CopyLimits(10000, 32, 67108864, 128)
+
+# Setup never created the destination; Partial leaves it for explicit inspection
+# and remove_tree. Earlier successful children stay copied on any later failure.
+pub enum TreeCopyError:
+    Setup(FsError)
+    Partial(FsError)
+    Entry(Path, i64, FsError)
+
+class CopyBudget:
+    entries: i64
+    bytes: i64
+    destination_device: u64
+    destination_inode: u64
+
+    def step(self: &mut CopyBudget) -> Result[(), FsError]:
+        if self.entries == 0:
+            return Err(FsError.Limit)
+        self.entries -= 1
+        Ok(())
+
+def prepare_copy_directory(source: &Root, target: &Root, name: &Path) -> Result[(Root, Root), FsError]:
+    child = fs_io(source.open_dir(name))?
+    fs_io(target.create_dir(name))?
+    output = fs_io(target.open_dir(name))?
+    Ok((child, output))
+
+def copy_directory(source: &Root, target: &Root, scratch: &mut Bytes, budget: &mut CopyBudget, limits: &CopyLimits, level: i64, cancel: &CancellationToken, preserve: CopyMetadata) -> Result[(), TreeCopyError]:
+    if cancel.is_cancelled():
+        return Err(TreeCopyError.Partial(FsError.Cancelled))
+    observation = observe_copy_metadata(source._handle, preserve).map_error(TreeCopyError.Partial)?
+    mut names = fs_io(source.names()).map_error(TreeCopyError.Partial)?
+    while True:
+        if cancel.is_cancelled():
+            return Err(TreeCopyError.Partial(FsError.Cancelled))
+        match fs_io(names.next()).map_error(TreeCopyError.Partial)?:
+            case Nothing:
+                break
+            case Some(name):
+                match budget.step():
+                    case Err(error):
+                        return Err(TreeCopyError.Entry(name, level + 1, error))
+                    case Ok(_):
+                        pass
+                metadata = match fs_io(__fs_child_metadata(source._handle, name.as_bytes())):
+                    case Ok(owner):
+                        Metadata(owner)
+                    case Err(error):
+                        return Err(TreeCopyError.Entry(name, level + 1, error))
+                if metadata.is_dir():
+                    # A bind mount can hide source ancestry from dot-dot walks.
+                    # Stop before entering the original destination parent.
+                    if metadata.unix_device() == budget.destination_device and metadata.unix_inode() == budget.destination_inode:
+                        return Err(TreeCopyError.Entry(name, level + 1, FsError.Overlap))
+                    if level == limits.max_depth or 3 * (level + 1) + 8 > limits.max_open_handles:
+                        return Err(TreeCopyError.Entry(name, level + 1, FsError.Limit))
+                    opened = match prepare_copy_directory(source, target, &name):
+                        case Ok(pair):
+                            pair
+                        case Err(error):
+                            return Err(TreeCopyError.Entry(name, level + 1, error))
+                    child, output = opened
+                    match copy_directory(&child, &output, scratch, budget, limits, level + 1, cancel, preserve):
+                        case Ok(_):
+                            pass
+                        case Err(TreeCopyError.Partial(error)):
+                            return Err(TreeCopyError.Entry(name, level + 1, error))
+                        case Err(error):
+                            return Err(error)
+                elif metadata.is_file():
+                    mut input = match fs_io(source.read_file(&name)):
+                        case Ok(stream):
+                            stream
+                        case Err(error):
+                            return Err(TreeCopyError.Entry(name, level + 1, error))
+                    match copy_open_file(&mut input, target, &name, scratch, budget.bytes, cancel, preserve):
+                        case Ok(count):
+                            budget.bytes -= count
+                        case Err(error):
+                            return Err(TreeCopyError.Entry(name, level + 1, error))
+                else:
+                    return Err(TreeCopyError.Entry(name, level + 1, FsError.UnsupportedType))
+    fs_io(names.close()).map_error(TreeCopyError.Partial)?
+    apply_copy_metadata(target._handle, &observation).map_error(TreeCopyError.Partial)?
+    Ok(())
+
+# Only newly-created destinations are accepted. No recursive rollback is hidden
+# in error handling: cleanup has its own budgets and can itself fail.
+pub def copy_tree(source_parent: &Root, source: &Path, destination_parent: &Root, destination: &Path, limits: &CopyLimits, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, TreeCopyError]:
+    if limits.max_entries < 1 or limits.max_depth < 1 or limits.max_depth > 64 or limits.max_bytes < 0 or limits.max_open_handles < 11:
+        return Err(TreeCopyError.Setup(FsError.InvalidLimits))
+    if cancel.is_cancelled():
+        return Err(TreeCopyError.Setup(FsError.Cancelled))
+    input = fs_io(source_parent.open_dir(source)).map_error(TreeCopyError.Setup)?
+    if fs_io(__fs_is_within(input._handle, destination_parent._handle)).map_error(TreeCopyError.Setup)?:
+        return Err(TreeCopyError.Setup(FsError.Overlap))
+    destination_metadata = Metadata(fs_io(__fs_file_metadata(destination_parent._handle)).map_error(TreeCopyError.Setup)?)
+    mut scratch = copy_buffer().map_error(TreeCopyError.Setup)?
+    fs_io(destination_parent.create_dir(destination)).map_error(TreeCopyError.Setup)?
+    output = fs_io(destination_parent.open_dir(destination)).map_error(TreeCopyError.Partial)?
+    mut budget = CopyBudget(limits.max_entries - 1, limits.max_bytes, destination_metadata.unix_device(), destination_metadata.unix_inode())
+    copy_directory(&input, &output, &mut scratch, &mut budget, limits, 1, cancel, preserve)?
+    if cancel.is_cancelled():
+        return Err(TreeCopyError.Partial(FsError.Cancelled))
+    Ok(limits.max_bytes - budget.bytes)
 
 class Budget:
     remaining: i64
