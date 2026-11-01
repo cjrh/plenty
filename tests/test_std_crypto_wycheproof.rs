@@ -28,7 +28,7 @@ from std.encoding import EncodingError
 def size(data: &Bytes, at: i64) -> i64:
     i64(data[at]) * 16777216 + i64(data[at + 1]) * 65536 + i64(data[at + 2]) * 256 + i64(data[at + 3])
 
-def field(data: &Bytes, at: i64) -> Result[Bytes, BytesError]:
+def field(data: &Bytes, at: i64) -> Result[Bytes, AllocError | BytesError]:
     data.slice(at + 4, at + 4 + size(data, at))
 
 def after(data: &Bytes, at: i64) -> i64:
@@ -47,7 +47,7 @@ def token(result: Result[bool, AdvancedError]) -> str:
         case Err(_):
             "E"
 
-def stdin() -> Result[Bytes, IoError | BytesError]:
+def stdin() -> Result[Bytes, AllocError | IoError | BytesError]:
     mut data = std.bytes.empty()?
     mut used = 0
     while True:
@@ -56,7 +56,7 @@ def stdin() -> Result[Bytes, IoError | BytesError]:
         if count == 0:
             break
         used = used + count
-    data.truncate(used)?
+    data.truncate(used)
     Ok(data)
 
 def jwk(text: &Bytes) -> Result[Bytes, EncodingError]:
@@ -80,7 +80,7 @@ def scheme(code: u8) -> RsaScheme:
             RsaScheme.PssSha512
 
 # One group: its key record, then test records up to the next key.
-def group(data: &Bytes, start: i64, code: u8) -> Result[i64, IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64, code: u8) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     mut at = start + 1
     spki = field(data, at)?
     at = after(data, at)
@@ -100,7 +100,7 @@ def group(data: &Bytes, start: i64, code: u8) -> Result[i64, IoError | BytesErro
         print(a, b)?
     Ok(at)
 
-def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     data = stdin()?
     mut at = 1
     while at < data.len():
@@ -109,7 +109,7 @@ def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
 "#;
 
 const P256: &str = r#"
-def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     mut at = start + 1
     spki = field(data, at)?
     at = after(data, at)
@@ -142,7 +142,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | Advanc
         print(a, b, c)?
     Ok(at)
 
-def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     data = stdin()?
     mut at = 1
     while at < data.len():
@@ -162,7 +162,7 @@ def verify(key: &Result[Bytes, AdvancedError], message: &Bytes, signature: &Byte
         case Err(_):
             "E"
 
-def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     mut at = start + 1
     spki = field(data, at)?
     at = after(data, at)
@@ -189,7 +189,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, IoError | BytesError | Advanc
         print(a, b, c)?
     Ok(at)
 
-def main() -> Result[(), IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
     data = stdin()?
     mut at = 1
     while at < data.len():

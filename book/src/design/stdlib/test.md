@@ -116,7 +116,7 @@ Its instants are on the [`instant_at`](time.md#instants-and-deadlines) timeline.
 | `advance(span: &Duration)` | `Result[(), RangeError]` | Move forward by `span`; past the end of the timeline is `RangeError.OutOfRange` and nothing moves. Takes `&mut FakeClock` |
 | `set(nanoseconds_after_origin: u64)` | `()` | Move to any instant, including backwards. Takes `&mut FakeClock` |
 
-`fake_stream(input: Bytes)` returns `Result[FakeStream, BytesError]`, a
+`fake_stream(input: Bytes)` returns `Result[FakeStream, AllocError]`, a
 [`std.io`](io.md#stream-contracts) `Reader` and `Writer` over memory. Reads
 return `input` from its start; writes append to `output`. Both fields are
 public. It injects the partial progress and failures that a file or socket

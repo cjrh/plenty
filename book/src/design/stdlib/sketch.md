@@ -6,10 +6,9 @@ its serialized formats. Also see [xor filters](sketch-xor.md) and
 [cuckoo filters](sketch-cuckoo.md).
 
 ```plenty
-from std.bytes import BytesError
 from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
 
-def main() -> Result[(), SketchError | AllocError | BytesError | IoError]:
+def main() -> Result[(), SketchError | AllocError | IoError]:
     mut users = hyperloglog()?
     mut latency = quantiles()?
     for i in range(10000):
@@ -85,10 +84,10 @@ original data can compute exact counts for these candidates.
 ## Errors and persistence
 
 `InvalidArgument` covers invalid configuration or nonfinite input. Count overflow
-returns `Limit` without accepting the update. List-backed constructors expose
-`AllocError`; packed byte storage exposes `BytesError.Allocation(AllocError)`.
-The generated signature index lists each precise union. Methods that serialize
-to `std.bytes.Bytes` return `BytesError`. All allocation failures remain recoverable.
+returns `Limit` without accepting the update. Constructors, readers and updates
+that can also fail for another reason report allocation failure as
+`SketchError.Allocation(cause)`; `candidates()` and `to_bytes()` fail only to
+allocate and return `AllocError`. All allocation failures remain recoverable.
 
 `to_bytes()` writes a versioned Plenty format: `PSH1`, `PSQ1`, or `PSF1`.
 Integers use little-endian u64 words. Quantile values use 32-byte, space-padded,

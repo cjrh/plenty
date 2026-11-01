@@ -18,91 +18,91 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 107-182
-- [`std.actor.net`](#stdactornet): 184-247
-- [`std.actor.tls`](#stdactortls): 249-278
-- [`std.actor.http.server`](#stdactorhttpserver): 280-343
-- [`std.archive`](#stdarchive): 345-411
-- [`std.atomic`](#stdatomic): 413-422
-- [`std.bytes`](#stdbytes): 424-471
-- [`std.cache.lru`](#stdcachelru): 473-495
-- [`std.channel`](#stdchannel): 497-501
-- [`std.cli`](#stdcli): 503-533
-- [`std.cli.fileinput`](#stdclifileinput): 535-544
-- [`std.cli.progress`](#stdcliprogress): 546-570
-- [`std.collections`](#stdcollections): 572-599
-- [`std.complex`](#stdcomplex): 601-627
-- [`std.compress`](#stdcompress): 629-659
-- [`std.concurrent`](#stdconcurrent): 661-665
-- [`std.crypto`](#stdcrypto): 667-748
-- [`std.csv`](#stdcsv): 750-813
-- [`std.dataframe`](#stddataframe): 815-1014
-- [`std.db.kv`](#stddbkv): 1016-1048
-- [`std.db.sqlite`](#stddbsqlite): 1050-1114
-- [`std.deque`](#stddeque): 1116-1130
-- [`std.diff`](#stddiff): 1132-1161
-- [`std.encoding`](#stdencoding): 1163-1230
-- [`std.env`](#stdenv): 1232-1246
-- [`std.error`](#stderror): 1248-1268
-- [`std.fmt`](#stdfmt): 1270-1337
-- [`std.fs`](#stdfs): 1339-1433
-- [`std.fs.dirs`](#stdfsdirs): 1435-1445
-- [`std.fs.watch`](#stdfswatch): 1447-1482
-- [`std.graph`](#stdgraph): 1484-1572
-- [`std.http`](#stdhttp): 1574-1644
-- [`std.http.decoder`](#stdhttpdecoder): 1646-1663
-- [`std.http.body`](#stdhttpbody): 1665-1700
-- [`std.http.client`](#stdhttpclient): 1702-1812
-- [`std.http.cookie`](#stdhttpcookie): 1814-1846
-- [`std.http.files`](#stdhttpfiles): 1848-1861
-- [`std.http.https`](#stdhttphttps): 1863-1877
-- [`std.http.proxy`](#stdhttpproxy): 1879-1900
-- [`std.http.server`](#stdhttpserver): 1902-1987
-- [`std.http.sse`](#stdhttpsse): 1989-2008
-- [`std.http.tls`](#stdhttptls): 2010-2027
-- [`std.http.typed`](#stdhttptyped): 2029-2062
-- [`std.http.websocket`](#stdhttpwebsocket): 2064-2099
-- [`std.http.wss`](#stdhttpwss): 2101-2107
-- [`std.image`](#stdimage): 2109-2155
-- [`std.io`](#stdio): 2157-2263
-- [`std.io.typed`](#stdiotyped): 2265-2303
-- [`std.json`](#stdjson): 2305-2369
-- [`std.jwt`](#stdjwt): 2371-2418
-- [`std.log`](#stdlog): 2420-2487
-- [`std.markdown`](#stdmarkdown): 2489-2523
-- [`std.template`](#stdtemplate): 2525-2546
-- [`std.math`](#stdmath): 2548-2614
-- [`std.mime`](#stdmime): 2616-2640
-- [`std.net`](#stdnet): 2642-2724
-- [`std.path`](#stdpath): 2726-2743
-- [`std.process`](#stdprocess): 2745-2794
-- [`std.random`](#stdrandom): 2796-2817
-- [`std.ready`](#stdready): 2819-2850
-- [`std.regex`](#stdregex): 2852-2905
-- [`std.report`](#stdreport): 2907-2914
-- [`std.secrets`](#stdsecrets): 2916-2942
-- [`std.shlex`](#stdshlex): 2944-2953
-- [`std.sketch`](#stdsketch): 2955-2993
-- [`std.sketch.xor`](#stdsketchxor): 2995-3006
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3008-3023
-- [`std.signal`](#stdsignal): 3025-3042
-- [`std.simd`](#stdsimd): 3044-3145
-- [`std.stat`](#stdstat): 3147-3180
-- [`std.plot`](#stdplot): 3182-3271
-- [`std.linalg`](#stdlinalg): 3273-3314
-- [`std.sync`](#stdsync): 3316-3334
-- [`std.system`](#stdsystem): 3336-3394
-- [`std.tempfile`](#stdtempfile): 3396-3428
-- [`std.test`](#stdtest): 3430-3472
-- [`std.text`](#stdtext): 3474-3517
-- [`std.thread`](#stdthread): 3519-3523
-- [`std.time`](#stdtime): 3525-3569
-- [`std.tls`](#stdtls): 3571-3653
-- [`std.toml`](#stdtoml): 3655-3704
-- [`std.unicode`](#stdunicode): 3706-3718
-- [`std.url`](#stdurl): 3720-3748
-- [`std.uuid`](#stduuid): 3750-3773
-- [`std.xml`](#stdxml): 3775-3808
+- [`std.actor`](#stdactor): 107-184
+- [`std.actor.net`](#stdactornet): 186-249
+- [`std.actor.tls`](#stdactortls): 251-280
+- [`std.actor.http.server`](#stdactorhttpserver): 282-345
+- [`std.archive`](#stdarchive): 347-413
+- [`std.atomic`](#stdatomic): 415-424
+- [`std.bytes`](#stdbytes): 426-473
+- [`std.cache.lru`](#stdcachelru): 475-497
+- [`std.channel`](#stdchannel): 499-503
+- [`std.cli`](#stdcli): 505-535
+- [`std.cli.fileinput`](#stdclifileinput): 537-546
+- [`std.cli.progress`](#stdcliprogress): 548-572
+- [`std.collections`](#stdcollections): 574-601
+- [`std.complex`](#stdcomplex): 603-629
+- [`std.compress`](#stdcompress): 631-661
+- [`std.concurrent`](#stdconcurrent): 663-667
+- [`std.crypto`](#stdcrypto): 669-750
+- [`std.csv`](#stdcsv): 752-815
+- [`std.dataframe`](#stddataframe): 817-1016
+- [`std.db.kv`](#stddbkv): 1018-1050
+- [`std.db.sqlite`](#stddbsqlite): 1052-1116
+- [`std.deque`](#stddeque): 1118-1132
+- [`std.diff`](#stddiff): 1134-1163
+- [`std.encoding`](#stdencoding): 1165-1232
+- [`std.env`](#stdenv): 1234-1248
+- [`std.error`](#stderror): 1250-1270
+- [`std.fmt`](#stdfmt): 1272-1339
+- [`std.fs`](#stdfs): 1341-1435
+- [`std.fs.dirs`](#stdfsdirs): 1437-1447
+- [`std.fs.watch`](#stdfswatch): 1449-1484
+- [`std.graph`](#stdgraph): 1486-1574
+- [`std.http`](#stdhttp): 1576-1646
+- [`std.http.decoder`](#stdhttpdecoder): 1648-1665
+- [`std.http.body`](#stdhttpbody): 1667-1702
+- [`std.http.client`](#stdhttpclient): 1704-1814
+- [`std.http.cookie`](#stdhttpcookie): 1816-1848
+- [`std.http.files`](#stdhttpfiles): 1850-1863
+- [`std.http.https`](#stdhttphttps): 1865-1879
+- [`std.http.proxy`](#stdhttpproxy): 1881-1902
+- [`std.http.server`](#stdhttpserver): 1904-1989
+- [`std.http.sse`](#stdhttpsse): 1991-2010
+- [`std.http.tls`](#stdhttptls): 2012-2029
+- [`std.http.typed`](#stdhttptyped): 2031-2064
+- [`std.http.websocket`](#stdhttpwebsocket): 2066-2101
+- [`std.http.wss`](#stdhttpwss): 2103-2109
+- [`std.image`](#stdimage): 2111-2157
+- [`std.io`](#stdio): 2159-2265
+- [`std.io.typed`](#stdiotyped): 2267-2305
+- [`std.json`](#stdjson): 2307-2371
+- [`std.jwt`](#stdjwt): 2373-2420
+- [`std.log`](#stdlog): 2422-2489
+- [`std.markdown`](#stdmarkdown): 2491-2525
+- [`std.template`](#stdtemplate): 2527-2548
+- [`std.math`](#stdmath): 2550-2616
+- [`std.mime`](#stdmime): 2618-2644
+- [`std.net`](#stdnet): 2646-2728
+- [`std.path`](#stdpath): 2730-2747
+- [`std.process`](#stdprocess): 2749-2798
+- [`std.random`](#stdrandom): 2800-2821
+- [`std.ready`](#stdready): 2823-2854
+- [`std.regex`](#stdregex): 2856-2909
+- [`std.report`](#stdreport): 2911-2918
+- [`std.secrets`](#stdsecrets): 2920-2946
+- [`std.shlex`](#stdshlex): 2948-2957
+- [`std.sketch`](#stdsketch): 2959-2997
+- [`std.sketch.xor`](#stdsketchxor): 2999-3010
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3012-3027
+- [`std.signal`](#stdsignal): 3029-3046
+- [`std.simd`](#stdsimd): 3048-3149
+- [`std.stat`](#stdstat): 3151-3184
+- [`std.plot`](#stdplot): 3186-3275
+- [`std.linalg`](#stdlinalg): 3277-3318
+- [`std.sync`](#stdsync): 3320-3338
+- [`std.system`](#stdsystem): 3340-3398
+- [`std.tempfile`](#stdtempfile): 3400-3432
+- [`std.test`](#stdtest): 3434-3476
+- [`std.text`](#stdtext): 3478-3521
+- [`std.thread`](#stdthread): 3523-3527
+- [`std.time`](#stdtime): 3529-3573
+- [`std.tls`](#stdtls): 3575-3657
+- [`std.toml`](#stdtoml): 3659-3708
+- [`std.unicode`](#stdunicode): 3710-3722
+- [`std.url`](#stdurl): 3724-3752
+- [`std.uuid`](#stduuid): 3754-3777
+- [`std.xml`](#stdxml): 3779-3812
 
 ## `std.actor`
 
@@ -135,6 +135,8 @@ enum Mail[M, E]
     Message(M) | Ready(Watch, Readiness) | Down(Address, i64, Exit[E]) | Stop | Timer(Timer) | Request(Request, M) | Reply(Request, Reply[M])
 enum Undelivered[M]
     Full(M) | Gone(M)
+enum StageError
+    Allocation(AllocError) | Wait(WaitError)
 enum StartError
     Unsupported | Capacity | Heaps | Limit | Mailbox
 class Stats
@@ -178,7 +180,7 @@ class Stage[N, M, E]
     def node(self, actor: Address) -> Option[&N]
     def heap_used(self, actor: Address) -> Option[i64]
     def run(self: &mut Stage[N, M, E], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
-def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], AllocError | WaitError]
+def stage[N, M, E](capacity: i64, mailbox: i64, events: i64) -> Result[Stage[N, M, E], StageError]
 ```
 
 ## `std.actor.net`
@@ -431,42 +433,42 @@ enum BytesError
 class Bytes
     def len(self) -> i64
     def is_empty(self) -> bool
-    def write_float(self: &mut Bytes, value: f64) -> Result[i64, BytesError]
-    def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]
+    def write_float(self: &mut Bytes, value: f64) -> i64
+    def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> i64
     def capacity(self) -> i64
-    def get(self, index: i64) -> Result[u8, BytesError]
-    def set(self: &mut Bytes, index: i64, value: u8) -> Result[(), BytesError]
-    def push(self: &mut Bytes, value: u8) -> Result[(), BytesError]
+    def get(self, index: i64) -> u8
+    def set(self: &mut Bytes, index: i64, value: u8) -> ()
+    def push(self: &mut Bytes, value: u8) -> Result[(), AllocError]
     def pop(self: &mut Bytes) -> Option[u8]
-    def reserve(self: &mut Bytes, additional: i64) -> Result[(), BytesError]
-    def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), BytesError]
-    def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]
+    def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]
+    def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), AllocError]
+    def truncate(self: &mut Bytes, count: i64) -> ()
     def clear(self: &mut Bytes) -> ()
-    def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]
-    def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]
-    def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]
-    def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]
-    def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]
-    def copy(self) -> Result[Bytes, BytesError]
-    def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]
-    def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]
-    def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]
-    def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]
-    def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
-    def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]
-    def to_list(self) -> Result[list[u8], BytesError]
+    def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> ()
+    def extend(self: &mut Bytes, source: &[u8]) -> Result[(), AllocError]
+    def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> ()
+    def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> ()
+    def slice(self, start: i64, stop: i64) -> Result[Bytes, AllocError]
+    def copy(self) -> Result[Bytes, AllocError]
+    def find(self, value: u8, start: i64, stop: i64) -> Option[i64]
+    def find_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]
+    def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]
+    def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Option[i64]
+    def count(self, value: u8, start: i64, stop: i64) -> i64
+    def matches(self, offset: i64, source: &[u8]) -> bool
+    def matches_text(self, offset: i64, text: &str) -> bool
+    def ascii_run(self, start: i64, stop: i64) -> i64
+    def utf8_run(self, start: i64, stop: i64) -> i64
+    def to_list(self) -> Result[list[u8], AllocError]
     def to_text(self) -> Result[str, BytesError]
     def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
     def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
     def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]
-def empty() -> Result[Bytes, BytesError]
-def with_capacity(capacity: i64) -> Result[Bytes, BytesError]
-def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
-def from_text(text: &str) -> Result[Bytes, BytesError]
-def from_bytes(source: &[u8]) -> Result[Bytes, BytesError]
+def empty() -> Result[Bytes, AllocError]
+def with_capacity(capacity: i64) -> Result[Bytes, AllocError]
+def from_list(values: &list[u8]) -> Result[Bytes, AllocError]
+def from_text(text: &str) -> Result[Bytes, AllocError]
+def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]
 def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
 ```
 
@@ -540,7 +542,7 @@ Buffered fallible UTF-8 lines across native paths or command-line files, with st
 enum FileInputError
     Open(Option[Path], StreamError) | Read(Option[Path], StreamError) | Text(Option[Path], BytesError) | Close(Option[Path], StreamError)
 def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]
-def lines() -> Result[Generator[Result[str, FileInputError]], IoError | AllocError]
+def lines() -> Result[Generator[Result[str, FileInputError]], IoError]
 ```
 
 ## `std.cli.progress`
@@ -1273,7 +1275,7 @@ Writer-generic value/report formatting, bounded output and fallible strings. Err
 
 ```text
 enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError) | OutputClosed
+    InvalidSpec | LimitExceeded | RecursionLimit | Allocation(AllocError) | Output(StreamError) | OutputClosed
 class Spec
     fill: str
     align: str
@@ -1489,7 +1491,7 @@ Directed and undirected graphs with node and edge data, stable handles, traversa
 type NodeId = i64
 type EdgeId = i64
 enum GraphError
-    Cycle(list[NodeId]) | NegativeCycle(list[NodeId]) | InvalidWeight(EdgeId) | InvalidEstimate(NodeId)
+    Cycle(list[NodeId]) | NegativeCycle(list[NodeId]) | InvalidWeight(EdgeId) | InvalidEstimate(NodeId) | Allocation(AllocError)
 class Walk
 class Paths
     def distance(self, node: NodeId) -> Option[f64]
@@ -1528,11 +1530,11 @@ class DiGraph[N, E]
     def next_edge(self, walk: &mut Walk) -> Option[EdgeId]
     def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
-    def toposort(self) -> Result[list[NodeId], AllocError | GraphError]
+    def toposort(self) -> Result[list[NodeId], GraphError]
     def strongly_connected_components(self) -> Result[list[list[NodeId]], AllocError]
-    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
-    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
 class UnGraph[N, E]
     def __init__(self) -> Result[(), AllocError]
     def node_count(self) -> i64
@@ -1565,10 +1567,10 @@ class UnGraph[N, E]
     def bfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def dfs(self, start: NodeId) -> Result[list[NodeId], AllocError]
     def connected_components(self) -> Result[list[list[NodeId]], AllocError]
-    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], AllocError | GraphError]
-    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, AllocError | GraphError]
-    def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], AllocError | GraphError]
+    def dijkstra[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]
+    def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
+    def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], GraphError]
 ```
 
 ## `std.http`
@@ -2618,6 +2620,8 @@ def prod_iter[I, T](items: &I, start: T) -> T
 Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table. Errors: `ParseError`, `AllocError`. [Reference](mime.md).
 
 ```text
+enum MimeError
+    Invalid | Allocation(AllocError)
 class Param
     name: str
     value: str
@@ -2630,11 +2634,11 @@ class MediaType
     def essence(self) -> Result[str, AllocError]
     def is_wildcard(self) -> bool
     def matches(self, pattern: &MediaType) -> bool
-    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
+    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), MimeError]
     def remove_param(self: &mut MediaType, name: &str) -> bool
     def to_string(self) -> Result[str, AllocError]
-def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
-def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
+def parse(text: &str) -> Result[MediaType, MimeError]
+def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]
 def from_extension(extension: &str) -> Option[str]
 def from_file_name(name: &str) -> str
 ```
@@ -2799,7 +2803,7 @@ Caller-owned seeded generators with unbiased ranges, shuffling, and index sampli
 
 ```text
 enum RandomError
-    EmptyRange | OutOfRange | ZeroState | Allocation(AllocError)
+    EmptyRange | ZeroState
 class Rng
     def next_u64(self: &mut Rng) -> u64
     def next_u32(self: &mut Rng) -> u32
@@ -2809,8 +2813,8 @@ class Rng
     def between(self: &mut Rng, low: i64, high: i64) -> Result[i64, RandomError]
     def index(self: &mut Rng, count: i64) -> Result[i64, RandomError]
     def shuffle[T](self: &mut Rng, items: &mut list[T]) -> ()
-    def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], RandomError]
-    def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> Result[(), RandomError]
+    def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], AllocError]
+    def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> ()
     def state(self) -> (u64, u64, u64, u64)
 def seeded(seed: u64) -> Rng
 def from_state(a: u64, b: u64, c: u64, d: u64) -> Result[Rng, RandomError]
@@ -2947,9 +2951,9 @@ Shell-style word splitting and POSIX argument quoting, without execution or expa
 
 ```text
 enum ShlexError
-    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64)
-def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError | AllocError]
-def quote(text: &str) -> Result[str, ShlexError | AllocError]
+    UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64) | Allocation(AllocError)
+def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError]
+def quote(text: &str) -> Result[str, ShlexError]
 ```
 
 ## `std.sketch`
@@ -2958,7 +2962,7 @@ Bounded distinct counts, sampled quantiles and frequent-item bounds with version
 
 ```text
 enum SketchError
-    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed
+    InvalidArgument | InvalidData | Incompatible | Empty | Limit | ConstructionFailed | Allocation(AllocError)
 def hash_u64(key: u64, seed: u64 = 0u64) -> u64
 class HyperLogLog
     def precision(self) -> i64
@@ -2966,17 +2970,17 @@ class HyperLogLog
     def estimate(self) -> f64
     def relative_standard_error(self) -> f64
     def merge(self: &mut HyperLogLog, other: &HyperLogLog) -> Result[(), SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
-def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError | BytesError]
-def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError | BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
+def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError]
+def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[HyperLogLog, SketchError]
 class Quantiles
     def count(self) -> u64
     def retained(self) -> i64
-    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError | AllocError]
+    def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError]
     def quantile(self, fraction: f64) -> Result[f64, SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
-def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]
-def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
+def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]
+def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError]
 class Frequency
     key: u64
     lower: u64
@@ -2987,9 +2991,9 @@ class FrequentItems
     def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]
     def frequency(self, key: u64) -> Frequency
     def candidates(self) -> Result[list[Frequency], AllocError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
-def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError | AllocError]
-def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError | AllocError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
+def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError]
+def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError]
 ```
 
 ## `std.sketch.xor`
@@ -3000,9 +3004,9 @@ Static approximate membership over numeric identities with bounded construction.
 class XorFilter
     def len(self) -> i64
     def contains(self, key: u64) -> bool
-    def to_bytes(self) -> Result[Bytes, BytesError]
-def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError | AllocError | BytesError]
-def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError | BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
+def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError]
+def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
 ```
 
 ## `std.sketch.cuckoo`
@@ -3015,11 +3019,11 @@ class CuckooFilter
     def layers(self) -> i64
     def buckets(self) -> i64
     def contains(self, key: u64) -> bool
-    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError | AllocError | BytesError]
+    def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError]
     def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
-    def to_bytes(self) -> Result[Bytes, BytesError]
-def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
-def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError | AllocError | BytesError]
+    def to_bytes(self) -> Result[Bytes, AllocError]
+def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]
+def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError]
 ```
 
 ## `std.signal`
@@ -3185,7 +3189,7 @@ Layered charts from owned columns or record accessors, validated mappings, group
 
 ```text
 enum PlotError
-    Allocation(AllocError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
+    Allocation(AllocError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
 enum Column
     Num(list[f64]) | Int(list[i64]) | Text(list[str]) | Bool(list[bool]) | MaybeNum(list[Option[f64]]) | MaybeText(list[Option[str]])
 class Table
@@ -3276,7 +3280,7 @@ Dense f64 matrices, products, solves, LU, QR, Cholesky, SVD and eigen decomposit
 
 ```text
 enum LinalgError
-    Shape | Bounds | NonFinite | Singular | NotSymmetric | NotPositiveDefinite | NoConvergence | Overflow | NativePanic
+    Shape | Bounds | NonFinite | Singular | NotSymmetric | NotPositiveDefinite | NoConvergence | Overflow | NativePanic | Allocation(AllocError)
 class Matrix
     def rows(self) -> i64
     def cols(self) -> i64
@@ -3284,33 +3288,33 @@ class Matrix
     def set(self: &mut Matrix, row: i64, col: i64, value: f64) -> Result[(), LinalgError]
     def to_list(self) -> Result[list[f64], AllocError]
     def transpose(self) -> Result[Matrix, AllocError]
-    def add(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def subtract(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def scale(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
-    def negate(self) -> Result[Matrix, AllocError | LinalgError]
-    def __add__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __sub__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __neg__(self) -> Result[Matrix, AllocError | LinalgError]
-    def __mul__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def __rmul__(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]
-    def matmul(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def lu(self) -> Result[Lu, AllocError | LinalgError]
-    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-    def qr(self) -> Result[(Matrix, Matrix), AllocError | LinalgError]
-    def cholesky(self) -> Result[Matrix, AllocError | LinalgError]
-    def svd(self) -> Result[(Matrix, list[f64], Matrix), AllocError | LinalgError]
-    def eigh(self) -> Result[(list[f64], Matrix), AllocError | LinalgError]
-    def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), AllocError | LinalgError]
+    def add(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def subtract(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def scale(self, factor: f64) -> Result[Matrix, LinalgError]
+    def negate(self) -> Result[Matrix, LinalgError]
+    def __add__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __sub__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __neg__(self) -> Result[Matrix, LinalgError]
+    def __mul__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def __rmul__(self, factor: f64) -> Result[Matrix, LinalgError]
+    def matmul(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def lu(self) -> Result[Lu, LinalgError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+    def qr(self) -> Result[(Matrix, Matrix), LinalgError]
+    def cholesky(self) -> Result[Matrix, LinalgError]
+    def svd(self) -> Result[(Matrix, list[f64], Matrix), LinalgError]
+    def eigh(self) -> Result[(list[f64], Matrix), LinalgError]
+    def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), LinalgError]
 class Lu
-    def lower(self) -> Result[Matrix, AllocError | LinalgError]
-    def upper(self) -> Result[Matrix, AllocError | LinalgError]
+    def lower(self) -> Result[Matrix, LinalgError]
+    def upper(self) -> Result[Matrix, LinalgError]
     def permutation(self) -> Result[list[i64], AllocError]
-    def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]
-def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
-def vector(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
-def zeros(rows: i64, cols: i64) -> Result[Matrix, AllocError | LinalgError]
-def identity(n: i64) -> Result[Matrix, AllocError | LinalgError]
-def diagonal(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]
+    def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]
+def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, LinalgError]
+def vector(values: &list[f64]) -> Result[Matrix, LinalgError]
+def zeros(rows: i64, cols: i64) -> Result[Matrix, LinalgError]
+def identity(n: i64) -> Result[Matrix, LinalgError]
+def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]
 ```
 
 ## `std.sync`
@@ -3468,7 +3472,7 @@ class FakeStream
     def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FakeStream) -> Result[(), StreamError]
-def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]
+def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]
 ```
 
 ## `std.text`

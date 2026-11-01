@@ -1,7 +1,7 @@
 # Outbound std.actor.net: a lookup, a connect to a closed port, then a
 # connect to `open_port`, where it sends a request and prints the reply.
 # The tests replace both ports.
-from std.actor import Address, Context, Mail, TimerError, heaps_live, stage
+from std.actor import Address, Context, Mail, TimerError, heaps_live, StageError, stage
 from std.actor.net import Connection, Dialing, Limits, Resolving, connection, dial, lookup
 from std.bytes import BytesError
 from std.net import NetError, loopback_v4
@@ -12,7 +12,7 @@ from std.time import deadline_after, milliseconds, monotonic_now, seconds
 const closed_port: u16 = 1u16
 const open_port: u16 = 1u16
 
-type Fault = NetError | BytesError | TimerError | IoError
+type Fault = AllocError | NetError | BytesError | TimerError | IoError
 
 pub enum Step:
     Looking(Resolving)
@@ -72,7 +72,7 @@ pub class Client:
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Client], Fault]:
         Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     mut actors = stage[Client, i64, Fault](4, 4, 8)?
     actors.add_timers(4)?
     actors.start(Client(Step.Done), 65536).unwrap()

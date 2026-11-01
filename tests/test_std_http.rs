@@ -87,12 +87,8 @@ def drain(data: &Bytes) -> Result[i64, HttpError]:
                             Err(HttpError.Allocation(cause))
                         case _ as other:
                             Err(HttpError.Stream(other))
-        case Err(error):
-            match error:
-                case std.bytes.BytesError.Allocation(cause):
-                    Err(HttpError.Allocation(cause))
-                case _:
-                    Err(HttpError.Truncated)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
 
 def drain_from(start: BufReader[Cursor]) -> Result[i64, HttpError]:
     limits = std.http.limits()
@@ -195,7 +191,7 @@ fn each(helper: &str, inputs: &[&[u8]]) -> Vec<String> {
 blob = std.encoding.hex_from_text("{blob}")?
 mut start = 0
 while start < blob.len():
-    stop = blob.find(255u8, start, blob.len())?.unwrap()
+    stop = blob.find(255u8, start, blob.len()).unwrap()
     print("--")?
     shown({helper}(blob.slice(start, stop)?, &std.http.limits()))?
     start = stop + 1
@@ -1050,7 +1046,7 @@ def outcome[T](result: &Result[T, HttpError]) -> str:
                     "?"
 
 # `prefix`, the byte `code`, then `suffix`, read as one request or response.
-def parsed(prefix: &str, code: i64, suffix: &str, response: bool) -> Result[str, std.bytes.BytesError | std.io.StreamError]:
+def parsed(prefix: &str, code: i64, suffix: &str, response: bool) -> Result[str, AllocError | std.bytes.BytesError | std.io.StreamError]:
     mut data = std.bytes.from_text(prefix)?
     data.push(u8(code))?
     data.extend(&std.bytes.from_text(suffix)?)?

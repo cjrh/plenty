@@ -37,7 +37,7 @@ pub class Script:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -96,7 +96,7 @@ def documented(status: i64) -> bool:
     False
 
 def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
-    value = i64.wrapping_from(output.get(at)?) - 48
+    value = i64.wrapping_from(output.get(at)) - 48
     if value < 0 or value > 9:
         return Err(HarnessError.NotADigit)
     Ok(value)
@@ -104,11 +104,11 @@ def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
 # Checks the status of every response head in `output` from `at`, and
 # returns where the next check starts: at a head whose status has not all
 # been written yet, or near the end.
-def check(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
+def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | HarnessError]:
     marker = std.bytes.from_text("HTTP/1.")?
     mut next = at
     while True:
-        match output.find_bytes(&marker, next, output.len())?:
+        match output.find_bytes(&marker, next, output.len()):
             case Some(found):
                 # `HTTP/1.x NNN`
                 if found + 12 > output.len():

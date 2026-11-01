@@ -136,7 +136,7 @@ fn byte_writers_take_every_view_source() {
         r#"
 import std.bytes
 
-def main() -> Result[(), IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     argv = args_bytes()?
     owned = std.bytes.from_text("bytes,")?
     listed = encode_utf8("list,")?

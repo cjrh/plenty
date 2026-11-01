@@ -1,7 +1,7 @@
 # An echo server on std.actor.net whose limits the tests replace. It prints
 # its port, serves until `connections` connection actors have ended, then
 # prints one line per counter and the heap counters.
-from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, StageError, stage
 from std.actor.net import Admission, Connection, Expired, Limits, Listener, listener
 from std.bytes import BytesError
 from std.net import NetError, listen, loopback_v4
@@ -18,7 +18,7 @@ const idle_ms: u32 = 0u32
 const stall_ms: u32 = 0u32
 const read_ms: u32 = 0u32
 
-type Fault = NetError | BytesError | TimerError
+type Fault = AllocError | NetError | BytesError | TimerError
 
 pub enum Note:
     # A connection's heap use once its buffers are allocated.
@@ -137,7 +137,7 @@ pub enum Node:
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError]:
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?
     limits = Limits(input_size, output_size, milliseconds(idle_ms), milliseconds(stall_ms))

@@ -10,7 +10,7 @@ import std.io
 from std.encoding import Endian
 from std.io import SeekFrom
 
-def main() -> Result[(), IoError | RangeError | std.bytes.BytesError | std.io.BinaryError | std.io.StreamError]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.io.BinaryError | std.io.StreamError]:
     payload = b"hello"
     mut packet = std.io.cursor(std.bytes.empty()?)
     packet.write_u8(1u8)?

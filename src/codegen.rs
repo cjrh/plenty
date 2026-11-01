@@ -1096,6 +1096,8 @@ struct Runtime {
     /// `plenty_trap_par_chunks(count, site) -> !`: a parallel pipeline's
     /// `chunks=` count below 1.
     trap_par_chunks: FuncId,
+    /// `plenty_trap_message(text, site) -> !`: std's `__trap(message)`.
+    trap_message: FuncId,
     /// In an executable whose failed checks trap ([`traps`]):
     /// `plenty_traps_register(table)` and the object's check table. `None`
     /// keeps the helper calls.
@@ -1447,6 +1449,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params
                 .extend([AbiParam::new(types::I64), AbiParam::new(PTR_TY)]);
             module.declare_function("plenty_trap_par_chunks", Linkage::Import, &sig)?
+        },
+        trap_message: {
+            let mut sig = module.make_signature();
+            sig.call_conv = crate::target::native_call_conv();
+            sig.params
+                .extend([AbiParam::new(PTR_TY), AbiParam::new(PTR_TY)]);
+            module.declare_function("plenty_trap_message", Linkage::Import, &sig)?
         },
         signal_traps: None,
         readline: {

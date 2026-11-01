@@ -90,7 +90,7 @@ interruptions, and count successful short writes. A closed or read-only stderr
 returns `Output(StreamError.Io(IoError.System(9)))` (`EBADF`). On supported
 x86-64 Linux the write suppresses SIGPIPE for that operation, so a closed pipe
 returns an error and normal cleanup runs. Advanced formatting lazily acquires
-scratch and can fail with `Bytes(Allocation(...))`.
+scratch and can fail with `Allocation(...)`.
 
 The string formatter stages a complete UTF-8 text emission before calling its
 cursor. Failed staging or cursor growth preserves the valid UTF-8 output and

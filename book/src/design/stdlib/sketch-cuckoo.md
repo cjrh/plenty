@@ -20,11 +20,10 @@ existing layers and membership/deletion queries allocate nothing.
 Keep the layer index that `insert` returns; `remove` needs it:
 
 ```plenty
-from std.bytes import BytesError
 from std.sketch import SketchError
 from std.sketch.cuckoo import cuckoo
 
-def main() -> Result[(), SketchError | AllocError | BytesError | IoError]:
+def main() -> Result[(), SketchError | AllocError | IoError]:
     mut seen = cuckoo()?
     receipt = seen.insert(42u64)?
     seen.insert(7u64)?
@@ -70,9 +69,9 @@ may be slower than a successful insertion into an existing layer.
 layer count, and occurrence count as little-endian u64, followed by little-endian
 u16 slots in layer order. `from_bytes(data, max_buckets)` reads a `&[u8]` view,
 validates shape, counts, length and the caller limit before constructing storage,
-and returns `SketchError | AllocError | BytesError`. The caller limit bounds the serialized
-**configured maximum**, not only today's occupancy. Serialization exposes
-`BytesError`. The format is versioned, Plenty-specific and unauthenticated.
+and returns `SketchError`. The caller limit bounds the serialized
+**configured maximum**, not only today's occupancy. Serialization fails only to
+allocate and returns `AllocError`. The format is versioned, Plenty-specific and unauthenticated.
 
 ## Acknowledgements
 

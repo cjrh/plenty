@@ -66,7 +66,7 @@ fn generic_protocol_visibility_uses_definition_scope_and_reports_the_call() {
 
 #[test]
 fn std_io_private_stream_diagnostic_points_to_user_call() {
-    let source = "import std.bytes\nimport std.io\nfrom std.bytes import Bytes, BytesError\nfrom std.io import StreamError\nclass Fake:\n    pub def read(self: &mut Fake, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:\n        Ok(0)\ndef main() -> Result[(), BytesError]:\n    mut fake = Fake()\n    mut buffer = std.bytes.empty()?\n    result = std.io.read_exact(&mut fake, &mut buffer, 0, 0)\n    Ok(())\n";
+    let source = "import std.bytes\nimport std.io\nfrom std.bytes import Bytes, BytesError\nfrom std.io import StreamError\nclass Fake:\n    pub def read(self: &mut Fake, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:\n        Ok(0)\ndef main() -> Result[(), AllocError | BytesError]:\n    mut fake = Fake()\n    mut buffer = std.bytes.empty()?\n    result = std.io.read_exact(&mut fake, &mut buffer, 0, 0)\n    Ok(())\n";
     let dir = workspace(&[("main.plenty", source)]);
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
         .unwrap_err()

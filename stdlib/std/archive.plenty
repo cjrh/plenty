@@ -227,7 +227,7 @@ def fill[R](reader: &mut R, data: &mut Bytes, count: i64) -> Result[(), ArchiveE
 # Byte fields
 
 def byte(data: &Bytes, at: i64) -> Result[i64, ArchiveError]:
-    Ok(i64(held(data.get(at))?))
+    Ok(i64(data.get(at)))
 
 # A little-endian unsigned field; a value with the sign bit set is Corrupt.
 def le(data: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
@@ -242,26 +242,26 @@ def le(data: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
 
 def put_le(out: &mut Bytes, value: i64, width: i64) -> Result[(), ArchiveError]:
     for index in range(0, width):
-        held(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
+        owned(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
     Ok(())
 
 def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
-    held(out.reserve(len(values)))?
+    owned(out.reserve(len(values)))?
     for index in range(0, len(values)):
-        held(out.push(values[index]))?
+        owned(out.push(values[index]))?
     Ok(())
 
 def put_text(out: &mut Bytes, text: &str) -> Result[(), ArchiveError]:
-    spelled = held(std.bytes.from_text(text))?
-    held(out.extend(&spelled))
+    spelled = owned(std.bytes.from_text(text))?
+    owned(out.extend(&spelled))
 
 def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveError]:
-    held(held(data.slice(start, stop))?.to_list())
+    owned(owned(data.slice(start, stop))?.to_list())
 
 # A NUL-terminated field of at most `width` bytes.
 def text_field(data: &Bytes, at: i64, width: i64) -> Result[list[u8], ArchiveError]:
     mut stop = at + width
-    match held(data.find(0u8, at, at + width))?:
+    match data.find(0u8, at, at + width):
         case Some(index):
             stop = index
         case Nothing:
@@ -419,7 +419,7 @@ def pax_records(data: &Bytes, pending: &mut Pending) -> Result[(), ArchiveError]
     total = data.len()
     mut at = 0
     while at < total:
-        space = match held(data.find(32u8, at, total))?:
+        space = match data.find(32u8, at, total):
             case Some(index):
                 index
             case Nothing:
@@ -430,17 +430,17 @@ def pax_records(data: &Bytes, pending: &mut Pending) -> Result[(), ArchiveError]
         end = at + length
         if byte(data, end - 1)? != 10:
             return Err(ArchiveError.Corrupt)
-        equals = match held(data.find(61u8, space + 1, end - 1))?:
+        equals = match data.find(61u8, space + 1, end - 1):
             case Some(index):
                 index
             case Nothing:
                 return Err(ArchiveError.Corrupt)
         key = equals - space - 1
-        if key == 4 and held(data.matches_text(space + 1, "path"))?:
+        if key == 4 and data.matches_text(space + 1, "path"):
             pending.path = Some(field_list(data, equals + 1, end - 1)?)
-        elif key == 8 and held(data.matches_text(space + 1, "linkpath"))?:
+        elif key == 8 and data.matches_text(space + 1, "linkpath"):
             pending.link = Some(field_list(data, equals + 1, end - 1)?)
-        elif key == 4 and held(data.matches_text(space + 1, "size"))?:
+        elif key == 4 and data.matches_text(space + 1, "size"):
             pending.size = digits_value(data, equals + 1, end - 1)?
         at = end
     Ok(())
@@ -475,8 +475,8 @@ pub class TarReader[R]:
     def metadata(self: &mut TarReader[R], size: i64) -> Result[Bytes, ArchiveError]:
         if size > max_metadata:
             return Err(ArchiveError.Limit)
-        mut data = held(std.bytes.with_capacity(size))?
-        held(data.resize(size, 0u8))?
+        mut data = owned(std.bytes.with_capacity(size))?
+        owned(data.resize(size, 0u8))?
         fill(&mut self.inner, &mut data, size)?
         self.skip((block_size - size % block_size) % block_size)?
         Ok(data)
@@ -488,10 +488,10 @@ pub class TarReader[R]:
         mut pending = Pending(Nothing, Nothing, -1)
         while True:
             self.block()?
-            if held(self._block.count(0u8, 0, block_size))? == block_size:
+            if self._block.count(0u8, 0, block_size) == block_size:
                 # The end is two zero blocks; metadata may not precede it.
                 self.block()?
-                if held(self._block.count(0u8, 0, block_size))? != block_size or pending.any():
+                if self._block.count(0u8, 0, block_size) != block_size or pending.any():
                     return Err(ArchiveError.Corrupt)
                 self._ended = True
                 return Ok(Nothing)
@@ -511,7 +511,7 @@ pub class TarReader[R]:
             elif flag == 76 or flag == 75:
                 data = self.metadata(size)?
                 mut stop = data.len()
-                match held(data.find(0u8, 0, stop))?:
+                match data.find(0u8, 0, stop):
                     case Some(index):
                         stop = index
                     case Nothing:
@@ -539,7 +539,7 @@ pub class TarReader[R]:
             case Nothing:
                 mut joined = owned(list[u8].new())?
                 # ustar splits a long name into prefix and name.
-                if held(block.matches_text(257, "ustar"))? and byte(block, 262)? == 0:
+                if block.matches_text(257, "ustar") and byte(block, 262)? == 0:
                     prefix = text_field(block, 345, 155)?
                     if len(prefix) > 0:
                         for index in range(0, len(prefix)):
@@ -613,8 +613,8 @@ pub class TarReader[R]:
                 Err(stream_error(error))
 
 pub def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]:
-    mut block = held(std.bytes.with_capacity(block_size))?
-    held(block.resize(block_size, 0u8))?
+    mut block = owned(std.bytes.with_capacity(block_size))?
+    owned(block.resize(block_size, 0u8))?
     Ok(TarReader(inner, block, 0, 0, False, Nothing))
 
 # TAR writing
@@ -623,16 +623,17 @@ def put_octal(block: &mut Bytes, at: i64, width: i64, value: i64) -> Result[(), 
     mut rest = value
     mut index = at + width - 2
     while index >= at:
-        held(block.set(index, u8.wrapping_from(48 + rest % 8)))?
+        block.set(index, u8.wrapping_from(48 + rest % 8))
         rest = rest // 8
         index -= 1
     if rest != 0:
         return Err(ArchiveError.InvalidInput)
-    held(block.set(at + width - 1, 0u8))
+    block.set(at + width - 1, 0u8)
+    Ok(())
 
 def put_field(block: &mut Bytes, at: i64, values: &list[u8], width: i64) -> Result[(), ArchiveError]:
     for index in range(0, smaller(len(values), width)):
-        held(block.set(at + index, values[index]))?
+        block.set(at + index, values[index])
     Ok(())
 
 def decimal_width(value: i64) -> i64:
@@ -683,7 +684,7 @@ pub class TarWriter[W]:
         if size < 0 or mode < 0 or mode > 4095 or mtime < 0 or mtime > 8589934591:
             return Err(ArchiveError.InvalidInput)
         if len(name) > 100 or len(link) > 100:
-            mut records = held(std.bytes.empty())?
+            mut records = owned(std.bytes.empty())?
             if len(name) > 100:
                 pax_record(&mut records, "path", name)?
             if len(link) > 100:
@@ -709,25 +710,26 @@ pub class TarWriter[W]:
         put_octal(block, 116, 8, 0)?
         if size > 8589934591:
             # GNU base-256: a high-bit marker, then big-endian bytes.
-            held(block.set(124, 128u8))?
+            block.set(124, 128u8)
             for index in range(0, 8):
-                held(block.set(135 - index, u8.wrapping_from((size >> (8 * index)) & 255)))?
+                block.set(135 - index, u8.wrapping_from((size >> (8 * index)) & 255))
         else:
             put_octal(block, 124, 12, size)?
         put_octal(block, 136, 12, mtime)?
-        held(block.set(156, flag))?
+        block.set(156, flag)
         put_field(block, 157, link, 100)?
         magic = system(encode_utf8("ustar"))?
         put_field(block, 257, &magic, 6)?
-        held(block.set(263, 48u8))?
-        held(block.set(264, 48u8))?
+        block.set(263, 48u8)
+        block.set(264, 48u8)
         for index in range(148, 156):
-            held(block.set(index, 32u8))?
+            block.set(index, 32u8)
         mut sum = 0
         for index in range(0, block_size):
             sum += byte(block, index)?
         put_octal(block, 148, 7, sum)?
-        held(block.set(155, 32u8))
+        block.set(155, 32u8)
+        Ok(())
 
     pub def add_file(self: &mut TarWriter[W], name: &Path, data: &[u8], mode: i64, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, False)?
@@ -779,8 +781,8 @@ pub class TarWriter[W]:
         moved(self.inner.flush())
 
 pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
-    mut block = held(std.bytes.with_capacity(block_size))?
-    held(block.resize(block_size, 0u8))?
+    mut block = owned(std.bytes.with_capacity(block_size))?
+    owned(block.resize(block_size, 0u8))?
     Ok(TarWriter(inner, block, False, False))
 
 # DOS dates
@@ -902,8 +904,8 @@ pub class ZipReader[R]:
         if size < 22:
             return Err(ArchiveError.Corrupt)
         tail_size = smaller(size, 65557)
-        mut tail = held(std.bytes.with_capacity(tail_size))?
-        held(tail.resize(tail_size, 0u8))?
+        mut tail = owned(std.bytes.with_capacity(tail_size))?
+        owned(tail.resize(tail_size, 0u8))?
         self.at(size - tail_size)?
         fill(&mut self.inner, &mut tail, tail_size)?
         # The last end record whose comment reaches exactly to the end.
@@ -977,12 +979,12 @@ pub class ZipReader[R]:
             consumed += 46 + name_size + extra_size + comment_size
             if consumed > directory_size:
                 return Err(ArchiveError.Corrupt)
-            mut raw = held(std.bytes.with_capacity(name_size))?
-            held(raw.resize(name_size, 0u8))?
+            mut raw = owned(std.bytes.with_capacity(name_size))?
+            owned(raw.resize(name_size, 0u8))?
             fill(&mut self.inner, &mut raw, name_size)?
-            name = held(raw.to_list())?
-            mut extra = held(std.bytes.with_capacity(extra_size))?
-            held(extra.resize(extra_size, 0u8))?
+            name = owned(raw.to_list())?
+            mut extra = owned(std.bytes.with_capacity(extra_size))?
+            owned(extra.resize(extra_size, 0u8))?
             fill(&mut self.inner, &mut extra, extra_size)?
             mut left = comment_size
             while left > 0:
@@ -1076,7 +1078,7 @@ pub class ZipReader[R]:
             step = smaller(name_size - compared, chunk)
             self.chunk_of(step)?
             for position in range(0, step):
-                if held(self._input.get(position))? != self._entries[index].name.as_bytes()[compared + position]:
+                if self._input.get(position) != self._entries[index].name.as_bytes()[compared + position]:
                     return Err(ArchiveError.Corrupt)
             compared += step
         start = offset + 30 + name_size + extra_size
@@ -1137,7 +1139,7 @@ pub class ZipReader[R]:
             if pending > 0:
                 count = smaller(stop - start, pending)
                 output = self._decoder.output()
-                held(buffer.overwrite(start, &output[self._out_start:self._out_start + count]))?
+                buffer.overwrite(start, &output[self._out_start:self._out_start + count])
                 self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
                 self._produced += count
                 self._out_start += count
@@ -1189,8 +1191,8 @@ pub class ZipReader[R]:
 pub def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], ArchiveError]:
     if max_entries < 0:
         return Err(ArchiveError.InvalidInput)
-    mut input = held(std.bytes.with_capacity(chunk))?
-    held(input.resize(chunk, 0u8))?
+    mut input = owned(std.bytes.with_capacity(chunk))?
+    owned(input.resize(chunk, 0u8))?
     decoder = coded(std.compress.inflater(Format.Deflate, 0))?
     mut reader = ZipReader(inner, owned(list[Entry].new())?, owned(list[Record].new())?, owned(list[i64].new())?, input, 0, 0, decoder, 0, False, False, 0, 0, 0, 0, 0, Nothing)
     reader.load(max_entries)?
@@ -1236,7 +1238,7 @@ pub class ZipWriter[W]:
             version = 45
         flags = utf8_flag(name)
         time, date = to_dos(mtime)
-        mut head = held(std.bytes.with_capacity(30 + len(name) + 20))?
+        mut head = owned(std.bytes.with_capacity(30 + len(name) + 20))?
         put_le(&mut head, local_signature, 4)?
         put_le(&mut head, version, 2)?
         put_le(&mut head, flags, 2)?
@@ -1261,7 +1263,7 @@ pub class ZipWriter[W]:
             put_le(&mut head, 16, 2)?
             put_le(&mut head, size, 8)?
             put_le(&mut head, compressed, 8)?
-        mut entry = held(std.bytes.with_capacity(46 + len(name) + 28))?
+        mut entry = owned(std.bytes.with_capacity(46 + len(name) + 28))?
         central = &mut entry
         put_le(central, central_signature, 4)?
         put_le(central, made_by, 2)?
@@ -1302,7 +1304,7 @@ pub class ZipWriter[W]:
         self._failed = True
         send(&mut self.inner, &head, 0, head.len())?
         send(&mut self.inner, payload, 0, compressed)?
-        held(self._central.extend(&entry))?
+        owned(self._central.extend(&entry))?
         self._offset += head.len() + compressed
         self._count += 1
         self._failed = False
@@ -1324,13 +1326,13 @@ pub class ZipWriter[W]:
         if mode < 0 or mode > 4095:
             return Err(ArchiveError.InvalidInput)
         stored = stored_name(name, True)?
-        self.record(&stored, 0, 0, &held(std.bytes.empty())?, 0, directory_bits | mode, 16, mtime)
+        self.record(&stored, 0, 0, &owned(std.bytes.empty())?, 0, directory_bits | mode, 16, mtime)
 
     pub def add_symlink(self: &mut ZipWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]:
         stored = stored_name(name, False)?
         if len(target.as_bytes()) == 0 or has_nul(target.as_bytes()):
             return Err(ArchiveError.InvalidInput)
-        data = held(std.bytes.from_list(target.as_bytes()))?
+        data = owned(std.bytes.from_list(target.as_bytes()))?
         crc = coded(std.compress.crc32(0, &data))?
         self.record(&stored, 0, crc, &data, data.len(), symlink_bits | 511, 0, mtime)
 
@@ -1341,7 +1343,7 @@ pub class ZipWriter[W]:
             directory_offset = self._offset
             directory_size = self._central.len()
             count = self._count
-            mut tail = held(std.bytes.with_capacity(98))?
+            mut tail = owned(std.bytes.with_capacity(98))?
             if count >= u16_max or directory_offset >= u32_max or directory_size >= u32_max:
                 put_le(&mut tail, end64_signature, 4)?
                 put_le(&mut tail, 44, 8)?
@@ -1372,7 +1374,7 @@ pub class ZipWriter[W]:
         moved(self.inner.flush())
 
 pub def zip_writer[W](inner: W) -> Result[ZipWriter[W], ArchiveError]:
-    Ok(ZipWriter(inner, held(std.bytes.empty())?, 0, 0, False, False))
+    Ok(ZipWriter(inner, owned(std.bytes.empty())?, 0, 0, False, False))
 
 # Extraction
 

@@ -8,8 +8,9 @@ code. [`std.http.files`](http-files.md) uses its extension table. The
 
 ```plenty
 import std.mime
+from std.mime import MimeError
 
-def main() -> Result[(), AllocError | IoError | ParseError]:
+def main() -> Result[(), AllocError | IoError | MimeError]:
     value = std.mime.parse("Text/HTML; Charset=\"UTF-8\"; title=\"a \\\"b\\\"\"")?
     print(value.to_string()?)?
     print(value.type_name(), value.subtype(), value.param("charset"), value.param("TITLE"))?
@@ -32,8 +33,8 @@ image/svg+xml Option[str].Some("font/woff2")
 
 | Item | Meaning |
 |---|---|
-| `parse(text)` | `Result[MediaType, AllocError \| ParseError]`: the media type in `text` |
-| `new(type_name, subtype)` | `Result[MediaType, AllocError \| ParseError]`: a media type without parameters; both names must be tokens |
+| `parse(text)` | `Result[MediaType, MimeError]`: the media type in `text` |
+| `new(type_name, subtype)` | `Result[MediaType, MimeError]`: a media type without parameters; both names must be tokens |
 | `value.type_name()`, `value.subtype()` | `&str`: the lowercase names |
 | `value.params()` | `&list[Param]`: parameters in order; each `Param` has `name` and `value` |
 | `value.param(name)` | `Option[str]`: the value of the parameter `name`, compared without case |
@@ -41,9 +42,12 @@ image/svg+xml Option[str].Some("font/woff2")
 | `value.suffix()` | `Result[Option[str], AllocError]`: the structured syntax suffix after the last `+`, such as `json` in `application/ld+json` |
 | `value.is_wildcard()` | `bool`: the type or subtype is `*` |
 | `value.matches(&pattern)` | `bool`: `value` falls within the media range `pattern` |
-| `value.set_param(name, value)` | `Result[(), AllocError \| ParseError]`: add a parameter, or replace the value of one with the same name |
+| `value.set_param(name, value)` | `Result[(), MimeError]`: add a parameter, or replace the value of one with the same name |
 | `value.remove_param(name)` | `bool`: remove the parameter `name`; `False` when absent |
 | `value.to_string()` | `Result[str, AllocError]`: canonical text |
+
+`MimeError` has two variants: `Invalid`, for text that is not a media type
+or a name or value that is not allowed, and `Allocation(AllocError)`.
 
 `parse` follows the `media-type` rule of
 [RFC 9110 section 8.3.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.3.1):
@@ -57,7 +61,7 @@ Spaces and tabs are allowed around the whole text and around each `;`, and
 empty parameters such as `a/b;;x=1` are skipped. A quoted-string may hold
 tab, space, visible ASCII and non-ASCII text, and `\` escapes the next
 character; the stored value is unquoted and unescaped. Everything else
-returns `ParseError.Invalid`: a missing or empty type or subtype, a
+returns `MimeError.Invalid`: a missing or empty type or subtype, a
 character outside a token, a parameter without `=` or value, an unclosed
 quote, text after a closing quote, and a parameter name given twice
 (compared without case, as
@@ -76,7 +80,7 @@ order. A value that is empty or not a token is written as a quoted-string,
 with `"` and `\` escaped. Parsing formatted text gives an equal value.
 
 `set_param` requires a token name and a value without control characters
-other than tab, or returns `ParseError.Invalid` and leaves the value
+other than tab, or returns `MimeError.Invalid` and leaves the value
 unchanged. It lowercases the name, and the value of `charset`.
 
 ## Media ranges

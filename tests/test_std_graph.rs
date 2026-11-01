@@ -262,7 +262,7 @@ print(empty.toposort()?, empty.strongly_connected_components()?)?
         r#"
 [4, 5, 2, 0, 3, 1]
 std.graph.GraphError.Cycle([2, 3, 1, 5])
-Result[list[i64], AllocError | std.graph.GraphError].Err(std.graph.GraphError.Cycle([0]))
+Result[list[i64], std.graph.GraphError].Err(std.graph.GraphError.Cycle([0]))
 [] []
 "#,
     );
@@ -331,14 +331,14 @@ Option[f64].Some(8.0) [0, 2, 1, 3] True Option[i64].Nothing
 Option[f64].Nothing [] [0] Option[f64].Nothing
 Option[tuple[f64, list[i64]]].Some((8.0, [0, 2, 1, 3])) Option[tuple[f64, list[i64]]].Nothing
 Option[f64].Some(8.0)
-Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(4))
+Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(4))
 [0, 2, 1, 3, 4]
-Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([3, 4]))
-Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([3, 4]))
-Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(0)) Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(0))
-Result[Option[tuple[f64, list[i64]]], AllocError | std.graph.GraphError].Err(std.graph.GraphError.InvalidEstimate(0))
-[2, 1, 0] Result[Option[tuple[f64, list[i64]]], AllocError | std.graph.GraphError].Ok(Option[tuple[f64, list[i64]]].Some((4.0, [0, 1, 2])))
-Result[std.graph.Paths, AllocError | std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([1, 2]))
+Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([3, 4]))
+Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([3, 4]))
+Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(0)) Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(0))
+Result[Option[tuple[f64, list[i64]]], std.graph.GraphError].Err(std.graph.GraphError.InvalidEstimate(0))
+[2, 1, 0] Result[Option[tuple[f64, list[i64]]], std.graph.GraphError].Ok(Option[tuple[f64, list[i64]]].Some((4.0, [0, 1, 2])))
+Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.NegativeCycle([1, 2]))
 "#,
     );
 }
@@ -394,7 +394,7 @@ print(str.repr(graph.minimum_spanning_tree(&cost))?)?
         r#"
 [1, 5, 7, 0, 4, 9] 39.0
 [12, 1, 5, 7, 0, 4, 9]
-Result[list[i64], AllocError | std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(13))
+Result[list[i64], std.graph.GraphError].Err(std.graph.GraphError.InvalidWeight(13))
 "#,
     );
 }
@@ -456,6 +456,29 @@ print("__test_end_no_allocations__")?
 print(found, weight, removed, gone, graph.edge_count())?
 "#,
         "Option[i64].Some(0) 0.5 Option[f64].Some(0.5) Option[i64].Some(2) 0",
+    );
+}
+
+/// Algorithm scratch failures are `GraphError.Allocation`, not a separate
+/// `AllocError` alternative (B92 rule 5).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn algorithm_allocation_failure_is_a_graph_error() {
+    native(
+        r#"
+mut graph = DiGraph[i64, f64]()?
+a = graph.add_node(1)?
+b = graph.add_node(2)?
+graph.add_edge(a, b, 1.0)?
+print("__test_fail_allocations_after_0__")?
+order = graph.toposort()
+paths = graph.dijkstra(a, &cost)
+print("__test_restore_allocations__")?
+print(str.repr(order)?)?
+print(str.repr(paths)?)?
+"#,
+        "Result[list[i64], std.graph.GraphError].Err(std.graph.GraphError.Allocation(AllocError.OutOfMemory))\n\
+         Result[std.graph.Paths, std.graph.GraphError].Err(std.graph.GraphError.Allocation(AllocError.OutOfMemory))",
     );
 }
 

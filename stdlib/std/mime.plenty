@@ -5,6 +5,11 @@
 import std.bytes
 from std.bytes import Bytes, BytesError
 
+pub enum MimeError:
+    # The text is not a media type, or a name or value is not allowed.
+    Invalid
+    Allocation(AllocError)
+
 pub class Param:
     # Lowercase token.
     pub name: str
@@ -68,16 +73,16 @@ pub class MediaType:
     # Adds the parameter, or replaces the value of one with the same name.
     # `name` must be a token; `value` may be any text without control
     # characters other than tab.
-    pub def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]:
+    pub def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), MimeError]:
         if not token_text(name) or not value_text(value):
-            return Err(ParseError.Invalid)
-        lower = name.lower()?
-        stored = value.lower()? if lower == "charset" else *value
+            return Err(MimeError.Invalid)
+        lower = allocated(name.lower())?
+        stored = allocated(value.lower())? if lower == "charset" else *value
         for index in range(len(self._params)):
             if self._params[index].name == lower:
                 self._params[index] = Param(lower, stored)
                 return Ok(())
-        self._params.append(Param(lower, stored))?
+        allocated(self._params.append(Param(lower, stored)))?
         Ok(())
 
     # Removes the parameter `name`, compared without case; False when absent.
@@ -102,14 +107,21 @@ pub class MediaType:
             parts.append(quoted(&item.value)?)?
         "".join(&parts)
 
-def lifted[T](result: Result[T, BytesError]) -> Result[T, AllocError | ParseError]:
+def allocated[T](result: Result[T, AllocError]) -> Result[T, MimeError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(MimeError.Allocation(cause))
+
+def lifted[T](result: Result[T, BytesError]) -> Result[T, MimeError]:
     match result:
         case Ok(value):
             Ok(value)
         case Err(BytesError.Allocation(cause)):
-            Err(cause)
+            Err(MimeError.Allocation(cause))
         case Err(_):
-            Err(ParseError.Invalid)
+            Err(MimeError.Invalid)
 
 # tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
 #         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
@@ -182,45 +194,45 @@ def ows_end(data: &Bytes, start: i64, stop: i64) -> i64:
         index += 1
     index
 
-def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, AllocError | ParseError]:
+def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, MimeError]:
     text = lifted(data.to_text_range(start, stop))?
-    Ok(text.lower()?)
+    allocated(text.lower())
 
 # Parses `type/subtype *( OWS ";" OWS [ name=value ] )`, allowing OWS around
 # the whole text. Type, subtype and parameter names, and the value of
 # `charset`, are stored in lowercase; other values keep their case. A
 # repeated parameter name is an error.
-pub def parse(text: &str) -> Result[MediaType, AllocError | ParseError]:
-    data = lifted(std.bytes.from_text(text))?
+pub def parse(text: &str) -> Result[MediaType, MimeError]:
+    data = allocated(std.bytes.from_text(text))?
     mut stop = data.len()
     while stop > 0 and ows(i64(data[stop - 1])):
         stop -= 1
     start = ows_end(&data, 0, stop)
     slash = token_end(&data, start, stop)
     if slash == start or slash == stop or data[slash] != 47u8:
-        return Err(ParseError.Invalid)
+        return Err(MimeError.Invalid)
     subtype_end = token_end(&data, slash + 1, stop)
     if subtype_end == slash + 1:
-        return Err(ParseError.Invalid)
+        return Err(MimeError.Invalid)
     type_name = lowered(&data, start, slash)?
     subtype = lowered(&data, slash + 1, subtype_end)?
-    mut params: list[Param] = []?
+    mut params = allocated(list[Param]())?
     mut index = subtype_end
     while index < stop:
         index = ows_end(&data, index, stop)
         if data[index] != 59u8:
-            return Err(ParseError.Invalid)
+            return Err(MimeError.Invalid)
         index = ows_end(&data, index + 1, stop)
         if index == stop or data[index] == 59u8:
             continue
         name_end = token_end(&data, index, stop)
         if name_end == index or name_end == stop or data[name_end] != 61u8:
-            return Err(ParseError.Invalid)
+            return Err(MimeError.Invalid)
         name = lowered(&data, index, name_end)?
         index = name_end + 1
         mut value = ""
         if index < stop and data[index] == 34u8:
-            mut unquoted = lifted(std.bytes.with_capacity(stop - index))?
+            mut unquoted = allocated(std.bytes.with_capacity(stop - index))?
             index += 1
             mut closed = False
             while index < stop:
@@ -231,36 +243,36 @@ pub def parse(text: &str) -> Result[MediaType, AllocError | ParseError]:
                     break
                 if byte == 92u8:
                     if index == stop or not text_byte(i64(data[index])):
-                        return Err(ParseError.Invalid)
-                    lifted(unquoted.push(data[index]))?
+                        return Err(MimeError.Invalid)
+                    allocated(unquoted.push(data[index]))?
                     index += 1
                 elif text_byte(i64(byte)):
-                    lifted(unquoted.push(byte))?
+                    allocated(unquoted.push(byte))?
                 else:
-                    return Err(ParseError.Invalid)
+                    return Err(MimeError.Invalid)
             if not closed:
-                return Err(ParseError.Invalid)
+                return Err(MimeError.Invalid)
             value = lifted(unquoted.to_text())?
         else:
             value_end = token_end(&data, index, stop)
             if value_end == index:
-                return Err(ParseError.Invalid)
+                return Err(MimeError.Invalid)
             value = lifted(data.to_text_range(index, value_end))?
             index = value_end
         for item in &params:
             if item.name == name:
-                return Err(ParseError.Invalid)
+                return Err(MimeError.Invalid)
         if name == "charset":
-            value = value.lower()?
-        params.append(Param(name, value))?
+            value = allocated(value.lower())?
+        allocated(params.append(Param(name, value)))?
     Ok(MediaType(type_name, subtype, params))
 
 # A media type without parameters. Both names must be tokens.
-pub def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]:
+pub def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]:
     if not token_text(type_name) or not token_text(subtype):
-        return Err(ParseError.Invalid)
-    params: list[Param] = []?
-    Ok(MediaType(type_name.lower()?, subtype.lower()?, params))
+        return Err(MimeError.Invalid)
+    params = allocated(list[Param]())?
+    Ok(MediaType(allocated(type_name.lower())?, allocated(subtype.lower())?, params))
 
 # Extensions
 

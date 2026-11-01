@@ -71,7 +71,7 @@ mut signature = std.crypto.ed25519_sign(&seed, &message)?
 print(hex(&key)?)?
 print(hex(&signature)?)?
 print(std.crypto.ed25519_verify(&key, &message, &signature)?)?
-signature.set(0, 0u8)?
+signature.set(0, 0u8)
 print(std.crypto.ed25519_verify(&key, &message, &signature)?)?
 "#,
         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\ne5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b\nTrue\nFalse",
@@ -209,7 +209,7 @@ mut data = unhex("00000000000000000000000000000000")?
 std.crypto.seal_in_place(AeadAlgorithm.Aes256Gcm, &key, &nonce, &aad, &mut data)?
 print(hex(&data)?)?
 mut damaged = data.slice(0, data.len())?
-damaged.set(31, 0u8)?
+damaged.set(31, 0u8)
 print(str.repr(std.crypto.open_in_place(AeadAlgorithm.Aes256Gcm, &key, &nonce, &aad, &mut damaged))?)?
 print(hex(&damaged)?)?
 std.crypto.open_in_place(AeadAlgorithm.Aes256Gcm, &key, &nonce, &aad, &mut data)?
@@ -255,7 +255,7 @@ print(str.repr(bad.agree(&short))?)?
 print(bad.public_key()?.len())?
 zero = unhex("0000000000000000000000000000000000000000000000000000000000000000")?
 mut target = zero.slice(0, 32)?
-target.fill(0, 32, 255u8)?
+target.fill(0, 32, 255u8)
 print(str.repr(bad.agree_into(&zero, &mut target))?)?
 print(hex(&target)?)?
 print(str.repr(bad.agree(&b))?)?
@@ -283,7 +283,7 @@ print(data.to_text()?)?
 mut oversized = std.bytes.empty()?
 oversized.resize(8161, 123u8)?
 print(str.repr(std.crypto.hkdf_sha256_into(&empty, &key, &empty, &mut oversized))?)?
-print(oversized.get(0)?, oversized.get(8160)?)?
+print(oversized.get(0), oversized.get(8160))?
 mut ciphertext = std.bytes.empty()?
 std.crypto.seal_in_place(AeadAlgorithm.ChaCha20Poly1305, &key, &nonce, &empty, &mut ciphertext)?
 print(ciphertext.len())?

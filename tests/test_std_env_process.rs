@@ -592,15 +592,15 @@ fn large_output_on_both_pipes_does_not_deadlock() {
         r#"
 mut input = std.bytes.with_capacity(0)?
 input.resize(1048576, 120u8)?
-input.set(0, 60u8)?
-input.set(1048575, 62u8)?
+input.set(0, 60u8)
+input.set(1048575, 62u8)
 mut child = sh("tee /dev/stderr")?.spawn()?
 match child.communicate(&input, 2000000):
     case Ok(output):
         show(&output.status)?
         print(output.stdout.len(), output.stderr.len())?
-        print(output.stdout.get(0)?, output.stdout.get(1048575)?, output.stderr.get(0)?, output.stderr.get(1048575)?)?
-        print(output.stdout.find(0u8, 0, 1048576)?)?
+        print(output.stdout.get(0), output.stdout.get(1048575), output.stderr.get(0), output.stderr.get(1048575))?
+        print(output.stdout.find(0u8, 0, 1048576))?
     case Err(_):
         print("failed")?
 

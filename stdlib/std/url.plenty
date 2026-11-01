@@ -46,7 +46,7 @@ pub class Url:
     # always parses back to equal components. Error indexes are byte offsets
     # in the text that would have been produced.
     pub def to_string(self) -> Result[str, UrlError]:
-        mut out = lifted(std.bytes.empty())?
+        mut out = allocated(std.bytes.empty())?
         put(&mut out, self.scheme)?
         scheme_end = out.len()
         emit(&mut out, 58)?
@@ -144,7 +144,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
         host_start = index + 2
         # Neither userinfo nor a host may contain `@`, so the first one
         # separates them and any other is an error in the host.
-        match lifted(source.find(64u8, host_start, end))?:
+        match source.find(64u8, host_start, end):
             case Some(at):
                 user_start = host_start
                 user_end = at
@@ -154,7 +154,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
                 pass
         host_end = end
         if host_start < end and i64(source[host_start]) == 91:
-            match lifted(source.find(93u8, host_start, end))?:
+            match source.find(93u8, host_start, end):
                 case Some(close):
                     host_end = close + 1
                 case Nothing:
@@ -164,7 +164,7 @@ pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
                     return Err(UrlError.InvalidHost(host_end))
                 port = port_number(&source, host_end + 1, end)?
         else:
-            match lifted(source.find(58u8, host_start, end))?:
+            match source.find(58u8, host_start, end):
                 case Some(separator):
                     host_end = separator
                     port = port_number(&source, separator + 1, end)?
@@ -205,7 +205,7 @@ pub def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlEr
             size += 1
         else:
             size += 3
-    mut encoded = lifted(std.bytes.with_capacity(size))?
+    mut encoded = allocated(std.bytes.with_capacity(size))?
     for value in source:
         code = i64(*value)
         if literal(code, kind):
@@ -228,11 +228,11 @@ pub def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]:
             return Err(UrlError.InvalidEscape(index))
         size -= 2
         index = percent_from(source, index + 3)
-    mut decoded = lifted(std.bytes.with_capacity(size))?
+    mut decoded = allocated(std.bytes.with_capacity(size))?
     index = 0
     while index < stop:
         escape = percent_from(source, index)
-        lifted(decoded.extend(&source[index:escape]))?
+        allocated(decoded.extend(&source[index:escape]))?
         if escape < stop:
             emit(&mut decoded, hex_value(i64(source[escape + 1])) * 16 + hex_value(i64(source[escape + 2])))?
         index = escape + 3
@@ -246,19 +246,19 @@ def percent_from(source: &[u8], start: i64) -> i64:
     start + found
 
 pub def encode(text: &str, component: Component) -> Result[str, UrlError]:
-    source = lifted(std.bytes.from_text(text))?
+    source = allocated(std.bytes.from_text(text))?
     lifted(encode_bytes(&source, component)?.to_text())
 
 # `InvalidUtf8` when the decoded bytes are not UTF-8; use `decode_bytes` for
 # data that is not text.
 pub def decode(text: &str) -> Result[str, UrlError]:
-    source = lifted(std.bytes.from_text(text))?
+    source = allocated(std.bytes.from_text(text))?
     lifted(decode_bytes(&source)?.to_text())
 
 # One pair per `&`-separated piece, split at its first `=`, then decoded. A
 # piece without `=` has an empty value. The empty query has no pairs.
 pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
-    source = lifted(std.bytes.from_text(query))?
+    source = allocated(std.bytes.from_text(query))?
     count = source.len()
     mut pairs = allocated(list[Pair]())?
     if count == 0:
@@ -266,13 +266,13 @@ pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
     mut start = 0
     while start <= count:
         mut stop = count
-        match lifted(source.find(38u8, start, count))?:
+        match source.find(38u8, start, count):
             case Some(found):
                 stop = found
             case Nothing:
                 pass
         mut split = stop
-        match lifted(source.find(61u8, start, stop))?:
+        match source.find(61u8, start, stop):
             case Some(found):
                 split = found
             case Nothing:
@@ -296,17 +296,17 @@ def decoded_part(source: &[u8], start: i64, stop: i64) -> Result[Bytes, UrlError
 
 # `key=value` joined with `&`, each side encoded as `Component.QueryPart`.
 pub def query_text(pairs: &list[Pair]) -> Result[str, UrlError]:
-    mut out = lifted(std.bytes.empty())?
+    mut out = allocated(std.bytes.empty())?
     for index in range(len(pairs)):
         if index > 0:
             emit(&mut out, 38)?
-        key = lifted(std.bytes.from_text(pairs[index].key))?
+        key = allocated(std.bytes.from_text(pairs[index].key))?
         encoded_key = encode_bytes(&key, Component.QueryPart)?
-        lifted(out.extend(&encoded_key))?
+        allocated(out.extend(&encoded_key))?
         emit(&mut out, 61)?
-        value = lifted(std.bytes.from_text(pairs[index].value))?
+        value = allocated(std.bytes.from_text(pairs[index].value))?
         encoded_value = encode_bytes(&value, Component.QueryPart)?
-        lifted(out.extend(&encoded_value))?
+        allocated(out.extend(&encoded_value))?
     lifted(out.to_text())
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:
@@ -330,11 +330,11 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
             Err(UrlError.Allocation(error))
 
 def emit(target: &mut Bytes, value: i64) -> Result[(), UrlError]:
-    lifted(target.push(u8(value)))
+    allocated(target.push(u8(value)))
 
 def put(target: &mut Bytes, text: &str) -> Result[(), UrlError]:
-    piece = lifted(std.bytes.from_text(text))?
-    lifted(target.extend(&piece))
+    piece = allocated(std.bytes.from_text(text))?
+    allocated(target.extend(&piece))
 
 def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, UrlError]:
     lifted(source.to_text_range(start, stop))
@@ -350,7 +350,7 @@ def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
         return Err(UrlError.InvalidLimit)
     if text.byte_len() > max_bytes:
         return Err(UrlError.LimitExceeded)
-    lifted(std.bytes.from_text(text))
+    allocated(std.bytes.from_text(text))
 
 # First index in the range holding a delimiter, or `stop`. Level 0 stops at
 # `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0. Each
@@ -366,7 +366,7 @@ def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlE
     Ok(end)
 
 def earliest(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, UrlError]:
-    match lifted(source.find(value, start, stop))?:
+    match source.find(value, start, stop):
         case Some(found):
             Ok(found)
         case Nothing:

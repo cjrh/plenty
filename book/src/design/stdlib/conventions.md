@@ -150,19 +150,38 @@ after its source: `Stream(StreamError)`, `Io(IoError)`, `Net(NetError)`,
 | Allocation only | `AllocError` (`std.deque`, `std.cache.lru`, `std.diff`) |
 | Allocation and domain faults | The domain error with an `Allocation(AllocError)` variant |
 
-About 42 error types follow the second row. `std.linalg`, `std.graph`,
-`std.sketch`, `std.shlex`, `std.mime`, `std.cli.fileinput` and `std.actor`
-instead return unions such as `AllocError | LinalgError`. Do not add new
-unions with `AllocError`.
+Do not return a union such as `AllocError | GraphError`; add the variant
+instead. A function that only forwards another module's error keeps that
+error, as `std.bytes` constructors keep `AllocError`. An operation with two
+unrelated causes names both in its own enum: `std.actor.StageError` is
+`Allocation(AllocError)` or `Wait(WaitError)`.
 
 ### Invalid arguments
 
-A run-time value the caller supplies (a size, range, limit or configuration)
-that the operation cannot accept is an `Err` with a named variant:
-`OutOfRange`, `InvalidLimits`, `InvalidConfig`. It is never clamped or
-ignored. A handle from the same object that has become invalid may trap, as
-an out-of-range list index does (`std.graph`). Builtins follow several
-policies today (issue #629).
+A size that cannot be allocated, negative included, is
+`AllocError.CapacityOverflow`, or `Allocation(CapacityOverflow)` in a domain
+error: `std.bytes.with_capacity(-1)`, `std.secrets.token_bytes(-1)`.
+
+A position the caller computes against a value it holds, such as an index or
+range into a buffer, or a count that no call could accept, traps when invalid,
+as an out-of-range list index does. The message names the operation and the
+argument (`Bytes.get: index is outside 0..len()`), and the
+[trap report](../language/08-errors/02-allocation-and-traps.md#trap-reports)
+names the calling line. The operation's result then names only what can still
+fail: `Bytes.get` returns `u8`, `Rng.sample_indices` returns
+`Result[list[i64], AllocError]`. `std.bytes` range methods, their
+`read_file` and `read_stdin` ranges, and `std.random` counts and ranges follow
+this rule. Standard-library code reports these with the std-only `__trap`
+statement; a handle from the same object that has become invalid may trap the
+same way (`std.graph`).
+
+Another run-time value the caller supplies (a limit or configuration) that the
+operation cannot accept is an `Err` with a named variant: `OutOfRange`,
+`InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Stream
+`read` ranges (`StreamError.OutOfRange`), `std.encoding` offsets, and
+`std.uuid` `write_bytes` still use this form. Builtins follow several policies
+today (issue #629); see the
+[consistency proposal](../../proposals/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail).
 
 ### Returning moved inputs
 
@@ -307,6 +326,5 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Containers | `len()` and `in` reject std containers | Issue #623 |
 | Bytes | `list[u8]` OS strings; `dataframe.lit_binary(&Bytes)` | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
-| Errors | `AllocError` unions in seven modules | Not yet tracked |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |
 | Names | Predicates without `is_`; `count()` as size; `watch` shapes; `new` | Not yet tracked |

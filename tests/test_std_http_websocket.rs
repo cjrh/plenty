@@ -824,7 +824,7 @@ def is_cancelled[E](result: &Result[E, WebSocketError]) -> bool:
         case _:
             False
 
-def main() -> Result[(), AllocError | IoError | BytesError | RangeError | WebSocketError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError | WebSocketError]:
     never = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(1000u32))?
     for partial in [True, False]?:

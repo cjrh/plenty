@@ -236,7 +236,7 @@ The result of `f"..."` is built in a new string formatter whose output and
 grows it. A spec on a value without a built-in spelling first builds that
 value's text as a temporary string. There is no byte budget: an f-string is
 bounded only by allocation failure, reported as `AllocError` whatever the
-f-string's type; a user method's own `FormatError.Bytes(BytesError.Allocation(...))`
+f-string's type; a user method's own `FormatError.Allocation(...)`
 is reported as `AllocError` too. User `display` and `debug`
 methods may nest through `std.fmt` up to 32 levels, after which the result is
 `FormatError.RecursionLimit`. No partial string is returned on error.

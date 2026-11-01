@@ -11,6 +11,13 @@ from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpLi
 from std.ready import Interest, WaitError
 from std.time import Duration, instant_at, monotonic_now, nanoseconds
 
+def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BytesError.Allocation(cause))
+
 # Writes attempted per message, so one fast connection cannot hold the
 # stage; level-triggered readiness brings the rest.
 const max_writes: i64 = 4
@@ -177,7 +184,7 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         count = self.make_room(len(source), at)
-        lifted(self._output.overwrite(self._output_stop, &source[:count]))?
+        self._output.overwrite(self._output_stop, &source[:count])
         self._output_stop += count
         mut events = no_events()
         self.flush(&mut events, at)?
@@ -236,7 +243,7 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         moved = self.make_room(count, at)
-        lifted(self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved]))?
+        self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved])
         self._output_stop += moved
         self._input_start += moved
         if self._input_start == self._input_stop:
@@ -455,7 +462,7 @@ pub class Connection:
 # trip through the buffer. Callers keep 0 <= start <= stop <= len, so the copy
 # cannot fail.
 def shift(buffer: &mut Bytes, start: i64, stop: i64) -> ():
-    drop(buffer.copy_within(start, stop, 0))
+    buffer.copy_within(start, stop, 0)
 
 def watched[T](result: Result[T, WaitError]) -> Result[T, NetError]:
     match result:
@@ -493,10 +500,10 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, NetError]:
 pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]:
     if limits.input < 1 or limits.output < 1:
         return Err(BytesError.OutOfRange)
-    mut input = std.bytes.with_capacity(limits.input)?
-    input.resize(limits.input, 0u8)?
-    mut output = std.bytes.with_capacity(limits.output)?
-    output.resize(limits.output, 0u8)?
+    mut input = bytes_error_allocated(std.bytes.with_capacity(limits.input))?
+    bytes_error_allocated(input.resize(limits.input, 0u8))?
+    mut output = bytes_error_allocated(std.bytes.with_capacity(limits.output))?
+    bytes_error_allocated(output.resize(limits.output, 0u8))?
     Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64, Nothing))
 
 # What a listener does with a connection that arrives at capacity.

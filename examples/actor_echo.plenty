@@ -9,7 +9,7 @@
 #     cargo run --bin plenty -- examples/actor_echo.plenty
 #
 # tests/test_std_actor.rs drives it with many concurrent clients.
-from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_committed, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_committed, heap_bytes_used, heaps_live, StageError, stage
 from std.actor.net import Admission, Connection, Limits, Listener, listener
 from std.bytes import BytesError
 from std.net import NetError, listen, loopback_v4
@@ -96,7 +96,7 @@ pub enum Node:
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError]:
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?
     limits = Limits(4096, 4096, seconds(30), seconds(30))

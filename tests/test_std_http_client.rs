@@ -56,7 +56,7 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -422,11 +422,11 @@ pub class Pieces:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.data[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 
-def pieces(text: &str) -> Result[Pieces, std.bytes.BytesError]:
+def pieces(text: &str) -> Result[Pieces, AllocError | std.bytes.BytesError]:
     Ok(Pieces(std.bytes.from_text(text)?, 0, 4, False))
 
 def done(result: Result[hc.Response[Script], ClientError], client: &mut hc.Client[Script, Scripts]) -> Result[(), std.bytes.BytesError | hc.ClientError | AllocError | IoError]:
@@ -1007,7 +1007,7 @@ pub enum Route:
     Echo
 
 pub class Site:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), std.bytes.BytesError | std.http.HttpError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.bytes.BytesError | std.http.HttpError]:
         match route:
             case Route.Home:
                 exchange.send_text(200, "home\n")?
@@ -1249,10 +1249,8 @@ def by_hand(client: &mut hc.Client[Script, Scripts], request: Request, deadline:
     mut body = match std.bytes.empty():
         case Ok(made):
             made
-        case Err(BytesError.Allocation(cause)):
+        case Err(cause):
             return Err(ClientError.Allocation(cause))
-        case Err(_):
-            return Err(ClientError.Http(HttpError.Broken))
     response.read_all(&mut body)?
     client.finish(response)
     Ok(())

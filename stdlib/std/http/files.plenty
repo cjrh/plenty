@@ -102,13 +102,13 @@ def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path]
 pub def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]:
     if path.byte_len() == 0 or path.byte_len() > max_path:
         return Ok(Nothing)
-    data = lifted(std.bytes.from_text(path))?
+    data = allocated(std.bytes.from_text(path))?
     count = data.len()
     mut directory: Option[Root] = Nothing
     mut at = 0
     while True:
         mut stop = count
-        match lifted(data.find(47u8, at, count))?:
+        match data.find(47u8, at, count):
             case Some(found):
                 stop = found
             case Nothing:
@@ -192,11 +192,11 @@ pub def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]:
     if month <= 2:
         year += 1
     weekday = days % 7
-    names = lifted(std.bytes.from_text(day_names()))?
+    names = allocated(std.bytes.from_text(day_names()))?
     mut out = lifted(names.to_text_range(weekday * 3, weekday * 3 + 3))?
     out = allocated(out.concat(", "))?
     out = two(&out, day)?
-    months = lifted(std.bytes.from_text(month_names()))?
+    months = allocated(std.bytes.from_text(month_names()))?
     out = allocated(out.concat(" "))?
     out = allocated(out.concat(&lifted(months.to_text_range(month * 3 - 3, month * 3))?))?
     out = allocated(out.concat(" "))?
@@ -229,13 +229,13 @@ def same_bytes(data: &Bytes, start: i64, text: &Bytes, offset: i64, count: i64) 
 # Seconds since the epoch of an IMF-fixdate. The obsolete RFC 850 and
 # asctime forms are not accepted; a date that does not parse is ignored.
 pub def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]:
-    data = lifted(std.bytes.from_text(text))?
+    data = allocated(std.bytes.from_text(text))?
     if data.len() != 29:
         return Ok(Nothing)
-    tail = lifted(std.bytes.from_text(" GMT"))?
+    tail = allocated(std.bytes.from_text(" GMT"))?
     if not same_bytes(&data, 25, &tail, 0, 4) or data[3] != 44u8 or data[4] != 32u8 or data[7] != 32u8 or data[11] != 32u8 or data[16] != 32u8 or data[19] != 58u8 or data[22] != 58u8:
         return Ok(Nothing)
-    months = lifted(std.bytes.from_text(month_names()))?
+    months = allocated(std.bytes.from_text(month_names()))?
     mut month = 0
     for index in range(12):
         if same_bytes(&data, 8, &months, index * 3, 3):
@@ -273,12 +273,12 @@ def trimmed(data: &Bytes, start: i64, stop: i64) -> (i64, i64):
 # Weak comparison (RFC 9110 section 8.8.3.2): `W/` is ignored on both sides.
 # `*` matches any existing file, including one without a tag (section 13.1.2).
 def tag_listed(field: &str, tag: &Option[Bytes]) -> Result[bool, FilesError]:
-    data = lifted(std.bytes.from_text(field))?
+    data = allocated(std.bytes.from_text(field))?
     count = data.len()
     mut at = 0
     while at <= count:
         mut stop = count
-        match lifted(data.find(44u8, at, count))?:
+        match data.find(44u8, at, count):
             case Some(found):
                 stop = found
             case Nothing:
@@ -343,7 +343,7 @@ def validators(size: i64, time: Option[Timestamp]) -> Result[Validators, FilesEr
             text = allocated(text.concat("."))?
             text = allocated(text.concat(&allocated(str.from(stamp.nanoseconds))?))?
             text = allocated(text.concat("\""))?
-            Ok(Validators(Some(lifted(std.bytes.from_text(&text))?), Some(stamp.seconds)))
+            Ok(Validators(Some(allocated(std.bytes.from_text(&text))?), Some(stamp.seconds)))
         case Nothing:
             Ok(Validators(Nothing, Nothing))
 
@@ -375,7 +375,7 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
         mut head = http(std.http.response(405, "Method Not Allowed"))?
         http(head.add("Allow", "GET, HEAD"))?
         http(head.add("Content-Type", "text/plain; charset=utf-8"))?
-        body = lifted(std.bytes.from_text("Method Not Allowed\n"))?
+        body = allocated(std.bytes.from_text("Method Not Allowed\n"))?
         http(exchange.respond(head, &body))?
         return Ok(405)
     mut stream = match open_file(root, path)?:
@@ -396,8 +396,8 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
         add_validators(&mut head, &found)?
         http(exchange.respond(head, b""))?
         return Ok(304)
-    mut buffer = lifted(std.bytes.with_capacity(chunk))?
-    lifted(buffer.resize(chunk, 0u8))?
+    mut buffer = allocated(std.bytes.with_capacity(chunk))?
+    allocated(buffer.resize(chunk, 0u8))?
     mut head = http(std.http.response(200, "OK"))?
     http(head.add("Content-Type", media_type(path)))?
     http(head.add("Content-Length", allocated(str.from(size))?))?

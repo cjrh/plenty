@@ -387,6 +387,26 @@ def main() -> ():
     BODY
 "#;
 
+/// A capacity that cannot be allocated is `CapacityOverflow`, negative
+/// included (B92 invalid-argument policy).
+#[test]
+fn impossible_stage_capacities_are_capacity_overflow() {
+    let source = OBSERVED_NODE
+        .replace(
+            "    BODY",
+            r#"    print(str.repr(stage[Node, i64, AllocError](-1, 4, 1))?)?
+    print(str.repr(stage[Node, i64, AllocError](1048577, 4, 1))?)?"#,
+        )
+        .replace(
+            "def main() -> ():",
+            "def main() -> Result[(), AllocError | IoError]:",
+        );
+    let source = format!("{source}    Ok(())\n");
+    let output = support::run_file_stdout(&source);
+    let line = "Result[std.actor.Stage[Node, i64, AllocError], std.actor.StageError].Err(std.actor.StageError.Allocation(AllocError.CapacityOverflow))";
+    assert_eq!(output, format!("{line}\n{line}"), "{source}");
+}
+
 #[test]
 fn node_observation_tracks_lifetime_and_copies_outside_the_heap() {
     let source = OBSERVED_NODE.replace(

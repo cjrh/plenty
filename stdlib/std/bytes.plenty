@@ -1,9 +1,13 @@
 # One byte per element in contiguous native storage. Every offset is validated
-# here and reported as a value; the native primitives only repeat the check.
+# here; one outside the buffer is a caller bug and traps with `__trap`, like a
+# list index. The native primitives only repeat the check.
 # A `&[u8]` view holds a loan of its owner, so the borrow checker rejects
 # growth or movement while one is live.
 
 pub enum BytesError:
+    # A size or limit argument below its minimum, such as
+    # `std.actor.net.Limits.input`. No `Bytes` method returns it: a range
+    # outside the buffer traps.
     OutOfRange
     InvalidUtf8
     Allocation(AllocError)
@@ -22,36 +26,40 @@ pub class Bytes:
         __bytes_len(self._owner) == 0
 
     # Bounded scientific f64 spelling for reusable output scratch buffers.
-    pub def write_float(self: &mut Bytes, value: f64) -> Result[i64, BytesError]:
+    pub def write_float(self: &mut Bytes, value: f64) -> i64:
         if self.len() < 32:
-            return Err(BytesError.OutOfRange)
-        Ok(__bytes_write_float(self._owner, value))
+            __trap("Bytes.write_float: the buffer is shorter than 32 bytes")
+        __bytes_write_float(self._owner, value)
 
     # Python format-spec float spellings for std.fmt: style 1 fixed, 2 exponent,
     # 3 general, 4 general keeping `.0`, 5 f64 display, 6 f32 display; add 16
     # for `#`. Writes at `offset` and returns the spelling's length, or the
     # negated total length needed when the buffer is shorter.
-    pub def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]:
-        if style & 15 < 1 or style & 15 > 6 or style & ~31 != 0 or precision < 0 or precision > 4096 or offset < 0 or offset > self.len():
-            return Err(BytesError.OutOfRange)
-        Ok(__bytes_write_float_spec(self._owner, value, style, precision, offset))
+    pub def write_float_spec(self: &mut Bytes, value: f64, style: i64, precision: i64, offset: i64) -> i64:
+        if style & 15 < 1 or style & 15 > 6 or style & ~31 != 0:
+            __trap("Bytes.write_float_spec: style is not a format-spec style")
+        if precision < 0 or precision > 4096:
+            __trap("Bytes.write_float_spec: precision is outside 0..=4096")
+        if offset < 0 or offset > self.len():
+            __trap("Bytes.write_float_spec: offset is outside 0..=len()")
+        __bytes_write_float_spec(self._owner, value, style, precision, offset)
 
     pub def capacity(self) -> i64:
         __bytes_capacity(self._owner)
 
-    pub def get(self, index: i64) -> Result[u8, BytesError]:
+    pub def get(self, index: i64) -> u8:
         if index < 0 or index >= __bytes_len(self._owner):
-            return Err(BytesError.OutOfRange)
-        Ok(__bytes_get(self._owner, index))
+            __trap("Bytes.get: index is outside 0..len()")
+        __bytes_get(self._owner, index)
 
-    pub def set(self: &mut Bytes, index: i64, value: u8) -> Result[(), BytesError]:
+    pub def set(self: &mut Bytes, index: i64, value: u8) -> ():
         if index < 0 or index >= __bytes_len(self._owner):
-            return Err(BytesError.OutOfRange)
+            __trap("Bytes.set: index is outside 0..len()")
         __bytes_set(self._owner, index, value)
-        Ok(())
+        ()
 
-    pub def push(self: &mut Bytes, value: u8) -> Result[(), BytesError]:
-        stored(__bytes_push(self._owner, value))
+    pub def push(self: &mut Bytes, value: u8) -> Result[(), AllocError]:
+        __bytes_push(self._owner, value)
 
     pub def pop(self: &mut Bytes) -> Option[u8]:
         count = __bytes_len(self._owner)
@@ -62,112 +70,123 @@ pub class Bytes:
         drop(__bytes_resize(self._owner, count - 1, 0u8))
         Some(value)
 
-    pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), BytesError]:
+    pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]:
         if additional < 0:
-            return Err(BytesError.OutOfRange)
-        stored(__bytes_reserve(self._owner, additional))
+            return Err(AllocError.CapacityOverflow)
+        __bytes_reserve(self._owner, additional)
 
-    pub def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), BytesError]:
+    pub def resize(self: &mut Bytes, count: i64, fill: u8) -> Result[(), AllocError]:
         if count < 0:
-            return Err(BytesError.OutOfRange)
-        stored(__bytes_resize(self._owner, count, fill))
+            return Err(AllocError.CapacityOverflow)
+        __bytes_resize(self._owner, count, fill)
 
-    pub def truncate(self: &mut Bytes, count: i64) -> Result[(), BytesError]:
+    pub def truncate(self: &mut Bytes, count: i64) -> ():
         if count < 0 or count > __bytes_len(self._owner):
-            return Err(BytesError.OutOfRange)
-        stored(__bytes_resize(self._owner, count, 0u8))
+            __trap("Bytes.truncate: count is outside 0..=len()")
+        # Shrinking never allocates, so this cannot fail.
+        drop(__bytes_resize(self._owner, count, 0u8))
 
     pub def clear(self: &mut Bytes) -> ():
         drop(__bytes_resize(self._owner, 0, 0u8))
 
-    pub def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> Result[(), BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
+    pub def fill(self: &mut Bytes, start: i64, stop: i64, value: u8) -> ():
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.fill: start..stop is outside 0..=len()")
         __bytes_fill(self._owner, start, stop, value)
-        Ok(())
+        ()
 
-    pub def extend(self: &mut Bytes, source: &[u8]) -> Result[(), BytesError]:
-        stored(__bytes_append(self._owner, source))
+    pub def extend(self: &mut Bytes, source: &[u8]) -> Result[(), AllocError]:
+        __bytes_append(self._owner, source)
 
     # Writes `source` at `offset`; the buffer keeps its length.
-    pub def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> Result[(), BytesError]:
+    pub def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> ():
         if offset < 0 or offset > __bytes_len(self._owner) - len(source):
-            return Err(BytesError.OutOfRange)
+            __trap("Bytes.overwrite: offset..offset + len(source) is outside 0..=len()")
         __bytes_overwrite(self._owner, offset, source)
-        Ok(())
+        ()
 
     # Copies self[start:stop] to `to` in the same buffer, as memmove does: the
     # ranges may overlap. `overwrite` cannot read the buffer it writes, since
     # that needs shared and exclusive loans at once.
-    pub def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> Result[(), BytesError]:
+    pub def copy_within(self: &mut Bytes, start: i64, stop: i64, to: i64) -> ():
         count = __bytes_len(self._owner)
-        checked(start, stop, count)?
+        if not within(start, stop, count):
+            __trap("Bytes.copy_within: start..stop is outside 0..=len()")
         if to < 0 or to > count - (stop - start):
-            return Err(BytesError.OutOfRange)
+            __trap("Bytes.copy_within: the destination is outside 0..=len()")
         __bytes_copy_within(self._owner, start, stop, to)
-        Ok(())
+        ()
 
-    pub def slice(self, start: i64, stop: i64) -> Result[Bytes, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        mut owner = allocated(__bytes_new(stop - start))?
-        stored(__bytes_append(owner, &self[start:stop]))?
+    pub def slice(self, start: i64, stop: i64) -> Result[Bytes, AllocError]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.slice: start..stop is outside 0..=len()")
+        mut owner = __bytes_new(stop - start)?
+        __bytes_append(owner, &self[start:stop])?
         Ok(Bytes(owner))
 
-    pub def copy(self) -> Result[Bytes, BytesError]:
-        self.slice(0, __bytes_len(self._owner))
+    pub def copy(self) -> Result[Bytes, AllocError]:
+        from_bytes(&self[:])
 
     # Bulk scans. Each is one native call over the checked range, so prefer
     # them to a loop of `get` calls. An index result is absolute, not relative
     # to `start`.
-    pub def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(after(start, __bytes_find(&self[start:stop], value)))
+    pub def find(self, value: u8, start: i64, stop: i64) -> Option[i64]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.find: start..stop is outside 0..=len()")
+        after(start, __bytes_find(&self[start:stop], value))
 
     # The first byte that equals any byte of `set`. An empty set finds nothing.
-    pub def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(after(start, __bytes_find_in(&self[start:stop], set, 1u8)))
+    pub def find_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.find_in: start..stop is outside 0..=len()")
+        after(start, __bytes_find_in(&self[start:stop], set, 1u8))
 
     # The first byte that equals no byte of `set`: the end of a run.
-    pub def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(after(start, __bytes_find_in(&self[start:stop], set, 0u8)))
+    pub def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Option[i64]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.find_not_in: start..stop is outside 0..=len()")
+        after(start, __bytes_find_in(&self[start:stop], set, 0u8))
 
     # The first position where all of `needle` occurs inside the range. An
     # empty needle is found at `start`.
-    pub def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(after(start, __bytes_find_bytes(&self[start:stop], needle)))
+    pub def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Option[i64]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.find_bytes: start..stop is outside 0..=len()")
+        after(start, __bytes_find_bytes(&self[start:stop], needle))
 
-    pub def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(__bytes_count(&self[start:stop], value))
+    pub def count(self, value: u8, start: i64, stop: i64) -> i64:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.count: start..stop is outside 0..=len()")
+        __bytes_count(&self[start:stop], value)
 
     # Whether `source` occurs at `offset`. Too few bytes after `offset` is
     # False, not an error.
-    pub def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]:
+    pub def matches(self, offset: i64, source: &[u8]) -> bool:
         if offset < 0 or offset > __bytes_len(self._owner):
-            return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches(&self[:], offset, source))
+            __trap("Bytes.matches: offset is outside 0..=len()")
+        __bytes_matches(&self[:], offset, source)
 
     # Whether the UTF-8 bytes of `text` occur at `offset`.
-    pub def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]:
+    pub def matches_text(self, offset: i64, text: &str) -> bool:
         if offset < 0 or offset > __bytes_len(self._owner):
-            return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches_text(&self[:], offset, text))
+            __trap("Bytes.matches_text: offset is outside 0..=len()")
+        __bytes_matches_text(&self[:], offset, text)
 
     # The index after the run of bytes below 128 that begins at `start`.
-    pub def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(start + __bytes_run(&self[start:stop], 0u8))
+    pub def ascii_run(self, start: i64, stop: i64) -> i64:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.ascii_run: start..stop is outside 0..=len()")
+        start + __bytes_run(&self[start:stop], 0u8)
 
     # The index after the longest valid UTF-8 that begins at `start`. A
     # sequence cut off by `stop` is not included.
-    pub def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
-        Ok(start + __bytes_run(&self[start:stop], 1u8))
+    pub def utf8_run(self, start: i64, stop: i64) -> i64:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.utf8_run: start..stop is outside 0..=len()")
+        start + __bytes_run(&self[start:stop], 1u8)
 
-    pub def to_list(self) -> Result[list[u8], BytesError]:
-        allocated(__bytes_to_list(self._owner))
+    pub def to_list(self) -> Result[list[u8], AllocError]:
+        __bytes_to_list(self._owner)
 
     pub def to_text(self) -> Result[str, BytesError]:
         text_in(&self[:])
@@ -175,26 +194,24 @@ pub class Bytes:
     # `self[start:stop]` as text: validated and copied once, with no
     # intermediate `Bytes`.
     pub def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]:
-        checked(start, stop, __bytes_len(self._owner))?
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.to_text_range: start..stop is outside 0..=len()")
         text_in(&self[start:stop])
 
     # Direct transport. Each call makes at most one native read or write and
     # returns the bytes moved, so a short count is success. std.io adds the
-    # retry, end-of-input and partial-progress policy. A bad range is
-    # InvalidInput and touches neither the buffer nor the stream. Writes are
+    # retry, end-of-input and partial-progress policy. A range outside the
+    # buffer traps before touching the buffer or the stream. Writes are
     # the module functions below, which read a view.
     pub def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.read_file: start..stop is outside 0..=len()")
         __io_file_read(self._owner, start, stop, file)
 
     pub def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.read_stdin: start..stop is outside 0..=len()")
         __io_stdin_read(self._owner, start, stop)
-
-def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
-    if start < 0 or start > stop or stop > count:
-        return Err(IoError.InvalidInput)
-    Ok(())
 
 # A scan's index into a view starting at `start`, or Nothing for -1.
 def after(start: i64, index: i64) -> Option[i64]:
@@ -203,10 +220,8 @@ def after(start: i64, index: i64) -> Option[i64]:
     Some(start + index)
 
 # The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
-def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
-    if start < 0 or start > stop or stop > count:
-        return Err(BytesError.OutOfRange)
-    Ok(())
+def within(start: i64, stop: i64, count: i64) -> bool:
+    start >= 0 and start <= stop and stop <= count
 
 def text_in(source: &[u8]) -> Result[str, BytesError]:
     match allocated(__bytes_to_text(source))?:
@@ -222,33 +237,28 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
         case Err(error):
             Err(BytesError.Allocation(error))
 
-def stored(result: Result[(), AllocError]) -> Result[(), BytesError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(error):
-            Err(BytesError.Allocation(error))
+# Constructors fail only to allocate. A negative capacity is a size that
+# cannot be allocated, as for `list.with_capacity`.
+pub def empty() -> Result[Bytes, AllocError]:
+    Ok(Bytes(__bytes_new(0)?))
 
-pub def empty() -> Result[Bytes, BytesError]:
-    Ok(Bytes(allocated(__bytes_new(0))?))
-
-pub def with_capacity(capacity: i64) -> Result[Bytes, BytesError]:
+pub def with_capacity(capacity: i64) -> Result[Bytes, AllocError]:
     if capacity < 0:
-        return Err(BytesError.OutOfRange)
-    Ok(Bytes(allocated(__bytes_new(capacity))?))
+        return Err(AllocError.CapacityOverflow)
+    Ok(Bytes(__bytes_new(capacity)?))
 
-pub def from_list(values: &list[u8]) -> Result[Bytes, BytesError]:
-    Ok(Bytes(allocated(__bytes_from_list(values))?))
+pub def from_list(values: &list[u8]) -> Result[Bytes, AllocError]:
+    Ok(Bytes(__bytes_from_list(values)?))
 
-pub def from_text(text: &str) -> Result[Bytes, BytesError]:
-    Ok(Bytes(allocated(__bytes_from_text(text))?))
+pub def from_text(text: &str) -> Result[Bytes, AllocError]:
+    Ok(Bytes(__bytes_from_text(text)?))
 
 # An owned, growable copy of any byte view: a literal, `Bytes`, `list[u8]`
 # or a subview of one.
-pub def from_bytes(source: &[u8]) -> Result[Bytes, BytesError]:
-    mut owned = with_capacity(len(source))?
-    owned.extend(source)?
-    Ok(owned)
+pub def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]:
+    mut owner = __bytes_new(len(source))?
+    __bytes_append(owner, source)?
+    Ok(Bytes(owner))
 
 # Direct transport out of a view: at most one native write, returning the
 # bytes moved. The view carries its own range, so there is no range error.

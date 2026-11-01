@@ -7,7 +7,7 @@ import std.secrets
 from std.io import FileStream, Reader, StreamError, write_all
 from std.sync import CancellationToken
 from std.secrets import SecretsError
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
 pub enum FsError:
     Io(IoError)
@@ -43,15 +43,6 @@ def fs_stream[T](result: Result[T, StreamError]) -> Result[T, FsError]:
             Ok(value)
         case Err(error):
             Err(FsError.Stream(error))
-
-def fs_bytes[T](result: Result[T, BytesError]) -> Result[T, FsError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(BytesError.Allocation(error)):
-            Err(FsError.Allocation(error))
-        case Err(_):
-            Err(FsError.InvalidInput)
 
 def fs_secret(result: Result[str, SecretsError]) -> Result[str, FsError]:
     match result:
@@ -254,8 +245,8 @@ def transfer[R: Reader](source: &mut R, target: &mut FileStream, scratch: &mut B
     Ok(total)
 
 def copy_buffer() -> Result[Bytes, FsError]:
-    mut scratch = fs_bytes(std.bytes.with_capacity(8192))?
-    fs_bytes(scratch.resize(8192, 0u8))?
+    mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
+    fs_alloc(scratch.resize(8192, 0u8))?
     Ok(scratch)
 
 # Reader has no source filesystem metadata. The unnamed target vanishes on failure.

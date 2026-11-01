@@ -112,14 +112,14 @@ This also works through an existing exclusive reference:
 
 ```plenty
 import std.bytes
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 
-def clear(buffer: &mut Bytes) -> Result[(), BytesError]:
+def clear(buffer: &mut Bytes) -> ():
     buffer.fill(0, buffer.len(), 0u8)
 
-def main() -> Result[(), AllocError | IoError | BytesError]:
+def main() -> Result[(), AllocError | IoError]:
     mut buffer = std.bytes.from_list([1u8, 2u8]?)?
-    clear(&mut buffer)?
+    clear(&mut buffer)
     print(buffer.to_list()?)?
     Ok(())
 ```

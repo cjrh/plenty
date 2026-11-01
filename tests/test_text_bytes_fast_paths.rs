@@ -302,7 +302,7 @@ from std.bytes import Bytes, BytesError
 class Holder:
     data: Bytes
 
-def fill(data: &mut Bytes, count: i64) -> Result[(), BytesError]:
+def fill(data: &mut Bytes, count: i64) -> Result[(), AllocError]:
     for i in range(count):
         data.push(u8.try_from(i % 256).unwrap())?
     Ok(())
@@ -369,8 +369,8 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     print(held.data.len(), held.data[0], held.data[1], held.data[2])?
     Ok(())
 "#,
-        "Result[(), std.bytes.BytesError].Ok(()) \
-         Result[(), std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)) 2 2\n\
+        "Result[(), AllocError].Ok(()) \
+         Result[(), AllocError].Err(AllocError.OutOfMemory) 2 2\n\
          3 1 2 3\n",
     );
 }
@@ -428,6 +428,87 @@ fn trap(body: &str) -> String {
 )]
 fn bounds_traps_keep_their_sites(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(trap(body), format!("error: main.plenty:{expected}\n"));
+}
+
+fn std_trap(body: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let source = format!(
+        "import std.bytes\nimport std.random\ndef main() -> Result[(), AllocError | IoError | std.random.RandomError]:\n{body}    Ok(())\n"
+    );
+    std::fs::write(dir.path().join("main.plenty"), source).unwrap();
+    let program = dir.path().join("program");
+    plenty::compile_file_to_executable(&dir.path().join("main.plenty"), &program, Some(dir.path()))
+        .unwrap();
+    let output = Command::new(&program).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output.status);
+    String::from_utf8(output.stderr).unwrap()
+}
+
+// B92 phase 3: a std argument outside its domain traps through `__trap`,
+// naming the operation in the std file and the user line that called it.
+#[rstest]
+#[case::bytes_get(
+    "    data = std.bytes.from_text(\"ab\")?\n    print(data.get(2))?\n",
+    "bytes.plenty",
+    "Bytes.get: index is outside 0..len()",
+    "5:11"
+)]
+#[case::bytes_slice(
+    "    data = std.bytes.from_text(\"ab\")?\n    print(data.slice(1, 3)?)?\n",
+    "bytes.plenty",
+    "Bytes.slice: start..stop is outside 0..=len()",
+    "5:11"
+)]
+#[case::bytes_truncate(
+    "    mut data = std.bytes.from_text(\"ab\")?\n    data.truncate(3)\n",
+    "bytes.plenty",
+    "Bytes.truncate: count is outside 0..=len()",
+    "5:5"
+)]
+#[case::read_stdin(
+    "    mut data = std.bytes.from_text(\"ab\")?\n    print(data.read_stdin(1, 3)?)?\n",
+    "bytes.plenty",
+    "Bytes.read_stdin: start..stop is outside 0..=len()",
+    "5:11"
+)]
+#[case::write_float(
+    "    mut data = std.bytes.from_text(\"short\")?\n    print(data.write_float(1.0))?\n",
+    "bytes.plenty",
+    "Bytes.write_float: the buffer is shorter than 32 bytes",
+    "5:11"
+)]
+#[case::random_index(
+    "    mut rng = std.random.seeded(1u64)\n    print(rng.index(-1)?)?\n",
+    "random.plenty",
+    "Rng.index: count is negative",
+    "5:11"
+)]
+#[case::random_sample(
+    "    mut rng = std.random.seeded(1u64)\n    print(rng.sample_indices(3, 4)?)?\n",
+    "random.plenty",
+    "Rng.sample_indices: amount is outside 0..=count",
+    "5:11"
+)]
+fn std_argument_traps_name_operation_and_caller(
+    #[case] body: &str,
+    #[case] file: &str,
+    #[case] message: &str,
+    #[case] caller: &str,
+) {
+    let stderr = std_trap(body);
+    let mut lines = stderr.lines();
+    let report = lines.next().unwrap_or_default();
+    assert!(
+        report.starts_with(&format!("error: std/{file}:"))
+            && report.ends_with(&format!(": {message}")),
+        "{stderr}"
+    );
+    assert_eq!(
+        lines.next(),
+        Some(format!("note: called from main.plenty:{caller}").as_str()),
+        "{stderr}"
+    );
+    assert_eq!(lines.next(), None, "{stderr}");
 }
 
 const SEARCHES: &str = r#"

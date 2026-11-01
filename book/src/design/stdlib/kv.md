@@ -10,7 +10,7 @@ import std.bytes as buffers
 import std.db.kv as kv
 from std.bytes import BytesError
 
-def main() -> Result[(), IoError | BytesError | kv.KvError]:
+def main() -> Result[(), IoError | AllocError | BytesError | kv.KvError]:
     mut store = kv.connect("settings.db")?
     store.put("config", &buffers.from_text("theme")?, &buffers.from_text("dark")?)?
     store.close()?

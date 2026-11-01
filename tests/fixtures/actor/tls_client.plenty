@@ -5,7 +5,7 @@
 # trap; in mode 2 every client closes the socket after the first echo and
 # never sends close_notify. It prints one line per
 # outcome and the heap counters. FIXTURES is the certificate directory.
-from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, StageError, stage
 from std.actor.net import Dialing, Limits, connection, dial
 from std.actor.tls import TlsConnection, over
 from std.bytes import Bytes, BytesError
@@ -27,7 +27,7 @@ const mode: i64 = 0
 const roots: str = "ca.pem"
 const server_name: str = "localhost"
 
-type Fault = NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError
 
 pub enum Note:
     # Bytes echoed, and whether they matched.
@@ -193,7 +193,7 @@ pub enum Node:
             case Node.Running(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | TlsError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | TlsError]:
     config = client_config(&roots_from_pem(&read_text(&("FIXTURES/" + roots)?)?)?)?
     mut actors = stage[Node, Note, Fault](clients + 8, 8, 64)?
     actors.add_timers(clients + 8)?

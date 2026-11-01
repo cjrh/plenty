@@ -27,11 +27,7 @@ pub class Trickle:
         if mode == 3:
             return Ok(stop - start + 1)
         count = min(min(self.step, stop - start), self.data.len() - self.at)
-        match target.overwrite(start, &self.data[self.at:self.at + count]):
-            case Err(_):
-                return Err(StreamError.OutOfRange)
-            case Ok(_):
-                pass
+        target.overwrite(start, &self.data[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -43,12 +39,8 @@ pub class Sink:
     pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
         count = min(min(2, self.room), len(source))
         match self.data.extend(&source[:count]):
-            case Err(error):
-                match error:
-                    case std.bytes.BytesError.Allocation(cause):
-                        return Err(StreamError.Allocation(cause))
-                    case _:
-                        return Err(StreamError.OutOfRange)
+            case Err(cause):
+                return Err(StreamError.Allocation(cause))
             case Ok(_):
                 pass
         self.room -= count
@@ -60,7 +52,7 @@ pub class Sink:
         else:
             Ok(())
 
-def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, std.xml.XmlError | std.bytes.BytesError]:
+def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, AllocError | std.xml.XmlError]:
     mut reader = std.xml.reader(Trickle(std.bytes.from_text(&text)?, 0, step, 1), bounds)?
     mut count = 0
     while True:
@@ -79,7 +71,7 @@ def fault(text: str, bounds: &Limits) -> Fault:
             match error:
                 case cause: std.xml.XmlError:
                     cause.fault
-                case bytes_error: std.bytes.BytesError:
+                case _:
                     Fault.InvalidState
 "#;
 

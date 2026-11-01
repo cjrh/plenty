@@ -12,7 +12,7 @@ A server echoes one connection. It also starts a client as its own child,
 under a different tag, which dials it, sends a request and prints the reply:
 
 ```plenty
-from std.actor import Address, Context, Mail, StartError, TimerError, heaps_live, stage
+from std.actor import Address, Context, Mail, StartError, TimerError, heaps_live, StageError, stage
 from std.actor.net import Admission, Connection, Dialing, Limits, Listener, connection, dial, listener
 from std.bytes import BytesError
 from std.net import NetError, SocketAddress, listen, loopback_v4
@@ -125,7 +125,7 @@ pub enum Node:
             case _:
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError]:
     socket = listen(&loopback_v4(0u16), 16)?
     limits = Limits(4096, 4096, seconds(30), seconds(30))
     server = listener(socket, limits, 100, 65536, connection_tag, Admission.Refuse)?

@@ -21,6 +21,13 @@ from std.bytes import Bytes, BytesError
 from std.http import Framing, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.time import Deadline, Duration, seconds
 
+def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(BytesError.Allocation(cause))
+
 pub enum ServerError:
     InvalidConfig
     AdmissionStopped
@@ -172,7 +179,7 @@ pub class Response:
 
     # A short result is back-pressure. Keep the remainder and resume on
     # Writable; this never waits for a socket and never exceeds the queue.
-    def _write(self: &mut Response, source: &[u8]) -> Result[i64, HttpError | BytesError]:
+    def _write(self: &mut Response, source: &[u8]) -> Result[i64, AllocError | HttpError | BytesError]:
         if self._state < 1 or self._state > 3:
             return Err(HttpError.Broken)
         if self._state == 1 and len(source) > self._remaining and not self._head:
@@ -195,7 +202,7 @@ pub class Response:
             self._remaining -= count
         Ok(count)
 
-    def _finish(self: &mut Response) -> Result[(), HttpError | BytesError]:
+    def _finish(self: &mut Response) -> Result[(), AllocError | HttpError | BytesError]:
         if self._state < 1 or self._state > 3:
             return Err(HttpError.Broken)
         if self._state == 1 and self._remaining != 0 and not self._head:
@@ -234,8 +241,8 @@ pub class Response:
 
     def compact(self: &mut Response) -> Result[(), BytesError]:
         if self._start > 0:
-            self._output.copy_within(self._start, self._output.len(), 0)?
-            self._output.truncate(self.pending())?
+            self._output.copy_within(self._start, self._output.len(), 0)
+            self._output.truncate(self.pending())
             self._start = 0
         Ok(())
 
@@ -261,7 +268,7 @@ pub def config() -> Config:
     Config(256, 4194304, 4096, 4096, 65536, std.http.limits(), seconds(5u32), seconds(10u32), seconds(30u32), seconds(10u32), seconds(60u32), seconds(10u32), seconds(5u32), 1000)
 
 def response(limit: i64) -> Result[Response, BytesError]:
-    Ok(Response(std.bytes.with_capacity(limit)?, 0, limit, 0, 0, False, 1, True, False, False, False))
+    Ok(Response(bytes_error_allocated(std.bytes.with_capacity(limit))?, 0, limit, 0, 0, False, 1, True, False, False, False))
 
 # The same driver uses TCP or TLS. Both transports advance only on available
 # bytes and return back-pressure rather than waiting.
@@ -1035,7 +1042,7 @@ pub def serve_tls_events[F: Callable[[], Result[H, FE]], H: Handler[M, HE], M, F
     create = StreamingFactory[F, H, FE](factory)
     network(run[StreamingFactory[F, H, FE], H, M](listener, create, Some(tls), config, stop))
 
-def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StartError | RangeError]:
+def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StageError | std.actor.StartError | RangeError]:
     if config.capacity < 1 or config.capacity > 1000 or config.heap_limit < 262144 or config.heap_limit > std.actor.max_heap_limit:
         return Err(ServerError.InvalidConfig)
     if config.input_buffer < 64 or config.output_buffer < 64 or config.pending_output < 512 or config.max_requests < 1:
@@ -1111,7 +1118,7 @@ def application[T, E](result: Result[T, E]) -> Result[T, ServerError]:
         case Err(_):
             Err(ServerError.Handler)
 
-def server_error(error: AllocError | BytesError | HttpError | NetError | TlsError | TimerError | WaitError | std.actor.StartError | RangeError | ServerError) -> ServerError:
+def server_error(error: AllocError | BytesError | HttpError | NetError | TlsError | TimerError | WaitError | std.actor.StageError | std.actor.StartError | RangeError | ServerError) -> ServerError:
     match error:
         case cause: AllocError:
             ServerError.Allocation(cause)
@@ -1127,6 +1134,12 @@ def server_error(error: AllocError | BytesError | HttpError | NetError | TlsErro
             ServerError.Timer(cause)
         case cause: WaitError:
             ServerError.Wait(cause)
+        case failure: std.actor.StageError:
+            match failure:
+                case std.actor.StageError.Allocation(cause):
+                    ServerError.Allocation(cause)
+                case std.actor.StageError.Wait(cause):
+                    ServerError.Wait(cause)
         case cause: std.actor.StartError:
             ServerError.Actor(cause)
         case cause: RangeError:

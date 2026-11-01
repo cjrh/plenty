@@ -4,6 +4,13 @@ import std.bytes
 import std.io
 from std.io import StreamError
 
+def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(StreamError.Allocation(cause))
+
 # Interruption is a retry signal; every other transport cause stays intact.
 # Err reports no progress from that attempt. A short successful read/write must
 # return Ok(count) before a later attempt can report failure. Reader Ok(0) is EOF.
@@ -113,28 +120,16 @@ pub class BufReader[E, R]:
         mut count = stop - start
         if count > self.stop - self.start:
             count = self.stop - self.start
-        if buffer.overwrite(start, &self.buffer[self.start:self.start + count]).is_err():
-            return Err(StepError[ReadFailure[E]].Source(ReadFailure[E].OutOfRange))
+        buffer.overwrite(start, &self.buffer[self.start:self.start + count])
         self.start += count
         Ok(count)
 
 pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    mut buffer = match std.bytes.with_capacity(capacity):
-        case Ok(value):
-            value
-        case Err(std.bytes.BytesError.Allocation(cause)):
-            return Err(StreamError.Allocation(cause))
-        case Err(_):
-            return Err(StreamError.OutOfRange)
-    match buffer.resize(capacity, 0u8):
-        case Ok(_):
-            Ok(BufReader[E, R](inner, buffer, 0, 0))
-        case Err(std.bytes.BytesError.Allocation(cause)):
-            Err(StreamError.Allocation(cause))
-        case Err(_):
-            Err(StreamError.OutOfRange)
+    mut buffer = stream_error_allocated(std.bytes.with_capacity(capacity))?
+    stream_error_allocated(buffer.resize(capacity, 0u8))?
+    Ok(BufReader[E, R](inner, buffer, 0, 0))
 
 pub enum WriteFailure[E]:
     Source(E)

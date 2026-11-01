@@ -61,15 +61,13 @@ pub class Tally:
         match self.data.extend(source):
             case Ok(_):
                 Ok(len(source))
-            case Err(std.bytes.BytesError.Allocation(cause)):
+            case Err(cause):
                 Err(StreamError.Allocation(cause))
-            case Err(_):
-                Err(StreamError.OutOfRange)
 
     pub def flush(self: &mut Tally) -> Result[(), StreamError]:
         Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | std.io.Partial | IoError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | std.io.Partial | IoError]:
     mut tally = Tally(std.bytes.empty()?)
     std.io.write_all(&mut tally, b"ab")?
     tail = std.bytes.from_text("cdef")?

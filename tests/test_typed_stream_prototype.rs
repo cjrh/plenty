@@ -28,7 +28,7 @@ pub class Source:
                 count = 2
             mut at = start
             while at < start + count:
-                buffer.set(at, 65u8).unwrap()
+                buffer.set(at, 65u8)
                 at += 1
             return Ok(count)
         if self.mode == 1:
@@ -132,8 +132,8 @@ import std.io.typed
 from std.http.typed import close_body
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | StepError[FramingError[std.io.StreamError]] | FramingError[std.io.StreamError] | CopyFailure[FramingError[std.io.StreamError], std.io.StreamError]]:
     mut data = scratch()?
-    data.set(0, 65u8)?
-    data.set(1, 66u8)?
+    data.set(0, 65u8)
+    data.set(1, 66u8)
     mut buffer = scratch()?
     mut fixed = fixed_body(std.io.typed.reader(std.io.cursor(data)), 2)?
     mut destination = std.io.typed.writer(std.io.cursor(std.bytes.with_capacity(4)?))
@@ -148,8 +148,8 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.St
     mut output_cursor = std.io.typed.unwrap_writer(output)
     output_cursor.seek(std.io.SeekFrom.Start(0))?
     print(output_cursor.read(&mut buffer, 0, 4)?)?
-    print(buffer.get(0).unwrap())?
-    print(buffer.get(1).unwrap())?
+    print(buffer.get(0))?
+    print(buffer.get(1))?
     Ok(())
 "#,
         "2\n2\n2\n0\n2\n65\n66\n",
@@ -258,10 +258,10 @@ pub class Wire:
         code = self.data[self.position]
         if code == 64u8:
             print("overread").unwrap()
-        buffer.set(start, code).unwrap()
+        buffer.set(start, code)
         self.position += 1
         Ok(1)
-def wire(text: str) -> Result[Wire, std.bytes.BytesError]:
+def wire(text: str) -> Result[Wire, AllocError | std.bytes.BytesError]:
     Ok(Wire(std.bytes.from_text(text)?, 0, False, -1, 0))
 def reason(error: FramingError[Transport]) -> str:
     match error:

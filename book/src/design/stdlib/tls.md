@@ -28,7 +28,7 @@ const CA_PEM: str = "-----BEGIN CERTIFICATE-----\nMIIBmjCCAT+gAwIBAgIULOQ2Qxr8CV
 const LEAF_PEM: str = "-----BEGIN CERTIFICATE-----\nMIIBnDCCAUKgAwIBAgIBATAKBggqhkjOPQQDAjAZMRcwFQYDVQQDDA5QbGVudHkg\nVGVzdCBDQTAgFw0yNDAxMDEwMDAwMDBaGA8yMTI0MDEwMTAwMDAwMFowFDESMBAG\nA1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8THNQeTi\nJ6Eq0tSxtHW5Q4TCsbIqB3MOtM98ERyKgl6kHeHCeDZYKx8B+VRGT2jkWuTeN24Q\nljwUfh7uh7Iaz6N+MHwwGgYDVR0RBBMwEYIJbG9jYWxob3N0hwR/AAABMAkGA1Ud\nEwQCMAAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHQYDVR0OBBYEFEIFC2Fyd4cfAKTx\nMiNCMdDkqDNbMB8GA1UdIwQYMBaAFOTFBDgWXHj/qmVJDMlAHYCEZFX5MAoGCCqG\nSM49BAMCA0gAMEUCIAUF3HH43lnirgSN1Vr4twZrFmXKBxlbYNQni/h4ZaxhAiEA\n5rD/yE1B4IsbEGCMlyAeX507leXfGY9+wrHaxikU/w0=\n-----END CERTIFICATE-----\n"
 const LEAF_KEY: str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQglvSEE3H7v+mInxSF\nAyWFDKYpzpXr20wH8mfFY3bCaB2hRANCAATxMc1B5OInoSrS1LG0dblDhMKxsioH\ncw60z3wRHIqCXqQd4cJ4NlgrHwH5VEZPaORa5N43bhCWPBR+Hu6HshrP\n-----END PRIVATE KEY-----\n"
 
-def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError | NetError | std.bytes.BytesError]:
+def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), AllocError | TlsError | NetError | std.bytes.BytesError]:
     mut stream = std.tls.accept(listener.accept(deadline, cancel)?, config, deadline, cancel)?
     reply = std.bytes.from_text("hello over TLS")?
     stream.write_all_before(&reply, deadline, cancel)?

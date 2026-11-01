@@ -257,6 +257,17 @@ pub(crate) extern "C" fn plenty_trap_unwrap(site: *const crate::Site, option: u6
         format_args!("unwrap on {variant}"),
     )
 }
+/// std's `__trap(message)`: an argument outside the domain that the
+/// operation's type cannot express.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_trap_message(
+    text: *const Text,
+    site: *const crate::Site,
+) -> ! {
+    // SAFETY: the compiler passes a live counted string literal.
+    let message = String::from_utf8_lossy(unsafe { strings::bytes(&text) });
+    crate::fail_at(site, format_args!("{message}"))
+}
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_shift(site: *const crate::Site) -> ! {
     crate::fail_kind_at(

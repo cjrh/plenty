@@ -36,7 +36,7 @@ pub class Script:
         mut count = stop - start
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -69,7 +69,7 @@ pub class App:
                         exchange.send_text(401, "unsigned")?
         Ok(())
 
-pub def key(fill: u8) -> Result[Bytes, std.bytes.BytesError]:
+pub def key(fill: u8) -> Result[Bytes, AllocError | std.bytes.BytesError]:
     mut data = std.bytes.empty()?
     data.resize(32, fill)?
     Ok(data)
@@ -460,7 +460,7 @@ pub class Script:
             count = 7
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count]).unwrap()
+        buffer.overwrite(start, &self.input[self.at:self.at + count])
         self.at += count
         Ok(count)
 
@@ -483,7 +483,7 @@ pub class Upload:
     pub refused: CancellationToken
     pub wrong: CancellationToken
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.bytes.BytesError | HttpError | StreamError | std.test.TestError | IoError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), AllocError | std.bytes.BytesError | HttpError | StreamError | std.test.TestError | IoError]:
         if self.files:
             std.test.fail_files_after(self.budget, 28i32)?
         else:
@@ -656,7 +656,7 @@ def ask(port: u16, request: &str, marker: &str) -> str:
         at = out.len()
         out.resize(at + 64, 0u8).unwrap()
         count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
-        out.truncate(at + count).unwrap()
+        out.truncate(at + count)
     out.to_text().unwrap().replace("\r\n", "|").unwrap()
 
 def client(port: u16, cookie: str, stop: CancellationToken) -> ():

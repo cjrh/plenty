@@ -59,10 +59,10 @@ pub class Proxies:
     # address. Host bits below the prefix are InvalidNetwork, so a typo
     # such as `10.0.0.1/8` does not trust more than was meant.
     pub def trust(self: &mut Proxies, network: &str) -> Result[(), ProxyError]:
-        source = lifted(std.bytes.from_text(network))?
+        source = allocated(std.bytes.from_text(network))?
         count = source.len()
         mut slash = count
-        match lifted(source.find(47u8, 0, count))?:
+        match source.find(47u8, 0, count):
             case Some(found):
                 slash = found
             case Nothing:
@@ -178,7 +178,7 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
     mut start = 0
     mut stop = count
     if count > 0 and node[0] == 91u8:
-        close = match lifted(node.find(93u8, 1, count))?:
+        close = match node.find(93u8, 1, count):
             case Some(found):
                 found
             case Nothing:
@@ -188,9 +188,9 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
         start = 1
         stop = close
     else:
-        match lifted(node.find(58u8, 0, count))?:
+        match node.find(58u8, 0, count):
             case Some(first):
-                match lifted(node.find(58u8, first + 1, count))?:
+                match node.find(58u8, first + 1, count):
                     case Some(_):
                         pass
                     case Nothing:
@@ -210,12 +210,12 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
     for index in range(len(headers)):
         if not std.http.same_name(&headers[index].name, name):
             continue
-        data = lifted(std.bytes.from_text(&headers[index].value))?
+        data = allocated(std.bytes.from_text(&headers[index].value))?
         count = data.len()
         mut at = 0
         while at <= count:
             mut stop = count
-            match lifted(data.find(44u8, at, count))?:
+            match data.find(44u8, at, count):
                 case Some(found):
                     stop = found
                 case Nothing:
@@ -229,7 +229,7 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
             if last > first:
                 if len(out) >= limit:
                     return Err(ProxyError.TooManyHops)
-                allocated(out.append(lifted(data.slice(first, last))?))?
+                allocated(out.append(allocated(data.slice(first, last))?))?
             at = stop + 1
     Ok(out)
 
@@ -259,7 +259,7 @@ def x_forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyEr
 # A missing `for` leaves the node empty, which `node_ip` rejects.
 def element(data: &Bytes) -> Result[Hop, ProxyError]:
     count = data.len()
-    mut node = lifted(std.bytes.empty())?
+    mut node = allocated(std.bytes.empty())?
     mut proto: Option[str] = Nothing
     mut at = 0
     while at < count:
@@ -278,7 +278,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             case Err(cause):
                 return Err(ProxyError.Allocation(cause))
         at += 1
-        mut value = lifted(std.bytes.empty())?
+        mut value = allocated(std.bytes.empty())?
         if at < count and data[at] == 34u8:
             at += 1
             mut closed = False
@@ -291,7 +291,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
                     at += 1
                     if at == count:
                         return Err(ProxyError.InvalidForwarded)
-                lifted(value.push(data[at]))?
+                allocated(value.push(data[at]))?
                 at += 1
             if not closed:
                 return Err(ProxyError.InvalidForwarded)
@@ -299,7 +299,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
             first = at
             while at < count and data[at] != 59u8 and not is_blank(data[at]):
                 at += 1
-            lifted(value.extend(&data[first:at]))?
+            allocated(value.extend(&data[first:at]))?
         if name == "for":
             node = value
         elif name == "proto":
@@ -312,7 +312,7 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
     for index in range(len(headers)):
         if not std.http.same_name(&headers[index].name, "forwarded"):
             continue
-        data = lifted(std.bytes.from_text(&headers[index].value))?
+        data = allocated(std.bytes.from_text(&headers[index].value))?
         count = data.len()
         mut start = 0
         mut quoted = False
@@ -324,7 +324,7 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
             if at < count and data[at] == 34u8:
                 quoted = not quoted
             if at == count or (data[at] == 44u8 and not quoted):
-                piece = lifted(data.slice(start, at))?
+                piece = allocated(data.slice(start, at))?
                 mut blank = True
                 for position in range(piece.len()):
                     if not is_blank(piece[position]):

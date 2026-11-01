@@ -58,15 +58,19 @@ Methods that draw take `self: &mut Rng`.
 | `next_f64()` | `f64` | A multiple of 2^-53 in `[0, 1)` |
 | `below(bound: u64)` | `Result[u64, RandomError]` | Uniform in `[0, bound)`; zero is `EmptyRange` |
 | `between(low: i64, high: i64)` | `Result[i64, RandomError]` | Uniform in `[low, high)`; `low >= high` is `EmptyRange` |
-| `index(count: i64)` | `Result[i64, RandomError]` | Uniform index into `count` elements; zero is `EmptyRange`, negative `OutOfRange` |
+| `index(count: i64)` | `Result[i64, RandomError]` | Uniform index into `count` elements; zero is `EmptyRange`, negative traps |
 | `shuffle[T](items: &mut list[T])` | `()` | Uniform permutation in place |
-| `sample_indices(count: i64, amount: i64)` | `Result[list[i64], RandomError]` | `amount` distinct indices below `count`, in selection order |
-| `fill(target: &mut Bytes, start: i64, stop: i64)` | `Result[(), RandomError]` | Overwrite `target[start:stop]` |
+| `sample_indices(count: i64, amount: i64)` | `Result[list[i64], AllocError]` | `amount` distinct indices below `count`, in selection order; a negative `count` or `amount` outside `0..=count` traps |
+| `fill(target: &mut Bytes, start: i64, stop: i64)` | `()` | Overwrite `target[start:stop]` |
 | `state()` | `(u64, u64, u64, u64)` | The current state words; takes `&Rng` |
 
 Ranges are half-open and never clamp. `between` covers any ordered pair of
 `i64` bounds, including `i64.MIN` to `i64.MAX`. `fill` follows the
-[range rule](bytes.md#the-range-rule).
+[range rule](bytes.md#the-range-rule). An argument that no call could accept,
+such as a negative count, is a caller bug and
+[traps](../language/08-errors/02-allocation-and-traps.md#trap-reports) with a
+message naming the method; an empty range is `EmptyRange` because it can come
+from data, such as an empty list.
 
 `below`, `between`, and `index` are unbiased: values of a step that would make
 some results more likely are rejected and another step is drawn. A draw takes
@@ -76,8 +80,7 @@ fewer than two steps on average for every bound.
 any element type and never copies or drops an element. To pick `k` of `n`
 elements, call `sample_indices(n, k)` and index the collection.
 
-A rejected request (`EmptyRange`, `OutOfRange`, or a failed allocation) does
-not advance the generator. Lists of fewer than two elements and empty `fill`
+A rejected request (`EmptyRange` or a failed allocation) does not advance the generator. Lists of fewer than two elements and empty `fill`
 ranges also consume no steps.
 
 ## Algorithm and stability
@@ -108,17 +111,13 @@ A different algorithm would be a new constructor, not a change to `seeded`.
 ```text
 pub enum RandomError:
     EmptyRange
-    OutOfRange
     ZeroState
-    Allocation(AllocError)
 ```
 
 | Variant | Meaning |
 |---|---|
 | `EmptyRange` | The requested range holds no value |
-| `OutOfRange` | A negative count, `amount > count`, or a byte range outside the buffer |
 | `ZeroState` | `from_state` was given the all-zero state, which never advances |
-| `Allocation(cause)` | `sample_indices` could not allocate its list |
 
 ## Ownership and threads
 

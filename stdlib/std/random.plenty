@@ -6,9 +6,7 @@ from std.bytes import Bytes
 
 pub enum RandomError:
     EmptyRange
-    OutOfRange
     ZeroState
-    Allocation(AllocError)
 
 # SplitMix64 constants: the 64-bit golden-ratio increment and two mixers.
 const increment: u64 = 11400714819323198485
@@ -76,10 +74,11 @@ pub class Rng:
         offset = self.below(span)?
         Ok(i64.wrapping_from(u64.wrapping_from(low).wrapping_add(offset)))
 
-    # A uniform index into a collection of `count` elements.
+    # A uniform index into a collection of `count` elements. An empty
+    # collection has no index: EmptyRange.
     pub def index(self: &mut Rng, count: i64) -> Result[i64, RandomError]:
         if count < 0:
-            return Err(RandomError.OutOfRange)
+            __trap("Rng.index: count is negative")
         self.between(0, count)
 
     # Fisher-Yates over the whole list: every permutation is equally likely
@@ -97,24 +96,30 @@ pub class Rng:
 
     # `amount` distinct indices below `count`, in selection order. Allocates
     # one list of `count` indices; a failure consumes no generator steps.
-    pub def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], RandomError]:
-        if count < 0 or amount < 0 or amount > count:
-            return Err(RandomError.OutOfRange)
-        mut pool = reserved(count)?
+    pub def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], AllocError]:
+        if count < 0:
+            __trap("Rng.sample_indices: count is negative")
+        if amount < 0 or amount > count:
+            __trap("Rng.sample_indices: amount is outside 0..=count")
+        mut pool = list[i64].with_capacity(count)?
         for position in range(count):
-            grown(pool.append(position))?
+            pool.append(position)?
         for position in range(amount):
-            pick = position + i64(self.below(u64(count - position))?)
-            pool.swap(position, pick)
+            # count - position is positive, so the draw cannot fail.
+            match self.below(u64(count - position)):
+                case Ok(offset):
+                    pool.swap(position, position + i64(offset))
+                case Err(_):
+                    pass
         while len(pool) > amount:
             drop(pool.pop())
         Ok(pool)
 
     # Overwrites target[start:stop], eight bytes per step in little-endian
     # order; a final partial group uses the low bytes of one more step.
-    pub def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> Result[(), RandomError]:
+    pub def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> ():
         if start < 0 or start > stop or stop > target.len():
-            return Err(RandomError.OutOfRange)
+            __trap("Rng.fill: start..stop is outside 0..=target.len()")
         mut at = start
         while at < stop:
             mut word = self.next_u64()
@@ -122,29 +127,13 @@ pub class Rng:
             if group > 8:
                 group = 8
             for offset in range(group):
-                # The offset was validated above, so the store cannot fail.
-                drop(target.set(at + offset, u8(word & 255u64)))
+                target.set(at + offset, u8(word & 255u64))
                 word = word >> 8u64
             at += group
-        Ok(())
 
     # The four state words, for checkpointing with from_state.
     pub def state(self) -> (u64, u64, u64, u64):
         (self._a, self._b, self._c, self._d)
-
-def reserved(count: i64) -> Result[list[i64], RandomError]:
-    match list[i64].with_capacity(count):
-        case Ok(pool):
-            Ok(pool)
-        case Err(error):
-            Err(RandomError.Allocation(error))
-
-def grown(result: Result[(), AllocError]) -> Result[(), RandomError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(error):
-            Err(RandomError.Allocation(error))
 
 # Expands one word into the full state with SplitMix64, so every seed,
 # including zero, gives a valid and well-mixed generator.

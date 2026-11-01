@@ -51,7 +51,7 @@ import std.bytes
 import std.compress
 from std.compress import Format
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.compress.CompressError]:
+def main() -> Result[(), IoError | AllocError | std.bytes.BytesError | std.compress.CompressError]:
     source = std.bytes.from_text("a small Brotli message")?
     packed = std.compress.compress(Format.Brotli, &source, 5)?
     restored = std.compress.decompress(Format.Brotli, &packed, 1024)?
@@ -83,7 +83,7 @@ from std.compress import Format
 
 type CompressedStreamError = std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError
 
-def main() -> Result[(), IoError | CompressedStreamError]:
+def main() -> Result[(), IoError | AllocError | CompressedStreamError]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):
@@ -99,7 +99,7 @@ def main() -> Result[(), IoError | CompressedStreamError]:
         count = reader.read(&mut buffer, 0, 4096)?
         if count == 0:
             break
-        lines += buffer.count(10u8, 0, count)?
+        lines += buffer.count(10u8, 0, count)
     print(lines)?
     Ok(())
 ```
@@ -129,7 +129,7 @@ def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std
     data = std.bytes.from_text("checked at the end")?
     mut packed = std.compress.compress(Format.Gzip, &data, 6)?
     last = packed.len() - 1
-    packed.set(last, packed.get(last)? + 1u8)?
+    packed.set(last, packed.get(last) + 1u8)
     print(str.repr(std.compress.decompress(Format.Gzip, &packed, 100))?)?
     mut reader = std.compress.decompressor(Format.Gzip, std.io.cursor(packed), 100)?
     mut out = std.bytes.empty()?

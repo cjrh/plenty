@@ -7,6 +7,13 @@ from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.path import Path, from_bytes
 
+def io_error_allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(IoError.Data(DataError.Allocation(cause)))
+
 pub enum FileInputError:
     Open(Option[Path], StreamError)
     Read(Option[Path], StreamError)
@@ -63,7 +70,7 @@ pub def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]:
                     value
                 case Err(error):
                     drop(reader)
-                    yield Err(FileInputError.Text(path, error))
+                    yield Err(FileInputError.Text(path, BytesError.Allocation(error)))
                     return
             match reader.read_line(&mut buffer):
                 case Ok(count):
@@ -89,12 +96,14 @@ pub def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]:
                 return
 
 # Raw argv[1:], not an option parser. Applications with flags use files().
-pub def lines() -> Result[Generator[Result[str, FileInputError]], IoError | AllocError]:
-    mut paths: list[Path] = []?
+# Allocation failure is `IoError.Data(DataError.Allocation(...))`, as for
+# `print`.
+pub def lines() -> Result[Generator[Result[str, FileInputError]], IoError]:
+    mut paths = io_error_allocated(list[Path]())?
     mut first = True
     for native in args_bytes()?:
         if first:
             first = False
         else:
-            paths.append(from_bytes(native))?
+            io_error_allocated(paths.append(from_bytes(native)))?
     Ok(files(paths))

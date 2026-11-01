@@ -24,7 +24,7 @@ pub class Entropy:
             return Err(StreamError.Io(IoError.System(5)))
         count = stop - start
         for index in range(count):
-            drop(buffer.set(start + index, self.data[self.at + index]))
+            buffer.set(start + index, self.data[self.at + index])
         self.at += count
         Ok(count)
 
@@ -193,7 +193,7 @@ for offset in [-1, 3, i64.MAX]?:
             print("unexpected success")?
         case Err(error):
             print(error)?
-print(target.count(90u8, 0, 18)?)?
+print(target.count(90u8, 0, 18))?
 id.write_bytes(&mut target, 1)?
 print(target.to_list()?)?
 "#,

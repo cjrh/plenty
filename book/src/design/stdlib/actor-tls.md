@@ -13,7 +13,7 @@ A server echoes one TLS connection, and a client actor dials it, sends a
 request once the handshake completes and prints the reply:
 
 ```plenty
-from std.actor import Address, Context, Mail, TimerError, heaps_live, stage
+from std.actor import Address, Context, Mail, TimerError, heaps_live, StageError, stage
 from std.actor.net import Admission, Dialing, Limits, Listener, connection, dial, listener
 from std.actor.tls import TlsConnection, client, server
 from std.bytes import BytesError
@@ -134,7 +134,7 @@ pub enum Node:
             case _:
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError | TlsError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TlsError]:
     socket = listen(&loopback_v4(0u16), 16)?
     address = socket.local_address()?
     limits = Limits(4096, 4096, seconds(30), seconds(30))

@@ -14,6 +14,13 @@ from std.random import Rng
 from std.sync import CancellationToken
 from std.time import Duration, Instant, instant_at
 
+def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(StreamError.Allocation(cause))
+
 pub enum TestError:
     # The explanation is already on standard error.
     Assertion
@@ -314,14 +321,14 @@ pub class FakeStream:
             count = left
         if count <= 0:
             return Ok(0)
-        stream_bytes(buffer.overwrite(start, &self.input[self._read:self._read + count]))?
+        buffer.overwrite(start, &self.input[self._read:self._read + count])
         self._read += count
         Ok(count)
 
     pub def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]:
         self.begin()?
         count = self.allowed(len(source))
-        stream_bytes(self.output.extend(&source[:count]))?
+        stream_error_allocated(self.output.extend(&source[:count]))?
         Ok(count)
 
     pub def flush(self: &mut FakeStream) -> Result[(), StreamError]:
@@ -342,5 +349,5 @@ def stream_bytes(result: Result[(), BytesError]) -> Result[(), StreamError]:
             Err(StreamError.OutOfRange)
 
 # Reads return `input`; nothing is limited or failing until asked.
-pub def fake_stream(input: Bytes) -> Result[FakeStream, BytesError]:
+pub def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]:
     Ok(FakeStream(input, std.bytes.empty()?, 0, 0, 0, -1, Nothing))

@@ -104,11 +104,19 @@ thread the report has no position.
 | A range longer than `i64` | `range length exceeds i64` |
 | Empty `split` separator held in a variable; a literal `""` is a compile error | `string split requires a nonempty separator` |
 | `.par(&pool, chunks=n)` with `n < 1` | `par chunks must be positive, got chunks=N` |
+| A standard-library argument outside its domain, such as a `Bytes` range past the length | The operation and argument, such as `Bytes.get: index is outside 0..len()` |
 
 A bounds report prints the index as written, before a negative index counts
 from the end. A missing dictionary key is not printed.
 [Slices](../04-expressions/slices.md) never trap on their bounds: out-of-range
 bounds clamp as in Python.
+
+Standard-library code raises the last kind with the statement
+`__trap("message")`, whose argument is a string literal. It reports the
+position of the statement in the std file, with the caller note, and never
+returns, so it can end a branch of a function that returns a value. Code
+outside the standard library is rejected with `` `__trap` is reserved for the
+standard library ``.
 
 [Stack overflow](../../toolchain/02-architecture/runtime.md) is reported
 separately and has no position. [Trap sites](../../toolchain/02-architecture/runtime.md)

@@ -176,13 +176,13 @@ def hex_value(value: i64) -> i64:
     -1
 
 def lowered(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
-    mut out = lifted(std.bytes.with_capacity(stop - start))?
+    mut out = allocated(std.bytes.with_capacity(stop - start))?
     for index in range(start, stop):
         value = code(data, index)
         if value >= 65 and value <= 90:
-            lifted(out.push(u8(value + 32)))?
+            allocated(out.push(u8(value + 32)))?
         else:
-            lifted(out.push(data[index]))?
+            allocated(out.push(data[index]))?
     lifted(out.to_text())
 
 def skip_blanks(data: &[u8], start: i64) -> i64:
@@ -203,7 +203,7 @@ class Parameters:
     pairs: list[Pair]
 
 def parameters(value: &str) -> Result[Parameters, BodyError]:
-    data = lifted(std.bytes.from_text(value))?
+    data = allocated(std.bytes.from_text(value))?
     count = data.len()
     mut at = token_end(&data, 0, count)
     if at == 0:
@@ -233,11 +233,11 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
         mut text = ""
         if at < count and code(&data, at) == 34:
             at += 1
-            mut out = lifted(std.bytes.empty())?
+            mut out = allocated(std.bytes.empty())?
             mut closed = False
             while at < count:
                 run = quoted_end(&data, at, count)
-                lifted(out.extend(&data[at:run]))?
+                allocated(out.extend(&data[at:run]))?
                 at = run
                 if at == count:
                     break
@@ -251,7 +251,7 @@ def parameters(value: &str) -> Result[Parameters, BodyError]:
                 at += 1
                 if at == count or control(code(&data, at)):
                     return Err(BodyError.Malformed)
-                lifted(out.push(data[at]))?
+                allocated(out.push(data[at]))?
                 at += 1
             if not closed:
                 return Err(BodyError.Malformed)
@@ -311,14 +311,14 @@ def declared_within(headers: &list[Header], limit: i64) -> Result[(), BodyError]
 # Reads the whole request body, failing with TooLarge past `limit` bytes.
 def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Bytes, BodyError]:
     declared_within(&exchange.request.headers, limit)?
-    mut out = lifted(std.bytes.empty())?
-    mut chunk = lifted(std.bytes.empty())?
-    lifted(chunk.resize(4096, 0u8))?
+    mut out = allocated(std.bytes.empty())?
+    mut chunk = allocated(std.bytes.empty())?
+    allocated(chunk.resize(4096, 0u8))?
     mut count = http(exchange.read_body(&mut chunk, 0, 4096))?
     while count > 0:
         if out.len() + count > limit:
             return Err(BodyError.TooLarge)
-        lifted(out.extend(&chunk[:count]))?
+        allocated(out.extend(&chunk[:count]))?
         count = http(exchange.read_body(&mut chunk, 0, 4096))?
     Ok(out)
 
@@ -338,12 +338,12 @@ def checked_form(limits: &FormLimits) -> Result[(), BodyError]:
 
 # `+` is a space and `%hh` a byte; the result must be UTF-8.
 def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
-    mut out = lifted(std.bytes.with_capacity(stop - start))?
+    mut out = allocated(std.bytes.with_capacity(stop - start))?
     mut at = start
     while at < stop:
         value = code(source, at)
         if value == 43:
-            lifted(out.push(32u8))?
+            allocated(out.push(32u8))?
             at += 1
         elif value == 37:
             if at + 2 >= stop:
@@ -352,10 +352,10 @@ def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]
             low = hex_value(code(source, at + 2))
             if high < 0 or low < 0:
                 return Err(BodyError.Malformed)
-            lifted(out.push(u8(high * 16 + low)))?
+            allocated(out.push(u8(high * 16 + low)))?
             at += 3
         else:
-            lifted(out.push(source[at]))?
+            allocated(out.push(source[at]))?
             at += 1
     lifted(out.to_text())
 
@@ -398,7 +398,7 @@ pub def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], B
     checked_form(limits)?
     if text.byte_len() > limits.max_bytes:
         return Err(BodyError.TooLarge)
-    source = lifted(std.bytes.from_text(text))?
+    source = allocated(std.bytes.from_text(text))?
     parse_form(&source, limits)
 
 # The index of the first pair named `key`.
@@ -487,7 +487,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     if window.ended:
         return Ok(False)
     if window.at >= 16384:
-        rest = lifted(window.data.slice(window.at, window.data.len()))?
+        rest = allocated(window.data.slice(window.at, window.data.len()))?
         window.data = rest
         window.at = 0
     size = window.chunk.len()
@@ -498,7 +498,7 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     window.total += count
     if window.total > window.limit:
         return Err(BodyError.TooLarge)
-    lifted(window.data.extend(&window.chunk[:count]))?
+    allocated(window.data.extend(&window.chunk[:count]))?
     Ok(True)
 
 # Reads until `count` unexamined bytes are held; False if the body ends first.
@@ -597,7 +597,7 @@ def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: 
         case Nothing:
             if total > limits.max_field:
                 return Err(BodyError.TooLarge)
-            lifted(text.extend(&data[start:stop]))?
+            allocated(text.extend(&data[start:stop]))?
             Ok(total)
 
 def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:
@@ -623,16 +623,16 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
     if not valid_boundary(boundary):
         return Err(BodyError.Malformed)
     declared_within(&exchange.request.headers, limits.max_body)?
-    delimiter = lifted(std.bytes.from_text(&allocated("\r\n--".concat(boundary))?))?
+    delimiter = allocated(std.bytes.from_text(&allocated("\r\n--".concat(boundary))?))?
     width = delimiter.len()
-    blank_line = lifted(std.bytes.from_text("\r\n\r\n"))?
-    mut chunk = lifted(std.bytes.empty())?
-    lifted(chunk.resize(16384, 0u8))?
-    mut window = Window(lifted(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body)
+    blank_line = allocated(std.bytes.from_text("\r\n\r\n"))?
+    mut chunk = allocated(std.bytes.empty())?
+    allocated(chunk.resize(16384, 0u8))?
+    mut window = Window(allocated(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body)
     mut parts = allocated(list[Part].new())?
     # The preamble before the first delimiter is discarded.
     while True:
-        match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+        match window.data.find_bytes(&delimiter, window.at, window.data.len()):
             case Some(found):
                 window.at = found + width
                 break
@@ -668,7 +668,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
         # window, so positions are taken only after the search ends.
         mut head_end = -1
         while head_end < 0:
-            match lifted(window.data.find_bytes(&blank_line, window.at, window.data.len()))?:
+            match window.data.find_bytes(&blank_line, window.at, window.data.len()):
                 case Some(found):
                     head_end = found
                 case Nothing:
@@ -688,12 +688,12 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
         mut file: Option[TempFile] = Nothing
         if head.filename.is_some():
             file = Some(stored(std.fs.temporary_file(storage))?)
-        mut text = lifted(std.bytes.empty())?
+        mut text = allocated(std.bytes.empty())?
         mut size = 0
         # The content runs to the next delimiter. Bytes that could begin one
         # are held back until more of the body arrives.
         while True:
-            match lifted(window.data.find_bytes(&delimiter, window.at, window.data.len()))?:
+            match window.data.find_bytes(&delimiter, window.at, window.data.len()):
                 case Some(found):
                     size = emit(&window.data, window.at, found, &mut file, &mut text, size, limits)?
                     window.at = found + width

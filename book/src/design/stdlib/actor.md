@@ -16,7 +16,7 @@ A boss starts two workers. One answers; the other has a bug and traps. The boss
 receives the answer and both exits:
 
 ```plenty
-from std.actor import Address, Context, Exit, Mail, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, heap_bytes_used, heaps_live, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
@@ -87,7 +87,7 @@ pub enum Node:
             case Node.Working(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     mut actors = stage[Node, Job, Fault](8, 4, 4)?
     root = Node.Leading(Boss(Nothing, 0))
     actors.start(root, 65536).unwrap()
@@ -203,7 +203,7 @@ continue to follow the configured restart policy.
 
 | Export | Contract |
 |---|---|
-| `stage[N, M, E](capacity, mailbox, events)` | `Result[Stage[N, M, E], AllocError \| WaitError]`: at most `capacity` live actors, `mailbox` messages per actor, `events` ready handles per wait. Allocates every slot table now |
+| `stage[N, M, E](capacity, mailbox, events)` | `Result[Stage[N, M, E], StageError]`: at most `capacity` live actors, `mailbox` messages per actor, `events` ready handles per wait. Allocates every slot table now |
 | `Stage.start(node, limit)` | `Result[Address, StartError]`: a root actor with a heap of `limit` bytes. Allocates its mailbox now |
 | `Stage.send(to, message)` | `Result[(), Undelivered[M]]` |
 | `Stage.stop_actor(to)` | `bool`: queues `Mail.Stop`; `False` when the actor has stopped or its mailbox is full |
@@ -229,7 +229,7 @@ continue to follow the configured restart policy.
 | `heaps_live()`, `heap_bytes_used()`, `heap_bytes_committed()` | Process totals over all actor heaps |
 | `max_heap_limit` | 64 MiB, the largest heap limit |
 | `max_spawns` | 16 spawn requests per handler |
-| `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `OutOfMemory` above it |
+| `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `StageError.Allocation(CapacityOverflow)` for a negative capacity or one above it |
 
 | Type | Values |
 |---|---|
@@ -244,6 +244,7 @@ continue to follow the configured restart policy.
 | `Exit[E]` | `Stopped`, `Failed(E)`, `Trapped(TrapKind)` |
 | `TrapKind` | `Memory`, `Index`, `Arithmetic`, `Unwrap`, `Other`; see [Traps](#traps) |
 | `Undelivered[M]` | `Full(M)`: the mailbox is full or the receiver's heap cannot hold the copy. `Gone(M)`: the receiver has stopped |
+| `StageError` | `Allocation(AllocError)` (slot tables, or a capacity that is negative or over `max_capacity`: `CapacityOverflow`), `Wait(WaitError)` (the readiness selector) |
 | `StartError` | `Unsupported`, `Capacity` (no free slot, or `max_spawns` reached), `Heaps` (1024 heaps live or the reservation failed), `Limit` (not in 1..`max_heap_limit`), `Mailbox` (its allocation failed) |
 | `Stats` | `started`, `stopped`, `failed`, `trapped`, `restarted`, `delivered`, `full` (refused sends, and readiness deferred by a full mailbox), `gone` (sends and readiness for stopped actors), `lost` (`Down` for a parent that had stopped) |
 
@@ -303,7 +304,7 @@ restart drops the old actor's mail; the retry reaches the restarted service,
 whose count starts again:
 
 ```plenty
-from std.actor import Address, Context, Mail, Reply, stage
+from std.actor import Address, Context, Mail, Reply, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now, seconds
@@ -373,7 +374,7 @@ pub enum Node:
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[Job, Fault]) -> Result[Option[Node], Fault]:
         Ok(Some(Node.Counting(0)))
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     mut actors = stage[Node, Job, Fault](2, 4, 1)?
     # Records for timers and pending requests.
     actors.add_timers(4)?
@@ -460,7 +461,7 @@ allocation, as `AllocError` where the program handles it. A handler that
 returns that error fails its actor:
 
 ```plenty
-from std.actor import Address, Context, Mail, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Mail, heap_bytes_used, heaps_live, StageError, stage
 from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
@@ -482,7 +483,7 @@ pub class Greedy:
     pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Greedy], Fault]:
         Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     mut actors = stage[Greedy, i64, Fault](1, 1, 1)?
     actors.start(Greedy(1000000), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &CancellationToken()?)?

@@ -273,16 +273,10 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | std.bytes.
     print(std.fmt.finish(&out)?)?
     mut bytes = std.bytes.with_capacity(40)?
     bytes.resize(40, 42u8)?
-    print(bytes.write_float(1.25)?, bytes.len(), bytes.get(39)?)?
-    bytes.truncate(31)?
-    match bytes.write_float(1.0):
-        case Ok(_):
-            print("unexpected")?
-        case Err(_):
-            print("short")?
+    print(bytes.write_float(1.25), bytes.len(), bytes.get(39))?
     Ok(())
 "#),
-        "inf -inf NaN 1.7976931348623157e308 5e-324\n6 40 42\nshort"
+        "inf -inf NaN 1.7976931348623157e308 5e-324\n6 40 42"
     );
 }
 
@@ -412,7 +406,7 @@ pub class Recovering:
         Ok(len(source))
     pub def flush(self: &mut Recovering) -> Result[(), StreamError]:
         Ok(())
-def main() -> Result[(), IoError | std.bytes.BytesError | FormatError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FormatError]:
     mut scratch = std.bytes.with_capacity(32)?
     scratch.resize(32, 0u8)?
     mut output = std.fmt.formatter(Recovering(0), scratch, 20, 0)?

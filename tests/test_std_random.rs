@@ -38,6 +38,27 @@ fn output(source: &str) -> String {
         .replace("std.random.Rng", "Rng")
 }
 
+/// B92 phase 3: each `call` after `setup` stops the program with `message`;
+/// a negative count or a range outside the target is a caller bug.
+fn traps(setup: &str, calls: &[(&str, &str)]) {
+    for (call, message) in calls {
+        let source = program(&format!("{setup}\n{call}\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        plenty::compile_file_to_executable(&path, &executable, None)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(": {message}\n")),
+            "{call}\n{stderr}"
+        );
+    }
+}
+
 fn native(body: &str, expected: &str) {
     assert_eq!(
         output(&program(body)),
@@ -258,8 +279,7 @@ fn ranges_are_half_open_and_reject_empty_bounds() {
     expected.push(
         "Result[i64, E].Err(E.EmptyRange)
 Result[i64, E].Err(E.EmptyRange)
-Result[i64, E].Err(E.EmptyRange)
-Result[i64, E].Err(E.OutOfRange)"
+Result[i64, E].Err(E.EmptyRange)"
             .into(),
     );
     expected.push(after.to_string());
@@ -276,11 +296,14 @@ for at in range(len(lows)):
 print(str.repr(rng.between(3, 3))?)?
 print(str.repr(rng.between(4, 3))?)?
 print(str.repr(rng.index(0))?)?
-print(str.repr(rng.index(-1))?)?
 # Rejected requests consume no steps.
 print(rng.next_u64())?
 "#,
         &expected.join("\n"),
+    );
+    traps(
+        "mut rng = std.random.seeded(5u64)",
+        &[("print(rng.index(-1)?)?", "Rng.index: count is negative")],
     );
 }
 
@@ -359,24 +382,28 @@ fn sampled_indices_are_distinct_and_bounded() {
     sorted.sort_unstable();
     assert_eq!(sorted, (0..6).collect::<Vec<_>>());
     let after = reference.next();
-    let failure = "Result[list[i64], E].Err(E.OutOfRange)";
-    let expected = format!(
-        "{}\n{}\n[] []\n{failure}\n{failure}\n{failure}\n{after}",
-        list(&picked),
-        list(&all)
-    );
+    let expected = format!("{}\n{}\n[] []\n{after}", list(&picked), list(&all));
     native(
         r#"
 mut rng = std.random.seeded(11u64)
 print(rng.sample_indices(10, 4)?)?
 print(rng.sample_indices(6, 6)?)?
 print(rng.sample_indices(5, 0)?, rng.sample_indices(0, 0)?)?
-print(str.repr(rng.sample_indices(3, 4))?)?
-print(str.repr(rng.sample_indices(-1, 0))?)?
-print(str.repr(rng.sample_indices(3, -1))?)?
 print(rng.next_u64())?
 "#,
         &expected,
+    );
+    let amount = "Rng.sample_indices: amount is outside 0..=count";
+    traps(
+        "mut rng = std.random.seeded(11u64)",
+        &[
+            ("print(rng.sample_indices(3, 4)?)?", amount),
+            (
+                "print(rng.sample_indices(-1, 0)?)?",
+                "Rng.sample_indices: count is negative",
+            ),
+            ("print(rng.sample_indices(3, -1)?)?", amount),
+        ],
     );
 }
 
@@ -388,30 +415,31 @@ fn fill_writes_little_endian_words_inside_the_range_only() {
     let mut ragged = [9u8; 16];
     reference.fill(&mut ragged[3..14]);
     let after = reference.next();
-    let failure = "Result[(), E].Err(E.OutOfRange)";
-    let expected = format!(
-        "{}\n{}\n{failure}\n{failure}\n{failure}\n{after}",
-        list(&whole),
-        list(&ragged)
-    );
+    let expected = format!("{}\n{}\n{after}", list(&whole), list(&ragged));
     native(
         r#"
 mut rng = std.random.seeded(77u64)
 mut whole = std.bytes.empty()?
 whole.resize(16, 0u8)?
-rng.fill(&mut whole, 0, 16)?
+rng.fill(&mut whole, 0, 16)
 print(whole.to_list()?)?
 mut ragged = std.bytes.empty()?
 ragged.resize(16, 9u8)?
-rng.fill(&mut ragged, 3, 14)?
-rng.fill(&mut ragged, 5, 5)?
+rng.fill(&mut ragged, 3, 14)
+rng.fill(&mut ragged, 5, 5)
 print(ragged.to_list()?)?
-print(str.repr(rng.fill(&mut ragged, -1, 4))?)?
-print(str.repr(rng.fill(&mut ragged, 5, 4))?)?
-print(str.repr(rng.fill(&mut ragged, 0, 17))?)?
 print(rng.next_u64())?
 "#,
         &expected,
+    );
+    let range = "Rng.fill: start..stop is outside 0..=target.len()";
+    traps(
+        "mut rng = std.random.seeded(77u64)\nmut ragged = std.bytes.empty()?\nragged.resize(16, 9u8)?",
+        &[
+            ("rng.fill(&mut ragged, -1, 4)", range),
+            ("rng.fill(&mut ragged, 5, 4)", range),
+            ("rng.fill(&mut ragged, 0, 17)", range),
+        ],
     );
 }
 
@@ -466,7 +494,7 @@ b = rng.below(10u64)?
 c = rng.between(-3, 3)?
 d = rng.next_f64()
 rng.shuffle(&mut items)
-rng.fill(&mut buffer, 0, 32)?
+rng.fill(&mut buffer, 0, 32)
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
 print(a > 0u64, b < 10u64, c < 3, d < 1.0, len(items))?
@@ -487,6 +515,6 @@ failed = rng.sample_indices(1000, 10)
 print("__test_restore_allocations__")?
 print(str.repr(failed)?, rng.next_u64() == twin.next_u64())?
 "#,
-        "Result[list[i64], E].Err(E.Allocation(AllocError.OutOfMemory)) True",
+        "Result[list[i64], AllocError].Err(AllocError.OutOfMemory) True",
     );
 }

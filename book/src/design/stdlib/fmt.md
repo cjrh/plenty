@@ -111,7 +111,7 @@ accept, such as a sign on text or a precision on an integer, returns
 
 Spec numbers are spelled in scratch at offset 8. A spelling longer than the
 scratch, such as a 64-digit binary integer or `1e300` with `f`, first grows the
-scratch fallibly (`Bytes(Allocation(...))`); preallocate scratch to keep
+scratch fallibly (`Allocation(...)`); preallocate scratch to keep
 formatting allocation-free. `represent(&value, &mut out)` writes the `str.repr`
 spelling of any value `str.repr` accepts, which allocates a temporary string.
 A `Bytes` buffer, `bytes` literal, or `&[u8]` view spells as a byte literal
@@ -132,8 +132,7 @@ An f-string builds its text as `Result[str, FormatError]` and converts the
 result at its site: `allocation_only(built)` gives `Result[str, AllocError]`
 when no field runs a user method or has a computed spec, and
 `allocation_or_format(built)` gives `Result[str, AllocError | FormatError]`
-otherwise. Both report `Bytes(Allocation(cause))` and
-`Output(Allocation(cause))` as `cause`. `allocation_only` traps on any other
+otherwise. Both report `Allocation(cause)` as `cause`. `allocation_only` traps on any other
 `FormatError`, which the compiler's choice rules out.
 
 f-strings check the values of a spec's nested fields with three functions, each
@@ -183,8 +182,8 @@ policed. A custom renderer can still loop or deliberately emit unbounded work.
 ## Errors and partial output
 
 `FormatError` has `InvalidSpec`, `LimitExceeded`, `RecursionLimit`,
-`Bytes(BytesError)`, `Output(StreamError)`, and `OutputClosed` variants.
-String, scratch and sink allocation failures are `Bytes(Allocation(...))`.
+`Allocation(AllocError)`, `Output(StreamError)`, and `OutputClosed` variants.
+String, scratch and sink allocation failures are `Allocation(...)`.
 Terminal stderr errors set `has_failed()`; later emissions on that formatter
 return `OutputClosed` without writing. Other destinations retain their writer's
 recovery policy: a writer error does not make the formatter sticky. Allocation

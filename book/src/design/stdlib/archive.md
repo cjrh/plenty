@@ -14,7 +14,7 @@ import std.bytes
 import std.io
 import std.path as path
 
-def main() -> Result[(), IoError | std.archive.ArchiveError | std.bytes.BytesError]:
+def main() -> Result[(), IoError | AllocError | std.archive.ArchiveError | std.bytes.BytesError]:
     mut writer = std.archive.tar_writer(std.io.cursor(std.bytes.empty()?))?
     writer.add_dir(&path.from_text("docs")?, 493, 1700000000)?
     readme = std.bytes.from_text("read me first")?

@@ -344,13 +344,13 @@ class BinaryValues:
         mut offsets = allocated([0 for _ in range(rows + 1)])?
         mut valid = allocated([0u8 for _ in range(rows)])?
         checked(binary_values_copy(self.raw, &mut data, &mut offsets, &mut valid))?
-        packed = buffered(buffers.from_list(data))?
+        packed = allocated(buffers.from_list(data))?
         mut result = allocated(list[Option[Bytes]]())?
         for i in range(rows):
             if valid[i] == 0u8:
                 allocated(result.append(Nothing))?
             else:
-                value = buffered(packed.slice(offsets[i], offsets[i + 1]))?
+                value = allocated(packed.slice(offsets[i], offsets[i + 1]))?
                 allocated(result.append(Some(value)))?
         Ok(result)
 
@@ -1304,7 +1304,7 @@ pub def lit_bool(value: bool) -> Result[Expr, DataFrameError]:
     Ok(out)
 
 pub def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]:
-    data = buffered(value.to_list())?
+    data = allocated(value.to_list())?
     mut out = Expr()
     checked(lit_binary_raw(data, &mut out.raw))?
     Ok(out)
@@ -1344,30 +1344,30 @@ pub def column_bool(name: &str, values: &list[bool]) -> Result[Column, DataFrame
     Ok(out)
 
 pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFrameError]:
-    mut packed = buffered(buffers.empty())?
+    mut packed = allocated(buffers.empty())?
     mut offsets = allocated([0])?
     for value in values:
-        buffered(packed.extend(value))?
+        allocated(packed.extend(value))?
         allocated(offsets.append(packed.len()))?
-    data = buffered(packed.to_list())?
+    data = allocated(packed.to_list())?
     valid = allocated([1u8 for _ in range(len(values))])?
     mut out = Column()
     checked(native_binary(name, data, offsets, valid, &mut out.raw))?
     Ok(out)
 
 pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]:
-    mut packed = buffered(buffers.empty())?
+    mut packed = allocated(buffers.empty())?
     mut offsets = allocated([0])?
     mut valid = allocated(list[u8]())?
     for value in values:
         match value:
             case Some(buffer):
-                buffered(packed.extend(buffer))?
+                allocated(packed.extend(buffer))?
                 allocated(valid.append(1u8))?
             case Nothing:
                 allocated(valid.append(0u8))?
         allocated(offsets.append(packed.len()))?
-    data = buffered(packed.to_list())?
+    data = allocated(packed.to_list())?
     mut out = Column()
     checked(native_binary(name, data, offsets, valid, &mut out.raw))?
     Ok(out)

@@ -168,7 +168,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | SpawnError[()] | st
     deadline = deadline_after(&now, &milliseconds(30))?
     with spawn(attempt, &mut quiet, &mut buffer, &deadline, &cancel)? as task:
         print(task.join())?
-    print(buffer.get(0)?, buffer.get(3)?, quiet.file.closed)?
+    print(buffer.get(0), buffer.get(3), quiet.file.closed)?
 
     # Cancellation from the parent reaches a worker blocked in a long wait.
     stop = CancellationToken()?

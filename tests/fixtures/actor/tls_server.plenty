@@ -2,7 +2,7 @@
 # prints its port, serves until `connections` connection actors have ended,
 # then prints one line per counter and the heap counters. FIXTURES is the
 # certificate directory.
-from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, stage
+from std.actor import Address, Context, Exit, Mail, TimerError, heap_bytes_used, heaps_live, StageError, stage
 from std.actor.net import Admission, Limits, Listener, listener
 from std.actor.tls import TlsConnection, server
 from std.bytes import BytesError
@@ -21,7 +21,7 @@ const forward_chunk: i64 = 0
 const heap: i64 = 262144
 const read_ms: u32 = 0u32
 
-type Fault = NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError
 
 pub enum Note:
     # A connection's heap use once its handshake completed.
@@ -145,7 +145,7 @@ pub enum Node:
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | WaitError | NetError | TimerError | TlsError]:
+def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError | TlsError]:
     config = server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?

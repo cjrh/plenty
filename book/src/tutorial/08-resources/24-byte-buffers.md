@@ -9,11 +9,11 @@ use its ordinary list operations and element references when those suit the task
 import std.bytes
 from std.bytes import Bytes, BytesError
 
-def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
+def checksum(view: &Bytes, start: i64, stop: i64) -> i64:
     mut total = 0
     for index in range(start, stop):
-        total += i64(view.get(index)?)
-    Ok(total)
+        total += i64(view.get(index))
+    total
 
 def main() -> Result[(), AllocError | IoError | BytesError]:
     mut frame = std.bytes.with_capacity(8)?
@@ -22,8 +22,7 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     frame.push(0u8)?
     frame.push(255u8)?
     print(frame.len(), frame.capacity(), frame)?
-    print(checksum(&frame, 1, 3)?)?
-    print(str.repr(checksum(&frame, 3, 9))?)?
+    print(checksum(&frame, 1, 3))?
     payload = frame.slice(1, 3)?
     print(payload.to_text()?)?
     print(str.repr(frame.to_text())?)?
@@ -32,16 +31,19 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
 ```output
 5 8 b"\x02hi\x00\xff"
 209
-Result[i64, std.bytes.BytesError].Err(std.bytes.BytesError.OutOfRange)
 hi
 Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
 ```
 
-Every fallible operation returns `Result` with one error type, `BytesError`.
-A range is `start` up to but not including `stop`, and must lie inside the
-buffer: there are no negative offsets and nothing is clamped, so `3..9` on five
-bytes is `OutOfRange`. `slice` and `copy` make independent buffers; nothing is
-copied unless you ask. `to_text` succeeds only for valid UTF-8, and a zero byte
+Growth and copies can fail to allocate, so they return `AllocError`; `to_text`
+returns `BytesError`. A range is `start` up to but not including `stop`, and
+must lie inside the buffer: there are no negative offsets and nothing is
+clamped. A range outside the buffer, such as `checksum(&frame, 3, 9)` on five
+bytes, is a bug in the caller, so it stops the program with a
+[trap report](../../design/language/08-errors/02-allocation-and-traps.md#trap-reports)
+naming the method, `Bytes.get: index is outside 0..len()`, and your calling
+line. Check a range that comes from input first and return your own error.
+`slice` and `copy` make independent buffers; nothing is copied unless you ask. `to_text` succeeds only for valid UTF-8, and a zero byte
 is ordinary data. Printing a buffer spells it as a byte literal, with `\xhh`
 for bytes that are not printable ASCII; for hex output, see
 [printing bytes](../../design/stdlib/bytes.md#printing).
@@ -73,11 +75,11 @@ a range of it with no conversion:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError]:
     mut record = std.bytes.from_list(&encode_utf8("name=")?)?
     record.extend(b"\xff\0")?
     write_stdout_bytes(&record[0:5])?
-    print(record.len(), record.find(61u8, 0, record.len())?)?
+    print(record.len(), record.find(61u8, 0, record.len()))?
     Ok(())
 ```
 ```output
@@ -100,15 +102,15 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     blank = std.bytes.from_text(" ")?
     mut at = 0
     while at < line.len():
-        match line.find_in(&stops, at, line.len())?:
+        match line.find_in(&stops, at, line.len()):
             case Some(index):
                 print(index, line.to_text_range(at, index)?)?
                 at = index + 1
             case Nothing:
                 print("rest", line.to_text_range(at, line.len())?)?
                 at = line.len()
-    print(line.find_not_in(&blank, 9, line.len())?)?
-    print(line.matches_text(11, "role")?, line.count(32u8, 0, line.len())?)?
+    print(line.find_not_in(&blank, 9, line.len()))?
+    print(line.matches_text(11, "role"), line.count(32u8, 0, line.len()))?
     Ok(())
 ```
 ```output
@@ -138,7 +140,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
         if b == 101u8 or b == 89u8:
             vowels += 1
     print(vowels)?
-    word.fill(1, 5, 46u8)?
+    word.fill(1, 5, 46u8)
     print(word.to_text()?)?
     Ok(())
 ```
@@ -148,13 +150,13 @@ PlentY 108
 P....Y
 ```
 
-Use `get` and `set` instead when a missing index is an expected outcome to
-handle. `for b in &mut word` yields `&mut u8` references into the buffer, so
+`get` and `set` take the same checked index without counting from the end.
+`for b in &mut word` yields `&mut u8` references into the buffer, so
 `*b = 0u8` in its body clears every byte in place. A
 [slice](../04-collections/slices.md) such as `word[1:3]?` copies with the list
-rules, clamping its bounds, and reports only `AllocError`. The `slice` method
-checks its range and reports `BytesError`, so `frame.slice(1, 3)?` suits a
-function that already returns `BytesError`.
+rules, clamping its bounds. The `slice` method keeps the range rule instead:
+`frame.slice(1, 3)?` copies exactly that range, and a range outside the buffer
+traps. Both report only `AllocError`.
 
 Fixed binary data, such as a file signature or a protocol delimiter, is
 written as a byte literal: `b"..."` holds ASCII characters, the string escapes,
@@ -165,7 +167,7 @@ iteration:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError]:
     magic = b"\x89PNG"
     print(magic, len(magic), magic[1])?
     mut total = 0
@@ -193,12 +195,12 @@ import std.bytes
 def starts_png(data: &[u8]) -> bool:
     len(data) >= 4 and data[0] == 137u8 and data[1] == 80u8
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError]:
     magic = b"\x89PNG"
     mut header = std.bytes.from_bytes(&magic)?
     header.extend(b"\r\n\x1a\n")?
-    print(header.find_bytes(b"\r\n", 0, header.len())?)?
-    print(header.matches(0, &magic[:4])?, header.find_in(b"\n\r", 0, header.len())?)?
+    print(header.find_bytes(b"\r\n", 0, header.len()))?
+    print(header.matches(0, &magic[:4]), header.find_in(b"\n\r", 0, header.len()))?
     print(starts_png(&header), starts_png(&header[4:]), starts_png(b"GIF8"))?
     Ok(())
 ```

@@ -9,14 +9,14 @@ import std.path
 from std.bytes import BytesError
 from std.fs import FsError
 
-def aborted(store: &mut kv.Store) -> Result[(), kv.KvError | BytesError]:
+def aborted(store: &mut kv.Store) -> Result[(), AllocError | kv.KvError | BytesError]:
     mut transaction = store.begin()?
     key = buffers.from_text("aborted")?
     value = buffers.from_text("discard")?
     store.put("data", &key, &value)?
     Err(kv.KvError.InvalidName)
 
-def dump(scan: &mut kv.Scan) -> Result[(), kv.KvError | BytesError | IoError]:
+def dump(scan: &mut kv.Scan) -> Result[(), AllocError | kv.KvError | BytesError | IoError]:
     while True:
         match scan.next()?:
             case Some(entry):

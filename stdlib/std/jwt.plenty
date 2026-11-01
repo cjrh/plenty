@@ -15,6 +15,13 @@ from std.encoding import EncodingError
 from std.json import DuplicateKeys, Json, JsonError, JsonFault, Limits, Member
 from std.fmt import Formatter, FormatError
 
+def jwt_error_allocated[T](result: Result[T, AllocError]) -> Result[T, JwtError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(JwtError.Allocation(cause))
+
 # No HS384: std.crypto has no SHA-384 HMAC.
 pub enum Algorithm:
     Hs256
@@ -289,7 +296,7 @@ pub class SigningKey:
     pub def verifying_key(self) -> Result[VerifyingKey, JwtError]:
         material = match &self._material:
             case Signer.Secret(secret):
-                Verifier.Secret(from_bytes(secret.copy())?)
+                Verifier.Secret(jwt_error_allocated(secret.copy())?)
             case Signer.Rsa(private):
                 Verifier.Rsa(from_crypto(private.public_key(), JwtError.InvalidKey)?)
             case Signer.P256(private):
@@ -313,7 +320,7 @@ def hmac_secret(algorithm: Algorithm, secret: &[u8]) -> Result[Bytes, JwtError]:
         case Some(pair):
             if len(secret) < pair[1]:
                 return Err(JwtError.InvalidKey)
-            from_bytes(std.bytes.from_bytes(secret))
+            jwt_error_allocated(std.bytes.from_bytes(secret))
         case Nothing:
             Err(JwtError.InvalidKey)
 
@@ -350,17 +357,17 @@ pub def es256_verifying_key(key: P256PublicKey) -> VerifyingKey:
 pub def ed25519_signing_key(seed: &[u8]) -> Result[SigningKey, JwtError]:
     if len(seed) != 32:
         return Err(JwtError.InvalidKey)
-    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(from_bytes(std.bytes.from_bytes(seed))?)))
+    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(jwt_error_allocated(std.bytes.from_bytes(seed))?)))
 
 # A 32-byte Ed25519 public key, copied. A small-order key is rejected here
 # rather than at each verification.
 pub def ed25519_verifying_key(public_key: &[u8]) -> Result[VerifyingKey, JwtError]:
     if len(public_key) != 32:
         return Err(JwtError.InvalidKey)
-    mut probe = from_bytes(std.bytes.with_capacity(64))?
-    from_bytes(probe.resize(64, 0u8))?
+    mut probe = jwt_error_allocated(std.bytes.with_capacity(64))?
+    jwt_error_allocated(probe.resize(64, 0u8))?
     from_crypto(std.crypto.ed25519_verify(public_key, &probe, &probe), JwtError.InvalidKey)?
-    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(from_bytes(std.bytes.from_bytes(public_key))?)))
+    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(jwt_error_allocated(std.bytes.from_bytes(public_key))?)))
 
 pub const default_max_size: i64 = 8192
 pub const max_leeway: i64 = 86400
@@ -411,13 +418,13 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
         return Err(JwtError.InvalidValidation)
     if token.byte_len() > max_size:
         return Err(JwtError.TooLarge)
-    source = from_bytes(std.bytes.from_text(token))?
-    first = match from_bytes(source.find(46u8, 0, source.len()))?:
+    source = jwt_error_allocated(std.bytes.from_text(token))?
+    first = match source.find(46u8, 0, source.len()):
         case Some(index):
             index
         case Nothing:
             return Err(JwtError.Malformed)
-    second = match from_bytes(source.find(46u8, first + 1, source.len()))?:
+    second = match source.find(46u8, first + 1, source.len()):
         case Some(index):
             index
         case Nothing:
@@ -615,7 +622,7 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
         return Err(JwtError.AlgorithmMismatch)
     payload = from_encoding(std.encoding.base64url_decode(&parts.source[parts.first + 1:parts.second]))?
     signature = from_encoding(std.encoding.base64url_decode(&parts.source[parts.second + 1:]))?
-    from_bytes(parts.source.truncate(parts.second))?
+    parts.source.truncate(parts.second)
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)
     claims = object(&payload, claims_depth)?
@@ -645,7 +652,7 @@ def signature_for(key: &SigningKey, message: &[u8]) -> Result[Bytes, JwtError]:
 
 def append_segment(target: &mut Bytes, data: &[u8]) -> Result[(), JwtError]:
     encoded = from_encoding(std.encoding.base64url_encode(data))?
-    from_bytes(target.extend(&encoded))
+    jwt_error_allocated(target.extend(&encoded))
 
 # The header is `{"alg":...,"typ":"JWT"}`, plus `kid` when given. `claims`
 # must be a JSON object; it is encoded compactly in member order.
@@ -671,11 +678,11 @@ pub def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> 
     from_json(header.end_object())?
     header_json = from_json(header.take())?
     payload_json = from_json(std.json.encode(claims, &bounds))?
-    mut token = from_bytes(std.bytes.empty())?
+    mut token = jwt_error_allocated(std.bytes.empty())?
     append_segment(&mut token, &header_json)?
-    from_bytes(token.push(46u8))?
+    jwt_error_allocated(token.push(46u8))?
     append_segment(&mut token, &payload_json)?
     signature = signature_for(key, &token)?
-    from_bytes(token.push(46u8))?
+    jwt_error_allocated(token.push(46u8))?
     append_segment(&mut token, &signature)?
     from_bytes(token.to_text())

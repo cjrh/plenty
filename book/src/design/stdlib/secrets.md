@@ -49,7 +49,8 @@ def main() -> Result[(), IoError | SecretsError]:
 
 `count` is a number of bytes, not characters, and has no default: choose it for
 the secret's purpose. Thirty-two bytes is ample for a bearer token. A negative
-count is `OutOfRange`; zero gives an empty result without consulting the
+count is a size that cannot be allocated, so it is
+`Allocation(AllocError.CapacityOverflow)`; zero gives an empty result without consulting the
 system. `fill` follows the [range rule](bytes.md#the-range-rule). The text
 forms use the [`std.encoding`](encoding.md) codecs.
 
@@ -106,10 +107,10 @@ pub enum SecretsError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A negative count or a range outside the buffer; the source was not consulted |
+| `OutOfRange` | A range outside the buffer; the source was not consulted |
 | `EmptyRange` | `below(0)` |
 | `Entropy(cause)` | The source failed; `cause` is the [`StreamError`](io.md) |
-| `Allocation(cause)` | A token or scratch buffer could not be allocated |
+| `Allocation(cause)` | A token or scratch buffer could not be allocated, including `CapacityOverflow` for a negative count |
 
 From the operating system, `cause` is `StreamError.Io(IoError.System(code))`
 with the `getrandom` error number: for example `38` (`ENOSYS`) on a kernel

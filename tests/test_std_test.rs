@@ -711,7 +711,7 @@ from std.time import Clock, Instant, nanoseconds, seconds
 def waited[C: Clock](clock: &C, start: &Instant) -> u64:
     clock.now().saturating_duration_since(start).as_seconds()
 
-def main() -> Result[(), IoError | RangeError | std.test.TestError | std.bytes.BytesError | StreamError | std.io.Partial]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError | std.bytes.BytesError | StreamError | std.io.Partial]:
     mut clock = std.test.fake_clock(10u64)
     start = clock.now()
     std.test.equal(&waited(&clock, &start), &0u64)?

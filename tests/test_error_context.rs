@@ -189,7 +189,7 @@ def main() -> Result[(), AllocError | FormatError | IoError]:
 "#
         ),
         0,
-        "Result[(), std.fmt.FormatError].Err(std.fmt.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)))\nTrue\n6\n",
+        "Result[(), std.fmt.FormatError].Err(std.fmt.FormatError.Allocation(AllocError.OutOfMemory))\nTrue\n6\n",
         "read \"",
     );
 }

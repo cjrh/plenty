@@ -61,15 +61,7 @@ pub class Trickle:
             return Err(StreamError.Interrupted)
         if start == stop or self.at == self.data.len():
             return Ok(0)
-        match self.data.get(self.at):
-            case Ok(value):
-                match buffer.set(start, value):
-                    case Ok(_):
-                        pass
-                    case Err(_):
-                        return Err(StreamError.OutOfRange)
-            case Err(_):
-                return Err(StreamError.OutOfRange)
+        buffer.set(start, self.data.get(self.at))
         self.at += 1
         Ok(1)
 
@@ -481,7 +473,7 @@ fox = unhex("8b158054686520717569636b2062726f776e20666f78206a756d7073206f7665722
 print(std.compress.decompress(Format.Brotli, &fox, 44)?.to_text()?)?
 packed = unhex("5b9f86815f22281e0b04b2fc0200")?
 plain = std.compress.decompress(Format.Brotli, &packed, 100000)?
-print(plain.len(), plain.get(99999)?)?
+print(plain.len(), plain.get(99999))?
 print(shown(std.compress.decompress(Format.Brotli, &packed, 99999))?)?
 for stop in range(packed.len()):
     prefix = packed.slice(0, stop)?
@@ -526,7 +518,7 @@ print(str.repr(reader.failure())?)?
 large = unhex("5b9f86815f22281e0b04b2fc0200")?
 mut expanding = std.compress.decompressor(Format.Brotli, Trickle(large, 0, False), 100000)?
 mut expanded = std.bytes.empty()?
-print(std.io.read_up_to(&mut expanding, &mut expanded, 100001)?, expanded.get(99999)?)?
+print(std.io.read_up_to(&mut expanding, &mut expanded, 100001)?, expanded.get(99999))?
 "#,
         "Result[(), std.io.StreamError].Err(std.io.StreamError.Io(IoError.Other))\nResult[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))\n11500\nTrue\nOption[E].Nothing\n100000 65",
     );
@@ -565,8 +557,8 @@ fixture = unhex("5b9f86815f22281e0b04b2fc0200")?
 for index in range(fixture.len()):
     for bit in range(8):
         mut changed = fixture.copy()?
-        original = changed.get(index)?
-        changed.set(index, original ^ (1u8 << u8(bit)))?
+        original = changed.get(index)
+        changed.set(index, original ^ (1u8 << u8(bit)))
         drop(std.compress.decompress(Format.Brotli, &changed, 4096))
 for size in range(256):
     data = noise(size)?

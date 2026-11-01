@@ -20,13 +20,21 @@ pub enum LinalgError:
     NoConvergence
     Overflow
     NativePanic
+    Allocation(AllocError)
 
-def checked(code: i64) -> Result[(), AllocError | LinalgError]:
+def allocated[T](result: Result[T, AllocError]) -> Result[T, LinalgError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(LinalgError.Allocation(cause))
+
+def checked(code: i64) -> Result[(), LinalgError]:
     match code:
         case 0:
             Ok(())
         case 1:
-            Err(AllocError.OutOfMemory)
+            Err(LinalgError.Allocation(AllocError.OutOfMemory))
         case 2:
             Err(LinalgError.Shape)
         case 3:
@@ -83,7 +91,7 @@ pub class Matrix:
     pub def transpose(self) -> Result[Matrix, AllocError]:
         Ok(Matrix(self._cols, self._rows, self.to_list()?))
 
-    pub def add(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def add(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         if self._rows != rhs._rows or self._cols != rhs._cols:
             return Err(LinalgError.Shape)
         mut out = zeros(self._rows, self._cols)?
@@ -94,7 +102,7 @@ pub class Matrix:
             out._values[index] = value
         Ok(out)
 
-    pub def subtract(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def subtract(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         if self._rows != rhs._rows or self._cols != rhs._cols:
             return Err(LinalgError.Shape)
         mut out = zeros(self._rows, self._cols)?
@@ -105,7 +113,7 @@ pub class Matrix:
             out._values[index] = value
         Ok(out)
 
-    pub def scale(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]:
+    pub def scale(self, factor: f64) -> Result[Matrix, LinalgError]:
         if not math.isfinite(factor):
             return Err(LinalgError.NonFinite)
         mut out = zeros(self._rows, self._cols)?
@@ -116,45 +124,45 @@ pub class Matrix:
             out._values[index] = value
         Ok(out)
 
-    pub def negate(self) -> Result[Matrix, AllocError | LinalgError]:
+    pub def negate(self) -> Result[Matrix, LinalgError]:
         self.scale(-1.0)
 
-    pub def __add__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def __add__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         self.add(rhs)
 
-    pub def __sub__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def __sub__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         self.subtract(rhs)
 
-    pub def __neg__(self) -> Result[Matrix, AllocError | LinalgError]:
+    pub def __neg__(self) -> Result[Matrix, LinalgError]:
         self.negate()
 
-    pub def __mul__(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def __mul__(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         self.matmul(rhs)
 
-    pub def __rmul__(self, factor: f64) -> Result[Matrix, AllocError | LinalgError]:
+    pub def __rmul__(self, factor: f64) -> Result[Matrix, LinalgError]:
         self.scale(factor)
 
-    pub def matmul(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def matmul(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         if self._cols != rhs._rows:
             return Err(LinalgError.Shape)
         mut out = zeros(self._rows, rhs._cols)?
         checked(multiply_raw(self._rows, rhs._cols, self._cols, &self._values, &rhs._values, &mut out._values))?
         Ok(out)
 
-    pub def lu(self) -> Result[Lu, AllocError | LinalgError]:
-        mut packed = copy(self)?
-        mut permutation = [0 for _ in range(self._rows)]?
+    pub def lu(self) -> Result[Lu, LinalgError]:
+        mut packed = allocated(copy(self))?
+        mut permutation = allocated([0 for _ in range(self._rows)])?
         checked(lu_raw(self._rows, self._cols, &mut packed._values, &mut permutation))?
         Ok(Lu(packed, permutation))
 
-    pub def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         if self._rows != self._cols or rhs._rows != self._rows:
             return Err(LinalgError.Shape)
         factor = self.lu()?
         factor.solve(rhs)
 
-    pub def qr(self) -> Result[(Matrix, Matrix), AllocError | LinalgError]:
-        mut packed = copy(self)?
+    pub def qr(self) -> Result[(Matrix, Matrix), LinalgError]:
+        mut packed = allocated(copy(self))?
         mut q = identity(self._rows)?
         checked(qr_raw(self._rows, self._cols, &mut packed._values, &mut q._values))?
         for col in range(packed._cols):
@@ -162,35 +170,35 @@ pub class Matrix:
                 packed._values[col * packed._rows + row] = 0.0
         Ok((q, packed))
 
-    pub def cholesky(self) -> Result[Matrix, AllocError | LinalgError]:
+    pub def cholesky(self) -> Result[Matrix, LinalgError]:
         symmetric(self)?
-        mut lower = copy(self)?
+        mut lower = allocated(copy(self))?
         checked(cholesky_raw(self._rows, &mut lower._values))?
         for col in range(lower._cols):
             for row in range(col):
                 lower._values[col * lower._rows + row] = 0.0
         Ok(lower)
 
-    pub def svd(self) -> Result[(Matrix, list[f64], Matrix), AllocError | LinalgError]:
+    pub def svd(self) -> Result[(Matrix, list[f64], Matrix), LinalgError]:
         rank = math.min(self._rows, self._cols)
-        mut values = [0.0 for _ in range(rank)]?
+        mut values = allocated([0.0 for _ in range(rank)])?
         mut u = zeros(self._rows, rank)?
         mut v = zeros(self._cols, rank)?
         checked(svd_raw(self._rows, self._cols, &self._values, &mut values, &mut u._values, &mut v._values))?
         Ok((u, values, v))
 
-    pub def eigh(self) -> Result[(list[f64], Matrix), AllocError | LinalgError]:
+    pub def eigh(self) -> Result[(list[f64], Matrix), LinalgError]:
         symmetric(self)?
-        mut values = [0.0 for _ in range(self._rows)]?
+        mut values = allocated([0.0 for _ in range(self._rows)])?
         mut vectors = zeros(self._rows, self._rows)?
         checked(eigh_raw(self._rows, &self._values, &mut values, &mut vectors._values))?
         Ok((values, vectors))
 
-    pub def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), AllocError | LinalgError]:
+    pub def eig(self) -> Result[(list[f64], list[f64], Matrix, Matrix), LinalgError]:
         if self._rows != self._cols:
             return Err(LinalgError.Shape)
-        mut real = [0.0 for _ in range(self._rows)]?
-        mut imag = [0.0 for _ in range(self._rows)]?
+        mut real = allocated([0.0 for _ in range(self._rows)])?
+        mut imag = allocated([0.0 for _ in range(self._rows)])?
         mut vectors_real = zeros(self._rows, self._rows)?
         mut vectors_imag = zeros(self._rows, self._rows)?
         checked(eig_raw(self._rows, &self._values, &mut real, &mut imag, &mut vectors_real._values, &mut vectors_imag._values))?
@@ -209,7 +217,7 @@ pub class Lu:
     _packed: Matrix
     _permutation: list[i64]
 
-    pub def lower(self) -> Result[Matrix, AllocError | LinalgError]:
+    pub def lower(self) -> Result[Matrix, LinalgError]:
         rank = math.min(self._packed._rows, self._packed._cols)
         mut result = zeros(self._packed._rows, rank)?
         for col in range(rank):
@@ -218,7 +226,7 @@ pub class Lu:
                 result._values[col * result._rows + row] = self._packed._values[col * self._packed._rows + row]
         Ok(result)
 
-    pub def upper(self) -> Result[Matrix, AllocError | LinalgError]:
+    pub def upper(self) -> Result[Matrix, LinalgError]:
         rank = math.min(self._packed._rows, self._packed._cols)
         mut result = zeros(rank, self._packed._cols)?
         for col in range(result._cols):
@@ -229,35 +237,35 @@ pub class Lu:
     pub def permutation(self) -> Result[list[i64], AllocError]:
         copy(self._permutation)
 
-    pub def solve(self, rhs: &Matrix) -> Result[Matrix, AllocError | LinalgError]:
+    pub def solve(self, rhs: &Matrix) -> Result[Matrix, LinalgError]:
         n = self._packed._rows
         if n != self._packed._cols or rhs._rows != n:
             return Err(LinalgError.Shape)
-        mut result = copy(rhs)?
+        mut result = allocated(copy(rhs))?
         checked(solve_raw(n, rhs._cols, &self._packed._values, &self._permutation, &mut result._values))?
         Ok(result)
 
-pub def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]:
+pub def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, LinalgError]:
     count = size(rows, cols)?
     if len(values) != count:
         return Err(LinalgError.Shape)
     finite(values)?
-    Ok(Matrix(rows, cols, [values[row * cols + col] for col in range(cols) for row in range(rows)]?))
+    Ok(Matrix(rows, cols, allocated([values[row * cols + col] for col in range(cols) for row in range(rows)])?))
 
-pub def vector(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]:
+pub def vector(values: &list[f64]) -> Result[Matrix, LinalgError]:
     matrix(len(values), 1, values)
 
-pub def zeros(rows: i64, cols: i64) -> Result[Matrix, AllocError | LinalgError]:
+pub def zeros(rows: i64, cols: i64) -> Result[Matrix, LinalgError]:
     count = size(rows, cols)?
-    Ok(Matrix(rows, cols, [0.0 for _ in range(count)]?))
+    Ok(Matrix(rows, cols, allocated([0.0 for _ in range(count)])?))
 
-pub def identity(n: i64) -> Result[Matrix, AllocError | LinalgError]:
+pub def identity(n: i64) -> Result[Matrix, LinalgError]:
     mut result = zeros(n, n)?
     for index in range(n):
         result._values[index * n + index] = 1.0
     Ok(result)
 
-pub def diagonal(values: &list[f64]) -> Result[Matrix, AllocError | LinalgError]:
+pub def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]:
     finite(values)?
     mut result = zeros(len(values), len(values))?
     for index in range(len(values)):

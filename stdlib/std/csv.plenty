@@ -96,28 +96,6 @@ def expected(dialect: &Dialect) -> i64:
             else:
                 count
 
-def stored(result: Result[(), BytesError]) -> Result[(), CsvError]:
-    match result:
-        case Ok(_):
-            Ok(())
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(CsvError.Allocation(cause))
-                case _:
-                    Err(CsvError.OutOfRange)
-
-def allocated(result: Result[Bytes, BytesError]) -> Result[Bytes, CsvError]:
-    match result:
-        case Ok(buffer):
-            Ok(buffer)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(CsvError.Allocation(cause))
-                case _:
-                    Err(CsvError.OutOfRange)
-
 def listed[T](result: Result[T, AllocError]) -> Result[T, CsvError]:
     match result:
         case Ok(value):
@@ -134,44 +112,32 @@ def interrupted(cause: &StreamError) -> bool:
 
 # Callers pass an index they have already bounded.
 def at(buffer: &Bytes, index: i64) -> u8:
-    match buffer.get(index):
-        case Ok(value):
-            value
-        case Err(_):
-            0u8
+    buffer.get(index)
 
 # The first index in [start, stop) holding `value`, or `stop`. One native scan;
 # callers pass a range they have already bounded.
 def first(buffer: &Bytes, value: u8, start: i64, stop: i64) -> i64:
     match buffer.find(value, start, stop):
-        case Ok(found):
-            match found:
-                case Some(index):
-                    index
-                case Nothing:
-                    stop
-        case Err(_):
+        case Some(index):
+            index
+        case Nothing:
             stop
 
 # As `first`, for any byte of `set`.
 def first_in(buffer: &Bytes, set: &Bytes, start: i64, stop: i64) -> i64:
     match buffer.find_in(set, start, stop):
-        case Ok(found):
-            match found:
-                case Some(index):
-                    index
-                case Nothing:
-                    stop
-        case Err(_):
+        case Some(index):
+            index
+        case Nothing:
             stop
 
 # The bytes that end an unquoted field or force a written field to be quoted.
 def special(dialect: &Dialect) -> Result[Bytes, CsvError]:
-    mut set = allocated(std.bytes.with_capacity(4))?
-    stored(set.push(dialect.delimiter))?
-    stored(set.push(dialect.quote))?
-    stored(set.push(line_feed))?
-    stored(set.push(carriage_return))?
+    mut set = listed(std.bytes.with_capacity(4))?
+    listed(set.push(dialect.delimiter))?
+    listed(set.push(dialect.quote))?
+    listed(set.push(line_feed))?
+    listed(set.push(carriage_return))?
     Ok(set)
 
 def mark(index: i64) -> u8:
@@ -219,10 +185,10 @@ pub class Record:
         Ok(self._ends[index])
 
     pub def bytes(self, index: i64) -> Result[Bytes, CsvError]:
-        allocated(self._data.slice(self.start(index)?, self.stop(index)?))
+        listed(self._data.slice(self.start(index)?, self.stop(index)?))
 
     pub def append_to(self, index: i64, out: &mut Bytes) -> Result[(), CsvError]:
-        stored(out.extend(&self._data[self.start(index)?:self.stop(index)?]))
+        listed(out.extend(&self._data[self.start(index)?:self.stop(index)?]))
 
     pub def text(self, index: i64) -> Result[str, CsvError]:
         field = self.bytes(index)?
@@ -248,7 +214,7 @@ pub class Record:
         self._ends.clear()
 
 pub def record() -> Result[Record, CsvError]:
-    Ok(Record(allocated(std.bytes.empty())?, listed(list[i64].new())?, 0, 0))
+    Ok(Record(listed(std.bytes.empty())?, listed(list[i64].new())?, 0, 0))
 
 # Parses records from `inner` through one fixed buffer. `inner` is public so
 # its owner can close it; reading it directly skips bytes still held here.
@@ -317,7 +283,7 @@ pub class Reader[R]:
 
     def keep_byte(self, record: &mut Record, begin: i64, value: u8) -> Result[(), CsvError]:
         drop(self.room(record, begin)?)
-        stored(record._data.push(value))
+        listed(record._data.push(value))
 
     def close(self, record: &mut Record) -> Result[(), CsvError]:
         if len(record._ends) >= self._max_fields:
@@ -381,7 +347,7 @@ pub class Reader[R]:
                     cursor = first_in(&self._buffer, &self._breaks, cursor + 1, end)
                 if end > self._start:
                     self._after_return = at(&self._buffer, end - 1) == carriage_return
-                stored(record._data.extend(&self._buffer[self._start:end]))?
+                listed(record._data.extend(&self._buffer[self._start:end]))?
                 self._start = end
                 continue
             if not started and self._after_return:
@@ -421,7 +387,7 @@ pub class Reader[R]:
             if limit > self._stop:
                 limit = self._stop
             end = first_in(&self._buffer, &self._special, self._start + 1, limit)
-            stored(record._data.extend(&self._buffer[self._start:end]))?
+            listed(record._data.extend(&self._buffer[self._start:end]))?
             self._start = end
             state = 1
             started = True
@@ -461,14 +427,14 @@ pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R
         return Err(CsvError.InvalidDialect)
     if capacity < 1:
         return Err(CsvError.OutOfRange)
-    mut buffer = allocated(std.bytes.with_capacity(capacity))?
-    stored(buffer.resize(capacity, 0u8))?
+    mut buffer = listed(std.bytes.with_capacity(capacity))?
+    listed(buffer.resize(capacity, 0u8))?
     mut matched = 3
     if dialect.skip_bom:
         matched = 0
-    mut breaks = allocated(std.bytes.with_capacity(2))?
-    stored(breaks.push(line_feed))?
-    stored(breaks.push(carriage_return))?
+    mut breaks = listed(std.bytes.with_capacity(2))?
+    listed(breaks.push(line_feed))?
+    listed(breaks.push(carriage_return))?
     Ok(Reader(inner, buffer, special(dialect)?, breaks, 0, 0, dialect.delimiter, dialect.quote, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields, matched, 0, 1, 0, False, False, False))
 
 # Encodes records for `inner`. A finished record is delivered at once; bytes
@@ -524,20 +490,20 @@ pub class Writer[W]:
 
     def encode(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
         if self._fields > 0:
-            stored(self._pending.push(self._delimiter))?
+            listed(self._pending.push(self._delimiter))?
         if not self.quoted(source):
-            return stored(self._pending.extend(source))
-        stored(self._pending.push(self._quote))?
+            return listed(self._pending.extend(source))
+        listed(self._pending.push(self._quote))?
         mut copied = 0
         mut found = __bytes_find(source, self._quote)
         while found >= 0:
             index = copied + found
-            stored(self._pending.extend(&source[copied:index + 1]))?
-            stored(self._pending.push(self._quote))?
+            listed(self._pending.extend(&source[copied:index + 1]))?
+            listed(self._pending.push(self._quote))?
             copied = index + 1
             found = __bytes_find(&source[copied:], self._quote)
-        stored(self._pending.extend(&source[copied:]))?
-        stored(self._pending.push(self._quote))
+        listed(self._pending.extend(&source[copied:]))?
+        listed(self._pending.push(self._quote))
 
     # Adds `source` as the next field of the record in progress.
     pub def field(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
@@ -555,25 +521,25 @@ pub class Writer[W]:
                 self._content += len(source)
                 Ok(())
             case Err(cause):
-                drop(self._pending.truncate(held))
+                self._pending.truncate(held)
                 Err(cause)
 
     pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
-        encoded = allocated(std.bytes.from_text(value))?
+        encoded = listed(std.bytes.from_text(value))?
         self.field(&encoded)
 
     def terminate(self: &mut Writer[W]) -> Result[(), CsvError]:
         # A lone empty field would otherwise be an empty line.
         if self._fields == 1 and self._pending.len() == self._ready:
-            stored(self._pending.push(self._quote))?
-            stored(self._pending.push(self._quote))?
+            listed(self._pending.push(self._quote))?
+            listed(self._pending.push(self._quote))?
         if self._return:
-            stored(self._pending.push(carriage_return))?
-        stored(self._pending.push(line_feed))
+            listed(self._pending.push(carriage_return))?
+        listed(self._pending.push(line_feed))
 
     # Discards the record in progress. Finished records are unaffected.
     pub def discard(self: &mut Writer[W]) -> ():
-        drop(self._pending.truncate(self._ready))
+        self._pending.truncate(self._ready)
         self._fields = 0
         self._content = 0
 
@@ -591,7 +557,7 @@ pub class Writer[W]:
             case Ok(_):
                 pass
             case Err(cause):
-                drop(self._pending.truncate(held))
+                self._pending.truncate(held)
                 return Err(cause)
         if self._expected == -1:
             self._expected = self._fields
@@ -653,4 +619,4 @@ pub def writer[W](inner: W, dialect: &Dialect) -> Result[Writer[W], CsvError]:
             always = True
         case Quoting.Needed:
             pass
-    Ok(Writer(inner, allocated(std.bytes.empty())?, special(dialect)?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))
+    Ok(Writer(inner, listed(std.bytes.empty())?, special(dialect)?, 0, 0, 0, 0, 0, dialect.delimiter, dialect.quote, return_first, always, expected(dialect), dialect.max_field, dialect.max_record, dialect.max_fields))

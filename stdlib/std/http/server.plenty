@@ -334,12 +334,7 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
         mut end = size
         if bound < end:
             end = bound
-        found = match input.data.find(line_feed, input.searched, end):
-            case Ok(position):
-                position
-            case Err(_):
-                return True
-        match found:
+        match input.data.find(line_feed, input.searched, end):
             case Some(index):
                 count = index + 1 - input.line
                 if count < 2 or input.data[index - 1] != carriage_return:
@@ -360,6 +355,13 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
                 input.searched = end
                 return end == bound
     True
+
+def net_allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(NetError.Stream(StreamError.Allocation(cause)))
 
 def net_bytes[T](result: Result[T, BytesError]) -> Result[T, NetError]:
     match result:
@@ -385,21 +387,21 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
             size = read_chunk
         if size > limits.max_head:
             size = limits.max_head
-        mut grown = net_bytes(std.bytes.with_capacity(size))?
-        net_bytes(grown.extend(&input.data))?
+        mut grown = net_allocated(std.bytes.with_capacity(size))?
+        net_allocated(grown.extend(&input.data))?
         input.data = grown
     mut room = input.data.capacity() - have
     if room > read_chunk:
         room = read_chunk
     if room > limits.max_head - have:
         room = limits.max_head - have
-    net_bytes(input.data.resize(have + room, 0u8))?
+    net_allocated(input.data.resize(have + room, 0u8))?
     match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
         case Ok(count):
-            drop(input.data.truncate(have + count))
+            input.data.truncate(have + count)
             Ok(count)
         case Err(error):
-            drop(input.data.truncate(have))
+            input.data.truncate(have)
             Err(error)
 
 # Reads what has arrived of a request head until the parser could take it
@@ -507,19 +509,16 @@ pub class Conn[T]:
         StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if start < 0 or start > stop or stop > buffer.len():
+            return Err(StreamError.OutOfRange)
         unread = self._input.data.len() - self._at
         if unread > 0 and stop > start:
             mut count = stop - start
             if count > unread:
                 count = unread
-            match buffer.overwrite(start, &self._input.data[self._at:self._at + count]):
-                case Ok(_):
-                    self._at += count
-                    return Ok(count)
-                case Err(BytesError.Allocation(cause)):
-                    return Err(StreamError.Allocation(cause))
-                case Err(_):
-                    return Err(StreamError.OutOfRange)
+            buffer.overwrite(start, &self._input.data[self._at:self._at + count])
+            self._at += count
+            return Ok(count)
         if not self._idle:
             match read_some(&mut self._stream, buffer, start, stop, &deadline_of(self._until), &self._cancel):
                 case Ok(count):
@@ -555,12 +554,8 @@ pub class Conn[T]:
         match self._out.extend(source):
             case Ok(_):
                 Ok(count)
-            case Err(error):
-                match error:
-                    case BytesError.Allocation(cause):
-                        Err(StreamError.Allocation(cause))
-                    case _:
-                        Err(StreamError.OutOfRange)
+            case Err(cause):
+                Err(StreamError.Allocation(cause))
 
     pub def flush(self: &mut Conn[T]) -> Result[(), StreamError]:
         size = self._out.len()
@@ -809,7 +804,7 @@ pub class Exchange[T]:
 
     # Sends UTF-8 text as text/plain.
     pub def send_text(self: &mut Exchange[T], status: i64, text: &str) -> Result[(), HttpError]:
-        body = http_bytes(std.bytes.from_text(text))?
+        body = http_allocated(std.bytes.from_text(text))?
         self.send(status, "text/plain; charset=utf-8", &body)
 
     # Starts a streamed response. A head with Content-Length streams exactly
@@ -936,15 +931,15 @@ pub class Exchange[T]:
         std.http.write_response(&mut taken.inner, head)?
         flushed(taken.inner.flush())?
         held = taken.buffered()
-        mut input = http_bytes(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
-        http_bytes(input.resize(held, 0u8))?
+        mut input = http_allocated(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
+        http_allocated(input.resize(held, 0u8))?
         if held > 0:
             match taken.read(&mut input, 0, held):
                 case Ok(_):
                     pass
                 case Err(cause):
                     return Err(HttpError.Stream(cause))
-        http_bytes(input.extend(&taken.inner._input.data[taken.inner._at:]))?
+        http_allocated(input.extend(&taken.inner._input.data[taken.inner._at:]))?
         stream = match replace(taken.inner._stream, Nothing):
             case Some(found):
                 found
@@ -1094,7 +1089,7 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
         head.add("Allow", *allow)?
     head.add("Connection", "close")?
     std.http.write_response(conn, &head)?
-    body = http_bytes(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
+    body = http_allocated(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
     match std.io.write_all(conn, &body):
         case Ok(_):
             pass
@@ -1458,7 +1453,7 @@ def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> 
     head.add("Allow", *allow)?
     head.add("Content-Type", "text/plain; charset=utf-8")?
     text = http_allocated(reason(405).concat("\n"))?
-    body = http_bytes(std.bytes.from_text(&text))?
+    body = http_allocated(std.bytes.from_text(&text))?
     exchange.respond(head, &body)
 
 # Serves one connection over any Transport, such as a TLS session, with the
@@ -2188,8 +2183,8 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
     mut wake = netted(std.net.bind_udp(&std.net.loopback_v4(0u16)))?
     netted(wake.watch(&mut selector, wake_key, Interest.Read))?
     address = netted(wake.local_address())?
-    mut scratch = allocated(bytes_of(std.bytes.with_capacity(discard_chunk)))?
-    allocated(bytes_of(scratch.resize(discard_chunk, 0u8)))?
+    mut scratch = allocated(std.bytes.with_capacity(discard_chunk))?
+    allocated(scratch.resize(discard_chunk, 0u8))?
     slots = allocated(list[Option[Job[T]]].new())?
     free = allocated(list[i64].new())?
     # Rejections must not hold up accepting, so they get a short write budget.
@@ -2200,13 +2195,6 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
             Ok(report)
         case Err(error):
             Err(ServerError.Thread(error))
-
-def bytes_of[T](result: Result[T, BytesError]) -> Result[T, AllocError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(_):
-            Err(AllocError.OutOfMemory)
 
 # Serves `listener` until `stop` is cancelled, then closes it, lets queued
 # and active connections finish within `drain_timeout`, cancels whatever is

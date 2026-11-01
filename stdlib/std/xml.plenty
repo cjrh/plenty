@@ -208,22 +208,22 @@ class Token:
         if self.pos == self.data.len():
             Nothing
         else:
-            Some(self.data.get(self.pos).unwrap())
+            Some(self.data.get(self.pos))
 
     def whitespace(self: &mut Token) -> bool:
         start = self.pos
-        while self.pos < self.data.len() and space(self.data.get(self.pos).unwrap()):
+        while self.pos < self.data.len() and space(self.data.get(self.pos)):
             self.pos += 1
         self.pos > start
 
     def name(self: &mut Token) -> Result[str, Fault]:
         start = self.pos
         while self.pos < self.data.len():
-            c = self.data.get(self.pos).unwrap()
+            c = self.data.get(self.pos)
             if space(c) or c == 61u8 or c == 47u8:
                 break
             self.pos += 1
-        name = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+        name = bytes_result(allocated(self.data.slice(start, self.pos))?.to_text())?
         check_name(name)?
         Ok(name)
 
@@ -256,7 +256,7 @@ class Token:
                 self.pos += 1
             if self.peek().is_none():
                 return Err(Fault.UnexpectedEnd)
-            raw = bytes_result(bytes_result(self.data.slice(start, self.pos))?.to_text())?
+            raw = bytes_result(allocated(self.data.slice(start, self.pos))?.to_text())?
             value = unescape(raw, True)?
             self.pos += 1
             allocated(attributes.append(Attribute(name, value)))?
@@ -319,7 +319,7 @@ pub class Reader[R]:
                             continue
                         case _:
                             return Err(Fault.Stream(error))
-        Ok(Some(self._buffer.get(self._pos).unwrap()))
+        Ok(Some(self._buffer.get(self._pos)))
 
     def raw(self: &mut Reader[R]) -> Result[Option[u8], Fault]:
         value = self.peek()?
@@ -347,17 +347,17 @@ pub class Reader[R]:
         Ok(())
 
     def until(self: &mut Reader[R], ending: &Bytes) -> Result[Bytes, Fault]:
-        mut out = bytes_result(std.bytes.empty())?
+        mut out = allocated(std.bytes.empty())?
         while True:
             byte = self.take()?
-            bytes_result(out.push(byte))?
+            allocated(out.push(byte))?
             if out.len() >= ending.len():
                 mut matches = True
                 for index in range(ending.len()):
-                    if out.get(out.len() - ending.len() + index).unwrap() != ending.get(index).unwrap():
+                    if out.get(out.len() - ending.len() + index) != ending.get(index):
                         matches = False
                 if matches:
-                    return bytes_result(out.slice(0, out.len() - ending.len()))
+                    return allocated(out.slice(0, out.len() - ending.len()))
 
         Err(Fault.UnexpectedEnd)
 
@@ -377,9 +377,9 @@ pub class Reader[R]:
         allowed_declaration = self._declaration
         self._declaration = False
         if self.peek()? != Some(60u8):
-            mut bytes = bytes_result(std.bytes.empty())?
+            mut bytes = allocated(std.bytes.empty())?
             while self.peek()?.is_some() and self.peek()? != Some(60u8):
-                bytes_result(bytes.push(self.take()?))?
+                allocated(bytes.push(self.take()?))?
             raw = bytes_result(bytes.to_text())?
             if len(self._stack) == 0 and not only_space(raw):
                 return Err(Fault.Syntax)
@@ -390,7 +390,7 @@ pub class Reader[R]:
             marker = self.take()?
             if marker == 45u8:
                 self.expect("-")?
-                data = self.until(&bytes_result(std.bytes.from_text("-->"))?)?
+                data = self.until(&allocated(std.bytes.from_text("-->"))?)?
                 value = bytes_result(data.to_text())?
                 check_text(value)?
                 if "--" in value or value.endswith("-"):
@@ -398,7 +398,7 @@ pub class Reader[R]:
                 return Ok(Event.Comment(value))
             if marker == 91u8:
                 self.expect("CDATA[")?
-                data = self.until(&bytes_result(std.bytes.from_text("]]>"))?)?
+                data = self.until(&allocated(std.bytes.from_text("]]>"))?)?
                 value = bytes_result(data.to_text())?
                 check_text(value)?
                 if len(self._stack) == 0:
@@ -406,7 +406,7 @@ pub class Reader[R]:
                 return Ok(Event.CData(value))
             return Err(Fault.DoctypeForbidden)
         if first == 63u8:
-            data = self.until(&bytes_result(std.bytes.from_text("?>"))?)?
+            data = self.until(&allocated(std.bytes.from_text("?>"))?)?
             mut token = Token(data, 0)
             target = token.name()?
             if allocated(target.lower())? == "xml":
@@ -422,12 +422,12 @@ pub class Reader[R]:
             separated = token.whitespace()
             if token.pos < token.data.len() and not separated:
                 return Err(Fault.Syntax)
-            value = bytes_result(bytes_result(token.data.slice(token.pos, token.data.len()))?.to_text())?
+            value = bytes_result(allocated(token.data.slice(token.pos, token.data.len()))?.to_text())?
             check_text(value)?
             return Ok(Event.ProcessingInstruction(target, value))
-        mut data = bytes_result(std.bytes.empty())?
+        mut data = allocated(std.bytes.empty())?
         if first != 47u8:
-            bytes_result(data.push(first))?
+            allocated(data.push(first))?
         mut quote = 0u8
         while True:
             c = self.take()?
@@ -438,7 +438,7 @@ pub class Reader[R]:
                     quote = 0u8
                 elif quote == 0u8:
                     quote = c
-            bytes_result(data.push(c))?
+            allocated(data.push(c))?
         mut token = Token(data, 0)
         name = token.name()?
         if first == 47u8:
@@ -478,8 +478,8 @@ pub class Reader[R]:
 pub def reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]:
     if not valid_limits(bounds):
         return Err(XmlError(Fault.InvalidLimits, 0))
-    mut buffer = placed(bytes_result(std.bytes.empty()), 0)?
-    placed(bytes_result(buffer.resize(4096, 0u8)), 0)?
+    mut buffer = placed(allocated(std.bytes.empty()), 0)?
+    placed(allocated(buffer.resize(4096, 0u8)), 0)?
     stack = placed(allocated(list[str]()), 0)?
     copied = Limits(bounds.max_depth, bounds.max_input, bounds.max_output, bounds.max_token, bounds.max_attributes)
     Ok(Reader(inner, copied, buffer, 0, 0, 0, 0, stack, False, True, True, False, False))
@@ -492,8 +492,8 @@ class Output:
     def add(self: &mut Output, text: str) -> Result[(), Fault]:
         if text.byte_len() > self.maximum - self.data.len():
             return Err(Fault.TokenTooLarge)
-        fragment = bytes_result(std.bytes.from_text(&text))?
-        bytes_result(self.data.extend(&fragment))
+        fragment = allocated(std.bytes.from_text(&text))?
+        allocated(self.data.extend(&fragment))
 
     def escaped(self: &mut Output, text: str, attribute: bool) -> Result[(), Fault]:
         check_text(text)?
@@ -550,7 +550,7 @@ pub class Writer[W]:
         self._offset
 
     def encode(self: &mut Writer[W], event: &Event) -> Result[Bytes, Fault]:
-        mut out = Output(bytes_result(std.bytes.empty())?, self._limits.max_token)
+        mut out = Output(allocated(std.bytes.empty())?, self._limits.max_token)
         match event:
             case Event.Declaration(standalone):
                 if not self._first:
@@ -621,7 +621,7 @@ pub class Writer[W]:
             case Event.Eof:
                 return Err(Fault.InvalidState)
         self._first = False
-        Ok(replace(out.data, bytes_result(std.bytes.empty())?))
+        Ok(replace(out.data, allocated(std.bytes.empty())?))
 
     def emit(self: &mut Writer[W], event: &Event) -> Result[(), Fault]:
         bytes = self.encode(event)?

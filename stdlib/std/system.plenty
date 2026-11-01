@@ -265,7 +265,7 @@ def read_proc(root: &Root, name: str, max_bytes: i64) -> Result[str, SystemError
     if max_bytes < 1 or max_bytes == i64.MAX:
         return Err(SystemError.InvalidInput)
     mut stream = io_result(root.read_file(&io_result(std.path.from_text(name))?))?
-    mut data = bytes_result(std.bytes.empty(), name)?
+    mut data = allocated(std.bytes.empty())?
     # One extra byte distinguishes exact-limit EOF from truncation. procfs
     # commonly reports st_size=0, so metadata is never used for this limit.
     match std.io.read_up_to(&mut stream, &mut data, max_bytes + 1):

@@ -12,6 +12,13 @@ from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 
+def tls_error_allocated[T](result: Result[T, AllocError]) -> Result[T, TlsError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(TlsError.Allocation(cause))
+
 pub enum TlsError:
     Net(NetError)
     UntrustedCertificate
@@ -417,12 +424,12 @@ def described(session: &ByteStorage, target: &mut Bytes, which: i64) -> i64:
 
 # A session detail as bytes, or Nothing when absent.
 def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]:
-    mut probe = stored(std.bytes.with_capacity(0))?
+    mut probe = tls_error_allocated(std.bytes.with_capacity(0))?
     length = described(session, &mut probe, which)
     if length == absent:
         return Ok(Nothing)
-    mut value = stored(std.bytes.with_capacity(length))?
-    stored(value.resize(length, 0u8))?
+    mut value = tls_error_allocated(std.bytes.with_capacity(length))?
+    tls_error_allocated(value.resize(length, 0u8))?
     described(session, &mut value, which)
     Ok(Some(value))
 
@@ -621,7 +628,7 @@ pub class TlsStream:
     # the peer's close_notify.
     pub def try_read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]:
         if start == stop:
-            stored(buffer.slice(start, stop))?
+            within(start, stop, buffer.len())?
             return Ok(Some(0))
         if not self.try_handshake()?:
             return Ok(Nothing)
@@ -668,7 +675,7 @@ pub class TlsStream:
     # Truncated, since an attacker can cut a connection short.
     pub def read_before(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
         if start == stop:
-            stored(buffer.slice(start, stop))?
+            within(start, stop, buffer.len())?
             return Ok(0)
         while True:
             count = counted(decrypted(&self._session, buffer, start, stop))?
@@ -724,7 +731,7 @@ pub class TlsStream:
 
     pub def read(self: &mut TlsStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start == stop:
-            flowed(stored(buffer.slice(start, stop)))?
+            flowed(within(start, stop, buffer.len()))?
             return Ok(0)
         while True:
             count = flowed(counted(decrypted(&self._session, buffer, start, stop)))?
@@ -792,10 +799,10 @@ def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
             Err(NetError.Stream(cause))
 
 def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStream, TlsError]:
-    mut incoming = stored(std.bytes.with_capacity(buffer_size))?
-    stored(incoming.resize(buffer_size, 0u8))?
-    mut outgoing = stored(std.bytes.with_capacity(buffer_size))?
-    stored(outgoing.resize(buffer_size, 0u8))?
+    mut incoming = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
+    tls_error_allocated(incoming.resize(buffer_size, 0u8))?
+    mut outgoing = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
+    tls_error_allocated(outgoing.resize(buffer_size, 0u8))?
     Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server))
 
 # Starts a client session on a connected stream without waiting; the

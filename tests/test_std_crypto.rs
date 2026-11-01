@@ -265,7 +265,7 @@ print(hex(&tag)?)?
 mut mac = std.crypto.hmac(Algorithm.Sha256, &key)?
 mac.update(&data)?
 print(mac.verify(&tag[:16])?)?
-tag.set(31, tag.get(31)? ^ 1u8)?
+tag.set(31, tag.get(31) ^ 1u8)
 mut again = std.crypto.hmac(Algorithm.Sha256, &key)?
 again.update(&data)?
 print(again.verify(&tag[:32])?)?

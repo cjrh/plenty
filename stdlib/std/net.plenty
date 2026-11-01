@@ -71,7 +71,7 @@ pub class SocketAddress:
     # `1.2.3.4:80`, or `[::1]:80` with `%scope` inside the brackets when the
     # scope is not zero.
     pub def to_string(self) -> Result[str, NetError]:
-        mut out = lifted(std.bytes.with_capacity(64))?
+        mut out = allocated(std.bytes.with_capacity(64))?
         ip = self.ip
         match ip:
             case IpAddress.V4(_):
@@ -306,7 +306,7 @@ def address_of(file: &File, which: u8) -> Result[SocketAddress, NetError]:
             Err(named(error))
 
 def emit(out: &mut Bytes, value: i64) -> Result[(), NetError]:
-    lifted(out.push(u8(value)))
+    allocated(out.push(u8(value)))
 
 def emit_decimal(out: &mut Bytes, value: i64) -> Result[(), NetError]:
     if value >= 10:
@@ -380,7 +380,7 @@ def write_ip(out: &mut Bytes, ip: IpAddress) -> Result[(), NetError]:
 
 # Dotted decimal or RFC 5952 text.
 pub def format_ip(ip: IpAddress) -> Result[str, NetError]:
-    mut out = lifted(std.bytes.with_capacity(48))?
+    mut out = allocated(std.bytes.with_capacity(48))?
     write_ip(&mut out, ip)?
     lifted(out.to_text())
 
@@ -397,7 +397,7 @@ def hex(value: u8) -> i64:
     digit(value)
 
 def found(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, NetError]:
-    match lifted(source.find(value, start, stop))?:
+    match source.find(value, start, stop):
         case Some(at):
             Ok(at)
         case Nothing:
@@ -497,13 +497,13 @@ def ip_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
 
 # `127.0.0.1` or `::1`. Scopes and names are not addresses here.
 pub def parse_ip(text: &str) -> Result[IpAddress, NetError]:
-    source = lifted(std.bytes.from_text(text))?
+    source = allocated(std.bytes.from_text(text))?
     ip_in(&source, 0, source.len())
 
 # `127.0.0.1:80`, `[::1]:80` or `[fe80::1%2]:80`, with a numeric port and
 # scope.
 pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
-    source = lifted(std.bytes.from_text(text))?
+    source = allocated(std.bytes.from_text(text))?
     stop = source.len()
     if stop > 0 and source[0] == 91u8:
         close = found(&source, 93u8, 1, stop)?
@@ -553,15 +553,15 @@ def started(result: Result[File, IoError]) -> Result[File, NetError]:
 # The whole reply of a lookup, read through `std.ready` until end of input.
 def reply_of(file: File, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[u8], NetError]:
     mut reply = FileStream(file)
-    mut data = lifted(std.bytes.with_capacity(256))?
-    mut chunk = lifted(std.bytes.with_capacity(256))?
-    lifted(chunk.resize(256, 0u8))?
+    mut data = allocated(std.bytes.with_capacity(256))?
+    mut chunk = allocated(std.bytes.with_capacity(256))?
+    allocated(chunk.resize(256, 0u8))?
     while True:
         count = counted(std.ready.read_before(&mut reply, &mut chunk, 0, 256, deadline, cancel))?
         if count == 0:
             break
-        lifted(data.extend(&chunk[:count]))?
-    lifted(data.to_list())
+        allocated(data.extend(&chunk[:count]))?
+    allocated(data.to_list())
 
 # Addresses for `host` with `port` set: an IP literal directly, otherwise
 # the system resolver, in its preference order. The lookup runs on a helper
@@ -637,23 +637,23 @@ pub class Lookup:
                 case Err(error):
                     return Err(waited(error))
             at = self._data.len()
-            lifted(self._data.resize(at + lookup_chunk, 0u8))?
+            allocated(self._data.resize(at + lookup_chunk, 0u8))?
             # Readable, so this read returns at once even though the reply
             # end blocks.
             match self._reply.read(&mut self._data, at, at + lookup_chunk):
                 case Ok(count):
-                    lifted(self._data.truncate(at + count))?
+                    self._data.truncate(at + count)
                     if count == 0:
-                        return addresses_in(&lifted(self._data.to_list())?, self._port)
+                        return addresses_in(&allocated(self._data.to_list())?, self._port)
                 case Err(error):
-                    lifted(self._data.truncate(at))?
+                    self._data.truncate(at)
                     return Err(streamed(error))
         Err(NetError.WouldBlock)
 
 # Starts looking up `host` and returns at once. An IP literal needs no
 # lookup; `parse_ip` it first, as `resolve` does.
 pub def start_lookup(host: &str, port: u16) -> Result[Lookup, NetError]:
-    data = lifted(std.bytes.with_capacity(256))?
+    data = allocated(std.bytes.with_capacity(256))?
     Ok(Lookup(FileStream(started(__net_resolve(host))?), data, port))
 
 pub enum Shutdown:
@@ -944,12 +944,12 @@ pub class UdpSocket:
 
     # Receives one datagram into buffer[start:stop].
     pub def receive_from(self: &mut UdpSocket, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Datagram, NetError]:
-        mut sender = lifted(std.bytes.with_capacity(v6_size))?
+        mut sender = allocated(std.bytes.with_capacity(v6_size))?
         while True:
             ready_for(&self._file, Interest.Read, deadline, cancel)?
             match received_from(buffer, &mut self._file, start, stop, &mut sender):
                 case Ok(size):
-                    data = lifted(sender.to_list())?
+                    data = allocated(sender.to_list())?
                     (source, _) = decoded(&data, 0)?
                     mut stored = size
                     if stored > stop - start:

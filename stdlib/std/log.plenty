@@ -3,6 +3,13 @@ from std.fmt import Formatter, FormatError, formatter
 from std.io import Writer, StreamError, write_all
 from std.time import Timestamp, wall_now
 
+def log_error_allocated[T](result: Result[T, AllocError]) -> Result[T, LogError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(LogError.Allocation(cause))
+
 pub enum LogError:
     InvalidSpec
     InvalidKey
@@ -207,8 +214,8 @@ pub class LineBuffer:
         match self.data.extend(source):
             case Ok(_):
                 Ok(len(source))
-            case Err(_):
-                Err(StreamError.OutOfRange)
+            case Err(cause):
+                Err(StreamError.Allocation(cause))
 
     pub def flush(self: &mut LineBuffer) -> Result[(), StreamError]:
         Ok(())
@@ -305,9 +312,9 @@ pub class TextSink[W]:
 pub def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], LogError]:
     if max_line < 1:
         return Err(LogError.InvalidSpec)
-    mut scratch = stored(with_capacity(32))?
-    stored(scratch.resize(32, 0u8))?
-    line = LineBuffer(stored(with_capacity(max_line))?, max_line, False)
+    mut scratch = log_error_allocated(with_capacity(32))?
+    log_error_allocated(scratch.resize(32, 0u8))?
+    line = LineBuffer(log_error_allocated(with_capacity(max_line))?, max_line, False)
     out = fields_of(formatter(line, scratch, i64.MAX, 0))?
     Ok(TextSink(writer, out))
 

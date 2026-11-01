@@ -82,8 +82,8 @@ pub class Decoder:
         if prior == head:
             # Preserve the shared parser's error when a complete malformed
             # line is followed by EOF before the final empty line.
-            mut raw = mapped_bytes(self._section.copy())?
-            mapped_bytes(raw.extend(&self._line))?
+            mut raw = allocated(self._section.copy())?
+            allocated(raw.extend(&self._line))?
             mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_budget))?
             drop(std.http.read_request(&mut reader, &self._limits)?)
         elif prior == trailers:
@@ -119,8 +119,8 @@ pub class Decoder:
                 count = self._remaining
             if count == 0:
                 return Ok((0, Nothing))
-            mut body = mapped_bytes(std.bytes.with_capacity(count))?
-            mapped_bytes(body.extend(&source[:count]))?
+            mut body = allocated(std.bytes.with_capacity(count))?
+            allocated(body.extend(&source[:count]))?
             self._remaining -= count
             self._total += count
             if self._remaining == 0:
@@ -134,7 +134,7 @@ pub class Decoder:
                 return Ok((at, Nothing))
             size = self._line.len() - 2
             if self._state == head:
-                mapped_bytes(self._section.extend(&self._line))?
+                allocated(self._section.extend(&self._line))?
                 if not self._request_line:
                     if size > 0:
                         self._request_line = True
@@ -159,7 +159,7 @@ pub class Decoder:
                     return Err(HttpError.InvalidChunk)
                 self._state = chunk_size
             else:
-                mapped_bytes(self._section.extend(&self._line))?
+                allocated(self._section.extend(&self._line))?
                 if size == 0:
                     self._line.clear()
                     values = self.parsed_trailers()?
@@ -208,7 +208,7 @@ pub class Decoder:
                 complete = True
                 break
             at += 1
-        mapped_bytes(self._line.extend(&source[:end]))?
+        allocated(self._line.extend(&source[:end]))?
         if complete:
             length = self._line.len()
             if length < 2 or self._line[length - 2] != 13u8:
@@ -218,7 +218,7 @@ pub class Decoder:
         Ok((end, complete))
 
     def parsed_head(self: &mut Decoder) -> Result[Event, HttpError]:
-        raw = replace(self._section, mapped_bytes(std.bytes.empty())?)
+        raw = replace(self._section, allocated(std.bytes.empty())?)
         mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_budget))?
         request = std.http.read_request(&mut reader, &self._limits)?.ok_or(HttpError.Truncated)?
         framing = std.http.request_framing(&request)?
@@ -241,11 +241,11 @@ pub class Decoder:
         mut values: list[Header] = allocated(list[Header].new())?
         mut at = 0
         while at < self._section.len():
-            end = mapped_bytes(self._section.find(10u8, at, self._section.len()))?.ok_or(HttpError.Truncated)?
+            end = self._section.find(10u8, at, self._section.len()).ok_or(HttpError.Truncated)?
             size = end - at - 1
             if size == 0:
                 break
-            line = mapped_bytes(self._section.slice(at, end - 1))?
+            line = allocated(self._section.slice(at, end - 1))?
             allocated(values.append(std.http.parse_field(&line[:size])?))?
             at = end + 1
         self._section.clear()
@@ -255,7 +255,7 @@ pub def decoder(limits: &Limits) -> Result[Decoder, HttpError]:
     if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
         return Err(HttpError.InvalidLimit)
     owned = Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
-    Ok(Decoder(owned, head, mapped_bytes(std.bytes.empty())?, mapped_bytes(std.bytes.empty())?, False, False, 0, 0, 0))
+    Ok(Decoder(owned, head, allocated(std.bytes.empty())?, allocated(std.bytes.empty())?, False, False, 0, 0, 0))
 
 def mapped_bytes[T](result: Result[T, BytesError]) -> Result[T, HttpError]:
     match result:

@@ -27,8 +27,8 @@ def head_step[E, T](result: Result[T, HttpError], completed: i64) -> Result[T, P
         case Err(cause):
             Err(Partial(completed, FramingError[E].Protocol(cause)))
 
-def head_storage[E, T](result: Result[T, std.bytes.BytesError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
-    match chunk_bytes[E, T](result):
+def head_storage[E, T](result: Result[T, AllocError], completed: i64) -> Result[T, Partial[FramingError[E]]]:
+    match chunk_allocated[E, T](result):
         case Ok(value):
             Ok(value)
         case Err(cause):
@@ -85,7 +85,11 @@ def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limi
 def head_buffer[E](limits: &Limits) -> Result[Bytes, Partial[FramingError[E]]]:
     if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
         return Err(Partial(0, FramingError[E].Protocol(HttpError.InvalidLimit)))
-    head_storage[E, Bytes](std.bytes.empty(), 0)
+    match std.bytes.empty():
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(Partial(0, FramingError[E].Protocol(HttpError.Allocation(cause))))
 
 # These readers do not read ahead. Supply a typed BufReader for efficient
 # transport reads and retain that same reader for the body and next message.
@@ -189,11 +193,18 @@ pub class FixedBody[E, R]:
 pub def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]:
     if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
         return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
-    line = chunk_bytes[E, Bytes](std.bytes.with_capacity(limits.max_line))?
+    line = chunk_allocated[E, Bytes](std.bytes.with_capacity(limits.max_line))?
     trailers = chunk_alloc[E, list[Header]](list[Header].new())?
     Ok(ChunkedBody[E, R](Some(inner), trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body))
 
 def chunk_alloc[E, T](result: Result[T, AllocError]) -> Result[T, FramingError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(FramingError[E].Protocol(HttpError.Allocation(cause)))
+
+def chunk_allocated[E, T](result: Result[T, AllocError]) -> Result[T, FramingError[E]]:
     match result:
         case Ok(value):
             Ok(value)
@@ -322,7 +333,7 @@ pub class ChunkedBody[E, R]:
                 return Err(StepError[FramingError[E]].Source(FramingError[E].Protocol(overflow)))
             drop(self.pull(buffer, start, start + 1)?)
             code = buffer[start]
-            match chunk_bytes[E, ()](self.line.push(code)):
+            match chunk_allocated[E, ()](self.line.push(code)):
                 case Err(cause):
                     return Err(StepError[FramingError[E]].Source(cause))
                 case Ok(_):

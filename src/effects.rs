@@ -160,6 +160,8 @@ impl CollectionOp {
             }
             // The injection state belongs to the calling thread.
             TestFault => Effect::Compute,
+            // A trap is allowed wherever an index or arithmetic check is.
+            Trap => Effect::Compute,
             // Heap bookkeeping for std.actor; memory only.
             ActorHeap => Effect::Compute,
             EncodeUtf8

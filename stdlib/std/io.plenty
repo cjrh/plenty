@@ -9,6 +9,13 @@ from std.encoding import Endian, EncodingError
 import std.encoding
 import std.bytes
 
+def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(StreamError.Allocation(cause))
+
 pub enum StreamError:
     Interrupted
     UnexpectedEof
@@ -27,14 +34,12 @@ pub enum BinaryError:
     Allocation(AllocError)
     Encoding(EncodingError)
 
-def binary_bytes[T](result: Result[T, BytesError]) -> Result[T, BinaryError]:
+def binary_allocated[T](result: Result[T, AllocError]) -> Result[T, BinaryError]:
     match result:
         case Ok(value):
             Ok(value)
-        case Err(BytesError.Allocation(cause)):
+        case Err(cause):
             Err(BinaryError.Allocation(cause))
-        case Err(_):
-            Err(BinaryError.OutOfRange)
 
 # Avoid a callback adapter: these field operations also run in owned workers.
 def binary_encoding[T](result: Result[T, EncodingError]) -> Result[T, BinaryError]:
@@ -208,7 +213,7 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Re
         if step > chunk:
             step = chunk
         filled = out.len()
-        match bytes_result(out.resize(filled + step, 0u8)):
+        match stream_error_allocated(out.resize(filled + step, 0u8)):
             case Ok(_):
                 pass
             case Err(cause):
@@ -217,14 +222,14 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Re
         match outcome:
             case Ok(count):
                 if count < 0 or count > step:
-                    drop(out.truncate(filled))
+                    out.truncate(filled)
                     return Err(Partial(total, StreamError.InvalidProgress))
-                drop(out.truncate(filled + count))
+                out.truncate(filled + count)
                 if count == 0:
                     return Ok(total)
                 total += count
             case Err(cause):
-                drop(out.truncate(filled))
+                out.truncate(filled)
                 if not interrupted(&cause):
                     return Err(Partial(total, cause))
     Ok(total)
@@ -291,7 +296,7 @@ pub class BufReader[R]:
         mut count = stop - start
         if count > self._stop - self._start:
             count = self._stop - self._start
-        bytes_result(buffer.overwrite(start, &self._buffer[self._start:self._start + count]))?
+        buffer.overwrite(start, &self._buffer[self._start:self._start + count])
         self._start += count
         Ok(count)
 
@@ -318,16 +323,12 @@ pub class BufReader[R]:
                     stop = self._start + (limit - total)
                 mut found = False
                 match self._buffer.find(delimiter, self._start, stop):
-                    case Ok(position):
-                        match position:
-                            case Some(index):
-                                stop = index + 1
-                                found = True
-                            case Nothing:
-                                pass
-                    case Err(_):
-                        return Err(StreamError.OutOfRange)
-                bytes_result(out.extend(&self._buffer[self._start:stop]))?
+                    case Some(index):
+                        stop = index + 1
+                        found = True
+                    case Nothing:
+                        pass
+                stream_error_allocated(out.extend(&self._buffer[self._start:stop]))?
                 total += stop - self._start
                 self._start = stop
                 if found:
@@ -337,8 +338,8 @@ pub class BufReader[R]:
 pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    mut buffer = bytes_result(with_capacity(capacity))?
-    bytes_result(buffer.resize(capacity, 0u8))?
+    mut buffer = stream_error_allocated(with_capacity(capacity))?
+    stream_error_allocated(buffer.resize(capacity, 0u8))?
     Ok(BufReader(inner, buffer, 0, 0))
 
 # Repositions the inner stream and discards buffered input. A relative target
@@ -401,7 +402,7 @@ pub class BufWriter[W]:
         # A write at least as large as the buffer goes straight through.
         if count >= self._capacity:
             return progressed(self.inner.write(source)?, count)
-        bytes_result(self._buffer.extend(source))?
+        stream_error_allocated(self._buffer.extend(source))?
         Ok(count)
 
     pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
@@ -411,7 +412,7 @@ pub class BufWriter[W]:
 pub def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]:
     if capacity <= 0:
         return Err(StreamError.OutOfRange)
-    Ok(BufWriter(inner, bytes_result(with_capacity(capacity))?, 0, capacity))
+    Ok(BufWriter(inner, stream_error_allocated(with_capacity(capacity))?, 0, capacity))
 
 # Delivers pending bytes, then repositions the inner stream.
 pub def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]:
@@ -470,7 +471,7 @@ pub class Cursor:
         if end > max_bytes or self.data.len() > max_bytes:
             return Err(BinaryError.LimitExceeded)
         if end > self.data.len():
-            binary_bytes(self.data.resize(end, 0u8))?
+            binary_allocated(self.data.resize(end, 0u8))?
         Ok(end)
 
     # This explicit owned copy is capped before allocation; views cannot escape.
@@ -481,8 +482,8 @@ pub class Cursor:
             return Err(BinaryError.LimitExceeded)
         end = self.field_end(count)?
         if count == 0:
-            return binary_bytes(std.bytes.empty())
-        result = binary_bytes(std.bytes.from_bytes(&self.data[self._position:end]))?
+            return binary_allocated(std.bytes.empty())
+        result = binary_allocated(std.bytes.from_bytes(&self.data[self._position:end]))?
         self._position = end
         Ok(result)
 
@@ -495,7 +496,7 @@ pub class Cursor:
                 return Err(BinaryError.LimitExceeded)
             return Ok(())
         end = self.prepare_field(len(source), max_bytes)?
-        binary_bytes(self.data.overwrite(self._position, source))?
+        self.data.overwrite(self._position, source)
         self._position = end
         Ok(())
 
@@ -627,7 +628,7 @@ pub class Cursor:
         mut count = stop - start
         if count > size - self._position:
             count = size - self._position
-        bytes_result(buffer.overwrite(start, &self.data[self._position:self._position + count]))?
+        buffer.overwrite(start, &self.data[self._position:self._position + count])
         self._position += count
         Ok(count)
 
@@ -638,9 +639,9 @@ pub class Cursor:
         end = displaced(self._position, count)?
         # Reserve the entire extent before changing a seek gap or existing data.
         if end > self.data.len():
-            bytes_result(self.data.reserve(end - self.data.len()))?
-            bytes_result(self.data.resize(end, 0u8))?
-        bytes_result(self.data.overwrite(self._position, source))?
+            stream_error_allocated(self.data.reserve(end - self.data.len()))?
+            stream_error_allocated(self.data.resize(end, 0u8))?
+        self.data.overwrite(self._position, source)
         self._position = end
         Ok(count)
 
