@@ -279,6 +279,17 @@ loopback. The configurations are `tests/fixtures/proxy/nginx.conf` and
 Each test runs against both proxies. Clients connect from `127.0.0.2`, so the
 handler can tell them from the proxy at `127.0.0.1`.
 
+The harness reserves distinct TCP ports and the TLS port's UDP socket through
+configuration setup, then releases them immediately before starting Docker.
+Caddy also opens that UDP port for HTTP/3; this is not HTTP/3 qualification.
+Host networking still has a socket handoff window, so readiness checks a unique
+proxy-local response over both HTTP and verified TLS, without adding upstream
+requests. An unexpected HTTP status or identity fails immediately rather than
+being retried. Shutdown setup failures retain response headers and body,
+listener/upstream ports, container logs and upstream stderr. These checks harden
+endpoint identification; they do not establish the cause of the intermittent
+pre-shutdown `400` reported in issue #647.
+
 | Test | Checks |
 |---|---|
 | `*_forwarding_keep_alive_and_tls` | `exchange.authority` and `Host` keep the client's `Host`; `X-Forwarded-Proto` is `http` or `https`; [`client_of`](http-proxy.md#clients), trusting only `127.0.0.1`, finds the client and ignores a spoofed `X-Forwarded-For`; curl reuses its connection to the proxy; twelve requests reach the server over at most three connections; TLS terminated at the proxy, with a 700 KB upload |

@@ -15,7 +15,7 @@
 mod support;
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -33,6 +33,11 @@ const CADDY_IMAGE: &str = "caddy:2.11.7-alpine";
 const MOUNT: &str = "/etc/plenty-proxy";
 
 const SIGTERM: i32 = 15;
+
+#[test]
+fn proxy_fixture_type_checks_without_docker() {
+    plenty::check_source(SERVER).unwrap();
+}
 
 unsafe extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
@@ -65,13 +70,30 @@ pub(super) fn enabled(test: &str) -> bool {
     true
 }
 
-/// A loopback port that was free a moment ago.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+/// Keep both TCP ports distinct and available throughout configuration setup.
+/// Caddy also binds UDP on its TLS port for HTTP/3, even though these tests
+/// use curl's TCP transports. TCP availability alone cannot qualify that port.
+struct Ports {
+    http: TcpListener,
+    tls: TcpListener,
+    _quic: UdpSocket,
+}
+
+impl Ports {
+    fn reserve() -> Self {
+        for _ in 0..100 {
+            let http = TcpListener::bind("127.0.0.1:0").unwrap();
+            let tls = TcpListener::bind("127.0.0.1:0").unwrap();
+            if let Ok(quic) = UdpSocket::bind(tls.local_addr().unwrap()) {
+                return Self {
+                    http,
+                    tls,
+                    _quic: quic,
+                };
+            }
+        }
+        panic!("cannot reserve two TCP ports and a matching UDP port");
+    }
 }
 
 /// The server program on the host. It is killed if the test ends early.
@@ -95,6 +117,7 @@ impl Server {
         let mut child = Command::new(executable)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
+            .stderr(std::fs::File::create(dir.path().join("stderr")).unwrap())
             .spawn()
             .unwrap();
         let mut lines = BufReader::new(child.stdout.take().unwrap());
@@ -124,10 +147,17 @@ impl Server {
         assert!(status.success(), "{status:?}\n{rest}");
         rest.trim_end().to_owned()
     }
+
+    fn diagnostics(&self) -> String {
+        std::fs::read_to_string(self._dir.path().join("stderr")).unwrap_or_default()
+    }
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("upstream {} stderr:\n{}", self.port, self.diagnostics());
+        }
         if let Ok(None) = self.child.try_wait() {
             let _ = self.child.kill();
             let _ = self.child.wait();
@@ -148,6 +178,7 @@ pub(super) struct Proxy {
     name: String,
     http: u16,
     tls: u16,
+    identity: String,
     docker: Child,
     dir: tempfile::TempDir,
 }
@@ -199,24 +230,31 @@ impl Proxy {
                 String::from_utf8_lossy(&pulled.stderr)
             );
         }
-        let (http, tls) = (free_port(), free_port());
-        let dir = tempfile::tempdir().unwrap();
-        let text = template
-            .replace("@UPSTREAM_PORT@", &upstream.to_string())
-            .replace("@HTTP_PORT@", &http.to_string())
-            .replace("@TLS_PORT@", &tls.to_string());
-        std::fs::write(dir.path().join(config), text).unwrap();
-        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
-        for file in ["leaf.pem", "leaf.key"] {
-            std::fs::copy(fixtures.join(file), dir.path().join(file)).unwrap();
-        }
+        let ports = Ports::reserve();
+        let http = ports.http.local_addr().unwrap().port();
+        let tls = ports.tls.local_addr().unwrap().port();
         let name = format!(
             "plenty-proxy-test-{}-{}",
             std::process::id(),
             COUNT.fetch_add(1, Ordering::Relaxed)
         );
+        let dir = tempfile::tempdir().unwrap();
+        let text = template
+            .replace("@UPSTREAM_PORT@", &upstream.to_string())
+            .replace("@HTTP_PORT@", &http.to_string())
+            .replace("@TLS_PORT@", &tls.to_string())
+            .replace("@IDENTITY@", &name);
+        std::fs::write(dir.path().join(config), text).unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+        for file in ["leaf.pem", "leaf.key"] {
+            std::fs::copy(fixtures.join(file), dir.path().join(file)).unwrap();
+        }
         let log = std::fs::File::create(dir.path().join("log")).unwrap();
         // `z` relabels the mount for SELinux hosts; the files are ours.
+        // Host-network containers must bind these sockets themselves. Keep
+        // the unavoidable handoff window short; identity probes below reject
+        // a foreign listener instead of accepting it as a ready proxy.
+        drop(ports);
         let docker = Command::new("docker")
             .args(["run", "--rm", "--name", &name, "--network", "host"])
             .args(["--label", "plenty-test=proxy", "-v"])
@@ -230,30 +268,81 @@ impl Proxy {
             .unwrap();
         let mut proxy = Proxy {
             kind,
-            name,
+            name: name.clone(),
             http,
             tls,
+            identity: name,
             docker,
             dir,
         };
-        proxy.wait_listening();
+        proxy.wait_ready();
         proxy
     }
 
-    fn wait_listening(&mut self) {
+    fn wait_ready(&mut self) {
         let start = Instant::now();
-        for port in [self.http, self.tls] {
-            while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        for secure in [false, true] {
+            let url = if secure {
+                self.tls_url("/__plenty_proxy_ready")
+            } else {
+                self.url("/__plenty_proxy_ready")
+            };
+            loop {
                 if let Ok(Some(status)) = self.docker.try_wait() {
                     panic!("proxy exited with {status}:\n{}", self.log());
                 }
+                let mut command = Command::new("curl");
+                command.args([
+                    "--silent",
+                    "--show-error",
+                    "--max-time",
+                    "2",
+                    "--noproxy",
+                    "*",
+                    "--interface",
+                    "127.0.0.2",
+                    "-w",
+                    "\n%{http_code}",
+                ]);
+                if secure {
+                    command.args(self.tls_args());
+                }
+                command
+                    .arg("--dump-header")
+                    .arg(self.dir.path().join("readiness.headers"));
+                let output = command.arg(&url).output().unwrap();
+                let text = String::from_utf8_lossy(&output.stdout);
+                match readiness(&text, &self.identity) {
+                    Ok(true) => {
+                        assert!(
+                            output.status.success(),
+                            "readiness transport failed: {output:?}"
+                        );
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(error) => panic!(
+                        "proxy readiness {url}: {error}; response={text:?}; stderr={}\nheaders:\n{}\n{}",
+                        String::from_utf8_lossy(&output.stderr),
+                        std::fs::read_to_string(self.dir.path().join("readiness.headers"))
+                            .unwrap_or_default(),
+                        self.log()
+                    ),
+                }
                 assert!(
                     start.elapsed() < Duration::from_secs(60),
-                    "proxy not listening on {port}:\n{}",
+                    "proxy not ready at {url}: {text:?}; stderr={}\n{}",
+                    String::from_utf8_lossy(&output.stderr),
                     self.log()
                 );
                 std::thread::sleep(Duration::from_millis(50));
             }
+        }
+        if let Ok(Some(status)) = self.docker.try_wait() {
+            panic!(
+                "proxy exited after readiness with {status}:\n{}",
+                self.log()
+            );
         }
     }
 
@@ -279,6 +368,42 @@ impl Proxy {
             format!("localhost:{}:127.0.0.1", self.tls),
         ]
     }
+}
+
+/// Only an absent HTTP response is a startup condition. A foreign endpoint
+/// or any HTTP error is evidence, not a condition to silently retry.
+fn readiness(response: &str, identity: &str) -> Result<bool, String> {
+    match response.rsplit_once('\n') {
+        Some(("", "000")) => Ok(false),
+        Some((body, "200")) if body == identity => Ok(true),
+        _ => Err("unexpected status or proxy identity".into()),
+    }
+}
+
+#[test]
+fn proxy_readiness_rejects_http_errors_and_foreign_listeners() {
+    assert_eq!(readiness("\n000", "ours"), Ok(false));
+    assert_eq!(readiness("ours\n200", "ours"), Ok(true));
+    for response in [
+        "Bad Request\n400",
+        "foreign\n200",
+        "ours\n502",
+        "ours\n000",
+        "",
+    ] {
+        assert!(readiness(response, "ours").is_err(), "{response:?}");
+    }
+}
+
+#[test]
+fn proxy_ports_hold_distinct_tcp_and_matching_udp_reservations() {
+    let ports = Ports::reserve();
+    let http = ports.http.local_addr().unwrap();
+    let tls = ports.tls.local_addr().unwrap();
+    assert_ne!(http.port(), tls.port());
+    assert!(TcpListener::bind(http).is_err());
+    assert!(TcpListener::bind(tls).is_err());
+    assert!(UdpSocket::bind(tls).is_err());
 }
 
 impl Drop for Proxy {
@@ -314,8 +439,9 @@ fn curl(args: &[&str]) -> Output {
         .unwrap();
     assert!(
         output.status.success(),
-        "curl {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "curl {args:?}: {}; response: {:?}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
     );
     output
 }
@@ -675,7 +801,22 @@ fn slow_clients_timeouts_and_refusals(kind: Kind) {
 fn shutdown_drains_through_the_proxy(kind: Kind) {
     let mut server = Server::start();
     let proxy = Proxy::start(kind, server.port);
-    assert_eq!(fetch(&[&proxy.url("/info")]).0, "200");
+    let (code, response) = fetch(&["--include", &proxy.url("/info")]);
+    let failure_report = if code != "200" {
+        server.terminate()
+    } else {
+        String::new()
+    };
+    assert_eq!(
+        code,
+        "200",
+        "initial proxy response: {response:?}; http={} tls={} upstream={}\nproxy log:\n{}\nupstream stderr:\n{}\nupstream report:\n{failure_report}",
+        proxy.http,
+        proxy.tls,
+        server.port,
+        proxy.log(),
+        server.diagnostics()
+    );
     let mut stream = connect(proxy.http);
     stream
         .write_all(b"GET /stream/tick HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
