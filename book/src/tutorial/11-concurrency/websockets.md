@@ -10,11 +10,11 @@ text message in upper case until the client closes. The client, on another
 thread, sends two messages and then closes the connection.
 
 ```plenty
+import std.time
 import std.bytes
 import std.http.server
 import std.http.websocket
 import std.net
-import std.time
 from std.http.server import Exchange
 from std.http.websocket import Kind, Message, WebSocketError
 from std.net import TcpStream
@@ -31,16 +31,17 @@ pub enum Route:
 
 pub class Echo:
     pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), ChatError]:
+        wait_cancel = exchange.cancel_token()
         mut socket = std.http.websocket.accept(exchange, &std.http.websocket.config())?
         mut message = std.bytes.empty()?
         while True:
             message.clear()
-            match socket.receive(&mut message, &soon()?)?:
+            match socket.receive(&mut message, &soon()?, &wait_cancel)?:
                 case Message.Text:
                     shout = message.to_text()?.upper()?
-                    socket.send_text(&shout, &soon()?)?
+                    socket.send_text(&shout, &soon()?, &wait_cancel)?
                 case Message.Binary:
-                    socket.close(1003, "text only", &soon()?)?
+                    socket.close(1003, "text only", &soon()?, &wait_cancel)?
                     return Ok(())
                 case Message.Close(code):
                     return Ok(())
@@ -53,14 +54,14 @@ def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
         mut socket = std.http.websocket.connect(&url, &std.http.websocket.config(), &soon()?, &never)?
         mut reply = std.bytes.empty()?
         for line in ["hello", "still there?"]?:
-            socket.send_text(&line, &soon()?)?
+            socket.send_text(&line, &soon()?, &never)?
             reply.clear()
-            match socket.receive(&mut reply, &soon()?)?:
+            match socket.receive(&mut reply, &soon()?, &never)?:
                 case Message.Text:
                     print(reply.to_text()?)?
                 case _ as other:
                     print(other)?
-        socket.close(1000, "bye", &soon()?)?
+        socket.close(1000, "bye", &soon()?, &never)?
     Ok(())
 
 def main() -> Result[(), ThreadError | AllocError | std.http.server.ServerError | std.net.NetError | ChatError | IoError]:

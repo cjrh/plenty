@@ -10,7 +10,7 @@ result cloning, async/await, or event loop.
 | `future.result()` | `Result[T, FutureError]` | Consume the future and wait for its result |
 | `future.done()` | `bool` | Observe completion or cancellation |
 | `future.cancel()` | `bool` | Prevent pending work from starting |
-| `future.wait_timeout(timeout_ms: u64)` | `bool` | Observe completion/cancellation within a millisecond budget |
+| `future.wait_timeout_ms(timeout_ms: u64)` | `bool` | Observe completion/cancellation within a millisecond budget |
 
 Methods other than result observe their receiver without needing `mut`.
 Cancellation succeeds only before execution begins. Repeated cancellation of a
@@ -59,7 +59,7 @@ The diagnostic points to the wait, receiver holders, and submission. Tracking
 follows local future moves, `?`, `unwrap()`, `drop_job()`, extraction from
 submission results, and calls that return a future. Separate futures with the same result type keep their own job origins.
 Receivers dropped on every continuing path are accepted. `done()`, `cancel()`,
-and `wait_timeout()` are unaffected, and result retrieval still consumes the
+and `wait_timeout_ms()` are unaffected, and result retrieval still consumes the
 future and preserves both cancellation and application errors.
 
 The same wait is rejected while the function holds a lock on a `Mutex[T]` and

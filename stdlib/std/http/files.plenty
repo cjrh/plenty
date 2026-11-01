@@ -171,8 +171,9 @@ def days_from_civil(year: i64, month: i64, day: i64) -> i64:
 
 # `seconds` since the epoch as an IMF-fixdate (RFC 9110 section 5.6.7), such
 # as `Sun, 06 Nov 1994 08:49:37 GMT`. Only 1970 to 9999 are shown.
-pub def http_date(seconds: i64) -> Result[Option[str], FilesError]:
-    if seconds < 0 or seconds > last_second:
+pub def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]:
+    seconds = timestamp.seconds
+    if timestamp.nanoseconds >= 1000000000u32 or seconds < 0 or seconds > last_second:
         return Ok(Nothing)
     days = seconds // 86400
     clock = seconds % 86400
@@ -227,7 +228,7 @@ def same_bytes(data: &Bytes, start: i64, text: &Bytes, offset: i64, count: i64) 
 
 # Seconds since the epoch of an IMF-fixdate. The obsolete RFC 850 and
 # asctime forms are not accepted; a date that does not parse is ignored.
-pub def parse_http_date(text: &str) -> Result[Option[i64], FilesError]:
+pub def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]:
     data = lifted(std.bytes.from_text(text))?
     if data.len() != 29:
         return Ok(Nothing)
@@ -250,10 +251,10 @@ pub def parse_http_date(text: &str) -> Result[Option[i64], FilesError]:
         return Ok(Nothing)
     seconds = days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
     # Formatting the result back rejects 31 February and a wrong weekday.
-    match http_date(seconds)?:
+    match http_date(&Timestamp(seconds, 0u32))?:
         case Some(again):
             if again == text:
-                return Ok(Some(seconds))
+                return Ok(Some(Timestamp(seconds, 0u32)))
             Ok(Nothing)
         case Nothing:
             Ok(Nothing)
@@ -316,7 +317,7 @@ def unchanged(headers: &list[Header], tag: &Option[Bytes], modified: Option[i64]
                 case Some(seconds):
                     match parse_http_date(&headers[index].value)?:
                         case Some(since):
-                            return Ok(seconds <= since)
+                            return Ok(seconds <= since.seconds)
                         case Nothing:
                             pass
                 case Nothing:
@@ -354,7 +355,7 @@ def add_validators(head: &mut ResponseHead, found: &Validators) -> Result[(), Fi
             pass
     match found.modified:
         case Some(seconds):
-            match http_date(seconds)?:
+            match http_date(&Timestamp(seconds, 0u32))?:
                 case Some(date):
                     http(head.add("Last-Modified", date))?
                 case Nothing:

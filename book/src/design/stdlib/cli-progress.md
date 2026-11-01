@@ -39,7 +39,7 @@ the actual count: it does not claim remaining work was done. A zero-total bar is
 already full, but still needs `finish()` if it was drawn. Updates after finishing
 return `Finished`; invalid positions/overflow return `InvalidPosition` and leave
 the count unchanged. Output failure preserves the accepted count, stops further
-updates, and returns `Output(std.report.FormatError)` with its original cause.
+updates, and returns `Output(std.fmt.FormatError)` with its original cause.
 
 ## Display and metrics
 
@@ -70,7 +70,7 @@ For tests or an application-owned clock, `bar_at(total, now)`, `spinner_at(now)`
 `set_position_at(position, now)` and `finish_at(now)` take a borrowed `Instant`.
 Use one timeline consistently. Backwards elapsed time saturates at zero;
 backwards redraw timestamps cannot bypass the throttle.
-`render(now, output: &mut Formatter)` writes the plain line without newline or
+`render[W](now, output: &mut Formatter[W])` writes the plain line without newline or
 cursor controls and leaves redraw state unchanged. A string formatter allows
 snapshot testing; formatter errors propagate unchanged.
 

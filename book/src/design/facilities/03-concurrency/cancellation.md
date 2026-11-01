@@ -11,7 +11,7 @@ equality are unsupported.
 | `token.cancel()` | `()` | Permanently request cancellation and wake all token waiters |
 | `token.is_cancelled()` | `bool` | Observe the request |
 | `token.wait()` | `()` | Wait until requested |
-| `token.wait_timeout(timeout_ms: u64)` | `bool` | True if requested within the millisecond budget |
+| `token.wait_timeout_ms(timeout_ms: u64)` | `bool` | True if requested within the millisecond budget |
 | `with token.cancel_on_exit():` | guard | Cancel on every exit from the block; see [below](#cancel-on-every-exit) |
 
 All methods observe their receiver without requiring `mut` and allocate nothing.

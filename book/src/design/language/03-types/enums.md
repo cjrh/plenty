@@ -82,7 +82,7 @@ lifecycle or context hooks.
 Variant and method names must be distinct. Class lifecycle hooks are not enum
 methods: variant construction and automatic payload destruction retain their
 existing behavior. Anonymous sums cannot declare methods. They forward only the
-[`std.report.Formattable`](../../stdlib/report.md) contract when every member
+[`std.fmt.Formattable`](../../stdlib/report.md) contract when every member
 satisfies it; arbitrary member methods and protocols are not forwarded.
 
 Enums can satisfy [structural protocols](../07-generics/protocols.md) with

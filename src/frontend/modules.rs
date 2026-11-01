@@ -295,6 +295,7 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "select_recv",
             "select_recv_nowait",
             "select_recv_timeout",
+            "select_recv_timeout_ms",
         ],
         "std.concurrent" => &[
             "ThreadPoolExecutor",
@@ -2238,7 +2239,7 @@ fn from_module_message(module: &str, binding: &str) -> String {
 /// A module import as written, for diagnostics.
 /// Binds the prelude name `FormatError` to `std.fmt.FormatError` in a module
 /// that imports `std.fmt` implicitly, unless the module declares or imports
-/// its own `FormatError`, such as `std.report`'s (issue #632).
+/// its own `FormatError` (issue #632).
 fn prelude_format_error(
     m: &Module,
     deps: &[usize],

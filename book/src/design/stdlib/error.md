@@ -145,7 +145,7 @@ outer.describe_with(&outer.cause.describe()?)
 
 That gives `load settings: read_bytes "missing/settings": IoError.System(2)`.
 An application error enum can match its variants and call the method that fits
-each payload. [`std.report.Formattable`](report.md) provides borrowed formatting
+each payload. [`std.fmt.Formattable`](report.md) provides borrowed formatting
 for application types. `Context[E]` supports this protocol when `E` does:
 it emits the operation and subject, then calls `render` on the typed cause
 exactly once. Nested contexts therefore produce nested operation labels without

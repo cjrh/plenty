@@ -64,7 +64,7 @@ copied into a new `str` or `Bytes`.
 | `begin(mode: Begin)` | `Result[Transaction, DbError]` | Start a transaction |
 | `changes()` | `i64` | Rows changed by the most recent INSERT, UPDATE, or DELETE |
 | `last_insert_rowid()` | `i64` | The rowid of the most recent successful INSERT |
-| `set_busy_timeout(milliseconds: i64)` | `Result[(), DbError]` | How long to retry a locked database; see [Busy databases](#busy-databases) |
+| `set_busy_timeout(budget: &Duration)` | `Result[(), DbError]` | How long to retry a locked database; see [Busy databases](#busy-databases) |
 | `load_extension(path: &str, entrypoint: &str = "")` | `Result[(), DbError]` | Load a trusted native SQLite extension into this connection |
 | `close()` | `Result[(), DbError]` | Close now |
 
@@ -171,9 +171,9 @@ transaction.
 
 A write needs a lock on the database file. When another connection holds
 it, the default is to fail at once with SQLite's `busy` (5) code.
-`set_busy_timeout(ms)` makes later operations retry for up to `ms`
-milliseconds first; 0 restores the default. Values outside 0 to
-2,147,483,647 are `OutOfRange`. Use `Begin.Immediate` for transactions that
+`set_busy_timeout(&budget)` takes a `std.time.Duration`. Zero restores the
+default; positive fractional milliseconds round up. A rounded budget above
+2,147,483,647 milliseconds is `OutOfRange`. Use `Begin.Immediate` for transactions that
 write, so a conflict is found at `begin` rather than partway through.
 
 ## Errors

@@ -889,10 +889,10 @@ fn declared_or_imported_format_error_takes_precedence_over_the_prelude() {
         message.contains("expected Result[str, FormatError]"),
         "{message}"
     );
-    // `std.report` has its own `FormatError`; importing it shadows the prelude.
+    // An explicit canonical import names the same error family as the prelude.
     assert_eq!(
         run(
-            "from std.report import FormatError\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.WriteZero)\n\ndef main() -> Result[(), IoError]:\n    print(bad().is_err(), f\"{1}\".is_ok())?\n    Ok(())\n"
+            "from std.fmt import FormatError\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.InvalidSpec)\n\ndef main() -> Result[(), IoError]:\n    print(bad().is_err(), f\"{1}\".is_ok())?\n    Ok(())\n"
         ),
         "True True"
     );

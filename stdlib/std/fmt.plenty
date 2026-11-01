@@ -1,5 +1,5 @@
 from std.bytes import Bytes, BytesError, with_capacity
-from std.io import Writer, StreamError, Cursor, cursor
+from std.io import Writer, StreamError, Cursor, cursor, Stderr, stderr, classify
 
 pub enum FormatError:
     InvalidSpec
@@ -7,6 +7,7 @@ pub enum FormatError:
     RecursionLimit
     Bytes(BytesError)
     Output(StreamError)
+    OutputClosed
 
 def stored[T](result: Result[T, BytesError]) -> Result[T, FormatError]:
     match result:
@@ -81,12 +82,21 @@ def valid_layout(spec: &Spec) -> bool:
 # that single-scalar emission reuses.
 const SPELLING: i64 = 8
 
+# Streaming uses caller scratch. Collected text reserves a complete emission
+# before touching its cursor; Stderr keeps basic reports allocation-free.
+enum Destination:
+    Streaming
+    Collected
+    Stderr
+
 # Scratch is reused; only spec-driven numbers grow it, fallibly, when it is
 # shorter than their spelling. Each emission checks the remaining byte
 # budget before calling the writer; the successful prefix remains observable.
 pub class Formatter[W]:
     pub writer: W
-    _scratch: Bytes
+    _scratch: Option[Bytes]
+    _destination: Destination
+    _failed: bool
     _limit: i64
     _written: i64
     _depth: i64
@@ -95,20 +105,33 @@ pub class Formatter[W]:
     pub def completed(self) -> i64:
         self._written
 
+    pub def has_failed(self) -> bool:
+        self._failed
+
     def emit(self: &mut Formatter[W], count: i64) -> Result[(), FormatError]:
         self.emit_span(0, count)
 
     def emit_span(self: &mut Formatter[W], begin: i64, end: i64) -> Result[(), FormatError]:
+        if self._failed:
+            return Err(FormatError.OutputClosed)
         count = end - begin
         if count > self._limit - self._written:
             return Err(FormatError.LimitExceeded)
         mut at = begin
         while at < end:
-            match self.writer.write(&self._scratch[at:end]):
+            mut result: Result[i64, StreamError] = Err(StreamError.InvalidProgress)
+            match &self._scratch:
+                case Some(scratch):
+                    result = self.writer.write(&scratch[at:end])
+                case Nothing:
+                    return Err(FormatError.InvalidSpec)
+            match result:
                 case Ok(moved):
                     if moved == 0:
+                        self._failed = self._destination == Destination.Stderr
                         return Err(FormatError.Output(StreamError.WriteZero))
                     if moved < 0 or moved > end - at:
+                        self._failed = self._destination == Destination.Stderr
                         return Err(FormatError.Output(StreamError.InvalidProgress))
                     at += moved
                     self._written += moved
@@ -116,34 +139,70 @@ pub class Formatter[W]:
                     match error:
                         case StreamError.Interrupted:
                             pass
+                        case StreamError.Allocation(cause):
+                            return Err(FormatError.Bytes(BytesError.Allocation(cause)))
                         case _:
+                            self._failed = self._destination == Destination.Stderr
                             return Err(FormatError.Output(error))
         Ok(())
 
     def byte(self: &mut Formatter[W], value: u8) -> Result[(), FormatError]:
-        stored(self._scratch.set(0, value))?
+        stored(self.scratch_set(0, value))?
         self.emit(1)
 
     pub def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
+        if self._failed:
+            return Err(FormatError.OutputClosed)
+        count = value.byte_len()
+        if count > self._limit - self._written:
+            return Err(FormatError.LimitExceeded)
+        # Reports must remain usable while handling allocation failure. Direct
+        # stderr text does not construct a byte buffer or encode a second copy.
+        if self._destination == Destination.Stderr:
+            mut at = 0
+            while at < count:
+                match __report_write(value, at):
+                    case Ok(moved):
+                        if moved == 0:
+                            self._failed = True
+                            return Err(FormatError.Output(StreamError.WriteZero))
+                        at += moved
+                        self._written += moved
+                    case Err(error):
+                        match classify(error):
+                            case StreamError.Interrupted:
+                                pass
+                            case _ as failure:
+                                self._failed = True
+                                return Err(FormatError.Output(failure))
+            return Ok(())
+        self.ensure_scratch(count if self._destination == Destination.Collected else 4)?
+        mut offset = 0
         for scalar in value:
             code = ord(scalar).unwrap()
             if code < 128u32:
-                self.byte(u8(code))?
+                stored(self.scratch_set(offset, u8(code)))?
+                offset += 1
             elif code < 2048u32:
-                stored(self._scratch.set(0, u8(192u32 + code // 64u32)))?
-                stored(self._scratch.set(1, u8(128u32 + code % 64u32)))?
-                self.emit(2)?
+                stored(self.scratch_set(offset, u8(192u32 + code // 64u32)))?
+                stored(self.scratch_set(offset + 1, u8(128u32 + code % 64u32)))?
+                offset += 2
             elif code < 65536u32:
-                stored(self._scratch.set(0, u8(224u32 + code // 4096u32)))?
-                stored(self._scratch.set(1, u8(128u32 + code // 64u32 % 64u32)))?
-                stored(self._scratch.set(2, u8(128u32 + code % 64u32)))?
-                self.emit(3)?
+                stored(self.scratch_set(offset, u8(224u32 + code // 4096u32)))?
+                stored(self.scratch_set(offset + 1, u8(128u32 + code // 64u32 % 64u32)))?
+                stored(self.scratch_set(offset + 2, u8(128u32 + code % 64u32)))?
+                offset += 3
             else:
-                stored(self._scratch.set(0, u8(240u32 + code // 262144u32)))?
-                stored(self._scratch.set(1, u8(128u32 + code // 4096u32 % 64u32)))?
-                stored(self._scratch.set(2, u8(128u32 + code // 64u32 % 64u32)))?
-                stored(self._scratch.set(3, u8(128u32 + code % 64u32)))?
-                self.emit(4)?
+                stored(self.scratch_set(offset, u8(240u32 + code // 262144u32)))?
+                stored(self.scratch_set(offset + 1, u8(128u32 + code // 4096u32 % 64u32)))?
+                stored(self.scratch_set(offset + 2, u8(128u32 + code // 64u32 % 64u32)))?
+                stored(self.scratch_set(offset + 3, u8(128u32 + code % 64u32)))?
+                offset += 4
+            if self._destination != Destination.Collected:
+                self.emit(offset)?
+                offset = 0
+        if self._destination == Destination.Collected:
+            self.emit(offset)?
         Ok(())
 
     # The text of a borrowed substring, `&s[a:b]`, written without a copy.
@@ -161,21 +220,22 @@ pub class Formatter[W]:
     pub def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]:
         if width < 0:
             return Err(FormatError.InvalidSpec)
-        size = stored(self._scratch.write_float(value))?
+        self.ensure_scratch(32)?
+        size = stored(self.scratch_float(value))?
         if size < 0:
             return Err(FormatError.InvalidSpec)
         mut padding = width - size
         while padding > 0:
-            self.byte(32u8)?
+            self.text(" ")?
             padding -= 1
         # Padding reuses byte zero, so restore the spelling before emission.
         if width > size:
-            drop(stored(self._scratch.write_float(value))?)
+            drop(stored(self.scratch_float(value))?)
         self.emit(size)
 
     # Numeric width includes a minus sign and counts ASCII bytes. Bases are
     # explicit; there is no format-string parser or implicit prefix.
-    pub def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64) -> Result[(), FormatError]:
+    pub def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64 = 0) -> Result[(), FormatError]:
         if (base != 2 and base != 8 and base != 10 and base != 16) or width < 0:
             return Err(FormatError.InvalidSpec)
         mut divisor = 1u64
@@ -186,20 +246,16 @@ pub class Formatter[W]:
             digits += 1
         mut padding = width - digits
         while padding > 0:
-            self.byte(32u8)?
+            self.text(" ")?
             padding -= 1
         mut remaining = value
         while divisor > 0u64:
-            digit = remaining // divisor
-            mut code = 48u8 + u8(digit)
-            if digit >= 10u64:
-                code = 87u8 + u8(digit)
-            self.byte(code)?
+            self.text(&digit(remaining // divisor))?
             remaining %= divisor
             divisor //= radix
         Ok(())
 
-    pub def integer(self: &mut Formatter[W], value: i64, width: i64) -> Result[(), FormatError]:
+    pub def integer(self: &mut Formatter[W], value: i64, width: i64 = 0) -> Result[(), FormatError]:
         if width < 0:
             return Err(FormatError.InvalidSpec)
         mut magnitude = 0u64
@@ -216,10 +272,10 @@ pub class Formatter[W]:
             digits += 1
         mut padding = width - digits
         while padding > 0:
-            self.byte(32u8)?
+            self.text(" ")?
             padding -= 1
         if value < 0:
-            self.byte(45u8)?
+            self.text("-")?
         self.unsigned(magnitude, 10, 0)
 
     pub def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]:
@@ -294,9 +350,45 @@ pub class Formatter[W]:
                 Err(FormatError.InvalidSpec)
 
     def ensure_scratch(self: &mut Formatter[W], size: i64) -> Result[(), FormatError]:
-        if self._scratch.len() < size:
-            stored(self._scratch.resize(size, 0u8))?
+        match &mut self._scratch:
+            case Some(scratch):
+                if scratch.len() < size:
+                    stored(scratch.resize(size, 0u8))?
+                return Ok(())
+            case Nothing:
+                pass
+        mut scratch = stored(with_capacity(size))?
+        stored(scratch.resize(size, 0u8))?
+        self._scratch = Some(scratch)
         Ok(())
+
+    def scratch_set(self: &mut Formatter[W], at: i64, value: u8) -> Result[(), BytesError]:
+        match &mut self._scratch:
+            case Some(scratch):
+                scratch.set(at, value)
+            case Nothing:
+                Err(BytesError.OutOfRange)
+
+    def scratch_get(self, at: i64) -> Result[u8, BytesError]:
+        match &self._scratch:
+            case Some(scratch):
+                scratch.get(at)
+            case Nothing:
+                Err(BytesError.OutOfRange)
+
+    def scratch_float(self: &mut Formatter[W], value: f64) -> Result[i64, BytesError]:
+        match &mut self._scratch:
+            case Some(scratch):
+                scratch.write_float(value)
+            case Nothing:
+                Err(BytesError.OutOfRange)
+
+    def scratch_float_spec(self: &mut Formatter[W], value: f64, style: i64, precision: i64, offset: i64) -> Result[i64, BytesError]:
+        match &mut self._scratch:
+            case Some(scratch):
+                scratch.write_float_spec(value, style, precision, offset)
+            case Nothing:
+                Err(BytesError.OutOfRange)
 
     def repeat_fill(self: &mut Formatter[W], fill: &str, count: i64) -> Result[(), FormatError]:
         mut left = count
@@ -405,9 +497,9 @@ pub class Formatter[W]:
             at -= 1
             digit = u8(rest % radix)
             if digit >= 10u8:
-                stored(self._scratch.set(at, letters + digit))?
+                stored(self.scratch_set(at, letters + digit))?
             else:
-                stored(self._scratch.set(at, 48u8 + digit))?
+                stored(self.scratch_set(at, 48u8 + digit))?
             rest //= radix
         mut group = 3
         if base != 10:
@@ -452,19 +544,20 @@ pub class Formatter[W]:
             return Err(FormatError.InvalidSpec)
         if spec.alternate:
             style += 16
-        mut size = stored(self._scratch.write_float_spec(scaled, style, precision, SPELLING))?
+        self.ensure_scratch(32)?
+        mut size = stored(self.scratch_float_spec(scaled, style, precision, SPELLING))?
         if size < 0:
             self.ensure_scratch(-size)?
-            size = stored(self._scratch.write_float_spec(scaled, style, precision, SPELLING))?
+            size = stored(self.scratch_float_spec(scaled, style, precision, SPELLING))?
         end = SPELLING + size
         if kind == "E" or kind == "F" or kind == "G":
             mut at = SPELLING
             while at < end:
-                code = stored(self._scratch.get(at))?
+                code = stored(self.scratch_get(at))?
                 if code >= 97u8 and code <= 122u8:
-                    stored(self._scratch.set(at, code - 32u8))?
+                    stored(self.scratch_set(at, code - 32u8))?
                 at += 1
-        negative = stored(self._scratch.get(SPELLING))? == 45u8
+        negative = stored(self.scratch_get(SPELLING))? == 45u8
         mut start = SPELLING
         if negative:
             start += 1
@@ -476,7 +569,7 @@ pub class Formatter[W]:
             mut nonzero = False
             mut at = start
             while at < end:
-                code = stored(self._scratch.get(at))?
+                code = stored(self.scratch_get(at))?
                 if code == 101u8 or code == 69u8:
                     break
                 if code >= 48u8 and code <= 57u8:
@@ -487,7 +580,7 @@ pub class Formatter[W]:
             signed = digits == 0 or nonzero
         mut digits_end = start
         while digits_end < end:
-            code = stored(self._scratch.get(digits_end))?
+            code = stored(self.scratch_get(digits_end))?
             if code < 48u8 or code > 57u8:
                 break
             digits_end += 1
@@ -495,7 +588,7 @@ pub class Formatter[W]:
         if negative:
             mut at = SPELLING
             while at + 1 < end:
-                stored(self._scratch.set(at, stored(self._scratch.get(at + 1))?))?
+                stored(self.scratch_set(at, stored(self.scratch_get(at + 1))?))?
                 at += 1
             return self.number(signed, "", digits_end - 1, end - 1, suffix, 3, spec)
         self.number(False, "", digits_end, end, suffix, 3, spec)
@@ -572,20 +665,27 @@ def grouped(digits: i64, every: i64) -> i64:
 pub def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]:
     if scratch.len() < 32 or max_bytes < 0 or max_depth < 0 or max_depth > 64:
         return Err(FormatError.InvalidSpec)
-    Ok(Formatter(writer, scratch, max_bytes, 0, 0, max_depth))
+    Ok(Formatter(writer, Some(scratch), Destination.Streaming, False, max_bytes, 0, 0, max_depth))
+
+# Text, booleans and integers use a direct, allocation-free stderr path.
+# Advanced numeric formatting acquires scratch lazily and remains fallible.
+pub def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Stderr], FormatError]:
+    if max_bytes < 0 or max_depth < 0 or max_depth > 64:
+        return Err(FormatError.InvalidSpec)
+    Ok(Formatter(stderr(), Nothing, Destination.Stderr, False, max_bytes, 0, 0, max_depth))
 
 pub def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]:
     if max_bytes < 0 or max_depth < 0 or max_depth > 64:
         return Err(FormatError.InvalidSpec)
     mut scratch = stored(with_capacity(32))?
     stored(scratch.resize(32, 0u8))?
-    formatter(cursor(stored(with_capacity(0))?), scratch, max_bytes, max_depth)
+    Ok(Formatter(cursor(stored(with_capacity(0))?), Some(scratch), Destination.Collected, False, max_bytes, 0, 0, max_depth))
 
 pub def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]:
     stored(output.writer.data.to_text())
 
 # Contracts are checked at each concrete call. A user method may itself be
-# generic in W, unlike a monomorphic structural protocol requirement.
+# generic in W. Reports use the same writer-generic shape through Formattable.
 pub def display[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]:
     output.enter()?
     result = value.display(output)
@@ -730,3 +830,65 @@ pub def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), Forma
     result = pair_body(value, output, first, second)
     output.leave()
     result
+
+def digit(value: u64) -> str:
+    match value:
+        case 0u64:
+            "0"
+        case 1u64:
+            "1"
+        case 2u64:
+            "2"
+        case 3u64:
+            "3"
+        case 4u64:
+            "4"
+        case 5u64:
+            "5"
+        case 6u64:
+            "6"
+        case 7u64:
+            "7"
+        case 8u64:
+            "8"
+        case 9u64:
+            "9"
+        case 10u64:
+            "a"
+        case 11u64:
+            "b"
+        case 12u64:
+            "c"
+        case 13u64:
+            "d"
+        case 14u64:
+            "e"
+        case _:
+            "f"
+
+pub protocol Formattable:
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        pass
+
+# Ownership stays here so formatting failure never replaces the original error
+# or skips its ordinary destruction. The scalar stderr path never allocates.
+def entry_report[T: Formattable](value: T) -> i32:
+    drop(flush_stdout())
+    mut output = stderr_formatter(16384, 64).unwrap()
+    result = entry_record(&value, &mut output)
+    match result:
+        case Ok(_):
+            pass
+        case Err(_):
+            if not output.has_failed():
+                mut fallback = stderr_formatter(22, 0).unwrap()
+                drop(fallback.text(" [report unavailable]\n"))
+    1i32
+
+def entry_record[T: Formattable](value: &T, output: &mut Formatter[Stderr]) -> Result[(), FormatError]:
+    output.text("error: main returned ")?
+    output.enter()?
+    result = value.format(output)
+    output.leave()
+    result?
+    output.text("\n")

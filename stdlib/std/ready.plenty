@@ -62,20 +62,18 @@ def polled(result: Result[i64, IoError]) -> Result[i64, WaitError]:
 def ready(bits: i64) -> Readiness:
     Readiness(bit(bits, 1), bit(bits, 2), bit(bits, 4), bit(bits, 8))
 
-# Waits until `file` is ready for `interest` or the deadline passes. A handle
-# that is already ready succeeds even when the deadline has passed.
-pub def wait_until(file: &File, interest: Interest, deadline: &Deadline) -> Result[Readiness, WaitError]:
-    wanted = mask(&interest)
-    while True:
-        now = monotonic_now()
-        bits = polled(__io_wait(file, wanted, deadline.remaining(&now).as_nanoseconds()))?
-        if bits != 0:
-            return Ok(ready(bits))
-        if deadline.expired(&monotonic_now()):
-            return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
+# Tests readiness once, without waiting or allocating a cancellation token.
+pub def wait_now(file: &File, interest: Interest) -> Result[Readiness, WaitError]:
+    bits = polled(__io_wait(file, mask(&interest), 0u64))?
+    if bits == 0:
+        return Err(WaitError.TimedOut)
+    Ok(ready(bits))
 
-# As wait_until, and also stops with Cancelled once `cancel` is requested.
+# Compatibility spelling of the cancellable deadline wait.
+pub def wait_until(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]:
+    wait(file, interest, deadline, cancel)
+
+# Waits for readiness, ending with Cancelled once `cancel` is requested.
 # A request made before the call wins even over a ready handle; one made
 # during the wait wakes it at once.
 pub def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken) -> Result[Readiness, WaitError]:

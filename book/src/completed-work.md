@@ -43,3 +43,14 @@ lessons. Add a short delivery record here with issue/PR evidence and a reference
 link. Remove the delivered scope from the active backlog; if an item still has
 extensions, retain its ID there and link both ways. Do not copy outstanding
 task lists into these pages or recycle retired B IDs.
+
+## Typed time and cancellable waits
+
+Delivered B42.
+
+Issue #635 aligns database busy timeouts, JWT validation, cookie lifetimes,
+HTTP dates and SSE retry hints with `Duration` and `Timestamp`. WebSocket, SSE,
+readiness and child deadline waits accept caller cancellation while preserving
+server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
+provides typed channel, future, token and two-channel selection waits; explicit
+millisecond primitives remain as low-level compatibility APIs (B42).

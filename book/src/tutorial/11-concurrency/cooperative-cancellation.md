@@ -176,7 +176,7 @@ Check `stop.is_cancelled()` between work units and return an appropriate result.
 Cancellation does not interrupt instructions or skip cleanup.
 
 `cancel()` is safe to repeat. Dropping a token handle does not cancel work.
-`wait_timeout(milliseconds)` waits for a request and returns whether it arrived.
+`wait_timeout_ms(milliseconds)` waits for a request and returns whether it arrived.
 A token does not wake an ordinary `recv()` call. Use a shutdown message or a
 [timed receive](channel-timeouts.md) when a worker must periodically check for
 cancellation. Automatic joining still waits for that worker to return.

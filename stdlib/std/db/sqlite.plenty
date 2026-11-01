@@ -3,6 +3,7 @@
 # this module owns the error model, row state and transaction ownership. See
 # book/src/design/stdlib/sqlite.md.
 from std.bytes import Bytes
+from std.time import Duration
 
 pub enum Mode:
     ReadOnly
@@ -172,10 +173,11 @@ pub class Connection:
 
     # How long a locked database is retried before Busy. The default, 0,
     # fails at once.
-    pub def set_busy_timeout(self: &mut Connection, milliseconds: i64) -> Result[(), DbError]:
-        if milliseconds < 0 or milliseconds > 2147483647:
+    pub def set_busy_timeout(self: &mut Connection, budget: &Duration) -> Result[(), DbError]:
+        milliseconds = budget.as_timeout_ms()
+        if milliseconds > 2147483647u64:
             return Err(DbError.OutOfRange)
-        status(__sqlite_busy_timeout(self._handle, milliseconds))
+        status(__sqlite_busy_timeout(self._handle, i64(milliseconds)))
 
     # Loads trusted native code into this connection. Empty entrypoint asks
     # SQLite to discover the initialization symbol. SQL loading stays disabled.

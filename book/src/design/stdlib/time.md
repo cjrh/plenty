@@ -204,18 +204,16 @@ Sleep measures the monotonic clock, resumes after signals, and cannot be
 cancelled. Scheduling may extend it; nothing shortens it. Workers may sleep and
 read both clocks.
 
-Existing [timed waits](../facilities/03-concurrency/timed-selection.md) keep
-their `u64` millisecond budgets. `as_timeout_ms()` is the one conversion to
-them. It rounds up so that a wait never ends before its deadline and a positive
-remainder never becomes a zero-budget retry loop.
+Prefer [`std.sync`'s typed waits](sync.md#typed-deadline-waits):
+`recv_before`, `send_before`, `select_recv_before`, `future_before` and
+`cancelled_before` take a shared deadline and a cancellation token. The wrappers
+keep one total budget and preserve unsent values on every failure.
 
-- A cancellable sleep is
-  `token.wait_timeout(span.as_timeout_ms())` on a
-  [cancellation token](../facilities/03-concurrency/cancellation.md). It returns
-  true if cancellation was requested first. `std.time` adds no second token.
-- A wait bounded by a shared deadline passes
-  `deadline.remaining(&monotonic_now()).as_timeout_ms()` to `recv_timeout`,
-  `send_timeout`, `select_recv_timeout`, or a future or token `wait_timeout`.
+Low-level [timed waits](../facilities/03-concurrency/timed-selection.md) have
+explicit `_timeout_ms` names and accept `u64` milliseconds. `as_timeout_ms()`
+rounds up so a positive remainder does not become a zero-budget retry loop.
+For example, `token.wait_timeout_ms(span.as_timeout_ms())` observes that token
+without a second cancellation source. The old `_timeout` names remain aliases.
 
 An expired deadline yields a zero budget, which those operations define as an
 immediate check where readiness still wins.

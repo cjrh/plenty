@@ -75,7 +75,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesErro
     start = monotonic_now()
     short = deadline_after(&start, &milliseconds(50))?
     show(wait(&out.file, Interest.Read, &short, &token))?
-    show(wait_until(&out.file, Interest.Read, &short))?
+    show(wait_until(&out.file, Interest.Read, &short, &token))?
     long = deadline_after(&start, &milliseconds(5000))?
     mut buffer = std.bytes.with_capacity(16)?
     buffer.resize(16, 0u8)?
@@ -84,7 +84,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesErro
             print(n)?
         case Err(_):
             print("read failed")?
-    show(wait_until(&out.file, Interest.Read, &long))?
+    show(wait_until(&out.file, Interest.Read, &long, &token))?
     token.cancel()
     show(wait(&out.file, Interest.Read, &long, &token))?
     child.wait()?

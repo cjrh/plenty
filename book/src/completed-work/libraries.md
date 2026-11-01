@@ -43,7 +43,7 @@ assignments. Extensions retain their original B IDs in the
 | B39 / #76 | [Bytes](../design/stdlib/bytes.md): owned buffers, checked ranges, explicit copies, borrowed access, list-style indexing, loops, native fill and bulk scans (issue #115). Copying slices (issue #579), borrowed `&[u8]` subranges and mutable borrowed loops (issues #581/#594) shipped. Static `bytes` literals and `ByteSource` support in byte operations and std stream writes shipped (issue #156, local PRs #198/#203). Original lossless Unix transport remains `list[u8]` (issue #61). |
 | B40 / #77 | [Binary streams](../design/stdlib/io.md): statically dispatched reader/writer/seek/close, explicit partial progress, exact/bounded reads/writes/copy, fixed buffering and distinct flush/close failures, with file/process/memory adapters over Bytes. |
 | B41 / #78 | [Error context](../design/stdlib/error.md): typed operation/path/cause, explicit conversion, descriptions, stderr fallback reports, unit Results (issue #110), `Formattable` causes and readable entrypoint reports. |
-| B42 / #79 | [Time](../design/stdlib/time.md): checked durations, monotonic instants/deadlines, timestamps and sleep. Calendar/time-zone/RFC 3339 support is the official external `plentylang/tz` package (issue #463); `Zoned.until`/`since` calendar differences shipped in v0.3.0 (issue #566). |
+| B42 / #79 | [Time](../design/stdlib/time.md): checked durations, monotonic instants/deadlines, timestamps and sleep; [typed std time APIs and cancellable waits](../completed-work.md#typed-time-and-cancellable-waits) (issue #635). Calendar/time-zone/RFC 3339 support is the official external `plentylang/tz` package (issue #463); `Zoned.until`/`since` calendar differences shipped in v0.3.0 (issue #566). |
 | B43 / #80 | [Environment](../design/stdlib/env.md)/[process](../design/stdlib/process.md): lossless variables/snapshots/cwd, argument-vector spawning without a shell, child env/cwd, piped streams, bounded deadlock-free collection, exit/signal status, termination and reaping. [Shlex](../design/stdlib/shlex.md) splits/quotes shell words without executing/expanding (issue #478). |
 | B44 / #81 | [CLI](../design/stdlib/cli.md): validated schemas, typed/repeatable arguments, `--`, help/errors and lossless paths. [Progress](../design/stdlib/cli-progress.md) adds terminal-only throttled bars/spinners/counts/rates/ETA (issue #477); [fileinput](../design/stdlib/cli-fileinput.md) adds buffered fallible line iteration over native/raw command-line paths and stdin fallback (issue #553). |
 | B45 / #82 | [Formatting](../design/stdlib/fmt.md): static display/debug contracts, scalar/callback aggregate formatting, bounded partial-progress streaming and fallible strings. F-strings add field expressions, conversions, debug `=`, checked Python-style specs and nested fill/alignment/width/precision, returning `FormatError`; formatter output avoids intermediate strings (issue #157, local PRs #200/#202). |
@@ -92,6 +92,15 @@ Reader bridge and typed response composition remain.
 Installed CLI/data and JSON-service workflows validate causes, reports, exit
 status, recovery and cleanup (local PR #472). See the
 [composition evidence](../proposals/completed/error-composition/streams-and-evidence.md).
+
+Issue #634 unifies report and display formatting on
+`std.fmt.Formatter[W]` and `FormatError`. Report methods use a method-local
+writer parameter, including anonymous-sum dispatch and conditional typed
+contexts. Reports can use arbitrary writers and floating-point format specs;
+stderr text/integer/boolean reports still allocate no memory. Canonical owned
+text methods on URLs, media types, socket addresses and Set-Cookie values are
+`to_string()`. See [report formatting](../design/stdlib/report.md).
+
 Remaining presentation/inference candidates stay **B71** in the [backlog](../backlog.md).
 
 ## B76: Columnar data

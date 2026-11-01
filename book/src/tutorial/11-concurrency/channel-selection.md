@@ -31,7 +31,7 @@ stays in its queue. This can be useful for shutdown commands, but constant traff
 on the first channel can starve the second.
 
 `select_recv_nowait(&first, &second)` returns `SelectError.Empty` if neither has a
-message. `select_recv_timeout(&first, &second, milliseconds)` instead waits up
+message. `select_recv_timeout_ms(&first, &second, milliseconds)` instead waits up
 to that budget and may return `SelectError.TimedOut`.
 
 Selection skips a drained channel whose senders have all gone away. It reports

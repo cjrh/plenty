@@ -19,7 +19,7 @@ def main() -> Result[(), AllocError | IoError | std.url.UrlError]:
         case Nothing:
             pass
     print(std.url.decode(&url.path)?)?
-    print(url.format()?)?
+    print(url.to_string()?)?
     Ok(())
 ```
 ```output
@@ -57,7 +57,7 @@ def main() -> Result[(), AllocError | IoError | std.url.UrlError]:
     pairs.append(Pair("lang", "en"))?
     query = std.url.query_text(&pairs)?
     url = Url("https", Nothing, Some("example.com"), Nothing, path, Some(query), Nothing)
-    print(url.format()?)?
+    print(url.to_string()?)?
     print(std.url.encode("a/b", Component.Path)?, std.url.encode("a/b", Component.Segment)?)?
     Ok(())
 ```
@@ -87,7 +87,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(str.repr(std.url.parse("http://example.com:99999/", 2048))?)?
     print(str.repr(std.url.parse("http://example.com/", 10))?)?
     forged = Url("https", Nothing, Some("example.com/x"), Nothing, "", Nothing, Nothing)
-    print(str.repr(forged.format())?)?
+    print(str.repr(forged.to_string())?)?
     Ok(())
 ```
 ```output

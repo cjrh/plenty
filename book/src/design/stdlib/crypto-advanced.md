@@ -79,10 +79,11 @@ is meaningful for such a key.
 ```plenty
 import std.bytes
 import std.crypto
+import std.fmt
 import std.encoding
 import std.report
 
-def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError | std.report.FormatError]:
+def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError | std.fmt.FormatError]:
     identity = std.encoding.hex_from_text("0100000000000000000000000000000000000000000000000000000000000000")?
     forged = std.encoding.hex_from_text("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000")?
     message = std.bytes.from_text("any message")?
@@ -163,7 +164,7 @@ unchanged. Use context to separate keys with different purposes. HKDF is
 | `SmallOrderKey` | An Ed25519 public key has [small order](#small-order-public-keys) |
 | `Allocation(AllocError)` | A fallible buffer or private-state allocation failed |
 
-`AdvancedError` satisfies [`std.report.Formattable`](report.md): each variant
+`AdvancedError` satisfies [`std.fmt.Formattable`](report.md): each variant
 formats as a fixed sentence stating its cause, without key material. An
 [entrypoint report](../toolchain/01-building/entry-report.md) uses it when
 `main` returns a bare `AdvancedError`; an error sum uses it only when every

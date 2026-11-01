@@ -243,10 +243,10 @@ def main() -> Result[(), std.http.cookie.CookieError | std.http.server.ServerErr
         values = values.concat(mark(std.http.cookie.set_cookie("a", &"v".concat(&c)?.concat("w")?)))?
         mut cookie = std.http.cookie.set_cookie("a", "v")?
         cookie.path = "/".concat(&c)?
-        paths = paths.concat(mark(cookie.format()))?
+        paths = paths.concat(mark(cookie.to_string()))?
         cookie.path = "/"
         cookie.domain = "a".concat(&c)?.concat("b")?
-        domains = domains.concat(mark(cookie.format()))?
+        domains = domains.concat(mark(cookie.to_string()))?
         mut table = std.http.server.router[Route]()?
         methods = methods.concat(mark(table.add(&"G".concat(&c)?.concat("T")?, "/", Route.Home)))?
         routes = routes.concat(mark(table.add("GET", &"/{a".concat(&c)?.concat("b}")?, Route.Home)))?

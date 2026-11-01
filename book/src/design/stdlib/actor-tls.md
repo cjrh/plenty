@@ -307,8 +307,8 @@ private keys are zeroized on normal destruction; trap cleanup discards actor pag
 
 - `consume` and `forward` may decrypt more input without new mail; loop
   until `available()` is 0.
-- Compacting the plaintext buffer copies one byte at a time, since `Bytes`
-  has no overlapping copy.
+- Plaintext compaction uses [`Bytes.copy_within`](bytes.md#the-range-rule)
+  to move the unconsumed range in place without allocating.
 - No session resumption, as in `std.tls`.
 - [`std.actor.http.server`](actor-http-server.md) builds HTTP/1.1 over these
   sessions; its [qualification](actor-http-qualification.md) is separate.

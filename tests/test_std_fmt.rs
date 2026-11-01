@@ -394,3 +394,33 @@ fn relocated_compiler_has_formatting_without_repository_or_rust_tools() {
     assert!(output.status.success());
     assert_eq!(output.stdout, b"1.25e0\n");
 }
+
+#[test]
+fn arbitrary_writer_errors_do_not_prevent_later_recovery() {
+    assert_eq!(
+        run(r#"
+import std.bytes
+import std.fmt
+from std.bytes import Bytes
+from std.io import StreamError
+pub class Recovering:
+    calls: i64
+    pub def write(self: &mut Recovering, source: &[u8]) -> Result[i64, StreamError]:
+        self.calls += 1
+        if self.calls == 1:
+            return Err(StreamError.OutOfRange)
+        Ok(len(source))
+    pub def flush(self: &mut Recovering) -> Result[(), StreamError]:
+        Ok(())
+def main() -> Result[(), IoError | std.bytes.BytesError | FormatError]:
+    mut scratch = std.bytes.with_capacity(32)?
+    scratch.resize(32, 0u8)?
+    mut output = std.fmt.formatter(Recovering(0), scratch, 20, 0)?
+    print(output.text("x").is_err(), output.completed(), output.has_failed())?
+    output.text("x")?
+    print(output.completed(), output.has_failed(), output.writer.calls)?
+    Ok(())
+"#),
+        "True 0 False\n1 False 2"
+    );
+}

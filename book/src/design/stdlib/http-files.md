@@ -10,8 +10,8 @@ with files below one directory. The module is checked Plenty in
 | `serve(exchange, &root, path)` | `Result[i64, FilesError]`: answer the request with the file at `path` below `root`; the status sent |
 | `open_file(&root, path)` | `Result[Option[FileStream], FilesError]`: the regular file at `path`, or `Nothing` when it is refused or missing |
 | `media_type(name)` | `str`: the `Content-Type` for `name`'s extension, from [`std.mime`](mime.md) |
-| `http_date(seconds)` | `Result[Option[str], FilesError]`: an IMF-fixdate such as `Sun, 06 Nov 1994 08:49:37 GMT`; `Nothing` before 1970 or after 9999 |
-| `parse_http_date(text)` | `Result[Option[i64], FilesError]`: seconds since the epoch, or `Nothing` unless `text` is an exact IMF-fixdate |
+| `http_date(timestamp: &Timestamp)` | `Result[Option[str], FilesError]`: an IMF-fixdate such as `Sun, 06 Nov 1994 08:49:37 GMT`; `Nothing` before 1970 or after 9999 |
+| `parse_http_date(text)` | `Result[Option[Timestamp], FilesError]`: a timestamp at a whole second, or `Nothing` unless `text` is an exact IMF-fixdate |
 | `max_path` | `4096`: longest accepted `path`, in bytes |
 
 ```text
@@ -22,6 +22,7 @@ std.http.files.serve(exchange, &self.public, &path)?
 ```
 
 ```plenty
+import std.time
 import std.fs
 import std.io
 import std.http.files
@@ -39,7 +40,7 @@ def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.StreamEr
     for path in ["index.html", ".env", "../index.html", "missing.css"]?:
         found = std.http.files.open_file(site.root(), &path)?
         print(path, found.is_some(), std.http.files.media_type(&path))?
-    print(std.http.files.http_date(784111777)?)?
+    print(std.http.files.http_date(&std.time.Timestamp(784111777, 0u32))?)?
     for name in ["index.html", ".env"]?:
         site.root().remove_file(&std.path.from_text(name)?)?
     site.cleanup()?

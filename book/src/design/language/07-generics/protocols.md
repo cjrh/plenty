@@ -107,7 +107,7 @@ minimum interface rather than a separately checked abstract body. `IntType`,
 `FloatType`, and [`CopyType`](index.md#copytype) remain separate built-in
 constraints.
 
-[`std.report.Formattable`](../../stdlib/report.md) additionally accepts an
+[`std.fmt.Formattable`](../../stdlib/report.md) additionally accepts an
 anonymous sum when every normalized member satisfies its contract. The compiler
 dispatches to the active member through a shared borrow without allocation.
 This is specific to that standard-library protocol: a user-defined protocol with

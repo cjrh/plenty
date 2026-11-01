@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 /// An in-memory `Transport` that echoes responses, and a handler serving
 /// `$SITE` below `/s/` and reading a signed `session` cookie on `/session`.
 const PRELUDE: &str = r##"import std.bytes
+import std.time
 import std.fs
 import std.http
 import std.http.cookie
@@ -258,9 +259,14 @@ def main() -> Result[(), std.http.files.FilesError | AllocError | IoError]:
     for name in ["a.HTML", "b.js", "c.json", "d.svg", "e.png", "f.jpeg", "g.wasm", "h.woff2", "i.tar.gz", "noext", ".css"]?:
         print(std.http.files.media_type(name))?
     for seconds in [0, 784111777, 951782400, 253402300799, 253402300800, -1]?:
-        print(std.http.files.http_date(seconds)?)?
+        print(std.http.files.http_date(&std.time.Timestamp(seconds, 0u32))?)?
     for text in ["Sun, 06 Nov 1994 08:49:37 GMT", "Tue, 29 Feb 2000 00:00:00 GMT", "Sunday, 06-Nov-94 08:49:37 GMT", "Sun, 06 Nov 1994 08:49:37 UTC", "Sun, 31 Feb 1994 08:49:37 GMT", "Sun, 06 Nov 1994 24:00:00 GMT", ""]?:
-        print(std.http.files.parse_http_date(text)?)?
+        match std.http.files.parse_http_date(text)?:
+            case Some(stamp):
+                print(Some(stamp.seconds))?
+            case Nothing:
+                missing: Option[i64] = Nothing
+                print(missing)?
     Ok(())
 "#);
     let expected = "\
@@ -330,7 +336,7 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | Al
     print(std.http.cookie.verify(&old, "session", "user42")?)?
     print(std.http.cookie.verify(&old, "session", "user42.!!")?)?
     print(std.http.cookie.sign(&rotated, "session", "user42")? == signed)?
-    print(std.http.cookie.signed_cookie(&rotated, "session", "")?.format()?)?
+    print(std.http.cookie.signed_cookie(&rotated, "session", "")?.to_string()?)?
     short = [std.bytes.from_text("too short")?]?
     for result in [std.http.cookie.sign(&short, "session", "x"), std.http.cookie.sign(&[]?, "session", "x"), std.http.cookie.sign(&old, "bad name", "x"), std.http.cookie.sign(&old, "session", "a;b")]?:
         match result:
@@ -590,6 +596,7 @@ fn multipart_failures_are_reported_and_release_files() {
 /// The direct-TLS example from `http-proxy.md`: static files and a signed
 /// session cookie served over HTTPS on loopback, with the test certificates.
 const HTTPS: &str = r##"import std.bytes
+import std.time
 import std.fs
 import std.http
 import std.http.cookie
@@ -598,7 +605,6 @@ import std.http.server
 import std.http.tls
 import std.net
 import std.path
-import std.time
 import std.tls
 from std.bytes import Bytes
 from std.fs import Root

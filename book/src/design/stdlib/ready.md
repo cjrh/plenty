@@ -60,11 +60,16 @@ of input. `error` means a read or write will report the pending error.
 
 | Function | Result |
 |---|---|
-| `wait_until(file: &File, interest: Interest, deadline: &Deadline)` | `Result[Readiness, WaitError]` |
+| `wait_now(file: &File, interest: Interest)` | `Result[Readiness, WaitError]`: one immediate poll |
+| `wait_until(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken)` | `Result[Readiness, WaitError]` |
 | `wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &CancellationToken)` | `Result[Readiness, WaitError]` |
 | `read_before(stream: &mut FileStream, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
 | `write_before(stream: &mut FileStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken)` | `Result[i64, WaitError]` |
 | `selector(capacity: i64)` | `Result[Selector, WaitError]` |
+
+`wait_until` is a compatibility alias of `wait`, with the same cancellation
+semantics. `wait_now` does not block or allocate a token; no readiness is
+`TimedOut`.
 
 - A handle that is already ready succeeds, even when the deadline has passed.
   Otherwise the wait returns `TimedOut` once the deadline passes.
