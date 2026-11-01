@@ -984,7 +984,9 @@ fn actor_http_completion_control_survives_exhausted_timer_pool() {
 }
 
 #[test]
-fn actor_http_completed_responses_survive_full_ack_mailboxes_and_handler_errors() {
+fn actor_http_completed_responses_survive_handler_errors() {
+    // Full attempts depend on scheduling; acknowledgement pressure is tested
+    // separately with a controlled mailbox. This checks delivery and teardown.
     let server = Server::start(
         include_str!("fixtures/actor_http/control_pressure.plenty"),
         &[("capacity", "128"), ("timeout_ms", "5000u32")],
@@ -1006,5 +1008,22 @@ fn actor_http_completed_responses_survive_full_ack_mailboxes_and_handler_errors(
     assert_eq!(counter(&summary, "failed"), 64, "{summary}");
     assert_eq!(counter(&summary, "trapped"), 0, "{summary}");
     assert_eq!(counter(&summary, "lost"), 0, "{summary}");
-    assert!(counter(&summary, "full") > 0, "{summary}");
+}
+
+#[test]
+fn actor_http_acknowledgements_retry_a_full_mailbox() {
+    // Compile the unmodified module with a same-module probe so private control
+    // state can be inspected without exposing test hooks in the public API.
+    let source = format!(
+        "{}\n{}",
+        include_str!("../stdlib/std/actor/http/server.plenty"),
+        include_str!("fixtures/actor_http/acknowledgements.plenty"),
+    );
+    let (_dir, executable) = support::build_file(&source);
+    let output = support::output_within(&mut Command::new(executable), b"", WAIT);
+    let output = support::assert_success(output);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "pending 1\nacknowledged 16\nretried True\nlost 0\nheaps 0\nheap_bytes 0\n"
+    );
 }

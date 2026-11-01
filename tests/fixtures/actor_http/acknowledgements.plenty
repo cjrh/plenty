@@ -1,0 +1,66 @@
+# Appended to server.plenty to exercise its private acknowledgement queue.
+import std.net
+def ack_count(acceptor: &Acceptor[i64]) -> i64:
+    match &acceptor.acknowledgements:
+        case Some(pending):
+            len(pending)
+        case Nothing:
+            -1
+
+pub class AckProbe:
+    pending: Option[Acceptor[i64]]
+    target: Option[Address]
+    messages: i64
+
+    pub def started(self: &mut AckProbe, context: &mut Context[Notice[i64], ServerError]) -> Result[(), ServerError]:
+        match self.target:
+            case Some(target):
+                listener = std.net.listen(&std.net.loopback_v4(0u16), 1).unwrap()
+                self.pending = Some(Acceptor(factory=0, socket=listener, config=config(), tls=Nothing, children=Nothing, watch=Nothing, address=Nothing, draining=False, requests=0u64, rejected=0u64, protocol_errors=0u64, acknowledgements=Some([target].unwrap()), resuming=False))
+                # No scheduling occurs inside this callback: all 16 slots are
+                # occupied before the actual acceptor tries to acknowledge.
+                for _ in range(16):
+                    context.send(target, Notice[i64].Message(1)).unwrap()
+                match &mut self.pending:
+                    case Some(acceptor):
+                        acceptor.flush_acknowledgements(context)
+                        print("pending", ack_count(acceptor)).unwrap()
+                    case Nothing:
+                        pass
+            case Nothing:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[Notice[i64], ServerError]) -> Result[Option[AckProbe], ServerError]:
+        Ok(Nothing)
+
+    pub def receive(self: &mut AckProbe, mail: Mail[Notice[i64], ServerError], context: &mut Context[Notice[i64], ServerError]) -> Result[(), ServerError]:
+        match mail:
+            case Mail.Message(Notice.Message(_)):
+                self.messages += 1
+            case Mail.Message(Notice.Completed):
+                print("acknowledged", self.messages).unwrap()
+                context.stop()
+            case Mail.Message(Notice.Resume):
+                match &mut self.pending:
+                    case Some(acceptor):
+                        acceptor.resuming = False
+                        acceptor.flush_acknowledgements(context)
+                        if ack_count(acceptor) == 0:
+                            context.stop()
+                    case Nothing:
+                        pass
+            case _:
+                pass
+        Ok(())
+
+def main() -> ():
+    mut actors = std.actor.stage[AckProbe, Notice[i64], ServerError](2, 16, 1).unwrap()
+    target = actors.start(AckProbe(Nothing, Nothing, 0), 1048576).unwrap()
+    drop(actors.start(AckProbe(Nothing, Some(target), 0), 1048576).unwrap())
+    actors.run(&deadline_after(&monotonic_now(), &seconds(2u32)).unwrap(), &CancellationToken().unwrap()).unwrap()
+    print("retried", actors.stats().full > 0).unwrap()
+    print("lost", actors.stats().lost).unwrap()
+    drop(actors)
+    print("heaps", std.actor.heaps_live()).unwrap()
+    print("heap_bytes", std.actor.heap_bytes_used()).unwrap()
