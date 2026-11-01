@@ -798,7 +798,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             460 => {
                 let stmt = statement(a);
-                let bytes = (*(c as *const Storage)).bytes.as_slice();
+                let bytes = super::byte_storage::view_bytes(c);
                 // A zero-length blob still binds a blob, not NULL.
                 let data = if bytes.is_empty() {
                     c"".as_ptr().cast()

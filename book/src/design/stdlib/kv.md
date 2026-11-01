@@ -40,7 +40,8 @@ Paths are UTF-8 strings with the same validation as SQLite paths.
 Logical table names are nonempty strings, bound as data rather than interpolated
 into SQL. Each table is an independent namespace. It appears on first `put`;
 an empty table and a nonexistent table behave identically. Keys and values
-are `std.bytes.Bytes`, including empty buffers, NULs and non-UTF-8 bytes.
+are byte strings, including empty ones, NULs and non-UTF-8 bytes: inputs are
+`&[u8]` views and results are owned `std.bytes.Bytes`.
 Keys sort lexicographically by unsigned bytes, shorter equal prefixes first.
 Integer encodings must be chosen deliberately if numerical ordering matters.
 

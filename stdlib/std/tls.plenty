@@ -137,12 +137,10 @@ def stored[T](result: Result[T, BytesError]) -> Result[T, TlsError]:
 def encrypted(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
     Ok(__tls_write(session, &source[:buffer_size]))
 
-# Record transfers between a session and buffer[start:stop]. Each gives a
-# byte count or one of the negative codes `counted` maps.
-def fed(session: &ByteStorage, source: &Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
-    if start < 0 or start > stop or stop > source.len():
-        return Err(BytesError.OutOfRange)
-    Ok(__tls_feed(session, &source[start:stop]))
+# Record transfers between a session and caller bytes. Each gives a byte
+# count or one of the negative codes `counted` maps.
+def fed(session: &ByteStorage, source: &[u8]) -> Result[i64, BytesError]:
+    Ok(__tls_feed(session, source))
 
 def taken(session: &ByteStorage, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, BytesError]:
     if start < 0 or start > stop or stop > target.len():
@@ -497,7 +495,7 @@ pub class TlsStream:
     def feed_pending(self: &mut TlsStream) -> Result[bool, TlsError]:
         if self._in_start == self._in_stop:
             return Ok(False)
-        used = counted(fed(&self._session, &self._incoming, self._in_start, self._in_stop))?
+        used = counted(fed(&self._session, &self._incoming[self._in_start:self._in_stop]))?
         self._in_start += used
         if self._acknowledge_handshake:
             self.acknowledge_handshake()
@@ -524,7 +522,7 @@ pub class TlsStream:
         self._in_stop = count
         if count == 0:
             self._eof = True
-            counted(fed(&self._session, &self._incoming, 0, 0))?
+            counted(fed(&self._session, b""))?
             return Ok(())
         self.feed_pending()?
         Ok(())
@@ -838,22 +836,18 @@ pub class Session:
     _handle: ByteStorage
     _closed: bool
 
-    # Processes ciphertext from source[start:stop]; the count consumed. The
-    # count falls short while decrypted bytes wait for `read`. On a TLS
-    # failure the session has queued an alert: send what `take` gives before
-    # closing.
-    pub def feed(self: &mut Session, source: &Bytes, start: i64, stop: i64) -> Result[i64, TlsError]:
-        if start == stop:
-            within(start, stop, source.len())?
+    # Processes ciphertext from `source`; the count consumed. The count falls
+    # short while decrypted bytes wait for `read`. On a TLS failure the
+    # session has queued an alert: send what `take` gives before closing.
+    pub def feed(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]:
+        if len(source) == 0:
             return Ok(0)
-        counted(fed(&self._handle, source, start, stop))
+        counted(fed(&self._handle, source))
 
     # Tells the session that the peer's stream has ended. Without the peer's
-    # close_notify, `read` then fails with Truncated. Allocates one empty
-    # buffer.
+    # close_notify, `read` then fails with Truncated.
     pub def feed_end(self: &mut Session) -> Result[(), TlsError]:
-        empty = stored(std.bytes.with_capacity(0))?
-        counted(fed(&self._handle, &empty, 0, 0))?
+        counted(fed(&self._handle, b""))?
         Ok(())
 
     # Moves ciphertext to send into target[start:stop]; the count, 0 when

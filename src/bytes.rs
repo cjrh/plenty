@@ -113,20 +113,16 @@ impl BytesOp {
                 return (vec![storage(), Ty::F64, Ty::I64, Ty::I64, Ty::I64], Ty::I64);
             }
             Self::Overwrite => return (vec![storage(), Ty::I64, view()], Ty::Unit),
-            // Find returns a found index, or -1 for none; Count returns the number of
-            // matching bytes.
-            Self::Find | Self::Count => {
-                return (vec![storage(), Ty::U8, Ty::I64, Ty::I64], Ty::I64);
-            }
+            // Scans read a view. Find returns an index into the view, or -1
+            // for none; Count returns the number of matching bytes.
+            Self::Find | Self::Count => return (vec![view(), Ty::U8], Ty::I64),
             // The last operand selects members (1) or non-members (0).
-            Self::FindIn => {
-                return (vec![storage(), view(), Ty::I64, Ty::I64, Ty::U8], Ty::I64);
-            }
-            Self::FindBytes => return (vec![storage(), view(), Ty::I64, Ty::I64], Ty::I64),
-            Self::Matches => return (vec![storage(), Ty::I64, view()], Ty::Bool),
-            Self::MatchesText => return (vec![storage(), Ty::I64, Ty::Str], Ty::Bool),
-            // The last operand selects ASCII (0) or valid UTF-8 (1).
-            Self::Run => return (vec![storage(), Ty::I64, Ty::I64, Ty::U8], Ty::I64),
+            Self::FindIn => return (vec![view(), view(), Ty::U8], Ty::I64),
+            Self::FindBytes => return (vec![view(), view()], Ty::I64),
+            Self::Matches => return (vec![view(), Ty::I64, view()], Ty::Bool),
+            Self::MatchesText => return (vec![view(), Ty::I64, Ty::Str], Ty::Bool),
+            // The run's length. The operand selects ASCII (0) or valid UTF-8 (1).
+            Self::Run => return (vec![view(), Ty::U8], Ty::I64),
             Self::New => (vec![Ty::I64], storage()),
             Self::Reserve => (vec![storage(), Ty::I64], Ty::Unit),
             Self::Resize => (vec![storage(), Ty::I64, Ty::U8], Ty::Unit),
@@ -138,7 +134,7 @@ impl BytesOp {
             Self::ToList => (vec![storage()], list()),
             Self::FromText => (vec![Ty::Str], storage()),
             Self::FromStatic => (vec![Ty::ByteStr], storage()),
-            Self::ToText => (vec![storage(), Ty::I64, Ty::I64], sum::option(Ty::Str)),
+            Self::ToText => (vec![view()], sum::option(Ty::Str)),
             Self::SliceLiteral => unreachable!("a literal slice defers to `Slice`"),
         };
         (inputs, sum::result(output, sum::alloc_error()))

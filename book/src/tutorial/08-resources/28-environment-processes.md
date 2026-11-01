@@ -84,8 +84,7 @@ def main() -> Result[(), AllocError | IoError | std.io.StreamError | std.bytes.B
     command.stdout(Stdio.Piped)
     command.stderr(Stdio.Piped)
     mut child = command.spawn()?
-    input = std.bytes.from_text("quiet words")?
-    output = child.communicate(&input, 4096)?
+    output = child.communicate(b"quiet words", 4096)?
     print(output.stdout.to_text()?)?
     print(output.stderr.to_text()?)?
     print(output.status.success(), output.status.code())?

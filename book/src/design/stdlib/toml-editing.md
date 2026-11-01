@@ -6,7 +6,7 @@ implemented in checked Plenty with fallible allocation, alongside the
 [existing parser and writer](toml.md).
 
 ```text
-document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]
+document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]
 document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
 Document.text() -> Result[str, TomlError]
 Document.get(path: &list[str]) -> Result[Option[Toml], TomlError]

@@ -517,43 +517,42 @@ pub class Writer[W]:
             self._ready = 0
         Ok(())
 
-    def quoted(self, source: &Bytes, start: i64, stop: i64) -> bool:
+    def quoted(self, source: &[u8]) -> bool:
         if self._always:
             return True
-        first_in(source, &self._special, start, stop) < stop
+        __bytes_find_in(source, &self._special[:], 1u8) >= 0
 
-    def encode(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]:
+    def encode(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
         if self._fields > 0:
             stored(self._pending.push(self._delimiter))?
-        if not self.quoted(source, start, stop):
-            return stored(self._pending.extend(&source[start:stop]))
+        if not self.quoted(source):
+            return stored(self._pending.extend(source))
         stored(self._pending.push(self._quote))?
-        mut copied = start
-        mut index = first(source, self._quote, start, stop)
-        while index < stop:
+        mut copied = 0
+        mut found = __bytes_find(source, self._quote)
+        while found >= 0:
+            index = copied + found
             stored(self._pending.extend(&source[copied:index + 1]))?
             stored(self._pending.push(self._quote))?
             copied = index + 1
-            index = first(source, self._quote, copied, stop)
-        stored(self._pending.extend(&source[copied:stop]))?
+            found = __bytes_find(&source[copied:], self._quote)
+        stored(self._pending.extend(&source[copied:]))?
         stored(self._pending.push(self._quote))
 
-    # Adds source[start:stop] as the next field of the record in progress.
-    pub def field(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]:
-        if start < 0 or start > stop or stop > source.len():
-            return Err(CsvError.OutOfRange)
+    # Adds `source` as the next field of the record in progress.
+    pub def field(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
         self.drain()?
         if self._fields >= self._max_fields:
             return Err(CsvError.Rejected(Fault.TooManyFields, self._records + 1, self._fields))
-        if stop - start > self._max_field:
+        if len(source) > self._max_field:
             return Err(CsvError.Rejected(Fault.FieldTooLong, self._records + 1, self._fields))
-        if stop - start > self._max_record - self._content:
+        if len(source) > self._max_record - self._content:
             return Err(CsvError.Rejected(Fault.RecordTooLong, self._records + 1, self._fields))
         held = self._pending.len()
-        match self.encode(source, start, stop):
+        match self.encode(source):
             case Ok(_):
                 self._fields += 1
-                self._content += stop - start
+                self._content += len(source)
                 Ok(())
             case Err(cause):
                 drop(self._pending.truncate(held))
@@ -561,7 +560,7 @@ pub class Writer[W]:
 
     pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
         encoded = allocated(std.bytes.from_text(value))?
-        self.field(&encoded, 0, encoded.len())
+        self.field(&encoded)
 
     def terminate(self: &mut Writer[W]) -> Result[(), CsvError]:
         # A lone empty field would otherwise be an empty line.
@@ -604,7 +603,7 @@ pub class Writer[W]:
 
     def copy(self: &mut Writer[W], record: &Record) -> Result[(), CsvError]:
         for index in range(len(record._ends)):
-            self.field(&record._data, record.start(index)?, record.stop(index)?)?
+            self.field(&record._data[record.start(index)?:record.stop(index)?])?
         self.end_record()
 
     def encode_texts(self: &mut Writer[W], fields: &list[str]) -> Result[(), CsvError]:

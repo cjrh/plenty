@@ -58,7 +58,7 @@ unfinished states release every native allocation on drop. There is no
 allocation-free-after-setup guarantee for Brotli.
 
 The low-level `Inflater` caller must drain output even when all input has been
-consumed: clear its output, call `step(input, stop, stop)`, and repeat until
+consumed: clear its output, call `step(b"")`, and repeat until
 complete or no output is produced. `decompress` and `Decompressor` do this
 automatically. An incomplete decoder with no more input/output is truncated.
 

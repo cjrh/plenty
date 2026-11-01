@@ -54,14 +54,14 @@ pub const TEXT_SEARCH_CONTAINS: i64 = 3;
 #[inline(always)]
 pub const fn scratch_operand_count(op: i64) -> usize {
     match op {
-        // Byte membership scans, float formatting; datagram receive.
-        231 | 281 | 417 => 2,
+        // Float formatting; datagram receive.
+        281 | 417 => 2,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // A text view's source, start, stop and the bound flags.
         TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
-        // File input, byte scans, fill and copy_within.
-        188 | 230 | 232 | 233 | 236 | 237 | 282
+        // File input, fill and copy_within.
+        188 | 237 | 282
         // AEAD and HKDF.
         | 308..=311 | 315
         // Key signing and RSA verification.

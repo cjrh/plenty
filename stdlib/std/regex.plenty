@@ -195,24 +195,20 @@ def property_named(name: &str) -> i64:
     -1
 
 # The byte at `at`, or -1 outside the input.
-def byte_at(text: &str, data: &Bytes, textual: bool, at: i64) -> i64:
+def byte_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
     if textual:
         return __regex_text_byte(text, at)
-    if at < 0 or at >= data.len():
+    if at < 0 or at >= len(data):
         return -1
-    match data.get(at):
-        case Ok(value):
-            i64(value)
-        case Err(_):
-            -1
+    i64(data[at])
 
 # The unit at `at`: `code * 8 + width`, or -1 at the end of the input.
 # Bytes decode as strict UTF-8; each byte that does not begin a well-formed
 # sequence is one `invalid_unit` of width 1.
-def unit_at(text: &str, data: &Bytes, textual: bool, at: i64) -> i64:
+def unit_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
     if textual:
         return __regex_text_at(text, at)
-    if at >= data.len():
+    if at >= len(data):
         return -1
     lead = byte_at(text, data, False, at)
     if lead < 128:
@@ -249,12 +245,12 @@ def unit_at(text: &str, data: &Bytes, textual: bool, at: i64) -> i64:
         code = code * 64 + (next & 63)
     code * 8 + need + 1
 
-def input_len(text: &str, data: &Bytes, textual: bool) -> i64:
+def input_len(text: &str, data: &[u8], textual: bool) -> i64:
     if textual:
         return text.byte_len()
-    data.len()
+    len(data)
 
-def valid_start(text: &str, data: &Bytes, textual: bool, start: i64) -> bool:
+def valid_start(text: &str, data: &[u8], textual: bool, start: i64) -> bool:
     if start < 0 or start > input_len(text, data, textual):
         return False
     not textual or __regex_text_at(text, start) != -2
@@ -814,10 +810,21 @@ pub class Match:
         held(__regex_text_slice(haystack, self.start, self.end))
 
     # A copy of the matched bytes. `data` must be the searched bytes.
-    pub def bytes(self, data: &Bytes) -> Result[Bytes, RegexError]:
-        match data.slice(self.start, self.end):
+    pub def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]:
+        if self.start < 0 or self.start > self.end or self.end > len(data):
+            return Err(RegexError.OutOfRange)
+        match std.bytes.with_capacity(self.end - self.start):
             case Ok(value):
-                Ok(value)
+                mut owned = value
+                match owned.extend(&data[self.start:self.end]):
+                    case Ok(_):
+                        Ok(owned)
+                    case Err(BytesError.Allocation(cause)):
+                        Err(RegexError.Allocation(cause))
+                    case Err(_):
+                        Err(RegexError.OutOfRange)
+            case Err(BytesError.Allocation(cause)):
+                Err(RegexError.Allocation(cause))
             case Err(_):
                 Err(RegexError.OutOfRange)
 
@@ -864,7 +871,7 @@ class Vm:
     # priority order. Each instruction enters a set once, which bounds both
     # the work and the stack. A SAVE pushes a restore frame (old value, then
     # -(slot + 1)) under its continuation so later paths see the old slot.
-    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &str, data: &Bytes, textual: bool) -> Result[(), RegexError]:
+    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &str, data: &[u8], textual: bool) -> Result[(), RegexError]:
         base = set * self._n
         slots = self._slots
         self._stack[0] = start
@@ -918,7 +925,7 @@ class Vm:
     # Finds the leftmost-first match starting at or after `start` and leaves
     # its slots in `_found`. With `early`, stops at the first match of any
     # length without recording it.
-    def search(self: &mut Vm, program: &Regex, text: &str, data: &Bytes, textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+    def search(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
         n = self._n
         slots = self._slots
         self._count[0] = 0
@@ -1036,7 +1043,7 @@ pub class Regex:
     pub def instructions(self) -> i64:
         len(self._op)
 
-    def holds(self, kind: i64, at: i64, text: &str, data: &Bytes, textual: bool) -> bool:
+    def holds(self, kind: i64, at: i64, text: &str, data: &[u8], textual: bool) -> bool:
         if kind == assert_text_start:
             return at == 0
         if kind == assert_text_end:
@@ -1088,7 +1095,7 @@ pub class Regex:
             width = 1
         Ok(Vm(n, slots, zeros(2 * n)?, zeros(2 * n)?, zeros(2)?, zeros(2 * n * slots)?, zeros(3 * n + 4)?, zeros(width)?, zeros(width)?, 0, self._max_work))
 
-    def first(self, text: &str, data: &Bytes, textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
+    def first(self, text: &str, data: &[u8], textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
         if not valid_start(text, data, textual, start):
             return Err(RegexError.OutOfRange)
         mut vm = self.machine(slots)?
@@ -1096,14 +1103,14 @@ pub class Regex:
             return Ok(Some(vm))
         Ok(Nothing)
 
-    def found(self, text: &str, data: &Bytes, textual: bool, start: i64) -> Result[Option[Match], RegexError]:
+    def found(self, text: &str, data: &[u8], textual: bool, start: i64) -> Result[Option[Match], RegexError]:
         match self.first(text, data, textual, start, 2)?:
             case Some(vm):
                 Ok(Some(Match(vm._found[0], vm._found[1])))
             case Nothing:
                 Ok(Nothing)
 
-    def captured(self, text: &str, data: &Bytes, textual: bool, start: i64) -> Result[Option[Captures], RegexError]:
+    def captured(self, text: &str, data: &[u8], textual: bool, start: i64) -> Result[Option[Captures], RegexError]:
         match self.first(text, data, textual, start, 2 * len(self._names))?:
             case Some(vm):
                 Ok(Some(self.captures_of(&vm)?))
@@ -1119,14 +1126,14 @@ pub class Regex:
             held(names.append(held(copy(self._names[index]))?))?
         Ok(Captures(slots, names))
 
-    def matches(self, text: &str, data: &Bytes, textual: bool) -> Result[bool, RegexError]:
+    def matches(self, text: &str, data: &[u8], textual: bool) -> Result[bool, RegexError]:
         mut vm = self.machine(0)?
         vm.search(self, text, data, textual, 0, True)
 
     pub def is_match(self, text: &str) -> Result[bool, RegexError]:
         self.matches(text, &self._empty, True)
 
-    pub def is_match_bytes(self, data: &Bytes) -> Result[bool, RegexError]:
+    pub def is_match_bytes(self, data: &[u8]) -> Result[bool, RegexError]:
         self.matches("", data, False)
 
     pub def find(self, text: &str) -> Result[Option[Match], RegexError]:
@@ -1137,7 +1144,7 @@ pub class Regex:
     pub def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]:
         self.found(text, &self._empty, True, start)
 
-    pub def find_bytes(self, data: &Bytes, start: i64) -> Result[Option[Match], RegexError]:
+    pub def find_bytes(self, data: &[u8], start: i64) -> Result[Option[Match], RegexError]:
         self.found("", data, False, start)
 
     pub def captures(self, text: &str) -> Result[Option[Captures], RegexError]:
@@ -1146,7 +1153,7 @@ pub class Regex:
     pub def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]:
         self.captured(text, &self._empty, True, start)
 
-    pub def captures_bytes(self, data: &Bytes, start: i64) -> Result[Option[Captures], RegexError]:
+    pub def captures_bytes(self, data: &[u8], start: i64) -> Result[Option[Captures], RegexError]:
         self.captured("", data, False, start)
 
     def scan(self, slots: i64) -> Result[Cursor, RegexError]:
@@ -1162,11 +1169,11 @@ pub class Regex:
         cursor._vm._work = 0
         self.advance(cursor, text, &self._empty, True)
 
-    pub def next_match_bytes(self, data: &Bytes, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
+    pub def next_match_bytes(self, data: &[u8], cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
         cursor._vm._work = 0
         self.advance(cursor, "", data, False)
 
-    def advance(self, cursor: &mut Cursor, text: &str, data: &Bytes, textual: bool) -> Result[Option[Match], RegexError]:
+    def advance(self, cursor: &mut Cursor, text: &str, data: &[u8], textual: bool) -> Result[Option[Match], RegexError]:
         if cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
             return Err(RegexError.OutOfRange)
         while not cursor._done:
@@ -1194,10 +1201,10 @@ pub class Regex:
     pub def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]:
         self.all(text, &self._empty, True, max_matches)
 
-    pub def find_all_bytes(self, data: &Bytes, max_matches: i64) -> Result[list[Match], RegexError]:
+    pub def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]:
         self.all("", data, False, max_matches)
 
-    def all(self, text: &str, data: &Bytes, textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
+    def all(self, text: &str, data: &[u8], textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
         mut cursor = self.scan(2)?
         mut found = held(list[Match].new())?
         while not cursor._done:

@@ -26,7 +26,6 @@ pub enum JsonFault:
     NonFiniteNumber
     InvalidState
     InvalidLimits
-    OutOfRange
     Stream(StreamError)
     Allocation(AllocError)
 
@@ -128,8 +127,9 @@ def bytes_fault(error: BytesError) -> JsonFault:
             JsonFault.Allocation(cause)
         case BytesError.InvalidUtf8:
             JsonFault.InvalidUtf8
+        # No call here passes a range, so this would be a decoder defect.
         case BytesError.OutOfRange:
-            JsonFault.OutOfRange
+            JsonFault.InvalidState
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
     std.error.map_error(result, def once (cause: AllocError) -> JsonFault: JsonFault.Allocation(cause))
@@ -323,20 +323,18 @@ pub class Decoder:
         JsonError(fault, self._offset, self._line, self._column)
 
     # Appends source[start:stop] to the unexamined input.
-    pub def feed(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonError]:
+    pub def feed(self: &mut Decoder, source: &[u8]) -> Result[(), JsonError]:
         if self._broken or self._finished:
             return Err(self.here(JsonFault.InvalidState))
-        if start < 0 or start > stop or stop > source.len():
-            return Err(self.here(JsonFault.OutOfRange))
-        if stop - start > self._max_input - self._fed:
+        if len(source) > self._max_input - self._fed:
             self._broken = True
             return Err(JsonError(JsonFault.InputTooLarge, self._max_input, 0, 0))
         if self._at == self._window.len():
             self._window.clear()
             self._at = 0
-        match faulted(self._window.extend(&source[start:stop])):
+        match faulted(self._window.extend(source)):
             case Ok(_):
-                self._fed += stop - start
+                self._fed += len(source)
                 Ok(())
             case Err(fault):
                 Err(self.here(fault))
@@ -893,9 +891,9 @@ def rooted(tree: Builder) -> Result[Json, JsonFault]:
             Err(JsonFault.InvalidState)
 
 # Decodes one document that occupies the whole of `source`.
-pub def parse(source: &Bytes, bounds: &Limits) -> Result[Json, JsonError]:
+pub def parse(source: &[u8], bounds: &Limits) -> Result[Json, JsonError]:
     mut events = decoder(bounds)?
-    events.feed(source, 0, source.len())?
+    events.feed(source)?
     events.finish()
     mut tree = unplaced(builder(bounds))?
     while True:
@@ -986,16 +984,16 @@ pub class Encoder:
         self._written += 1
         Ok(())
 
-    def extend(self: &mut Encoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonFault]:
-        if stop - start > self._max_output - self._written:
+    def extend(self: &mut Encoder, source: &[u8]) -> Result[(), JsonFault]:
+        if len(source) > self._max_output - self._written:
             return Err(JsonFault.OutputTooLarge)
-        faulted(self._out.extend(&source[start:stop]))?
-        self._written += stop - start
+        faulted(self._out.extend(source))?
+        self._written += len(source)
         Ok(())
 
     def raw(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
         source = faulted(std.bytes.from_text(text))?
-        self.extend(&source, 0, source.len())
+        self.extend(&source)
 
     def top(self) -> Result[i64, JsonFault]:
         count = self._stack.len()
@@ -1030,7 +1028,7 @@ pub class Encoder:
         mut index = run_end(source.find_in(&self._escaped, 0, count), count)?
         while index < count:
             byte = i64(faulted(source.get(index))?)
-            self.extend(&source, run, index)?
+            self.extend(&source[run:index])?
             self.put(92)?
             if byte == 34 or byte == 92:
                 self.put(byte)?
@@ -1052,7 +1050,7 @@ pub class Encoder:
                 self.put(hex_digit(byte & 15))?
             run = index + 1
             index = run_end(source.find_in(&self._escaped, run, count), count)?
-        self.extend(&source, run, count)?
+        self.extend(&source[run:count])?
         self.put(34)
 
     def scalar(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
@@ -1084,7 +1082,7 @@ pub class Encoder:
         if not number_complete(state):
             return Err(JsonFault.InvalidNumber)
         self.before_value()?
-        self.extend(&source, 0, source.len())?
+        self.extend(&source)?
         self.after_value()
 
     def emit_text(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:

@@ -34,12 +34,12 @@ True
 
 | Function | Result | Contract |
 |---|---|---|
-| `compress(format: Format, data: &Bytes, level: i64)` | `Result[Bytes, CompressError]` | All of `data`, compressed |
-| `decompress(format: Format, data: &Bytes, limit: i64)` | `Result[Bytes, CompressError]` | The contents of `data`, at most `limit` bytes |
+| `compress(format: Format, data: &[u8], level: i64)` | `Result[Bytes, CompressError]` | All of `data`, compressed |
+| `decompress(format: Format, data: &[u8], limit: i64)` | `Result[Bytes, CompressError]` | The contents of `data`, at most `limit` bytes |
 | `compressor(format: Format, inner: W, level: i64)` | `Result[Compressor[W], CompressError]` | A writer that compresses into `inner` |
 | `decompressor(format: Format, inner: R, limit: i64)` | `Result[Decompressor[R], CompressError]` | A reader of the decompressed contents of `inner` |
 | `inflater(format: Format, limit: i64)` | `Result[Inflater, CompressError]` | A step-by-step decoder; see [Inflater](#inflater) |
-| `crc32(seed: i64, data: &Bytes, start: i64, stop: i64)` | `Result[i64, CompressError]` | The CRC-32 of `data[start:stop]`, continuing from `seed` |
+| `crc32(seed: i64, data: &[u8])` | `Result[i64, CompressError]` | The CRC-32 of `data`, continuing from `seed` |
 | `stream_error(error: CompressError)` | `StreamError` | How a `Decompressor` reports `error` |
 
 `Format` is `Deflate` (raw, no header or checksum), `Zlib` (Adler-32),
@@ -143,13 +143,13 @@ input and cannot hand over an `inner` stream, as
 
 | Method | Result | Contract |
 |---|---|---|
-| `step(input: &Bytes, start: i64, stop: i64)` | `Result[i64, CompressError]` | Decode from `input[start:stop]`; returns the count consumed |
+| `step(input: &[u8])` | `Result[i64, CompressError]` | Decode from `input`; returns the count consumed |
 | `output()` | `&Bytes` | The output of the last step, at most 16384 bytes |
 | `clear()` | `()` | Empty the pending output |
 | `complete()` | `bool` | Whether the input so far is a complete stream |
 
 Empty the output with `clear` before each `step`. After consuming the input,
-call `step` with `start == stop` until `complete()` or a step produces no output:
+call `step(b"")` with an empty view until `complete()` or a step produces no output:
 Brotli can have pending decoded bytes after consuming its final input byte.
 A step that returns 0 with no output needs more input unless complete. Discard
 the `Inflater` after any error; do not rely on retries of codec errors.
@@ -169,7 +169,7 @@ pub enum CompressError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A level, limit, seed, or range out of bounds |
+| `OutOfRange` | A level, limit, or seed out of bounds |
 | `Corrupt` | Malformed compressed data |
 | `Checksum` | Well-formed data whose checksum or length does not match |
 | `Truncated` | The input ended inside a stream |
@@ -207,7 +207,7 @@ grow with the data. Brotli's different allocation contract is described
 |---|---|---|
 | `Compressor.write`, `flush`, `finish` | Nothing | Linear in the input; higher levels are slower |
 | `Decompressor.read` | Nothing | Linear in the output |
-| `crc32` | Nothing | Linear in the range |
+| `crc32` | Nothing | Linear in the view |
 
 Inputs are read directly from the caller's buffer; output is copied once,
 from the codec's buffer to `inner` or the caller's buffer. Allocation failures

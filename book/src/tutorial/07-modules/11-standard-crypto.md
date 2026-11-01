@@ -23,7 +23,7 @@ def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     data = std.bytes.from_text("abc")?
     digest = std.crypto.sha256(&data)?
     print(digest.len())?
-    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+    print(std.encoding.hex_text(&digest)?)?
     mut hasher = std.crypto.digest(Algorithm.Sha256)?
     hasher.update_text("a")?
     hasher.update_text("bc")?
@@ -101,7 +101,7 @@ type CryptoBufferError = std.encoding.EncodingError | std.crypto.CryptoError | s
 def main() -> Result[(), AllocError | IoError | CryptoBufferError]:
     key = std.bytes.from_text("server key")?
     tag = sign(&key, "user=ada")?
-    print(std.encoding.hex_text(&tag, 0, 8)?)?
+    print(std.encoding.hex_text(&tag[:8])?)?
     print(check(&key, "user=ada", &tag)?)?
     print(check(&key, "user=bob", &tag)?)?
     other = std.bytes.from_text("another key")?

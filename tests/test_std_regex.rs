@@ -739,3 +739,21 @@ def main()"#,
     }
     assert!(reported > 10);
 }
+
+/// B90: byte searches take `&[u8]` views; offsets are relative to the view,
+/// and `Match.bytes` copies from the same view.
+#[test]
+fn byte_searches_take_views() {
+    native(
+        r#"
+limits = std.regex.limits()
+frame = std.bytes.from_bytes(b"xxab1ab2yy")?
+pattern = std.regex.compile("ab[0-9]", &limits)?
+print(spans(&pattern.find_all_bytes(&frame[2:8], 10)?)?, pattern.is_match_bytes(b"zab9")?)?
+found = pattern.find_bytes(&frame[2:], 1)?.unwrap()
+print(span(found.start, found.end)?, found.bytes(&frame[2:])?.to_text()?)?
+print(found.bytes(&frame[:3]).is_err())?
+"#,
+        "0-3,3-6 True\n3-6 ab2\nTrue",
+    );
+}

@@ -96,7 +96,7 @@ def main() -> Result[(), AllocError | IoError | BytesError | EncodingError]:
     frame = std.bytes.from_bytes(b"GET\t\"/\"\r\n\x00\xff")?
     print(frame)?
     print(&frame[0:3], [std.bytes.from_text("ok")?]?)?
-    print(std.encoding.hex_text(&frame, 0, frame.len())?)?
+    print(std.encoding.hex_text(&frame)?)?
     Ok(())
 ```
 ```output
@@ -329,21 +329,25 @@ buffer, same machine, pinned to one core:
 
 ## Transport
 
-These methods move a range between a buffer and a descriptor without an
-intermediate list. Each makes at most one native call, returns the bytes moved
-as `Result[i64, IoError]`, and never changes the buffer's length or capacity.
+The read methods fill a range of a buffer from a descriptor, and the module
+functions write a byte view to one, without an intermediate list. Each makes at
+most one native call, returns the bytes moved as `Result[i64, IoError]`, and
+never changes a buffer's length or capacity.
 
-| Method | Receiver | Contract |
-|---|---|---|
-| `read_file(file: &mut File, start, stop)` | exclusive | Read into `self[start:stop]`; zero for a nonempty range is end of input |
-| `write_file(file: &mut File, start, stop)` | shared | Write a prefix of `self[start:stop]` |
-| `read_stdin(start, stop)` | exclusive | Read standard input into `self[start:stop]` |
-| `write_stdout(start, stop)`, `write_stderr(start, stop)` | shared | Write a prefix of the range to the process stream (buffered stdout, unbuffered stderr) |
+| Operation | Contract |
+|---|---|
+| `buffer.read_file(file: &mut File, start, stop)` | Read into `buffer[start:stop]`; zero for a nonempty range is end of input |
+| `buffer.read_stdin(start, stop)` | Read standard input into `buffer[start:stop]` |
+| `std.bytes.write_file(file: &mut File, source: &[u8])` | Write a prefix of `source` |
+| `std.bytes.stdout_write(source: &[u8])`, `stderr_write(source)` | Write a prefix of `source` to the process stream (buffered stdout, unbuffered stderr) |
 
-A count below the range length is normal. A range outside the buffer is
-`IoError.InvalidInput`; a closed file is `Closed`, and the open mode is
-enforced with `NotReadable` and `NotWritable`. An interrupted call is
-`IoError.System(4)`. File transfers are raw bytes with no newline translation.
+A count below the requested length is normal. A read range outside the buffer
+is `IoError.InvalidInput`; a write takes a view, which carries its own range.
+A closed file is `Closed`, and the open mode is enforced with `NotReadable`
+and `NotWritable`. An interrupted call is `IoError.System(4)`. File transfers
+are raw bytes with no newline translation. The writers are module functions,
+not methods, so a `b"..."` literal or a subview needs no owned buffer; the
+names differ from the prelude's text `write_stdout` and `write_stderr`.
 
 Programs normally use these through [`std.io`](io.md), which adds retry, end
 of input, seeking, and bounded buffering on top.
@@ -352,10 +356,10 @@ of input, seeking, and bounded buffering on top.
 [`std.crypto`](crypto.md), [`std.compress`](compress.md),
 [`std.db.sqlite`](sqlite.md), [`std.net`](net.md), [`std.ready`](ready.md) and
 [`std.tls`](tls.md) call compiler intrinsics (`__crypto_*`, `__compress_*`,
-`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`). The
-stream, network, TLS and crypto intrinsics read their inputs as `&[u8]` views,
-passed as a pointer and a length with no copy; the others take `&Bytes` or
-`&mut Bytes` operands, and Plenty checks their ranges first.
+`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`). They
+read byte inputs as `&[u8]` views, passed as a pointer and a length with no
+copy. Output buffers are `&mut Bytes` operands whose ranges Plenty checks
+first; native handles are held in byte storage.
 These intrinsics are reserved for the standard library: user code calling one
 is rejected with `` `__crypto_update` is reserved for the standard library ``.
 Import the module that owns them instead.

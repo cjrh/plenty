@@ -105,9 +105,9 @@ def drain(decoder: &mut std.json.Decoder, names: &mut list[str]) -> Result[(), A
 def events(source: &Bytes, bounds: &Limits, split: i64) -> Result[str, AllocError | IoError | std.json.JsonError]:
     mut decoder = std.json.decoder(bounds)?
     mut names = list[str]()?
-    decoder.feed(source, 0, split)?
+    decoder.feed(&source[:split])?
     drain(&mut decoder, &mut names)?
-    drop(decoder.feed(source, split, source.len()))
+    drop(decoder.feed(&source[split:]))
     decoder.finish()
     drain(&mut decoder, &mut names)?
     Ok(" ".join(&names)?)
@@ -680,7 +680,7 @@ fn integers_are_exact_and_floats_are_finite() {
 bounds = std.json.limits()
 source = std.bytes.from_text("[18446744073709551615, 1.0, 1]")?
 mut decoder = std.json.decoder(&bounds)?
-decoder.feed(&source, 0, source.len())?
+decoder.feed(&source)?
 decoder.finish()
 drop(decoder.next()?)
 match decoder.next()?:
@@ -829,8 +829,8 @@ print(settled(encoder.end_array())?)?
 bounds.max_input = 3
 source = std.bytes.from_text("[1, 2]")?
 mut decoder = std.json.decoder(&bounds)?
-print(settled(decoder.feed(&source, 0, 3))?)?
-print(settled(decoder.feed(&source, 3, 4))?)?
+print(settled(decoder.feed(&source[:3]))?)?
+print(settled(decoder.feed(&source[3:4]))?)?
 "#,
         r#"
 [1,2,"three"]
@@ -887,7 +887,7 @@ for split in range(source.len() + 1):
 mut decoder = std.json.decoder(&bounds)?
 mut names = list[str]()?
 for index in range(source.len()):
-    decoder.feed(&source, index, index + 1)?
+    decoder.feed(&source[index:index + 1])?
     drain(&mut decoder, &mut names)?
 decoder.finish()
 drain(&mut decoder, &mut names)?
@@ -908,27 +908,27 @@ bounds = std.json.limits()
 source = std.bytes.from_text("[12, 3]x")?
 mut decoder = std.json.decoder(&bounds)?
 print(str.repr(&decoder.next()?)?, decoder.offset(), decoder.depth())?
-print(settled(decoder.feed(&source, 3, 2))?)?
-print(settled(decoder.feed(&source, 0, 9))?)?
-decoder.feed(&source, 0, 3)?
+# An empty view, literal or clamped, feeds nothing.
+print(settled(decoder.feed(b""))?, settled(decoder.feed(&source[3:2]))?)?
+decoder.feed(&source[:3])?
 print(str.repr(&decoder.next()?)?, decoder.offset(), decoder.depth())?
 # The number may continue, so nothing is reported until more input arrives.
 print(str.repr(&decoder.next()?)?, decoder.offset())?
-decoder.feed(&source, 3, 6)?
+decoder.feed(&source[3:6])?
 print(str.repr(&decoder.next()?)?, decoder.offset())?
 print(placed(&decoder.reject(JsonFault.NumberOutOfRange))?)?
 print(str.repr(&decoder.next()?)?, decoder.offset())?
-decoder.feed(&source, 6, 7)?
+decoder.feed(&source[6:7])?
 print(str.repr(&decoder.next()?)?, decoder.depth())?
 print(str.repr(&decoder.next()?)?, decoder.depth())?
 print(str.repr(&decoder.next()?)?)?
 decoder.finish()
-print(settled(decoder.feed(&source, 7, 8))?)?
+print(settled(decoder.feed(&source[7:8]))?)?
 print(str.repr(&decoder.next()?)?)?
 print(str.repr(&decoder.next()?)?)?
 
 mut broken = std.json.decoder(&bounds)?
-broken.feed(&source, 0, 8)?
+broken.feed(&source[:8])?
 broken.finish()
 mut names = list[str]()?
 drain(&mut broken, &mut names)?
@@ -938,12 +938,11 @@ match broken.next():
         print("event")?
     case Err(error):
         print(placed(&error)?)?
-print(settled(broken.feed(&source, 0, 1))?)?
+print(settled(broken.feed(&source[:1]))?)?
 "#,
         r#"
 Pending 0 0
-OutOfRange 0 1 1
-OutOfRange 0 1 1
+ok ok
 StartArray 1 1
 Pending 3
 Number("12") 3
@@ -1331,7 +1330,7 @@ def attempt(text: &str) -> Result[(), AllocError | IoError | std.bytes.BytesErro
     bounds = std.json.limits()
     source = std.bytes.from_text(text)?
     mut decoder = std.json.decoder(&bounds)?
-    decoder.feed(&source, 0, source.len())?
+    decoder.feed(&source)?
     decoder.finish()
     match decode_point(&mut decoder):
         case Ok(point):

@@ -283,7 +283,7 @@ one with the same verification as `connect` and `accept`.
 
 | Method | Result | Contract |
 |---|---|---|
-| `feed(source: &Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Process received ciphertext; the count used, short while decrypted bytes wait for `read` |
+| `feed(source: &[u8])` | `Result[i64, TlsError]` | Process received ciphertext; the count used, short while decrypted bytes wait for `read` |
 | `feed_end()` | `Result[(), TlsError]` | The peer's stream ended; without `close_notify`, `read` then fails with `Truncated` |
 | `take(target: &mut Bytes, start: i64, stop: i64)` | `Result[i64, TlsError]` | Ciphertext to send; 0 when none waits |
 | `read(target: &mut Bytes, start: i64, stop: i64)` | `Result[Option[i64], TlsError]` | Decrypted bytes; `Nothing` while none is ready, `Some(0)` for `close_notify` |

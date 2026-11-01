@@ -383,7 +383,7 @@ class TarReader[R]
 def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]
 class TarWriter[W]
     inner: W
-    def add_file(self: &mut TarWriter[W], name: &Path, data: &Bytes, mode: i64, mtime: i64) -> Result[(), ArchiveError]
+    def add_file(self: &mut TarWriter[W], name: &Path, data: &[u8], mode: i64, mtime: i64) -> Result[(), ArchiveError]
     def add_from[S](self: &mut TarWriter[W], name: &Path, size: i64, source: &mut S, mode: i64, mtime: i64) -> Result[(), ArchiveError]
     def add_dir(self: &mut TarWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]
     def add_symlink(self: &mut TarWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]
@@ -401,7 +401,7 @@ enum Method
     Stored | Deflate
 class ZipWriter[W]
     inner: W
-    def add_file(self: &mut ZipWriter[W], name: &Path, data: &Bytes, method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]
+    def add_file(self: &mut ZipWriter[W], name: &Path, data: &[u8], method: Method, mode: i64, mtime: i64) -> Result[(), ArchiveError]
     def add_dir(self: &mut ZipWriter[W], name: &Path, mode: i64, mtime: i64) -> Result[(), ArchiveError]
     def add_symlink(self: &mut ZipWriter[W], name: &Path, target: &Path, mtime: i64) -> Result[(), ArchiveError]
     def finish(self: &mut ZipWriter[W]) -> Result[(), ArchiveError]
@@ -461,15 +461,15 @@ class Bytes
     def to_text(self) -> Result[str, BytesError]
     def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]
     def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
-    def write_file(self, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]
     def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]
-    def write_stdout(self, start: i64, stop: i64) -> Result[i64, IoError]
-    def write_stderr(self, start: i64, stop: i64) -> Result[i64, IoError]
 def empty() -> Result[Bytes, BytesError]
 def with_capacity(capacity: i64) -> Result[Bytes, BytesError]
 def from_list(values: &list[u8]) -> Result[Bytes, BytesError]
 def from_text(text: &str) -> Result[Bytes, BytesError]
 def from_bytes(value: bytes) -> Result[Bytes, BytesError]
+def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
+def stdout_write(source: &[u8]) -> Result[i64, IoError]
+def stderr_write(source: &[u8]) -> Result[i64, IoError]
 ```
 
 ## `std.cache.lru`
@@ -639,14 +639,14 @@ enum CompressError
     OutOfRange | Corrupt | Checksum | Truncated | TrailingData | LimitExceeded | Allocation(AllocError)
 def stream_error(error: CompressError) -> StreamError
 class Inflater
-    def step(self: &mut Inflater, input: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]
+    def step(self: &mut Inflater, input: &[u8]) -> Result[i64, CompressError]
     def complete(self) -> bool
     def output(self) -> &Bytes
     def clear(self: &mut Inflater) -> ()
 def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]
-def compress(format: Format, data: &Bytes, level: i64) -> Result[Bytes, CompressError]
-def decompress(format: Format, data: &Bytes, limit: i64) -> Result[Bytes, CompressError]
-def crc32(seed: i64, data: &Bytes, start: i64, stop: i64) -> Result[i64, CompressError]
+def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]
+def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]
+def crc32(seed: i64, data: &[u8]) -> Result[i64, CompressError]
 class Compressor[W]
     inner: W
     def write(self: &mut Compressor[W], source: &[u8]) -> Result[i64, StreamError]
@@ -690,63 +690,63 @@ class Mac
     def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]
     def verify(self: &mut Mac, expected: &[u8]) -> Result[bool, CryptoError]
 def digest(algorithm: Algorithm) -> Result[Digest, CryptoError]
-def hmac(algorithm: Algorithm, key: &Bytes) -> Result[Mac, CryptoError]
-def sha256(data: &Bytes) -> Result[Bytes, CryptoError]
-def sha512(data: &Bytes) -> Result[Bytes, CryptoError]
-def blake3(data: &Bytes) -> Result[Bytes, CryptoError]
-def blake3_keyed_hasher(key: &Bytes) -> Result[Mac, CryptoError]
-def blake3_keyed(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
+def hmac(algorithm: Algorithm, key: &[u8]) -> Result[Mac, CryptoError]
+def sha256(data: &[u8]) -> Result[Bytes, CryptoError]
+def sha512(data: &[u8]) -> Result[Bytes, CryptoError]
+def blake3(data: &[u8]) -> Result[Bytes, CryptoError]
+def blake3_keyed_hasher(key: &[u8]) -> Result[Mac, CryptoError]
+def blake3_keyed(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
 def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]
-def blake3_derive_key(context: &str, key_material: &Bytes) -> Result[Bytes, CryptoError]
-def sha1(data: &Bytes) -> Result[Bytes, CryptoError]
-def hmac_sha256(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
-def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
-def equal(a: &Bytes, b: &Bytes) -> bool
+def blake3_derive_key(context: &str, key_material: &[u8]) -> Result[Bytes, CryptoError]
+def sha1(data: &[u8]) -> Result[Bytes, CryptoError]
+def hmac_sha256(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
+def hmac_sha512(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
+def equal(a: &[u8], b: &[u8]) -> bool
 enum AdvancedError
     InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | SmallOrderKey | Allocation(AllocError)
     def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum AeadAlgorithm
     Aes256Gcm | ChaCha20Poly1305
-def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
-def open_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
-def ed25519_public_key_into(seed: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-def ed25519_public_key(seed: &Bytes) -> Result[Bytes, AdvancedError]
-def ed25519_sign_into(seed: &Bytes, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-def ed25519_sign(seed: &Bytes, message: &Bytes) -> Result[Bytes, AdvancedError]
-def ed25519_verify(public_key: &Bytes, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
-def hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-def hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64) -> Result[Bytes, AdvancedError]
+def seal_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]
+def open_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_public_key_into(seed: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_public_key(seed: &[u8]) -> Result[Bytes, AdvancedError]
+def ed25519_sign_into(seed: &[u8], message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+def ed25519_sign(seed: &[u8], message: &[u8]) -> Result[Bytes, AdvancedError]
+def ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]
+def hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64) -> Result[Bytes, AdvancedError]
 class X25519Key
     def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]
     def public_key(self) -> Result[Bytes, AdvancedError]
-    def agree_into(self: &mut X25519Key, peer_public_key: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-    def agree(self: &mut X25519Key, peer_public_key: &Bytes) -> Result[Bytes, AdvancedError]
+    def agree_into(self: &mut X25519Key, peer_public_key: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+    def agree(self: &mut X25519Key, peer_public_key: &[u8]) -> Result[Bytes, AdvancedError]
 def x25519() -> Result[X25519Key, AdvancedError]
 enum RsaScheme
     Pkcs1Sha256 | Pkcs1Sha384 | Pkcs1Sha512 | PssSha256 | PssSha384 | PssSha512
 class RsaPublicKey
     def signature_size(self) -> i64
-    def verify(self, scheme: RsaScheme, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
+    def verify(self, scheme: RsaScheme, message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]
 class RsaPrivateKey
     def signature_size(self) -> i64
     def public_key(self) -> Result[RsaPublicKey, AdvancedError]
-    def sign_into(self, scheme: RsaScheme, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-    def sign(self, scheme: RsaScheme, message: &Bytes) -> Result[Bytes, AdvancedError]
+    def sign_into(self, scheme: RsaScheme, message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+    def sign(self, scheme: RsaScheme, message: &[u8]) -> Result[Bytes, AdvancedError]
 class P256PublicKey
-    def verify(self, message: &Bytes, signature: &Bytes) -> Result[bool, AdvancedError]
+    def verify(self, message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]
 class P256PrivateKey
     def public_key(self) -> Result[P256PublicKey, AdvancedError]
-    def sign_into(self, message: &Bytes, target: &mut Bytes) -> Result[(), AdvancedError]
-    def sign(self, message: &Bytes) -> Result[Bytes, AdvancedError]
-def rsa_public_key_from_spki(der: &Bytes) -> Result[RsaPublicKey, AdvancedError]
-def rsa_public_key_from_components(n: &Bytes, e: &Bytes) -> Result[RsaPublicKey, AdvancedError]
-def rsa_private_key_from_pkcs8(der: &Bytes) -> Result[RsaPrivateKey, AdvancedError]
-def p256_public_key_from_point(point: &Bytes) -> Result[P256PublicKey, AdvancedError]
-def p256_public_key_from_coordinates(x: &Bytes, y: &Bytes) -> Result[P256PublicKey, AdvancedError]
-def p256_public_key_from_spki(der: &Bytes) -> Result[P256PublicKey, AdvancedError]
-def p256_private_key_from_pkcs8(der: &Bytes) -> Result[P256PrivateKey, AdvancedError]
-def ed25519_public_key_from_spki(der: &Bytes) -> Result[Bytes, AdvancedError]
-def ed25519_seed_from_pkcs8(der: &Bytes) -> Result[Bytes, AdvancedError]
+    def sign_into(self, message: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
+    def sign(self, message: &[u8]) -> Result[Bytes, AdvancedError]
+def rsa_public_key_from_spki(der: &[u8]) -> Result[RsaPublicKey, AdvancedError]
+def rsa_public_key_from_components(n: &[u8], e: &[u8]) -> Result[RsaPublicKey, AdvancedError]
+def rsa_private_key_from_pkcs8(der: &[u8]) -> Result[RsaPrivateKey, AdvancedError]
+def p256_public_key_from_point(point: &[u8]) -> Result[P256PublicKey, AdvancedError]
+def p256_public_key_from_coordinates(x: &[u8], y: &[u8]) -> Result[P256PublicKey, AdvancedError]
+def p256_public_key_from_spki(der: &[u8]) -> Result[P256PublicKey, AdvancedError]
+def p256_private_key_from_pkcs8(der: &[u8]) -> Result[P256PrivateKey, AdvancedError]
+def ed25519_public_key_from_spki(der: &[u8]) -> Result[Bytes, AdvancedError]
+def ed25519_seed_from_pkcs8(der: &[u8]) -> Result[Bytes, AdvancedError]
 ```
 
 ## `std.csv`
@@ -804,7 +804,7 @@ class Writer[W]
     inner: W
     def records(self) -> i64
     def pending(self) -> i64
-    def field(self: &mut Writer[W], source: &Bytes, start: i64, stop: i64) -> Result[(), CsvError]
+    def field(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]
     def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]
     def discard(self: &mut Writer[W]) -> ()
     def end_record(self: &mut Writer[W]) -> Result[(), CsvError]
@@ -1037,13 +1037,13 @@ class Store
     def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
     def set_busy_timeout(self: &mut Store, budget: &Duration) -> Result[(), KvError]
     def close(self: &mut Store) -> Result[(), KvError]
-    def put(self: &mut Store, table: &str, key: &Bytes, value: &Bytes) -> Result[(), KvError]
-    def get(self: &mut Store, table: &str, key: &Bytes) -> Result[Option[Bytes], KvError]
-    def contains(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
-    def remove(self: &mut Store, table: &str, key: &Bytes) -> Result[bool, KvError]
+    def put(self: &mut Store, table: &str, key: &[u8], value: &[u8]) -> Result[(), KvError]
+    def get(self: &mut Store, table: &str, key: &[u8]) -> Result[Option[Bytes], KvError]
+    def contains(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
+    def remove(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
     def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
     def len(self: &mut Store, table: &str) -> Result[i64, KvError]
-    def scan(self: &mut Store, table: &str, start: &Bytes, stop: &Bytes, max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
     def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]
 def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
 def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
@@ -1093,7 +1093,7 @@ class Statement
     def bind_integer(self: &mut Statement, index: i64, value: i64) -> Result[(), DbError]
     def bind_real(self: &mut Statement, index: i64, value: f64) -> Result[(), DbError]
     def bind_text(self: &mut Statement, index: i64, value: &str) -> Result[(), DbError]
-    def bind_blob(self: &mut Statement, index: i64, value: &Bytes) -> Result[(), DbError]
+    def bind_blob(self: &mut Statement, index: i64, value: &[u8]) -> Result[(), DbError]
     def clear_bindings(self: &mut Statement) -> Result[(), DbError]
     def step(self: &mut Statement) -> Result[bool, DbError]
     def reset(self: &mut Statement) -> ()
@@ -1150,7 +1150,7 @@ class Op
     def new_len(self) -> i64
     def is_equal(self) -> bool
 def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
-def diff_bytes(old: &Bytes, new: &Bytes, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
+def diff_bytes(old: &[u8], new: &[u8], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
 class TextDiff
     def ops(self) -> &list[Op]
     def old_tokens(self) -> &list[str]
@@ -1172,38 +1172,38 @@ enum EncodingError
 enum Endian
     Little | Big
 class Encoding
-    def encode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-    def decode(self, source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-    def text(self, source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+    def encode(self, source: &[u8]) -> Result[Bytes, EncodingError]
+    def decode(self, source: &[u8]) -> Result[Bytes, EncodingError]
+    def text(self, source: &[u8]) -> Result[str, EncodingError]
     def from_text(self, text: &str) -> Result[Bytes, EncodingError]
 def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]
-def base32_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base32_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base32_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base32_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base32_text(source: &[u8]) -> Result[str, EncodingError]
 def base32_from_text(text: &str) -> Result[Bytes, EncodingError]
-def base32hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base32hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base32hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base32hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base32hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base32hex_text(source: &[u8]) -> Result[str, EncodingError]
 def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]
-def base64mime_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64mime_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64mime_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64mime_text(source: &[u8]) -> Result[str, EncodingError]
 def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
-def pem_encode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]
-def pem_text(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[str, EncodingError]
-def pem_decode(source: &Bytes, start: i64, stop: i64, label: &[u8]) -> Result[Bytes, EncodingError]
+def pem_encode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]
+def pem_text(source: &[u8], label: &[u8]) -> Result[str, EncodingError]
+def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]
 def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
-def hex_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def hex_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def hex_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def hex_text(source: &[u8]) -> Result[str, EncodingError]
 def hex_from_text(text: &str) -> Result[Bytes, EncodingError]
-def base64_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base64_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64_text(source: &[u8]) -> Result[str, EncodingError]
 def base64_from_text(text: &str) -> Result[Bytes, EncodingError]
-def base64url_encode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64url_decode(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, EncodingError]
-def base64url_text(source: &Bytes, start: i64, stop: i64) -> Result[str, EncodingError]
+def base64url_encode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64url_decode(source: &[u8]) -> Result[Bytes, EncodingError]
+def base64url_text(source: &[u8]) -> Result[str, EncodingError]
 def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]
 def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> Result[(), EncodingError]
 def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> Result[(), EncodingError]
@@ -1217,12 +1217,12 @@ def append_u64(target: &mut Bytes, value: u64, order: Endian) -> Result[(), Enco
 def append_i16(target: &mut Bytes, value: i16, order: Endian) -> Result[(), EncodingError]
 def append_i32(target: &mut Bytes, value: i32, order: Endian) -> Result[(), EncodingError]
 def append_i64(target: &mut Bytes, value: i64, order: Endian) -> Result[(), EncodingError]
-def unpack_u16(source: &Bytes, offset: i64, order: Endian) -> Result[u16, EncodingError]
-def unpack_u32(source: &Bytes, offset: i64, order: Endian) -> Result[u32, EncodingError]
-def unpack_u64(source: &Bytes, offset: i64, order: Endian) -> Result[u64, EncodingError]
-def unpack_i16(source: &Bytes, offset: i64, order: Endian) -> Result[i16, EncodingError]
-def unpack_i32(source: &Bytes, offset: i64, order: Endian) -> Result[i32, EncodingError]
-def unpack_i64(source: &Bytes, offset: i64, order: Endian) -> Result[i64, EncodingError]
+def unpack_u16(source: &[u8], offset: i64, order: Endian) -> Result[u16, EncodingError]
+def unpack_u32(source: &[u8], offset: i64, order: Endian) -> Result[u32, EncodingError]
+def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, EncodingError]
+def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]
+def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]
+def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]
 ```
 
 ## `std.env`
@@ -1590,9 +1590,9 @@ def request(method: str, target: str) -> Result[RequestHead, HttpError]
 def response(status: i64, reason: str) -> Result[ResponseHead, HttpError]
 def find(headers: &list[Header], name: &str) -> Option[i64]
 def same_name(left: &str, right: &str) -> bool
-def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]
-def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]
-def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]
+def parse_field(line: &[u8]) -> Result[Header, HttpError]
+def parse_request_line(line: &[u8]) -> Result[RequestHead, HttpError]
+def parse_status_line(line: &[u8]) -> Result[ResponseHead, HttpError]
 def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[RequestHead], HttpError]
 def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[ResponseHead], HttpError]
 def request_framing(head: &RequestHead) -> Result[Framing, HttpError]
@@ -1660,7 +1660,7 @@ class FormLimits
     max_bytes: i64
     max_fields: i64
 def form_limits() -> FormLimits
-def parse_form(source: &Bytes, limits: &FormLimits) -> Result[list[Pair], BodyError]
+def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]
 def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]
 def find(pairs: &list[Pair], key: &str) -> Option[i64]
 def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> Result[list[Pair], BodyError]
@@ -1716,7 +1716,7 @@ class TcpConnector
 def dial(endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]
 class Dialled
     def read(self: &mut Dialled, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
-    def write(self: &mut Dialled, source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
+    def write(self: &mut Dialled, source: &[u8]) -> Result[i64, StepError[ClientError]]
 class Proxy
     endpoint: Endpoint
     authorization: Option[str]
@@ -1764,7 +1764,7 @@ class Fetched
     body: Bytes
 class Wire[T]
     def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
-    def write(self: &mut Wire[T], source: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[ClientError]]
+    def write(self: &mut Wire[T], source: &[u8]) -> Result[i64, StepError[ClientError]]
 class Response[T]
     status: i64
     head: ResponseHead
@@ -1982,7 +1982,7 @@ class EventStream[T]
     last_event_id: Option[str]
     def is_open(self) -> bool
     def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def send_bytes(self: &mut EventStream[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
     def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def retry(self: &mut EventStream[T], span: &Duration, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def wait(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
@@ -2023,7 +2023,7 @@ def read_response[E, R: Reader[E]](reader: &mut R, limits: &Limits) -> Result[Op
 def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result[(), Partial[FramingError[E]]]
 def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]
 def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]
-def write_chunk[E, W: Writer[E]](writer: &mut W, source: &Bytes, start: i64, stop: i64) -> Result[(), Partial[FramingError[E]]]
+def write_chunk[E, W: Writer[E]](writer: &mut W, source: &[u8]) -> Result[(), Partial[FramingError[E]]]
 def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
@@ -2066,9 +2066,9 @@ class WebSocket[T]
     subprotocol: Option[str]
     def is_open(self) -> bool
     def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]
-    def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def send(self: &mut WebSocket[T], kind: Kind, data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
     def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
-    def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def ping(self: &mut WebSocket[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
     def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
 def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]
 class Target
@@ -2133,9 +2133,9 @@ class Image
     def resize(self, width: i64, height: i64, filter: Filter) -> Result[Image, ImageError]
 def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]
 def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) -> Result[Image, ImageError]
-def detect(data: &Bytes) -> Option[Format]
-def info(data: &Bytes) -> Result[Info, ImageError]
-def decode(data: &Bytes, limits: &Limits) -> Result[Image, ImageError]
+def detect(data: &[u8]) -> Option[Format]
+def info(data: &[u8]) -> Result[Info, ImageError]
+def decode(data: &[u8], limits: &Limits) -> Result[Image, ImageError]
 def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]
 ```
 
@@ -2233,13 +2233,13 @@ class LegacyReader[R]
 def reader[R: std.io.Reader](inner: R) -> LegacyReader[R]
 def unwrap_reader[R](reader: LegacyReader[R]) -> R
 class LegacyWriter[W]
-    def write(self: &mut LegacyWriter[W], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[StreamError]]
+    def write(self: &mut LegacyWriter[W], buffer: &[u8]) -> Result[i64, StepError[StreamError]]
 def writer[W: std.io.Writer](inner: W) -> LegacyWriter[W]
 def unwrap_writer[W](writer: LegacyWriter[W]) -> W
 protocol Reader[E]
     def read(self: &mut Reader[E], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]
 protocol Writer[E]
-    def write(self: &mut Writer[E], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]
+    def write(self: &mut Writer[E], buffer: &[u8]) -> Result[i64, StepError[E]]
 enum ReadFailure[E]
     Source(E) | UnexpectedEof | InvalidProgress | OutOfRange
 class BufReader[E, R]
@@ -2249,7 +2249,7 @@ class BufReader[E, R]
     def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]
 def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]
 enum WriteFailure[E]
-    Source(E) | WriteZero | InvalidProgress | OutOfRange
+    Source(E) | WriteZero | InvalidProgress
 class Partial[E]
     completed: i64
     cause: E
@@ -2257,7 +2257,7 @@ enum CopyFailure[R, W]
     Read(i64, ReadFailure[R]) | Write(i64, WriteFailure[W])
 def within(start: i64, stop: i64, size: i64) -> bool
 def read_exact[E, R: Reader[E]](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial[ReadFailure[E]]]
-def write_all[E, W: Writer[E]](writer: &mut W, buffer: &Bytes, start: i64, stop: i64) -> Result[(), Partial[WriteFailure[E]]]
+def write_all[E, W: Writer[E]](writer: &mut W, buffer: &[u8]) -> Result[(), Partial[WriteFailure[E]]]
 def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyFailure[E, G]]
 ```
 
@@ -2267,7 +2267,7 @@ Strict JSON under depth, input, and output limits: resumable event decoder, vali
 
 ```text
 enum JsonFault
-    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | InvalidLimits | OutOfRange | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
 class JsonError
     fault: JsonFault
     offset: i64
@@ -2292,12 +2292,12 @@ class Decoder
     def offset(self) -> i64
     def depth(self) -> i64
     def reject(self, fault: JsonFault) -> JsonError
-    def feed(self: &mut Decoder, source: &Bytes, start: i64, stop: i64) -> Result[(), JsonError]
+    def feed(self: &mut Decoder, source: &[u8]) -> Result[(), JsonError]
     def finish(self: &mut Decoder) -> ()
     def next(self: &mut Decoder) -> Result[Event, JsonError]
 def decoder(bounds: &Limits) -> Result[Decoder, JsonError]
 def read_event[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[Event, JsonError]
-def parse(source: &Bytes, bounds: &Limits) -> Result[Json, JsonError]
+def parse(source: &[u8], bounds: &Limits) -> Result[Json, JsonError]
 def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]
 def find(members: &list[Member], key: &str) -> Option[i64]
@@ -2345,14 +2345,14 @@ class SigningKey
     def verifying_key(self) -> Result[VerifyingKey, JwtError]
 class VerifyingKey
     def algorithm(self) -> Algorithm
-def hmac_signing_key(algorithm: Algorithm, secret: &Bytes) -> Result[SigningKey, JwtError]
-def hmac_verifying_key(algorithm: Algorithm, secret: &Bytes) -> Result[VerifyingKey, JwtError]
+def hmac_signing_key(algorithm: Algorithm, secret: &[u8]) -> Result[SigningKey, JwtError]
+def hmac_verifying_key(algorithm: Algorithm, secret: &[u8]) -> Result[VerifyingKey, JwtError]
 def rsa_signing_key(algorithm: Algorithm, key: RsaPrivateKey) -> Result[SigningKey, JwtError]
 def rsa_verifying_key(algorithm: Algorithm, key: RsaPublicKey) -> Result[VerifyingKey, JwtError]
 def es256_signing_key(key: P256PrivateKey) -> SigningKey
 def es256_verifying_key(key: P256PublicKey) -> VerifyingKey
-def ed25519_signing_key(seed: &Bytes) -> Result[SigningKey, JwtError]
-def ed25519_verifying_key(public_key: &Bytes) -> Result[VerifyingKey, JwtError]
+def ed25519_signing_key(seed: &[u8]) -> Result[SigningKey, JwtError]
+def ed25519_verifying_key(public_key: &[u8]) -> Result[VerifyingKey, JwtError]
 const default_max_size: i64 = 8192
 const max_leeway: i64 = 86400
 const max_token_size: i64 = 1048576
@@ -2467,7 +2467,7 @@ enum Event
 def limits() -> Limits
 class Parser
     def next(self: &mut Parser) -> Result[Event, MarkdownError]
-def parser(source: &Bytes, bounds: &Limits) -> Result[Parser, MarkdownError]
+def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]
 def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]
 class HtmlRenderer
     def pending(self) -> i64
@@ -2477,7 +2477,7 @@ class HtmlRenderer
 def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]
 def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]
 def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]
-def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]
+def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]
 def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 
@@ -2746,7 +2746,7 @@ class Child
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
-    def communicate(self: &mut Child, input: &Bytes, limit: i64) -> Result[Output, StreamError]
+    def communicate(self: &mut Child, input: &[u8], limit: i64) -> Result[Output, StreamError]
     def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]
 enum WaitError
     Io(IoError) | Cancelled
@@ -2834,7 +2834,7 @@ class Match
     def len(self) -> i64
     def is_empty(self) -> bool
     def text(self, haystack: &str) -> Result[str, RegexError]
-    def bytes(self, data: &Bytes) -> Result[Bytes, RegexError]
+    def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]
 class Captures
     def len(self) -> i64
     def get(self, index: i64) -> Option[Match]
@@ -2845,18 +2845,18 @@ class Regex
     def group_index(self, name: &str) -> Option[i64]
     def instructions(self) -> i64
     def is_match(self, text: &str) -> Result[bool, RegexError]
-    def is_match_bytes(self, data: &Bytes) -> Result[bool, RegexError]
+    def is_match_bytes(self, data: &[u8]) -> Result[bool, RegexError]
     def find(self, text: &str) -> Result[Option[Match], RegexError]
     def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]
-    def find_bytes(self, data: &Bytes, start: i64) -> Result[Option[Match], RegexError]
+    def find_bytes(self, data: &[u8], start: i64) -> Result[Option[Match], RegexError]
     def captures(self, text: &str) -> Result[Option[Captures], RegexError]
     def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]
-    def captures_bytes(self, data: &Bytes, start: i64) -> Result[Option[Captures], RegexError]
+    def captures_bytes(self, data: &[u8], start: i64) -> Result[Option[Captures], RegexError]
     def cursor(self) -> Result[Cursor, RegexError]
     def next_match(self, text: &str, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
-    def next_match_bytes(self, data: &Bytes, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
+    def next_match_bytes(self, data: &[u8], cursor: &mut Cursor) -> Result[Option[Match], RegexError]
     def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]
-    def find_all_bytes(self, data: &Bytes, max_matches: i64) -> Result[list[Match], RegexError]
+    def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]
     def split(self, text: &str, max_pieces: i64) -> Result[list[str], RegexError]
     def replace(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
     def replace_all(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
@@ -2935,7 +2935,7 @@ class Quantiles
     def quantile(self, fraction: f64) -> Result[f64, SketchError]
     def to_bytes(self) -> Result[Bytes, BytesError]
 def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError | AllocError]
-def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
+def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]
 class Frequency
     key: u64
     lower: u64
@@ -3569,7 +3569,7 @@ def start_accept(tcp: TcpStream, config: &ServerConfig) -> Result[TlsStream, Tls
 def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
 def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
 class Session
-    def feed(self: &mut Session, source: &Bytes, start: i64, stop: i64) -> Result[i64, TlsError]
+    def feed(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]
     def feed_end(self: &mut Session) -> Result[(), TlsError]
     def take(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[i64, TlsError]
     def read(self: &mut Session, target: &mut Bytes, start: i64, stop: i64) -> Result[Option[i64], TlsError]
@@ -3621,7 +3621,7 @@ class Entry
     key: str
     value: Toml
 def limits() -> Limits
-def parse(source: &Bytes, bounds: &Limits) -> Result[Toml, TomlError]
+def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]
 def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, TomlError]
 def find(entries: &list[Entry], key: &str) -> Option[i64]
@@ -3634,7 +3634,7 @@ class Document
     def set(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
     def insert(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
     def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]
-def document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]
+def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]
 def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
 ```
 
@@ -3674,8 +3674,8 @@ class Pair
     key: str
     value: str
 def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]
-def encode_bytes(source: &Bytes, start: i64, stop: i64, component: Component) -> Result[Bytes, UrlError]
-def decode_bytes(source: &Bytes, start: i64, stop: i64) -> Result[Bytes, UrlError]
+def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]
+def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]
 def encode(text: &str, component: Component) -> Result[str, UrlError]
 def decode(text: &str) -> Result[str, UrlError]
 def query_pairs(query: &str) -> Result[list[Pair], UrlError]

@@ -103,10 +103,9 @@ name, a colon with no space before it, and a value of visible bytes, spaces
 and tabs that is valid UTF-8. A line starting with a space or tab (an obsolete
 line fold) is `InvalidHeader`.
 
-`parse_request_line(line, size)`, `parse_status_line(line, size)` and
-`parse_field(line, size)` expose the same grammar for custom readers. `size`
-selects a prefix of the `Bytes` excluding CRLF; an invalid prefix range is
-`Stream(OutOfRange)`. These helpers do not read streams or enforce head budgets.
+`parse_request_line(line: &[u8])`, `parse_status_line(line: &[u8])` and
+`parse_field(line: &[u8])` expose the same grammar for custom readers. `line`
+excludes CRLF; pass `&buffer[:size]` for a prefix. These helpers do not read streams or enforce head budgets.
 For typed transports, prefer [`std.http.typed.read_request` and
 `read_response`](http-typed.md), which enforce those budgets and retain causes
 and consumed-byte progress.

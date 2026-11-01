@@ -1,7 +1,7 @@
 # One byte per element in contiguous native storage. Every offset is validated
 # here and reported as a value; the native primitives only repeat the check.
-# A view is an ordinary `&Bytes` or `&mut Bytes` loan plus explicit offsets, so
-# the borrow checker already rejects growth or movement while one is live.
+# A `&[u8]` view holds a loan of its owner, so the borrow checker rejects
+# growth or movement while one is live.
 
 pub enum BytesError:
     OutOfRange
@@ -120,97 +120,87 @@ pub class Bytes:
     # to `start`.
     pub def find(self, value: u8, start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find(self._owner, value, start, stop)))
+        Ok(after(start, __bytes_find(&self[start:stop], value)))
 
     # The first byte that equals any byte of `set`. An empty set finds nothing.
     pub def find_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_in(self._owner, set, start, stop, 1u8)))
+        Ok(after(start, __bytes_find_in(&self[start:stop], set, 1u8)))
 
     # The first byte that equals no byte of `set`: the end of a run.
     pub def find_not_in(self, set: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_in(self._owner, set, start, stop, 0u8)))
+        Ok(after(start, __bytes_find_in(&self[start:stop], set, 0u8)))
 
     # The first position where all of `needle` occurs inside the range. An
     # empty needle is found at `start`.
     pub def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Result[Option[i64], BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(located(__bytes_find_bytes(self._owner, needle, start, stop)))
+        Ok(after(start, __bytes_find_bytes(&self[start:stop], needle)))
 
     pub def count(self, value: u8, start: i64, stop: i64) -> Result[i64, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(__bytes_count(self._owner, value, start, stop))
+        Ok(__bytes_count(&self[start:stop], value))
 
     # Whether `source` occurs at `offset`. Too few bytes after `offset` is
     # False, not an error.
     pub def matches(self, offset: i64, source: &[u8]) -> Result[bool, BytesError]:
         if offset < 0 or offset > __bytes_len(self._owner):
             return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches(self._owner, offset, source))
+        Ok(__bytes_matches(&self[:], offset, source))
 
     # Whether the UTF-8 bytes of `text` occur at `offset`.
     pub def matches_text(self, offset: i64, text: &str) -> Result[bool, BytesError]:
         if offset < 0 or offset > __bytes_len(self._owner):
             return Err(BytesError.OutOfRange)
-        Ok(__bytes_matches_text(self._owner, offset, text))
+        Ok(__bytes_matches_text(&self[:], offset, text))
 
     # The index after the run of bytes below 128 that begins at `start`.
     pub def ascii_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(__bytes_run(self._owner, start, stop, 0u8))
+        Ok(start + __bytes_run(&self[start:stop], 0u8))
 
     # The index after the longest valid UTF-8 that begins at `start`. A
     # sequence cut off by `stop` is not included.
     pub def utf8_run(self, start: i64, stop: i64) -> Result[i64, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        Ok(__bytes_run(self._owner, start, stop, 1u8))
+        Ok(start + __bytes_run(&self[start:stop], 1u8))
 
     pub def to_list(self) -> Result[list[u8], BytesError]:
         allocated(__bytes_to_list(self._owner))
 
     pub def to_text(self) -> Result[str, BytesError]:
-        text_in(&self._owner, 0, __bytes_len(self._owner))
+        text_in(&self[:])
 
     # `self[start:stop]` as text: validated and copied once, with no
     # intermediate `Bytes`.
     pub def to_text_range(self, start: i64, stop: i64) -> Result[str, BytesError]:
         checked(start, stop, __bytes_len(self._owner))?
-        text_in(&self._owner, start, stop)
+        text_in(&self[start:stop])
 
     # Direct transport. Each call makes at most one native read or write and
     # returns the bytes moved, so a short count is success. std.io adds the
     # retry, end-of-input and partial-progress policy. A bad range is
-    # InvalidInput and touches neither the buffer nor the stream.
+    # InvalidInput and touches neither the buffer nor the stream. Writes are
+    # the module functions below, which read a view.
     pub def read_file(self: &mut Bytes, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
         __io_file_read(self._owner, start, stop, file)
 
-    pub def write_file(self, file: &mut File, start: i64, stop: i64) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
-        __io_file_write(&self[start:stop], file)
-
     pub def read_stdin(self: &mut Bytes, start: i64, stop: i64) -> Result[i64, IoError]:
         transported(start, stop, __bytes_len(self._owner))?
         __io_stdin_read(self._owner, start, stop)
-
-    pub def write_stdout(self, start: i64, stop: i64) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
-        __io_std_write(&self[start:stop], 1u8)
-
-    pub def write_stderr(self, start: i64, stop: i64) -> Result[i64, IoError]:
-        transported(start, stop, __bytes_len(self._owner))?
-        __io_std_write(&self[start:stop], 2u8)
 
 def transported(start: i64, stop: i64, count: i64) -> Result[(), IoError]:
     if start < 0 or start > stop or stop > count:
         return Err(IoError.InvalidInput)
     Ok(())
 
-def located(index: i64) -> Option[i64]:
+# A scan's index into a view starting at `start`, or Nothing for -1.
+def after(start: i64, index: i64) -> Option[i64]:
     if index < 0:
         return Nothing
-    Some(index)
+    Some(start + index)
 
 # The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
 def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
@@ -218,9 +208,8 @@ def checked(start: i64, stop: i64, count: i64) -> Result[(), BytesError]:
         return Err(BytesError.OutOfRange)
     Ok(())
 
-# The native call repeats the range check; callers have already made it.
-def text_in(owner: &ByteStorage, start: i64, stop: i64) -> Result[str, BytesError]:
-    match allocated(__bytes_to_text(owner, start, stop))?:
+def text_in(source: &[u8]) -> Result[str, BytesError]:
+    match allocated(__bytes_to_text(source))?:
         case Some(text):
             Ok(text)
         case Nothing:
@@ -257,3 +246,14 @@ pub def from_text(text: &str) -> Result[Bytes, BytesError]:
 # An owned, growable copy of a `b"..."` literal.
 pub def from_bytes(value: bytes) -> Result[Bytes, BytesError]:
     Ok(Bytes(allocated(__bytes_from_static(value))?))
+
+# Direct transport out of a view: at most one native write, returning the
+# bytes moved. The view carries its own range, so there is no range error.
+pub def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]:
+    __io_file_write(source, file)
+
+pub def stdout_write(source: &[u8]) -> Result[i64, IoError]:
+    __io_std_write(source, 1u8)
+
+pub def stderr_write(source: &[u8]) -> Result[i64, IoError]:
+    __io_std_write(source, 2u8)

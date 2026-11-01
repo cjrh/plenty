@@ -24,9 +24,9 @@ pub class Wire:
 pub class Store:
     count: i64
 
-    pub def write(self: &mut Store, buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[StoreError]]:
-        self.count += stop - start
-        Ok(stop - start)
+    pub def write(self: &mut Store, buffer: &[u8]) -> Result[i64, StepError[StoreError]]:
+        self.count += len(buffer)
+        Ok(len(buffer))
 
 def main() -> Result[(), std.bytes.BytesError | FramingError[TransportError] | IoError]:
     mut scratch = std.bytes.with_capacity(4)?

@@ -804,20 +804,19 @@ fn transport_moves_one_checked_range_per_call() {
         r#"
 mut file = open("{}", "w+")?
 source = std.bytes.from_list(&[0u8, 255u8, 13u8, 10u8, 65u8]?)?
-print(source.write_file(&mut file, 1, 5)?, source.write_file(&mut file, 2, 2)?)?
+print(std.bytes.write_file(&mut file, &source[1:5])?, std.bytes.write_file(&mut file, &source[2:2])?)?
 file.seek(0)?
 mut buffer = std.bytes.with_capacity(8)?
 buffer.resize(8, 46u8)?
 print(buffer.read_file(&mut file, 2, 8)?, buffer.to_list()?, buffer.capacity())?
 print(buffer.read_file(&mut file, 0, 8)?, buffer.read_file(&mut file, 3, 3)?)?
 print(str.repr(buffer.read_file(&mut file, 0, 9))?)?
-print(str.repr(source.write_file(&mut file, 3, 2))?)?
-print(str.repr(buffer.read_stdin(-1, 2))?, str.repr(source.write_stdout(0, 6))?)?
-print(str.repr(source.write_stderr(4, 3))?, buffer.read_stdin(0, 8)?)?
-print(source.write_stdout(4, 5)?)?
+print(str.repr(buffer.read_stdin(-1, 2))?)?
+print(buffer.read_stdin(0, 8)?, std.bytes.stderr_write(&source[4:4])?)?
+print(std.bytes.stdout_write(&source[4:5])?, std.bytes.stdout_write(b"")?)?
 file.close()?
 print(str.repr(buffer.read_file(&mut file, 0, 8))?)?
-print(str.repr(source.write_file(&mut file, 0, 5))?)?
+print(str.repr(std.bytes.write_file(&mut file, &source))?)?
 "#,
         path.display()
     );
@@ -826,8 +825,7 @@ print(str.repr(source.write_file(&mut file, 0, 5))?)?
     native(
         &body,
         &format!(
-            "4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n{invalid}\n{invalid}\n\
-             {invalid} {invalid}\n{invalid} 0\nA1\n{closed}\n{closed}"
+            "4 0\n4 [46, 46, 255, 13, 10, 65, 46, 46] 8\n0 0\n{invalid}\n{invalid}\n0 0\nA1 0\n{closed}\n{closed}"
         ),
     );
     assert_eq!(std::fs::read(path).unwrap(), [255, 13, 10, 65]);

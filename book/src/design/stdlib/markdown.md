@@ -117,7 +117,7 @@ pub enum Event:
 ```
 
 ```text
-pub def parser(source: &Bytes, bounds: &Limits) -> Result[Parser, MarkdownError]
+pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]
 pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]
 Parser.next(self: &mut Parser) -> Result[Event, MarkdownError]
 ```
@@ -153,7 +153,7 @@ HtmlRenderer.written(self) -> i64
 HtmlRenderer.take(self: &mut HtmlRenderer) -> Result[Bytes, MarkdownError]
 pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]
 pub def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]
-pub def render(source: &Bytes, bounds: &Limits) -> Result[Bytes, MarkdownError]
+pub def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]
 pub def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 

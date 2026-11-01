@@ -278,8 +278,8 @@ per call. Seeking a `BufReader` discards up to `capacity` bytes already read.
   note naming the missing method, not with a protocol diagnostic.
 - The native calls `__io_file_read`, `__io_file_write`, `__io_stdin_read`,
   `__io_std_write`, and `__io_file_seek` are private transport for the
-  standard library, reached through `Bytes.read_file`, `write_file`,
-  `read_stdin`, `write_stdout`, `write_stderr`, and `FileStream.seek`.
+  standard library, reached through `Bytes.read_file` and `read_stdin`,
+  `std.bytes.write_file`, `stdout_write` and `stderr_write`, and `FileStream.seek`.
   `__io_is_terminal` is the private process-stream terminal query.
 
 ## Acknowledgements

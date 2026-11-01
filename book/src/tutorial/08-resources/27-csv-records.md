@@ -113,8 +113,8 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.csv.C
     print(str.repr(output.texts(&["card"]?))?)?
     print(str.repr(output.text("much too long for a field"))?)?
     raw = std.bytes.from_text("card:plain")?
-    output.field(&raw, 0, 4)?
-    output.field(&raw, 5, 10)?
+    output.field(&raw[:4])?
+    output.field(&raw[5:10])?
     output.end_record()?
     output.flush()?
     print(output.records())?

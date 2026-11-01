@@ -112,14 +112,14 @@ pub(crate) unsafe fn view_bytes<'a>(value: u128) -> &'a [u8] {
     unsafe { std::slice::from_raw_parts(address, len) }
 }
 
-/// Whether the `view` operand shares a byte with the buffer `storage`, so a
-/// native writing `storage` while reading `view` would alias them.
 /// The operand a `&[u8]` view of `bytes` lowers to, for runtime tests.
 #[cfg(test)]
 pub(crate) fn view_operand(bytes: &[u8]) -> u128 {
     bytes.as_ptr() as u128 | (bytes.len() as u128) << 64
 }
 
+/// Whether the `view` operand shares a byte with the buffer `storage`, so a
+/// native writing `storage` while reading `view` would alias them.
 pub(crate) unsafe fn view_overlaps(view: u128, storage: u128) -> bool {
     // SAFETY: the caller passes a live view and a live storage prefix.
     let (input, output) = unsafe {
@@ -150,8 +150,8 @@ pub(super) fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usiz
 }
 
 /// A found index, or -1: `std.bytes` turns the sentinel into an `Option`.
-fn found(index: Option<usize>, base: usize) -> u128 {
-    index.map_or(-1i64, |index| (base + index) as i64) as u128
+fn found(index: Option<usize>) -> u128 {
+    index.map_or(-1i64, |index| index as i64) as u128
 }
 
 pub(super) fn result(value: Result<u128, AllocError>) -> u128 {
@@ -280,15 +280,10 @@ pub(super) unsafe fn call(
                 }))
             }
             182 => result(from_slice(strings::bytes(&(a as *const strings::Text)))),
-            183 => {
-                let bytes = view(a);
-                result(
-                    match std::str::from_utf8(&bytes[range(b, c, bytes.len())]) {
-                        Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
-                        Err(_) => Ok(wrap(0, 0)),
-                    },
-                )
-            }
+            183 => result(match std::str::from_utf8(view_bytes(a)) {
+                Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
+                Err(_) => Ok(wrap(0, 0)),
+            }),
             188 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());
@@ -322,49 +317,25 @@ pub(super) unsafe fn call(
                 };
                 crate::io::io_result(written.map(|count| count as u128))
             }
-            230 => {
-                let bytes = view(a);
-                let within = range(c, d, bytes.len());
-                found(
-                    byte_scan::find(&bytes[within.clone()], b as u8),
-                    within.start,
-                )
-            }
-            231 => {
-                let bytes = view(a);
-                let within = range(c, d, bytes.len());
-                found(
-                    byte_scan::find_in(&bytes[within.clone()], view_bytes(b), e != 0),
-                    within.start,
-                )
-            }
-            232 => {
-                let bytes = view(a);
-                let within = range(c, d, bytes.len());
-                found(
-                    byte_scan::find_bytes(&bytes[within.clone()], view_bytes(b)),
-                    within.start,
-                )
-            }
-            233 => {
-                let bytes = view(a);
-                byte_scan::count(&bytes[range(c, d, bytes.len())], b as u8) as u128
-            }
-            234 => prefixed(view(a), size(b), view_bytes(c)) as u128,
+            // Scans read a `&[u8]` view; indices are relative to it.
+            230 => found(byte_scan::find(view_bytes(a), b as u8)),
+            231 => found(byte_scan::find_in(view_bytes(a), view_bytes(b), c != 0)),
+            232 => found(byte_scan::find_bytes(view_bytes(a), view_bytes(b))),
+            233 => byte_scan::count(view_bytes(a), b as u8) as u128,
+            234 => prefixed(view_bytes(a), size(b), view_bytes(c)) as u128,
             235 => prefixed(
-                view(a),
+                view_bytes(a),
                 size(b),
                 strings::bytes(&(c as *const strings::Text)),
             ) as u128,
             236 => {
-                let bytes = view(a);
-                let within = range(b, c, bytes.len());
-                let run = if d == 0 {
-                    byte_scan::ascii_run(&bytes[within.clone()])
+                let bytes = view_bytes(a);
+                let run = if b == 0 {
+                    byte_scan::ascii_run(bytes)
                 } else {
-                    byte_scan::utf8_run(&bytes[within.clone()])
+                    byte_scan::utf8_run(bytes)
                 };
-                (within.start + run) as u128
+                run as u128
             }
             237 => {
                 let bytes = storage(a);
@@ -570,41 +541,38 @@ mod tests {
     }
 
     #[test]
-    fn scans_report_absolute_indices_or_the_missing_sentinel() {
+    fn scans_report_view_relative_indices_or_the_missing_sentinel() {
         const NONE: u128 = -1i64 as u128;
         unsafe {
-            let data = Owner(from_slice(b"key=\"a,b\";\r\nnext line").unwrap());
-            let set = Owner(from_slice(b",;").unwrap());
-            let len = bytes(&data).len() as u128;
-            assert_eq!(run(230, [data.0, b'=' as u128, 0, len, 0]), 3);
-            assert_eq!(run(230, [data.0, b'=' as u128, 4, len, 0]), NONE);
-            let set = view_operand(bytes(&set));
-            assert_eq!(run(231, [data.0, set, 0, len, 1]), 6);
-            assert_eq!(run(231, [data.0, set, 7, len, 1]), 9);
-            assert_eq!(run(231, [data.0, set, 10, len, 1]), NONE);
-            assert_eq!(run(231, [data.0, set, 6, len, 0]), 7);
-            assert_eq!(
-                run(231, [data.0, view_operand(bytes(&data)), 0, len, 0]),
-                NONE
-            );
-            let line = Owner(from_slice(b"\r\n").unwrap());
-            let crlf = bytes(&line);
-            assert_eq!(run(232, [data.0, view_operand(crlf), 0, len, 0]), 10);
-            assert_eq!(run(232, [data.0, view_operand(crlf), 0, 11, 0]), NONE);
-            assert_eq!(run(233, [data.0, b'e' as u128, 0, len, 0]), 3);
-            assert_eq!(run(234, [data.0, 10, view_operand(crlf), 0, 0]), 1);
-            assert_eq!(run(234, [data.0, 9, view_operand(crlf), 0, 0]), 0);
-            assert_eq!(run(234, [data.0, len - 1, view_operand(crlf), 0, 0]), 0);
-            assert_eq!(run(234, [data.0, len, view_operand(&[]), 0, 0]), 1);
-            let text = strings::try_new("next").unwrap();
-            assert_eq!(run(235, [data.0, 12, text as u128, 0, 0]), 1);
-            assert_eq!(run(235, [data.0, 13, text as u128, 0, 0]), 0);
-            memory::plenty_release(text as *mut Header);
-            let mixed = Owner(from_slice(&[b'a', b'b', 0xc3, 0xa9, 0xff, b'c']).unwrap());
-            assert_eq!(run(236, [mixed.0, 0, 6, 0, 0]), 2);
-            assert_eq!(run(236, [mixed.0, 0, 6, 1, 0]), 4);
-            assert_eq!(run(236, [mixed.0, 5, 6, 1, 0]), 6);
-            assert_eq!(run(236, [mixed.0, 0, 3, 1, 0]), 2);
+            let text = b"key=\"a,b\";\r\nnext line";
+            let data = view_operand(text);
+            let tail = view_operand(&text[4..]);
+            assert_eq!(run(230, [data, b'=' as u128, 0, 0, 0]), 3);
+            assert_eq!(run(230, [tail, b'=' as u128, 0, 0, 0]), NONE);
+            let set = view_operand(b",;");
+            assert_eq!(run(231, [data, set, 1, 0, 0]), 6);
+            assert_eq!(run(231, [view_operand(&text[7..]), set, 1, 0, 0]), 2);
+            assert_eq!(run(231, [view_operand(&text[10..]), set, 1, 0, 0]), NONE);
+            assert_eq!(run(231, [view_operand(&text[6..]), set, 0, 0, 0]), 1);
+            assert_eq!(run(231, [data, data, 0, 0, 0]), NONE);
+            let crlf = view_operand(b"\r\n");
+            assert_eq!(run(232, [data, crlf, 0, 0, 0]), 10);
+            assert_eq!(run(232, [view_operand(&text[..11]), crlf, 0, 0, 0]), NONE);
+            assert_eq!(run(233, [data, b'e' as u128, 0, 0, 0]), 3);
+            assert_eq!(run(234, [data, 10, crlf, 0, 0]), 1);
+            assert_eq!(run(234, [data, 9, crlf, 0, 0]), 0);
+            let len = text.len() as u128;
+            assert_eq!(run(234, [data, len - 1, crlf, 0, 0]), 0);
+            assert_eq!(run(234, [data, len, view_operand(&[]), 0, 0]), 1);
+            let next = strings::try_new("next").unwrap();
+            assert_eq!(run(235, [data, 12, next as u128, 0, 0]), 1);
+            assert_eq!(run(235, [data, 13, next as u128, 0, 0]), 0);
+            memory::plenty_release(next as *mut Header);
+            let mixed: &[u8] = &[b'a', b'b', 0xc3, 0xa9, 0xff, b'c'];
+            assert_eq!(run(236, [view_operand(mixed), 0, 0, 0, 0]), 2);
+            assert_eq!(run(236, [view_operand(mixed), 1, 0, 0, 0]), 4);
+            assert_eq!(run(236, [view_operand(&mixed[5..]), 1, 0, 0, 0]), 1);
+            assert_eq!(run(236, [view_operand(&mixed[..3]), 1, 0, 0, 0]), 2);
         }
     }
 
@@ -642,23 +610,22 @@ mod tests {
     #[test]
     fn text_conversion_validates_and_keeps_embedded_nul() {
         unsafe {
-            let valid = Owner(from_slice("a\0é".as_bytes()).unwrap());
-            let value = run(183, [valid.0, 0, 4, 0, 0]);
+            let valid = "a\0é".as_bytes();
+            let value = run(183, [view_operand(valid), 0, 0, 0, 0]);
             // Ok(Some(text)): the option tag sits above the result tag.
             assert_eq!(value >> 64, 2);
             let text = value as u64 as *const strings::Text;
-            assert_eq!(strings::bytes(&text), "a\0é".as_bytes());
+            assert_eq!(strings::bytes(&text), valid);
             memory::plenty_release(text as *mut Header);
-            // A range converts only its own bytes.
-            let value = run(183, [valid.0, 1, 2, 0, 0]);
+            // A view converts only its own bytes.
+            let value = run(183, [view_operand(&valid[1..2]), 0, 0, 0, 0]);
             assert_eq!(value >> 64, 2);
             let text = value as u64 as *const strings::Text;
             assert_eq!(strings::bytes(&text), b"\0");
             memory::plenty_release(text as *mut Header);
             // Cutting the two-byte é in half is invalid.
-            assert_eq!(run(183, [valid.0, 0, 3, 0, 0]), 0);
-            let invalid = Owner(from_slice(&[0xff, 0xfe]).unwrap());
-            assert_eq!(run(183, [invalid.0, 0, 2, 0, 0]), 0);
+            assert_eq!(run(183, [view_operand(&valid[..3]), 0, 0, 0, 0]), 0);
+            assert_eq!(run(183, [view_operand(&[0xff, 0xfe]), 0, 0, 0, 0]), 0);
         }
     }
 

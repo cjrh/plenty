@@ -13,7 +13,7 @@ pub protocol Reader[E]:
         pass
 
 pub protocol Writer[E]:
-    def write(self: &mut Writer[E], buffer: &Bytes, start: i64, stop: i64) -> Result[i64, StepError[E]]:
+    def write(self: &mut Writer[E], buffer: &[u8]) -> Result[i64, StepError[E]]:
         pass
 
 pub enum ReadFailure[E]:
@@ -26,7 +26,6 @@ pub enum WriteFailure[E]:
     Source(E)
     WriteZero
     InvalidProgress
-    OutOfRange
 
 pub class Partial[E]:
     pub completed: i64
@@ -57,22 +56,21 @@ pub def read_exact[E, R: Reader[E]](reader: &mut R, buffer: &mut Bytes, start: i
                 return Err(Partial(at - start, ReadFailure[E].Source(cause)))
     Ok(())
 
-pub def write_all[E, W: Writer[E]](writer: &mut W, buffer: &Bytes, start: i64, stop: i64) -> Result[(), Partial[WriteFailure[E]]]:
-    if not within(start, stop, buffer.len()):
-        return Err(Partial(0, WriteFailure[E].OutOfRange))
-    mut at = start
+pub def write_all[E, W: Writer[E]](writer: &mut W, buffer: &[u8]) -> Result[(), Partial[WriteFailure[E]]]:
+    stop = len(buffer)
+    mut at = 0
     while at < stop:
-        match writer.write(buffer, at, stop):
+        match writer.write(&buffer[at:]):
             case Ok(count):
                 if count == 0:
-                    return Err(Partial(at - start, WriteFailure[E].WriteZero))
+                    return Err(Partial(at, WriteFailure[E].WriteZero))
                 if count < 0 or count > stop - at:
-                    return Err(Partial(at - start, WriteFailure[E].InvalidProgress))
+                    return Err(Partial(at, WriteFailure[E].InvalidProgress))
                 at += count
             case Err(StepError.Interrupted):
                 pass
             case Err(StepError.Source(cause)):
-                return Err(Partial(at - start, WriteFailure[E].Source(cause)))
+                return Err(Partial(at, WriteFailure[E].Source(cause)))
     Ok(())
 
 # completed always counts delivery to the writer, including a partial write.
@@ -88,7 +86,7 @@ pub def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut 
                     return Ok(total)
                 if count < 0 or count > size or count > i64.MAX - total:
                     return Err(CopyFailure[E, G].Read(total, ReadFailure[E].InvalidProgress))
-                match write_all[G, W](writer, scratch, 0, count):
+                match write_all[G, W](writer, &scratch[:count]):
                     case Ok(_):
                         total += count
                     case Err(partial):

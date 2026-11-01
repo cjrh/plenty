@@ -127,6 +127,11 @@ def unplaced[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
 
 # A fault before scanning starts, such as an allocation failure while setting
 # up, points at the start of the document.
+def copied(source: &[u8]) -> Result[Bytes, TomlFault]:
+    mut owned = faulted(std.bytes.with_capacity(len(source)))?
+    faulted(owned.extend(source))?
+    Ok(owned)
+
 def started[T](result: Result[T, TomlFault]) -> Result[T, TomlError]:
     match result:
         case Ok(value):
@@ -961,12 +966,12 @@ def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
             state.at = count
             Err(state.located(fault))
 
-pub def parse(source: &Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
+pub def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if source.len() > bounds.max_input:
+    if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    run(started(faulted(source.copy()))?, bounds)
+    run(started(copied(source))?, bounds)
 
 pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
     if not valid(bounds):
@@ -1107,7 +1112,7 @@ class Emitter:
             return Err(TomlFault.OutputTooLarge)
         push_byte(&mut self.out, byte)
 
-    def extend(self: &mut Emitter, source: &Bytes, start: i64, stop: i64) -> Result[(), TomlFault]:
+    def extend(self: &mut Emitter, source: &[u8], start: i64, stop: i64) -> Result[(), TomlFault]:
         if stop - start > self.max_output - self.out.len():
             return Err(TomlFault.OutputTooLarge)
         faulted(self.out.extend(&source[start:stop]))
@@ -1636,12 +1641,12 @@ def document_state(source: Bytes, bounds: &Limits) -> Result[Parser, TomlError]:
         case Err(fault):
             Err(state.located(fault))
 
-pub def document(source: &Bytes, bounds: &Limits) -> Result[Document, TomlError]:
+pub def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]:
     if not valid(bounds):
         return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if source.len() > bounds.max_input:
+    if len(source) > bounds.max_input:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
-    state = document_state(started(faulted(source.copy()))?, bounds)?
+    state = document_state(started(copied(source))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
 
 pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:

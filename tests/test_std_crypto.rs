@@ -10,7 +10,7 @@ from std.bytes import Bytes
 from std.crypto import Algorithm, CryptoError
 
 def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
-    Ok(std.encoding.hex_text(data, 0, data.len())?)
+    Ok(std.encoding.hex_text(data)?)
 
 def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)
@@ -478,5 +478,21 @@ print("__test_restore_allocations__")?
 print(failed.is_err(), made.is_ok())?
 "#,
         "True True",
+    );
+}
+
+/// B90: inputs are `&[u8]` views, so literals and subviews hash, tag and
+/// compare only their own bytes.
+#[test]
+fn inputs_are_views_of_literals_and_subviews() {
+    native(
+        r#"
+frame = std.bytes.from_bytes(b"<abc>")?
+whole = std.crypto.sha256(b"abc")?
+part = std.crypto.sha256(&frame[1:4])?
+print(std.crypto.equal(&whole, &part), std.crypto.equal(&whole[:4], &part[:4]), std.crypto.equal(b"ab", &frame[1:4]))?
+print(hex(&std.crypto.hmac_sha256(&frame[1:2], &frame[2:4])?)? == hex(&std.crypto.hmac_sha256(b"a", b"bc")?)?)?
+"#,
+        "True True False\nTrue",
     );
 }

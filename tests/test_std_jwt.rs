@@ -68,7 +68,7 @@ def signed(key: &SigningKey, text: &str) -> Result[str, Fault]:
 
 def segment(text: &str) -> Result[Bytes, Fault]:
     data = std.bytes.from_text(text)?
-    Ok(std.encoding.base64url_encode(&data, 0, data.len())?)
+    Ok(std.encoding.base64url_encode(&data)?)
 
 # A token with an arbitrary header and payload and a valid HS256 tag under
 # `secret()`, to reach checks that follow the signature.
@@ -78,7 +78,7 @@ def forge(header: &str, payload: &str) -> Result[str, Fault]:
     token.extend(&segment(payload)?)?
     tag = std.crypto.hmac_sha256(&secret()?, &token)?
     token.push(46u8)?
-    token.extend(&std.encoding.base64url_encode(&tag, 0, tag.len())?)?
+    token.extend(&std.encoding.base64url_encode(&tag)?)?
     Ok(token.to_text()?)
 
 def rsa_private() -> Result[std.crypto.RsaPrivateKey, Fault]:

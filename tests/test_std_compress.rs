@@ -13,7 +13,7 @@ from std.compress import Format, CompressError
 from std.io import StreamError
 
 def hex(data: &Bytes) -> Result[str, AllocError | IoError | std.encoding.EncodingError]:
-    Ok(std.encoding.hex_text(data, 0, data.len())?)
+    Ok(std.encoding.hex_text(data)?)
 
 def unhex(text: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(text)?)
@@ -419,13 +419,13 @@ fn crc32_matches_the_check_value() {
     native(
         r#"
 data = std.bytes.from_text("123456789")?
-print(std.compress.crc32(0, &data, 0, 9)?)?
-first = std.compress.crc32(0, &data, 0, 4)?
-print(std.compress.crc32(first, &data, 4, 9)?)?
-print(str.repr(std.compress.crc32(0, &data, 0, 10))?)?
-print(str.repr(std.compress.crc32(-1, &data, 0, 1))?)?
+print(std.compress.crc32(0, &data)?)?
+first = std.compress.crc32(0, &data[:4])?
+print(std.compress.crc32(first, &data[4:9])?)?
+print(std.compress.crc32(0, b"123456789")?, std.compress.crc32(0, &data[:10])?)?
+print(str.repr(std.compress.crc32(-1, &data[:1]))?)?
 "#,
-        "3421780262\n3421780262\nResult[i64, E].Err(OutOfRange)\nResult[i64, E].Err(OutOfRange)",
+        "3421780262\n3421780262\n3421780262 3421780262\nResult[i64, E].Err(OutOfRange)",
     );
 }
 

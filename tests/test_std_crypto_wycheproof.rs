@@ -60,7 +60,7 @@ def stdin() -> Result[Bytes, IoError | BytesError]:
     Ok(data)
 
 def jwk(text: &Bytes) -> Result[Bytes, EncodingError]:
-    std.encoding.base64url_decode(text, 0, text.len())
+    std.encoding.base64url_decode(text)
 "#;
 
 const RSA: &str = r#"

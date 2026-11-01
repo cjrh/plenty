@@ -1197,8 +1197,8 @@ print(mixed)?
 }
 
 /// Issue #375: head fields keep multi-byte UTF-8 that ends exactly at the
-/// field boundary, and `text_of` converts each field from the line without
-/// an intermediate `Bytes`.
+/// field boundary, and `text_of` converts each field from a view of the
+/// line without an intermediate `Bytes`.
 #[test]
 fn head_fields_keep_utf8_and_convert_in_place() {
     native(
@@ -1238,8 +1238,36 @@ eof
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     let clif = String::from_utf8(output.stdout).unwrap();
-    assert!(clif.contains("Bytes.to_text_range"), "{clif}");
-    for absent in ["Bytes.slice", "Bytes.to_text\n"] {
+    // The field is a view of the line, converted by the runtime directly.
+    assert!(clif.contains("function"), "{clif}");
+    for absent in ["Bytes.slice", "Bytes.to_text"] {
         assert!(!clif.contains(absent), "{absent}: {clif}");
     }
+}
+
+/// B90: the line parsers take a `&[u8]` view, so a caller passes the filled
+/// prefix of its line buffer and bytes after it are never read.
+#[test]
+fn line_parsers_read_only_the_view() {
+    native(
+        r#"
+line = std.bytes.from_text("GET /a HTTP/1.1junk")?
+request = std.http.parse_request_line(&line[:15]).unwrap()
+print(request.method, request.target, request.minor)?
+print(str.repr(&std.http.parse_request_line(&line[:17]))?)?
+status = std.http.parse_status_line(b"HTTP/1.0 204 No Content").unwrap()
+print(status.minor, status.status, status.reason)?
+field = std.bytes.from_text("Host: x\r\nnext")?
+header = std.http.parse_field(&field[:7]).unwrap()
+print(header.name, str.repr(&header.value)?)?
+print(str.repr(&std.http.parse_field(&field[:9]))?)?
+"#,
+        r#"
+GET /a 1
+Result[std.http.RequestHead, std.http.HttpError].Err(InvalidRequestLine)
+0 204 No Content
+Host "x"
+Result[std.http.Header, std.http.HttpError].Err(InvalidHeader)
+"#,
+    );
 }

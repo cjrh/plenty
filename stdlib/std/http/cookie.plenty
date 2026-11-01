@@ -290,7 +290,7 @@ pub def sign(keys: &list[Bytes], name: &str, value: &str) -> Result[str, CookieE
     data = lifted(std.bytes.from_text(value))?
     mut mac = tag_state(&keys[0], name, &data, data.len())?
     tag = crypto(mac.finish())?
-    encoded = match std.encoding.base64url_text(&tag, 0, tag.len()):
+    encoded = match std.encoding.base64url_text(&tag):
         case Ok(text):
             text
         case Err(EncodingError.Allocation(cause)):
@@ -314,7 +314,7 @@ pub def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[st
     # An HMAC-SHA-256 tag is 43 unpadded base64url characters.
     if dot < 0 or count - dot - 1 != 43:
         return Ok(Nothing)
-    tag = match std.encoding.base64url_decode(&data, dot + 1, count):
+    tag = match std.encoding.base64url_decode(&data[dot + 1:count]):
         case Ok(bytes):
             bytes
         case Err(EncodingError.Allocation(cause)):

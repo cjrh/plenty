@@ -144,14 +144,14 @@ pub class App:
                 events.send("héllo", &later()?, &wait_cancel, id=Some(""))?
                 events.wait(&pause()?, &wait_cancel)?
                 data = std.bytes.from_text("xxbytesxx")?
-                events.send_bytes(&data, 2, 7, &later()?, &wait_cancel)?
+                events.send_bytes(&data[2:7], &later()?, &wait_cancel)?
                 events.comment("keep\nalive", &later()?, &wait_cancel)?
                 outcome(events.send("x", &later()?, &wait_cancel, event="bad\nname"))?
                 nul = std.bytes.from_list(&[97u8, 0u8, 98u8]?)?.to_text()?
                 outcome(events.send("x", &later()?, &wait_cancel, id=Some(nul)))?
                 bad = std.bytes.from_list(&[255u8, 254u8]?)?
-                outcome(events.send_bytes(&bad, 0, 2, &later()?, &wait_cancel))?
-                outcome(events.send_bytes(&data, 5, 3, &later()?, &wait_cancel))?
+                outcome(events.send_bytes(&bad, &later()?, &wait_cancel))?
+                outcome(events.send_bytes(&bad[1:], &later()?, &wait_cancel))?
                 wait_cancel.cancel()
                 outcome(events.retry(&std.time.milliseconds(1u32), &later()?, &wait_cancel))?
                 wait_cancel = CancellationToken().unwrap()
@@ -264,7 +264,7 @@ fn events_are_encoded_and_outlive_the_response_deadline() {
         "InvalidField",
         "InvalidField",
         "InvalidText",
-        "OutOfRange",
+        "InvalidText",
         "Net(std.net.NetError.Cancelled)",
         "Closed",
     ] {

@@ -164,22 +164,19 @@ def hex_value(code: i64) -> i64:
 # space, tab, and bytes above 127, which must then form UTF-8 because values
 # are `str`; it is scanned for the bytes it rejects. Each kind is one bulk
 # scan over a literal set, so nothing is allocated. Callers pass ranges
-# within `data`; should one not be, `start` is returned so the field fails.
-def run(data: &Bytes, start: i64, stop: i64, kind: i64) -> i64:
+# within `data`.
+def run(data: &[u8], start: i64, stop: i64, kind: i64) -> i64:
+    span = &data[start:stop]
     found = match kind:
         case 0:
-            data.find_not_in(b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", start, stop)
+            __bytes_find_in(span, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
         case 1:
-            data.find_in(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", start, stop)
+            __bytes_find_in(span, b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", 1u8)
         case _:
-            data.find_not_in(b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", start, stop)
-    match found:
-        case Ok(Some(index)):
-            index
-        case Ok(Nothing):
-            stop
-        case Err(_):
-            start
+            __bytes_find_in(span, b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", 0u8)
+    if found < 0:
+        return stop
+    start + found
 
 def folded(scalar: &str) -> i64:
     match ord(scalar):
@@ -225,16 +222,14 @@ def connection_lists(headers: &list[Header], token: &str) -> bool:
             return True
     False
 
-def text_of(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[str, HttpError]:
-    match data.to_text_range(start, stop):
-        case Ok(text):
+def text_of(data: &[u8], start: i64, stop: i64, invalid: HttpError) -> Result[str, HttpError]:
+    match __bytes_to_text(&data[start:stop]):
+        case Ok(Some(text)):
             Ok(text)
-        case Err(error):
-            match error:
-                case BytesError.Allocation(cause):
-                    Err(HttpError.Allocation(cause))
-                case _:
-                    Err(invalid)
+        case Ok(Nothing):
+            Err(invalid)
+        case Err(cause):
+            Err(HttpError.Allocation(cause))
 
 # Reads one line ending in CRLF into `line`, replacing its contents, taking at
 # most `limit` bytes including the CRLF; `overflow` names the limit reached.
@@ -261,10 +256,9 @@ def head_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i6
     read_line(conn, line, left, HttpError.HeadTooLarge)
 
 # The line parsers share validation between legacy and typed stream readers.
-# `size` excludes CRLF; callers may retain it in their reusable line buffer.
-pub def parse_field(line: &Bytes, size: i64) -> Result[Header, HttpError]:
-    if size < 0 or size > line.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+# `line` excludes CRLF; callers pass a prefix view of their reusable line buffer.
+pub def parse_field(line: &[u8]) -> Result[Header, HttpError]:
+    size = len(line)
     # A leading blank is an obsolete line fold, which RFC 9112 lets a
     # recipient reject.
     colon = run(line, 0, size, 0)
@@ -294,13 +288,13 @@ def read_fields[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: 
             return Ok(())
         if len(headers) >= max_headers:
             return Err(HttpError.TooManyHeaders)
-        listed(headers.append(parse_field(line, size)?))?
+        listed(headers.append(parse_field(&line[:size])?))?
     Ok(())
 
 # `HTTP/1.0` or `HTTP/1.1` at data[start:stop]; another well-formed
 # `HTTP/d.d` is unsupported, anything else is `invalid`.
-def version(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[i64, HttpError]:
-    if stop - start != 8 or not lifted(data.matches_text(start, "HTTP/"))?:
+def version(data: &[u8], start: i64, stop: i64, invalid: HttpError) -> Result[i64, HttpError]:
+    if stop - start != 8 or not __bytes_matches_text(&data[start:], 0, "HTTP/"):
         return Err(invalid)
     major = i64(data[start + 5])
     minor = i64(data[start + 7])
@@ -310,9 +304,8 @@ def version(data: &Bytes, start: i64, stop: i64, invalid: HttpError) -> Result[i
         return Err(HttpError.UnsupportedVersion)
     Ok(minor - 48)
 
-pub def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpError]:
-    if size < 0 or size > line.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+pub def parse_request_line(line: &[u8]) -> Result[RequestHead, HttpError]:
+    size = len(line)
     method_end = run(line, 0, size, 0)
     if method_end == 0 or method_end == size or line[method_end] != space:
         return Err(HttpError.InvalidRequestLine)
@@ -324,9 +317,8 @@ pub def parse_request_line(line: &Bytes, size: i64) -> Result[RequestHead, HttpE
     target = text_of(line, method_end + 1, target_end, HttpError.InvalidRequestLine)?
     Ok(RequestHead(method, target, minor, listed(list[Header].new())?))
 
-pub def parse_status_line(line: &Bytes, size: i64) -> Result[ResponseHead, HttpError]:
-    if size < 0 or size > line.len():
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+pub def parse_status_line(line: &[u8]) -> Result[ResponseHead, HttpError]:
+    size = len(line)
     if size < 12 or line[8] != space:
         return Err(HttpError.InvalidStatusLine)
     minor = version(line, 0, 8, HttpError.InvalidStatusLine)?
@@ -361,7 +353,7 @@ pub def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Res
         if size < 0:
             return Ok(Nothing)
         left -= size + 2
-    mut head = parse_request_line(&line, size)?
+    mut head = parse_request_line(&line[:size])?
     read_fields(conn, &mut line, limits.max_line, left, limits.max_headers, &mut head.headers)?
     Ok(Some(head))
 
@@ -375,7 +367,7 @@ pub def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Re
     size = head_line(conn, &mut line, limits.max_line, limits.max_head)?
     if size < 0:
         return Ok(Nothing)
-    mut head = parse_status_line(&line, size)?
+    mut head = parse_status_line(&line[:size])?
     read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers, &mut head.headers)?
     Ok(Some(head))
 

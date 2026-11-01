@@ -4,7 +4,7 @@ from std.sync import CancellationToken
 # request, draining pipes without deadlock, decoding the status and deciding
 # when to reap are checked Plenty; the runtime spawns, waits, signals and
 # polls. See book/src/design/stdlib/process.md.
-from std.bytes import Bytes, BytesError, with_capacity
+from std.bytes import Bytes, BytesError, with_capacity, write_file
 from std.env import valid_name
 from std.io import StreamError, classify
 from std.path import Path
@@ -381,13 +381,13 @@ pub class Child:
 
     # One page of `input` from `sent`; returns the new position. A child that
     # stopped reading ends the feed without an error: its status tells why.
-    def feed(self: &mut Child, input: &Bytes, sent: i64) -> Result[i64, StreamError]:
-        mut stop = input.len()
+    def feed(self: &mut Child, input: &[u8], sent: i64) -> Result[i64, StreamError]:
+        mut stop = len(input)
         if stop - sent > pipe_page:
             stop = sent + pipe_page
         match &mut self._stdin:
             case Some(file):
-                match input.write_file(file, sent, stop):
+                match write_file(file, &input[sent:stop]):
                     case Ok(count):
                         return Ok(sent + count)
                     case Err(error):
@@ -397,22 +397,22 @@ pub class Child:
                                 return Ok(sent)
                             return Err(cause)
             case Nothing:
-                return Ok(input.len())
+                return Ok(len(input))
         self._stdin = Nothing
-        Ok(input.len())
+        Ok(len(input))
 
     # Writes `input` to a piped stdin while collecting piped stdout and stderr,
     # whichever is ready, so no pipe fills while another is being served. Then
     # closes stdin and waits. More than `limit` bytes on either stream is
     # OutOfRange; the child is then still running and still owned.
-    pub def communicate(self: &mut Child, input: &Bytes, limit: i64) -> Result[Output, StreamError]:
+    pub def communicate(self: &mut Child, input: &[u8], limit: i64) -> Result[Output, StreamError]:
         if limit < 0:
             return Err(StreamError.OutOfRange)
         mut out = empty()?
         mut err = empty()?
         mut sent = 0
         while True:
-            if sent >= input.len():
+            if sent >= len(input):
                 failed(self.close_stdin())?
             mut interest = 0
             if self._stdin.is_some():

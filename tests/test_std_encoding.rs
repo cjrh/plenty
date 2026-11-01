@@ -99,8 +99,8 @@ fn base32_rfc_vectors_cover_every_partial_group() {
         body.push_str(&format!(
             r#"
 data{n} = std.bytes.from_text("{plain}")?
-print("[", std.encoding.base32_text(&data{n}, 0, data{n}.len())?, "]")?
-print("[", std.encoding.base32hex_text(&data{n}, 0, data{n}.len())?, "]")?
+print("[", std.encoding.base32_text(&data{n})?, "]")?
+print("[", std.encoding.base32hex_text(&data{n})?, "]")?
 print(std.encoding.base32_from_text("{base32}")? == data{n}, std.encoding.base32hex_from_text("{extended}")? == data{n})?
 "#
         ));
@@ -152,15 +152,15 @@ for stop in range(257):
     start = stop % 4
     if start <= stop:
         plain = data.slice(start, stop)?
-        encoded = padded{n}.encode(&data, start, stop)?
-        unpadded = bare{n}.encode(&data, start, stop)?
-        decoded = padded{n}.decode(&encoded, 0, encoded.len())?
-        if decoded != plain or bare{n}.decode(&unpadded, 0, unpadded.len())? != plain:
+        encoded = padded{n}.encode(&data[start:stop])?
+        unpadded = bare{n}.encode(&data[start:stop])?
+        decoded = padded{n}.decode(&encoded)?
+        if decoded != plain or bare{n}.decode(&unpadded)? != plain:
             failures += 1
         if encoded.len() != encoded.capacity() or decoded.len() != decoded.capacity():
             failures += 1
-print(padded{n}.text(&data, 1, data.len())?)?
-print(bare{n}.text(&data, 1, data.len())?)?
+print(padded{n}.text(&data[1:])?)?
+print(bare{n}.text(&data[1:])?)?
 "#
         ));
         expected.push_str(&reference_radix(&data[1..], alphabet, Some('~')));
@@ -172,9 +172,9 @@ print(bare{n}.text(&data, 1, data.len())?)?
         r#"
 for stop in range(257):
     plain = data.slice(0, stop)?
-    a = std.encoding.base32_encode(&plain, 0, plain.len())?
-    b = std.encoding.base32hex_encode(&plain, 0, plain.len())?
-    if std.encoding.base32_decode(&a, 0, a.len())? != plain or std.encoding.base32hex_decode(&b, 0, b.len())? != plain:
+    a = std.encoding.base32_encode(&plain)?
+    b = std.encoding.base32hex_encode(&plain)?
+    if std.encoding.base32_decode(&a)? != plain or std.encoding.base32hex_decode(&b)? != plain:
         failures += 1
 print(failures)?
 "#,
@@ -213,9 +213,9 @@ fn base32_and_custom_decoders_reject_ambiguous_encodings_and_preserve_indexes() 
     body.push_str(
         r#"
 frame = std.bytes.from_text("..MZ======..")?
-print(str.repr(std.encoding.base32_decode(&frame, 2, 10))?)?
-print(str.repr(std.encoding.base32_decode(&frame, -1, 0))?)?
-print(str.repr(std.encoding.base32_encode(&frame, 0, 99))?)?
+print(str.repr(std.encoding.base32_decode(&frame[2:10]))?)?
+print(str.repr(std.encoding.base32_decode(&frame[-1:0]))?)?
+print(str.repr(std.encoding.base32_encode(&frame[:99]))?)?
 print(str.repr(std.encoding.base32hex_from_text("CP======"))?)?
 print(str.repr(std.encoding.base32hex_from_text("CW======"))?)?
 codec = std.encoding.custom("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", Nothing)?
@@ -227,7 +227,7 @@ print(custom_pad.from_text("MY~~~~~~")?.to_text()?)?
 print(str.repr(custom_pad.from_text("MY======"))?)?
 "#,
     );
-    expected.push_str("Result[Bytes, E].Err(E.NonCanonical(3))\nResult[Bytes, E].Err(E.OutOfRange)\nResult[Bytes, E].Err(E.OutOfRange)\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(1))\nf\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(2))\nf\nResult[Bytes, E].Err(E.InvalidByte(2))");
+    expected.push_str("Result[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Ok(b\"\")\nResult[Bytes, E].Ok(b\"FYXE2WR5HU6T2PJ5FYXA====\")\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(1))\nf\nResult[Bytes, E].Err(E.NonCanonical(1))\nResult[Bytes, E].Err(E.InvalidByte(2))\nf\nResult[Bytes, E].Err(E.InvalidByte(2))");
     native(&body, &expected);
 }
 
@@ -242,7 +242,7 @@ print(std.encoding.custom("01", Some(32u8)).is_err(), std.encoding.custom("01", 
 print(std.encoding.custom("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+-_=").is_err())?
 codec = std.encoding.custom("=x", Nothing)?
 value = std.bytes.from_list(&[129u8]?)?
-print(codec.text(&value, 0, 1)?, codec.from_text("x======x")? == value)?
+print(codec.text(&value[:1])?, codec.from_text("x======x")? == value)?
 print(std.encoding.custom("0123456789ABCDEF").is_ok())?
 "#,
         "True True True\nTrue True True\nTrue True\nTrue True\nTrue\nx======x True\nTrue",
@@ -266,9 +266,9 @@ fn mime_wraps_at_76_columns_and_only_ignores_explicit_whitespace() {
             .join("\r\n");
         body.push_str(&format!(
             r#"
-wrapped{stop} = std.encoding.base64mime_encode(&data, 0, {stop})?
-print("[", std.encoding.hex_text(&wrapped{stop}, 0, wrapped{stop}.len())?, "]")?
-print(wrapped{stop}.capacity() == wrapped{stop}.len(), std.encoding.base64mime_decode(&wrapped{stop}, 0, wrapped{stop}.len())? == data.slice(0, {stop})?)?
+wrapped{stop} = std.encoding.base64mime_encode(&data[:{stop}])?
+print("[", std.encoding.hex_text(&wrapped{stop})?, "]")?
+print(wrapped{stop}.capacity() == wrapped{stop}.len(), std.encoding.base64mime_decode(&wrapped{stop})? == data.slice(0, {stop})?)?
 "#
         ));
         expected.push_str(&format!("[ {} ]\nTrue True\n", hex(wrapped.as_bytes())));
@@ -282,12 +282,12 @@ print(str.repr(std.encoding.base64mime_from_text("Z\tg= =A==="))?)?
 print(str.repr(std.encoding.base64mime_from_text(" \tZ h==\r\n"))?)?
 print(str.repr(std.encoding.base64mime_from_text("Zg"))?)?
 frame = std.bytes.from_text(".. Z !g= ..")?
-print(str.repr(std.encoding.base64mime_decode(&frame, 2, 9))?)?
-print(str.repr(std.encoding.base64mime_decode(&frame, 9, 2))?)?
-print(std.encoding.base64mime_text(&data, 0, 1)?)?
+print(str.repr(std.encoding.base64mime_decode(&frame[2:9]))?)?
+print(str.repr(std.encoding.base64mime_decode(&frame[9:2]))?)?
+print(std.encoding.base64mime_text(&data[:1])?)?
 "#,
     );
-    expected.push_str("foo\n0\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidPadding(3))\nResult[Bytes, E].Err(E.NonCanonical(4))\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidByte(5))\nResult[Bytes, E].Err(E.OutOfRange)\nAA==");
+    expected.push_str("foo\n0\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidPadding(3))\nResult[Bytes, E].Err(E.NonCanonical(4))\nResult[Bytes, E].Err(E.InvalidLength)\nResult[Bytes, E].Err(E.InvalidByte(3))\nResult[Bytes, E].Ok(b\"\")\nAA==");
     native(&body, &expected);
 }
 
@@ -301,9 +301,9 @@ fn rfc_4648_vectors_encode_and_decode() {
         body.push_str(&format!(
             r#"
 plain{n} = std.bytes.from_text("{plain}")?
-print("[", std.encoding.base64_text(&plain{n}, 0, plain{n}.len())?, "]")?
-print("[", std.encoding.base64url_text(&plain{n}, 0, plain{n}.len())?, "]")?
-print("[", std.encoding.hex_text(&plain{n}, 0, plain{n}.len())?, "]")?
+print("[", std.encoding.base64_text(&plain{n})?, "]")?
+print("[", std.encoding.base64url_text(&plain{n})?, "]")?
+print("[", std.encoding.hex_text(&plain{n})?, "]")?
 print("[", std.encoding.base64_from_text("{coded}")?.to_text()?, "]")?
 print("[", std.encoding.base64url_from_text("{unpadded}")?.to_text()?, "]")?
 print("[", std.encoding.hex_from_text("{digits}")?.to_text()?, "]")?
@@ -323,13 +323,13 @@ fn alphabets_differ_only_in_the_last_two_symbols_and_padding() {
     native(
         r#"
 data = std.bytes.from_list(&[251u8, 255u8, 254u8]?)?
-print(std.encoding.base64_text(&data, 0, 3)?, std.encoding.base64url_text(&data, 0, 3)?)?
-print(std.encoding.base64_text(&data, 0, 2)?, std.encoding.base64url_text(&data, 0, 2)?)?
-print(std.encoding.base64_text(&data, 0, 1)?, std.encoding.base64url_text(&data, 0, 1)?)?
+print(std.encoding.base64_text(&data[:3])?, std.encoding.base64url_text(&data[:3])?)?
+print(std.encoding.base64_text(&data[:2])?, std.encoding.base64url_text(&data[:2])?)?
+print(std.encoding.base64_text(&data[:1])?, std.encoding.base64url_text(&data[:1])?)?
 print(std.encoding.base64_from_text("+//+")? == data, std.encoding.base64url_from_text("-__-")? == data)?
 print(str.repr(std.encoding.base64_from_text("-__-"))?)?
 print(str.repr(std.encoding.base64url_from_text("+//+"))?)?
-encoded = std.encoding.base64_encode(&data, 0, 2)?
+encoded = std.encoding.base64_encode(&data[:2])?
 print(encoded.len(), encoded.capacity(), encoded.to_text()?)?
 "#,
         r#"
@@ -369,12 +369,12 @@ for stop in range(data.len() + 1):
     start = stop % 4
     if start <= stop:
         plain = data.slice(start, stop)?
-        digits = std.encoding.hex_encode(&data, start, stop)?
-        padded = std.encoding.base64_encode(&data, start, stop)?
-        bare = std.encoding.base64url_encode(&data, start, stop)?
-        from_digits = std.encoding.hex_decode(&digits, 0, digits.len())?
-        from_padded = std.encoding.base64_decode(&padded, 0, padded.len())?
-        from_bare = std.encoding.base64url_decode(&bare, 0, bare.len())?
+        digits = std.encoding.hex_encode(&data[start:stop])?
+        padded = std.encoding.base64_encode(&data[start:stop])?
+        bare = std.encoding.base64url_encode(&data[start:stop])?
+        from_digits = std.encoding.hex_decode(&digits)?
+        from_padded = std.encoding.base64_decode(&padded)?
+        from_bare = std.encoding.base64url_decode(&bare)?
         if from_digits != plain or from_padded != plain or from_bare != plain:
             failures += 1
         if digits.len() != digits.capacity() or padded.len() != padded.capacity():
@@ -384,11 +384,11 @@ for stop in range(data.len() + 1):
         if padded.len() % 4 != 0 or digits.len() != plain.len() * 2:
             failures += 1
 print(failures)?
-print(std.encoding.base64_text(&data, 0, 326)?)?
-print(std.encoding.base64url_text(&data, 0, 326)?)?
-print(std.encoding.hex_text(&data, 0, 326)?)?
-print(std.encoding.base64_text(&data, 1, 326)?)?
-print(std.encoding.base64url_text(&data, 2, 326)?)?
+print(std.encoding.base64_text(&data[:326])?)?
+print(std.encoding.base64url_text(&data[:326])?)?
+print(std.encoding.hex_text(&data[:326])?)?
+print(std.encoding.base64_text(&data[1:326])?)?
+print(std.encoding.base64url_text(&data[2:326])?)?
 "#,
         &expected,
     );
@@ -411,7 +411,7 @@ print(str.repr(std.encoding.hex_from_text("0`"))?)?
 print(str.repr(std.encoding.hex_from_text("/0"))?)?
 print(str.repr(std.encoding.hex_from_text(":0"))?)?
 high = std.bytes.from_list(&[48u8, 200u8]?)?
-print(str.repr(std.encoding.hex_decode(&high, 0, 2))?)?
+print(str.repr(std.encoding.hex_decode(&high[:2]))?)?
 print(std.encoding.hex_from_text("aAfF09")? == std.bytes.from_list(&[170u8, 255u8, 9u8]?)?)?
 "#,
         r#"
@@ -489,8 +489,8 @@ fn malformed_base64_is_rejected_by_length_alphabet_padding_and_trailing_bits() {
     body.push_str(
         r#"
 high = std.bytes.from_list(&[90u8, 200u8, 61u8, 61u8]?)?
-print(str.repr(std.encoding.base64_decode(&high, 0, 4))?)?
-print(str.repr(std.encoding.base64url_decode(&high, 0, 2))?)?
+print(str.repr(std.encoding.base64_decode(&high[:4]))?)?
+print(str.repr(std.encoding.base64url_decode(&high[:2]))?)?
 "#,
     );
     expected.push_str(
@@ -500,54 +500,54 @@ print(str.repr(std.encoding.base64url_decode(&high, 0, 2))?)?
 }
 
 #[test]
-fn ranges_follow_the_bytes_rule_and_errors_use_buffer_indexes() {
+fn views_clamp_and_errors_use_view_indexes() {
     native(
         r#"
 data = std.bytes.from_text("..foobar..")?
-print(std.encoding.hex_text(&data, 2, 5)?, std.encoding.base64_text(&data, 2, 8)?)?
-print(std.encoding.base64url_text(&data, 2, 6)?)?
-print("[", std.encoding.hex_text(&data, 10, 10)?, std.encoding.base64_text(&data, 0, 0)?, "]")?
-print(str.repr(std.encoding.hex_encode(&data, 0, 11))?)?
-print(str.repr(std.encoding.hex_encode(&data, -1, 4))?)?
-print(str.repr(std.encoding.hex_encode(&data, 5, 4))?)?
-print(str.repr(std.encoding.base64_encode(&data, 0, 11))?)?
-print(str.repr(std.encoding.base64url_encode(&data, -1, 4))?)?
-print(str.repr(std.encoding.base64_text(&data, 11, 11))?)?
-print(str.repr(std.encoding.hex_text(&data, 9223372036854775807, 9223372036854775807))?)?
-print(str.repr(std.encoding.hex_decode(&data, 0, 12))?)?
-print(str.repr(std.encoding.base64_decode(&data, -4, 0))?)?
-print(str.repr(std.encoding.base64url_decode(&data, 6, 5))?)?
+print(std.encoding.hex_text(&data[2:5])?, std.encoding.base64_text(&data[2:8])?)?
+print(std.encoding.base64url_text(&data[2:6])?)?
+print("[", std.encoding.hex_text(&data[10:10])?, std.encoding.base64_text(&data[:0])?, "]")?
+print(str.repr(std.encoding.hex_encode(&data[:11]))?)?
+print(str.repr(std.encoding.hex_encode(&data[-1:4]))?)?
+print(str.repr(std.encoding.hex_encode(&data[5:4]))?)?
+print(str.repr(std.encoding.base64_encode(&data[:11]))?)?
+print(str.repr(std.encoding.base64url_encode(&data[-1:4]))?)?
+print(str.repr(std.encoding.base64_text(&data[11:11]))?)?
+print(str.repr(std.encoding.hex_text(&data[9223372036854775807:9223372036854775807]))?)?
+print(str.repr(std.encoding.hex_decode(&data[:12]))?)?
+print(str.repr(std.encoding.base64_decode(&data[-4:0]))?)?
+print(str.repr(std.encoding.base64url_decode(&data[6:5]))?)?
 framed = std.bytes.from_text("<<Zm9vYg==>>6f6b!!")?
-print(std.encoding.base64_decode(&framed, 2, 10)?.to_text()?)?
-print(std.encoding.base64url_decode(&framed, 2, 8)?.to_text()?)?
-print(std.encoding.hex_decode(&framed, 12, 16)?.to_text()?)?
-print(str.repr(std.encoding.base64_decode(&framed, 0, 4))?)?
-print(str.repr(std.encoding.base64_decode(&framed, 6, 14))?)?
-print(str.repr(std.encoding.base64url_decode(&framed, 6, 9))?)?
-print(str.repr(std.encoding.hex_decode(&framed, 14, 18))?)?
-print(std.encoding.hex_decode(&framed, 18, 18)?.len(), std.encoding.base64_decode(&framed, 3, 3)?.len())?
+print(std.encoding.base64_decode(&framed[2:10])?.to_text()?)?
+print(std.encoding.base64url_decode(&framed[2:8])?.to_text()?)?
+print(std.encoding.hex_decode(&framed[12:16])?.to_text()?)?
+print(str.repr(std.encoding.base64_decode(&framed[:4]))?)?
+print(str.repr(std.encoding.base64_decode(&framed[6:14]))?)?
+print(str.repr(std.encoding.base64url_decode(&framed[6:9]))?)?
+print(str.repr(std.encoding.hex_decode(&framed[14:18]))?)?
+print(std.encoding.hex_decode(&framed[18:18])?.len(), std.encoding.base64_decode(&framed[3:3])?.len())?
 "#,
         r#"
 666f6f Zm9vYmFy
 Zm9vYg
 [   ]
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[str, E].Err(E.OutOfRange)
-Result[str, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
-Result[Bytes, E].Err(E.OutOfRange)
+Result[Bytes, E].Ok(b"2e2e666f6f6261722e2e")
+Result[Bytes, E].Ok(b"")
+Result[Bytes, E].Ok(b"")
+Result[Bytes, E].Ok(b"Li5mb29iYXIuLg==")
+Result[Bytes, E].Ok(b"")
+Result[str, E].Ok("")
+Result[str, E].Ok("")
+Result[Bytes, E].Err(E.InvalidByte(0))
+Result[Bytes, E].Ok(b"")
+Result[Bytes, E].Ok(b"")
 foob
 foob
 ok
 Result[Bytes, E].Err(E.InvalidByte(0))
-Result[Bytes, E].Err(E.InvalidPadding(8))
-Result[Bytes, E].Err(E.InvalidPadding(8))
-Result[Bytes, E].Err(E.InvalidByte(16))
+Result[Bytes, E].Err(E.InvalidPadding(2))
+Result[Bytes, E].Err(E.InvalidPadding(2))
+Result[Bytes, E].Err(E.InvalidByte(2))
 0 0
 "#,
     );
@@ -568,7 +568,7 @@ std.encoding.append_{ty}(&mut out, {value}{ty}, Endian.Little)?
 out.resize({total}, 0u8)?
 std.encoding.pack_{ty}(&mut out, {second}, {value}{ty}, Endian.Little)?
 std.encoding.pack_{ty}(&mut out, {third}, {value}{ty}, Endian.Big)?
-print(std.encoding.hex_text(&out, 0, out.len())?)?
+print(std.encoding.hex_text(&out)?)?
 print(std.encoding.unpack_{ty}(&out, 0, Endian.Big)?, std.encoding.unpack_{ty}(&out, {width}, Endian.Little)?, std.encoding.unpack_{ty}(&out, {third}, Endian.Big)?)?
 "#,
             total = width * 4,
@@ -644,11 +644,11 @@ print(str.repr(std.encoding.pack_u32(&mut buffer, 4, 4294967295u32, Endian.Littl
 print(str.repr(std.encoding.pack_i32(&mut buffer, -1, -1i32, Endian.Little))?)?
 print(str.repr(std.encoding.pack_u64(&mut buffer, 0, 1u64, Endian.Big))?)?
 print(str.repr(std.encoding.pack_i64(&mut buffer, 9223372036854775807, 1, Endian.Big))?)?
-print(std.encoding.hex_text(&buffer, 0, buffer.len())?, buffer.capacity() == room)?
+print(std.encoding.hex_text(&buffer)?, buffer.capacity() == room)?
 print(std.encoding.unpack_u16(&buffer, 5, Endian.Big)?, std.encoding.unpack_u32(&buffer, 3, Endian.Big)?)?
 std.encoding.pack_u16(&mut buffer, 5, 43981u16, Endian.Big)?
 std.encoding.pack_u32(&mut buffer, 0, 1u32, Endian.Little)?
-print(std.encoding.hex_text(&buffer, 0, buffer.len())?, buffer.len())?
+print(std.encoding.hex_text(&buffer)?, buffer.len())?
 empty = std.bytes.empty()?
 print(str.repr(std.encoding.unpack_u16(&empty, 0, Endian.Big))?)?
 "#,
@@ -698,7 +698,7 @@ fn codecs_run_in_worker_threads() {
         "{HEADER}{}",
         r#"
 def work(data: Bytes) -> ():
-    encoded = std.encoding.base64_encode(&data, 0, data.len()).unwrap()
+    encoded = std.encoding.base64_encode(&data).unwrap()
     print(encoded.to_text().unwrap(), std.encoding.unpack_u16(&data, 0, Endian.Big).unwrap()).unwrap()
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | ThreadError]:
@@ -746,13 +746,13 @@ import std.fmt
 
 def exercise(data: &Bytes) -> Result[(), EncodingError]:
     codec = std.encoding.custom("abcdefghijklmnopqrstuvwxyz234567", Nothing)?
-    a = std.encoding.base32_encode(data, 0, data.len())?
-    drop(std.encoding.base32_decode(&a, 0, a.len())?)
-    b = std.encoding.base32hex_text(data, 0, data.len())?
+    a = std.encoding.base32_encode(data)?
+    drop(std.encoding.base32_decode(&a)?)
+    b = std.encoding.base32hex_text(data)?
     drop(std.encoding.base32hex_from_text(&b)?)
-    c = std.encoding.base64mime_text(data, 0, data.len())?
+    c = std.encoding.base64mime_text(data)?
     drop(std.encoding.base64mime_from_text(&c)?)
-    d = codec.text(data, 0, data.len())?
+    d = codec.text(data)?
     drop(codec.from_text(&d)?)
     Ok(())
 
@@ -808,22 +808,22 @@ fn allocation_failure_is_reported_and_leaves_buffers_unchanged() {
 mut full = std.bytes.with_capacity(4)?
 full.extend(&std.bytes.from_text("abcd")?)?
 plain = std.bytes.from_text("a text too long for inline string storage")?
-digits = std.encoding.hex_encode(&plain, 0, plain.len())?
-padded = std.encoding.base64_encode(&plain, 0, plain.len())?
-bare = std.encoding.base64url_encode(&plain, 0, plain.len())?
+digits = std.encoding.hex_encode(&plain)?
+padded = std.encoding.base64_encode(&plain)?
+bare = std.encoding.base64url_encode(&plain)?
 digits_text = digits.to_text()?
 padded_text = padded.to_text()?
 bare_text = bare.to_text()?
 print("__test_fail_allocations_after_0__")?
-a = std.encoding.hex_encode(&plain, 0, plain.len())
-b = std.encoding.hex_decode(&digits, 0, digits.len())
-c = std.encoding.base64_encode(&plain, 0, plain.len())
-d = std.encoding.base64_decode(&padded, 0, padded.len())
-e = std.encoding.base64url_encode(&plain, 0, plain.len())
-f = std.encoding.base64url_decode(&bare, 0, bare.len())
-g = std.encoding.hex_text(&plain, 0, plain.len())
-h = std.encoding.base64_text(&plain, 0, plain.len())
-i = std.encoding.base64url_text(&plain, 0, plain.len())
+a = std.encoding.hex_encode(&plain)
+b = std.encoding.hex_decode(&digits)
+c = std.encoding.base64_encode(&plain)
+d = std.encoding.base64_decode(&padded)
+e = std.encoding.base64url_encode(&plain)
+f = std.encoding.base64url_decode(&bare)
+g = std.encoding.hex_text(&plain)
+h = std.encoding.base64_text(&plain)
+i = std.encoding.base64url_text(&plain)
 j = std.encoding.hex_from_text(&digits_text)
 k = std.encoding.base64_from_text(&padded_text)
 l = std.encoding.base64url_from_text(&bare_text)
@@ -868,15 +868,15 @@ fn a_later_allocation_failure_releases_the_earlier_buffer() {
     native(
         r#"
 plain = std.bytes.from_text("a text too long for inline string storage")?
-digits = std.encoding.hex_text(&plain, 0, plain.len())?
-padded = std.encoding.base64_text(&plain, 0, plain.len())?
-bare = std.encoding.base64url_text(&plain, 0, plain.len())?
+digits = std.encoding.hex_text(&plain)?
+padded = std.encoding.base64_text(&plain)?
+bare = std.encoding.base64url_text(&plain)?
 print("__test_fail_allocations_after_2__")?
-a = std.encoding.hex_text(&plain, 0, plain.len())
+a = std.encoding.hex_text(&plain)
 print("__test_fail_allocations_after_2__")?
-b = std.encoding.base64_text(&plain, 0, plain.len())
+b = std.encoding.base64_text(&plain)
 print("__test_fail_allocations_after_2__")?
-c = std.encoding.base64url_text(&plain, 0, plain.len())
+c = std.encoding.base64url_text(&plain)
 print("__test_fail_allocations_after_2__")?
 d = std.encoding.hex_from_text(&digits)
 print("__test_fail_allocations_after_2__")?

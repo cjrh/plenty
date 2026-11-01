@@ -21,7 +21,8 @@ standard library.
   and is documented on the module page. Helpers stay private.
 - Native hooks are std-only compiler intrinsics, not methods or functions
   of a std module. A std module calls the intrinsic (`__crypto_update`,
-  `__compress_new`) with `&Bytes` operands and checks ranges itself; user
+  `__compress_new`) with `&[u8]` views for inputs and `&mut Bytes` output
+  buffers whose ranges it checks itself; user
   code calling one is rejected as
   [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
@@ -240,14 +241,7 @@ clamp. [Slice views](../language/04-expressions/slices.md#slice-views)
 describe the conversion.
 
 `std.path`, `std.env`, `std.process` and `std.cli` carry operating-system
-strings as `list[u8]`, and some read-only inputs still take
-`&Bytes, start, stop` instead of `&[u8]` (B39): the `std.encoding` codecs,
-`std.url` byte encoding, `std.json` and `std.tls` `feed`, `std.csv`
-`Writer.field`, `std.compress`
-`Inflater.step` and `crc32`, `std.http.websocket` `send` and `ping`,
-`std.http.sse` `send_bytes`, the `std.io.typed` protocols and their
-`std.http.client` writers, and
-`Bytes.write_file`, `write_stdout` and `write_stderr`.
+strings as `list[u8]` (B39).
 
 ### Streams
 
@@ -311,7 +305,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Ownership | `spawn(f, args)` drops arguments on failure | Issue #630 |
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
-| Bytes | `list[u8]` OS strings; `&Bytes, start, stop` inputs | B39 |
+| Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
 | Errors | `AllocError` unions in seven modules | Not yet tracked |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |

@@ -122,7 +122,7 @@ first appeared in the text, including keys added later by a header, so
 | Function | Result | Contract |
 |---|---|---|
 | `limits()` | `Limits` | The defaults below |
-| `parse(source: &Bytes, bounds: &Limits)` | `Result[Toml, TomlError]` | Parse one document from a buffer |
+| `parse(source: &[u8], bounds: &Limits)` | `Result[Toml, TomlError]` | Parse one document from a buffer |
 | `parse_text(text: &str, bounds)` | `Result[Toml, TomlError]` | The same, from a `str` |
 | `read_value[R: Reader](reader: &mut R, bounds)` | `Result[Toml, TomlError]` | Read to end of input, then parse |
 | `encode(value: &Toml, bounds)` | `Result[Bytes, TomlError]` | TOML text for a table |

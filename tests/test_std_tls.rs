@@ -866,7 +866,7 @@ def shuttle(source: &mut std.tls.Session, target: &mut std.tls.Session, size: i6
         count = source.take(&mut buffer, 0, size)?
         mut at = 0
         while at < count:
-            at += target.feed(&buffer, at, count)?
+            at += target.feed(&buffer[at:count])?
         moved += count
     Ok(moved)
 

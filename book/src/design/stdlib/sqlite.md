@@ -114,7 +114,7 @@ Parameters are numbered from 1 and columns from 0.
 | `bind_integer(index, value: i64)` | `Result[(), DbError]` | |
 | `bind_real(index, value: f64)` | `Result[(), DbError]` | NaN is `OutOfRange` |
 | `bind_text(index, value: &str)` | `Result[(), DbError]` | Copied |
-| `bind_blob(index, value: &Bytes)` | `Result[(), DbError]` | Copied |
+| `bind_blob(index, value: &[u8])` | `Result[(), DbError]` | Copied |
 | `clear_bindings()` | `Result[(), DbError]` | Every parameter back to NULL |
 | `step()` | `Result[bool, DbError]` | Advance: `True` with a row current, `False` once finished |
 | `reset()` | `()` | Rewind, keeping the bindings |

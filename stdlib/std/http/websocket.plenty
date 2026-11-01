@@ -252,24 +252,23 @@ pub class WebSocket[T]:
                 self.fail(error, deadline, cancel)
         outcome
 
-    # Sends data[start:stop] as one message, in frames of at most
-    # `max_frame` bytes. A Text message must be UTF-8.
-    pub def send(self: &mut WebSocket[T], kind: Kind, data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+    # Sends `data` as one message, in frames of at most `max_frame` bytes. A
+    # Text message must be UTF-8.
+    pub def send(self: &mut WebSocket[T], kind: Kind, data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
         if self._state != state_open:
             return Err(WebSocketError.Closed)
-        if start < 0 or start > stop or stop > data.len():
-            return Err(WebSocketError.OutOfRange)
+        stop = len(data)
         mut opcode = op_binary
         match kind:
             case Kind.Text:
                 opcode = op_text
-                if bytes_of(data.utf8_run(start, stop))? != stop:
+                if __bytes_run(data, 1u8) != stop:
                     return Err(WebSocketError.InvalidText)
             case Kind.Binary:
                 pass
-        mut at = start
+        mut at = 0
         while True:
             mut end = stop
             if end - at > self._max_frame:
@@ -289,18 +288,18 @@ pub class WebSocket[T]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
         data = bytes_of(std.bytes.from_text(text))?
-        self.send(Kind.Text, &data, 0, data.len(), deadline, cancel)
+        self.send(Kind.Text, &data, deadline, cancel)
 
-    # Sends a ping with data[start:stop], at most 125 bytes, as its payload.
-    # The peer's pong is skipped by `receive`.
-    pub def ping(self: &mut WebSocket[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+    # Sends a ping with `data`, at most 125 bytes, as its payload. The peer's
+    # pong is skipped by `receive`.
+    pub def ping(self: &mut WebSocket[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
         if self._state != state_open:
             return Err(WebSocketError.Closed)
-        if start < 0 or start > stop or stop > data.len() or stop - start > 125:
+        if len(data) > 125:
             return Err(WebSocketError.OutOfRange)
-        outcome = self.frame(op_ping, &data[start:stop], True, deadline, cancel)
+        outcome = self.frame(op_ping, data, True, deadline, cancel)
         self.sent(outcome)
 
     # Closes the connection with `code` and a `reason` of at most 123 bytes:
@@ -693,7 +692,7 @@ def accept_key(key: &str) -> Result[str, WebSocketError]:
     hashed(digest.update_text(key))?
     hashed(digest.update_text("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))?
     hash = hashed(digest.finish())?
-    encoded(std.encoding.base64_text(&hash, 0, hash.len()))
+    encoded(std.encoding.base64_text(&hash))
 
 # Server
 
@@ -884,7 +883,7 @@ pub class Wire[T]:
 pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[T], WebSocketError]:
     valid(config)?
     nonce = secret(std.secrets.token_bytes(16))?
-    key = encoded(std.encoding.base64_text(&nonce, 0, nonce.len()))?
+    key = encoded(std.encoding.base64_text(&nonce))?
     mut head = http_of(std.http.request("GET", target._resource))?
     http_of(head.add("Host", target._authority))?
     http_of(head.add("Upgrade", "websocket"))?

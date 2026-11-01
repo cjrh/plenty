@@ -40,9 +40,9 @@ def handshake(server: &mut Session, client: &mut Session) -> ():
     flight.resize(32768, 0u8).unwrap()
     for _ in range(10):
         mut count = client.take(&mut flight, 0, 32768).unwrap()
-        server.feed(&flight, 0, count).unwrap()
+        server.feed(&flight[:count]).unwrap()
         count = server.take(&mut flight, 0, 32768).unwrap()
-        client.feed(&flight, 0, count).unwrap()
+        client.feed(&flight[:count]).unwrap()
         if not server.handshaking() and not client.handshaking():
             break
     if server.handshaking() or client.handshaking():

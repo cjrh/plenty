@@ -207,8 +207,12 @@ def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), B
     out.extend(scratch)?
     Ok(())
 
-def read_float(data: &Bytes, offset: i64) -> Result[f64, SketchError | BytesError | AllocError]:
-    text = data.to_text_range(offset, offset + 32)?
+def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError | BytesError | AllocError]:
+    text = match __bytes_to_text(&data[offset:offset + 32])?:
+        case Some(decoded):
+            decoded
+        case Nothing:
+            return Err(SketchError.InvalidData)
     match f64.parse(text):
         case Ok(value):
             if std.math.isfinite(value):
@@ -223,10 +227,10 @@ pub def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, S
     samples = list[f64].with_capacity(capacity)?
     Ok(Quantiles(samples, capacity, 0u64, 0.0, 0.0, std.random.seeded(seed)))
 
-pub def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]:
-    if data.len() < 116:
+pub def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError | BytesError | AllocError]:
+    if len(data) < 116:
         return Err(SketchError.InvalidData)
-    if not data.matches_text(0, "PSQ1")?:
+    if not __bytes_matches_text(data, 0, "PSQ1"):
         return Err(SketchError.InvalidData)
     capacity = read_word(data, 4)
     count = read_word(data, 12)
@@ -235,7 +239,7 @@ pub def quantiles_from_bytes(data: &Bytes, max_capacity: i64 = 1048576) -> Resul
     if i64(capacity) > max_capacity:
         return Err(SketchError.Limit)
     retained = i64(std.math.min(capacity, count))
-    if data.len() != 116 + 32 * retained:
+    if len(data) != 116 + 32 * retained:
         return Err(SketchError.InvalidData)
     mut result = quantiles(i64(capacity))?
     match std.random.from_state(read_word(data, 20), read_word(data, 28), read_word(data, 36), read_word(data, 44)):

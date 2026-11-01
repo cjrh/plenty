@@ -28,8 +28,8 @@ header
 ```
 
 `Reader[E].read(&mut self, &mut Bytes, start, stop)` and
-`Writer[E].write(&mut self, &Bytes, start, stop)` return
-`Result[i64, StepError[E]]`. The range is half-open. A successful call reports
+`Writer[E].write(&mut self, &[u8])` return `Result[i64, StepError[E]]`. The
+read range is half-open; a writer takes the bytes as a view. A successful call reports
 the bytes moved; a failed call reports no progress from that attempt.
 `StepError.Interrupted` requests retry. `Source(E)` preserves every other
 cause, including cancellation and allocation failure. Reader `Ok(0)` is EOF
@@ -38,14 +38,15 @@ for a nonempty range. Writers need only `write`, not `flush`.
 | Operation | Result |
 | --- | --- |
 | `read_exact(reader, buffer, start, stop)` | `Result[(), Partial[ReadFailure[E]]]` |
-| `write_all(writer, buffer, start, stop)` | `Result[(), Partial[WriteFailure[E]]]` |
+| `write_all(writer, buffer: &[u8])` | `Result[(), Partial[WriteFailure[E]]]` |
 | `copy_all(reader, writer, scratch)` | `Result[i64, CopyFailure[E, G]]` |
 
 Helpers retry only `Interrupted`. `Partial` carries `completed: i64` and
 `cause`. `ReadFailure[E]` distinguishes `Source(E)`, `UnexpectedEof`,
-`InvalidProgress`, and `OutOfRange`; `WriteFailure[E]` substitutes
-`WriteZero` for EOF. Negative or oversized counts are invalid progress.
-Invalid ranges and valid empty ranges do not call the underlying stream.
+`InvalidProgress`, and `OutOfRange`; `WriteFailure[E]` has `Source(E)`,
+`WriteZero` and `InvalidProgress`. Negative or oversized counts are invalid
+progress. Invalid read ranges and empty reads or writes do not call the
+underlying stream.
 
 `CopyFailure.Read(completed, ReadFailure[E])` and
 `CopyFailure.Write(completed, WriteFailure[G])` preserve the failing operation

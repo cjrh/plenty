@@ -74,29 +74,30 @@ def net_error(error: NetError) -> SseError:
         case _ as other:
             SseError.Net(other)
 
-# Appends `name: ` and then text[start:stop] and a line feed.
-def field(out: &mut Bytes, name: &str, text: &Bytes, start: i64, stop: i64) -> Result[(), SseError]:
+# Appends `name: ` and then `text` and a line feed.
+def field(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
     spelled = bytes_of(std.bytes.from_text(name))?
     bytes_of(out.extend(&spelled))?
     bytes_of(out.push(colon))?
     bytes_of(out.push(space))?
-    bytes_of(out.extend(&text[start:stop]))?
+    bytes_of(out.extend(text))?
     bytes_of(out.push(line_feed))
 
-# Appends one `name: line` field for each line of text[start:stop]. CRLF, CR
-# and LF all end a line, as the format's readers split them; a line break
-# at the end leaves a last, empty line.
-def lines(out: &mut Bytes, name: &str, text: &Bytes, start: i64, stop: i64) -> Result[(), SseError]:
-    mut at = start
+# Appends one `name: line` field for each line of `text`. CRLF, CR and LF all
+# end a line, as the format's readers split them; a line break at the end
+# leaves a last, empty line.
+def lines(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
+    stop = len(text)
+    mut at = 0
     while True:
-        match bytes_of(text.find_in(b"\r\n", at, stop))?:
-            case Some(end):
-                field(out, name, text, at, end)?
-                at = end + 1
-                if text[end] == carriage_return and at < stop and text[at] == line_feed:
-                    at += 1
-            case Nothing:
-                return field(out, name, text, at, stop)
+        found = __bytes_find_in(&text[at:], b"\r\n", 1u8)
+        if found < 0:
+            return field(out, name, &text[at:])
+        end = at + found
+        field(out, name, &text[at:end])?
+        at = end + 1
+        if text[end] == carriage_return and at < stop and text[at] == line_feed:
+            at += 1
     Ok(())
 
 # An event name or id, which must be one line.
@@ -106,7 +107,7 @@ def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), Sse
         return Err(SseError.InvalidField)
     if id and bytes_of(text.find(0u8, 0, text.len()))?.is_some():
         return Err(SseError.InvalidField)
-    field(out, name, &text, 0, text.len())
+    field(out, name, &text)
 
 # An event stream: a response that the handler keeps writing to until it
 # closes it, the client goes away, or the server shuts down. One caller at a
@@ -139,17 +140,15 @@ pub class EventStream[T]:
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
         text = bytes_of(std.bytes.from_text(data))?
-        self.send_bytes(&text, 0, text.len(), deadline, cancel, event, id)
+        self.send_bytes(&text, deadline, cancel, event, id)
 
-    # `send` of data[start:stop], which must be UTF-8. It is not copied
-    # except into the stream's output buffer.
-    pub def send_bytes(self: &mut EventStream[T], data: &Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+    # `send` of `data`, which must be UTF-8. It is not copied except into the
+    # stream's output buffer.
+    pub def send_bytes(self: &mut EventStream[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
         self.usable()?
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
-        if start < 0 or start > stop or stop > data.len():
-            return Err(SseError.OutOfRange)
-        if bytes_of(data.utf8_run(start, stop))? != stop:
+        if __bytes_run(data, 1u8) != len(data):
             return Err(SseError.InvalidText)
         self._out.clear()
         if event.byte_len() > 0:
@@ -159,7 +158,7 @@ pub class EventStream[T]:
                 single(&mut self._out, "id", value, True)?
             case Nothing:
                 pass
-        lines(&mut self._out, "data", data, start, stop)?
+        lines(&mut self._out, "data", data)?
         bytes_of(self._out.push(line_feed))?
         self.flush(deadline, cancel)
 
@@ -171,7 +170,7 @@ pub class EventStream[T]:
             return Err(SseError.Net(NetError.Cancelled))
         source = bytes_of(std.bytes.from_text(text))?
         self._out.clear()
-        lines(&mut self._out, "", &source, 0, source.len())?
+        lines(&mut self._out, "", &source)?
         self.flush(deadline, cancel)
 
     # Asks the client to wait `milliseconds` before reconnecting after the
@@ -183,7 +182,7 @@ pub class EventStream[T]:
         milliseconds = span.as_timeout_ms()
         digits = bytes_of(std.bytes.from_text(&allocated(str.from(milliseconds))?))?
         self._out.clear()
-        field(&mut self._out, "retry", &digits, 0, digits.len())?
+        field(&mut self._out, "retry", &digits)?
         bytes_of(self._out.push(line_feed))?
         self.flush(deadline, cancel)
 

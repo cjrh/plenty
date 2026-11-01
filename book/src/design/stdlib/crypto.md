@@ -33,7 +33,7 @@ from std.encoding import EncodingError
 def main() -> Result[(), IoError | BytesError | CryptoError | EncodingError]:
     message = std.bytes.from_text("hello")?
     digest = std.crypto.sha256(&message)?
-    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+    print(std.encoding.hex_text(&digest)?)?
 
     key = std.bytes.from_text("server key")?
     tag = std.crypto.hmac_sha256(&key, &message)?
@@ -55,14 +55,14 @@ incremental keyed-hash and derivation functions.
 
 | Function | Result | Contract |
 |---|---|---|
-| `sha256(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte SHA-256 digest of `data` |
-| `sha512(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte SHA-512 digest of `data` |
-| `sha1(data: &Bytes)` | `Result[Bytes, CryptoError]` | The 20-byte SHA-1 digest of `data`; legacy, see below |
-| `hmac_sha256(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 32-byte HMAC-SHA-256 tag |
-| `hmac_sha512(key: &Bytes, data: &Bytes)` | `Result[Bytes, CryptoError]` | The 64-byte HMAC-SHA-512 tag |
+| `sha256(data: &[u8])` | `Result[Bytes, CryptoError]` | The 32-byte SHA-256 digest of `data` |
+| `sha512(data: &[u8])` | `Result[Bytes, CryptoError]` | The 64-byte SHA-512 digest of `data` |
+| `sha1(data: &[u8])` | `Result[Bytes, CryptoError]` | The 20-byte SHA-1 digest of `data`; legacy, see below |
+| `hmac_sha256(key: &[u8], data: &[u8])` | `Result[Bytes, CryptoError]` | The 32-byte HMAC-SHA-256 tag |
+| `hmac_sha512(key: &[u8], data: &[u8])` | `Result[Bytes, CryptoError]` | The 64-byte HMAC-SHA-512 tag |
 | `digest(algorithm: Algorithm)` | `Result[Digest, CryptoError]` | A new incremental digest |
-| `hmac(algorithm: Algorithm, key: &Bytes)` | `Result[Mac, CryptoError]` | A new incremental HMAC under `key` |
-| `equal(a: &Bytes, b: &Bytes)` | `bool` | Whether `a` and `b` hold the same bytes, in constant time |
+| `hmac(algorithm: Algorithm, key: &[u8])` | `Result[Mac, CryptoError]` | A new incremental HMAC under `key` |
+| `equal(a: &[u8], b: &[u8])` | `bool` | Whether `a` and `b` hold the same bytes, in constant time |
 | `output_size(algorithm: Algorithm)` | `i64` | 32 for `Sha256` and `Blake3`, 64 for `Sha512`, 20 for `Sha1` |
 
 `Algorithm` is `Sha256`, `Sha512`, `Sha1` or `Blake3`. HMAC supports the SHA

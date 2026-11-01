@@ -220,7 +220,8 @@ pub class TlsConnection:
         while moving:
             moving = self.decrypt(events, context)?
             if self._net.available() > 0:
-                fed = self._session.feed(self._net.input(), self._net.input_start(), self._net.input_stop())
+                input = self._net.input()
+                fed = self._session.feed(&input[self._net.input_start():self._net.input_stop()])
                 used = self.alerted(fed, context)?
                 if used > 0:
                     lifted(self._net.consume(used, context))?

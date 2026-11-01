@@ -246,7 +246,7 @@ pub class Decoder:
             if size == 0:
                 break
             line = mapped_bytes(self._section.slice(at, end - 1))?
-            allocated(values.append(std.http.parse_field(&line, size)?))?
+            allocated(values.append(std.http.parse_field(&line[:size])?))?
             at = end + 1
         self._section.clear()
         Ok(values)

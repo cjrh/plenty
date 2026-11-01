@@ -138,7 +138,7 @@ remaining bytes invalid positions.
 
 `Match` has public fields `start` and `end` (byte offsets, end exclusive) and
 methods `len()`, `is_empty()`, `text(haystack: &str)` and
-`bytes(data: &Bytes)`; the last two copy the matched part and are
+`bytes(data: &[u8])`; the last two copy the matched part and are
 `OutOfRange` for a haystack it does not fit.
 
 `Captures` has `len()` (equal to `group_count()`), `get(index: i64)` and

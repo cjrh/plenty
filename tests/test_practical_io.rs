@@ -227,7 +227,7 @@ import std.bytes
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     print(str.repr(write_stderr("text"))?)?
     data = std.bytes.from_text("bytes")?
-    print(str.repr(data.write_stderr(0, 5))?)?
+    print(str.repr(std.bytes.stderr_write(&data))?)?
     mut stream = std.io.stderr()
     print(str.repr(stream.write(b"stream"))?)?
     print(str.repr(flush_stderr())?)?

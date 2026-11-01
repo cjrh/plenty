@@ -308,21 +308,26 @@ pub class VerifyingKey:
     pub def algorithm(self) -> Algorithm:
         self._algorithm
 
-def hmac_secret(algorithm: Algorithm, secret: &Bytes) -> Result[Bytes, JwtError]:
+def copied(source: &[u8]) -> Result[Bytes, JwtError]:
+    mut owned = from_bytes(std.bytes.with_capacity(len(source)))?
+    from_bytes(owned.extend(source))?
+    Ok(owned)
+
+def hmac_secret(algorithm: Algorithm, secret: &[u8]) -> Result[Bytes, JwtError]:
     match hmac_hash(algorithm):
         case Some(pair):
-            if secret.len() < pair[1]:
+            if len(secret) < pair[1]:
                 return Err(JwtError.InvalidKey)
-            from_bytes(secret.copy())
+            copied(secret)
         case Nothing:
             Err(JwtError.InvalidKey)
 
 # HS256 needs at least 32 secret bytes and HS512 at least 64. The secret is
 # copied. Other algorithms are InvalidKey.
-pub def hmac_signing_key(algorithm: Algorithm, secret: &Bytes) -> Result[SigningKey, JwtError]:
+pub def hmac_signing_key(algorithm: Algorithm, secret: &[u8]) -> Result[SigningKey, JwtError]:
     Ok(SigningKey(algorithm, Signer.Secret(hmac_secret(algorithm, secret)?)))
 
-pub def hmac_verifying_key(algorithm: Algorithm, secret: &Bytes) -> Result[VerifyingKey, JwtError]:
+pub def hmac_verifying_key(algorithm: Algorithm, secret: &[u8]) -> Result[VerifyingKey, JwtError]:
     Ok(VerifyingKey(algorithm, Verifier.Secret(hmac_secret(algorithm, secret)?)))
 
 # RS256..RS512 or PS256..PS512. Other algorithms are InvalidKey.
@@ -347,20 +352,20 @@ pub def es256_verifying_key(key: P256PublicKey) -> VerifyingKey:
     VerifyingKey(Algorithm.Es256, Verifier.P256(key))
 
 # A 32-byte Ed25519 seed, copied.
-pub def ed25519_signing_key(seed: &Bytes) -> Result[SigningKey, JwtError]:
-    if seed.len() != 32:
+pub def ed25519_signing_key(seed: &[u8]) -> Result[SigningKey, JwtError]:
+    if len(seed) != 32:
         return Err(JwtError.InvalidKey)
-    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(from_bytes(seed.copy())?)))
+    Ok(SigningKey(Algorithm.EdDsa, Signer.Ed25519(copied(seed)?)))
 
 # A 32-byte Ed25519 public key, copied. A small-order key is rejected here
 # rather than at each verification.
-pub def ed25519_verifying_key(public_key: &Bytes) -> Result[VerifyingKey, JwtError]:
-    if public_key.len() != 32:
+pub def ed25519_verifying_key(public_key: &[u8]) -> Result[VerifyingKey, JwtError]:
+    if len(public_key) != 32:
         return Err(JwtError.InvalidKey)
     mut probe = from_bytes(std.bytes.with_capacity(64))?
     from_bytes(probe.resize(64, 0u8))?
     from_crypto(std.crypto.ed25519_verify(public_key, &probe, &probe), JwtError.InvalidKey)?
-    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(from_bytes(public_key.copy())?)))
+    Ok(VerifyingKey(Algorithm.EdDsa, Verifier.Ed25519(copied(public_key)?)))
 
 pub const default_max_size: i64 = 8192
 pub const max_leeway: i64 = 86400
@@ -425,8 +430,8 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
     # A third dot is rejected by the strict base64url decoder.
     Ok(Parts(source, first, second))
 
-def object(source: &Bytes, depth: i64) -> Result[list[Member], JwtError]:
-    bounds = Limits(depth, source.len(), 0, DuplicateKeys.Reject)
+def object(source: &[u8], depth: i64) -> Result[list[Member], JwtError]:
+    bounds = Limits(depth, len(source), 0, DuplicateKeys.Reject)
     match from_json(std.json.parse(source, &bounds))?:
         case Json.Object(members):
             Ok(members)
@@ -443,7 +448,7 @@ def header_text(value: Json) -> Result[str, JwtError]:
 # Unknown members are ignored. In particular `jwk`, `jku`, `x5u` and `x5c`
 # never supply a key: the caller chooses it.
 def read_header(parts: &Parts) -> Result[Header, JwtError]:
-    raw = from_encoding(std.encoding.base64url_decode(&parts.source, 0, parts.first))?
+    raw = from_encoding(std.encoding.base64url_decode(&parts.source[:parts.first]))?
     members = object(&raw, header_depth)?
     mut name: Option[str] = Nothing
     mut key_id: Option[str] = Nothing
@@ -478,7 +483,7 @@ pub def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[H
     parts = split(token, max_size)?
     read_header(&parts)
 
-def signature_valid(key: &VerifyingKey, message: &Bytes, signature: &Bytes) -> Result[bool, JwtError]:
+def signature_valid(key: &VerifyingKey, message: &[u8], signature: &[u8]) -> Result[bool, JwtError]:
     match &key._material:
         case Verifier.Secret(secret):
             match hmac_hash(key._algorithm):
@@ -613,8 +618,8 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
     header = read_header(&parts)?
     if header.algorithm != key._algorithm:
         return Err(JwtError.AlgorithmMismatch)
-    payload = from_encoding(std.encoding.base64url_decode(&parts.source, parts.first + 1, parts.second))?
-    signature = from_encoding(std.encoding.base64url_decode(&parts.source, parts.second + 1, parts.source.len()))?
+    payload = from_encoding(std.encoding.base64url_decode(&parts.source[parts.first + 1:parts.second]))?
+    signature = from_encoding(std.encoding.base64url_decode(&parts.source[parts.second + 1:]))?
     from_bytes(parts.source.truncate(parts.second))?
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)
@@ -622,7 +627,7 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
     check_claims(&claims, rules)?
     Ok(Token(header, claims))
 
-def signature_for(key: &SigningKey, message: &Bytes) -> Result[Bytes, JwtError]:
+def signature_for(key: &SigningKey, message: &[u8]) -> Result[Bytes, JwtError]:
     match &key._material:
         case Signer.Secret(secret):
             match hmac_hash(key._algorithm):
@@ -643,8 +648,8 @@ def signature_for(key: &SigningKey, message: &Bytes) -> Result[Bytes, JwtError]:
         case Signer.Ed25519(seed):
             from_crypto(std.crypto.ed25519_sign(seed, message), JwtError.InvalidKey)
 
-def append_segment(target: &mut Bytes, data: &Bytes) -> Result[(), JwtError]:
-    encoded = from_encoding(std.encoding.base64url_encode(data, 0, data.len()))?
+def append_segment(target: &mut Bytes, data: &[u8]) -> Result[(), JwtError]:
+    encoded = from_encoding(std.encoding.base64url_encode(data))?
     from_bytes(target.extend(&encoded))
 
 # The header is `{"alg":...,"typ":"JWT"}`, plus `kid` when given. `claims`

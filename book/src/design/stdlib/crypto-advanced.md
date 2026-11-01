@@ -19,9 +19,9 @@ for runnable examples.
 secret key, a 12-byte nonce, and a 16-byte authentication tag.
 
 ```text
-seal_in_place(algorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes,
+seal_in_place(algorithm, key: &[u8], nonce: &[u8], aad: &[u8],
               data: &mut Bytes) -> Result[(), AdvancedError]
-open_in_place(algorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes,
+open_in_place(algorithm, key: &[u8], nonce: &[u8], aad: &[u8],
               data: &mut Bytes) -> Result[(), AdvancedError]
 ```
 
@@ -54,7 +54,7 @@ The other inputs and output must be separate buffers under the loan rules.
 | `ed25519_sign_into(seed, message, target)` | Writes an exactly 64-byte buffer |
 | `ed25519_verify(public_key, message, signature)` | `True` for a valid signature; `False` for a mismatch; `SmallOrderKey` for a [small-order key](#small-order-public-keys) |
 
-Every input is `&Bytes`; `target` is `&mut Bytes`. A seed must be exactly
+Every input is a `&[u8]` view; `target` is `&mut Bytes`. A seed must be exactly
 32 cryptographically random bytes. Generate one with `std.secrets.token_bytes(32)`;
 its public key may be shared, but its seed must remain secret. Signing is
 deterministic, and a signing seed can sign multiple messages. Verification
@@ -120,8 +120,8 @@ export/import operation. An `X25519Key` has these methods:
 |---|---|
 | `public_key()` | Returns a new 32-byte buffer |
 | `public_key_into(target: &mut Bytes)` | Writes an exactly 32-byte buffer |
-| `agree(peer_public_key: &Bytes)` | Consumes the key's agreement capability and returns 32 shared-secret bytes |
-| `agree_into(peer_public_key: &Bytes, target: &mut Bytes)` | Same, into an exactly 32-byte buffer |
+| `agree(peer_public_key: &[u8])` | Consumes the key's agreement capability and returns 32 shared-secret bytes |
+| `agree_into(peer_public_key: &[u8], target: &mut Bytes)` | Same, into an exactly 32-byte buffer |
 
 Both agreement methods require a mutable receiver. An agreement attempt
 consumes the private key even when the peer is rejected. A peer producing an
@@ -139,9 +139,9 @@ protocol-specific salt and context before using it as a symmetric key.
 ## HKDF-SHA256
 
 ```text
-hkdf_sha256(salt: &Bytes, key_material: &Bytes, info: &Bytes, size: i64)
+hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64)
     -> Result[Bytes, AdvancedError]
-hkdf_sha256_into(salt: &Bytes, key_material: &Bytes, info: &Bytes,
+hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8],
                  target: &mut Bytes) -> Result[(), AdvancedError]
 ```
 
