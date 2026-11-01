@@ -255,7 +255,7 @@ right = 2
 prior = &left
 print(view(&left) if True else view(&right)).unwrap()
 "#,
-        "reference result requires",
+        "a conditional expression cannot produce a reference",
     );
 }
 
@@ -482,5 +482,30 @@ print(len(chosen)).unwrap()
 print(apply(first_of, &xs, &ys)).unwrap()
 "#,
         "3\n3\n",
+    );
+}
+
+// Issue #628: the diagnostic names the origin and the borrowed parameter.
+#[test]
+fn a_wrong_origin_names_both_parameters() {
+    reject(
+        "def pick(key: &str, items: &list[str]) -> &str:\n    &items[0]\n",
+        "returned reference must originate from the first reference parameter, `key`; this one borrows `items`: make `items` the first reference parameter",
+    );
+    run(
+        "def pick(items: &list[str], key: &str) -> &str:\n    &items[0]\nwords = [\"a\"].unwrap()\nprint(pick(&words, \"k\")).unwrap()\n",
+        "a\n",
+    );
+}
+
+#[test]
+fn a_conditional_reference_names_the_if_statement() {
+    reject(
+        "def pick(items: &list[str], c: bool) -> &str:\n    &items[0] if c else &items[1]\n",
+        "a conditional expression cannot produce a reference; choose with an `if` statement that returns or assigns each borrow",
+    );
+    run(
+        "def pick(items: &list[str], c: bool) -> &str:\n    if c:\n        return &items[0]\n    &items[1]\nwords = [\"a\", \"b\"].unwrap()\nprint(pick(&words, False)).unwrap()\n",
+        "b\n",
     );
 }

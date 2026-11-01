@@ -50,5 +50,5 @@ input. See [linked-data examples](../../examples/data-structures/index.md).
 Suspended or never-started generators drop their remaining captures and locals
 without resuming the body. Statements following `yield` are not cleanup hooks.
 [Resource scopes](../08-errors/03-resource-scopes.md) insert exit calls into
-ordinary cleanup. [Tail transfers](../06-functions/05-tail-calls.md) finish caller
+ordinary cleanup. [Tail transfers](../06-functions/06-tail-calls.md) finish caller
 cleanup before entering the callee. Fatal traps and process aborts do not unwind.

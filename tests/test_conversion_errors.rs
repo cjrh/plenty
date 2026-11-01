@@ -31,7 +31,7 @@ fn conversion_does_not_implicitly_convert_to_parse_error() {
     )
     .unwrap_err()
     .to_string();
-    assert!(error.contains("identical Result error types"), "{error}");
+    assert!(error.contains("cannot propagate as"), "{error}");
     let error = support::check_source("error = RangeError.Invalid")
         .unwrap_err()
         .to_string();

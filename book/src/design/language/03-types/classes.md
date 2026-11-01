@@ -41,8 +41,10 @@ Classes can define [arithmetic operator hooks](../04-expressions/operators.md)
 such as `__add__` and `__neg__`, compiled as direct method calls.
 
 Class identity is nominal. Structural equality compares fields and printing uses
-`Point(x=3, y=4)`; neither invokes user-defined magic methods. Automatic equality
-and formatting reject recursive data. Instance moves, field access, and explicit
+`Point(x=3, y=4)`; neither invokes user-defined methods. Comparison and hashing
+hooks such as `__eq__`, `__lt__` and `__hash__` are rejected; see
+[equality, ordering and hashing](../04-expressions/operators.md#equality-ordering-and-hashing).
+Automatic equality and formatting reject recursive data. Instance moves, field access, and explicit
 duplication follow [ownership](../05-ownership/index.md); receiver signatures
 follow [methods](../06-functions/index.md), and constructor access follows
 [visibility](../02-source/visibility.md).

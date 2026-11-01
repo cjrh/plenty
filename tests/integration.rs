@@ -148,6 +148,8 @@ mod test_contexts;
 mod test_conversion_errors;
 #[path = "test_copy_classes.rs"]
 mod test_copy_classes;
+#[path = "test_copy_rule.rs"]
+mod test_copy_rule;
 #[path = "test_copyable_tuple_mutation.rs"]
 mod test_copyable_tuple_mutation;
 #[path = "test_data_callable_bounds.rs"]
@@ -375,6 +377,8 @@ mod test_protocol_defaults;
 mod test_protocols;
 #[path = "test_python_habit_diagnostics.rs"]
 mod test_python_habit_diagnostics;
+#[path = "test_python_habit_statements.rs"]
+mod test_python_habit_statements;
 #[path = "test_query_methods.rs"]
 mod test_query_methods;
 #[path = "test_range_loops.rs"]
