@@ -306,11 +306,11 @@ fn allocation_instrumentation_detects_a_temporary_allocation() {
 )]
 #[case(
     "def f() -> Result[i64, str]:\n    Ok(Some(1)?)",
-    "same Result or Option family"
+    "`?` on an Option cannot propagate from a function returning Result; convert absence to an error with `.ok_or(error)?`"
 )]
 #[case(
     "def f() -> Result[i64, str]:\n    x: Result[i64, i64] = Err(1)\n    Ok(x?)",
-    "identical Result error types"
+    "`?` operand error i64 cannot propagate as str; the function's error type must include it: declare a sum such as Result[_, i64 | str], or match the operand and convert the error explicitly"
 )]
 #[case(
     "enum E:\n    Value(i64)\ndef f() -> Option[i64]:\n    Some(E.Value(1)?)",
@@ -332,15 +332,15 @@ fn rejects_invalid_propagation(#[case] source: &str, #[case] expected: &str) {
 #[rstest]
 #[case(
     "def work() -> Result[(), IoError]:\n    values: list[i64] = []?\n    drop(values)\n    Ok(())",
-    "`?` requires identical Result error types; a collection literal fails with AllocError, which cannot propagate as IoError; declare a sum that includes it, such as Result[_, AllocError | IoError]"
+    "`?` operand error AllocError cannot propagate as IoError; a collection literal fails with AllocError; the function's error type must include it: declare a sum such as Result[_, AllocError | IoError], or match the result and convert the error explicitly"
 )]
 #[case(
     "def work() -> Result[(), str]:\n    values: dict[str, i64] = ({\"a\": 1})?\n    drop(values)\n    Ok(())",
-    "which cannot propagate as str"
+    "cannot propagate as str; a collection literal fails with AllocError"
 )]
 #[case(
     "def work() -> Result[(), str]:\n    values = [1, 2]?\n    drop(values)\n    Ok(())",
-    "which cannot propagate as str"
+    "cannot propagate as str; a collection literal fails with AllocError"
 )]
 #[case(
     "def work() -> Option[i64]:\n    values: set[i64] = {1}?\n    drop(values)\n    Some(1)",
@@ -371,4 +371,47 @@ fn collection_literal_under_question_still_propagates_alloc_error_and_failure() 
         error.contains("use `?` to propagate allocation failure"),
         "{error}"
     );
+}
+
+// Issue #626: the f-string error type and its import are named.
+#[test]
+fn f_string_under_question_names_format_error_and_its_import() {
+    let error = support::check_source(
+        "def work(n: i64) -> Result[(), IoError]:\n    s = f\"{n}\"?\n    print(s)?\n    Ok(())",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("an f-string fails with FormatError; the function's error type must include it: declare a sum such as Result[_, FormatError | IoError] after `from std.fmt import FormatError`"),
+        "{error}"
+    );
+    let error = support::check_source("def work(n: i64) -> Option[str]:\n    Some(f\"{n}\"?)")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error
+            .contains("same Result or Option family; an f-string returns Result[str, FormatError]"),
+        "{error}"
+    );
+    plenty::check_source(
+        "from std.fmt import FormatError\ndef work(n: i64) -> Result[(), FormatError | IoError]:\n    s = f\"{n}\"?\n    print(s)?\n    Ok(())\ndef main() -> ():\n    pass\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn option_under_question_in_a_result_function_names_ok_or() {
+    let error = support::check_source(
+        "def first(xs: &list[i64]) -> Result[i64, str]:\n    v = xs.get(3)?\n    Ok(v)",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("`?` on an Option cannot propagate from a function returning Result; convert absence to an error with `.ok_or(error)?`"),
+        "{error}"
+    );
+    support::check_source(
+        "def first(xs: &list[i64]) -> Result[i64, str]:\n    v = xs.get(3).ok_or(\"no element\")?\n    Ok(v)",
+    )
+    .unwrap();
 }

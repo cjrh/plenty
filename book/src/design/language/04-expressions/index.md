@@ -11,9 +11,13 @@ Operator precedence, from highest to lowest:
 | Group | Operators or forms |
 | --- | --- |
 | Postfix | Calls, member access, indexing, [slicing](slices.md), error propagation `?` |
-| Unary | `+`, `-`, dereference `*`, borrowing `&` and `&mut` |
+| Unary | `+`, `-`, bitwise not `~`, dereference `*`, borrowing `&` and `&mut` |
 | Multiplication | `*`, `/`, `//`, `%` |
 | Addition | `+`, `-` |
+| Shift | `<<`, `>>` |
+| Bitwise and | `&` |
+| Bitwise exclusive or | `^` |
+| Bitwise or | `\|` |
 | Comparison and membership | `==`, `!=`, `<`, `>`, `<=`, `>=`, `in`, `not in` |
 | Boolean negation | `not` |
 | Boolean conjunction | `and` |
@@ -21,10 +25,10 @@ Operator precedence, from highest to lowest:
 | Conditional | `value_if_true if condition else value_if_false` |
 
 Arithmetic operators associate left to right. Parentheses override precedence.
-Chained comparisons are rejected. There is no exponentiation operator: `a ** b`
-reads as `a * (*b)`, and when `b` cannot be dereferenced the diagnostic says
-that `**` is unsupported and names
-[`base.pow(exponent)`](../../facilities/01-builtins/numbers.md#powers). [Numeric rules](../03-types/numbers.md) specify
+Chained comparisons are rejected. There is no exponentiation operator: two
+adjacent stars, as in `a ** b`, are rejected with a diagnostic that names
+[`base.pow(exponent)`](../../facilities/01-builtins/numbers.md#powers), whatever
+the operand types. Multiplying by a dereference needs a space: `a * *b`. [Numeric rules](../03-types/numbers.md) specify
 type matching, casts, overflow, and float behavior. Membership follows the
 container's [facilities contract](../../facilities/index.md).
 

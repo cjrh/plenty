@@ -453,11 +453,11 @@ fn conversion_to_a_context_is_never_implicit() {
     for (body, diagnostic) in [
         (
             "def load() -> Result[str, Context[IoError]]:\n    Ok(read_text(\"a\")?)\n",
-            "`?` requires identical Result error types; convert the error explicitly",
+            "convert the error explicitly",
         ),
         (
             "def load() -> Result[str, IoError]:\n    Ok(context(read_text(\"a\"), \"read\")?)\n",
-            "`?` requires identical Result error types; convert the error explicitly",
+            "convert the error explicitly",
         ),
     ] {
         let source =

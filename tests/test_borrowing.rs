@@ -232,7 +232,8 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
     "def f(a: &mut list[i64], b: &list[i64]) -> ():\n    pass\n\n",
     "    mut a = [1]?\n    f(&mut a, &a)\n",
     "6:16: conflicting borrow: cannot read or borrow `a` while it is exclusively borrowed
-  6:12: note: the exclusive borrow of `a` starts here"
+  6:12: note: the exclusive borrow of `a` starts here
+  6:16: note: an exclusive borrow passed as an argument lasts until the call returns; if this argument needs only a value read from it, such as a length, compute it before the call"
 )]
 #[case::loop_over_borrow(
     "",
@@ -445,4 +446,35 @@ fn checked_file_diagnostics_name_the_source_file() {
             "error: {file}:7:15: use of moved binding `nums`\n  {file}:6:17: note: `nums` is moved here\n"
         )
     );
+}
+
+// Issue #628: the conflict names the construct that widened or extended the borrow.
+#[test]
+fn a_mut_reference_binding_is_named_as_the_cause_of_a_field_conflict() {
+    let error = support::check_diagnostic(
+        "class P:\n    a: i64\n    b: i64\ndef main() -> ():\n    mut p = P(1, 2)\n    mut r = &mut p\n    x = &mut r.a\n    y = &mut r.b\n    *x = 3\n    *y = 4\n",
+    );
+    assert!(
+        error.contains("8:14: note: `r` is a `mut` reference binding, so a borrow through it covers all of `p`; if `r` is never retargeted, declare it without `mut` to borrow separate fields"),
+        "{error}"
+    );
+    support::check_source(
+        "class P:\n    a: i64\n    b: i64\ndef main() -> ():\n    mut p = P(1, 2)\n    r = &mut p\n    x = &mut r.a\n    y = &mut r.b\n    *x = 3\n    *y = 4\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_read_after_an_exclusive_argument_suggests_binding_it_first() {
+    let error = support::check_diagnostic(
+        "def fill(xs: &mut list[i64], n: i64) -> ():\n    pass\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    fill(&mut xs, len(xs))\n    Ok(())\n",
+    );
+    assert!(
+        error.contains("5:23: note: an exclusive borrow passed as an argument lasts until the call returns; if this argument needs only a value read from it, such as a length, compute it before the call"),
+        "{error}"
+    );
+    support::check_source(
+        "def fill(xs: &mut list[i64], n: i64) -> ():\n    pass\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    n = len(xs)\n    fill(&mut xs, n)\n    Ok(())\n",
+    )
+    .unwrap();
 }

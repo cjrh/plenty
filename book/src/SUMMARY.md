@@ -299,7 +299,7 @@
             - [Closure environments](design/language/06-functions/03-closures.md)
             - [Consuming and stored closures](design/language/06-functions/04-consuming-and-stored-closures.md)
             - [Boxed callable environments](design/language/06-functions/05-boxed-callables.md)
-            - [Recursion and tail calls](design/language/06-functions/05-tail-calls.md)
+            - [Recursion and tail calls](design/language/06-functions/06-tail-calls.md)
         - [Generics and constraints](design/language/07-generics/index.md)
             - [Type argument inference](design/language/07-generics/inference.md)
             - [Generic data and methods](design/language/07-generics/data.md)

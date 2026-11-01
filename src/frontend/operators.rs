@@ -56,7 +56,27 @@ fn unary(op: &str) -> Option<&'static str> {
     }
 }
 
+/// Python's comparison and hashing hooks would silently do nothing, because
+/// `==`, ordering and keys never call user code, so they are rejected. B37
+/// (`__cmp__`) and B74 (user-defined keys) replace this when they land; see
+/// book/src/design/language/04-expressions/operators.md#equality-ordering-and-hashing.
+pub(super) fn reject_comparison_hook(f: &Function) -> Result<()> {
+    let rule = match f.name.as_str() {
+        "__eq__" | "__ne__" => "`==` and `!=` always compare fields structurally",
+        "__lt__" | "__le__" | "__gt__" | "__ge__" | "__cmp__" => {
+            "`<`, `<=`, `>` and `>=` on a user type come only from `@newtype` forwarding"
+        }
+        "__hash__" | "__key__" => "dictionary keys and set elements hash structurally",
+        _ => return Ok(()),
+    };
+    Err(f.at.error(format!(
+        "`{}` is not supported: {rule} and never call methods; rename the method if it is not meant as a hook. See \"Equality, ordering and hashing\" in the operators reference",
+        f.name
+    )))
+}
+
 pub(super) fn validate(f: &Function, aliases: &TypeAliases) -> Result<()> {
+    reject_comparison_hook(f)?;
     let unary = ["+", "-", "~"]
         .into_iter()
         .any(|op| unary(op) == Some(&f.name));

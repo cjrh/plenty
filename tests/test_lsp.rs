@@ -348,11 +348,16 @@ fn completion_and_changes() {
     let variants = client.completion(&main, 21, 14);
     assert!(variants.contains(&"Red".to_owned()) && variants.contains(&"Green".to_owned()));
     let names = client.completion(&main, 22, 4);
-    for expected in ["scale", "Point", "gcd", "p", "s", "Color", "while"] {
+    for expected in ["scale", "Point", "gcd", "p", "s", "Color", "while", "const"] {
         assert!(
             names.contains(&expected.to_owned()),
             "{expected}: {names:?}"
         );
+    }
+    // Keywords come from the parser's reserved words (issue #637): words
+    // reserved only to be rejected, and non-keywords, are not offered.
+    for absent in ["lambda", "try", "None", "is"] {
+        assert!(!names.contains(&absent.to_owned()), "{absent}: {names:?}");
     }
     // Locals of another function are not offered.
     assert!(!names.contains(&"by".to_owned()), "{names:?}");

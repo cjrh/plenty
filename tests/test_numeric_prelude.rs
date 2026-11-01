@@ -246,7 +246,7 @@ fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expecte
 #[case("x: u8 = u8.try_from(300)", "expected u8, got Result[u8, RangeError]")]
 #[case(
     "def f() -> Result[u8, IoError]:\n    Ok(u8.try_from(300)?)",
-    "`?` requires identical Result error types"
+    "cannot propagate as"
 )]
 #[case(
     "x = 3u8\ny = -x",
