@@ -208,7 +208,7 @@ Only the remaining extensions are **B75** in the [backlog](../backlog.md).
 Nongeneric `@copy` classes copy on ordinary use when every field copies and no
 `__del__` is declared (issue #535, local PR #655). This also introduced the
 closed declaration-annotation mechanism. See [copy classes](../design/language/03-types/classes.md#copy-classes).
-Generic copy classes remain **B84**; dictionary keys remain **B74** in the [backlog](../backlog.md).
+Generic `@copy` classes copy when their type arguments copy, and a field that moves for every argument is rejected at the class; the built-in `CopyType` bound requires a type argument that copies (local PR #785). Dictionary keys remain **B74** in the [backlog](../backlog.md).
 
 ## Retired foundations
 
