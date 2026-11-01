@@ -50,7 +50,7 @@ and, where marked *probe*, with `plenty --check` or a run on the 2026-10-31
 debug build.
 
 Earlier changes removed features rather than deprecating them (`std.iter` was removed in favour of `iter()`; see
-[fluent iterator pipelines](fluent-iterators.md)). This proposal follows that
+[fluent iterator pipelines](completed/fluent-iterators.md)). This proposal follows that
 precedent: a breaking change ships with a diagnostic that states the new
 spelling, and the same change updates std, tests, the tutorial and the
 reference. [Package language editions](language-editions.md) are not

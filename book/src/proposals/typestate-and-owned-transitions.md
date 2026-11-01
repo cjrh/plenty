@@ -5,7 +5,7 @@ limits, not a new language feature. [Moves](../design/language/05-ownership/01-b
 and [destruction](../design/language/05-ownership/07-destruction.md) define current
 behavior. Scheduling belongs in [B72](../backlog.md).
 
-The [owned response experiment](typestate-response-experiment.md) refreshes this
+The [owned response experiment](completed/typestate-response-experiment.md) refreshes this
 assessment, with native cleanup/retry checks and compiler rejections. Explicit
 owned receivers now support method-shaped transitions, and [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of
 owned bindings are implemented (issue #534).
