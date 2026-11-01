@@ -175,7 +175,6 @@ print(str.repr(std.io.read_exact(&mut failing, &mut buffer, 0, 6))?)?
 mut lying = fake("abcdef", [1, -3]?)?
 print(str.repr(std.io.read_exact(&mut lying, &mut buffer, 0, 6))?)?
 mut untouched = fake("abcdef", []?)?
-print(str.repr(std.io.read_exact(&mut untouched, &mut buffer, 2, 7))?)?
 print(str.repr(std.io.read_exact(&mut untouched, &mut buffer, 3, 3))?)?
 print(untouched.calls)?
 "#,
@@ -184,7 +183,6 @@ Result[(), std.io.Partial].Err(std.io.Partial(completed=3, cause=std.io.StreamEr
 abc...
 Result[(), std.io.Partial].Err(std.io.Partial(completed=4, cause=std.io.StreamError.Io(IoError.Other)))
 Result[(), std.io.Partial].Err(std.io.Partial(completed=1, cause=std.io.StreamError.InvalidProgress))
-Result[(), std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.OutOfRange))
 Result[(), std.io.Partial].Ok(())
 0
 "#,
@@ -356,7 +354,6 @@ print(reader.read(&mut large, 0, 12)?, reader.inner.calls, reader.buffered())?
 print(reader.read(&mut large, 0, 12)?, reader.inner.calls, reader.buffered())?
 print(large.to_text()?)?
 print(reader.read(&mut large, 0, 12)?, reader.read(&mut large, 4, 4)?)?
-print(str.repr(reader.read(&mut large, 4, 13))?)?
 print(str.repr(std.io.buffered_reader(fake("", []?)?, 0))?)?
 "#,
         r#"
@@ -369,7 +366,6 @@ abcdefghijk 8
 0 3 0
 lmnop.......
 0 0
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 Result[std.io.BufReader[Fake], std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 "#,
     );
@@ -563,7 +559,7 @@ print(stream.write(&buffer[:1])?, stream.data.len(), stream.data.get(9), stream.
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(-12)))?, stream.position())?
 print(str.repr(stream.seek(SeekFrom.Current(i64.MAX)))?, stream.position())?
-print(str.repr(stream.read(&mut buffer, 3, 5))?, str.repr(stream.write(&buffer[3:5]))?)?
+print(str.repr(stream.write(&buffer[3:5]))?)?
 print(str.repr(stream.flush())?)?
 "#,
         r#"
@@ -578,7 +574,7 @@ print(str.repr(stream.flush())?)?
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Ok(1)
+Result[i64, std.io.StreamError].Ok(1)
 Result[(), std.io.StreamError].Ok(())
 "#,
     );
@@ -633,7 +629,7 @@ print(stream.read(&mut buffer, 0, 8)?, stream.read(&mut buffer, 2, 2)?)?
 print(stream.seek(SeekFrom.End(-2))?, stream.read(&mut buffer, 0, 1)?, buffer.get(0))?
 print(stream.seek(SeekFrom.Current(-3))?, stream.seek(SeekFrom.End(4))?)?
 print(str.repr(stream.seek(SeekFrom.Start(-1)))?, str.repr(stream.seek(SeekFrom.Current(-100)))?)?
-print(str.repr(stream.read(&mut buffer, 4, 9))?, str.repr(stream.write(&source[4:7]))?)?
+print(str.repr(stream.write(&source[4:7]))?)?
 print(str.repr(stream.close())?, str.repr(stream.close())?, stream.file.closed)?
 print(str.repr(stream.read(&mut buffer, 0, 1))?)?
 print(str.repr(stream.write(&source[:1]))?)?
@@ -649,7 +645,7 @@ Result[(), std.io.StreamError].Ok(()) Result[(), std.io.StreamError].Ok(())
 4 1 65
 2 10
 Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.System(22)))
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) Result[i64, std.io.StreamError].Ok(2)
+Result[i64, std.io.StreamError].Ok(2)
 Result[(), std.io.StreamError].Ok(()) Result[(), std.io.StreamError].Ok(()) True
 Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))
 Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Closed))
@@ -1160,4 +1156,86 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     Ok(())
 "#;
     assert_eq!(run(source, b"").stdout, "True");
+}
+
+#[test]
+fn read_ranges_trap_before_empty_input_or_transport_calls() {
+    for (setup, call, operation) in [
+        (
+            "mut reader = std.io.cursor(std.bytes.empty()?)",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.io.buffered_reader(std.io.cursor(std.bytes.empty()?), 8)?",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.io.stdin()",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.io.cursor(std.bytes.empty()?)",
+            "std.io.read_exact(&mut reader, &mut buffer, START, STOP)",
+            "read_exact",
+        ),
+        (
+            "mut reader = std.io.typed.reader(std.io.cursor(std.bytes.empty()?))",
+            "std.io.typed.read_exact(&mut reader, &mut buffer, START, STOP)",
+            "read_exact",
+        ),
+        (
+            "mut reader = std.io.typed.buffered_reader[StreamError, std.io.typed.LegacyReader[std.io.Cursor]](std.io.typed.reader(std.io.cursor(std.bytes.empty()?)), 8)?",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.http.typed.close_body[StreamError, std.io.typed.LegacyReader[std.io.Cursor]](std.io.typed.reader(std.io.cursor(std.bytes.empty()?)))",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.http.typed.fixed_body[StreamError, std.io.typed.LegacyReader[std.io.Cursor]](std.io.typed.reader(std.io.cursor(std.bytes.empty()?)), 0).unwrap()",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.secrets.os_entropy()",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+        (
+            "mut reader = std.http.client.Unstreamed()",
+            "reader.read(&mut buffer, START, STOP)",
+            "read",
+        ),
+    ] {
+        for (start, stop) in [(-1, 0), (2, 1), (0, 5), (5, 5), (i64::MAX, i64::MAX)] {
+            let call = call
+                .replace("START", &start.to_string())
+                .replace("STOP", &stop.to_string());
+            let source = format!(
+                "import std.io.typed\nimport std.secrets\nimport std.http.client\nimport std.http.typed\n{}",
+                program(&format!("mut buffer = blank(4)?\n{setup}\ndrop({call})"))
+            );
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("main.plenty");
+            let executable = dir.path().join("program");
+            std::fs::write(&path, &source).unwrap();
+            plenty::compile_file_to_executable(&path, &executable, None)
+                .unwrap_or_else(|error| panic!("{source}\n{error}"));
+            let output = Command::new(executable)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+            assert!(
+                stderr.contains(&format!(": {operation}: start/stop outside buffer\n")),
+                "{source}\n{stderr}"
+            );
+        }
+    }
 }

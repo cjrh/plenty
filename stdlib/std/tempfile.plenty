@@ -85,6 +85,8 @@ pub class NamedTemporaryFile:
         &self._path
 
     pub def read(self: &mut NamedTemporaryFile, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         self._owner.stream.read(buffer, start, stop)
 
     pub def write(self: &mut NamedTemporaryFile, source: &[u8]) -> Result[i64, StreamError]:

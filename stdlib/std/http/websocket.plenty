@@ -851,6 +851,8 @@ pub class Wire[T]:
     _failure: Option[NetError]
 
     pub def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         outcome: Result[i64, NetError] = match &mut self._stream:
             case Some(stream):
                 stream.read_before(buffer, start, stop, &deadline_at(&instant_at(self._until)), &self._cancel)

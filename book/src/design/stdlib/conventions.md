@@ -177,8 +177,9 @@ same way (`std.graph`).
 
 Another run-time value the caller supplies (a limit or configuration) that the
 operation cannot accept is an `Err` with a named variant: `OutOfRange`,
-`InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Stream `read` ranges still use this form (issue #666). Encoding and UUID
-output offsets, crypto finalization offsets, and CSV field indices trap. Builtins follow several policies
+`InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Buffer
+ranges, encoding and UUID offsets, crypto output offsets, and CSV field
+indices trap. Builtins follow several policies
 today (issue #629); see the
 [consistency proposal](../../proposals/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail).
 
@@ -267,7 +268,9 @@ because its C adapter accepts only lists (issue #657).
 
 Byte streams implement the [`std.io`](io.md) protocols `Reader`, `Writer`,
 `Seeker` and `Closer`: `read(buffer, start, stop) -> Result[i64, StreamError]`
-reports partial progress. A function borrows a stream as `reader: &mut R`
+reports partial progress. Read ranges outside `0 <= start <= stop <= buffer.len()`
+trap before transport access, including empty ranges and EOF; `read_exact`
+validates the same bounds. A function borrows a stream as `reader: &mut R`
 with `R: Reader`; an adapter takes `inner: R`.
 [`std.io.typed`](io-typed.md) is for callers that must recover the
 transport's own error type (`std.http.typed`); other modules do not add a

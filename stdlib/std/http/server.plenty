@@ -509,8 +509,8 @@ pub class Conn[T]:
         StreamError.Io(IoError.Other)
 
     pub def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if start < 0 or start > stop or stop > buffer.len():
-            return Err(StreamError.OutOfRange)
+        if not (0 <= start and start <= stop and stop <= buffer.len()):
+            __trap("read: start/stop outside buffer")
         unread = self._input.data.len() - self._at
         if unread > 0 and stop > start:
             mut count = stop - start

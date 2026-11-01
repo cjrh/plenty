@@ -39,7 +39,10 @@ One call makes at most one attempt and returns the number of bytes it moved.
 - `Interrupted` means nothing moved and the same call can be repeated.
 - `seek` returns the new byte offset from the start.
 
-A `read` range outside its buffer is `OutOfRange`; a `write` source is a view,
+A `read` range must satisfy `0 <= start <= stop <= buffer.len()`. An invalid
+range traps with `read: start/stop outside buffer` before touching the stream,
+even at EOF or for an empty range. `read_exact` applies the same rule with
+`read_exact: start/stop outside buffer`. A `write` source is a view,
 whose bounds clamp, so it has no range error. A stream that returns a negative
 count or more than it was offered is reported as `InvalidProgress` by every
 helper and buffer, which then stop using that count.
@@ -90,7 +93,7 @@ relies on the buffer's own use of `write` and `flush`.
 | `Interrupted` | The native call was interrupted (`EINTR`); retry |
 | `UnexpectedEof` | Input ended before `read_exact` filled its range |
 | `WriteZero` | A writer accepted no bytes of a nonempty range |
-| `OutOfRange` | A range, capacity, limit, or seek target is invalid |
+| `OutOfRange` | A capacity, limit, or seek target is invalid |
 | `InvalidProgress` | A stream reported an impossible byte count |
 | `Io(IoError)` | Any other native failure, including `Closed`, `NotReadable`, `NotWritable`, and `System(code)` |
 | `Allocation(AllocError)` | A buffer could not be allocated or grown |
