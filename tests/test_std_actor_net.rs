@@ -235,29 +235,58 @@ fn back_pressure_stops_reading() {
 /// connection that never sends; a busy one is not affected.
 #[test]
 fn idle_and_read_deadlines_close_connections() {
-    let server = Server::start(&[("connections", "2"), ("idle_ms", "200u32")]);
-    let started = Instant::now();
+    // Keep a generous scheduling margin, and make actual echo progress rather
+    // than assuming a 20-ms sleep wakes before a 200-ms idle timeout (#672).
+    let idle_span = Duration::from_secs(2);
+    let server = Server::start(&[("connections", "2"), ("idle_ms", "2000u32")]);
     let mut idle = server.connect();
-    let busy = server.connect();
-    let sender = std::thread::spawn(move || {
-        // Each byte arrives within the idle span, for longer than it.
-        let data = payload(3, 40);
-        let mut writer = busy.try_clone().unwrap();
-        for byte in &data {
-            writer.write_all(std::slice::from_ref(byte)).unwrap();
-            std::thread::sleep(Duration::from_millis(20));
+    let started = Instant::now();
+    let mut busy = server.connect();
+    busy.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    busy.set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    busy.set_nodelay(true).unwrap();
+    let sender = std::thread::spawn(move || -> std::io::Result<usize> {
+        let data = payload(3, 1024);
+        let mut received = vec![0; data.len()];
+        let mut echoed = 0;
+        let until = Instant::now() + idle_span * 2;
+        while Instant::now() < until {
+            busy.write_all(&data)?;
+            busy.read_exact(&mut received)?;
+            if received != data {
+                return Err(std::io::Error::other("echo lost or reordered bytes"));
+            }
+            echoed += received.len();
         }
-        writer.shutdown(Shutdown::Write).unwrap();
-        let mut received = Vec::new();
-        let mut reader = busy;
-        reader.read_to_end(&mut received).unwrap();
-        assert_eq!(received, data);
+        busy.shutdown(Shutdown::Write)?;
+        received.clear();
+        busy.read_to_end(&mut received)?;
+        if !received.is_empty() {
+            return Err(std::io::Error::other("unexpected trailing echo bytes"));
+        }
+        Ok(echoed)
     });
-    assert_eq!(drained(&mut idle), 0);
+    // Gather server accounting even if the busy peer is reset. Previously a
+    // sender panic hid whether the server reported an extra idle expiration.
+    let mut idle_received = Vec::new();
+    let idle_result = idle.read_to_end(&mut idle_received);
     let waited = started.elapsed();
-    assert!(waited >= Duration::from_millis(190), "{waited:?}");
-    sender.join().unwrap();
-    let (summary, _) = server.finish();
+    drop(idle);
+    let busy_result = sender.join();
+    let (summary, stderr) = server.finish();
+    assert_eq!(
+        idle_result.unwrap_or_else(|error| panic!("{error}; {summary}; {stderr}")),
+        0
+    );
+    assert!(
+        waited >= idle_span - Duration::from_millis(100),
+        "{waited:?}; {summary}"
+    );
+    let echoed = busy_result
+        .expect("busy client thread panicked")
+        .unwrap_or_else(|error| panic!("busy client: {error}; {summary}; {stderr}"));
+    assert!(echoed > 0, "busy client made no progress; {summary}");
     assert_eq!(counter(&summary, "idle"), 1, "{summary}");
     assert_clean(&summary, 3);
 
