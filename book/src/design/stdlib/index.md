@@ -38,11 +38,11 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
-| [`std.encoding`](encoding.md) | Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes` | `EncodingError` |
+| [`std.encoding`](encoding.md) | Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer and IEEE 754 float packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.error`](error.md) | Explicit error mapping, operation/path context, descriptions, and standard-error reports | Mapper-selected error, `Context[E]`, `AllocError` |
 | [`std.fmt`](fmt.md) | Writer-generic value/report formatting, bounded output and fallible strings | `FormatError` |
-| [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError` |
+| [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError` |
 | [`std.fs.dirs`](fs/dirs.md) | The home directory and the XDG configuration, cache, data, and state directories, from the environment | `IoError` |
 | [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.graph`](graph.md) | Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees | `AllocError`, `GraphError` |
@@ -61,7 +61,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.http.websocket`](websocket.md) | RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` client, bounded framed messages, pings and the closing handshake | `WebSocketError` |
 | [`std.http.wss`](websocket.md#wss) | `std.http.websocket` clients for `wss` URLs through [`std.tls`](tls.md) | `WebSocketError` |
 | [`std.image`](image.md) | Owned 8-bit pixel buffers, bounded PNG decoding and encoding, cropping, colour conversion and resizing | `ImageError` |
-| [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters | `StreamError`, `Partial`, `CopyError`, `CloseError` |
+| [`std.io`](io.md) | Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, file and process-stream adapters, and checked sequential binary fields in an owned memory cursor | `StreamError`, `Partial`, `CopyError`, `CloseError`, `BinaryError` |
 | [`std.io.typed`](io-typed.md) | Byte stream protocols that carry a caller-chosen error type, buffering, adapters for `std.io` streams, and exact read, write, and copy helpers | `StepError[E]`, `Partial[E]`, `CopyFailure[R, W]` |
 | [`std.json`](json.md) | Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree | `JsonError` |
 | [`std.jwt`](jwt.md) | JSON Web Tokens: compact JWS signing and verification with the algorithm fixed by the key, strict decoding, and explicit-clock claim checks | `JwtError` |

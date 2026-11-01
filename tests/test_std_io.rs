@@ -903,3 +903,265 @@ print(reader.buffered())?
         "{error}"
     );
 }
+
+fn binary_native(body: &str, expected: &str) {
+    let source = ("import std.encoding\n".to_owned() + &program(body)).replace(
+        " | std.io.StreamError]:",
+        " | std.io.StreamError | std.io.BinaryError | std.encoding.EncodingError]:",
+    );
+    assert_eq!(run(&source, b"").stdout, expected.trim(), "{body}");
+}
+
+#[test]
+fn cursor_binary_fields_share_raw_position_and_known_endian_bytes() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.empty()?)
+stream.write_u8(1u8)?
+stream.write_i8(-2i8)?
+stream.write_u16(0x1234u16, std.encoding.Endian.Big)?
+stream.write_i32(-3i32, std.encoding.Endian.Little)?
+stream.write_u64(0x0102030405060708u64, std.encoding.Endian.Big)?
+stream.write_bytes(b"ok")?
+print(std.encoding.hex_text(&stream.data)?, stream.position(), stream.remaining())?
+print(stream.seek(SeekFrom.Start(0))?)?
+print(stream.read_u8()?, stream.read_i8()?, stream.read_u16(std.encoding.Endian.Big)?)?
+print(stream.read_i32(std.encoding.Endian.Little)?, stream.read_u64(std.encoding.Endian.Big)?)?
+print(stream.read_bytes(2)?.to_text()?, stream.require_end().is_ok())?
+print(stream.seek(SeekFrom.Start(2))?)?
+stream.write_i16(i16.MIN, std.encoding.Endian.Little)?
+print(stream.seek(SeekFrom.Current(-2))?)?
+print(stream.read_i16(std.encoding.Endian.Little)?)?
+mut raw = blank(2)?
+print(stream.read(&mut raw, 0, 2)?, stream.position(), std.encoding.hex_text(&raw)?)?
+print(stream.seek(SeekFrom.Start(4))?)?
+stream.write_u32(u32.MAX, std.encoding.Endian.Big)?
+stream.write_i64(i64.MIN, std.encoding.Endian.Little)?
+print(stream.seek(SeekFrom.Start(4))?)?
+print(stream.read_u32(std.encoding.Endian.Big)?, stream.read_i64(std.encoding.Endian.Little)?)?
+"#,
+        "01fe1234fdffffff01020304050607086f6b 18 0\n0\n1 -2 4660\n-3 72623859790382856\nok True\n2\n2\n-32768\n2 6 fdff\n4\n4\n4294967295 -9223372036854775808",
+    );
+}
+
+#[test]
+fn cursor_binary_truncation_is_contextual_and_does_not_consume_the_field() {
+    binary_native(
+        r#"
+for count in range(8):
+    mut data = std.bytes.with_capacity(8)?
+    data.resize(count, 1u8)?
+    mut stream = std.io.cursor(data)
+    match stream.read_u64(std.encoding.Endian.Big):
+        case Err(std.io.BinaryError.Truncated(at, need, remaining)):
+            print(at, need, remaining, stream.position())?
+        case _:
+            print("unexpected")?
+mut stream = std.io.cursor(std.bytes.from_bytes(b"abc")?)
+print(stream.read_u8()?, stream.position())?
+print(str.repr(stream.read_u32(std.encoding.Endian.Little))?, stream.position())?
+print(str.repr(stream.require_end())?, stream.position())?
+print(stream.seek(SeekFrom.Start(i64.MAX))?)?
+print(stream.remaining(), stream.require_end().is_ok(), stream.read_bytes(0)?.len())?
+print(str.repr(stream.read_u8())?, stream.position())?
+print(stream.read_bytes(-1).is_err(), stream.read_bytes(1, -1).is_err())?
+print(stream.read_bytes(100, 8).is_err(), stream.write_u8(1u8).is_err())?
+"#,
+        "0 8 0 0\n0 8 1 0\n0 8 2 0\n0 8 3 0\n0 8 4 0\n0 8 5 0\n0 8 6 0\n0 8 7 0\n97 1\nResult[u32, std.io.BinaryError].Err(std.io.BinaryError.Truncated(1, 4, 2)) 1\nResult[(), std.io.BinaryError].Err(std.io.BinaryError.TrailingData(1, 2)) 1\n9223372036854775807\n0 True 0\nResult[u8, std.io.BinaryError].Err(std.io.BinaryError.Truncated(9223372036854775807, 1, 0)) 9223372036854775807\nTrue True\nTrue True",
+    );
+}
+
+#[test]
+fn cursor_binary_payload_caps_gaps_and_overwrites_are_checked() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.from_bytes(b"abcd")?)
+print(stream.seek(SeekFrom.Start(1))?)?
+stream.write_bytes(b"XY", 4)?
+print(stream.data.to_text()?, stream.position())?
+print(stream.write_u16(1u16, std.encoding.Endian.Big, 4).is_err(), stream.position(), stream.data.to_text()?)?
+print(stream.seek(SeekFrom.Start(8))?)?
+print(stream.write_bytes(b"!", 8).is_err(), stream.data.len(), stream.position())?
+stream.write_bytes(b"", 4)?
+print(stream.data.len(), stream.position())?
+stream.write_u16(0x1234u16, std.encoding.Endian.Big, 10)?
+print(std.encoding.hex_text(&stream.data)?, stream.position())?
+print(stream.seek(SeekFrom.Start(1))?)?
+print(stream.read_bytes(2, 1).is_err(), stream.position())?
+payload = stream.read_bytes(2, 2)?
+print(payload.to_text()?, stream.position())?
+print(stream.seek(SeekFrom.Start(0))?)?
+print(stream.write_u8(0u8, -1).is_err(), stream.write_i8(0i8, 1).is_err())?
+"#,
+        "1\naXYd 3\nTrue 3 aXYd\n8\nTrue 4 8\n4 8\n61585964000000001234 10\n1\nTrue 1\nXY 3\n0\nTrue True",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn cursor_binary_allocation_failures_preserve_bytes_length_and_position() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.from_bytes(b"abc")?)
+print(stream.seek(SeekFrom.Start(100))?)?
+print("__test_fail_allocations_after_0__")?
+a = stream.write_u32(7u32, std.encoding.Endian.Big)
+b = stream.write_bytes(b"z")
+c = stream.write(b"z")
+print("__test_restore_allocations__")?
+print(a.is_err(), b.is_err(), c.is_err(), stream.data.to_text()?, stream.position())?
+print(stream.seek(SeekFrom.Start(1))?)?
+print("__test_fail_allocations_after_0__")?
+d = stream.read_bytes(2)
+print("__test_restore_allocations__")?
+print(d.is_err(), stream.position(), stream.data.to_text()?)?
+"#,
+        "100\nTrue True True abc 100\n1\nTrue 1 abc",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn cursor_binary_scalar_and_reserved_gap_operations_allocate_nothing() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.with_capacity(128)?)
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+stream.write_u8(1u8).unwrap()
+stream.write_i8(-1i8).unwrap()
+stream.write_u16(123u16, std.encoding.Endian.Big).unwrap()
+stream.write_i16(-123i16, std.encoding.Endian.Little).unwrap()
+stream.write_u32(456u32, std.encoding.Endian.Big).unwrap()
+stream.write_i32(-456i32, std.encoding.Endian.Little).unwrap()
+stream.write_u64(789u64, std.encoding.Endian.Big).unwrap()
+stream.write_i64(-789i64, std.encoding.Endian.Little).unwrap()
+stream.write_f32(1.5f32, std.encoding.Endian.Big).unwrap()
+stream.write_f64(-2.5, std.encoding.Endian.Little).unwrap()
+drop(stream.seek(SeekFrom.Start(0)).unwrap())
+a = stream.read_u8().unwrap()
+b = stream.read_i8().unwrap()
+c = stream.read_u16(std.encoding.Endian.Big).unwrap()
+d = stream.read_i16(std.encoding.Endian.Little).unwrap()
+e = stream.read_u32(std.encoding.Endian.Big).unwrap()
+f = stream.read_i32(std.encoding.Endian.Little).unwrap()
+g = stream.read_u64(std.encoding.Endian.Big).unwrap()
+h = stream.read_i64(std.encoding.Endian.Little).unwrap()
+i = stream.read_f32(std.encoding.Endian.Big).unwrap()
+j = stream.read_f64(std.encoding.Endian.Little).unwrap()
+stream.require_end().unwrap()
+drop(stream.seek(SeekFrom.Start(100)).unwrap())
+stream.write_bytes(b"ok").unwrap()
+print("__test_restore_allocations__")?
+print("__test_end_no_allocations__")?
+print(a, b, c, d, e, f, g, h, i, j, stream.position(), stream.data.len())?
+"#,
+        "1 -1 123 -123 456 -456 789 -789 1.5 -2.5 102 102",
+    );
+}
+
+#[test]
+fn cursor_binary_float_fields_preserve_ieee_patterns_and_failure_position() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.empty()?)
+stream.write_f32(1.5f32, std.encoding.Endian.Big)?
+stream.write_f64(-2.5, std.encoding.Endian.Little)?
+print(std.encoding.hex_text(&stream.data)?)?
+print(stream.seek(SeekFrom.Start(0))?)?
+print(stream.read_f32(std.encoding.Endian.Big)?, stream.read_f64(std.encoding.Endian.Little)?)?
+print(stream.read_f32(std.encoding.Endian.Big).is_err(), stream.position())?
+for pattern in [0u32, 0x80000000u32, 1u32, 0x7f800000u32, 0xff800000u32, 0x7fc12345u32, 0xff812345u32]?:
+    mut encoded = std.bytes.empty()?
+    std.encoding.append_u32(&mut encoded, pattern, std.encoding.Endian.Big)?
+    mut field = std.io.cursor(encoded)
+    value = field.read_f32(std.encoding.Endian.Big)?
+    drop(field.seek(SeekFrom.Start(0))?)
+    field.write_f32(value, std.encoding.Endian.Little)?
+    print(std.encoding.unpack_u32(&field.data, 0, std.encoding.Endian.Little)? == pattern)?
+for pattern in [0u64, 0x8000000000000000u64, 1u64, 0x7ff0000000000000u64, 0xfff0000000000000u64, 0x7ff8123456789abcu64, 0xfff0123456789abcu64]?:
+    mut encoded = std.bytes.empty()?
+    std.encoding.append_u64(&mut encoded, pattern, std.encoding.Endian.Little)?
+    mut field = std.io.cursor(encoded)
+    value = field.read_f64(std.encoding.Endian.Little)?
+    drop(field.seek(SeekFrom.Start(0))?)
+    field.write_f64(value, std.encoding.Endian.Big)?
+    print(std.encoding.unpack_u64(&field.data, 0, std.encoding.Endian.Big)? == pattern)?
+"#,
+        "3fc0000000000000000004c0\n0\n1.5 -2.5\nTrue 12\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
+    );
+}
+
+#[test]
+fn cursor_binary_all_integer_widths_cover_both_endian_orders_and_extremes() {
+    binary_native(
+        r#"
+for order in [std.encoding.Endian.Big, std.encoding.Endian.Little]?:
+    mut stream = std.io.cursor(std.bytes.empty()?)
+    stream.write_u16(u16.MAX, order)?
+    stream.write_i16(i16.MIN, order)?
+    stream.write_u32(u32.MAX, order)?
+    stream.write_i32(i32.MIN, order)?
+    stream.write_u64(u64.MAX, order)?
+    stream.write_i64(i64.MIN, order)?
+    print(std.encoding.hex_text(&stream.data)?)?
+    drop(stream.seek(SeekFrom.Start(0))?)
+    print(stream.read_u16(order)? == u16.MAX, stream.read_i16(order)? == i16.MIN)?
+    print(stream.read_u32(order)? == u32.MAX, stream.read_i32(order)? == i32.MIN)?
+    print(stream.read_u64(order)? == u64.MAX, stream.read_i64(order)? == i64.MIN, stream.require_end().is_ok())?
+"#,
+        "ffff8000ffffffff80000000ffffffffffffffff8000000000000000\nTrue True\nTrue True\nTrue True True\nffff0080ffffffff00000080ffffffffffffffff0000000000000080\nTrue True\nTrue True\nTrue True True",
+    );
+}
+
+#[test]
+fn cursor_binary_truncation_at_each_record_boundary_keeps_prior_progress() {
+    binary_native(
+        r#"
+source = b"123456789abcdef"
+for count in range(15):
+    mut stream = std.io.cursor(std.bytes.from_bytes(&source[:count])?)
+    mut failed = stream.read_u8().is_err()
+    if not failed:
+        failed = stream.read_u16(std.encoding.Endian.Big).is_err()
+    if not failed:
+        failed = stream.read_u32(std.encoding.Endian.Big).is_err()
+    if not failed:
+        failed = stream.read_u64(std.encoding.Endian.Big).is_err()
+    mut expected = 7
+    if count == 0:
+        expected = 0
+    elif count < 3:
+        expected = 1
+    elif count < 7:
+        expected = 3
+    print(failed and stream.position() == expected and stream.remaining() == count - expected)?
+"#,
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
+    );
+}
+
+#[test]
+fn cursor_binary_fields_work_in_an_owned_worker() {
+    let source = r#"
+import std.bytes
+import std.encoding
+import std.io
+
+def worker(owned: std.io.Cursor) -> bool:
+    mut stream = owned
+    stream.write_u32(0x12345678u32, std.encoding.Endian.Big).unwrap()
+    stream.write_f32(1.5f32, std.encoding.Endian.Little).unwrap()
+    drop(stream.seek(std.io.SeekFrom.Start(0)).unwrap())
+    integer = stream.read_u32(std.encoding.Endian.Big).unwrap()
+    number = stream.read_f32(std.encoding.Endian.Little).unwrap()
+    integer == 0x12345678u32 and number == 1.5f32 and stream.require_end().is_ok()
+
+def main() -> Result[(), IoError | std.bytes.BytesError | SpawnError[()]]:
+    stream = std.io.cursor(std.bytes.with_capacity(16)?)
+    with spawn(worker, stream).drop_job()? as task:
+        print(task.join())?
+    Ok(())
+"#;
+    assert_eq!(run(source, b"").stdout, "True");
+}

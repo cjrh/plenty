@@ -1,12 +1,14 @@
 # std.encoding
 
 `import std.encoding` provides hex, base32, base64, PEM and custom codecs and
-fixed-width integer packing over [`std.bytes`](bytes.md) buffers, with one error type,
-`EncodingError`.
+fixed-width integer and IEEE 754 float packing over [`std.bytes`](bytes.md)
+buffers, with one error type, `EncodingError`.
 
-The module is checked Plenty code with no native primitives of its own: every
-byte is read and written through the validated `Bytes` operations. It is
-available on the supported x86-64 Linux GNU target.
+Byte order, range checks, growth and byte manipulation are checked Plenty code.
+Four std-only compiler intrinsics reinterpret same-width integer/float bits with
+a native bitcast; they add no runtime library or dependency. Bytes are accessed
+through validated buffer operations. Availability matches integer packing on
+the supported targets; the float tests are qualified on x86-64 Linux GNU.
 
 These are binary encodings. They do not normalize, transcode, or validate text;
 turning decoded bytes into a `str` is the separate, strict
@@ -100,6 +102,35 @@ read or written. Bytes are accessed one at a time, so no offset has an
 alignment requirement. A single byte needs no order: use `Bytes.get`, `set`,
 and `push`.
 
+## Floating-point packing
+
+| Function | Result | Contract |
+|---|---|---|
+| `pack_f32`, `pack_f64` `(target: &mut Bytes, offset: i64, value, order: Endian)` | `Result[(), EncodingError]` | Overwrite exactly four/eight existing bytes; never grows |
+| `append_f32`, `append_f64` `(target: &mut Bytes, value, order: Endian)` | `Result[(), EncodingError]` | Append exactly four/eight bytes |
+| `unpack_f32`, `unpack_f64` `(source: &[u8], offset: i64, order: Endian)` | `Result[f32, EncodingError]`, `Result[f64, EncodingError]` | Read exactly four/eight bytes |
+
+The value type is the width in the name: `f32` is IEEE 754 binary32 and `f64`
+is binary64. Endianness is explicit, with no native-order default, alignment,
+padding, or object-layout serialization. Sources use the same byte views as
+integer unpacking: a whole buffer, a borrowed range, or a byte literal.
+
+These operations reinterpret bits without numeric conversion, promotion,
+arithmetic, or text formatting. They preserve every representation, including
+positive and negative zero, infinities, subnormals, and quiet/signaling NaNs
+with their signs and payloads. Every input bit pattern is accepted. Subsequent
+arithmetic on a decoded float can change a NaN representation and lies outside
+this codec's guarantee. Compare re-encoded bytes when testing representations;
+float equality cannot distinguish signed zeros or verify NaNs.
+
+The integer bounds and failure guarantees apply unchanged. `pack_` and
+`unpack_` require `0 <= offset <= len - width`, including at unaligned offsets
+inside a larger record. Negative, excessively large, and truncated ranges
+return `OutOfRange` before reading or modifying bytes. Packing leaves length,
+capacity, and surrounding bytes unchanged. Appending keeps the existing prefix;
+when growth fails, contents and length remain unchanged and the error is
+`Allocation(cause)`. Range checks avoid overflowing offset arithmetic.
+
 ## Errors
 
 ```text
@@ -143,7 +174,7 @@ in any thread.
 
 ## Costs
 
-This table covers the original hex/base64 codecs and integer packing. See
+This table covers the original hex/base64 codecs and integer/float packing. See
 [additional codec costs](encoding-codecs.md#allocation-and-limits) for custom
 table construction and MIME's temporary buffers.
 
@@ -179,5 +210,15 @@ are not implemented.
 
 - No streaming or incremental codecs: input and output are whole buffers.
 - No arbitrary line widths, automatic case folding, or permissive recovery from damaged encodings.
-- No `f32`/`f64` packing, variable-length integers, or 128-bit integers.
+- No variable-length integers, 128-bit integers, or additional float formats.
 - No record-layout description: pack fields one call at a time.
+
+## Acknowledgements
+
+- [RFC 4648](https://www.rfc-editor.org/rfc/rfc4648) specifies the base16,
+  base32 and base64 formats implemented by the codecs.
+- [RFC 7468](https://www.rfc-editor.org/rfc/rfc7468) specifies the textual
+  encapsulation and label syntax used by PEM encoding.
+- [IEEE 754](https://standards.ieee.org/standard/754-2019.html) defines the
+  binary32 and binary64 representations used by float packing; no standard
+  text or external implementation is shipped.

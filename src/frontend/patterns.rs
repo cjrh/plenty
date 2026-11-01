@@ -1119,6 +1119,12 @@ impl<'a> Compiler<'a> {
 
 /// A variant as a pattern would spell it.
 fn variant_text(t: &Nominal<EnumType>, tag: usize, payload: &[String]) -> String {
+    if t.anonymous()
+        && let [member] = payload
+        && member != "_"
+    {
+        return member.clone();
+    }
     let name = &t.get().variants[tag].name;
     let owner = t.display_name().split('[').next().unwrap_or_default();
     let head = if t.propagatable() {
@@ -1274,6 +1280,41 @@ impl Lower<'_> {
                 bound,
             ),
             PatKind::Variant(qualifier, name, payload) => {
+                if let Ty::Enum(sum) = content
+                    && sum.anonymous()
+                {
+                    // Select the whole member first, then reuse ordinary enum
+                    // checking. The existing decision tree and ownership walks
+                    // therefore see both tags, just as for a nested match.
+                    let candidates: Vec<_> = sum
+                        .get()
+                        .variants
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, member)| {
+                            matches!(&member.fields[0], Ty::Enum(t) if !t.tuple()
+                                && self.pattern_owner(qualifier.as_deref(), name, t, &pattern.at).is_ok())
+                        })
+                        .map(|(tag, member)| (tag, member.fields[0].clone()))
+                        .collect();
+                    match candidates.as_slice() {
+                        [(tag, member)] => {
+                            let inner = self.check_pattern(pattern, member, root, bound)?;
+                            return Ok(Checked::Variant {
+                                boxes,
+                                t: sum.clone(),
+                                tag: *tag,
+                                fields: vec![inner],
+                            });
+                        }
+                        [] => {}
+                        _ => {
+                            return Err(pattern.at.error(format!(
+                                "variant pattern is ambiguous between members of {ty}; bind a whole member with `case value: MemberType:` first"
+                            )));
+                        }
+                    }
+                }
                 let t = match content {
                     Ty::Enum(t) if !t.tuple() => t,
                     _ if root => {
@@ -1570,27 +1611,9 @@ impl Lower<'_> {
             if instance {
                 return Ok(());
             }
-            if t.anonymous()
-                && let Some(member) = crate::sum::members(&matched).into_iter().find(|member| {
-                    matches!(member, Ty::Enum(e) if &*e.name == name)
-                        || self
-                            .aliases
-                            .data
-                            .arguments(member)
-                            .is_some_and(|(declaration, _)| declaration == name)
-                })
-            {
-                return Err(owner.at.error(sum_member_pattern(&matched, name, &member)));
-            }
             return Err(owner.at.error(format!("expected {matched}, got {name}")));
         }
         let written = owner.resolve(self.aliases)?;
-        if t.anonymous()
-            && let Some(member) = &written
-            && crate::sum::members(&matched).contains(member)
-        {
-            return Err(owner.at.error(sum_member_pattern(&matched, member, member)));
-        }
         self.same(written, Some(matched), &owner.at)
     }
 
@@ -2173,12 +2196,4 @@ fn owned_class(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) 
             owned(field, slots, ops);
         }
     }
-}
-
-/// A sum's own variants are its members, so a member's variant cannot qualify
-/// a pattern on the sum; name the typed member pattern instead (issue #575).
-fn sum_member_pattern(sum: &Ty, written: impl std::fmt::Display, member: &Ty) -> String {
-    format!(
-        "expected {sum}, got {written}; a sum pattern names a whole member: write `case value: {member}:` in a `match` on the sum, then match `{member}` variants on `value` in a nested `match`"
-    )
 }

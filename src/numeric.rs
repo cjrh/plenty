@@ -44,6 +44,37 @@ impl FloatOp {
     }
 }
 
+/// Same-width IEEE representation conversions used only by `std.encoding`.
+/// These move bits between register classes without floating-point arithmetic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FloatBits {
+    F32ToU32,
+    U32ToF32,
+    F64ToU64,
+    U64ToF64,
+}
+
+impl FloatBits {
+    pub fn named(name: &str) -> Option<Self> {
+        Some(match name {
+            "__encoding_f32_bits" => Self::F32ToU32,
+            "__encoding_f32_from_bits" => Self::U32ToF32,
+            "__encoding_f64_bits" => Self::F64ToU64,
+            "__encoding_f64_from_bits" => Self::U64ToF64,
+            _ => return None,
+        })
+    }
+
+    pub fn signature(self) -> (Ty, Ty) {
+        match self {
+            Self::F32ToU32 => (Ty::F32, Ty::U32),
+            Self::U32ToF32 => (Ty::U32, Ty::F32),
+            Self::F64ToU64 => (Ty::F64, Ty::U64),
+            Self::U64ToF64 => (Ty::U64, Ty::F64),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum NumericOp {
     /// `T T -> T`. An integer result outside `T` and a negative integer
@@ -53,6 +84,8 @@ pub enum NumericOp {
     Sqrt,
     /// `F -> F`, or `F F -> F` for the binary `FloatOp`s (see `FloatOp::is_binary`).
     Float(FloatOp),
+    /// One scalar register, reinterpreted without changing its bits.
+    Bits(FloatBits),
 }
 
 impl NumericOp {
@@ -61,7 +94,7 @@ impl NumericOp {
         match self {
             Self::Pow => 2,
             Self::Float(op) if op.is_binary() => 2,
-            Self::Sqrt | Self::Float(_) => 1,
+            Self::Sqrt | Self::Float(_) | Self::Bits(_) => 1,
         }
     }
 
@@ -70,6 +103,7 @@ impl NumericOp {
         let accepted = match self {
             Self::Sqrt | Self::Float(_) => ty.is_float(),
             Self::Pow => ty.is_numeric(),
+            Self::Bits(kind) => ty == kind.signature().0,
         };
         if !accepted {
             return Err(format!("numeric operation does not accept {ty}"));
@@ -77,7 +111,10 @@ impl NumericOp {
         if self.operands() == 2 && stack.pop().as_ref() != Some(&ty) {
             return Err("numeric operations require same-typed operands".into());
         }
-        stack.push(ty);
+        stack.push(match self {
+            Self::Bits(kind) => kind.signature().1,
+            _ => ty,
+        });
         Ok(())
     }
 }
@@ -158,5 +195,41 @@ impl Checked {
         }
         stack.push(a);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FloatBits, NumericOp};
+    use crate::op::Ty;
+
+    #[test]
+    fn representation_operations_accept_only_their_same_width_input() {
+        for kind in [
+            FloatBits::F32ToU32,
+            FloatBits::U32ToF32,
+            FloatBits::F64ToU64,
+            FloatBits::U64ToF64,
+        ] {
+            let operation = NumericOp::Bits(kind);
+            let (input, output) = kind.signature();
+            let mut stack = vec![Ty::Bool, input.clone()];
+            operation.check(&mut stack).unwrap();
+            assert_eq!(stack, vec![Ty::Bool, output]);
+            for wrong in [
+                Ty::Bool,
+                Ty::I32,
+                Ty::I64,
+                Ty::U32,
+                Ty::U64,
+                Ty::F32,
+                Ty::F64,
+            ] {
+                if wrong != input {
+                    assert!(operation.check(&mut vec![wrong]).is_err());
+                }
+            }
+            assert!(operation.check(&mut Vec::new()).is_err());
+        }
     }
 }

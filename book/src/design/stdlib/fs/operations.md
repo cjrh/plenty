@@ -1,11 +1,14 @@
 # Bounded copy, deletion and glob filtering
 
-`copy_file(&root, &source, &destination, max_bytes, &cancel)` copies one
+`copy_file(&root, &source, &destination, max_bytes, &cancel, preserve=CopyMetadata.ContentsOnly)` copies one
 regular file to a new name in the same root and returns `Result[i64, FsError]`.
 `copy_from(&mut reader, &root, &destination, max_bytes, &cancel)` accepts any
 checked `std.io.Reader`. Both stage into an anonymous temporary file and
 publish only after EOF, flushing, and a final cancellation observation.
-They never replace an existing name. Limits, cancellation, read/write errors,
+They never replace an existing name. `copy_file` optionally preserves selected
+metadata as described in [copy metadata](copying.md); `copy_from` has no
+filesystem metadata source. [Recursive copying](copying.md#recursive-copying)
+uses the same policy with explicit tree budgets and partial-output errors. Limits, cancellation, read/write errors,
 allocation failures and publication errors leave no partial destination name.
 Unnamed partial data is released by descriptor destruction, not path unlink.
 
@@ -77,5 +80,6 @@ the entire scan. Storage is O(returned name bytes) plus one streaming entry.
 Enumeration is native order, includes hidden names, and is not a snapshot.
 
 `FsError` distinguishes `Io`, `Stream`, `Allocation`, `Entropy`, `InvalidInput`,
-`Limit`, `Cancelled`, `Replaced` and `Collisions`. Basic Root methods preserve
+`Limit`, `Cancelled`, `Replaced`, `Collisions`, `UnsupportedType`, `Overlap`
+and `InvalidLimits`. Basic Root methods preserve
 `IoError` directly. Drop is best-effort cleanup, never proof of completion.

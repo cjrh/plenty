@@ -1,4 +1,4 @@
-# Encode bytes and pack integers
+# Encode bytes and pack numbers
 
 Binary formats store integers at fixed widths in a stated byte order, and text
 channels carry binary data as hex or base64. `std.encoding` does both over
@@ -35,6 +35,39 @@ there is no default order. `Endian.Big` stores the most significant byte first.
 The same two bytes read as `513` or `258` depending on the order you state.
 `append_` grows the buffer by the integer's width. `pack_` overwrites bytes that
 already exist and never grows it. `unpack_` reads at an offset.
+
+## Mixed integer and float fields
+
+Use `f32` or `f64` when the format specifies IEEE 754 binary32 or binary64.
+The same append, overwrite, and offset rules apply. A numeric cast to an
+integer changes the value; these codecs preserve its float representation:
+
+```plenty
+import std.bytes
+import std.encoding
+from std.encoding import Endian
+
+def main() -> Result[(), IoError | std.bytes.BytesError | std.encoding.EncodingError]:
+    mut record = std.bytes.with_capacity(14)?
+    std.encoding.append_u16(&mut record, 1u16, Endian.Big)?
+    std.encoding.append_f32(&mut record, 1.5f32, Endian.Big)?
+    std.encoding.append_f64(&mut record, -2.5, Endian.Little)?
+    print(std.encoding.hex_text(&record)?)?
+    print(std.encoding.unpack_u16(&record, 0, Endian.Big)?)?
+    print(std.encoding.unpack_f32(&record, 2, Endian.Big)?)?
+    print(std.encoding.unpack_f64(&record, 6, Endian.Little)?)?
+    Ok(())
+```
+```output
+00013fc0000000000000000004c0
+1
+1.5
+-2.5
+```
+
+Widths count bytes, so the fields begin at offsets `0`, `2`, and `6`.
+Floats need no alignment padding. The [float packing reference](../../design/stdlib/encoding.md#floating-point-packing)
+explains signed zero, infinities, NaNs and exact bit preservation.
 
 The codecs take a byte view: `&buffer` for a whole buffer, `&buffer[start:stop]`
 for part of one, or a `b"..."` literal. The `_text` forms return a `str`; `hex_encode`, `base64_encode`,

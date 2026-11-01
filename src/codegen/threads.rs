@@ -13,7 +13,7 @@ pub(super) fn declare_adapters(
     // An adapter's name identifies its task, so any one start of it will do.
     let tasks: std::collections::BTreeMap<_, _> =
         crate::threading::find(ops, workers, |op| match op {
-            Op::Thread(ThreadOp::Start(task, _) | ThreadOp::Run(task)) => {
+            Op::Thread(ThreadOp::Start(task, _, _) | ThreadOp::Run(task)) => {
                 Some((task.adapter.clone(), task.clone()))
             }
             _ => None,
@@ -138,7 +138,7 @@ pub(super) fn build_adapter(
 impl Lowerer<'_, '_> {
     pub(super) fn lower_thread(&mut self, op: &ThreadOp) -> Result<()> {
         match op {
-            ThreadOp::Start(task, slot) => {
+            ThreadOp::Start(task, slot, discard_job) => {
                 let split = self
                     .stack
                     .len()
@@ -178,16 +178,16 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().brif(failed, fail, &[], done, &[ok.into()]);
                 self.bcx.switch_to_block(fail);
                 self.bcx.seal_block(fail);
-                let result = task.start_result();
+                let result = task.start_result(*discard_job);
                 let Ty::Enum(result_enum) = &result else {
                     unreachable!()
                 };
                 // Every nonzero status is `Unavailable`: EAGAIN is the usual
                 // one, but a seccomp filter can make clone fail with another
-                // code such as EPERM. An owned start returns its job; a
-                // borrowed start drops its moved arguments and reports
-                // `SpawnError[()]`, since a loan cannot leave in an error.
-                if let Some(job) = task.owned_job() {
+                // code such as EPERM. An owned start returns its job unless
+                // the caller immediately discards it. Borrowed starts also
+                // drop moved arguments, since a loan cannot leave in an error.
+                if let Some(job) = task.owned_job().filter(|_| !*discard_job) {
                     // The source environment is inert after the move into task
                     // storage. On failure it becomes the residual owner; on
                     // success only the worker owns its relocated copy.
@@ -210,7 +210,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.switch_to_block(done);
                 self.bcx.seal_block(done);
                 let result = self.bcx.block_params(done)[0];
-                self.stack.push((result, task.start_result()));
+                self.stack.push((result, task.start_result(*discard_job)));
             }
             ThreadOp::Join(task) => {
                 let (storage, _) = self.pop_typed(Ty::Task(task.clone()))?;

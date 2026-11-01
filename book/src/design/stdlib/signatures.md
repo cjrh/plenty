@@ -41,68 +41,68 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.db.sqlite`](#stddbsqlite): 1050-1114
 - [`std.deque`](#stddeque): 1116-1130
 - [`std.diff`](#stddiff): 1132-1161
-- [`std.encoding`](#stdencoding): 1163-1224
-- [`std.env`](#stdenv): 1226-1240
-- [`std.error`](#stderror): 1242-1262
-- [`std.fmt`](#stdfmt): 1264-1331
-- [`std.fs`](#stdfs): 1333-1416
-- [`std.fs.dirs`](#stdfsdirs): 1418-1428
-- [`std.fs.watch`](#stdfswatch): 1430-1465
-- [`std.graph`](#stdgraph): 1467-1555
-- [`std.http`](#stdhttp): 1557-1627
-- [`std.http.decoder`](#stdhttpdecoder): 1629-1646
-- [`std.http.body`](#stdhttpbody): 1648-1683
-- [`std.http.client`](#stdhttpclient): 1685-1795
-- [`std.http.cookie`](#stdhttpcookie): 1797-1829
-- [`std.http.files`](#stdhttpfiles): 1831-1844
-- [`std.http.https`](#stdhttphttps): 1846-1860
-- [`std.http.proxy`](#stdhttpproxy): 1862-1883
-- [`std.http.server`](#stdhttpserver): 1885-1970
-- [`std.http.sse`](#stdhttpsse): 1972-1991
-- [`std.http.tls`](#stdhttptls): 1993-2010
-- [`std.http.typed`](#stdhttptyped): 2012-2045
-- [`std.http.websocket`](#stdhttpwebsocket): 2047-2082
-- [`std.http.wss`](#stdhttpwss): 2084-2090
-- [`std.image`](#stdimage): 2092-2138
-- [`std.io`](#stdio): 2140-2220
-- [`std.io.typed`](#stdiotyped): 2222-2260
-- [`std.json`](#stdjson): 2262-2326
-- [`std.jwt`](#stdjwt): 2328-2375
-- [`std.log`](#stdlog): 2377-2444
-- [`std.markdown`](#stdmarkdown): 2446-2480
-- [`std.template`](#stdtemplate): 2482-2503
-- [`std.math`](#stdmath): 2505-2571
-- [`std.mime`](#stdmime): 2573-2597
-- [`std.net`](#stdnet): 2599-2681
-- [`std.path`](#stdpath): 2683-2700
-- [`std.process`](#stdprocess): 2702-2751
-- [`std.random`](#stdrandom): 2753-2774
-- [`std.ready`](#stdready): 2776-2807
-- [`std.regex`](#stdregex): 2809-2862
-- [`std.report`](#stdreport): 2864-2871
-- [`std.secrets`](#stdsecrets): 2873-2899
-- [`std.shlex`](#stdshlex): 2901-2910
-- [`std.sketch`](#stdsketch): 2912-2950
-- [`std.sketch.xor`](#stdsketchxor): 2952-2963
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2965-2980
-- [`std.signal`](#stdsignal): 2982-2999
-- [`std.simd`](#stdsimd): 3001-3102
-- [`std.stat`](#stdstat): 3104-3137
-- [`std.plot`](#stdplot): 3139-3228
-- [`std.linalg`](#stdlinalg): 3230-3271
-- [`std.sync`](#stdsync): 3273-3291
-- [`std.system`](#stdsystem): 3293-3351
-- [`std.tempfile`](#stdtempfile): 3353-3385
-- [`std.test`](#stdtest): 3387-3429
-- [`std.text`](#stdtext): 3431-3474
-- [`std.thread`](#stdthread): 3476-3480
-- [`std.time`](#stdtime): 3482-3526
-- [`std.tls`](#stdtls): 3528-3610
-- [`std.toml`](#stdtoml): 3612-3661
-- [`std.unicode`](#stdunicode): 3663-3675
-- [`std.url`](#stdurl): 3677-3705
-- [`std.uuid`](#stduuid): 3707-3730
-- [`std.xml`](#stdxml): 3732-3765
+- [`std.encoding`](#stdencoding): 1163-1230
+- [`std.env`](#stdenv): 1232-1246
+- [`std.error`](#stderror): 1248-1268
+- [`std.fmt`](#stdfmt): 1270-1337
+- [`std.fs`](#stdfs): 1339-1433
+- [`std.fs.dirs`](#stdfsdirs): 1435-1445
+- [`std.fs.watch`](#stdfswatch): 1447-1482
+- [`std.graph`](#stdgraph): 1484-1572
+- [`std.http`](#stdhttp): 1574-1644
+- [`std.http.decoder`](#stdhttpdecoder): 1646-1663
+- [`std.http.body`](#stdhttpbody): 1665-1700
+- [`std.http.client`](#stdhttpclient): 1702-1812
+- [`std.http.cookie`](#stdhttpcookie): 1814-1846
+- [`std.http.files`](#stdhttpfiles): 1848-1861
+- [`std.http.https`](#stdhttphttps): 1863-1877
+- [`std.http.proxy`](#stdhttpproxy): 1879-1900
+- [`std.http.server`](#stdhttpserver): 1902-1987
+- [`std.http.sse`](#stdhttpsse): 1989-2008
+- [`std.http.tls`](#stdhttptls): 2010-2027
+- [`std.http.typed`](#stdhttptyped): 2029-2062
+- [`std.http.websocket`](#stdhttpwebsocket): 2064-2099
+- [`std.http.wss`](#stdhttpwss): 2101-2107
+- [`std.image`](#stdimage): 2109-2155
+- [`std.io`](#stdio): 2157-2263
+- [`std.io.typed`](#stdiotyped): 2265-2303
+- [`std.json`](#stdjson): 2305-2369
+- [`std.jwt`](#stdjwt): 2371-2418
+- [`std.log`](#stdlog): 2420-2487
+- [`std.markdown`](#stdmarkdown): 2489-2523
+- [`std.template`](#stdtemplate): 2525-2546
+- [`std.math`](#stdmath): 2548-2614
+- [`std.mime`](#stdmime): 2616-2640
+- [`std.net`](#stdnet): 2642-2724
+- [`std.path`](#stdpath): 2726-2743
+- [`std.process`](#stdprocess): 2745-2794
+- [`std.random`](#stdrandom): 2796-2817
+- [`std.ready`](#stdready): 2819-2850
+- [`std.regex`](#stdregex): 2852-2905
+- [`std.report`](#stdreport): 2907-2914
+- [`std.secrets`](#stdsecrets): 2916-2942
+- [`std.shlex`](#stdshlex): 2944-2953
+- [`std.sketch`](#stdsketch): 2955-2993
+- [`std.sketch.xor`](#stdsketchxor): 2995-3006
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3008-3023
+- [`std.signal`](#stdsignal): 3025-3042
+- [`std.simd`](#stdsimd): 3044-3145
+- [`std.stat`](#stdstat): 3147-3180
+- [`std.plot`](#stdplot): 3182-3271
+- [`std.linalg`](#stdlinalg): 3273-3314
+- [`std.sync`](#stdsync): 3316-3334
+- [`std.system`](#stdsystem): 3336-3394
+- [`std.tempfile`](#stdtempfile): 3396-3428
+- [`std.test`](#stdtest): 3430-3472
+- [`std.text`](#stdtext): 3474-3517
+- [`std.thread`](#stdthread): 3519-3523
+- [`std.time`](#stdtime): 3525-3569
+- [`std.tls`](#stdtls): 3571-3653
+- [`std.toml`](#stdtoml): 3655-3704
+- [`std.unicode`](#stdunicode): 3706-3718
+- [`std.url`](#stdurl): 3720-3748
+- [`std.uuid`](#stduuid): 3750-3773
+- [`std.xml`](#stdxml): 3775-3808
 
 ## `std.actor`
 
@@ -1162,7 +1162,7 @@ def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost
 
 ## `std.encoding`
 
-Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
+Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer and IEEE 754 float packing with explicit byte order, over `std.bytes`. Errors: `EncodingError`. [Reference](encoding.md).
 
 ```text
 enum EncodingError
@@ -1221,6 +1221,12 @@ def unpack_u64(source: &[u8], offset: i64, order: Endian) -> Result[u64, Encodin
 def unpack_i16(source: &[u8], offset: i64, order: Endian) -> Result[i16, EncodingError]
 def unpack_i32(source: &[u8], offset: i64, order: Endian) -> Result[i32, EncodingError]
 def unpack_i64(source: &[u8], offset: i64, order: Endian) -> Result[i64, EncodingError]
+def pack_f32(target: &mut Bytes, offset: i64, value: f32, order: Endian) -> Result[(), EncodingError]
+def pack_f64(target: &mut Bytes, offset: i64, value: f64, order: Endian) -> Result[(), EncodingError]
+def append_f32(target: &mut Bytes, value: f32, order: Endian) -> Result[(), EncodingError]
+def append_f64(target: &mut Bytes, value: f64, order: Endian) -> Result[(), EncodingError]
+def unpack_f32(source: &[u8], offset: i64, order: Endian) -> Result[f32, EncodingError]
+def unpack_f64(source: &[u8], offset: i64, order: Endian) -> Result[f64, EncodingError]
 ```
 
 ## `std.env`
@@ -1332,11 +1338,11 @@ protocol Formattable
 
 ## `std.fs`
 
-Directories, metadata/walking, rooted mutation, owned temporary resources, bounded copy/delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`. [Reference](fs.md).
+Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError`. [Reference](fs.md).
 
 ```text
 enum FsError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Entropy(SecretsError) | InvalidInput | Limit | Cancelled | Replaced | Collisions
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Entropy(SecretsError) | InvalidInput | Limit | Cancelled | Replaced | Collisions | UnsupportedType | Overlap | InvalidLimits
 class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
@@ -1363,8 +1369,19 @@ class TempDir
     def cleanup_tree(self: &mut TempDir, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
 def temporary_dir_named(parent: &Root, name: &Path) -> Result[TempDir, FsError]
 def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[TempDir, FsError]
+enum CopyMetadata
+    ContentsOnly | PermissionsAndTimes
 def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]
-def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]
+def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]
+class CopyLimits
+    max_entries: i64
+    max_depth: i64
+    max_bytes: i64
+    max_open_handles: i64
+def copy_limits() -> CopyLimits
+enum TreeCopyError
+    Setup(FsError) | Partial(FsError) | Entry(Path, i64, FsError)
+def copy_tree(source_parent: &Root, source: &Path, destination_parent: &Root, destination: &Path, limits: &CopyLimits, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, TreeCopyError]
 def remove_tree(parent: &Root, name: &Path, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
 def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, max_steps: i64) -> Result[list[Path], FsError]
 enum FileType
@@ -2139,11 +2156,13 @@ def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]
 
 ## `std.io`
 
-Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters. Errors: `StreamError`, `Partial`, `CopyError`, `CloseError`. [Reference](io.md).
+Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, file and process-stream adapters, and checked sequential binary fields in an owned memory cursor. Errors: `StreamError`, `Partial`, `CopyError`, `CloseError`, `BinaryError`. [Reference](io.md).
 
 ```text
 enum StreamError
     Interrupted | UnexpectedEof | WriteZero | OutOfRange | InvalidProgress | Io(IoError) | Allocation(AllocError)
+enum BinaryError
+    Truncated(i64, i64, i64) | TrailingData(i64, i64) | OutOfRange | LimitExceeded | Allocation(AllocError) | Encoding(EncodingError)
 class Partial
     completed: i64
     cause: StreamError
@@ -2187,6 +2206,30 @@ def close_buffered[W: Closer](writer: &mut BufWriter[W]) -> Result[(), CloseErro
 class Cursor
     data: Bytes
     def position(self) -> i64
+    def remaining(self) -> i64
+    def require_end(self) -> Result[(), BinaryError]
+    def read_bytes(self: &mut Cursor, count: i64, max_bytes: i64 = 1048576) -> Result[Bytes, BinaryError]
+    def write_bytes(self: &mut Cursor, source: &[u8], max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u8(self: &mut Cursor) -> Result[u8, BinaryError]
+    def write_u8(self: &mut Cursor, value: u8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i8(self: &mut Cursor) -> Result[i8, BinaryError]
+    def write_i8(self: &mut Cursor, value: i8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u16(self: &mut Cursor, order: Endian) -> Result[u16, BinaryError]
+    def write_u16(self: &mut Cursor, value: u16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i16(self: &mut Cursor, order: Endian) -> Result[i16, BinaryError]
+    def write_i16(self: &mut Cursor, value: i16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u32(self: &mut Cursor, order: Endian) -> Result[u32, BinaryError]
+    def write_u32(self: &mut Cursor, value: u32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i32(self: &mut Cursor, order: Endian) -> Result[i32, BinaryError]
+    def write_i32(self: &mut Cursor, value: i32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u64(self: &mut Cursor, order: Endian) -> Result[u64, BinaryError]
+    def write_u64(self: &mut Cursor, value: u64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i64(self: &mut Cursor, order: Endian) -> Result[i64, BinaryError]
+    def write_i64(self: &mut Cursor, value: i64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_f32(self: &mut Cursor, order: Endian) -> Result[f32, BinaryError]
+    def write_f32(self: &mut Cursor, value: f32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_f64(self: &mut Cursor, order: Endian) -> Result[f64, BinaryError]
+    def write_f64(self: &mut Cursor, value: f64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
     def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut Cursor, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Cursor) -> Result[(), StreamError]
