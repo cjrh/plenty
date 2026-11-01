@@ -64,45 +64,45 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.http.websocket`](#stdhttpwebsocket): 2053-2088
 - [`std.http.wss`](#stdhttpwss): 2090-2096
 - [`std.image`](#stdimage): 2098-2144
-- [`std.io`](#stdio): 2146-2226
-- [`std.io.typed`](#stdiotyped): 2228-2266
-- [`std.json`](#stdjson): 2268-2332
-- [`std.jwt`](#stdjwt): 2334-2381
-- [`std.log`](#stdlog): 2383-2450
-- [`std.markdown`](#stdmarkdown): 2452-2486
-- [`std.template`](#stdtemplate): 2488-2509
-- [`std.math`](#stdmath): 2511-2577
-- [`std.mime`](#stdmime): 2579-2603
-- [`std.net`](#stdnet): 2605-2687
-- [`std.path`](#stdpath): 2689-2706
-- [`std.process`](#stdprocess): 2708-2757
-- [`std.random`](#stdrandom): 2759-2780
-- [`std.ready`](#stdready): 2782-2813
-- [`std.regex`](#stdregex): 2815-2868
-- [`std.report`](#stdreport): 2870-2877
-- [`std.secrets`](#stdsecrets): 2879-2905
-- [`std.shlex`](#stdshlex): 2907-2916
-- [`std.sketch`](#stdsketch): 2918-2956
-- [`std.sketch.xor`](#stdsketchxor): 2958-2969
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2971-2986
-- [`std.signal`](#stdsignal): 2988-3005
-- [`std.simd`](#stdsimd): 3007-3108
-- [`std.stat`](#stdstat): 3110-3143
-- [`std.plot`](#stdplot): 3145-3234
-- [`std.linalg`](#stdlinalg): 3236-3277
-- [`std.sync`](#stdsync): 3279-3297
-- [`std.system`](#stdsystem): 3299-3357
-- [`std.tempfile`](#stdtempfile): 3359-3391
-- [`std.test`](#stdtest): 3393-3435
-- [`std.text`](#stdtext): 3437-3480
-- [`std.thread`](#stdthread): 3482-3486
-- [`std.time`](#stdtime): 3488-3532
-- [`std.tls`](#stdtls): 3534-3616
-- [`std.toml`](#stdtoml): 3618-3667
-- [`std.unicode`](#stdunicode): 3669-3681
-- [`std.url`](#stdurl): 3683-3711
-- [`std.uuid`](#stduuid): 3713-3736
-- [`std.xml`](#stdxml): 3738-3771
+- [`std.io`](#stdio): 2146-2252
+- [`std.io.typed`](#stdiotyped): 2254-2292
+- [`std.json`](#stdjson): 2294-2358
+- [`std.jwt`](#stdjwt): 2360-2407
+- [`std.log`](#stdlog): 2409-2476
+- [`std.markdown`](#stdmarkdown): 2478-2512
+- [`std.template`](#stdtemplate): 2514-2535
+- [`std.math`](#stdmath): 2537-2603
+- [`std.mime`](#stdmime): 2605-2629
+- [`std.net`](#stdnet): 2631-2713
+- [`std.path`](#stdpath): 2715-2732
+- [`std.process`](#stdprocess): 2734-2783
+- [`std.random`](#stdrandom): 2785-2806
+- [`std.ready`](#stdready): 2808-2839
+- [`std.regex`](#stdregex): 2841-2894
+- [`std.report`](#stdreport): 2896-2903
+- [`std.secrets`](#stdsecrets): 2905-2931
+- [`std.shlex`](#stdshlex): 2933-2942
+- [`std.sketch`](#stdsketch): 2944-2982
+- [`std.sketch.xor`](#stdsketchxor): 2984-2995
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2997-3012
+- [`std.signal`](#stdsignal): 3014-3031
+- [`std.simd`](#stdsimd): 3033-3134
+- [`std.stat`](#stdstat): 3136-3169
+- [`std.plot`](#stdplot): 3171-3260
+- [`std.linalg`](#stdlinalg): 3262-3303
+- [`std.sync`](#stdsync): 3305-3323
+- [`std.system`](#stdsystem): 3325-3383
+- [`std.tempfile`](#stdtempfile): 3385-3417
+- [`std.test`](#stdtest): 3419-3461
+- [`std.text`](#stdtext): 3463-3506
+- [`std.thread`](#stdthread): 3508-3512
+- [`std.time`](#stdtime): 3514-3558
+- [`std.tls`](#stdtls): 3560-3642
+- [`std.toml`](#stdtoml): 3644-3693
+- [`std.unicode`](#stdunicode): 3695-3707
+- [`std.url`](#stdurl): 3709-3737
+- [`std.uuid`](#stduuid): 3739-3762
+- [`std.xml`](#stdxml): 3764-3797
 
 ## `std.actor`
 
@@ -2145,11 +2145,13 @@ def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]
 
 ## `std.io`
 
-Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, and file, process-stream and memory adapters. Errors: `StreamError`, `Partial`, `CopyError`, `CloseError`. [Reference](io.md).
+Partial-progress byte stream contracts, retry helpers, fixed-capacity buffering, file and process-stream adapters, and checked sequential binary fields in an owned memory cursor. Errors: `StreamError`, `Partial`, `CopyError`, `CloseError`, `BinaryError`. [Reference](io.md).
 
 ```text
 enum StreamError
     Interrupted | UnexpectedEof | WriteZero | OutOfRange | InvalidProgress | Io(IoError) | Allocation(AllocError)
+enum BinaryError
+    Truncated(i64, i64, i64) | TrailingData(i64, i64) | OutOfRange | LimitExceeded | Allocation(AllocError) | Encoding(EncodingError)
 class Partial
     completed: i64
     cause: StreamError
@@ -2193,6 +2195,30 @@ def close_buffered[W: Closer](writer: &mut BufWriter[W]) -> Result[(), CloseErro
 class Cursor
     data: Bytes
     def position(self) -> i64
+    def remaining(self) -> i64
+    def require_end(self) -> Result[(), BinaryError]
+    def read_bytes(self: &mut Cursor, count: i64, max_bytes: i64 = 1048576) -> Result[Bytes, BinaryError]
+    def write_bytes(self: &mut Cursor, source: &[u8], max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u8(self: &mut Cursor) -> Result[u8, BinaryError]
+    def write_u8(self: &mut Cursor, value: u8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i8(self: &mut Cursor) -> Result[i8, BinaryError]
+    def write_i8(self: &mut Cursor, value: i8, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u16(self: &mut Cursor, order: Endian) -> Result[u16, BinaryError]
+    def write_u16(self: &mut Cursor, value: u16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i16(self: &mut Cursor, order: Endian) -> Result[i16, BinaryError]
+    def write_i16(self: &mut Cursor, value: i16, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u32(self: &mut Cursor, order: Endian) -> Result[u32, BinaryError]
+    def write_u32(self: &mut Cursor, value: u32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i32(self: &mut Cursor, order: Endian) -> Result[i32, BinaryError]
+    def write_i32(self: &mut Cursor, value: i32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_u64(self: &mut Cursor, order: Endian) -> Result[u64, BinaryError]
+    def write_u64(self: &mut Cursor, value: u64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_i64(self: &mut Cursor, order: Endian) -> Result[i64, BinaryError]
+    def write_i64(self: &mut Cursor, value: i64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_f32(self: &mut Cursor, order: Endian) -> Result[f32, BinaryError]
+    def write_f32(self: &mut Cursor, value: f32, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
+    def read_f64(self: &mut Cursor, order: Endian) -> Result[f64, BinaryError]
+    def write_f64(self: &mut Cursor, value: f64, order: Endian, max_bytes: i64 = 1048576) -> Result[(), BinaryError]
     def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut Cursor, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut Cursor) -> Result[(), StreamError]
