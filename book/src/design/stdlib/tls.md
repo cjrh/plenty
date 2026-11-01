@@ -360,8 +360,10 @@ runtime object; dropping it releases the object, and dropping a stream closes
 its socket without `close_notify`. The configurations, builders, streams and
 sessions are [redacted](../language/03-types/classes.md#redacted-types): printing one shows its type name
 and `(@redacted)`, never key or session state. A stream may move to a worker. Trust roots,
-builders and configurations are allocated outside every
-[actor heap](actor.md), since sessions in other heaps share them. Starting a
+builders and configurations belong to the heap that allocates them. Outside
+actors, sessions share the parsed configuration. An [actor session](actor-tls.md#memory)
+reconstructs a heap-local configuration from owned source material so a trap
+cannot retain another heap's configuration. Starting a
 session draws randomness and verifying a certificate reads the clock; both are
 allowed in workers.
 
@@ -375,14 +377,16 @@ builtin `__tls_write`, which `std.tls` calls on any `ByteSource`.
 |---|---|
 | `TlsStream` | Two 16 KiB ciphertext buffers, plus rustls's session state and its buffer for the incoming record (up to about 17 KiB) |
 | `Session` | rustls's session state and its record buffers; see [`std.actor.tls`](actor-tls.md#memory) for measurements |
-| Configuration | The parsed certificates and key, shared by every session |
+| Configuration | Owned certificate/key/trust/policy recipe plus parsed configuration; shared by sessions outside actors |
 | `TrustRoots` | The parsed anchors; a full system bundle holds about 120 |
 
 rustls allocates through the runtime's Rust allocator, not Plenty's fallible
 allocation, so an allocation failure inside rustls stops the program.
 rustls has no fallible allocation interface, and stable Rust aborts when the
-global allocator fails, so this is not recoverable. Allocation failures in
-`std.tls` itself are `Allocation`.
+global allocator fails, so this is not recoverable. Inside an actor, exhaustion instead traps that actor and discards its heap,
+including partial TLS construction. Allocation failures in `std.tls` itself are
+`Allocation`. Actor sessions also pay for reconstructing a private configuration,
+including key parsing; see [actor TLS memory](actor-tls.md#memory).
 
 Plaintext is copied once into rustls and ciphertext once into the outgoing
 buffer; incoming ciphertext is decrypted into rustls's buffer and copied to
@@ -431,7 +435,8 @@ certificates and application protocols.
 - No OCSP: rustls does not check stapled responses, and fetching them would
   reach the network behind the program's back. Revocation is by CRL only.
 - No choice of key-exchange groups, and no TLS 1.0 or 1.1.
-- No recovery from allocation failure inside rustls.
+- Outside actors, allocation failure inside rustls stops the program;
+  [actor TLS](actor-tls.md#memory) contains it by discarding the actor heap.
 - HTTPS in [`std.http`](http.md) is not built in; wrap a `TlsStream` with its
   framing.
 - One target, x86-64 Linux GNU.
@@ -440,3 +445,5 @@ certificates and application protocols.
 
 - Wraps [rustls](https://github.com/rustls/rustls) 0.23.46 with the [ring](https://github.com/briansmith/ring) 0.17.14 crypto provider and [rustls-webpki](https://github.com/rustls/webpki) 0.103.15, vendored in the runtime; see [Supply](#supply) for licences.
 - The CA bundle paths are drawn from the Linux list in Go's [`crypto/x509`](https://go.dev/src/crypto/x509/root_linux.go).
+
+- Uses [zeroize](https://github.com/RustCrypto/utils/tree/master/zeroize) 1.9.1 (MIT or Apache-2.0) to clear retained encoded private keys on normal destruction.

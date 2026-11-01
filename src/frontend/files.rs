@@ -67,6 +67,14 @@ impl Lower<'_> {
         source: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Vec<usize>> {
+        // Keep explicitly borrowed native handles as loans. Reading an owned
+        // temporary here would leak its retain if a native traps in an actor.
+        if let Ty::Ref(inner, mutable) = &expected {
+            let (_, loan) = self.borrow(arg, *mutable, ops)?;
+            self.same(self.place_type(arg), Some((**inner).clone()), &arg.at)?;
+            self.unbox_reference(expected, ops);
+            return Ok(vec![loan]);
+        }
         if source && expected == Ty::ByteStorage {
             if let Some(ByteSource::Buffer(class)) = self.byte_source(arg) {
                 let loan = self.byte_storage_place(&class, arg, false, ops)?;

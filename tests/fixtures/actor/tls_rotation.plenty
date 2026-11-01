@@ -1,0 +1,147 @@
+# Repeated fresh configuration lifecycles. A child borrows its parent's
+# immutable configs while constructing sessions in its own heap.
+from std.actor import Address, Context, Exit, Mail, TrapKind, heap_bytes_used, heaps_live, stage
+import std.bytes
+from std.bytes import Bytes
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds, milliseconds
+from std.tls import ClientCertificates, ClientConfig, ServerConfig, Session, TlsVersion, CipherSuite, client_builder, client_session, roots_from_pem, server_builder, server_session
+
+const iterations: i64 = 100
+const child_heap: i64 = 262144
+const mode: i64 = 0
+
+def configs(trap: bool = False) -> (ServerConfig, ClientConfig):
+    chain = read_text("FIXTURES/leaf.pem").unwrap()
+    key = read_text("FIXTURES/leaf.key").unwrap()
+    roots = roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
+    mut server = server_builder(&chain, &key).unwrap()
+    client_roots = roots_from_pem(&read_text("FIXTURES/client-ca.pem").unwrap()).unwrap()
+    server.verify_clients(&client_roots, ClientCertificates.Required)
+    server.revocation_list(&read_text("FIXTURES/client-ca.crl.pem").unwrap()).unwrap()
+    server.application_protocol("test-protocol").unwrap()
+    server.minimum_version(TlsVersion.Tls13)
+    server.cipher_suite(CipherSuite.Tls13Aes128GcmSha256)
+    mut client = client_builder(&roots).unwrap()
+    client.certificate(&read_text("FIXTURES/client.pem").unwrap(), &read_text("FIXTURES/client.key").unwrap()).unwrap()
+    client.revocation_list(&read_text("FIXTURES/ca.crl.pem").unwrap()).unwrap()
+    client.application_protocol("test-protocol").unwrap()
+    client.minimum_version(TlsVersion.Tls13)
+    client.cipher_suite(CipherSuite.Tls13Aes128GcmSha256)
+    serving = server.build().unwrap()
+    calling = client.build().unwrap()
+    if trap:
+        absent: Option[i64] = Nothing
+        absent.unwrap()
+    (serving, calling)
+
+def handshake(server: &mut Session, client: &mut Session) -> ():
+    mut flight = std.bytes.with_capacity(32768).unwrap()
+    flight.resize(32768, 0u8).unwrap()
+    for _ in range(10):
+        mut count = client.take(&mut flight, 0, 32768).unwrap()
+        server.feed(&flight, 0, count).unwrap()
+        count = server.take(&mut flight, 0, 32768).unwrap()
+        client.feed(&flight, 0, count).unwrap()
+        if not server.handshaking() and not client.handshaking():
+            break
+    if server.handshaking() or client.handshaking():
+        print("unfinished handshake").unwrap()
+    print_details = server.application_protocol().unwrap() == Some("test-protocol") and client.application_protocol().unwrap() == Some("test-protocol")
+    if not print_details or server.version() != Some(TlsVersion.Tls13) or server.cipher_suite() != Some(CipherSuite.Tls13Aes128GcmSha256):
+        print("wrong settings").unwrap()
+    if server.peer_certificate().unwrap().is_none() or client.peer_certificate().unwrap().is_none():
+        print("missing peer certificate").unwrap()
+
+pub enum Node:
+    Empty
+    Root(ServerConfig, ClientConfig, i64)
+    Child(Session, Session)
+
+    pub def started(self: &mut Node, context: &mut Context[i64, IoError]) -> Result[(), IoError]:
+        match self:
+            case Node.Empty:
+                drop(context.spawn_isolated(0, 262144).unwrap())
+            case Node.Root(_, _, _):
+                drop(context.spawn_isolated(0, child_heap).unwrap())
+                if mode == 5:
+                    context.send(context.address(), 0).unwrap()
+            case Node.Child(server, client):
+                if mode == 5:
+                    drop(context.after(&milliseconds(10u32), 0).unwrap())
+                    return Ok(())
+                if mode == 4:
+                    handshake(server, client)
+                if mode == 1 or mode == 2:
+                    context.stop()
+                else:
+                    if mode == 3:
+                        # All of these handles and partial recipes are allocated
+                        # under the actor too, including builders and trust roots.
+                        drop(configs(True))
+                    absent: Option[i64] = Nothing
+                    absent.unwrap()
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, IoError], context: &mut Context[i64, IoError]) -> Result[(), IoError]:
+        match mail:
+            case Mail.Timer(_):
+                match self:
+                    case Node.Child(server, client):
+                        if heaps_live() != 1:
+                            print("parent still live", heaps_live())?
+                        handshake(server, client)
+                        context.stop()
+                    case _:
+                        pass
+            case Mail.Message(_):
+                context.stop()
+            case Mail.Down(_, _, exit):
+                match self:
+                    case Node.Empty:
+                        context.stop()
+                    case Node.Root(_, _, attempts):
+                        if mode == 2 and *attempts == 0:
+                            match exit:
+                                case Exit.Trapped(TrapKind.Memory):
+                                    pass
+                                case _:
+                                    print("wrong exit", exit)?
+                            *attempts = 1
+                            drop(context.spawn_isolated(1, 262144).unwrap())
+                        else:
+                            context.stop()
+                    case _:
+                        pass
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, IoError]) -> Result[Option[Node], IoError]:
+        match self:
+            case Node.Empty:
+                server, client = configs()
+                Ok(Some(Node.Root(server, client, 0)))
+            case Node.Root(server, client, _):
+                # A second actor must remain able to use the parent after an
+                # OOM abandoned the first child's TLS constructor.
+                Ok(Some(Node.Child(server_session(server).unwrap(), client_session(client, "localhost").unwrap())))
+            case Node.Child(_, _):
+                Ok(Nothing)
+
+def main() -> ():
+    token = CancellationToken().unwrap()
+    for _ in range(iterations):
+        mut actors = stage[Node, i64, IoError](3, 2, 2).unwrap()
+        actors.add_timers(2).unwrap()
+        if mode == 5:
+            drop(actors.start(Node.Empty, 65536).unwrap())
+        else:
+            server, client = configs()
+            drop(actors.start(Node.Root(server, client, 0), 65536).unwrap())
+        actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &token).unwrap()
+        assert_clean = actors.stats().stopped == (3 if mode == 5 else (2 if mode == 1 or mode == 2 else 1)) and actors.stats().trapped == (0 if mode == 1 or mode == 5 else 1) and heaps_live() == 0 and heap_bytes_used() == 0
+        if not assert_clean:
+            print("unclean", actors.stats(), heaps_live(), heap_bytes_used()).unwrap()
+            return
+    print("clean", iterations).unwrap()

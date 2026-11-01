@@ -136,11 +136,11 @@ internal runtime panics remain process-fatal. Traps do not roll back external
 effects or run user destructors; foreign-library allocations and process-wide
 locks have the [actor runtime's limits](actor.md#limits).
 
-TLS trap cleanup also retains a reference to its immutable configuration;
-see [TLS memory ownership](actor-tls.md#memory). Repeated failure with one
-configuration and repeated configuration replacement are different workloads.
-Issue #641 tracks retained configurations across trapped sessions and rotations;
-rotation and repeated fresh TLS-server lifecycles are not memory-stability guarantees.
+TLS sessions reconstruct their configuration inside the connection actor's heap;
+traps reclaim it without retaining retired configurations. Configuration rotation
+and repeated fresh server lifecycles can therefore release old TLS configurations.
+Size connection heaps for the local certificate, key, trust-anchor and CRL graph;
+see [TLS memory ownership](actor-tls.md#memory).
 WebSocket upgrades, dedicated actor SSE helpers, blocking-work offload and
 multithreaded stages are not provided by this module.
 

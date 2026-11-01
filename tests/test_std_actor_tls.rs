@@ -244,8 +244,10 @@ fn plaintext_and_abandoned_handshakes_do_not_affect_a_real_client() {
 #[test]
 fn rustls_exhausting_a_connection_heap_traps_only_that_actor() {
     // A full-size record makes rustls grow its record buffer to 32 KiB,
-    // beyond what remains after the 13 KiB an established connection holds.
-    let server = Server::start(&[("connections", "2"), ("heap", "24576")]);
+    // beyond what remains after the session and its local configuration.
+    // Allow configuration/key construction first: exhaustion in an ordinary
+    // spawn hook would instead propagate to its parent by contract.
+    let server = Server::start(&[("connections", "2"), ("heap", "65536")]);
     let clients = server.clients(&[("chunk", "16384"), ("output_size", "65536")]);
     assert_eq!(
         counter(&clients, "truncated") + counter(&clients, "cut"),
@@ -256,4 +258,67 @@ fn rustls_exhausting_a_connection_heap_traps_only_that_actor() {
     assert_eq!(counter(&summary, "trapped"), 2, "{summary}");
     assert!(stderr.contains("memory allocation"), "{stderr}");
     assert_clean(&summary, 3);
+}
+
+/// The embedded allocation-check runtime verifies process-heap allocations at
+/// exit as well as the fixture's actor-heap counters. The old implementation
+/// passed the latter while leaking every configuration referenced by a trap.
+#[test]
+fn fresh_tls_configuration_generations_are_released_after_actor_traps() {
+    rotation_case(&[]);
+}
+
+#[test]
+fn heap_local_tls_sessions_also_drop_normally() {
+    rotation_case(&[("mode", "1")]);
+}
+
+#[test]
+fn tls_configuration_materialization_oom_is_contained_without_foreign_leases() {
+    rotation_case(&[("mode", "2"), ("child_heap", "4096")]);
+}
+
+#[test]
+fn actor_created_tls_configuration_handles_die_with_their_heap() {
+    rotation_case(&[("mode", "3")]);
+}
+
+#[test]
+fn heap_local_tls_recipes_preserve_mutual_authentication_alpn_and_policy() {
+    rotation_case(&[("mode", "4")]);
+}
+
+#[test]
+fn child_tls_handshake_outlives_its_parent_heap_configuration() {
+    rotation_case(&[("mode", "5")]);
+}
+
+fn rotation_case(settings: &[(&str, &str)]) {
+    rotation_source(include_str!("fixtures/actor/tls_rotation.plenty"), settings);
+}
+
+fn rotation_source(source: &str, settings: &[(&str, &str)]) {
+    let (_dir, executable) = support::build_file(&configured(source, settings));
+    let output =
+        support::output_within(&mut Command::new(executable), &[], Duration::from_secs(30));
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "clean 100\n");
+    if settings.contains(&("mode", "1")) || settings.contains(&("mode", "5")) {
+        assert!(output.stderr.is_empty(), "{:?}", output.stderr);
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stderr.matches("contained in an actor").count(),
+            100,
+            "{stderr}"
+        );
+        if !settings.contains(&("mode", "2")) {
+            assert_eq!(stderr.matches("unwrap on Nothing").count(), 100, "{stderr}");
+        }
+    }
 }

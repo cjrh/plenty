@@ -138,12 +138,13 @@ def main() -> Result[(), AllocError | IoError | WaitError | NetError | TlsError]
     socket = listen(&loopback_v4(0u16), 16)?
     address = socket.local_address()?
     limits = Limits(4096, 4096, seconds(30), seconds(30))
-    serving = Server(listener(socket, limits, 100, 65536, 0, Admission.Refuse)?, server_config(&LEAF_PEM, &LEAF_KEY)?)
+    # Include each connection's private TLS configuration and full records.
+    serving = Server(listener(socket, limits, 100, 262144, 0, Admission.Refuse)?, server_config(&LEAF_PEM, &LEAF_KEY)?)
     caller = Caller(client_config(&roots_from_pem(&CA_PEM)?)?, Step.Waiting(address), False)
     mut actors = stage[Node, i64, Fault](8, 4, 8)?
     actors.add_timers(8)?
     actors.start(Node.Serving(serving), 65536).unwrap()
-    actors.start(Node.Calling(caller), 65536).unwrap()
+    actors.start(Node.Calling(caller), 262144).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(10)).unwrap(), &CancellationToken()?)?
     stats = actors.stats()
     print(stats.started, stats.stopped, heaps_live())?
@@ -225,12 +226,13 @@ the socket at once without `close_notify`. Stop the actor once
 
 | Item | Where | Size |
 |---|---|---|
-| `ClientConfig`, `ServerConfig`, trust roots | Outside every actor heap | Parsed certificates and key, shared by all sessions |
-| Session | The connection actor's heap | rustls state; its record buffers grow with record size |
+| `ClientConfig`, `ServerConfig`, trust roots, builders | Their allocating heap (outside actors when built in `main`) | Owned trust anchors, configuration recipe and parsed configuration |
+| Session | The connection actor's heap | Its own parsed configuration, keys and rustls state; record buffers grow with record size |
 | Ciphertext buffers | The connection actor's heap | `Limits.input` and `Limits.output` |
 | Plaintext input | The connection actor's heap | The `input` argument |
 
-Measured with `Context.heap_used()` on an echo server: with 1 KiB buffers,
+Historical measurements before heap-local configuration reconstruction (issue #641),
+using `Context.heap_used()` on an echo server: with 1 KiB buffers,
 an established connection uses 12,944 bytes. After echoing 64 KiB it holds
 17,168 bytes when the peer sent 1000-byte records, and 41,744 when it sent
 full 16 KiB records, which rustls buffers whole. With 4 KiB buffers the
@@ -239,7 +241,9 @@ records. A peer controls its record size, so size the heap passed to
 `listener` for full records: while a full record arrives rustls grows its
 record buffer to a 32 KiB allocation, so 64 KiB per connection is not
 enough. 80 KiB served full records with 1 KiB buffers, and 96 KiB with
-4 KiB buffers.
+4 KiB buffers. These historical figures and heap sizes exclude the configuration
+graph now owned by each actor session. Measure the current application and its
+certificate/root set before choosing a heap limit.
 
 rustls allocates through the Rust allocator, which in a handler is the
 current actor's heap. A session that exceeds its heap traps that actor
@@ -247,13 +251,33 @@ only, and its heap is discarded with the session; other connections
 continue. Outside actors the same failure stops the program, as described
 for [`std.tls`](tls.md#costs).
 
-Configurations and trust roots are allocated outside every actor heap, even
-when built in a handler, because sessions in other heaps share them. A
-discarded session does not release its share, so each trapped connection
-keeps its configuration alive until the program exits; this is the
-configuration's memory once, not per trap. An actor node may hold a
-configuration and the spawn hook may borrow it, as in the example; other
-`std.tls` values cannot cross the actor boundary.
+Configurations keep an owned recipe: certificate chains and encoded private keys,
+trust anchors, revocation lists, application protocols, version and cipher choices.
+Opening an actor session reconstructs its complete rustls configuration from that
+recipe inside the connection actor's heap. It retains no reference into the
+parent's configuration, even during a handshake. The parent may drop or replace
+its configuration after construction without invalidating the session.
+
+A trap, including allocation failure partway through reconstruction or a handshake,
+discards the local graph with the heap. Cleanup does not call a destructor on
+potentially interrupted rustls state. Repeated fresh configurations and trapped
+sessions therefore do not pin retired configuration generations. Builders, roots
+and configurations constructed inside an actor also belong to that actor's heap.
+An actor node may hold an immutable configuration and lend it to its spawn hook;
+other `std.tls` handles cannot cross the actor boundary. The usual
+[`Stage.start` seed ownership limit](actor.md#memory-accounting) still applies:
+objects built outside the heap remain outside. If the root actor itself traps,
+its prebuilt configuration can leak just like any other prebuilt owned resource.
+Construct the root's owned resources in `started` when its own trap recovery
+must reclaim them; connection traps do not retain the root's configuration.
+
+This isolation costs a configuration reconstruction and private-key parsing for
+each actor session, and the session's heap must include its trust anchors,
+certificates, keys and verification state. Large system root bundles or CRLs can
+substantially increase that cost. Outside actors, sessions still share the parsed
+configuration. Configurations themselves retain both a recipe and parsed state;
+building them validates the key and builds the parsed state. Retained encoded
+private keys are zeroized on normal destruction; trap cleanup discards actor pages.
 
 ## Exports
 
@@ -280,8 +304,6 @@ configuration and the spawn hook may borrow it, as in the example; other
   until `available()` is 0.
 - Compacting the plaintext buffer copies one byte at a time, since `Bytes`
   has no overlapping copy.
-- A trapped connection leaks one reference to its configuration; see
-  [Memory](#memory).
 - No session resumption, as in `std.tls`.
 - [`std.actor.http.server`](actor-http-server.md) builds HTTP/1.1 over these
   sessions; its [qualification](actor-http-qualification.md) is separate.
