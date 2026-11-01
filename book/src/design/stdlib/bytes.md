@@ -351,12 +351,15 @@ enforced with `NotReadable` and `NotWritable`. An interrupted call is
 Programs normally use these through [`std.io`](io.md), which adds retry, end
 of input, seeking, and bounded buffering on top.
 
-The native back ends of [`std.secrets`](secrets.md), [`std.crypto`](crypto.md),
-[`std.compress`](compress.md), [`std.db.sqlite`](sqlite.md),
-[`std.net`](net.md), [`std.ready`](ready.md) and [`std.tls`](tls.md) are
-non-`pub` members and functions of this module. They are
-[visible only to std modules](../language/02-source/visibility.md); import the
-module that owns them instead.
+`Bytes` has no native back-end methods. [`std.secrets`](secrets.md),
+[`std.crypto`](crypto.md), [`std.compress`](compress.md),
+[`std.db.sqlite`](sqlite.md), [`std.net`](net.md), [`std.ready`](ready.md) and
+[`std.tls`](tls.md) call compiler intrinsics (`__crypto_*`, `__compress_*`,
+`__tls_*`, `__sqlite_*`, `__net_*`, `__ready_*`, `__io_entropy_read`) that take
+`&Bytes` or `&mut Bytes` operands directly and check ranges in Plenty first.
+These intrinsics are reserved for the standard library: user code calling one
+is rejected with `` `__crypto_update` is reserved for the standard library ``.
+Import the module that owns them instead.
 
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with

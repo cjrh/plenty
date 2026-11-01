@@ -3009,6 +3009,27 @@ fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
         .or_else(|| aliases.data.lookup(name).map(Some))
 }
 
+/// `__bytes_adopt(storage)`: the `std.bytes.Bytes` owning a native state
+/// that another std module created, such as a hasher or codec.
+const BYTES_ADOPT: &str = "__bytes_adopt";
+
+/// Native intrinsics that only std modules call. Each family belongs to the
+/// std module that validates its operands and maps its results.
+fn std_only_intrinsic(name: &str) -> bool {
+    name == BYTES_ADOPT
+        || name == "__io_entropy_read"
+        || [
+            "__crypto_",
+            "__compress_",
+            "__tls_",
+            "__sqlite_",
+            "__net_",
+            "__ready_",
+        ]
+        .iter()
+        .any(|family| name.starts_with(family))
+}
+
 pub(crate) fn builtin(name: &str) -> bool {
     named_type(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
@@ -3037,6 +3058,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "write_stdout"
                 | "write_stderr"
                 | "__caller_location"
+                | BYTES_ADOPT
                 | "__min_replaces"
                 | "__max_replaces"
                 | "__test_fault"
@@ -4699,6 +4721,22 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::bytes::BytesOp::named(name) {
                     return self.bytes_call(operation, args, &e.at, ops);
+                }
+                if std_only_intrinsic(name) && !self.names.contains_key(name) {
+                    // Native back ends of std modules; their std callers
+                    // check ranges and map results to the public errors.
+                    let standard =
+                        e.at.source()
+                            .as_ref()
+                            .is_some_and(|source| self.generics.source_facts(source).1);
+                    if !standard {
+                        return Err(e
+                            .at
+                            .error(format!("`{name}` is reserved for the standard library")));
+                    }
+                    if name == BYTES_ADOPT {
+                        return self.bytes_adopt(args, &e.at, ops);
+                    }
                 }
                 if let Some(operation) = crate::stream::StreamOp::named(name) {
                     let operation = match operation.literal() {

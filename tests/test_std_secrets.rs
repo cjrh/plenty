@@ -379,11 +379,14 @@ print(str.repr(handle.read(&mut target, 5, 4))?)?
     );
 }
 
-// Issue #633: the native primitive is visible to std modules only.
+// Issue #633: the native primitive is a std-only intrinsic.
 #[test]
-fn the_native_primitive_is_private_to_user_code() {
+fn the_native_primitive_is_reserved_for_std() {
     let error = support::check_file_error(&program(
-        "mut target = std.bytes.with_capacity(8)?\ntarget.resize(8, 0u8)?\nprint(target.read_os_entropy(0, 8)?)?\n",
+        "mut target = std.bytes.with_capacity(8)?\ntarget.resize(8, 0u8)?\nprint(__io_entropy_read(target, 0, 8)?)?\n",
     ));
-    assert!(error.contains("private"), "{error}");
+    assert!(
+        error.contains("`__io_entropy_read` is reserved for the standard library"),
+        "{error}"
+    );
 }

@@ -57,6 +57,28 @@ impl Lower<'_> {
             .is_some_and(|arg| matches!(self.byte_source(arg), Some(ByteSource::Literal)))
     }
 
+    /// The storage of a `Bytes` buffer given for a `ByteStorage` operand,
+    /// read under a loan of the whole buffer that the caller ends. std code
+    /// passes its buffers to native hooks this way instead of reaching into
+    /// `Bytes._owner`.
+    pub(super) fn buffer_storage(
+        &mut self,
+        arg: &Expr,
+        expected: &Ty,
+        mutable: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<usize>> {
+        if *expected != Ty::ByteStorage {
+            return Ok(None);
+        }
+        let Some(ByteSource::Buffer(class)) = self.byte_source(arg) else {
+            return Ok(None);
+        };
+        let loan = self.byte_storage_place(&class, arg, mutable, ops)?;
+        ops.push(Op::ReadRef(Ty::ByteStorage));
+        Ok(Some(loan))
+    }
+
     /// Observes one native operand. A `Bytes` buffer or reference given for
     /// a read-only source operand passes its storage, so std code generic
     /// over `std.bytes.ByteSource` reaches either form without a copy.
@@ -75,12 +97,10 @@ impl Lower<'_> {
             self.unbox_reference(expected, ops);
             return Ok(vec![loan]);
         }
+        if let Some(loan) = self.buffer_storage(arg, &expected, false, ops)? {
+            return Ok(vec![loan]);
+        }
         if source && expected == Ty::ByteStorage {
-            if let Some(ByteSource::Buffer(class)) = self.byte_source(arg) {
-                let loan = self.byte_storage_place(&class, arg, false, ops)?;
-                ops.push(Op::ReadRef(Ty::ByteStorage));
-                return Ok(vec![loan]);
-            }
             let other = match self.place_type(arg) {
                 Some(Ty::Ref(inner, _)) => Some((*inner).clone()),
                 other => other,
@@ -214,6 +234,10 @@ impl Lower<'_> {
         let (mut loans, mut reads) = (Vec::new(), Vec::new());
         for (index, (arg, expected)) in args.iter().zip(inputs).enumerate() {
             if exclusive(index) {
+                if let Some(loan) = self.buffer_storage(arg, &expected, true, ops)? {
+                    loans.push(loan);
+                    continue;
+                }
                 let (_, loan) = self.borrow(arg, true, ops)?;
                 self.same(self.place_type(arg), Some(expected.clone()), &arg.at)?;
                 ops.push(Op::ReadRef(expected));

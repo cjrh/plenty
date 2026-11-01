@@ -618,45 +618,6 @@ fn absolute_imports_aliases_forward_calls_and_private_helpers() {
     );
 }
 
-// Issue #633: non-`pub` names of std modules are visible to every std module,
-// as if std were one package. User code and user modules keep ordinary privacy.
-#[test]
-fn private_std_names_are_shared_only_between_std_modules() {
-    let lib = "pub class Cell:\n    value: i64\n    def peek(self) -> i64:\n        self.value\npub def cell() -> Cell:\n    Cell(1)\ndef helper() -> i64:\n    2\n";
-    for (main, expected) in [
-        (
-            "import lib\ndef main() -> ():\n    print(lib.cell().peek()).unwrap()\n",
-            "`lib.Cell.peek` is private to its defining module",
-        ),
-        (
-            "import lib\ndef main() -> ():\n    print(lib.helper()).unwrap()\n",
-            "`lib.helper` is private",
-        ),
-        (
-            "import std.bytes\ndef main() -> Result[(), Failure]:\n    mut data = std.bytes.with_capacity(8)?\n    data.resize(8, 0u8)?\n    print(data.read_os_entropy(0, 8)?)?\n    Ok(())\n",
-            "`std.bytes.Bytes.read_os_entropy` is private to its defining module",
-        ),
-        (
-            "import std.bytes\ndef main() -> Result[(), Failure]:\n    state = std.bytes.crypto_key_new()?\n    Ok(())\n",
-            "`std.bytes.crypto_key_new` is private",
-        ),
-        (
-            "import std.bytes\ndef main() -> Result[(), Failure]:\n    data = std.bytes.empty()?\n    print(data._owner)?\n    Ok(())\n",
-            "`std.bytes.Bytes._owner` is private",
-        ),
-        (
-            "from std.bytes import compress_state\ndef main() -> ():\n    pass\n",
-            "compress_state",
-        ),
-    ] {
-        let dir = workspace(&[("main.plenty", main), ("lib.plenty", lib)]);
-        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(expected), "{error}");
-    }
-}
-
 #[test]
 fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
     let dir = workspace(&[("lib.plenty", "pub def main(n: i64) -> i64:\n    n + 1\n")]);

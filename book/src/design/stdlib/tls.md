@@ -367,9 +367,9 @@ cannot retain another heap's configuration. Starting a
 session draws randomness and verifying a certificate reads the clock; both are
 allowed in workers.
 
-The record-transfer methods on `Bytes` are
-[visible only to std modules](../language/02-source/visibility.md). Writing uses the
-builtin `__tls_write`, which `std.tls` calls on any `ByteSource`.
+The `__tls_*` intrinsics behind the session are
+[reserved for the standard library](bytes.md#transport). Writing uses
+`__tls_write`, which `std.tls` calls on any `ByteSource`.
 
 ## Costs
 

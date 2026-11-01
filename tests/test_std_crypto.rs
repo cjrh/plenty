@@ -353,14 +353,17 @@ fn states_cannot_be_forged_or_copied() {
         "mac = std.crypto.digest(Algorithm.Sha256)?\nother = copy(mac)?\n",
     ));
     assert!(copied.contains("cannot be copied"), "{copied}");
-    // Issue #633: the back-end methods on `Bytes` are visible only to std
-    // modules, so user code cannot pass an ordinary buffer as a state.
+    // Issue #633: the hasher primitives are std-only intrinsics, so user
+    // code cannot pass an ordinary buffer as a state.
     let forged = rejected(&program(
         "mut state = std.bytes.from_text(\"not a state\")?\n\
          data = std.bytes.from_text(\"abc\")?\n\
-         print(state.crypto_update(&data, 0, 3)?)?\n",
+         print(__crypto_update(state, data, 0, 3))?\n",
     ));
-    assert!(forged.contains("private"), "{forged}");
+    assert!(
+        forged.contains("`__crypto_update` is reserved for the standard library"),
+        "{forged}"
+    );
 }
 
 #[test]

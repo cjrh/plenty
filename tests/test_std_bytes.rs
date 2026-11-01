@@ -1012,3 +1012,16 @@ print(str.repr(data.matches_text(-1, "a"))?, str.repr(data.matches_text(5, ""))?
         },
     );
 }
+
+// Issue #633: wrapping native storage as `Bytes` is a std-only intrinsic, so
+// user code cannot turn a raw handle into a buffer that bypasses `Bytes`.
+#[test]
+fn adopting_native_storage_is_reserved_for_std() {
+    let error = rejected(&program(
+        "storage = __bytes_new(4)?\ndata = __bytes_adopt(storage)\n",
+    ));
+    assert!(
+        error.contains("`__bytes_adopt` is reserved for the standard library"),
+        "{error}"
+    );
+}

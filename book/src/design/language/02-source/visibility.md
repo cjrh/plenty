@@ -15,12 +15,6 @@ protocol check is reported at the user's call; nested instantiations retain the
 outer call location and an instantiation note. Code within the type's own module
 can still use its private members through a locally defined generic function.
 
-The standard library behaves as one package: a declaration or member of a
-`std` module without `pub` is visible to every other `std` module. Modules such
-as `std.crypto` can therefore call native hooks on `std.bytes.Bytes` without
-making them public API. Code outside `std` sees these names as private, and
-the [signature index](../../stdlib/signatures.md) omits them.
-
 A generated field constructor is public only when its class and every field are
 public. An explicit `__init__` controls its own visibility. A public factory may
 use private constructors inside their defining module. Construction through an

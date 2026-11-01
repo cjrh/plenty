@@ -397,9 +397,12 @@ fn exchange_state_is_private_noncopyable_and_rejects_forged_buffers() {
         support::check_file_error(&program("key = std.crypto.x25519()?\nother = copy(key)?\n"));
     assert!(copied.contains("cannot be copied"), "{copied}");
     let forged = support::check_file_error(&program(
-        "state = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(32, 0u8)?\nprint(std.bytes.crypto_x_public(&state, &mut target))?\n",
+        "state = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(32, 0u8)?\nprint(__crypto_x_public(state, target))?\n",
     ));
-    assert!(forged.contains("private"), "{forged}");
+    assert!(
+        forged.contains("`__crypto_x_public` is reserved for the standard library"),
+        "{forged}"
+    );
     native(
         "key = std.crypto.x25519()?\nprint(key)?\n",
         "std.crypto.X25519Key(@redacted)",

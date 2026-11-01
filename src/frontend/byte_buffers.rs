@@ -206,3 +206,24 @@ impl Lower<'_> {
         Ok(())
     }
 }
+
+impl Lower<'_> {
+    /// `__bytes_adopt(storage)` constructs the `Bytes` that owns `storage`,
+    /// so std modules can hand out a native state without a constructor
+    /// function in `std.bytes`.
+    pub(super) fn bytes_adopt(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() != 1 {
+            return Err(at.error(format!("expected 1 argument, got {}", args.len())));
+        }
+        let output = self.call_named(&crate::record::method(BYTES_CLASS, "new"), args, at, ops)?;
+        if output.as_ref().and_then(byte_buffer).is_none() {
+            return Err(at.error("`__bytes_adopt` needs the `std.bytes.Bytes` class"));
+        }
+        Ok(output)
+    }
+}

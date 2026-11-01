@@ -19,11 +19,11 @@ standard library.
   allocation-failure and error contracts as Plenty code.
 - Everything declared `pub` is public API: it appears in the signature index
   and is documented on the module page. Helpers stay private.
-- A native hook that another std module needs is declared without `pub`.
-  Non-`pub` names are
-  [visible to every std module](../language/02-source/visibility.md) and
-  private to user code, so they stay out of the index and module pages
-  (`Bytes.crypto_update`, `std.bytes.compress_state`).
+- Native hooks are std-only compiler intrinsics, not methods or functions
+  of a std module. A std module calls the intrinsic (`__crypto_update`,
+  `__compress_new`) with `&Bytes` operands and checks ranges itself; user
+  code calling one is rejected as
+  [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
   [prelude](../language/02-source/names.md) holds builtin names, plus
   `std.fmt.FormatError`, which every f-string produces (issue #632).

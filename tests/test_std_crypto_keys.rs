@@ -515,11 +515,15 @@ print(std.crypto.p256_private_key_from_pkcs8(&unhex("$EC_PKCS8")?)?)?
         "key = std.crypto.p256_private_key_from_pkcs8(&unhex(\"$EC_PKCS8\")?)?\nother = copy(key)?\n",
     ));
     assert!(copied.contains("cannot be copied"), "{copied}");
-    // Issue #633: the key back end is visible only to std modules.
+    // Issue #633: the key primitives are std-only intrinsics, so user code
+    // cannot pass an ordinary buffer as a key state.
     let forged = support::check_file_error(&program(
-        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(std.bytes.crypto_key_sign(&state, 0, &message, &mut target))?\n",
+        "state = std.bytes.empty()?\nmessage = std.bytes.empty()?\nmut target = std.bytes.empty()?\ntarget.resize(64, 0u8)?\nprint(__crypto_key_sign(state, 0, message, target))?\n",
     ));
-    assert!(forged.contains("private"), "{forged}");
+    assert!(
+        forged.contains("`__crypto_key_sign` is reserved for the standard library"),
+        "{forged}"
+    );
 }
 
 #[cfg(feature = "runtime-checks")]
@@ -538,9 +542,21 @@ private.sign_into(&message, &mut signature)?
 verified = public.verify(&message, &signature)?
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
-print(verified)?
+mut point = unhex("04")?
+point.extend(&unhex("$EC_X")?)?
+point.extend(&unhex("$EC_Y")?)?
+der = unhex("$EC_PKCS8")?
+# Checking the point allocates nothing beyond its two-allocation copy, and
+# loading the key nothing beyond its state.
+print("__test_fail_allocations_after_2__")?
+checked = std.crypto.p256_public_key_from_point(&point)
+print("__test_restore_allocations__")?
+print("__test_fail_allocations_after_1__")?
+loaded = std.crypto.p256_private_key_from_pkcs8(&der)
+print("__test_restore_allocations__")?
+print(verified, checked.is_ok(), loaded.is_ok())?
 "#,
-        "True",
+        "True True True",
     );
 }
 
@@ -653,11 +669,15 @@ def main() -> Result[(), Fault]:
     expected = unhex("$RS256_SIG")?
     public = std.crypto.rsa_public_key_from_spki(&unhex("$RSA_SPKI")?)?
     private = std.crypto.rsa_private_key_from_pkcs8(&der)?
-    # Reading the size runs no ring allocation.
+    # Reading the size runs no ring allocation; reading the public key
+    # allocates only its output buffer.
     print("__test_begin_no_allocations__")?
     size = private.signature_size()
     print("__test_end_no_allocations__")?
-    print("size", size == 256 and private.public_key()?.signature_size() == 256)?
+    print("__test_fail_allocations_after_2__")?
+    encoded = private.public_key()
+    print("__test_restore_allocations__")?
+    print("size", size == 256 and encoded?.signature_size() == 256)?
     markers = [MARKERS]?
     for i in range(len(markers)):
         load(markers[i], &der, &message, &expected)?

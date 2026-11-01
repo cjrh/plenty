@@ -114,6 +114,13 @@ def sent_to[S: ByteSource](source: &S, socket: &mut File, start: i64, stop: i64,
         return Err(IoError.InvalidInput)
     __net_send_to(source, start, stop, socket, address)
 
+# One datagram into buffer[start:stop] and its sender's address into
+# `sender`. A bad range is InvalidInput and receives nothing.
+def received_from(buffer: &mut Bytes, socket: &mut File, start: i64, stop: i64, sender: &mut Bytes) -> Result[i64, IoError]:
+    if start < 0 or start > stop or stop > buffer.len():
+        return Err(IoError.InvalidInput)
+    __net_receive_from(buffer, start, stop, socket, sender)
+
 def lifted[T](result: Result[T, BytesError]) -> Result[T, NetError]:
     match result:
         case Ok(value):
@@ -943,7 +950,7 @@ pub class UdpSocket:
         mut sender = lifted(std.bytes.with_capacity(v6_size))?
         while True:
             ready_for(&self._file, Interest.Read, deadline, cancel)?
-            match buffer.net_receive_from(&mut self._file, start, stop, &mut sender):
+            match received_from(buffer, &mut self._file, start, stop, &mut sender):
                 case Ok(size):
                     data = lifted(sender.to_list())?
                     (source, _) = decoded(&data, 0)?

@@ -403,17 +403,16 @@ report(query.text(0))?
     );
 }
 
+// Issue #633: the SQLite primitives are std-only intrinsics.
 #[test]
 fn handles_cannot_be_forged() {
-    let output = run(&program(
+    let error = support::check_file_error(&program(
         "fake = __bytes_new(0)?\n\
          print(__sqlite_step(fake))?\n",
     ));
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("operand is not a std.db.sqlite statement"),
-        "{stderr}"
+        error.contains("`__sqlite_step` is reserved for the standard library"),
+        "{error}"
     );
 }
 

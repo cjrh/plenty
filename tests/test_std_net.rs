@@ -645,22 +645,21 @@ std.net.NetError.Stream(std.io.StreamError.Io(IoError.System(90)))\n",
     );
 }
 
-/// Selectors other than 0 (local) and 1 (peer) are rejected (issue #278).
+/// Issue #633: the socket primitives are std-only intrinsics, so user code
+/// cannot pass the out-of-range address selectors issue #278 guarded against.
 #[test]
-fn address_selectors_outside_local_and_peer_are_invalid() {
-    runs(
+fn socket_primitives_are_reserved_for_std() {
+    let error = support::check_file_error(
         r#"
 def main() -> Result[(), AllocError | IoError]:
     socket = __net_open([4u8, 0u8, 0u8, 127u8, 0u8, 0u8, 1u8]?, 2u8, 0).unwrap()
-    for which in [0u8, 2u8, 255u8]?:
-        match __net_address(&socket, which):
-            case Ok(data):
-                print(len(data))?
-            case Err(error):
-                print(str.repr(error)?)?
+    print(__net_address(&socket, 2u8).is_ok())?
     Ok(())
 "#,
-        "7\nIoError.InvalidInput\nIoError.InvalidInput\n",
+    );
+    assert!(
+        error.contains("`__net_open` is reserved for the standard library"),
+        "{error}"
     );
 }
 

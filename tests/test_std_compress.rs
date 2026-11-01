@@ -429,18 +429,24 @@ print(str.repr(std.compress.crc32(-1, &data, 0, 1))?)?
     );
 }
 
-// Issue #633: user code cannot reach the codec back end, so it can neither
-// forge a state nor create one without output room (issue #238).
+// Issue #633: the codec primitives are std-only intrinsics, so user code
+// can neither forge a state nor create one without output room (issue #238).
 #[test]
 fn codec_states_cannot_be_forged() {
-    for body in [
-        "state = std.bytes.compress_state(1u8, 6, 0)?\n",
-        "mut state = std.bytes.from_text(\"not a state\")?\n\
-         data = std.bytes.from_text(\"abc\")?\n\
-         print(state.compress_step(&data, 0, 3)?)?\n",
+    for (name, body) in [
+        ("__compress_new", "state = __compress_new(1u8, 6, 0)\n"),
+        (
+            "__compress_step",
+            "mut state = std.bytes.from_text(\"not a state\")?\n\
+             data = std.bytes.from_text(\"abc\")?\n\
+             print(__compress_step(state, data, 0, 3))?\n",
+        ),
     ] {
         let error = support::check_file_error(&program(body));
-        assert!(error.contains("private"), "{error}");
+        assert!(
+            error.contains(&format!("`{name}` is reserved for the standard library")),
+            "{error}"
+        );
     }
 }
 
