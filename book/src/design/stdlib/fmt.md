@@ -9,9 +9,11 @@ reflection, format-string interpreter, or dynamic writer object.
 this module, and `out.format(f"...")` writes one to a formatter `out` without an
 intermediate `str`.
 
-For a small monomorphic formatting contract with allocation-free stderr
-construction, see [`std.report`](report.md). Its `Formattable.format` protocol
-is separate from the writer-generic display/debug methods on this page.
+The same formatter serves [`std.report`](report.md): its writer-generic
+`Formattable.format` protocol shares these methods and errors.
+`stderr_formatter(max_bytes, max_depth)` creates a `Formatter[Stderr]` without
+allocating; text, boolean and integer output on that path also needs no heap
+storage. Advanced numeric formatting acquires scratch lazily.
 
 ```plenty
 import std.fmt
@@ -52,7 +54,9 @@ The formatter owns them; its public `writer` field lets the caller flush, close,
 or inspect the underlying stream. Formatting never flushes or closes it.
 
 `string_formatter(max_bytes, max_depth)` creates a growable in-memory cursor and
-scratch. `finish(&output)` validates and copies its current bytes into a `str`;
+scratch. Text emissions on this collector stage their complete UTF-8 spelling
+in reusable scratch before one cursor write, preserving the output on failed
+allocation. `finish(&output)` validates and copies its current bytes into a `str`;
 the formatter remains usable. Both are fallible. `to_string(&value, max_bytes,
 max_depth)` and `to_debug(...)` construct a formatter, invoke the corresponding
 user contract below, and return a string. They return no partial string on error.
@@ -68,8 +72,8 @@ All formatting methods use an exclusive receiver and return
 | `ascii_text(&str)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
 | `substr(&substr)`, `debug_substr(&substr)` | `text` and `debug_text` for a [substring view](../language/04-expressions/slices.md#substring-views), without copying it |
 | `boolean(bool)` | `True` or `False` |
-| `integer(i64, width)` | Signed decimal, including `i64.MIN` |
-| `unsigned(u64, base, width)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
+| `integer(i64, width=0)` | Signed decimal, including `i64.MIN` |
+| `unsigned(u64, base, width=0)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
 | `floating(f64, width)` | Shortest round-trip scientific decimal, e.g. `1.25e0`, `-0e0`, `inf`, `-inf`, `NaN` |
 
 Smaller integer/float types can be explicitly converted. Width is a nonnegative
@@ -150,9 +154,8 @@ pub def debug[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
 ```
 
 `std.fmt.display(&value, &mut out)` and `debug(...)` check the selected method at
-each concrete generic instantiation. These are ordinary structural calls, not
-named protocol bounds: this permits method-local `W` without extending the
-language's monomorphic protocol requirements. Missing/private methods, wrong
+each concrete generic instantiation. These helpers use ordinary structural
+calls rather than named protocol bounds. Missing/private methods, wrong
 signatures, moves, conflicting loans and worker effects get ordinary compiler
 diagnostics. `to_string`/`to_debug` use these user methods; primitive scalars use
 the explicit methods in the table instead of acquiring hidden methods.
@@ -180,9 +183,12 @@ policed. A custom renderer can still loop or deliberately emit unbounded work.
 ## Errors and partial output
 
 `FormatError` has `InvalidSpec`, `LimitExceeded`, `RecursionLimit`,
-`Bytes(BytesError)`, and `Output(StreamError)` variants. String/scratch storage
-allocation failures are `Bytes(Allocation(...))`; sink allocation failures are
-`Output(Allocation(...))`. `completed()` is the exact count accepted by the
+`Bytes(BytesError)`, `Output(StreamError)`, and `OutputClosed` variants.
+String, scratch and sink allocation failures are `Bytes(Allocation(...))`.
+Terminal stderr errors set `has_failed()`; later emissions on that formatter
+return `OutputClosed` without writing. Other destinations retain their writer's
+recovery policy: a writer error does not make the formatter sticky. Allocation
+and byte/depth limit failures do not set `has_failed()`. `completed()` is the exact count accepted by the
 writer since construction, including a successful prefix before any error.
 
 The writer's positive short counts are retried, `Interrupted` is retried, zero
@@ -192,7 +198,8 @@ rollback or implicit retry of an entire failed formatting operation. Retrying
 it can duplicate its successful prefix. A partial OS write can split UTF-8;
 `finish` then reports `Bytes(InvalidUtf8)` until valid text is restored.
 
-The budget is checked before each emitted scalar, ASCII byte, or float spelling.
+The budget for `text` is checked for the whole UTF-8 input before output;
+other emissions check each scalar, ASCII byte, or float spelling.
 Limit errors never exceed it; previous output remains. Budgets count UTF-8 bytes,
 escapes, delimiters and padding, not input characters. Direct writes through the
 public `writer` field are outside the counter/budget contract. Callers must not
@@ -202,8 +209,8 @@ alter its position or contents during a formatting operation.
 
 After construction, formatting scalars performs **no allocation** when the
 writer does not allocate. The caller can preallocate a `Cursor` buffer to make
-this true for in-memory streams. Scratch is reused without growth; string
-output grows explicitly and `finish` copies the complete bytes. A custom
+this true for in-memory streams. Caller-provided scratch is reused for scalar streaming; string
+formatters may grow scratch to stage a whole text emission. String output grows explicitly and `finish` copies the complete bytes. A custom
 renderer/callback can allocate, and its ordinary effects are not suppressed.
 
 Text is linear in input bytes plus output bytes, integer work is bounded by 64
@@ -211,7 +218,9 @@ digits plus padding, and f64 conversion has fixed bounded scratch work plus
 padding. A spec float costs time linear in its precision and magnitude digits. A padded float may be converted twice because padding reuses scratch.
 List work is linear in element count plus callback work. At most one Unicode
 scalar (four bytes), one ASCII byte, or one float spelling (at most 32 bytes) is
-offered per write; wrap a syscall writer in `BufWriter` to batch these calls.
+offered per write on a caller-provided writer; wrap a syscall writer in
+`BufWriter` to batch these calls. A string formatter submits a whole text
+emission to its cursor. Direct stderr text submits the unconsumed UTF-8 suffix.
 Memory is caller scratch plus writer state and bounded recursive call frames.
 
 Formatters are affine because they own `Bytes`; copying is rejected. Loans and

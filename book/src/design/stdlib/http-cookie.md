@@ -20,8 +20,8 @@ def main() -> Result[(), CookieError | AllocError | IoError]:
 
     mut reply = std.http.cookie.set_cookie("theme", "light")?
     reply.max_age = Some(std.time.seconds(3600u32))
-    print(reply.format()?)?
-    print(std.http.cookie.removal("lang")?.format()?)?
+    print(reply.to_string()?)?
+    print(std.http.cookie.removal("lang")?.to_string()?)?
     Ok(())
 ```
 ```output
@@ -58,13 +58,13 @@ it, or [sign](#signing) it, before trusting it.
 | `set_cookie(name, value)` | `Result[SetCookie, CookieError]`: a cookie with the defaults below |
 | `removal(name)` | `Result` with a cookie that deletes `name`: empty value, `Max-Age=0`; `CookieError` for an invalid name |
 | `SetCookie` | Public fields `name`, `value`, `path`, `domain`, `max_age: Option[Duration]`, `secure`, `http_only`, `same_site: SameSite` |
-| `cookie.format()` | `Result[str, CookieError]`: the field value, after checking every part |
+| `cookie.to_string()` | `Result[str, CookieError]`: the field value, after checking every part |
 | `add(&mut head, &cookie)` | Append a `Set-Cookie` field to a `ResponseHead` |
 | `SameSite` | `Strict`, `Lax`, or `Unrestricted` (`SameSite=None`) |
 
 `set_cookie` gives `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax` and no
 `Max-Age`, which ends the cookie with the browser session. Change the
-fields to relax them; `format` checks the result each time:
+fields to relax them; `to_string` checks the result each time:
 
 | Rule | Error |
 |---|---|

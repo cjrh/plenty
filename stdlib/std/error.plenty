@@ -1,6 +1,7 @@
 from std.path import Path
 from std.bytes import BytesError
-from std.report import Formatter, FormatError, render
+from std.fmt import Formatter, FormatError
+from std.report import render
 
 # The callback is owned so it may consume its captures on failure. On success,
 # ordinary scope cleanup drops the unused callback without invoking it.
@@ -26,7 +27,7 @@ pub class Context[E]:
 
     # The reporting protocol is available only when the typed cause supports
     # it. Each context contributes its own depth level through render.
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.operation)?
         match &self.subject:
             case Subject.Absent:

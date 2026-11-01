@@ -177,7 +177,7 @@ pub class SetCookie:
 
     # The field value, after checking every part. Names starting `__Secure-`
     # need `secure`; `__Host-` also needs path `/` and no domain.
-    pub def format(self) -> Result[str, CookieError]:
+    pub def to_string(self) -> Result[str, CookieError]:
         if not valid_name(&self.name):
             return Err(CookieError.InvalidName)
         if not valid_value(&self.value):
@@ -241,7 +241,7 @@ pub def removal(name: &str) -> Result[SetCookie, CookieError]:
 
 # Appends a Set-Cookie field to `head`.
 pub def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]:
-    value = cookie.format()?
+    value = cookie.to_string()?
     http(head.add("Set-Cookie", value))
 
 

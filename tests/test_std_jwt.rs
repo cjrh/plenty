@@ -38,7 +38,7 @@ from std.bytes import Bytes
 from std.json import Json
 from std.jwt import Algorithm, JwtError, SigningKey, Token, Validation, VerifyingKey
 
-type Fault = AllocError | IoError | std.bytes.BytesError | std.crypto.AdvancedError | std.crypto.CryptoError | std.encoding.EncodingError | std.json.JsonError | std.fmt.FormatError | std.report.FormatError | JwtError
+type Fault = AllocError | IoError | std.bytes.BytesError | std.crypto.AdvancedError | std.crypto.CryptoError | std.encoding.EncodingError | std.json.JsonError | std.fmt.FormatError | JwtError
 
 def unhex(text: &str) -> Result[Bytes, Fault]:
     Ok(std.encoding.hex_from_text(text)?)

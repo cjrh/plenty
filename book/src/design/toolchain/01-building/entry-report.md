@@ -12,7 +12,7 @@ standard error, destroys the error payload once, and returns one. Intermediate
 `?` propagation prints nothing.
 
 The line begins `error: main returned `. When the concrete error type satisfies
-[`std.report.Formattable`](../../stdlib/report.md), its borrowed `format` method
+[`std.fmt.Formattable`](../../stdlib/report.md), its borrowed `format` method
 supplies the message. An anonymous sum takes this path only when every member
 satisfies the protocol. Otherwise the payload is rendered as
 `str.repr` would render it. Errors needing an explanation add one after a colon:

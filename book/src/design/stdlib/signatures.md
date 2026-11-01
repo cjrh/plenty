@@ -44,65 +44,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.encoding`](#stdencoding): 1168-1229
 - [`std.env`](#stdenv): 1231-1245
 - [`std.error`](#stderror): 1247-1267
-- [`std.fmt`](#stdfmt): 1269-1332
-- [`std.fs`](#stdfs): 1334-1417
-- [`std.fs.dirs`](#stdfsdirs): 1419-1429
-- [`std.fs.watch`](#stdfswatch): 1431-1466
-- [`std.graph`](#stdgraph): 1468-1556
-- [`std.http`](#stdhttp): 1558-1628
-- [`std.http.decoder`](#stdhttpdecoder): 1630-1647
-- [`std.http.body`](#stdhttpbody): 1649-1684
-- [`std.http.client`](#stdhttpclient): 1686-1796
-- [`std.http.cookie`](#stdhttpcookie): 1798-1830
-- [`std.http.files`](#stdhttpfiles): 1832-1845
-- [`std.http.https`](#stdhttphttps): 1847-1861
-- [`std.http.proxy`](#stdhttpproxy): 1863-1884
-- [`std.http.server`](#stdhttpserver): 1886-1971
-- [`std.http.sse`](#stdhttpsse): 1973-1992
-- [`std.http.tls`](#stdhttptls): 1994-2011
-- [`std.http.typed`](#stdhttptyped): 2013-2046
-- [`std.http.websocket`](#stdhttpwebsocket): 2048-2083
-- [`std.http.wss`](#stdhttpwss): 2085-2091
-- [`std.image`](#stdimage): 2093-2139
-- [`std.io`](#stdio): 2141-2221
-- [`std.io.typed`](#stdiotyped): 2223-2261
-- [`std.json`](#stdjson): 2263-2327
-- [`std.jwt`](#stdjwt): 2329-2376
-- [`std.log`](#stdlog): 2378-2445
-- [`std.markdown`](#stdmarkdown): 2447-2481
-- [`std.template`](#stdtemplate): 2483-2504
-- [`std.math`](#stdmath): 2506-2572
-- [`std.mime`](#stdmime): 2574-2598
-- [`std.net`](#stdnet): 2600-2682
-- [`std.path`](#stdpath): 2684-2701
-- [`std.process`](#stdprocess): 2703-2752
-- [`std.random`](#stdrandom): 2754-2775
-- [`std.ready`](#stdready): 2777-2808
-- [`std.regex`](#stdregex): 2810-2863
-- [`std.report`](#stdreport): 2865-2888
-- [`std.secrets`](#stdsecrets): 2890-2916
-- [`std.shlex`](#stdshlex): 2918-2927
-- [`std.sketch`](#stdsketch): 2929-2967
-- [`std.sketch.xor`](#stdsketchxor): 2969-2980
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2982-2997
-- [`std.signal`](#stdsignal): 2999-3016
-- [`std.simd`](#stdsimd): 3018-3119
-- [`std.stat`](#stdstat): 3121-3154
-- [`std.plot`](#stdplot): 3156-3245
-- [`std.linalg`](#stdlinalg): 3247-3288
-- [`std.sync`](#stdsync): 3290-3308
-- [`std.system`](#stdsystem): 3310-3368
-- [`std.tempfile`](#stdtempfile): 3370-3402
-- [`std.test`](#stdtest): 3404-3446
-- [`std.text`](#stdtext): 3448-3467
-- [`std.thread`](#stdthread): 3469-3473
-- [`std.time`](#stdtime): 3475-3519
-- [`std.tls`](#stdtls): 3521-3603
-- [`std.toml`](#stdtoml): 3605-3654
-- [`std.unicode`](#stdunicode): 3656-3668
-- [`std.url`](#stdurl): 3670-3698
-- [`std.uuid`](#stduuid): 3700-3723
-- [`std.xml`](#stdxml): 3725-3758
+- [`std.fmt`](#stdfmt): 1269-1336
+- [`std.fs`](#stdfs): 1338-1421
+- [`std.fs.dirs`](#stdfsdirs): 1423-1433
+- [`std.fs.watch`](#stdfswatch): 1435-1470
+- [`std.graph`](#stdgraph): 1472-1560
+- [`std.http`](#stdhttp): 1562-1632
+- [`std.http.decoder`](#stdhttpdecoder): 1634-1651
+- [`std.http.body`](#stdhttpbody): 1653-1688
+- [`std.http.client`](#stdhttpclient): 1690-1800
+- [`std.http.cookie`](#stdhttpcookie): 1802-1834
+- [`std.http.files`](#stdhttpfiles): 1836-1849
+- [`std.http.https`](#stdhttphttps): 1851-1865
+- [`std.http.proxy`](#stdhttpproxy): 1867-1888
+- [`std.http.server`](#stdhttpserver): 1890-1975
+- [`std.http.sse`](#stdhttpsse): 1977-1996
+- [`std.http.tls`](#stdhttptls): 1998-2015
+- [`std.http.typed`](#stdhttptyped): 2017-2050
+- [`std.http.websocket`](#stdhttpwebsocket): 2052-2087
+- [`std.http.wss`](#stdhttpwss): 2089-2095
+- [`std.image`](#stdimage): 2097-2143
+- [`std.io`](#stdio): 2145-2225
+- [`std.io.typed`](#stdiotyped): 2227-2265
+- [`std.json`](#stdjson): 2267-2331
+- [`std.jwt`](#stdjwt): 2333-2380
+- [`std.log`](#stdlog): 2382-2449
+- [`std.markdown`](#stdmarkdown): 2451-2485
+- [`std.template`](#stdtemplate): 2487-2508
+- [`std.math`](#stdmath): 2510-2576
+- [`std.mime`](#stdmime): 2578-2602
+- [`std.net`](#stdnet): 2604-2686
+- [`std.path`](#stdpath): 2688-2705
+- [`std.process`](#stdprocess): 2707-2756
+- [`std.random`](#stdrandom): 2758-2779
+- [`std.ready`](#stdready): 2781-2812
+- [`std.regex`](#stdregex): 2814-2867
+- [`std.report`](#stdreport): 2869-2876
+- [`std.secrets`](#stdsecrets): 2878-2904
+- [`std.shlex`](#stdshlex): 2906-2915
+- [`std.sketch`](#stdsketch): 2917-2955
+- [`std.sketch.xor`](#stdsketchxor): 2957-2968
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2970-2985
+- [`std.signal`](#stdsignal): 2987-3004
+- [`std.simd`](#stdsimd): 3006-3107
+- [`std.stat`](#stdstat): 3109-3142
+- [`std.plot`](#stdplot): 3144-3233
+- [`std.linalg`](#stdlinalg): 3235-3276
+- [`std.sync`](#stdsync): 3278-3296
+- [`std.system`](#stdsystem): 3298-3356
+- [`std.tempfile`](#stdtempfile): 3358-3390
+- [`std.test`](#stdtest): 3392-3434
+- [`std.text`](#stdtext): 3436-3455
+- [`std.thread`](#stdthread): 3457-3461
+- [`std.time`](#stdtime): 3463-3507
+- [`std.tls`](#stdtls): 3509-3591
+- [`std.toml`](#stdtoml): 3593-3642
+- [`std.unicode`](#stdunicode): 3644-3656
+- [`std.url`](#stdurl): 3658-3686
+- [`std.uuid`](#stduuid): 3688-3711
+- [`std.xml`](#stdxml): 3713-3746
 
 ## `std.actor`
 
@@ -561,7 +561,7 @@ class Progress
     def is_finished(self) -> bool
     def rate(self, now: &Instant) -> Option[f64]
     def eta(self, now: &Instant) -> Option[f64]
-    def render(self, now: &Instant, output: &mut Formatter) -> Result[(), FormatError]
+    def render[W](self, now: &Instant, output: &mut Formatter[W]) -> Result[(), FormatError]
     def set_position_at(self: &mut Progress, position: u64, now: &Instant) -> Result[(), ProgressError]
     def set_position(self: &mut Progress, position: u64) -> Result[(), ProgressError]
     def advance(self: &mut Progress, count: u64 = 1u64) -> Result[(), ProgressError]
@@ -707,7 +707,7 @@ def hmac_sha512(key: &Bytes, data: &Bytes) -> Result[Bytes, CryptoError]
 def equal(a: &Bytes, b: &Bytes) -> bool
 enum AdvancedError
     InvalidLength | AuthenticationFailed | InvalidPeer | Finished | RandomFailure | InvalidKey | WeakKey | SmallOrderKey | Allocation(AllocError)
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum AeadAlgorithm
     Aes256Gcm | ChaCha20Poly1305
 def seal_in_place(algorithm: AeadAlgorithm, key: &Bytes, nonce: &Bytes, aad: &Bytes, data: &mut Bytes) -> Result[(), AdvancedError]
@@ -1256,7 +1256,7 @@ class Context[E]
     operation: str
     subject: Subject
     cause: E
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def describe(self) -> Result[str, AllocError]
     def describe_with(self, cause: &str) -> Result[str, AllocError]
     def report(self) -> ()
@@ -1268,11 +1268,11 @@ def native_code(error: IoError) -> Option[i32]
 
 ## `std.fmt`
 
-Static display/debug, bounded writer output and fallible strings. Errors: `FormatError`. [Reference](fmt.md).
+Writer-generic value/report formatting, bounded output and fallible strings. Errors: `FormatError`. [Reference](fmt.md).
 
 ```text
 enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError)
+    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(StreamError) | OutputClosed
 class Spec
     fill: str
     align: str
@@ -1291,12 +1291,13 @@ def spec_count(value: i64) -> Result[i64, FormatError]
 class Formatter[W]
     writer: W
     def completed(self) -> i64
+    def has_failed(self) -> bool
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64) -> Result[(), FormatError]
-    def integer(self: &mut Formatter[W], value: i64, width: i64) -> Result[(), FormatError]
+    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64 = 0) -> Result[(), FormatError]
+    def integer(self: &mut Formatter[W], value: i64, width: i64 = 0) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
@@ -1310,6 +1311,7 @@ class Formatter[W]
     def enter(self: &mut Formatter[W]) -> Result[(), FormatError]
     def leave(self: &mut Formatter[W]) -> ()
 def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]
+def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Stderr], FormatError]
 def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]
 def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]
 def display[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
@@ -1329,6 +1331,8 @@ def repr_substr_string(value: &substr) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]
+protocol Formattable
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 ```
 
 ## `std.fs`
@@ -1818,7 +1822,7 @@ class SetCookie
     secure: bool
     http_only: bool
     same_site: SameSite
-    def format(self) -> Result[str, CookieError]
+    def to_string(self) -> Result[str, CookieError]
 def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]
 def removal(name: &str) -> Result[SetCookie, CookieError]
 def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]
@@ -2338,7 +2342,7 @@ enum Claim
     Expiry | NotBefore | IssuedAt | Issuer | Audience
 enum JwtError
     Malformed | NotObject | TooLarge | UnsupportedAlgorithm | AlgorithmMismatch | CriticalHeader | InvalidSignature | Expired | NotYetValid | MissingClaim(Claim) | InvalidClaim(Claim) | WrongIssuer | WrongAudience | InvalidKey | InvalidValidation | RandomFailure | Allocation(AllocError)
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class SigningKey
     def algorithm(self) -> Algorithm
     def verifying_key(self) -> Result[VerifyingKey, JwtError]
@@ -2590,7 +2594,7 @@ class MediaType
     def matches(self, pattern: &MediaType) -> bool
     def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), AllocError | ParseError]
     def remove_param(self: &mut MediaType, name: &str) -> bool
-    def format(self) -> Result[str, AllocError]
+    def to_string(self) -> Result[str, AllocError]
 def parse(text: &str) -> Result[MediaType, AllocError | ParseError]
 def new(type_name: &str, subtype: &str) -> Result[MediaType, AllocError | ParseError]
 def from_extension(extension: &str) -> Option[str]
@@ -2610,7 +2614,7 @@ class SocketAddress
     ip: IpAddress
     port: u16
     scope: u32
-    def format(self) -> Result[str, NetError]
+    def to_string(self) -> Result[str, NetError]
 def socket_address(ip: IpAddress, port: u16) -> SocketAddress
 def ipv4(a: u8, b: u8, c: u8, d: u8) -> IpAddress
 def loopback_v4(port: u16) -> SocketAddress
@@ -2864,26 +2868,10 @@ def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]
 
 ## `std.report`
 
-A bounded formatter for human-readable reports, to standard error or an owned collector. Errors: `FormatError`. [Reference](report.md).
+Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [Reference](report.md).
 
 ```text
-enum FormatError
-    InvalidSpec | LimitExceeded | RecursionLimit | Bytes(BytesError) | Output(IoError) | WriteZero | OutputClosed
-class Formatter
-    def completed(self) -> i64
-    def failed(self) -> bool
-    def text(self: &mut Formatter, value: &str) -> Result[(), FormatError]
-    def boolean(self: &mut Formatter, value: bool) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter, value: u64, base: i64) -> Result[(), FormatError]
-    def integer(self: &mut Formatter, value: i64) -> Result[(), FormatError]
-    def enter(self: &mut Formatter) -> Result[(), FormatError]
-    def leave(self: &mut Formatter) -> ()
-protocol Formattable
-    def format(self, output: &mut Formatter) -> Result[(), FormatError]
-def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]
-def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter, FormatError]
-def finish(output: &Formatter) -> Result[str, FormatError]
-def render[T: Formattable](value: &T, output: &mut Formatter) -> Result[(), FormatError]
+def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
 ```
 
@@ -3684,7 +3672,7 @@ class Url
     path: str
     query: Option[str]
     fragment: Option[str]
-    def format(self) -> Result[str, UrlError]
+    def to_string(self) -> Result[str, UrlError]
 class Pair
     key: str
     value: str

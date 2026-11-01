@@ -76,13 +76,13 @@ no `//` authority. An address literal keeps its brackets: `[::1]`.
 | Function | Result | Contract |
 |---|---|---|
 | `std.url.parse(text: &str, max_bytes)` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
-| `url.format()` | `Result[str, UrlError]` | Validate every component and join them |
+| `url.to_string()` | `Result[str, UrlError]` | Validate every component and join them |
 
 `parse` checks the length first: `InvalidLimit` for a negative `max_bytes`,
 `LimitExceeded` for a longer text. It then reports the first violation from
 left to right.
 
-`format` exists so that a `Url` built or edited by a program cannot produce
+`to_string` exists so that a `Url` built or edited by a program cannot produce
 text that parses differently. It applies the rules of `parse` to each field,
 and also returns:
 
@@ -91,7 +91,7 @@ and also returns:
 - `InvalidByte` when `host` is present and a nonempty `path` does not start
   with `/`, or `host` is absent and `path` starts with `//`.
 
-A successful `format` result always parses back to equal components.
+A successful `to_string` result always parses back to equal components.
 
 Compare URLs only after deciding what equivalence means for your scheme. The
 module does not lowercase schemes or hosts and does not decode escapes, so
@@ -174,7 +174,7 @@ pub enum UrlError:
 | `LimitExceeded` | The text is longer than `max_bytes` |
 | `OutOfRange` | A byte range lies outside its buffer |
 | `MissingScheme` | No scheme and `:` before the first `/`, `?`, or `#` |
-| `MissingHost` | `format` was given userinfo or a port without a host |
+| `MissingHost` | `to_string` was given userinfo or a port without a host |
 | `InvalidByte(index)` | The byte at `index` is not allowed where it appears |
 | `InvalidEscape(index)` | The `%` at `index` is not followed by two hex digits |
 | `InvalidHost(index)` | The address literal starting at `index` is malformed, or the byte at `index` follows its `]` and is not `:` |
@@ -182,7 +182,7 @@ pub enum UrlError:
 | `InvalidUtf8` | Decoded bytes are not UTF-8 |
 | `Allocation(cause)` | Storage could not be allocated |
 
-An index is a UTF-8 byte offset into the input. For `format` it is an offset
+An index is a UTF-8 byte offset into the input. For `to_string` it is an offset
 into the text that would have been produced; for the byte-range functions it
 is a position in the source buffer, not relative to `start`. A failed
 operation releases anything it allocated. Wrap a result with
@@ -203,7 +203,7 @@ Every operation is linear in its input and allocates in proportion to it.
 | Operation | Allocates |
 |---|---|
 | `parse` | One copy of the text, then one string per present component. A text of more than `max_bytes` UTF-8 bytes is rejected before the copy, so the copy never exceeds `max_bytes` |
-| `format` | One growing buffer, a temporary per component, and the result |
+| `to_string` | One growing buffer, a temporary per component, and the result |
 | `encode_bytes`, `decode_bytes` | One buffer of exactly the output size, after validation |
 | `encode`, `decode` | A `Bytes` copy of the text, the coded buffer, then the `str` |
 | `query_pairs` | A copy of the query, the list, and two strings per pair |

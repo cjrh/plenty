@@ -28,7 +28,7 @@ def show(text: &str, limit: i64) -> Result[(), std.url.UrlError | AllocError | I
                     port = value
                 case Nothing:
                     pass
-            print("ok", url.format()? == text, url.scheme, opt(&url.userinfo)?, opt(&url.host)?, port, url.path, opt(&url.query)?, opt(&url.fragment)?)?
+            print("ok", url.to_string()? == text, url.scheme, opt(&url.userinfo)?, opt(&url.host)?, port, url.path, opt(&url.query)?, opt(&url.fragment)?)?
         case Err(error):
             print("err", str.repr(&error)?)?
     Ok(())
@@ -655,7 +655,7 @@ built.append(Pair("", ""))?
 text = std.url.query_text(&built)?
 print(text)?
 url = Url("https", Nothing, some("example.com")?, Nothing, "/search", some(&text)?, Nothing)
-print(url.format()?)?
+print(url.to_string()?)?
 again = std.url.query_pairs(&text)?
 print(len(again), again[0].value, again[1].key, again[1].value)?
 "#,
@@ -798,9 +798,9 @@ fn format_rejects_components_that_would_change_meaning() {
         r#"
 def attempt(scheme: &str, userinfo: Option[str], host: Option[str], port: Option[i64], path: &str, query: Option[str], fragment: Option[str]) -> Result[(), std.url.UrlError | AllocError | IoError]:
     url = Url("".concat(scheme)?, userinfo, host, port, "".concat(path)?, query, fragment)
-    match url.format():
+    match url.to_string():
         case Ok(text):
-            print(text, std.url.parse(&text, 200)?.format()? == text)?
+            print(text, std.url.parse(&text, 200)?.to_string()? == text)?
         case Err(error):
             print(str.repr(&error)?)?
     Ok(())
@@ -1073,7 +1073,7 @@ fn urls_parse_in_worker_threads() {
         r#"
 def work(text: str) -> ():
     url = std.url.parse(&text, 256).unwrap()
-    print(url.format().unwrap() == text, std.url.encode("a b", Component.Segment).unwrap()).unwrap()
+    print(url.to_string().unwrap() == text, std.url.encode("a b", Component.Segment).unwrap()).unwrap()
 
 def main() -> Result[(), ThreadError]:
     with spawn(work, "https://example.com/a?b=c")?:
@@ -1125,7 +1125,7 @@ raw = std.bytes.from_text(&query)?
 #[cfg(feature = "runtime-checks")]
 #[rstest::rstest]
 #[case::parse("std.url.parse(&text, 4096)")]
-#[case::format("url.format()")]
+#[case::format("url.to_string()")]
 #[case::encode("std.url.encode(&query, Component.QueryPart)")]
 #[case::decode("std.url.decode(&query)")]
 #[case::encode_bytes("std.url.encode_bytes(&raw, 0, raw.len(), Component.Path)")]

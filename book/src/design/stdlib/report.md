@@ -1,21 +1,20 @@
 # `std.report`
 
-`std.report` provides a small, bounded formatter for human-readable reports.
-Its concrete `Formatter` has two destinations: stderr or an owned UTF-8
-collector. `stderr_formatter(max_bytes, max_depth)` validates its arguments and
-constructs the formatter without allocating. Text, integer and boolean output
-to stderr also need no heap allocation. User methods are responsible for their
-own allocations.
+`std.report` provides bounded human-readable reports using the same
+[`std.fmt.Formatter[W]` and `FormatError`](fmt.md) as value display and
+f-strings. It provides rendering helpers for the canonical `std.fmt.Formattable`
+protocol; it does not own another formatter, protocol, or error family. Import
+formatter types and constructors from `std.fmt`.
 
 ```plenty
 import std.report
-from std.report import FormatError, Formatter
+from std.fmt import FormatError, Formatter
 
 pub class DiskFull:
     path: str
     needed: u64
 
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("disk full writing ")?
         output.text(&self.path)?
         output.text(": need ")?
@@ -34,89 +33,80 @@ disk full writing out.csv: need 4096 more bytes
 ## Formatting contract
 
 The structural `Formattable` protocol requires a public shared-receiver method
-on a public class or enum, since the helper checks the bound in `std.report`:
+on a public class or enum, since its bound is checked in `std.fmt`:
 
 ```text
-pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
     pass
 ```
 
-`render[T: Formattable](&T, &mut Formatter)` borrows the value, enters one depth
-level, calls `format`, and restores the depth even when the method returns an
-error. Both classes and named enums can satisfy the protocol. The maximum depth
-is an integer from 0 through 64; zero permits direct scalar writes but rejects
-`render`. Nested values should use `render` to participate in the depth limit.
-Direct calls to a user method do not count depth automatically.
+The writer parameter belongs to the method. A single implementation can render
+to a string, stderr, or a caller-owned writer, and can call all the scalar and
+format-spec methods described in [`std.fmt`](fmt.md). For example,
+`output.float_spec(value, &std.fmt.spec(precision=2, kind="f"))` is available
+inside a report. Scratch for advanced numbers can allocate; this does not alter
+the allocation-free text/integer/boolean stderr path.
+
+`render[T: Formattable, W](&T, &mut Formatter[W])` borrows the value, enters one
+depth level, calls `format`, and restores depth even on error. Depth is in
+`0..=64`; zero permits direct scalar writes but rejects `render`. Nested values
+should use `render` to participate in the depth limit. Direct user-method calls
+do not count depth automatically.
 
 An [anonymous sum](../language/03-types/anonymous-sums.md) satisfies
 `Formattable` when every normalized member satisfies it. Dispatch borrows the
-active member and calls its `format` method without moving the payload or
-allocating a wrapper. The sum adds no nesting level beyond the one entered by
-`render`. Aliases, reordered members and singleton normalization preserve this
-behavior. Direct `sum.format(&mut output)` uses the same dispatch and does not
-enter a depth level. If any member lacks the required accessible method or has a mismatched
-signature, the sum fails the bound even when that member is not currently active.
-This rule is specific to `std.report.Formattable`; sums do not automatically
-forward other protocols, including the display/debug contracts in `std.fmt`.
+active member and calls its writer-generic `format` method without moving the
+payload or allocating a wrapper. The sum adds no nesting level beyond the one
+entered by `render`. Aliases, reordered members and singleton normalization
+preserve this behavior. Direct `sum.format(&mut output)` uses the same dispatch
+without entering a depth level. A missing, private, or mismatched method on any
+member fails the bound, even when that member is inactive. This forwarding is
+specific to `std.fmt.Formattable`; other protocols, including display/debug,
+are not automatically forwarded.
 
-## API
+## Helpers and destinations
 
 | Operation | Behavior |
 | --- | --- |
-| `stderr_formatter(max_bytes, max_depth)` | Fallibly constructs a stderr formatter |
-| `string_formatter(max_bytes, max_depth)` | Fallibly constructs an allocating collector |
-| `out.text(&str)` | Emits UTF-8 unchanged, including NUL; checks the whole text's byte budget first |
-| `out.integer(i64)` | Decimal signed spelling, including `i64.MIN` |
-| `out.unsigned(u64, base)` | Lowercase digits in base 2, 8, 10 or 16, without a prefix |
-| `out.boolean(bool)` | `True` or `False` |
-| `out.completed()` | Number of bytes accepted by the destination |
-| `out.failed()` | Whether a terminal stderr output failure has occurred |
-| `out.enter()` / `out.leave()` | Enter or leave one nesting level; leaving zero is harmless |
-| `finish(&out)` | Fallibly copies a collector into owned `str`; stderr gives `InvalidSpec` |
-| `to_string(&value, max_bytes, max_depth)` | Constructs a collector, renders, and finishes |
+| `std.report.render(&value, &mut output)` | Borrowed report into any `Formatter[W]` |
+| `std.report.to_string(&value, max_bytes, max_depth)` | Create a string formatter, render, and finish |
+| `std.fmt.formatter(writer, scratch, max_bytes, max_depth)` | Transfer a writer and caller-provided scratch into a formatter |
+| `std.fmt.string_formatter(max_bytes, max_depth)` | Create an allocating `Formatter[Cursor]` |
+| `std.fmt.stderr_formatter(max_bytes, max_depth)` | Create an allocation-free `Formatter[Stderr]` |
+| `std.fmt.finish(&output)` | Copy a string formatter into an owned `str`; takes `&Formatter[Cursor]` |
 
-`max_bytes` must be nonnegative. All output, including application punctuation,
-counts toward it. Integers stream their sign and digits separately: a budget
-failure can leave a numeric prefix. No prefix or newline is added automatically.
-The formatter does not flush stdout or lock a complete record. Separate text
-and digit writes may interleave with output from other threads.
+The formatter does not add punctuation, flush stdout, close a stream, or lock a
+whole record. Each write counts toward its byte budget. `completed()` records
+the accepted prefix. `has_failed()` records terminal stderr failure; subsequent
+emissions on that formatter return `FormatError.OutputClosed` without writing. Other writer
+destinations retain their own recovery policy and do not set this flag.
+Formatting limits and allocation failures leave the formatter usable. See
+[errors and partial output](fmt.md#errors-and-partial-output) for shared errors
+and retry rules. In particular, finishing stderr is rejected by its type.
 
-## Errors and partial output
+For allocation-free stderr reports, use `text`, `integer`, `unsigned`, and
+`boolean`. Text writes use the native descriptor-2 operation directly, retry
+interruptions, and count successful short writes. A closed or read-only stderr
+returns `Output(StreamError.Io(IoError.System(9)))` (`EBADF`). On supported
+x86-64 Linux the write suppresses SIGPIPE for that operation, so a closed pipe
+returns an error and normal cleanup runs. Advanced formatting lazily acquires
+scratch and can fail with `Bytes(Allocation(...))`.
 
-`FormatError` is an ordinary enum:
-
-- `InvalidSpec`: invalid construction arguments or base, or finishing stderr.
-- `LimitExceeded`: an emission would exceed the remaining byte budget.
-- `RecursionLimit`: entering would exceed the nesting budget.
-- `Bytes(BytesError)`: collector allocation or conversion failure.
-- `Output(IoError)`: terminal stderr write failure.
-- `WriteZero`: stderr accepted zero bytes from a nonempty emission.
-- `OutputClosed`: an emission attempted after a terminal output failure.
-
-Stderr writes retry interruptions and account for each successful partial write.
-Each makes one native write on descriptor 2, so a closed or read-only stderr is
-`Output(IoError.System(9))` (`EBADF`).
-On the supported x86-64 Linux target, the native write suppresses SIGPIPE for
-that operation, so a closed pipe becomes
-an error value and normal cleanup still runs. A failed transport is sticky:
-later writes emit no bytes and return `OutputClosed`. Byte/depth limits and
-collector allocation failures do not mark the transport failed.
-
-A collector reserves space for each entire text emission before appending its
-UTF-8 bytes. Failed growth preserves its valid UTF-8 prefix and byte count.
-`finish` borrows the collector, so a failed string allocation can be retried.
-Do not replay a record blindly after a partial write; inspect `completed()`.
+The string formatter stages a complete UTF-8 text emission before calling its
+cursor. Failed staging or cursor growth preserves the valid UTF-8 output and
+byte count. `finish` borrows the formatter, so an allocation failure can be
+retried. A whole record can still have a successful prefix before a later
+emission fails; do not replay it blindly.
 
 ## Current boundaries
 
-The same protocol selects human-readable
+This protocol selects human-readable
 [entrypoint reports](../toolchain/01-building/entry-report.md); types without it
 retain structural rendering. `std.error.Context[E]` supports the protocol when
-its cause does. Floating-point formatting,
-width, escaping and arbitrary writer destinations remain in
-[`std.fmt`](fmt.md). The [tutorial](../../tutorial/08-resources/report-formatting.md)
-shows borrowed enum and sum reporting.
+its cause does. `display`/`debug` remain the value presentation hooks; sharing
+the formatter does not change which hook an entrypoint chooses. The
+[tutorial](../../tutorial/08-resources/report-formatting.md) shows enum and sum
+reporting.
 
 The [completed reporting proposal](../../proposals/completed/error-formatting.md)
-records why typed error data, presentation, and application reporting are
-separate contracts.
+records the original reporting design and its later unification.

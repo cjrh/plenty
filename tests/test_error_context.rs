@@ -35,11 +35,12 @@ def start(path: &Path) -> Result[i64, Context[Context[IoError]]]:
 "#;
 
 const FORMATTABLE_CAUSE: &str = r#"from std.error import Context, Subject
-from std.report import Formatter, FormatError, render, to_string, string_formatter, stderr_formatter, finish
+from std.fmt import Formatter, FormatError, string_formatter, stderr_formatter, finish
+from std.report import render, to_string
 from std.path import from_text
 pub enum Cause:
     Rejected
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("rejected")
 "#;
 
@@ -55,7 +56,7 @@ fn typed_context_protocol_requires_its_entire_cause_to_be_formattable() {
             &file,
             format!(
                 r#"{FORMATTABLE_CAUSE}
-from std.report import Formattable
+from std.fmt import Formattable
 def accept[T: Formattable](value: &T) -> ():
     pass
 def main() -> ():
@@ -112,7 +113,7 @@ def main() -> Result[(), AllocError | FormatError | IoError]:
 "#
         ),
         0,
-        "Result[(), std.report.FormatError].Err(std.report.FormatError.RecursionLimit)\nopen: \nopen: rejected\nResult[(), std.report.FormatError].Err(std.report.FormatError.LimitExceeded)\nopen\nTrue\n",
+        "Result[(), std.fmt.FormatError].Err(std.fmt.FormatError.RecursionLimit)\nopen: \nopen: rejected\nResult[(), std.fmt.FormatError].Err(std.fmt.FormatError.LimitExceeded)\nopen\nTrue\n",
         "",
     );
 }
@@ -124,7 +125,7 @@ fn typed_context_keeps_owned_cause_after_formatter_failure() {
             r#"{FORMATTABLE_CAUSE}
 pub class Owned:
     pub text: str
-    pub def format(self, output: &mut Formatter) -> Result[(), FormatError]:
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.text)?
         Err(FormatError.InvalidSpec)
     def __del__(self) -> ():
@@ -139,7 +140,7 @@ def main() -> Result[(), AllocError | FormatError | IoError]:
 "#
         ),
         0,
-        "Result[(), std.report.FormatError].Err(std.report.FormatError.InvalidSpec)\nload: payload\npayload\ndrop payload\n",
+        "Result[(), std.fmt.FormatError].Err(std.fmt.FormatError.InvalidSpec)\nload: payload\npayload\ndrop payload\n",
         "",
     );
 }
@@ -188,7 +189,7 @@ def main() -> Result[(), AllocError | FormatError | IoError]:
 "#
         ),
         0,
-        "Result[(), std.report.FormatError].Err(std.report.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)))\nTrue\n6\n",
+        "Result[(), std.fmt.FormatError].Err(std.fmt.FormatError.Bytes(std.bytes.BytesError.Allocation(AllocError.OutOfMemory)))\nTrue\n6\n",
         "read \"",
     );
 }

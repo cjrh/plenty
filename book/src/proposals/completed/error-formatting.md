@@ -1,5 +1,10 @@
 # Human-readable formatting and error reports
 
+The formatter families were subsequently unified for issue #634. Current
+reports use `format[W](self, output: &mut std.fmt.Formatter[W])` and the shared
+`std.fmt.FormatError`; see [the report reference](../../design/stdlib/report.md).
+The concrete destination design below records the original implementation.
+
 > **Status: Implemented.** Enum methods, ordinary enum protocol satisfaction,
 > the concrete [`std.report`](../../design/stdlib/report.md) formatting core,
 > dispatch over anonymous sums, entrypoint selection, and typed context
@@ -31,7 +36,7 @@ Formatting a value does not itself print or terminate the process.
 Entrypoint reports select `Formattable` when the concrete type satisfies it,
 otherwise use structural rendering with special explanations for some builtins.
 `Context.describe()` still uses structural cause text, while
-`describe_with()` accepts caller-provided wording. `std.report.Formattable`
+`describe_with()` accepts caller-provided wording. `std.fmt.Formattable`
 provides borrowed formatting into a concrete destination; entrypoint reports and
 eligible `Context` values use it. Classes and enums can also supply
 the existing `std.fmt` display/debug methods. Those methods use a generic writer
@@ -51,7 +56,7 @@ their ordinary fallibility. Formatting errors must be explicit, must not replace
 the original application error, and must terminate reporting rather than recurse
 into reporting the formatting error itself.
 
-The implemented contract is `Formattable.format(self, output: &mut Formatter)
+The original implemented contract was `Formattable.format(self, output: &mut Formatter)
 -> Result[(), FormatError]` in `std.report`. `Formatter` stores a private inline
 destination enum: stderr or an owned byte collector, plus byte/depth counters.
 The stderr variant creates no scratch buffer or heap owner. Text, signed/unsigned

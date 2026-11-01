@@ -92,6 +92,15 @@ Reader bridge and typed response composition remain.
 Installed CLI/data and JSON-service workflows validate causes, reports, exit
 status, recovery and cleanup (local PR #472). See the
 [composition evidence](../proposals/completed/error-composition/streams-and-evidence.md).
+
+Issue #634 unifies report and display formatting on
+`std.fmt.Formatter[W]` and `FormatError`. Report methods use a method-local
+writer parameter, including anonymous-sum dispatch and conditional typed
+contexts. Reports can use arbitrary writers and floating-point format specs;
+stderr text/integer/boolean reports still allocate no memory. Canonical owned
+text methods on URLs, media types, socket addresses and Set-Cookie values are
+`to_string()`. See [report formatting](../design/stdlib/report.md).
+
 Remaining presentation/inference candidates stay **B71** in the [backlog](../backlog.md).
 
 ## B76: Columnar data

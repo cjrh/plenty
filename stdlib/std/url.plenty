@@ -45,7 +45,7 @@ pub class Url:
     # Validates every component with the rules `parse` uses, so the result
     # always parses back to equal components. Error indexes are byte offsets
     # in the text that would have been produced.
-    pub def format(self) -> Result[str, UrlError]:
+    pub def to_string(self) -> Result[str, UrlError]:
         mut out = lifted(std.bytes.empty())?
         put(&mut out, self.scheme)?
         scheme_end = out.len()

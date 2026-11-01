@@ -306,7 +306,7 @@ pub(super) fn check(
     if matches!(actual, Ty::Enum(sum) if sum.anonymous()) {
         if !reporting(protocol, standard_sources) {
             return Err(call.error(format!(
-                "{actual} does not satisfy {}; anonymous sums only forward std.report.Formattable",
+                "{actual} does not satisfy {}; anonymous sums only forward std.fmt.Formattable",
                 protocol.name
             )));
         }
@@ -391,7 +391,7 @@ pub(super) fn check(
 }
 
 pub(super) fn reporting(protocol: &Protocol, standard_sources: &HashSet<Arc<str>>) -> bool {
-    protocol.name == "std.report.Formattable"
+    protocol.name == "std.fmt.Formattable"
         && protocol
             .at
             .source()

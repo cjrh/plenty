@@ -30,7 +30,7 @@
         "copy", "decode_utf8", "drop", "encode_utf8", "flush_stderr",
         "flush_stdout", "input", "input_bytes", "len", "next", "open", "ord",
         "print", "read_bytes", "read_text", "select_recv",
-        "select_recv_nowait", "select_recv_timeout", "sorted", "spawn",
+        "select_recv_nowait", "select_recv_timeout", "select_recv_timeout_ms", "sorted", "spawn",
         "write_bytes", "write_stderr", "write_stderr_bytes", "write_stdout",
         "write_stdout_bytes", "write_text",
     ];
