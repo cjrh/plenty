@@ -90,8 +90,9 @@ repair inline addresses immediately, without retaining or dropping elements.
 The wide-row algorithm uses O(log n) stack space and no heap workspace. A tuple
 of numbers and strings has its field offsets resolved once per sort.
 
-`items.sort_by_key(key) -> ()` accepts any element type. The named function or
-reusable shared-call closure takes `&T` for the element type `T` and returns an
+`items.sort_by_key(key) -> ()` accepts any element type. The key is a named
+function, a reusable shared-call closure, or an anonymous function written in
+place, such as `items.sort_by_key(def(x: &i64) -> i64: -*x)`; it takes `&T` for the element type `T` and returns an
 integer, float, string, or tuple of those. `items.sort_by_key(key, True)` orders
 descending. The list is exclusively borrowed for the operation; callbacks
 cannot also borrow it through a capture. Keys use the same total order as
@@ -102,9 +103,8 @@ elements may change relative order. It allocates no buffer and recomputes keys
 during O(n log n) comparisons, so the callback should give consistent keys and
 remains responsible for its own explicit allocations. An inconsistent key
 yields an unspecified order but keeps every element.
-One-shot and mutable-call closures, fallible keys, reference-valued keys, and
-anonymous expressions passed directly as keys are unsupported; bind a closure
-first. Elements are moved by row exchange, with no copying or early destruction.
+One-shot and mutable-call closures, fallible keys, and reference-valued keys
+are unsupported. Elements are moved by row exchange, with no copying or early destruction.
 
 `sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
 copies it before sorting by natural order. `sorted(items, True)` gives a

@@ -826,9 +826,19 @@ impl Lower<'_> {
         }
         let local = if self.is_function_place(e) {
             if mutable {
-                return Err(e.at.error("named function declarations are immutable; assign the function to a mut binding before borrowing it with &mut"));
+                // A named function has no state, so `&mut f` borrows a fresh
+                // copy of its code address; distinct borrows never conflict.
+                let ty = self.value(ungroup(e), ops)?;
+                let slot = self.slot(ty.clone(), &e.at)?;
+                ops.push(Op::StoreLocal(slot));
+                Local {
+                    slot,
+                    ty,
+                    mutable: true,
+                }
+            } else {
+                self.function_place(e)?
             }
-            self.function_place(e)?
         } else {
             self.named_place(e)?
         };

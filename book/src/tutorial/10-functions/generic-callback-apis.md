@@ -47,9 +47,9 @@ agree on `T`; conflicting type evidence is an error. Use `&mut F` for a callback
 that changes its captured state. Borrowed captures stay protected throughout
 the call.
 
-Borrow a named function directly with `&double`; a separate binding is optional.
-Its code address is immutable. For `&mut F`, first assign the function to a
-`mut` binding, just as for another value that needs exclusive access.
+Borrow a named function directly with `&double`, or with `&mut double` for a
+`&mut F` parameter; a separate binding is optional. A function has no state, so
+each `&mut` borrow takes its own copy of the code address.
 
 A concrete parameter such as `f: Callable[[i64], i64]` holds only a function's
 code address. The constraint `F: Callable[[i64], i64]` instead checks whether
