@@ -19,9 +19,9 @@ only to the [backlog](../backlog.md).
   local PR #577). Default stripping and lean runtime linkage are also recorded
   under [B17](language-and-tooling.md#b17-tooling-and-packaging).
 - Dense integer/tag matches use bounded jump tables at 256+ distinct values
-  (issue #395; [measurements](../development/profiling.md#dense-match-dispatch)).
+  (issue #395; [measurements](../development/profiling-match-results.md#dense-match-dispatch)).
   String matches with 16+ literals binary-search one sorted table
-  (issue #565; [measurements](../development/profiling.md#string-match-dispatch));
+  (issue #565; [measurements](../development/profiling-match-results.md#string-match-dispatch));
   other shapes retain chains.
 - Inline class field copies/address rewrites and destructor-free release for
   up to eight owned fields shipped (issue #544, local PR #663). One-field
@@ -42,7 +42,7 @@ only to the [backlog](../backlog.md).
 - Borrowed integer/float/bool list rows use inline reads/writes with unchanged
   bounds reporting. The recorded 3k-line dissimilar diff fell from 265 to
   100 ms (issue #509, local PR #598;
-  [measurements](../development/profiling.md#inline-scalar-list-rows)).
+  [measurements](../development/profiling-allocation-results.md#inline-scalar-list-rows)).
 - Collection access/removal, equality and string indexing work shipped
   (issues #18–#21). Layout and runtime constraints still follow the
   [reference](../design/toolchain/02-architecture/values.md), not these snapshots.
@@ -78,7 +78,7 @@ only to the [backlog](../backlog.md).
   4.2–4.7% in recorded workloads (issues #153/#421, local PR #528).
   Reusing cleared Cranelift Functions reduced ordinary construction allocation
   from 20.3 to 4.9 KB/function
-  ([measurements](../development/profiling.md#reusing-function-storage)).
+  ([measurements](../development/profiling-allocation-results.md#reusing-function-storage)).
 - Batched codegen results preserve deterministic output with fewer messages
   (local PR #368). Mimalloc removed glibc arena-lock contention, so the measured
   16-thread run was no slower than eight (issue #315, local PR #386).

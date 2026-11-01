@@ -200,7 +200,7 @@ capacity, and affine cleanup/callback performance fixes landed
 
 Delivery evidence includes local PRs #540/#543/#546–#548/#551/#552/#554–#556/#560/#562;
 issue #371 is fixed. See [pipelines](../design/language/09-iteration/06-pipelines.md)
-and [callback measurements](../development/profiling.md#serial-pipeline-callbacks).
+and [callback measurements](../development/profiling-pipeline-results.md#serial-pipeline-callbacks).
 Only the remaining extensions are **B75** in the [backlog](../backlog.md).
 
 ## B84: Copy classes

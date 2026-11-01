@@ -23,7 +23,7 @@
 > **Shipped since this proposal:** enum methods and protocol satisfaction,
 > [human-readable reports](error-formatting.md), and
 > [general anonymous sums](error-sets.md), and bounded large dense integer/tag
-> jump tables (issue #395; [measurements](../../development/profiling.md#dense-match-dispatch)).
+> jump tables (issue #395; [measurements](../../development/profiling-match-results.md#dense-match-dispatch)).
 >
 > **Remaining:** deep operations on recursive enums
 > (B33). Guards, enums as dictionary keys or set elements, and `match` as an
@@ -223,7 +223,7 @@ only loads payload fields inside the selected case. A verified exhaustive match
 still traps on an invalid runtime tag to expose compiler/runtime bugs. Keep a
 compare chain for small or sparse sets. Sets of at least 256 distinct contiguous
 integer/tag values use a bounded jump table (issue #395). The
-[B19 measurements](../../development/profiling.md#dense-match-dispatch) support
+[B19 measurements](../../development/profiling-match-results.md#dense-match-dispatch) support
 that conservative policy; smaller matches can regress with tables.
 
 Allocation and enum type metadata should live behind a small runtime interface.

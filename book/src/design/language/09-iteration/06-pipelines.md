@@ -433,7 +433,7 @@ list. `reduce` allocates nothing beyond the chunk lists and the jobs.
 
 Each chunk is still a pool job, so with fewer than a few thousand cheap items
 the job overhead exceeds the work. See the
-[parallel pipeline measurements](../../../development/profiling.md#parallel-pipelines).
+[parallel pipeline measurements](../../../development/profiling-parallel-pipeline-results.md#parallel-pipelines).
 
 ## Cost
 
@@ -458,7 +458,7 @@ their call sites (at most 24 meaningful operations). Immutable scalar captures
 can stay in registers. Arithmetic checks and source locations are preserved.
 Larger named callbacks and stored closures retain direct calls; fusion alone
 does not guarantee inline-loop performance for every body.
-The reproducible [benchmark](../../../development/profiling.md#serial-pipeline-callbacks)
+The reproducible [benchmark](../../../development/profiling-pipeline-results.md#serial-pipeline-callbacks)
 covers named callbacks, closure literals, scalar captures and a branching
 callback.
 
