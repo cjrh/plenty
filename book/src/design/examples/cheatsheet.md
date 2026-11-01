@@ -90,8 +90,6 @@ See [numbers](../language/03-types/numbers.md#checked-blocks) and
 ## Text
 
 ```plenty
-from std.fmt import FormatError
-
 def main() -> Result[(), AllocError | IoError | FormatError]:
     name = "Ada"
     greeting = ("Hello, " + name)?

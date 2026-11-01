@@ -23,7 +23,6 @@ import std.io
 import std.net
 import std.time
 import std.tls
-from std.fmt import FormatError
 from std.http.server import Exchange
 from std.http.tls import TlsTransport
 from std.sync import CancellationToken

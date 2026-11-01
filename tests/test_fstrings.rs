@@ -751,3 +751,54 @@ user method"
         assert!(message.contains(expected), "{line}: {message}");
     }
 }
+
+#[test]
+fn format_error_is_a_prelude_name() {
+    // Issue #632: `FormatError` needs no import, with or without an f-string.
+    assert_eq!(
+        run(
+            "def label(n: i64) -> Result[str, FormatError]:\n    f\"n={n}\"\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.InvalidSpec)\n\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    print(label(3)?, bad().is_err())?\n    Ok(())\n"
+        ),
+        "n=3 True"
+    );
+    assert_eq!(
+        run(
+            "def bad() -> Result[(), FormatError]:\n    Err(FormatError.LimitExceeded)\n\ndef main() -> Result[(), IoError]:\n    print(bad().is_err())?\n    Ok(())\n"
+        ),
+        "True"
+    );
+    // An imported user module names it without an import too.
+    let helper = "pub def bad() -> Result[(), FormatError]:\n    Err(FormatError.LimitExceeded)\n";
+    let main = "import helper\ndef main() -> Result[(), IoError]:\n    print(helper.bad().is_err())?\n    Ok(())\n";
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("helper.plenty"), helper).unwrap();
+    let path = directory.path().join("main.plenty");
+    std::fs::write(&path, main).unwrap();
+    plenty::check_file(&path, None).unwrap();
+}
+
+#[test]
+fn declared_or_imported_format_error_takes_precedence_over_the_prelude() {
+    assert_eq!(
+        run(
+            "enum FormatError:\n    Mine\n\ndef main() -> Result[(), IoError]:\n    print(str.repr(FormatError.Mine).unwrap(), f\"{1}\".is_ok())?\n    Ok(())\n"
+        ),
+        "FormatError.Mine True"
+    );
+    // The local enum is not `std.fmt.FormatError`, so an f-string cannot
+    // return through it.
+    let message = support::check_file_error(
+        "enum FormatError:\n    Mine\n\ndef label() -> Result[str, FormatError]:\n    f\"{1}\"\n\ndef main() -> ():\n    pass\n",
+    );
+    assert!(
+        message.contains("expected Result[str, FormatError]"),
+        "{message}"
+    );
+    // `std.report` has its own `FormatError`; importing it shadows the prelude.
+    assert_eq!(
+        run(
+            "from std.report import FormatError\n\ndef bad() -> Result[(), FormatError]:\n    Err(FormatError.WriteZero)\n\ndef main() -> Result[(), IoError]:\n    print(bad().is_err(), f\"{1}\".is_ok())?\n    Ok(())\n"
+        ),
+        "True True"
+    );
+}

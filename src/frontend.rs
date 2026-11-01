@@ -1374,6 +1374,9 @@ struct Parser {
     /// literal, `include_bytes`, or the word `bytes`. See
     /// [`modules::Loader::slice_bytes`].
     mentions_bytes: bool,
+    /// Whether the module has the word `FormatError`, the prelude name that
+    /// `std.fmt` declares.
+    mentions_format_error: bool,
     /// Elements of the lists being parsed; see [`Parser::exact_list`].
     scratch_stmts: Vec<Stmt>,
     scratch_exprs: Vec<Expr>,
@@ -1404,6 +1407,7 @@ impl Parser {
             formats: false,
             slices: false,
             mentions_bytes: false,
+            mentions_format_error: false,
             scratch_stmts: Vec::new(),
             scratch_exprs: Vec::new(),
             scratch_inputs: Vec::new(),
@@ -1465,6 +1469,8 @@ impl Parser {
                     Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes"),
                     _ => false,
                 };
+                self.mentions_format_error |=
+                    matches!(&token.kind, Kind::Word(word) if &**word == "FormatError");
             }
             // An annotation line belongs to the declaration below it, so
             // stacked annotations do not use up the lookahead.
@@ -3748,6 +3754,11 @@ impl Lower<'_> {
         if operand.as_ref().is_some_and(Ty::key_view) {
             return Err(value.at.error("keys() returns a borrowed KeyView without AllocError; remove `?`, or use keys_snapshot(), into_keys(), or to_set() for an owned result"));
         }
+        if matches!(ungroup(value).kind, Expression::Slice(..))
+            && !matches!(&operand, Some(Ty::Enum(t)) if t.propagatable())
+        {
+            return Err(e.at.error(TUPLE_SLICE_TRY));
+        }
         let Some(Ty::Enum(source)) = operand else {
             return Err(e.at.error("`?` requires a Result or Option operand"));
         };
@@ -3833,19 +3844,16 @@ impl Lower<'_> {
                 )));
             }
             let mut member = source_error.to_string();
-            let (origin, import) = match literal {
+            let origin = match literal {
                 Some(FixedError::Collection) => {
-                    (format!("; a collection literal fails with {member}"), "")
+                    format!("; a collection literal fails with {member}")
                 }
                 Some(FixedError::Format) => {
-                    // The sum names the imported spelling the suggestion adds.
+                    // The sum names the prelude spelling.
                     member = "FormatError".into();
-                    (
-                        "; an f-string fails with FormatError".into(),
-                        " after `from std.fmt import FormatError`",
-                    )
+                    "; an f-string fails with FormatError".into()
                 }
-                None => (String::new(), ""),
+                None => String::new(),
             };
             let convert = if literal.is_some() {
                 "match the result"
@@ -3853,7 +3861,7 @@ impl Lower<'_> {
                 "match the operand"
             };
             return Err(e.at.error(format!(
-                "`?` operand error {source_error} cannot propagate as {target_error}{origin}; the function's error type must include it: declare a sum such as Result[_, {member} | {target_error}]{import}, or {convert} and convert the error explicitly"
+                "`?` operand error {source_error} cannot propagate as {target_error}{origin}; the function's error type must include it: declare a sum such as Result[_, {member} | {target_error}], or {convert} and convert the error explicitly"
             )));
         }
         Ok(target)
@@ -5980,6 +5988,11 @@ fn view_type(element: Ty, mutable: bool, at: &Token) -> Result<Ty> {
 
 /// `&xs[a:b]?` would propagate an error that a view cannot produce.
 const VIEW_TRY: &str = "a slice view `&xs[a:b]` does not allocate, so it takes no `?`; write `&xs[a:b]`, or copy the elements with `xs[a:b]?`";
+
+/// `t[a:b]?` on a tuple would propagate an error that the slice cannot
+/// produce: its components are selected at compile time.
+const TUPLE_SLICE_TRY: &str =
+    "a tuple slice `t[a:b]` does not allocate, so it takes no `?`; write `t[a:b]`";
 
 const SLICE_ASSIGNMENT: &str =
     "slice assignment is not supported; assign elements by index, or build a new list";

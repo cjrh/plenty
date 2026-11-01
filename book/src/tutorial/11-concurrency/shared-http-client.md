@@ -15,7 +15,6 @@ import std.http.server
 import std.net
 import std.time
 from std.concurrent import ThreadPoolExecutor, Future, SubmitError, PoolError, FutureError
-from std.fmt import FormatError
 from std.http.client import Client, ClientError, Plain, TcpConnector
 from std.http.server import Exchange
 from std.net import TcpListener, TcpStream

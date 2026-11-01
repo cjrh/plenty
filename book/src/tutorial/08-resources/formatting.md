@@ -31,7 +31,7 @@ of a printed list or other aggregate call `debug`. `std.fmt.to_string` and
 
 ```plenty
 import std.fmt
-from std.fmt import Formatter, FormatError
+from std.fmt import Formatter
 
 pub class Label:
     name: str
@@ -70,7 +70,7 @@ without consuming it:
 
 ```plenty
 import std.fmt
-from std.fmt import Formatter, FormatError
+from std.fmt import Formatter
 
 pub enum ReadError:
     Missing
@@ -105,7 +105,7 @@ the formatter's byte budget and depth limit apply:
 
 ```plenty
 import std.fmt
-from std.fmt import Formatter, FormatError
+from std.fmt import Formatter
 
 pub class Reading:
     line: i64

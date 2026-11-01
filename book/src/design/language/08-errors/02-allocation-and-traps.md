@@ -102,7 +102,8 @@ thread the report has no position.
 | List, text, range, or `Bytes` index out of range | `index out of bounds: index I, length N` |
 | Absent dictionary key in `d[k]` | `dictionary key not found` |
 | A range longer than `i64` | `range length exceeds i64` |
-| Empty `split` separator | `string split requires a nonempty separator` |
+| Empty `split` separator held in a variable; a literal `""` is a compile error | `string split requires a nonempty separator` |
+| `.par(&pool, chunks=n)` with `n < 1` | `par chunks must be positive, got chunks=N` |
 
 A bounds report prints the index as written, before a negative index counts
 from the end. A missing dictionary key is not printed.

@@ -18,7 +18,6 @@ import std.path
 import std.secrets
 import std.time
 from std.bytes import Bytes
-from std.fmt import FormatError
 from std.fs import Root
 from std.http.server import Exchange
 from std.net import TcpStream

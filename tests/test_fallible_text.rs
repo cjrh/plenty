@@ -181,6 +181,16 @@ print("__test_end_no_allocations__").unwrap()
 }
 
 #[test]
+fn split_rejects_a_literal_empty_separator_at_compile_time() {
+    // Issue #629: a literal `""` cannot succeed, so it is a compile error.
+    let message = support::check_error("xs = \"a,b\".split(\"\")");
+    assert!(
+        message.contains("split requires a nonempty separator; split on whitespace with `split()`"),
+        "{message}"
+    );
+}
+
+#[test]
 fn split_rejects_empty_separator_at_runtime() {
     let output = support::run(
         "separator = \"\"\nprint(str.repr(\"abc\".split(separator)).unwrap()).unwrap()",

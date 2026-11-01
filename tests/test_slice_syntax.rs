@@ -215,20 +215,26 @@ def main() -> Result[(), AllocError | IoError]:
     assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n101\n");
 }
 
+// Issue #625: a tuple slice allocates nothing, so it returns the tuple.
 #[test]
 fn tuple_slices_select_components_at_compile_time() {
     native(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def pair() -> (i64, str, bool):
+    (7, "x", True)
+
+def main() -> Result[(), IoError]:
     t = (1, "two", 3.0)
-    print(t[1:]?)?
-    print(t[::-1]?)?
-    print(t[:1]?)?
-    t[5:]?
-    print((4, 5, 6)[-2:]?)?
+    print(t[1:])?
+    print(t[::-1])?
+    first: (i64,) = t[:1]
+    print(first)?
+    print(t[5:])?
+    print((4, 5, 6)[-2:])?
+    print(pair()[1:])?
     Ok(())
 "#,
-        "(\"two\", 3.0)\n(3.0, \"two\", 1)\n(1,)\n(5, 6)",
+        "(\"two\", 3.0)\n(3.0, \"two\", 1)\n(1,)\n()\n(5, 6)\n(\"x\", True)",
     );
 }
 
@@ -285,6 +291,18 @@ def main() -> Result[(), AllocError | IoError | AppendError[Point]]:
 #[case(
     "t = (1, [1].unwrap())\nu = t[1:]",
     "tuple slices of affine components are not supported yet"
+)]
+#[case(
+    "def f() -> Result[(), AllocError]:\n    t = (1, 2, 3)\n    u = t[0:2]?\n    Ok(())",
+    "a tuple slice `t[a:b]` does not allocate, so it takes no `?`; write `t[a:b]`"
+)]
+#[case(
+    "def f() -> Result[(), AllocError]:\n    u = (1, 2, 3)[5:]?\n    Ok(())",
+    "a tuple slice `t[a:b]` does not allocate, so it takes no `?`"
+)]
+#[case(
+    "t = (1, 2, 3)\nu: Result[(i64, i64), AllocError] = t[1:]",
+    "expected Result[tuple[i64, i64], AllocError], got tuple[i64, i64]"
 )]
 #[case(
     "import std.bytes\ndef main() -> ():\n    xs = [std.bytes.from_bytes(b\"a\").unwrap()].unwrap()\n    ys = xs[1:]",

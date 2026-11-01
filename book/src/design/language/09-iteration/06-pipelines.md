@@ -372,7 +372,7 @@ fused steps as one pool job. By default the chunk count is the
 pool's worker count, read when the pipeline runs. `.par(&pool, chunks=N)` sets
 it explicitly; `N` is an `i64` expression and must be positive. A literal zero
 or negative count is a compile error, and a non-positive runtime value traps
-with `integer cast out of range`. An input with fewer items than the count gets
+with `par chunks must be positive, got chunks=N`. An input with fewer items than the count gets
 one chunk per item, so no chunk is empty. Chunk boundaries depend only on the
 input length and the count, never on scheduling.
 
