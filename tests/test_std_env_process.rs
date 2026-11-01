@@ -949,11 +949,11 @@ def rewrite_and_run(rounds: i64) -> Result[i64, AllocError | IoError]:
                 pass
     Ok(ran)
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
-    with spawn(churn, 400)? as a:
-        with spawn(churn, 400)? as b:
-            with spawn(churn, 400)? as c:
-                with spawn(churn, 400)? as d:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(churn, 400).drop_job()? as a:
+        with spawn(churn, 400).drop_job()? as b:
+            with spawn(churn, 400).drop_job()? as c:
+                with spawn(churn, 400).drop_job()? as d:
                     print(rewrite_and_run(300)?)?
                     print(a.join()? + b.join()? + c.join()? + d.join()?)?
     Ok(())

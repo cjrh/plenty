@@ -326,12 +326,12 @@ def nap(count: u32) -> bool:
     wall = wall_now()
     wall.nanoseconds < 1000000000u32 and monotonic_now().duration_since(&start).unwrap().as_milliseconds() >= u64(count)
 
-def main() -> Result[(), AllocError | IoError | PoolError | FutureError | ThreadError | SubmitError[OnceClosure[[], bool]]]:
+def main() -> Result[(), AllocError | IoError | PoolError | FutureError | SpawnError[()] | SubmitError[OnceClosure[[], bool]]]:
     with ThreadPoolExecutor(2, 2)? as pool:
         first = pool.submit(nap, 2u32)?
         second = pool.submit(nap, 1u32)?
         print(first.result()?, second.result()?)?
-    with spawn(nap, 1u32)? as task:
+    with spawn(nap, 1u32).drop_job()? as task:
         pass
     Ok(())
 "#,

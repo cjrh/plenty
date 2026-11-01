@@ -129,7 +129,7 @@ def counts(report: &Report) -> Result[str, AllocError]:
     Ok(text)
 
 # Prints the port, serves until SIGTERM, then prints the report.
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | std.signal.SignalError | ThreadError | WaitError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | std.signal.SignalError | SpawnError[()] | WaitError | AllocError | IoError]:
     signals = std.signal.listen()?
     table = routes()?
     mut proxies = std.http.proxy.proxies(Forwarding.XForwardedFor)?

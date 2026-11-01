@@ -446,14 +446,14 @@ fn filesystem_owners_keep_normal_move_and_worker_checks() {
     for (body, expected) in [
         ("    moved = owner\n    drop(owner)\n", Some("moved")),
         (
-            "    with spawn(worker, owner)? as task:\n        task.join()\n",
+            "    with spawn(worker, owner).drop_job()? as task:\n        task.join()\n",
             None,
         ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
         let source = format!(
-            "from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), AllocError | IoError | ThreadError]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n"
+            "from std.fs import Root, root\nfrom std.path import from_text\nfrom std.thread import spawn\ndef worker(owner: Root) -> i64:\n    0\ndef main() -> Result[(), AllocError | IoError | SpawnError[()]]:\n    location = from_text(\".\")?\n    owner = root(&location)?\n{body}    Ok(())\n"
         );
         std::fs::write(&entry, source).unwrap();
         let checked = plenty::check_file(&entry, None);

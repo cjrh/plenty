@@ -30,7 +30,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[OnceClosure[[], list[
         stderr.contains("SpawnError[OnceClosure[[], list[i64]]"),
         "{stderr}"
     );
-    assert!(stderr.contains(".Unavailable(<closure>)"), "{stderr}");
+    assert!(stderr.contains(".Unavailable(<closure>, 11)"), "{stderr}");
 }
 
 #[test]
@@ -133,7 +133,7 @@ def main() -> Result[(), IoError]:
             match error:
                 case failed: SpawnError[OnceClosure[[], i64]]:
                     match failed:
-                        case SpawnError.Unavailable(job):
+                        case SpawnError.Unavailable(job, _):
                             print("recovered")?
                             print(job())?
                 case other: IoError:

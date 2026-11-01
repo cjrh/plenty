@@ -26,7 +26,7 @@ pub enum ServerError:
     InvalidPattern
     DuplicateRoute
     Allocation(AllocError)
-    Thread(ThreadError)
+    Thread(SpawnError[()])
     Net(NetError)
 
 # What a connection needs from its byte stream: reads and writes bounded by a
@@ -2141,13 +2141,13 @@ def drop_returns[T](state: &mut Admission[T]) -> ():
 
 # Starts `count` workers, each in its own scope, then admits connections on
 # this thread. Every worker is joined before this returns.
-def launch[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](count: i64, listener: TcpListener, inbox: Receiver[Job[T]], outbox: Sender[Job[T]], done: Sender[Report], reports: Receiver[Report], back: Sender[Job[T]], wake: &SocketAddress, admission: Admission[T], opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, workers: i64) -> Result[Report, ThreadError]:
+def launch[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](count: i64, listener: TcpListener, inbox: Receiver[Job[T]], outbox: Sender[Job[T]], done: Sender[Report], reports: Receiver[Report], back: Sender[Job[T]], wake: &SocketAddress, admission: Admission[T], opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken, cancel: &CancellationToken, workers: i64) -> Result[Report, SpawnError[()]]:
     if count == 0:
         drop(inbox)
         drop(done)
         drop(back)
         return Ok(admit(listener, outbox, reports, admission, opener, config, stop, cancel, workers))
-    mut result: Result[Report, ThreadError] = Ok(empty_report())
+    mut result: Result[Report, SpawnError[()]] = Ok(empty_report())
     with spawn(worker, inbox.share(), done.share(), back.share(), copy_address(wake), opener, router, handler, config, stop, cancel, shared_sink(&config.events))? as task:
         result = launch(count - 1, listener, inbox, outbox, done, reports, back, wake, admission, opener, router, handler, config, stop, cancel, workers)
     result

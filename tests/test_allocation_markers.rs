@@ -12,9 +12,9 @@ fn worker_allocations_do_not_trip_parent_region() {
 def work() -> ():
     values = [1, 2, 3].unwrap()
     drop(values)
-def main() -> Result[(), AllocError | ThreadError | IoError]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
     print("__test_begin_no_allocations__")?
-    with spawn(work)?:
+    with spawn(work).drop_job()?:
         pass
     print("__test_end_no_allocations__")?
     Ok(())
@@ -40,9 +40,9 @@ def work() -> ():
     drop(values)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-def main() -> Result[(), AllocError | ThreadError | IoError]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
     print("__test_begin_no_allocations__")?
-    with spawn(work)?:
+    with spawn(work).drop_job()?:
         pass
     print("__test_end_no_allocations__")?
     Ok(())
@@ -66,11 +66,11 @@ fn worker_region_cannot_hide_parent_allocation_attempts() {
 def work() -> ():
     print("__test_begin_no_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-def main() -> Result[(), AllocError | ThreadError | IoError]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
     print("__test_begin_no_allocations__")?
     values = [1, 2, 3]?
     drop(values)
-    with spawn(work)?:
+    with spawn(work).drop_job()?:
         pass
     print("__test_end_no_allocations__")?
     Ok(())

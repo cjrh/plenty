@@ -845,7 +845,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     conn.inner.shutdown(Shutdown.Write).unwrap()
     Ok(served)
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -922,7 +922,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     mut kept = std.http.release(&mut body).unwrap()
     Ok(outcome.concat(" ")?.concat(&str.repr(&kept.inner.failure)?)?.concat(" ")?.concat(&str.from(out.len())?)?)
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | std.io.StreamError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
     listener = listen(&loopback_v4(0u16), 4).unwrap()

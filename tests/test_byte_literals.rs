@@ -111,7 +111,7 @@ def zeros(value: bytes) -> i64:
             count += 1
     count
 
-def main() -> Result[(), AllocError | IoError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     gif = Format("gif", b"GIF8")
     print(gif.magic)?
     print(pick(True))?
@@ -121,7 +121,7 @@ def main() -> Result[(), AllocError | IoError | ThreadError]:
     names = {b"GIF8": "gif"}?
     print(names[gif.magic])?
     print([b"a", b"\x01"]?)?
-    with spawn(zeros, b"\x00a\x00")? as task:
+    with spawn(zeros, b"\x00a\x00").drop_job()? as task:
         print(task.join())?
     tag = b"tag"
     measure = def [tag]() -> i64:

@@ -28,7 +28,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
 
 type SocketOperationError = RangeError | NetError | std.bytes.BytesError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | SocketOperationError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | SocketOperationError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut listener = listen(&loopback_v4(0u16), 8)?

@@ -3,15 +3,14 @@
 `with spawn(job)? as task:` moves a concrete wholly owned zero-argument closure
 into a worker. Reusable and one-shot closures are accepted; `def once` permits
 moving a capture into the result. Borrowed captures and generator frames are
-excluded. Wrap affine named arguments in an owned closure to form one recoverable
-job. The [scoped-thread lifetime and join rules](threads.md) still apply.
+excluded. A [named start](threads.md#start-failures) with owned arguments binds
+them into such a job. The [scoped-thread lifetime and join rules](threads.md)
+still apply.
 
 The start expression has result `Result[(), SpawnError[F]]`, where `F` is the
-concrete job type. Its one variant, `SpawnError[F].Unavailable(job)`, returns
-the complete unstarted job after any
-[native start failure](threads.md#start-failures).
-
-The error does not retain the native code. Returning, matching,
+concrete job type. Its one variant, `SpawnError[F].Unavailable(job, code)`,
+returns the complete unstarted job and the `i32` native code after any
+[native start failure](threads.md#start-failures). Returning, matching,
 dropping, and retrying the error and job allocate nothing. Capture expressions
 have already run, but the worker has not. `?` widens the error into an enclosing
 sum containing `SpawnError[F]`, which keeps the job. A kept job's endpoints stay
@@ -28,8 +27,8 @@ function or a generic helper.
 
 `with spawn(job).drop_job()? as task:` gives up the job instead. `drop_job()`
 converts `Result[(), SpawnError[F]]` to `Result[(), SpawnError[()]]`: on failure
-it drops the job and its captures at the start, and the error keeps only its
-variant, `SpawnError[()].Unavailable(())`. On success it changes nothing. One
+it drops the job and its captures at the start, and the error keeps its variant
+and code, `SpawnError[()].Unavailable((), code)`. On success it changes nothing. One
 `SpawnError[()]` member covers every job, so a function can start distinct
 closures and propagate one precise error:
 
@@ -43,7 +42,7 @@ def main() -> Result[(), IoError | SpawnError[()]]:
 ```
 
 Because the job is gone before `?` runs its exit's joins, its endpoints cannot
-block them. The conversion copies a tag and allocates nothing. `drop_job()` also
+block them. The conversion copies a tag and the code and allocates nothing. `drop_job()` also
 applies to a `SpawnError[F]` value, or a Result carrying `SubmitError[F]`, as
 for [pool submissions](executors.md). Erasing the error into `Failure` drops the
 job too, but loses the error type; use it only when no precise error fits.

@@ -53,11 +53,11 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
             print(reply.status, reply.body.to_text()?)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.net.NetError | HandlerError | VisitError]:
+def main() -> Result[(), SpawnError[()] | std.net.NetError | HandlerError | VisitError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.actor.http.server.serve(listener, make_counter, &std.actor.http.server.config(), &stop)?
         task.join()?
         print(report.requests)?

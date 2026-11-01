@@ -76,7 +76,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), VisitError]:
 
 type HttpsSetupError = std.http.server.ServerError | std.net.NetError | std.tls.TlsError
 
-def main() -> Result[(), ThreadError | AllocError | HttpsSetupError | VisitError]:
+def main() -> Result[(), SpawnError[()] | AllocError | HttpsSetupError | VisitError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Count)?
     routes.add("PUT", "/upload", Route.Count)?
@@ -84,7 +84,7 @@ def main() -> Result[(), ThreadError | AllocError | HttpsSetupError | VisitError
     port = listener.local_address()?.port
     stop = CancellationToken()?
     server = std.tls.server_config(&leaf_pem(), &leaf_key())?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         drop(std.http.tls.serve(listener, server, &routes, &Site(), &std.http.server.config(), &stop)?)
         task.join()?
     Ok(())

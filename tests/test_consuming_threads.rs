@@ -66,7 +66,7 @@ def run[F: OnceCallable[[], i64]](job: F) -> i64:
             value
         case Err(error):
             match error:
-                case SpawnError.Unavailable(job):
+                case SpawnError.Unavailable(job, _):
                     job()
                 case SpawnError.PermissionDenied(job):
                     job()
@@ -98,7 +98,7 @@ def retry[F: OnceCallable[[], i64]](job: F) -> i64:
             value
         case Err(error):
             match error:
-                case SpawnError.Unavailable(job):
+                case SpawnError.Unavailable(job, _):
                     print("__test_restore_thread_starts__").unwrap()
                     attempt(job).unwrap()
 span = range(10, 20)
@@ -190,7 +190,7 @@ print(str.repr(failed).unwrap()).unwrap()
 print("__test_restore_thread_starts__").unwrap()
 print(str.repr(attempt(make())).unwrap()).unwrap()
 "#,
-        "__test_begin_no_allocations__\n__test_fail_thread_starts__\njob\nframe\n__test_end_no_allocations__\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable(()))\n__test_restore_thread_starts__\njob\nframe\nResult[(), SpawnError[()]].Ok(())\n",
+        "__test_begin_no_allocations__\n__test_fail_thread_starts__\njob\nframe\n__test_end_no_allocations__\nResult[(), SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\njob\nframe\nResult[(), SpawnError[()]].Ok(())\n",
     );
 }
 
@@ -210,7 +210,7 @@ print(submit(job).unwrap()).unwrap()
         "started\n5\n",
     );
     let error = support::check_source(
-        "def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, ThreadError | IoError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\nn = 1\njob = def once [n]() -> i64:\n    n\nsubmit(job).unwrap()\n",
+        "def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[()] | IoError]:\n    with spawn(job)? as task:\n        return Ok(task.join())\nn = 1\njob = def once [n]() -> i64:\n    n\nsubmit(job).unwrap()\n",
     )
     .unwrap_err()
     .to_string();
@@ -236,7 +236,7 @@ def retry[F: OnceCallable[[], i64]](job: F) -> i64:
             match error:
                 case failed: SpawnError[F]:
                     match failed:
-                        case SpawnError.Unavailable(job):
+                        case SpawnError.Unavailable(job, _):
                             print("__test_restore_thread_starts__").unwrap()
                             attempt(job).unwrap()
                 case _:
@@ -248,5 +248,63 @@ print("__test_fail_thread_starts__").unwrap()
 print(retry(job)).unwrap()
 "#,
         "__test_fail_thread_starts__\n__test_restore_thread_starts__\n8\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_named_start_with_owned_arguments_returns_them_with_the_code() {
+    // Issue #630: owned arguments bind a one-shot job, so the caller can
+    // retry the start or run the job locally; the error keeps the native code.
+    runs(
+        r#"
+def total(values: list[i64], scale: i64) -> i64:
+    values[0] * scale + values[1] * scale
+def attempt(values: list[i64]) -> Result[i64, SpawnError[OnceClosure[[], i64]]]:
+    with spawn(total, values, 10)? as task:
+        return Ok(task.join())
+print("__test_fail_thread_starts__").unwrap()
+match attempt([1, 2].unwrap()):
+    case Ok(value):
+        print(value).unwrap()
+    case Err(SpawnError.Unavailable(job, code)):
+        print("__test_restore_thread_starts__").unwrap()
+        print(code).unwrap()
+        print(job()).unwrap()
+"#,
+        "__test_fail_thread_starts__\n__test_restore_thread_starts__\n11\n30\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_borrowing_named_start_reports_job_free_spawn_error() {
+    // A borrowed argument cannot be returned in an error, so this start
+    // reports the job-free `SpawnError[()]`.
+    runs(
+        r#"
+def total(values: &list[i64], scale: i64) -> i64:
+    values[0] * scale
+def attempt(values: &list[i64]) -> Result[i64, SpawnError[()]]:
+    with spawn(total, values, 10)? as task:
+        return Ok(task.join())
+values = [4, 5].unwrap()
+print("__test_fail_thread_starts__").unwrap()
+print(str.repr(attempt(&values)).unwrap()).unwrap()
+print("__test_restore_thread_starts__").unwrap()
+print(attempt(&values).unwrap()).unwrap()
+"#,
+        "__test_fail_thread_starts__\nResult[i64, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n40\n",
+    );
+}
+
+#[test]
+fn owned_named_start_declared_with_thread_error_names_drop_job() {
+    let error = support::check_error(
+        "def total(values: list[i64]) -> i64:\n    values[0]\ndef main() -> Result[(), ThreadError | AllocError]:\n    with spawn(total, [1].unwrap())? as task:\n        task.join()\n    Ok(())\n",
+    );
+    assert!(
+        error.contains("call `drop_job()` on the start and declare the job-free `SpawnError[()]`"),
+        "{error}"
     );
 }

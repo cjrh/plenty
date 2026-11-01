@@ -76,9 +76,9 @@ def serve(stop: CancellationToken) -> ():
 def prepare() -> Result[(), str]:
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError | str]:
     stop = CancellationToken()?
-    with spawn(serve, stop.share())?:
+    with spawn(serve, stop.share()).drop_job()?:
         prepare()?
         print("ready")?
         stop.cancel()
@@ -101,9 +101,9 @@ def serve(stop: CancellationToken) -> ():
 def prepare() -> Result[(), str]:
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError | str]:
     stop = CancellationToken()?
-    with spawn(serve, stop.share())?, stop.cancel_on_exit():
+    with spawn(serve, stop.share()).drop_job()?, stop.cancel_on_exit():
         prepare()?
         print("ready")?
     Ok(())
@@ -128,9 +128,9 @@ def client(stop: CancellationToken) -> Result[(), str]:
     stop.cancel()
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError | str]:
     stop = CancellationToken()?
-    with spawn(client, stop.share())? as task:
+    with spawn(client, stop.share()).drop_job()? as task:
         stop.wait()
         task.join()?
     Ok(())
@@ -153,9 +153,9 @@ def client(stop: CancellationToken) -> Result[(), str]:
         prepare()?
     Ok(())
 
-def main() -> Result[(), AllocError | ThreadError | IoError | str]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError | str]:
     stop = CancellationToken()?
-    with spawn(client, stop.share())? as task:
+    with spawn(client, stop.share()).drop_job()? as task:
         stop.wait()
         task.join()?
         print("client finished")?

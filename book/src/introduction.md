@@ -1,10 +1,8 @@
 # Introduction
 
-Plenty is a programming language that answers the question,
-"Is it possible to build a language with Python syntax but Rust
-performance and guarantees?".
-
+Plenty is a general-purpose programming language.
 Plenty is statically-typed and compiles ahead of time to native code.
+Plenty is most heavily influenced by Python, Rust, and Zig.
 
 ## Why the name "Plenty"?
 

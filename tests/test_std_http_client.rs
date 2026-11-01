@@ -1056,7 +1056,7 @@ def canceller(token: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(100u32))
     token.cancel()
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/old", Route.Old)?
@@ -1064,7 +1064,7 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.http.server.serve(listener, &routes, &Site(), &std.http.server.config(), &stop)?
         task.join()?
         print(report.connections, report.requests)?
@@ -1073,7 +1073,7 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
     quiet = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     url = "http://127.0.0.1:".concat(&str.from(i64(quiet.local_address()?.port))?)?.concat("/")?
     halt = CancellationToken()?
-    with spawn(silent, quiet, halt.share())? as server, halt.cancel_on_exit():
+    with spawn(silent, quiet, halt.share()).drop_job()? as server, halt.cancel_on_exit():
         never = CancellationToken()?
         mut config = hc.config()?
         config.head_timeout = std.time.milliseconds(100u32)
@@ -1091,7 +1091,7 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
             case Err(error):
                 print(error)?
         cancel = CancellationToken()?
-        with spawn(canceller, cancel.share())? as timer:
+        with spawn(canceller, cancel.share()).drop_job()? as timer:
             match hc.client(hc.config()?)?.get(&url, &later()?, &cancel):
                 case Ok(_):
                     print("answered")?

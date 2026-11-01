@@ -265,12 +265,12 @@ def ends_with_borrowed_manager() -> ():
     mut scope = Scope("exit borrowed")
     with &mut scope:
         print("body").unwrap()
-def returns_inside_worker_scope() -> Result[i64, AllocError | ThreadError]:
+def returns_inside_worker_scope() -> Result[i64, AllocError | SpawnError[()]]:
     local = Guard("local")
     mut count = 4
     with spawn(increment, &mut count)?:
         return checked(3, 4)
-def main() -> Result[(), AllocError | ThreadError | IoError]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
     print(returns_inside())?
     ends_with_borrowed_manager()
     print(returns_inside_worker_scope()?)?

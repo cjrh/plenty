@@ -56,13 +56,13 @@ def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
         socket.close(1000, "bye", &soon()?, &never)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | ChatError | IoError]:
+def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.NetError | ChatError | IoError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/chat", Route.Chat)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(chat, port, stop.share())? as task:
+    with spawn(chat, port, stop.share()).drop_job()? as task:
         drop(std.http.server.serve(listener, &routes, &Shout(), &std.http.server.config(), &stop)?)
         task.join()?
     Ok(())

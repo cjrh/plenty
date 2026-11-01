@@ -151,13 +151,15 @@ impl Lower<'_> {
             ExecutorOp::Submit(job, name == "submit_nowait")
         } else if matches!(name, "map" | "map_result" | "reduce_tree") {
             self.executor_parallel(args, &base.at, name, ops)?
-        } else if name == "shutdown" && args.len() <= 1 {
+        } else if name == "shutdown" {
             if let Some(arg) = args.first() {
-                let actual = self.expr_expected(arg, Some(Ty::Bool), ops)?;
-                self.same(actual, Some(Ty::Bool), &arg.at)?;
-            } else {
-                ops.push(Op::PushBool(false));
+                return Err(arg.at.error(
+                    "shutdown() takes no argument; to drop queued jobs, call pool.cancel_pending() before pool.shutdown()",
+                ));
             }
+            // The runtime entry still takes its cancel flag; queued jobs are
+            // cancelled only through cancel_pending().
+            ops.push(Op::PushBool(false));
             ExecutorOp::Shutdown
         } else if name == "cancel_pending" && args.is_empty() {
             ExecutorOp::CancelPending
@@ -196,6 +198,19 @@ impl Lower<'_> {
                 at.error("executor arguments must be owned; borrowed work belongs in scoped spawn")
             );
         }
+        Self::bind_named_job(worker, output, captures, at, ops).map(Ty::Closure)
+    }
+
+    /// Bind the owned arguments already on the stack, for the statically
+    /// selected `worker`, into a one-shot zero-argument closure. `spawn` and
+    /// `submit` share it, so both return the same callable job on failure.
+    pub(super) fn bind_named_job(
+        worker: String,
+        output: Option<Ty>,
+        captures: Vec<(String, Ty)>,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Arc<crate::closure::ClosureType>> {
         let closure = Arc::new(
             crate::closure::ClosureType::new(
                 worker,
@@ -211,7 +226,7 @@ impl Lower<'_> {
             .map_err(|e| at.error(e))?,
         );
         ops.push(Op::ClosureNew(closure.clone()));
-        Ok(Ty::Closure(closure))
+        Ok(closure)
     }
 
     fn executor_parallel(

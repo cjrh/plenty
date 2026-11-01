@@ -101,7 +101,7 @@ def client(port: u16, stop: CancellationToken) -> Result[(), FetchError]:
 
 type FileSiteError = std.fs.FsError | std.io.StreamError | std.http.server.ServerError | std.secrets.SecretsError | std.net.NetError
 
-def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError | FetchError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | FileSiteError | FetchError]:
     parent = std.fs.root(&std.path.from_text(".")?)?
     mut directory = std.fs.temporary_dir(&parent, &std.path.from_text("plenty-site-")?, 8)?
     for name in ["index.html", ".env"]?:
@@ -118,7 +118,7 @@ def main() -> Result[(), ThreadError | IoError | AllocError | FileSiteError | Fe
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    with spawn(client, port, stop.share())? as task:
+    with spawn(client, port, stop.share()).drop_job()? as task:
         std.http.server.serve(listener, &routes, &site, &std.http.server.config(), &stop)?
         task.join()?
     for name in ["index.html", ".env"]?:

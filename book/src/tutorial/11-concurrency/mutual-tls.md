@@ -65,7 +65,7 @@ def greet(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, ca
     Ok(())
 
 # The client's outcome is printed after the server's, once the server is done.
-def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), ConnectionError | ThreadError]:
+def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), ConnectionError | SpawnError[()]]:
     address = listener.local_address()?
     mut reply = std.bytes.with_capacity(16)?
     reply.resize(16, 0u8)?
@@ -83,7 +83,7 @@ def ask(listener: &TcpListener, server: &ServerConfig, client: &ClientConfig, de
                 print(error)?
     Ok(())
 
-def main() -> Result[(), ConnectionError | ThreadError | AllocError | RangeError]:
+def main() -> Result[(), ConnectionError | SpawnError[()] | AllocError | RangeError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut server = std.tls.server_builder(&leaf_pem(), &leaf_key())?
@@ -130,5 +130,5 @@ revocation lists, and give a server several certificates to choose by the
 name the client asked for. See [`std.tls`](../../design/stdlib/tls.md).
 
 `ConnectionError` preserves the concrete I/O, networking, TLS, and byte-buffer
-errors from the connection helpers. `ask` adds `ThreadError` for the scoped
+errors from the connection helpers. `ask` adds `SpawnError[()]` for the scoped
 start, and `main` adds the allocation and range errors from setup.

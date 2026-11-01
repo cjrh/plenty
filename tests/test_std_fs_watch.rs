@@ -66,11 +66,11 @@ def observe(watcher: std.fs.watch.Watcher, path: std.path.Path) -> bool:
     second = owned.add(&path).unwrap()
     owned.poll().unwrap() == 0 and first == second
 
-def main() -> Result[(), IoError | AllocError | WatchError | ThreadError]:
+def main() -> Result[(), IoError | AllocError | WatchError | SpawnError[()]]:
     before = descriptors()?
     for index in range(20):
         watcher = std.fs.watch.watcher()?
-        with spawn(observe, watcher, std.path.from_text(".")?)? as task:
+        with spawn(observe, watcher, std.path.from_text(".")?).drop_job()? as task:
             if not task.join():
                 print("unexpected")?
     print(descriptors()? == before)?

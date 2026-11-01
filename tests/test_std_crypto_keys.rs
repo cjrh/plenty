@@ -820,7 +820,7 @@ fn rsa_keys_move_between_threads() {
 def sign(key: &std.crypto.RsaPrivateKey, message: &Bytes) -> Result[Bytes, AdvancedError]:
     key.sign(RsaScheme.Pkcs1Sha256, message)
 
-def main() -> Result[(), AllocError | IoError | ThreadError | std.bytes.BytesError | AdvancedError | std.encoding.EncodingError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.bytes.BytesError | AdvancedError | std.encoding.EncodingError]:
     der = unhex("$RSA_PKCS8")?
     message = text("$RS256_INPUT")?
     expected = unhex("$RS256_SIG")?

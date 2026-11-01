@@ -393,7 +393,7 @@ def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
     Ok(())
 
 # Each job has its own closure type, so each needs its own SpawnError or SubmitError.
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | ThreadError | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
+def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SpawnError[()] | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
     sender, receiver = channel[i64](2)?
     with spawn(def once [sender]() -> Result[(), SendError[i64]]: produce(sender))? as task:
         mut total = 0
@@ -418,7 +418,7 @@ def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | Poo
     assert_eq!(output(source), "30\n3\n[3, 6, 9]\n");
     // Same rule and wording as a named closure moved into `spawn`.
     let error = diagnostic(
-        "def main() -> Result[(), AllocError | ThreadError | IoError]:\n    values = [1]?\n    with spawn(def [&values]() -> i64: len(values))? as task:\n        print(task.join())?\n    Ok(())\n",
+        "def main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    values = [1]?\n    with spawn(def [&values]() -> i64: len(values))? as task:\n        print(task.join())?\n    Ok(())\n",
     );
     assert!(
         error.contains(

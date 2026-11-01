@@ -596,14 +596,14 @@ fn buffers_move_across_threads_channels_and_collections() {
 def work(data: Bytes) -> ():
     print(data.len(), data.get(3).unwrap()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ChannelError | SendError[std.bytes.Bytes] | RecvError | ThreadError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ChannelError | SendError[std.bytes.Bytes] | RecvError | SpawnError[()]]:
     mut buffer = std.bytes.from_text("abc")?
     buffer.push(200u8)?
     sender, receiver = channel[Bytes](1)?
     sender.send(buffer.copy()?)?
     received = receiver.recv()?
     print(received == buffer)?
-    with spawn(work, buffer)?:
+    with spawn(work, buffer).drop_job()?:
         pass
     items = [std.bytes.empty()?, std.bytes.from_text("x")?]?
     print(len(items), items[1].len())?

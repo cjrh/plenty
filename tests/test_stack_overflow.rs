@@ -45,7 +45,7 @@ fn on_main(depth: i64) -> String {
 
 fn on_scoped_worker(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), AllocError | ThreadError | IoError]:\n    with spawn(depth, {depth})? as worker:\n        print(worker.join())?\n    Ok(())\n"
+        "def main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    with spawn(depth, {depth}).drop_job()? as worker:\n        print(worker.join())?\n    Ok(())\n"
     )
 }
 

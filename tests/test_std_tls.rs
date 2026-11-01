@@ -49,7 +49,7 @@ fn program(declarations: &str, body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{}{declarations}\ndef main() -> Result[(), std.bytes.BytesError | RangeError | ThreadError | AllocError | IoError]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
+        "{}{declarations}\ndef main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
         HEADER.replace("FIXTURES", &fixtures())
     )
 }
@@ -147,7 +147,7 @@ with spawn(echo, &listener, &server, &deadline, &cancel)? as worker:
 }
 
 const VERIFY: &str = r#"
-def attempt(chain: &str, roots: &str, name: &str) -> Result[(), RangeError | ThreadError | AllocError | IoError]:
+def attempt(chain: &str, roots: &str, name: &str) -> Result[(), RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -491,7 +491,7 @@ def ping(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken
 
 # One session: the server's report, then the client's, then the server's
 # result. A failure prints where it happened.
-def session(server: &ServerConfig, client: &ClientConfig, name: &str) -> Result[(), RangeError | ThreadError | AllocError | IoError]:
+def session(server: &ServerConfig, client: &ClientConfig, name: &str) -> Result[(), RangeError | SpawnError[()] | AllocError | IoError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?
     listener = listen(&loopback_v4(0u16), 8).unwrap()

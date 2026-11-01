@@ -1394,11 +1394,11 @@ def scaled{i}(n: i64) -> i64:
     n * {i} + 1
 
 # Spawn, pool and map jobs each contribute their own errors.
-def run{i}(n: i64) -> Result[(), AllocError | IoError | PoolError | PoolMapError | ThreadError]:
+def run{i}(n: i64) -> Result[(), AllocError | IoError | PoolError | PoolMapError | SpawnError[()]]:
     for value in count{i}(n):
         print(value)?
     print(table{i}(n)?[\"k{i}\"][1] // n)?
-    with spawn(worker{i}, n)? as task:
+    with spawn(worker{i}, n).drop_job()? as task:
         print(task.join()?)?
     with ThreadPoolExecutor(2, 2)? as pool:
         print(pool.map(scaled{i}, range(n))?)?

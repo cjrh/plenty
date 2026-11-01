@@ -25,7 +25,7 @@ def greet(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     stream.write_all_before(&reply, deadline, cancel)?
     stream.close()
 
-def main() -> Result[(), ThreadError | IoError | AllocError | RangeError | NetError | StreamError | std.bytes.BytesError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | RangeError | NetError | StreamError | std.bytes.BytesError]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     listener = listen(&loopback_v4(0u16), 8)?

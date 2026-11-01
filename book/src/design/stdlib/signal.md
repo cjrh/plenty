@@ -90,7 +90,7 @@ whose shutdown and drain begin when `stop` is cancelled:
 ```text
 signals = std.signal.listen()?
 stop = CancellationToken()?
-with spawn(std.signal.cancel_on, signals, stop.share())? as watcher, stop.cancel_on_exit():
+with spawn(std.signal.cancel_on, signals, stop.share()).drop_job()? as watcher, stop.cancel_on_exit():
     served = std.http.server.serve(listener, &routes, &handler, &config, &stop)
     stop.cancel()
     watcher.join()?

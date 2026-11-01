@@ -7,24 +7,24 @@ rejects such waits at compile time. These habits keep your programs clear of
 the whole class:
 
 1. **Move each endpoint into one worker as an argument:**
-   `spawn(produce, sender)?`. A failed start then drops it.
+   `spawn(produce, sender).drop_job()?`. A failed start then drops it.
 2. **Guard each endpoint you keep as the last manager:**
-   `with spawn(produce, sender)?, receiver as inbox:`.
+   `with spawn(produce, sender).drop_job()?, receiver as inbox:`.
 3. **To wait inside the block, end the guard first.** Open it before any
    statement that can leave the block, and wait after it ends.
 4. **Wait in a statement of its own.** An endpoint moved into the same
    expression is still held while the wait runs.
-5. **Call `drop_job()` on a closure start you will not retry.**
+5. **Call `drop_job()` on a start you will not retry.**
 6. **Start workers outside a lock block,** and lock inside them.
 7. **Cancel a token on every exit** when a worker waits for it:
-   `with spawn(serve, stop.share())?, stop.cancel_on_exit():`.
+   `with spawn(serve, stop.share()).drop_job()?, stop.cancel_on_exit():`.
 
 The [previous lesson](channels-and-shutdown.md) showed habits 1 to 3, and
 [the mutex lesson](shared-mutex.md) showed habit 6.
 [Cooperative cancellation](cooperative-cancellation.md#cancel-on-every-exit)
 shows habit 7. Executor pools follow the
 same habits, as the [future wait lesson](future-cancellation-and-waits.md)
-shows. This lesson covers several producers and closure starts.
+shows. This lesson covers several producers and failed starts.
 
 ## Several producers
 
@@ -48,10 +48,10 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ThreadError | ChannelError | IoError]:
+def main() -> Result[(), SpawnError[()] | ChannelError | IoError]:
     sender, receiver = channel[i64](2)?
     second = sender.share()
-    with spawn(produce, sender)?, spawn(produce, second)?, receiver as inbox:
+    with spawn(produce, sender).drop_job()?, spawn(produce, second).drop_job()?, receiver as inbox:
         print(drain(inbox))?
     Ok(())
 ```
@@ -80,10 +80,10 @@ def total(receiver: Receiver[i64]) -> i64:
                 break
     sum
 
-def main() -> Result[(), ThreadError | ChannelError | IoError]:
+def main() -> Result[(), SpawnError[()] | ChannelError | IoError]:
     sender, receiver = channel[i64](2)?
-    with spawn(total, receiver)? as consumer:
-        with sender as outbox, spawn(produce, outbox.share())?, spawn(produce, outbox.share())?:
+    with spawn(total, receiver).drop_job()? as consumer:
+        with sender as outbox, spawn(produce, outbox.share()).drop_job()?, spawn(produce, outbox.share()).drop_job()?:
             pass
         print(consumer.join())?
     Ok(())
@@ -99,11 +99,11 @@ producers, then drops the last sender. The consumer sees disconnection and
 returns, so `consumer.join()` after the block cannot hang. If a producer fails
 to start, `?` leaves through the same exits in the same order.
 
-## Closure starts keep their endpoints
+## Failed starts keep their endpoints
 
-A closure job that fails to start returns inside `SpawnError[F]`, with every
-endpoint it captured. `?` keeps that error until the function returns, which is
-after the block's joins:
+A job that fails to start returns inside `SpawnError[F]`, with every endpoint it
+captured. `?` keeps that error until the function returns, which is after the
+block's joins:
 
 ```plenty-error
 def report(receiver: Receiver[i64]) -> Result[(), IoError]:
@@ -121,14 +121,14 @@ def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-type Errors = ChannelError | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | ThreadError
+type Errors = ChannelError | SpawnError[()] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]]
 
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
     count = 5
     job = def once [sender, count]() -> Result[(), SendError[i64]]:
         produce(sender, count)
-    with spawn(report, receiver)?, spawn(job)?:
+    with spawn(report, receiver).drop_job()?, spawn(job)?:
         pass
     Ok(())
 ```
@@ -157,14 +157,14 @@ def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-type Errors = ChannelError | SpawnError[()] | ThreadError
+type Errors = ChannelError | SpawnError[()]
 
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
     count = 5
     job = def once [sender, count]() -> Result[(), SendError[i64]]:
         produce(sender, count)
-    with spawn(report, receiver)?, spawn(job).drop_job()?:
+    with spawn(report, receiver).drop_job()?, spawn(job).drop_job()?:
         pass
     Ok(())
 ```
@@ -173,8 +173,8 @@ def main() -> Result[(), Errors]:
 30
 ```
 
-A named start, `spawn(produce, sender, count)?`, needs no closure here and
-drops its arguments on failure too.
+A named start, `spawn(produce, sender, count)`, binds the same kind of job from
+its arguments, so it needs `drop_job()` here too.
 
 The [channel reference](../../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
 lists every way a function can hold an endpoint, and the programs the check

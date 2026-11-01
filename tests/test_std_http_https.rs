@@ -164,7 +164,7 @@ def proxy(listener: TcpListener, tls: ServerConfig) -> Result[str, std.bytes.Byt
     refused.write_all_before(&denied, &later()?, &never)?
     Ok(log)
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | std.io.StreamError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | std.http.server.ServerError | std.io.StreamError | SpawnError[()] | AllocError | IoError]:
     never = CancellationToken()?
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Echo)?
@@ -174,7 +174,7 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
     stop = CancellationToken()?
     mut config = std.http.server.config()
     config.workers = 1
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         report = std.http.tls.serve(listener, serving("leaf.pem")?, &table, &Echo(), &config, &stop)?
         task.join()?
         # The client that rejects the certificate alerts mid-handshake;
@@ -183,14 +183,14 @@ def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetErro
     print("--- the certificate must name the host")?
     other = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     other_port = other.local_address()?.port
-    with spawn(impostor, other, serving("second.pem")?)? as task:
+    with spawn(impostor, other, serving("second.pem")?).drop_job()? as task:
         mut client = std.http.https.client(hc.config()?, trusting("ca.pem")?)?
         show(client.get(&url("localhost", other_port, "/")?, &later()?, &never))?
         print(task.join()?)?
     print("--- https through a CONNECT tunnel")?
     tunnels = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     proxy_port = tunnels.local_address()?.port
-    with spawn(proxy, tunnels, serving("leaf.pem")?)? as task:
+    with spawn(proxy, tunnels, serving("leaf.pem")?).drop_job()? as task:
         mut settings = hc.config()?
         mut via = hc.proxy(&"http://127.0.0.1:".concat(&str.from(i64(proxy_port))?)?)?
         via.authorization = Some("Basic cHJveHk=")
@@ -270,10 +270,10 @@ def fetch(port: u16, max_line: i64) -> Result[(), hc.ClientError | RangeError | 
             print(error)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | ThreadError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | std.net.NetError | RangeError | SpawnError[()] | AllocError | IoError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
-    with spawn(proxy, listener)? as task:
+    with spawn(proxy, listener).drop_job()? as task:
         fetch(port, 32)?
         # The default limits accept the reply; the TLS handshake then fails
         # on the closed connection.
@@ -398,14 +398,14 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
             print(first_response(port)?)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.http.server.ServerError | ThreadError | Unexpected | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.http.server.ServerError | SpawnError[()] | Unexpected | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Hello)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
     tls = std.tls.server_config(&fixture("leaf.pem")?, &fixture("leaf.key")?).unwrap()
-    with spawn(visit, port, stop.share())? as task:
+    with spawn(visit, port, stop.share()).drop_job()? as task:
         std.http.tls.serve(listener, tls, &table, &Hello(), &std.http.server.config(), &stop)?
         task.join()?
     Ok(())

@@ -357,7 +357,7 @@ def bump(v: &mut [i64]) -> ():
     for x in v:
         *x += 1
 
-def main() -> Result[(), ThreadError | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
     mut xs = [1, 2, 3, 4]?
     with spawn(total, &xs[:2])? as a, spawn(total, &xs[2:])? as b:
         print(a.join(), b.join())?
