@@ -7,7 +7,8 @@ is no garbage collector and no hidden allocation.
 
 Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
 tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
-its parts copy. A class copies only when it is declared [`@copy`](../../../../book/src/design/language/03-types/classes.md#copy-classes).
+its parts copy. A class copies only when it is declared [`@copy`](../../../../book/src/design/language/03-types/classes.md#copy-classes), and a generic one only when its type arguments
+also copy.
 Every other value moves: collections, boxes, closures that capture,
 generators, and other class instances.
 

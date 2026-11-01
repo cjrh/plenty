@@ -53,7 +53,8 @@ executables, or tests. See [workflow and packages](references/workflow.md).
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
   tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
-  its parts copy. A class copies only when it is declared [`@copy`](../../../book/src/design/language/03-types/classes.md#copy-classes).
+  its parts copy. A class copies only when it is declared [`@copy`](../../../book/src/design/language/03-types/classes.md#copy-classes), and a generic one only when its type arguments
+  also copy.
   Every other value moves: collections, boxes, closures that capture,
   generators, and other class instances.
   A moved name is unusable. Borrow with `&x` (shared) or `&mut x`

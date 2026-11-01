@@ -135,7 +135,9 @@ def main() -> ():
 every field of a `@copy` class must copy
 ```
 
-A `@copy` class also cannot define `__del__` or take type parameters. Keep the
+A `@copy` class also cannot define `__del__`. A
+[generic](../09-generics/generic-classes.md) `@copy` class copies when its type
+arguments copy, so `Pair[i64]` copies and `Pair[list[i64]]` moves. Keep the
 default for instances that own resources or should be used only once; see
 [copy classes](../../design/language/03-types/classes.md#copy-classes).
 

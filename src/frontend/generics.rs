@@ -27,13 +27,37 @@ pub(super) fn callable_bound(bound: &TypeRef) -> bool {
     matches!(bound.name.as_deref(), Some("Callable" | "OnceCallable"))
 }
 
-/// The test a type must pass to satisfy the built-in numeric constraint
-/// `bound` names.
-pub(super) fn numeric_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
+/// The test a type must pass to satisfy the built-in constraint `bound`
+/// names: `IntType`, `FloatType`, or `CopyType`.
+pub(super) fn builtin_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
     match bound.name.as_deref() {
         Some("IntType") => Some(Ty::is_int),
         Some("FloatType") => Some(Ty::is_float),
+        Some("CopyType") => Some(copies),
         _ => None,
+    }
+}
+
+/// `CopyType` admits every type argument that copies on ordinary use. Type
+/// arguments are never references, so this is the value rule alone; see
+/// book/src/design/language/05-ownership/01-bindings-moves-and-copies.md.
+fn copies(ty: &Ty) -> bool {
+    !ty.affine()
+}
+
+/// The diagnostic for a type argument `ty` that fails the built-in `bound`.
+pub(super) fn unsatisfied_builtin(bound: &TypeRef, ty: &Ty) -> String {
+    let name = bound.name.as_deref().unwrap();
+    if name == "CopyType" {
+        let help = match ty {
+            Ty::Class(t) if t.try_get().is_some_and(|t| !t.copy) => {
+                "; a class copies only when it is declared `@copy`"
+            }
+            _ => "",
+        };
+        format!("{ty} does not satisfy CopyType: it moves on ordinary use{help}")
+    } else {
+        format!("{ty} does not satisfy {name}")
     }
 }
 
@@ -1432,8 +1456,8 @@ impl Engine {
                         protocol.type_params.len()
                     )));
                 }
-            } else if numeric_bound(bound).is_none() || !bound.args.is_empty() {
-                return Err(bound.at.error("generic constraints require IntType, FloatType, Callable, OnceCallable, or a declared protocol"));
+            } else if builtin_bound(bound).is_none() || !bound.args.is_empty() {
+                return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, Callable, OnceCallable, or a declared protocol"));
             }
         }
         Ok(())
@@ -1541,12 +1565,9 @@ impl Engine {
                 ));
             }
             if let Some(bound) = bound {
-                if let Some(satisfies) = numeric_bound(bound) {
+                if let Some(satisfies) = builtin_bound(bound) {
                     if !satisfies(ty) {
-                        return Err(at.error(format!(
-                            "{ty} does not satisfy {}",
-                            bound.name.as_deref().unwrap()
-                        )));
+                        return Err(at.error(unsatisfied_builtin(bound, ty)));
                     }
                 } else if callable_bound(bound) {
                     check_callable_bound(bound, ty, &replacements, aliases, at)?;
