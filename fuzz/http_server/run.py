@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Fuzz std.http.server with libFuzzer, seeded from the request corpus.
+"""Fuzz HTTP serving or incremental decoding with the shared request corpus.
 
-Builds fuzz/http_server/main.plenty with `plenty --fuzz`, writes the cases of
+Builds the server target (or http_decoder with --target decoder) using
+`plenty --fuzz`, writes the cases of
 tests/fixtures/http_server/corpus.txt as seeds, and runs the target. Inputs
 that crash it are saved in WORK/findings; only those of this run are reported
 and set the exit status. See
@@ -70,18 +71,20 @@ def write_seeds(directory):
     return count
 
 
-def build(plenty, output, release):
+def build(plenty, output, release, target="server"):
     command = [str(plenty)]
     if release:
         command.append("--release")
-    command += ["--fuzz", str(HERE / "main.plenty"), "-o", str(output)]
+    source = HERE if target == "server" else HERE.parent / "http_decoder"
+    command += ["--fuzz", str(source / "main.plenty"), "-o", str(output)]
     subprocess.run(command, check=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--plenty", default=ROOT / "target" / "release" / "plenty", type=pathlib.Path)
-    parser.add_argument("--work", default=ROOT / "target" / "fuzz-http-server", type=pathlib.Path)
+    parser.add_argument("--target", choices=("server", "decoder"), default="server")
+    parser.add_argument("--work", type=pathlib.Path, help="output directory (default target/fuzz-http-TARGET)")
     parser.add_argument("--time", default=60, type=int, help="seconds to fuzz (default 60)")
     parser.add_argument("--runs", type=int, help="stop after this many inputs instead")
     parser.add_argument("--jobs", default=1, type=int, help="fuzzing processes (default 1)")
@@ -90,15 +93,15 @@ def main():
     parser.add_argument("extra", nargs="*", help="more libFuzzer flags, after --")
     args = parser.parse_args()
 
-    work = args.work.resolve()
-    target = work / "http_server_fuzzer"
+    work = (args.work or ROOT / "target" / f"fuzz-http-{args.target}").resolve()
+    target = work / f"http_{args.target}_fuzzer"
     corpus = work / "corpus"
     findings = work / "findings"
     corpus.mkdir(parents=True, exist_ok=True)
     findings.mkdir(parents=True, exist_ok=True)
     # Findings of earlier runs stay in place; only this run's count.
     earlier = set(findings.iterdir())
-    build(args.plenty, target, not args.debug_build)
+    build(args.plenty, target, not args.debug_build, args.target)
     count = write_seeds(work / "seeds")
     print(f"{count} seeds from {CORPUS.relative_to(ROOT)}", flush=True)
 

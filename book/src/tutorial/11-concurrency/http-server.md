@@ -9,6 +9,10 @@ cancellation token is cancelled.
 Each route maps a method and a path pattern to a value of your own route
 type, normally an enum. The handler receives that value and matches on it.
 
+For supervised connection heaps and event-driven handlers, see
+[Isolate HTTP connections with actors](actor-http-server.md). The worker server
+taught here keeps its sequential `Exchange` interface.
+
 ```plenty
 import std.http
 

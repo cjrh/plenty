@@ -178,4 +178,23 @@ idle/stall/read deadlines and nonblocking dial/lookup (issue #538, local PR #660
 (issue #543, local PR #664). General Watchable handles, named readiness,
 spawn tags on Down and in-place connection-buffer compaction shipped
 (issues #540–#542/#545, local PRs #661/#662).
+
+[`std.actor.http.server`](../design/stdlib/actor-http-server.md) adds a second
+HTTP/1.1 server with isolated connection construction, bounded complete-request
+handlers, resumable TCP/TLS streaming, deadlines and draining. The shared
+[`std.http.decoder`](../design/stdlib/http-decoder.md) supplies byte-feed
+request framing. Stage observations, isolated spawning and immediate/destructor
+shutdown support its lifecycle; runnable deadline and live-stage cleanup fixes
+address issues #638 and #639. Fair child-exit delivery and safe runnable-slot
+reuse under connection churn address issues #640 and #642. Scalar-wrapper list
+references use their actual storage width (issue #643), preventing neighboring
+actor-address entries from being overwritten. The [qualification record](../design/stdlib/actor-http-qualification.md)
+separates implementation delivery from production readiness and comparative
+measurements. The worker HTTP server remains independently supported.
+The [qualification record](../design/stdlib/actor-http-qualification.md) includes
+540,000 successful matched HTTP/TLS benchmark requests, a mixed-failure run
+with 400 contained traps and stable resources, and relocated native binaries.
+TLS configuration rotation remains limited by issue #641; measured mailbox
+retry overhead is tracked as issue #644.
+
 Remaining stages stay **B85** in the [backlog](../backlog.md).

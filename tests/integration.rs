@@ -436,6 +436,12 @@ mod test_small_conveniences;
 mod test_stack_overflow;
 #[path = "test_std_actor.rs"]
 mod test_std_actor;
+#[path = "test_std_actor_http_corpus.rs"]
+mod test_std_actor_http_corpus;
+#[path = "test_std_actor_http_interop.rs"]
+mod test_std_actor_http_interop;
+#[path = "test_std_actor_http_server.rs"]
+mod test_std_actor_http_server;
 #[path = "test_std_actor_net.rs"]
 mod test_std_actor_net;
 #[path = "test_std_actor_tls.rs"]
@@ -486,6 +492,8 @@ mod test_std_graph;
 mod test_std_http;
 #[path = "test_std_http_client.rs"]
 mod test_std_http_client;
+#[path = "test_std_http_decoder.rs"]
+mod test_std_http_decoder;
 #[path = "test_std_http_files.rs"]
 mod test_std_http_files;
 #[path = "test_std_http_helpers.rs"]

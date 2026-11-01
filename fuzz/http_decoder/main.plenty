@@ -1,0 +1,88 @@
+# libFuzzer target for resumable request decoding. The first input byte
+# selects a 1..64-byte feed size; bit 6 selects small limits and bit 7
+# alternates that size with single-byte feeds. Remaining bytes are wire input.
+# Direct execution makes every parser trap visible to libFuzzer.
+import fuzz_input
+import std.bytes
+import std.http
+import std.http.decoder
+from std.bytes import Bytes, BytesError
+from std.http import HttpError, Limits
+from std.http.decoder import Event
+
+# Contract failures deliberately trap, producing a reproducible artifact.
+def ensure(condition: bool) -> ():
+    if not condition:
+        missing: Option[i64] = Nothing
+        drop(missing.unwrap())
+
+def decode(input: &Bytes, limits: &Limits, step: i64, alternate: bool) -> Result[(i64, i64, i64), HttpError]:
+    mut parser = std.http.decoder.decoder(limits)?
+    mut at = 0
+    mut turns = 0
+    mut requests = 0
+    mut total = 0
+    mut checksum = 0
+    while at < input.len() or parser.has_head():
+        turns += 1
+        ensure(turns <= 4 * input.len() + 8)
+        mut count = step
+        if alternate and turns % 2 == 0:
+            count = 1
+        mut stop = at + count
+        if stop > input.len():
+            stop = input.len()
+        consumed, event = parser.feed(input, at, stop)?
+        ensure(consumed >= 0 and consumed <= stop - at)
+        ensure(consumed <= std.http.decoder.feed_budget)
+        at += consumed
+        mut emitted = False
+        match event:
+            case Some(Event.Head(_, _, _)):
+                ensure(parser.has_head() and parser.is_started())
+                emitted = True
+            case Some(Event.Body(body)):
+                for index in range(body.len()):
+                    checksum = (checksum + i64(body[index]) * (total + index + 1)) % 2147483647
+                total += body.len()
+                emitted = True
+            case Some(Event.Trailers(_)):
+                emitted = True
+            case Some(Event.End):
+                ensure(parser.is_done())
+                # Completion must leave every pipelined byte untouched.
+                paused, none = parser.feed(input, at, input.len())?
+                ensure(paused == 0 and none.is_none())
+                requests += 1
+                parser.reset()?
+                ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
+                emitted = True
+            case Nothing:
+                pass
+        if consumed == 0 and not emitted:
+            break
+    # A short/empty feed is not EOF. Explicit EOF detects a partial head,
+    # body, chunk size/data/terminator or trailer section.
+    parser.finish()?
+    Ok((requests, total, checksum))
+
+def main() -> Result[(), BytesError]:
+    size = i64.wrapping_from(fuzz_input.size())
+    if size == 0 or size > 65536:
+        return Ok(())
+    first = i64(fuzz_input.byte(0u64))
+    mut input = std.bytes.with_capacity(size - 1)?
+    for at in range(1, size):
+        input.push(fuzz_input.byte(u64.wrapping_from(at)))?
+    mut limits = std.http.limits()
+    if first // 64 % 2 == 1:
+        limits.max_line = 64
+        limits.max_head = 256
+        limits.max_headers = 4
+        limits.max_body = 16
+    # Both passes must return the same valid-message counts/body checksum or
+    # the same named framing error, regardless of when bytes become available.
+    baseline = decode(&input, &limits, 4096, False)
+    fragmented = decode(&input, &limits, first % 64 + 1, first >= 128)
+    ensure(baseline == fragmented)
+    Ok(())

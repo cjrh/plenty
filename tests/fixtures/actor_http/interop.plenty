@@ -1,0 +1,95 @@
+# Resumable uploads/replies for independent curl and reverse-proxy clients.
+import std.actor
+import std.actor.http.server
+import std.bytes
+import std.http
+import std.net
+import std.time
+from std.actor import Context
+from std.actor.http.server import Event, Notice, Response, ServerError
+from std.bytes import Bytes, BytesError
+from std.http import HttpError
+from std.sync import CancellationToken
+from std.thread import spawn
+
+type Error = ServerError | BytesError | HttpError | AllocError
+
+pub class App:
+    pub route: i64
+    pub calls: i64
+    pub body: Bytes
+    pub at: i64
+
+    pub def pump(self: &mut App, response: &mut Response) -> Result[(), Error]:
+        while self.at < self.body.len():
+            count = response.write(&self.body, self.at, self.body.len())?
+            self.at += count
+            if count == 0:
+                return Ok(())
+        response.finish()?
+        Ok(())
+
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], ServerError]) -> Result[(), Error]:
+        match event:
+            case Event.Head(_, target):
+                self.calls += 1
+                self.body.clear()
+                self.at = 0
+                if target.path == "/echo" or target.path == "/stream/echo":
+                    self.route = 1
+                elif target.path == "/large":
+                    self.route = 2
+                elif target.path == "/count":
+                    self.route = 3
+                elif target.path == "/early" or target.path == "/stream/early":
+                    self.route = 4
+                    response.send_text(200, "early")?
+                elif target.path == "/error":
+                    return Err(ServerError.Handler)
+                else:
+                    self.route = 0
+            case Event.Body(part):
+                if self.route == 1:
+                    self.body.extend(&part)?
+            case Event.End:
+                if self.route == 2:
+                    self.body.resize(262144, 120u8)?
+                elif self.route == 3:
+                    self.body = std.bytes.from_text(&str.from(self.calls)?)?
+                elif self.route == 0:
+                    self.body = std.bytes.from_bytes(b"home")?
+                if self.route != 4:
+                    response.start(std.http.response(200, "OK")?)?
+                    self.pump(response)?
+            case Event.Writable:
+                if response.is_started() and not response.is_done():
+                    self.pump(response)?
+            case _:
+                pass
+        Ok(())
+
+def factory() -> Result[App, Error]:
+    Ok(App(0, 0, std.bytes.empty()?, 0))
+
+def cancel_from_stdin(stop: CancellationToken) -> ():
+    mut byte = std.bytes.empty().unwrap()
+    byte.resize(1, 0u8).unwrap()
+    drop(byte.read_stdin(0, 1))
+    stop.cancel()
+
+def main() -> ():
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 128).unwrap()
+    print(listener.local_address().unwrap().port).unwrap()
+    mut config = std.actor.http.server.config()
+    config.capacity = 32
+    config.heap_limit = 8388608
+    config.pending_output = 8192
+    config.input_buffer = 4096
+    config.output_buffer = 4096
+    stop = CancellationToken().unwrap()
+    with spawn(cancel_from_stdin, stop.share()).unwrap() as task:
+        report = std.actor.http.server.serve_events(listener, factory, &config, &stop).unwrap()
+        print("trapped", report.actors.trapped).unwrap()
+        print("failed", report.actors.failed).unwrap()
+        print("heaps", std.actor.heaps_live()).unwrap()
+        print("heap_bytes", std.actor.heap_bytes_used()).unwrap()

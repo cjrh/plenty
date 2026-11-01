@@ -1,0 +1,35 @@
+# Completion accounting must not eat unrelated one-shot actor events when
+# many connection actors fill the admission actor's mailbox at once.
+pub class App:
+    pub count: i64
+    pub reporting: bool
+
+    pub def receive(self: &mut App, event: Event[i64], response: &mut Response, context: &mut Context[Notice[i64], ServerError]) -> Result[(), AppError]:
+        match event:
+            case Event.Head(_, target):
+                self.reporting = target.path == "/count"
+            case Event.End:
+                if self.reporting:
+                    response.send_text(200, &f"{self.count}"?)?
+                else:
+                    response.send_text(200, "scheduled")?
+                    context.send(context.address(), Notice[i64].Message(1)).unwrap()
+                    context.after(&std.time.seconds(0u32), 77).unwrap()
+            case Event.Message(_):
+                self.count += 1
+            case Event.Actor(mail):
+                match mail:
+                    case Mail.Timer(timer):
+                        if timer.tag() == 77:
+                            self.count += 1
+                    case _:
+                        pass
+            case _:
+                pass
+        Ok(())
+
+def factory() -> Result[App, AllocError]:
+    Ok(App(0, False))
+
+def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
+    std.actor.http.server.serve_events(listener, factory, config, stop).unwrap()

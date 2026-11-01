@@ -1,0 +1,72 @@
+# Real-socket server harness. Tests replace constants before compilation.
+import std.actor.http.server
+import std.bytes
+import std.fmt
+import std.http
+import std.net
+import std.time
+import std.tls
+import std.signal
+from std.signal import Signals
+from std.actor import Context, Mail, heap_bytes_used, heaps_live
+from std.actor.http.server import Event, ServerError, Notice, Request, Response
+from std.bytes import Bytes, BytesError
+from std.http import Header, HttpError, ResponseHead
+from std.sync import CancellationToken
+from std.thread import spawn
+
+const capacity: i64 = 32
+const heap_limit: i64 = 1048576
+const timeout_ms: u32 = 1000u32
+const factory_fails: bool = False
+const secure: bool = False
+const signal_stop: bool = False
+const max_line: i64 = 8192
+const max_head: i64 = 32768
+
+type AppError = ServerError | HttpError | BytesError | AllocError | std.fmt.FormatError
+
+# Blocking stdin is confined to a separate ordinary thread. It lets the
+# harness cancel even when every factory fails, without an HTTP control route.
+def cancel_from_stdin(signals: Option[Signals], stop: CancellationToken) -> ():
+    match signals:
+        case Some(source):
+            drop(std.signal.cancel_on(source, stop.share()))
+        case Nothing:
+            mut byte = std.bytes.with_capacity(1).unwrap()
+            byte.resize(1, 0u8).unwrap()
+            drop(byte.read_stdin(0, 1))
+    stop.cancel()
+
+def main() -> ():
+    mut signals: Option[Signals] = Nothing
+    if signal_stop:
+        signals = Some(std.signal.listen().unwrap())
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 128).unwrap()
+    print(listener.local_address().unwrap().port).unwrap()
+    mut config = std.actor.http.server.config()
+    config.capacity = capacity
+    config.heap_limit = heap_limit
+    config.pending_output = 4096
+    config.input_buffer = 256
+    config.output_buffer = 256
+    config.limits.max_body = 65536
+    config.limits.max_line = max_line
+    config.limits.max_head = max_head
+    config.idle_timeout = std.time.milliseconds(timeout_ms)
+    config.head_timeout = std.time.milliseconds(timeout_ms)
+    config.body_timeout = std.time.milliseconds(timeout_ms)
+    config.write_timeout = std.time.milliseconds(timeout_ms)
+    config.response_timeout = std.time.seconds(5u32)
+    config.handshake_timeout = std.time.milliseconds(timeout_ms)
+    config.drain_timeout = std.time.seconds(2u32)
+    stop = CancellationToken().unwrap()
+    with spawn(cancel_from_stdin, signals, stop.share()).unwrap() as task:
+        report = run(listener, &config, &stop)
+        print("requests", report.requests).unwrap()
+        print("rejected", report.rejected).unwrap()
+        print("protocol_errors", report.protocol_errors).unwrap()
+        print("trapped", report.actors.trapped).unwrap()
+        print("failed", report.actors.failed).unwrap()
+        print("heaps", heaps_live()).unwrap()
+        print("heap_bytes", heap_bytes_used()).unwrap()

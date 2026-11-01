@@ -1,0 +1,53 @@
+# Handler state is allocated by the fallible factory in its connection heap.
+pub class App:
+    pub calls: i64
+
+    pub def handle(self: &mut App, request: Request, response: &mut Response) -> Result[(), AppError]:
+        self.calls += 1
+        path = &request.target.path
+        if path == "/stop":
+            response.shutdown_server()
+            response.send_text(200, "stopping")?
+        elif path == "/explicit-close":
+            mut head = std.http.response(200, "OK")?
+            head.add("Connection", "close")?
+            response.respond(head, b"bye")?
+        elif path == "/invalid204":
+            mut head = std.http.response(204, "No Content")?
+            head.add("Content-Length", "0")?
+            response.start(head)?
+        elif path == "/empty204":
+            response.send(204, "text/plain", b"")?
+        elif path == "/empty304":
+            response.send(304, "text/plain", b"")?
+        elif path == "/echo":
+            response.send(200, "application/octet-stream", &request.body)?
+        elif path == "/trailers":
+            mut text = ""
+            for header in &request.trailers:
+                text = f"{text}{header.name}:{header.value};"?
+            response.send_text(200, &text)?
+        elif path == "/count":
+            response.send_text(200, &f"{self.calls}"?)?
+        elif path == "/trap":
+            missing: Option[i64] = Nothing
+            missing.unwrap()
+        elif path == "/oom":
+            mut bytes = std.bytes.empty()?
+            bytes.resize(67108864, 1u8).unwrap()
+        elif path == "/error":
+            return Err(HttpError.InvalidHeader)
+        else:
+            response.send_text(200, "home")?
+        Ok(())
+
+def factory() -> Result[App, AppError]:
+    if factory_fails:
+        return Err(HttpError.InvalidHeader)
+    Ok(App(0))
+
+def run(listener: std.net.TcpListener, config: &std.actor.http.server.Config, stop: &CancellationToken) -> std.actor.http.server.Report:
+    if secure:
+        tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem").unwrap(), &read_text("FIXTURES/leaf.key").unwrap()).unwrap()
+        return std.actor.http.server.serve_tls(listener, tls, factory, config, stop).unwrap()
+    std.actor.http.server.serve(listener, factory, config, stop).unwrap()

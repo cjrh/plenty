@@ -643,6 +643,18 @@ impl Lowerer<'_, '_> {
             let address = self.bcx.ins().iadd(rows, offset);
             let element = ty.element().unwrap();
             let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+            let base = element.newtype_base();
+            if base.is_numeric() || *base == Ty::Bool {
+                // Affine one-field classes can still have packed scalar rows.
+                // Taking one must not read or clear its neighbor's storage.
+                let packed = self.scalar_word(address, &base);
+                let value = self.unpack(packed, &element);
+                let width = types::Type::int(clif_type(base.into_owned()).bits() as u16).unwrap();
+                let zero = self.bcx.ins().iconst(width, 0);
+                self.bcx.ins().store(flags, zero, address, 0);
+                self.stack.push((value, element));
+                return Ok(());
+            }
             let value = self.bcx.ins().load(types::I128, flags, address, 0);
             let value = self.unpack(value, &element);
             // The row is emptied below: relocate an inline payload out of it

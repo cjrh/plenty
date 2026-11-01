@@ -1,0 +1,46 @@
+import std.bytes
+import std.net
+import std.time
+import std.tls
+from std.sync import CancellationToken
+
+const port: u16 = PORTu16
+
+def main() -> ():
+    never = CancellationToken().unwrap()
+    roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
+    config = std.tls.client_config(&roots).unwrap()
+    for round in range(12):
+        deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(3u32)).unwrap()
+        tcp = std.net.connect(&std.net.loopback_v4(port), &deadline, &never).unwrap()
+        mut stream = std.tls.connect(tcp, &config, "localhost", &deadline, &never).unwrap()
+        mut request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        trapping = round % 3 != 2
+        if trapping:
+            request = b"GET /trap HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        stream.write_all_before(&request, 0, request.len(), &deadline, &never).unwrap()
+        mut out = std.bytes.empty().unwrap()
+        mut cut = False
+        while True:
+            at = out.len()
+            out.resize(at + 256, 0u8).unwrap()
+            # EOF requires close_notify; a raw socket close is Truncated.
+            result = stream.read_before(&mut out, at, at + 256, &deadline, &never)
+            mut count = 0
+            match result:
+                case Ok(read):
+                    count = read
+                case Err(error):
+                    if not trapping:
+                        missing: Option[i64] = Nothing
+                        missing.unwrap()
+                    cut = True
+                    break
+            out.truncate(at + count).unwrap()
+            if count == 0:
+                break
+        if trapping:
+            print(cut).unwrap()
+        else:
+            print(out.to_text().unwrap().endswith("home")).unwrap()
+            stream.close_before(&deadline, &never).unwrap()

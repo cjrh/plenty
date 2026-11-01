@@ -44,6 +44,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.actor.tls",
         include_str!("../../stdlib/std/actor/tls.plenty"),
     ),
+    (
+        "std.actor.http.server",
+        include_str!("../../stdlib/std/actor/http/server.plenty"),
+    ),
     ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
     ("std.fs", include_str!("../../stdlib/std/fs.plenty")),
     (
@@ -154,6 +158,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.net", include_str!("../../stdlib/std/net.plenty")),
     ("std.tls", include_str!("../../stdlib/std/tls.plenty")),
     ("std.http", include_str!("../../stdlib/std/http.plenty")),
+    (
+        "std.http.decoder",
+        include_str!("../../stdlib/std/http/decoder.plenty"),
+    ),
     (
         "std.http.server",
         include_str!("../../stdlib/std/http/server.plenty"),

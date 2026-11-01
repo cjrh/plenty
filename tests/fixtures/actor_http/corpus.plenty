@@ -1,0 +1,89 @@
+# The same application as fixtures/http_server/scripted.plenty, reached
+# over a real actor socket. Router/text values exist only during a callback.
+import std.actor
+import std.actor.http.server
+import std.bytes
+import std.http
+import std.http.server
+import std.net
+import std.time
+import std.url
+from std.actor.http.server import Request, Response, ServerError
+from std.http.server import Match, Router
+from std.sync import CancellationToken
+from std.thread import spawn
+
+pub enum Route:
+    Home
+    Echo
+    Hello
+    Fail
+
+pub enum Deliberate:
+    Fail
+
+type AppError = ServerError | std.http.server.ServerError | Deliberate
+
+pub def routes() -> Result[Router[Route], std.http.server.ServerError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/", Route.Home)?
+    table.add("POST", "/echo", Route.Echo)?
+    table.add("GET", "/hello/{name}", Route.Hello)?
+    table.add("GET", "/fail", Route.Fail)?
+    Ok(table)
+
+pub class App:
+    pub def handle(self: &mut App, request: Request, response: &mut Response) -> Result[(), AppError]:
+        table = routes()?
+        match table.find(&request.head.method, &request.target.path)?:
+            case Match.Found(index, captures):
+                match table.route(index):
+                    case Route.Home:
+                        response.send_text(200, "home")?
+                    case Route.Echo:
+                        response.send(200, "application/octet-stream", &request.body)?
+                    case Route.Hello:
+                        match std.url.decode(&captures[0]):
+                            case Ok(text):
+                                response.send_text(200, &text)?
+                            case Err(_):
+                                response.close_after()
+                                response.send_text(400, "Bad Request")?
+                    case Route.Fail:
+                        return Err(Deliberate.Fail)
+            case Match.NotFound:
+                response.close_after()
+                response.send_text(404, "Not Found")?
+            case Match.MethodNotAllowed(_):
+                response.close_after()
+                response.send_text(405, "Method Not Allowed")?
+        Ok(())
+
+def factory() -> Result[App, AppError]:
+    Ok(App())
+
+def cancel_from_stdin(stop: CancellationToken) -> ():
+    mut byte = std.bytes.empty().unwrap()
+    byte.resize(1, 0u8).unwrap()
+    drop(byte.read_stdin(0, 1))
+    stop.cancel()
+
+def main() -> ():
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 128).unwrap()
+    print(listener.local_address().unwrap().port).unwrap()
+    mut config = std.actor.http.server.config()
+    config.capacity = 8
+    config.input_buffer = 64
+    config.output_buffer = 4096
+    config.head_timeout = std.time.seconds(2u32)
+    config.body_timeout = std.time.seconds(2u32)
+    config.write_timeout = std.time.seconds(2u32)
+    config.drain_timeout = std.time.seconds(2u32)
+    stop = CancellationToken().unwrap()
+    with spawn(cancel_from_stdin, stop.share()).unwrap() as task:
+        report = std.actor.http.server.serve(listener, factory, &config, &stop).unwrap()
+        print("trapped", report.actors.trapped).unwrap()
+        print("failed", report.actors.failed).unwrap()
+        print("requests", report.requests).unwrap()
+        print("heaps", std.actor.heaps_live()).unwrap()
+        print("heap_bytes", std.actor.heap_bytes_used()).unwrap()

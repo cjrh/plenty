@@ -1,0 +1,57 @@
+# Shared benchmark workload for the actor HTTP server.
+import std.actor.http.server
+import std.actor
+import std.ready
+import std.bytes
+import std.env
+import std.http
+import std.net
+from std.actor.http.server import Request, Response
+from std.bytes import Bytes
+from std.sync import CancellationToken
+
+type Error = AllocError | std.bytes.BytesError | std.actor.http.server.ServerError
+
+pub class Bench:
+    pub small: Bytes
+    pub large: Bytes
+
+    pub def handle(self: &mut Bench, request: Request, response: &mut Response) -> Result[(), Error]:
+        match request.target.path:
+            case "/":
+                response.send(200, "text/plain", &self.small)?
+            case "/16k":
+                if self.large.len() == 0:
+                    self.large.resize(16384, 120u8)?
+                response.send(200, "application/octet-stream", &self.large)?
+            case "/echo":
+                response.send(200, "application/octet-stream", &request.body)?
+            case "/stop":
+                response.shutdown_server()
+                response.send_text(200, "stopping")?
+            case "/trap":
+                empty: Option[i64] = Nothing
+                empty.unwrap()
+            case _:
+                response.send_text(404, "Not Found")?
+        Ok(())
+
+def make() -> Result[Bench, Error]:
+    # Idle/small-response measurements do not allocate the unused large body.
+    Ok(Bench(std.bytes.from_text("hello, world\n")?, std.bytes.empty()?))
+
+def setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:
+    match std.env.get(name)?:
+        case Some(text):
+            Ok(i64.parse(&text)?)
+        case Nothing:
+            Ok(fallback)
+
+def main() -> Result[(), AllocError | IoError | ParseError | std.net.NetError | std.ready.WaitError | std.actor.StartError | RangeError | std.actor.http.server.ServerError]:
+    mut config = std.actor.http.server.config()
+    config.capacity = setting("CAPACITY", 256)?
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 1024)?
+    print("port", listener.local_address()?.port)?
+    report = std.actor.http.server.serve(listener, make, &config, &CancellationToken()?)?
+    print("actors", report.actors, "requests", report.requests, "rejected", report.rejected)?
+    Ok(())

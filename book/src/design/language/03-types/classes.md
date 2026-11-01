@@ -203,7 +203,7 @@ The rules:
 - In an f-string, `!r`, `!s`, `!a`, `=`, and every format spec give the same
   `ApiKey(@redacted)`; there is no conversion that reveals the contents. Padding and
   alignment apply to the marker.
-- Explicit formatting is unaffected: a public `display` or `debug` method the
+- Explicit formatting is unaffected: a `display` or `debug` method the
   type defines still formats its f-string fields, and a
   [`std.report`](../../stdlib/report.md) `Formattable` implementation still
   writes what it chooses.
