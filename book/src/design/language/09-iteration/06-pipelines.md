@@ -201,9 +201,12 @@ stream does not need to cross a function boundary.
 
 Predicates receive `&T` for owned `T`, borrowed `&T`, and mutable `&mut T`
 items. Mapping receives the item itself. Callback parameters and results require
-explicit types. Named functions and reusable closures are accepted; captures
-may be owned or borrowed. One-shot closures and indirect function values are
-rejected. `map` cannot currently return references.
+explicit types. Every reusable callable is accepted by value: a named
+function, an anonymous function, a capturing closure with owned or borrowed
+captures, a stored `Callable` value or parameter, and a `BoxedCallable`.
+One-shot closures are rejected because the pipeline calls the callback once per
+item, and a reference such as `&f` is rejected: pass the function or closure
+itself. `map` cannot currently return references.
 
 A closure literal written directly as a callback is lowered into the consumer's
 loop instead of being called. It behaves as the call would: captures are
@@ -282,8 +285,11 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 `any()` and `all()` test each item itself, as `filter_value()` does; other
 item types need a predicate. There are no free `any` and `all` functions.
 
-`find` and `reduce` need an item that can be stored in an `Option`; map a
-borrowed item to an owned value first.
+`find` and `reduce` copy a borrowed `&T` or `&mut T` item when `T` is
+copyable, such as a number or `str`, as `sum`, `min`, and `max` do:
+`iter(&values).find(f)` returns `Option[i64]` for a `list[i64]`, and a `reduce`
+callback takes `(i64, i64) -> i64`. Other borrowed items cannot be stored in an
+`Option`; map them to an owned value first.
 
 `sum`, `min`, and `max` read a borrowed `&T` or `&mut T` item as its value
 (`*item`), so `iter(&values).max()` returns `Option[i64]` for a `list[i64]` and
@@ -366,7 +372,7 @@ fused steps as one pool job. By default the chunk count is the
 pool's worker count, read when the pipeline runs. `.par(&pool, chunks=N)` sets
 it explicitly; `N` is an `i64` expression and must be positive. A literal zero
 or negative count is a compile error, and a non-positive runtime value traps
-with `integer cast out of range`. An input with fewer items than the count gets
+with `par chunks must be positive, got chunks=N`. An input with fewer items than the count gets
 one chunk per item, so no chunk is empty. Chunk boundaries depend only on the
 input length and the count, never on scheduling.
 

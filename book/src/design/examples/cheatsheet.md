@@ -90,8 +90,6 @@ See [numbers](../language/03-types/numbers.md#checked-blocks) and
 ## Text
 
 ```plenty
-from std.fmt import FormatError
-
 def main() -> Result[(), AllocError | IoError | FormatError]:
     name = "Ada"
     greeting = ("Hello, " + name)?
@@ -283,7 +281,8 @@ def main() -> Result[(), IoError]:
 Every parameter and result has a type. Anonymous functions are
 `def(params) -> T:`; `lambda` is rejected. Captures are explicit:
 `def [x, mut y, &z, &mut w](...)`. Accept callbacks as `F: Callable[...]`
-with `&F`, which takes both named functions and closures. See
+with `&F`, which takes named functions and closures; use `&mut F` for a
+closure that changes a `mut` capture. See
 [signatures](../language/06-functions/01-signatures-and-calls.md),
 [function values](../language/06-functions/02-function-values.md), and
 [closures](../language/06-functions/03-closures.md).

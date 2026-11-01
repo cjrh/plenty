@@ -10,8 +10,6 @@ mistaken for the end of the file.
 Save this module as `report.plenty`:
 
 ```plenty-file report.plenty
-from std.fmt import FormatError
-
 pub def summarize(path: &str) -> Result[str, AllocError | IoError | ParseError | FormatError]:
     mut count = 0
     mut total = 0
@@ -32,7 +30,6 @@ Save this application beside it as `main.plenty`:
 
 ```plenty
 from report import summarize
-from std.fmt import FormatError
 
 enum UsageError:
     Arguments

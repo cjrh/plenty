@@ -37,7 +37,7 @@ structure. Strings are raw at the top level and quoted inside aggregates, so
 `print(["a"])` writes `["a"]`.
 
 ```plenty
-from std.fmt import Formatter, FormatError
+from std.fmt import Formatter
 
 class P:
     n: i64

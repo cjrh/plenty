@@ -1322,7 +1322,15 @@ impl Lower<'_> {
             _ => None,
         };
         if let Some(barrier) = barrier {
-            return Err(key.at.error(barrier.message("collections")));
+            let hint = match (&inferred, value) {
+                (Ty::Dict(_, t), Some(value)) => copy_hint(value, t),
+                (Ty::List(t) | Ty::Set(t), _) => copy_hint(key, t),
+                _ => None,
+            }
+            .unwrap_or_default();
+            return Err(key
+                .at
+                .error(format!("{}{hint}", barrier.message("collections"))));
         }
         *ty = Some(inferred.clone());
         Ok(inferred)
@@ -3002,6 +3010,13 @@ impl Lower<'_> {
         {
             return self.pipeline_terminal(base, name, args, ops);
         }
+        if let Some(source) = self.adapter_on_source(base, name, args) {
+            return Err(base.at.error(format!(
+                "`{name}` is an iterator method, and {source} is not an iterator; start a pipeline with `iter`: `iter({}).{name}({})`",
+                source_spelling(base),
+                if args.is_empty() { "" } else { "..." }
+            )));
+        }
         if self.is_text_view(base) {
             return self.text_view_method(base, name, args, ops);
         }
@@ -3726,6 +3741,13 @@ impl Lower<'_> {
                 } else {
                     format!("{name} requires one argument")
                 }));
+            }
+            if name == "split"
+                && matches!(&ungroup(&args[0]).kind, Expression::Text(t) if t.is_empty())
+            {
+                return Err(args[0].at.error(
+                    "split requires a nonempty separator; split on whitespace with `split()`",
+                ));
             }
             if name == "join" {
                 let result = self.join_text(&args[0], ops)?;
@@ -4755,6 +4777,100 @@ fn comprehension_hint(names: &[String], entries: &[(Expr, Option<Expr>)], ty: Op
             Some((**v).clone())
         }
         _ => None,
+    }
+}
+
+/// Adapter and terminal methods of iterators (pipelines and generators).
+const ITERATOR_METHODS: &[&str] = &[
+    "map",
+    "filter",
+    "filter_value",
+    "take",
+    "skip",
+    "take_while",
+    "enumerate",
+    "zip",
+    "chain",
+    "flat_map",
+    "collect",
+    "try_collect",
+    "fold",
+    "try_fold",
+    "for_each",
+    "try_for_each",
+    "count",
+    "any",
+    "all",
+    "find",
+    "reduce",
+    "sum",
+    "min",
+    "max",
+    "generator",
+];
+
+/// How a diagnostic writes `base` inside `iter(...)`: a borrowed binding
+/// for a named collection, the call itself for a range or view.
+fn source_spelling(base: &Expr) -> String {
+    match &ungroup(base).kind {
+        Expression::Name(name) => format!("&{name}"),
+        Expression::Call(function, _) => format!("{function}(...)"),
+        Expression::Method(owner, method, _, _) => match &ungroup(owner).kind {
+            Expression::Name(owner) => format!("{owner}.{method}()"),
+            _ => format!("....{method}()"),
+        },
+        _ => "source".into(),
+    }
+}
+
+impl Lower<'_> {
+    /// The kind of `for` source `base` is when `name` is an iterator method
+    /// the source does not define itself (issue #622). Lists and strings keep
+    /// their own one-argument `count` and `find`.
+    fn adapter_on_source(&self, base: &Expr, name: &str, args: &[Expr]) -> Option<&'static str> {
+        if !ITERATOR_METHODS.contains(&name) {
+            return None;
+        }
+        let builtin = |function: &str| {
+            !self.names.contains_key(function)
+                && !self.sigs.contains_key(function)
+                && !self.generics.templates.contains_key(function)
+        };
+        match &ungroup(base).kind {
+            Expression::Call(function, _) if function == "reversed" && builtin(function) => {
+                return Some("`reversed(...)`");
+            }
+            Expression::Method(owner, method, method_args, _)
+                if matches!(method.as_str(), "keys" | "values")
+                    && method_args.is_empty()
+                    && self
+                        .place_type(owner)
+                        .map(classes::unbox)
+                        .is_some_and(|t| matches!(t, Ty::Dict(..))) =>
+            {
+                return Some(if method == "keys" {
+                    "a dictionary's `keys()`"
+                } else {
+                    "a dictionary's `values()`"
+                });
+            }
+            _ => {}
+        }
+        let ty = self
+            .place_type(base)
+            .or_else(|| self.expression_type_hint(base))
+            .map(classes::unbox)?;
+        let own_search = matches!(name, "count" | "find") && args.len() == 1;
+        match ty {
+            Ty::Range(_) => Some("a range"),
+            Ty::List(_) if !own_search => Some("a list"),
+            Ty::Str if !own_search => Some("a str"),
+            Ty::Set(_) => Some("a set"),
+            Ty::Dict(..) => Some("a dictionary"),
+            // `keys.count(1)` keeps its `keys_snapshot()` guidance.
+            Ty::KeyView(_) if !own_search => Some("a dictionary's `keys()`"),
+            _ => None,
+        }
     }
 }
 

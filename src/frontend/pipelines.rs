@@ -12,6 +12,40 @@ pub(super) use lending::{
 };
 pub(super) use splice::Callback;
 
+/// `*e`: reads a borrowed item as its value.
+fn read_through(e: Expr) -> Expr {
+    Expr {
+        at: e.at.clone(),
+        kind: Expression::Unary("*".into(), Box::new(e)),
+    }
+}
+
+/// The value type a `find` or `reduce` result copies out of a borrowed item
+/// `&T` whose `T` copies; `None` for owned items and pairs.
+fn copied_item(plan: &Pipeline) -> Option<Ty> {
+    match &plan.item.ty {
+        Ty::Ref(inner, _) if plan.pair.is_none() && copyable_through_reference(inner) => {
+            Some((**inner).clone())
+        }
+        _ => None,
+    }
+}
+
+/// Why `ty` cannot be a pipeline callback, naming the form that was passed.
+fn pipeline_callback_rejection(ty: &Ty) -> String {
+    match ty {
+        Ty::Closure(_) => {
+            "a one-shot closure cannot be a pipeline callback: the pipeline calls it once per item".into()
+        }
+        Ty::Ref(inner, _) if callables::signature(inner).is_some() => {
+            "pipeline callbacks are passed by value, not by reference; pass the function or closure itself".into()
+        }
+        ty => format!(
+            "a pipeline callback must be a function or closure, found {ty}"
+        ),
+    }
+}
+
 fn result_payload(ty: &Ty) -> Option<Ty> {
     match ty {
         Ty::Enum(result) if result.is_result() => Some(result.get().variants[0].fields[0].clone()),
@@ -1162,10 +1196,12 @@ impl Lower<'_> {
         } else {
             self.value(callback, ops)?
         };
-        if !matches!(&ty, Ty::Closure(c) if !c.once) {
-            return Err(callback
-                .at
-                .error("pipeline callbacks require a named function or reusable closure"));
+        // Every reusable callable form is accepted: a stored capture-free
+        // closure is a code address (`Callable`), like a named function.
+        match &ty {
+            Ty::Closure(c) if !c.once => {}
+            Ty::Callable(_) | Ty::BoxedCallable(_) => {}
+            ty => return Err(callback.at.error(pipeline_callback_rejection(ty))),
         }
         let slot = self.slot(ty.clone(), &callback.at)?;
         ops.push(Op::StoreLocal(slot));
@@ -1556,12 +1592,16 @@ impl Lower<'_> {
                 let actual = self.pipeline_call(&callback, &predicate_items, &mut body)?;
                 self.same(actual, Some(Ty::Bool), callback.at())?;
                 if name == "find" {
-                    if let Some(barrier) = plan.item.ty.storage_barrier() {
+                    let copied = copied_item(&plan);
+                    if copied.is_none()
+                        && let Some(barrier) = plan.item.ty.storage_barrier()
+                    {
                         return Err(base
                             .at
                             .error(barrier.message("a find result; map to an owned value first")));
                     }
-                    let ty = crate::sum::option(plan.item.ty.clone());
+                    let found_ty = copied.clone().unwrap_or_else(|| plan.item.ty.clone());
+                    let ty = crate::sum::option(found_ty);
                     let Ty::Enum(option) = &ty else {
                         unreachable!()
                     };
@@ -1570,7 +1610,13 @@ impl Lower<'_> {
                         Op::Enum(crate::sum::EnumOp::New(option.clone(), 0)),
                         Op::StoreLocal(slot),
                     ]);
-                    let mut found = self.pipeline_value_ops(&plan);
+                    let mut found = if copied.is_some() {
+                        let mut found = Vec::new();
+                        self.expr(&read_through(items[0].clone()), &mut found)?;
+                        found
+                    } else {
+                        self.pipeline_value_ops(&plan)
+                    };
                     found.extend([
                         Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
                         Op::StoreLocal(slot),
@@ -1583,24 +1629,35 @@ impl Lower<'_> {
                 }
             }
             ("reduce", [callback]) => {
-                if let Some(barrier) = plan.item.ty.storage_barrier() {
+                let copied = copied_item(&plan);
+                if copied.is_none()
+                    && let Some(barrier) = plan.item.ty.storage_barrier()
+                {
                     return Err(base
                         .at
                         .error(barrier.message("a reduce result; map to an owned value first")));
                 }
                 let callback = self.pipeline_callback(callback, ops)?;
-                let ty = crate::sum::option(plan.item.ty.clone());
+                let item_ty = copied.clone().unwrap_or_else(|| plan.item.ty.clone());
+                // A copyable borrowed item is reduced as its value, as `min`
+                // and `max` read it.
+                let items: Vec<Expr> = if copied.is_some() {
+                    items.iter().cloned().map(read_through).collect()
+                } else {
+                    items.clone()
+                };
+                let ty = crate::sum::option(item_ty.clone());
                 let Ty::Enum(option) = &ty else {
                     unreachable!()
                 };
                 let slot = self.slot(ty.clone(), &base.at)?;
-                let acc = self.slot(plan.item.ty.clone(), &base.at)?;
+                let acc = self.slot(item_ty.clone(), &base.at)?;
                 let acc_name = format!("<pipeline accumulator {acc}>");
                 self.bind(
                     acc_name.clone(),
                     Local {
                         slot: acc,
-                        ty: plan.item.ty.clone(),
+                        ty: item_ty.clone(),
                         mutable: true,
                     },
                 );
@@ -1630,8 +1687,15 @@ impl Lower<'_> {
                     .collect::<Vec<_>>(),
                     &mut combine,
                 )?;
-                self.same(actual, Some(plan.item.ty.clone()), callback.at())?;
-                body.push(branch(combine, self.pipeline_value_ops(&plan)));
+                self.same(actual, Some(item_ty.clone()), callback.at())?;
+                let first = if copied.is_some() {
+                    let mut first = Vec::new();
+                    self.expr(&items[0], &mut first)?;
+                    first
+                } else {
+                    self.pipeline_value_ops(&plan)
+                };
+                body.push(branch(combine, first));
                 body.extend([
                     Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
                     Op::StoreLocal(slot),

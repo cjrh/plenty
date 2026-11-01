@@ -632,7 +632,9 @@ fn parse_items(
         };
         items.item(&mut module, &mut declared)?;
     }
-    if parser.formats {
+    // An f-string needs `std.fmt`, as does the prelude name `FormatError` in
+    // a user module. Standard modules import it explicitly.
+    if parser.formats || (parser.mentions_format_error && !module.name.starts_with("std.")) {
         module.imports.push(Import {
             at: parser.peek().clone(),
             module: "std.fmt".into(),
@@ -2231,6 +2233,33 @@ fn from_module_message(module: &str, binding: &str) -> String {
 }
 
 /// A module import as written, for diagnostics.
+/// Binds the prelude name `FormatError` to `std.fmt.FormatError` in a module
+/// that imports `std.fmt` implicitly, unless the module declares or imports
+/// its own `FormatError`, such as `std.report`'s (issue #632).
+fn prelude_format_error(
+    m: &Module,
+    deps: &[usize],
+    exports: &[Arc<HashMap<String, String>>],
+    scope: &mut Scope,
+) {
+    const NAME: &str = "FormatError";
+    if scope.declared.contains(NAME)
+        || scope.imported.contains_key(NAME)
+        || scope.namespace_root(NAME)
+    {
+        return;
+    }
+    let symbol = m
+        .imports
+        .iter()
+        .zip(deps)
+        .find(|(import, _)| import.binding == fstrings::FMT_BINDING)
+        .and_then(|(_, &dependency)| exports[dependency].get(NAME));
+    if let Some(symbol) = symbol {
+        Arc::make_mut(&mut scope.imported).insert(NAME.into(), symbol.clone());
+    }
+}
+
 fn import_text(import: &Import) -> String {
     if import.module == import.binding {
         format!("import {}", import.module)
@@ -2447,6 +2476,7 @@ fn resolve(
                     .insert(import.binding.clone(), exports[*dependency].clone());
             }
         }
+        prelude_format_error(m, deps, &exports, &mut scope);
         // Resolving one function reads only the scope, so functions resolve
         // on several threads; the first error is still the first in source.
         // An editor check records what names refer to on this thread.
