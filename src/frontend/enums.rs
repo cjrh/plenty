@@ -61,6 +61,12 @@ impl Parser {
                         f.name
                     )));
                 }
+                if matches!(f.name.as_str(), "__enter__" | "__exit__") {
+                    return Err(f.at.error(format!(
+                        "reserved enum method `{}`; `with` requires a class, so enums cannot be context managers",
+                        f.name
+                    )));
+                }
                 if !declared.insert(f.name.clone()) {
                     return Err(f.at.error(format!("duplicate enum member `{}`", f.name)));
                 }

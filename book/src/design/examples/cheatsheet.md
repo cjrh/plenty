@@ -376,7 +376,10 @@ such as `__add__(self, other: &T) -> T`, `__rmul__`, and `__neg__`.
 Operators borrow their operands and dispatch statically. Fallible hooks return
 `Result`: write `(a + b)?`. In-place hooks such as
 `__iadd__(self: &mut T, other: &T) -> ()` mutate an existing destination;
-there is no automatic `+=` fallback. Equality remains structural.
+there is no automatic `+=` fallback. Equality remains structural. Other
+`__name__` methods, such as `__eq__`, `__str__` and `__len__`, are
+[rejected](../language/04-expressions/operators.md#reserved-method-names):
+write `display`/`debug` for formatting and named methods for the rest.
 
 ## Option, Result, and errors
 

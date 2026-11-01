@@ -153,10 +153,33 @@ User-defined ordering through one `__cmp__` hook is planned under
 [B74](../../../backlog.md); see the [ordering](../../../proposals/user-type-ordering.md)
 and [hashing](../../../proposals/user-type-hashing.md) proposals.
 
+## Reserved method names
+
+A method named `__name__`, with two underscores on each side, must be a hook
+the compiler calls: an operator hook in the tables above, or, on a class,
+`__init__`, `__del__`, `__enter__` or `__exit__`. A class, enum or protocol that declares any
+other such name is rejected, so a Python special method cannot compile and
+then be ignored. The names stay free for hooks the language may add. Where
+Plenty has its own form, the diagnostic names it:
+
+| Python method | Plenty form |
+| --- | --- |
+| `__str__`, `__repr__`, `__format__` | [`display` and `debug`](../../stdlib/fmt.md#static-user-contracts-and-aggregates) methods |
+| `__pow__` | a `pow` method, called as `base.pow(exponent)` |
+| `__iter__`, `__next__` | a [generator](../09-iteration/03-generators.md) method |
+| `__len__`, `__contains__` | `len` and `contains` methods, called directly |
+| `__bool__` | a predicate method such as `is_empty` |
+| `__getitem__`, `__setitem__` | named methods such as `get` and `set` |
+
+`len()` and `in` on user types are planned under [B49](../../../backlog.md)
+(issue #623). A name with underscores on one side only, such as `__size`, is
+an ordinary method.
+
 ## Boundaries
 
 Custom truthiness, indexing, membership, assignment, dereference, `**`, and
-`@` operators are not implemented.
+`@` operators are not implemented; their Python hooks are
+[reserved](#reserved-method-names).
 `and`, `or`, and `not` keep their boolean and short-circuit rules. Numeric
 operators retain their existing overflow checks and division rules. Inside a
 [`checked:` block](../03-types/numbers.md#checked-blocks), operators a newtype

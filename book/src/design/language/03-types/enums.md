@@ -74,6 +74,10 @@ and defaults under the ordinary method rules. Generic enum parameters come from
 the receiver, as described in [generic data](../07-generics/data.md).
 
 Methods are private to their defining module unless declared `pub def`.
+Enum methods follow the class rule for
+[reserved names](../04-expressions/operators.md#reserved-method-names): a
+`__name__` method must be an operator hook, since enums have no
+lifecycle or context hooks.
 Variant and method names must be distinct. Class lifecycle hooks are not enum
 methods: variant construction and automatic payload destruction retain their
 existing behavior. Anonymous sums cannot declare methods. They forward only the

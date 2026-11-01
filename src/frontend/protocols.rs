@@ -62,7 +62,7 @@ impl Parser {
                     .at
                     .error("lifecycle hooks cannot be protocol requirements"));
             }
-            super::operators::reject_comparison_hook(&f)?;
+            super::operators::reject_unsupported_hook(&f)?;
             if !matches!(
                 f.body.as_slice(),
                 [Stmt {

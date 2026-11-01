@@ -415,3 +415,79 @@ fn comparison_and_hashing_hooks_are_rejected() {
     .to_string();
     assert!(error.contains("`__eq__` is not supported"), "{error}");
 }
+
+// Every `__name__` method that is not a hook Plenty calls is rejected, so a
+// Python special method cannot compile and then be ignored (issue #645).
+#[test]
+fn unsupported_special_methods_are_rejected() {
+    for (hook, advice) in [
+        ("__str__", "`display` and `debug`"),
+        ("__repr__", "`display` and `debug`"),
+        ("__format__", "`display` and `debug`"),
+        ("__pow__", "`base.pow(exponent)`"),
+        ("__iter__", "generator method"),
+        ("__next__", "generator method"),
+        ("__bool__", "predicate method"),
+        ("__getitem__", "named methods"),
+        ("__setitem__", "named methods"),
+        ("__matmul__", "Plenty never calls it"),
+        ("__call__", "Plenty never calls it"),
+        ("__anything__", "Plenty never calls it"),
+    ] {
+        assert_special_method_rejected(hook, advice);
+    }
+}
+
+// Phase guard (issue #645): `len()` and `in` on user types are planned under
+// B49 (issue #623); delete this when they call a user method.
+#[test]
+fn length_and_membership_hooks_are_rejected() {
+    for hook in ["__len__", "__contains__"] {
+        assert_special_method_rejected(hook, "planned under B49");
+    }
+}
+
+fn assert_special_method_rejected(hook: &str, advice: &str) {
+    let class = format!(
+        "class Bag:\n    count: i64\n    def {hook}(self) -> bool:\n        True\nprint(Bag(1).count).unwrap()"
+    );
+    let generic = format!(
+        "class Cell[T]:\n    value: T\n    def {hook}(self) -> bool:\n        True\nprint(Cell(1).value).unwrap()"
+    );
+    let enumeration = format!(
+        "enum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
+    );
+    let protocol =
+        format!("protocol Sized:\n    def {hook}(self) -> bool:\n        pass\nprint(1).unwrap()");
+    for source in [class, generic, enumeration, protocol] {
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("`{hook}` is not supported"))
+                && error.contains(advice)
+                && error.contains("Reserved method names"),
+            "{source}\n{error}"
+        );
+    }
+}
+
+#[test]
+fn names_with_underscores_on_one_side_are_ordinary_methods() {
+    expect(
+        "class Bag:\n    count: i64\n    def __size(self) -> i64:\n        self.count\n    def size__(self) -> i64:\n        self.count\n    def _len_(self) -> i64:\n        self.count\nbag = Bag(2)\nprint(bag.__size(), bag.size__(), bag._len_()).unwrap()",
+        "2 2 2\n",
+    );
+}
+
+#[test]
+fn enums_cannot_declare_context_hooks() {
+    for hook in ["__enter__", "__exit__"] {
+        let source = format!(
+            "enum Coin:\n    Penny\n    def {hook}(self) -> ():\n        pass\nprint(1).unwrap()"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("reserved enum method `{hook}`")),
+            "{error}"
+        );
+    }
+}

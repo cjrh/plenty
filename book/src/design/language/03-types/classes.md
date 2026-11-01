@@ -38,7 +38,10 @@ and skips the class's destructor. The destructor becomes active only after
 successful initialization; see [cleanup](../05-ownership/index.md).
 
 Classes can define [arithmetic operator hooks](../04-expressions/operators.md)
-such as `__add__` and `__neg__`, compiled as direct method calls.
+such as `__add__` and `__neg__`, compiled as direct method calls. Any other
+`__name__` method besides `__init__`, `__del__`, `__enter__` and `__exit__` is
+[rejected](../04-expressions/operators.md#reserved-method-names), so Python
+special methods such as `__str__` and `__len__` cannot be silently ignored.
 
 Class identity is nominal. Structural equality compares fields and printing uses
 `Point(x=3, y=4)`; neither invokes user-defined methods. Comparison and hashing
