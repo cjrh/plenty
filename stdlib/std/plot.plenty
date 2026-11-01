@@ -6,11 +6,9 @@ import std.math
 import std.bytes
 from std.bytes import BytesError
 from std.io import Writer, StreamError
-from std.fmt import FormatError
 
 pub enum PlotError:
     Allocation(AllocError)
-    Format(FormatError)
     Bytes(BytesError)
     Write(i64, StreamError)
     Io(StreamError)
@@ -28,13 +26,6 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, PlotError]:
             Ok(value)
         case Err(error):
             Err(PlotError.Allocation(error))
-
-def formatted(result: Result[str, FormatError]) -> Result[str, PlotError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(error):
-            Err(PlotError.Format(error))
 
 def streamed[T](result: Result[T, StreamError]) -> Result[T, PlotError]:
     match result:
@@ -931,10 +922,10 @@ def facet_keys(resolved: &ResolvedPlot, facet: &Facet) -> Result[FacetKeys, Plot
             row_label = (*row).unwrap_or("(missing)")
             col_label = (*col).unwrap_or("(missing)")
             if facet._rows != "":
-                title = formatted(f"{facet._rows} = {row_label}")?
+                title = allocated(f"{facet._rows} = {row_label}")?
             if facet._cols != "":
-                suffix = formatted(f"{facet._cols} = {col_label}")?
-                title = suffix if title == "" else formatted(f"{title}\n{suffix}")?
+                suffix = allocated(f"{facet._cols} = {col_label}")?
+                title = suffix if title == "" else allocated(f"{title}\n{suffix}")?
             allocated(keys.append(PanelKey(*row, *col, title)))?
     mut nrow = len(rows)
     mut ncol = len(cols)
@@ -1304,7 +1295,7 @@ def gradient_colour(low: str, high: str, t: f64) -> Result[str, PlotError]:
     r = i64(hex_channel(low, 1) * (1.0 - t) + hex_channel(high, 1) * t)
     g = i64(hex_channel(low, 3) * (1.0 - t) + hex_channel(high, 3) * t)
     b = i64(hex_channel(low, 5) * (1.0 - t) + hex_channel(high, 5) * t)
-    formatted(f"#{r:02x}{g:02x}{b:02x}")
+    allocated(f"#{r:02x}{g:02x}{b:02x}")
 
 def scale_colour(scale: &Axis, index: i64, t: f64) -> Result[str, PlotError]:
     match &scale.paint:
@@ -1409,7 +1400,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
     for row in &mut result:
         row.group = remap[row.group]
     if dropped > 0 and not geom._na_rm:
-        allocated(notes.append(formatted(f"Removed {dropped} rows with missing, non-finite, or scale-excluded mapped values.")?))?
+        allocated(notes.append(allocated(f"Removed {dropped} rows with missing, non-finite, or scale-excluded mapped values.")?))?
     if geom._kind == 4 or geom._kind == 5:
         mut counts = allocated(list[Row]())?
         mut by_key = allocated(dict[(i64, str), i64]())?
@@ -1421,7 +1412,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 origin = x.low
             if binwidth == 0.0:
                 return Err(PlotError.InvalidSetting("histogram range is too small"))
-            allocated(notes.append(formatted(f"Histogram uses {geom._bins} equal-width bins over the finite x range.")?))?
+            allocated(notes.append(allocated(f"Histogram uses {geom._bins} equal-width bins over the finite x range.")?))?
         for row in &result:
             mut position = row.x
             mut width = geom._width
@@ -1456,7 +1447,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
             else:
                 removed += 1
         if removed > 0 and not geom._na_rm:
-            allocated(notes.append(formatted(f"Removed {removed} computed rows outside scale limits or transform domain.")?))?
+            allocated(notes.append(allocated(f"Removed {removed} computed rows outside scale limits or transform domain.")?))?
     if bars(geom._kind):
         if geom._position == Position.Stack or geom._position == Position.Fill:
             mut totals = allocated(dict[(str, bool), f64]())?
@@ -1548,7 +1539,7 @@ def label[W: Writer](writer: &mut W, x: f64, y: f64, text: str, size: f64, ancho
     if text == "":
         return Ok(())
     length = text_width(text, size)
-    emit(writer, formatted(f"<text x=\"{x:.2f}\" y=\"{y:.2f}\" font-size=\"{size:.2f}\" text-anchor=\"{anchor}\" textLength=\"{length:.2f}\" lengthAdjust=\"spacingAndGlyphs\">{safe}</text>\n")?)
+    emit(writer, allocated(f"<text x=\"{x:.2f}\" y=\"{y:.2f}\" font-size=\"{size:.2f}\" text-anchor=\"{anchor}\" textLength=\"{length:.2f}\" lengthAdjust=\"spacingAndGlyphs\">{safe}</text>\n")?)
 
 # These advances define our SVG text boxes, not measurements of a host font.
 # textLength makes the renderer use that width, so fallback fonts cannot push
@@ -1582,7 +1573,7 @@ def text_block(text: str, size: f64, limit: f64) -> Result[TextBlock, PlotError]
     for paragraph in allocated(text.split("\n"))?:
         mut current = ""
         for word in allocated(paragraph.split())?:
-            candidate = word if current == "" else formatted(f"{current} {word}")?
+            candidate = word if current == "" else allocated(f"{current} {word}")?
             if text_width(candidate, size) <= limit:
                 current = candidate
                 continue
@@ -1723,10 +1714,10 @@ def layout(w: f64, h: f64, labels: &Labels, theme: &Theme, xticks: &list[(f64, s
     Ok(Layout(panel_left, top, pw, ph, title, xtitle, ytitle, xt, yt, legends))
 
 def line[W: Writer](writer: &mut W, x1: f64, y1: f64, x2: f64, y2: f64, colour: str, width: f64 = 0.5) -> Result[(), PlotError]:
-    emit(writer, formatted(f"<line x1=\"{x1:.2f}\" y1=\"{y1:.2f}\" x2=\"{x2:.2f}\" y2=\"{y2:.2f}\" stroke=\"{colour}\" stroke-width=\"{width:.2f}\"/>\n")?)
+    emit(writer, allocated(f"<line x1=\"{x1:.2f}\" y1=\"{y1:.2f}\" x2=\"{x2:.2f}\" y2=\"{y2:.2f}\" stroke=\"{colour}\" stroke-width=\"{width:.2f}\"/>\n")?)
 
 def rectangle[W: Writer](writer: &mut W, x: f64, y: f64, width: f64, height: f64, fill: str, stroke: str = "none") -> Result[(), PlotError]:
-    emit(writer, formatted(f"<rect x=\"{x:.2f}\" y=\"{y:.2f}\" width=\"{width:.2f}\" height=\"{height:.2f}\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n")?)
+    emit(writer, allocated(f"<rect x=\"{x:.2f}\" y=\"{y:.2f}\" width=\"{width:.2f}\" height=\"{height:.2f}\" fill=\"{fill}\" stroke=\"{stroke}\"/>\n")?)
 
 def expand(low: f64, high: f64, discrete: bool) -> (f64, f64):
     span = high - low
@@ -1754,13 +1745,13 @@ def tick_step(low: f64, high: f64) -> f64:
 
 def number_label(value: f64, step: f64) -> Result[str, PlotError]:
     rounded = 0.0 if std.math.abs(value) < step * 1.0e-9 else value
-    short = formatted(f"{rounded:.6g}")?
-    if step <= 0.0 or short != formatted(f"{rounded + step:.6g}")?:
+    short = allocated(f"{rounded:.6g}")?
+    if step <= 0.0 or short != allocated(f"{rounded + step:.6g}")?:
         return Ok(short)
-    medium = formatted(f"{rounded:.12g}")?
-    if medium != formatted(f"{rounded + step:.12g}")?:
+    medium = allocated(f"{rounded:.12g}")?
+    if medium != allocated(f"{rounded + step:.12g}")?:
         return Ok(medium)
-    formatted(f"{rounded:.17g}")
+    allocated(f"{rounded:.17g}")
 
 class Scene:
     layers: list[LayerRows]
@@ -1920,10 +1911,10 @@ def render_scene[W: Writer](writer: &mut W, scene: &Scene, plan: &Layout, w: f64
         draw_axis(writer, &plan.x_ticks, xlo, xhi, left, top, pw, ph, False, tick_top, &theme)?
         draw_axis(writer, &plan.y_ticks, ylo, yhi, left, top, pw, ph, True, tick_top, &theme)?
     draw_text(writer, &plan.x_title, left + pw / 2.0, tick_top + tick_extent(&plan.x_ticks, True) + 6.0)?
-    emit(writer, formatted(f"<g transform=\"translate({12.0 + plan.y_title.height / 2.0:.2f},{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
+    emit(writer, allocated(f"<g transform=\"translate({12.0 + plan.y_title.height / 2.0:.2f},{top + ph / 2.0:.2f}) rotate(-90)\">\n")?)?
     draw_text(writer, &plan.y_title, 0.0, -plan.y_title.height / 2.0)?
     emit(writer, "</g>\n")?
-    emit(writer, formatted(f"<defs><clipPath id=\"{identifier}\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#{identifier})\">\n")?)?
+    emit(writer, allocated(f"<defs><clipPath id=\"{identifier}\"><rect x=\"{left:.2f}\" y=\"{top:.2f}\" width=\"{pw:.2f}\" height=\"{ph:.2f}\"/></clipPath></defs>\n<g clip-path=\"url(#{identifier})\">\n")?)?
     for layer in &layers:
         draw_layer(writer, layer, xlo, xhi, ylo, yhi, left, top, pw, ph, flip)?
     emit(writer, "</g>\n")?
@@ -1934,7 +1925,7 @@ def render_scene[W: Writer](writer: &mut W, scene: &Scene, plan: &Layout, w: f64
     emit(writer, "</g>\n")
 
 def svg_start[W: Writer](writer: &mut W, w: f64, h: f64) -> Result[(), PlotError]:
-    emit(writer, formatted(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
+    emit(writer, allocated(f"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.2f}pt\" height=\"{h:.2f}pt\" viewBox=\"0 0 {w:.2f} {h:.2f}\">\n")?)?
     Ok(())
 
 def draw[W: Writer](plot: &Plot, writer: &mut W, width: f64, height: f64, units: Units, dpi: f64) -> Result[list[str], PlotError]:
@@ -2054,7 +2045,7 @@ def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, 
         scene.labels._title = keys.keys[index].title
         scene.theme._legend = Legend.Hidden
         for note in &scene.notes:
-            allocated(notes.append(formatted(f"Panel {keys.keys[index].title}: {note}")?))?
+            allocated(notes.append(allocated(f"Panel {keys.keys[index].title}: {note}")?))?
     mut margins = (0.0, 0.0, 0.0, 0.0)
     mut plans = allocated(list[Layout]())?
     mut converged = False
@@ -2085,8 +2076,8 @@ def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, 
     for index, scene in enumerate(&scenes):
         x = f64(index % keys.ncol) * cell_width
         y = start_y + f64(index // keys.ncol) * cell_height
-        identifier = formatted(f"panel-{index}")?
-        emit(writer, formatted(f"<g data-panel=\"{index}\" transform=\"translate({x:.2f},{y:.2f})\">\n")?)?
+        identifier = allocated(f"panel-{index}")?
+        emit(writer, allocated(f"<g data-panel=\"{index}\" transform=\"translate({x:.2f},{y:.2f})\">\n")?)?
         render_scene(writer, scene, &plans[index], cell_width, cell_height, identifier)?
         emit(writer, "</g>\n")?
     mut at = start_y + 12.0
@@ -2200,7 +2191,7 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
             "ribbon"
         case _:
             "histogram"
-    emit(writer, formatted(f"<g data-geom=\"{name}\" opacity=\"{geom._alpha:.2f}\">\n")?)?
+    emit(writer, allocated(f"<g data-geom=\"{name}\" opacity=\"{geom._alpha:.2f}\">\n")?)?
     if geom._kind == 8:
         draw_ribbons(writer, layer, &order, xlo, xhi, ylo, yhi, left, top, width, height, flip)?
         return emit(writer, "</g>\n")
@@ -2213,7 +2204,7 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
         py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.y, ylo, yhi, top + height, -height)
         if geom._kind == 0:
             radius = geom._size * 72.0 / 25.4 / 2.0
-            emit(writer, formatted(f"<circle cx=\"{px:.2f}\" cy=\"{py:.2f}\" r=\"{radius:.2f}\" fill=\"{row.colour}\"/>\n")?)?
+            emit(writer, allocated(f"<circle cx=\"{px:.2f}\" cy=\"{py:.2f}\" r=\"{radius:.2f}\" fill=\"{row.colour}\"/>\n")?)?
         elif geom._kind <= 2:
             if row.group == last_group:
                 line(writer, last_x, last_y, px, py, last_colour, geom._size * 72.0 / 25.4)?
@@ -2275,15 +2266,15 @@ def draw_ribbons[W: Writer](writer: &mut W, layer: &LayerRows, order: &list[(i64
                 row = &layer.rows[order[index][2]]
                 px = coordinate(row.y, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
                 py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.y, ylo, yhi, top + height, -height)
-                allocated(points.append(formatted(f"{px:.2f},{py:.2f}")?))?
+                allocated(points.append(allocated(f"{px:.2f},{py:.2f}")?))?
             for index in range(stop - 1, start - 1, -1):
                 row = &layer.rows[order[index][2]]
                 px = coordinate(row.bottom, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
                 py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.bottom, ylo, yhi, top + height, -height)
-                allocated(points.append(formatted(f"{px:.2f},{py:.2f}")?))?
+                allocated(points.append(allocated(f"{px:.2f},{py:.2f}")?))?
             joined = allocated(" ".join(&points))?
             stroke = layer.layer._size * 72.0 / 25.4
-            emit(writer, formatted(f"<polygon points=\"{joined}\" fill=\"{first.fill}\" stroke=\"{first.colour}\" stroke-width=\"{stroke:.2f}\"/>\n")?)?
+            emit(writer, allocated(f"<polygon points=\"{joined}\" fill=\"{first.fill}\" stroke=\"{first.colour}\" stroke-width=\"{stroke:.2f}\"/>\n")?)?
         start = stop
     Ok(())
 

@@ -658,6 +658,35 @@ pub def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[st
                 case cause: FormatError:
                     Err(cause)
 
+# An f-string's result. Its storage and its cursor report allocation
+# failure as `Bytes(Allocation)` and `Output(Allocation)`; both become
+# `AllocError`. With only built-in spellings and static specs nothing else
+# can fail, so another error is a compiler bug and traps.
+pub def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]:
+    match allocation_or_format(built):
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case cause: AllocError:
+                    Err(cause)
+                case cause: FormatError:
+                    unexpected: Result[AllocError, FormatError] = Err(cause)
+                    Err(unexpected.unwrap())
+
+pub def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]:
+    match built:
+        case Ok(text):
+            Ok(text)
+        case Err(error):
+            match error:
+                case FormatError.Bytes(BytesError.Allocation(cause)):
+                    Err(cause)
+                case FormatError.Output(StreamError.Allocation(cause)):
+                    Err(cause)
+                case _:
+                    Err(error)
+
 pub def debug_string(value: &str) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?
     output.debug_text(value)?

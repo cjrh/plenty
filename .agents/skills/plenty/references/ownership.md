@@ -78,8 +78,6 @@ Rules:
 ## Classes
 
 ```plenty
-from std.fmt import FormatError
-
 class Account:
     owner: str
     balance: i64
@@ -87,10 +85,10 @@ class Account:
     def deposit(self: &mut Account, amount: i64) -> ():
         self.balance += amount
 
-    def describe(self) -> Result[str, AllocError | FormatError]:
+    def describe(self) -> Result[str, AllocError]:
         Ok(f"{self.owner}: {self.balance}"?)
 
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     mut account = Account("Ada", 10)
     account.deposit(5)
     print(account.describe()?)?
@@ -108,7 +106,8 @@ borrows the receiver; `self: &mut Class` mutates it; `self: Class` consumes it.
 Anything that may allocate returns `Result[_, AllocError]`: displays,
 comprehensions, `append`, `insert`, `add`, `reserve`, `copy`, string building
 (`+`, `join`, `split`, `strip`, `upper`), and f-strings
-(`Result[str, FormatError]`). Reserve when the size is known:
+(`Result[str, AllocError]`; `AllocError | FormatError` when a field runs a
+`display`/`debug` method or a spec is computed). Reserve when the size is known:
 
 ```plenty
 def squares(count: i64) -> Result[list[i64], AllocError]:

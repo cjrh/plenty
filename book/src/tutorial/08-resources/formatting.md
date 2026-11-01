@@ -61,8 +61,8 @@ Label("ready")
 ```
 
 Because these methods can fail, printing such a value returns
-`Result[(), IoError | FormatError]`, and `str.repr` adds `FormatError` to
-`AllocError`. A type without `display` prints with its `debug`; one without
+`Result[(), IoError | FormatError]`, and `str.repr` and an f-string with such a
+field add `FormatError` to `AllocError`. A type without `display` prints with its `debug`; one without
 either prints its fields.
 
 Enums use the same methods. Match the shared receiver to format a payload

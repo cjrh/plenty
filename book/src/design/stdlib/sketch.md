@@ -9,7 +9,7 @@ its serialized formats. Also see [xor filters](sketch-xor.md) and
 from std.bytes import BytesError
 from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
 
-def main() -> Result[(), SketchError | AllocError | BytesError | FormatError | IoError]:
+def main() -> Result[(), SketchError | AllocError | BytesError | IoError]:
     mut users = hyperloglog()?
     mut latency = quantiles()?
     for i in range(10000):

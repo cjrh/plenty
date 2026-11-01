@@ -66,8 +66,10 @@ P#3
 
 When a value's type, or any type it holds, has one of these methods, the
 method can fail, so the operation's error widens with `std.fmt.FormatError`:
-`print` returns `Result[(), IoError | FormatError]` and `str.repr` returns
-`Result[str, AllocError | FormatError]`. Other values keep the narrower types.
+`print` returns `Result[(), IoError | FormatError]`, `str.repr` returns
+`Result[str, AllocError | FormatError]`, and an f-string returns
+`Result[str, AllocError | FormatError]`. Other values keep the narrower types:
+`Result[(), IoError]`, `Result[str, AllocError]` and `Result[str, AllocError]`.
 A method's error is returned unchanged and nothing is printed. The method
 runs with no byte budget beyond the operation's own and the nesting depth of
 an f-string field (32); a private type's method runs with its own module's

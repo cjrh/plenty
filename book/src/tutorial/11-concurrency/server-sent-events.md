@@ -32,7 +32,7 @@ pub enum Route:
     Clock
 
 pub class Clock:
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), SseError | FormatError | RangeError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), SseError | AllocError | RangeError]:
         mut events = std.http.sse.accept(exchange)?
         events.retry(2000, &after(1000)?)?
         for n in range(3):
@@ -50,7 +50,7 @@ pub class Clock:
         events.close()
         Ok(())
 
-type WatchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type WatchError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def watch(port: u16, stop: CancellationToken) -> Result[(), WatchError]:
     with stop.cancel_on_exit():

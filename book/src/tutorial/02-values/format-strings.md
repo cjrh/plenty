@@ -2,12 +2,10 @@
 
 Put an `f` before a string to fill in values. Each `{field}` is replaced by
 its value. An f-string builds a new `str`, which can fail to allocate, so it
-returns a `Result` like a list literal does: write `?` after it.
+returns `Result[str, AllocError]` like a list literal does: write `?` after it.
 
 ```plenty
-import std.fmt
-
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     name = "Ada"
     year = 1843
     scores = [90, 85]?
@@ -36,9 +34,7 @@ After a colon, a format spec chooses width, alignment, fill, sign, digit
 grouping, precision, and a type, as in Python:
 
 ```plenty
-import std.fmt
-
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     item = "tea"
     price = 3.14159
     count = 1234567
@@ -55,12 +51,12 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 ```
 
 A spec can take its width or precision from a nested field, and its fill or
-alignment from a nested `str` field:
+alignment from a nested `str` field. Such a value can be invalid, such as a
+negative width, so the f-string's error becomes `AllocError | FormatError`;
+`FormatError` needs no import:
 
 ```plenty
-import std.fmt
-
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError | FormatError]:
     width = 8
     digits = 2
     align = "^"
@@ -76,9 +72,7 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 the field's source before its value, which helps when debugging:
 
 ```plenty
-import std.fmt
-
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     name = "Ada"
     year = 1843
     print(f"{name!r} {name=} {year=}"?)?
@@ -97,9 +91,7 @@ The compiler checks every spec against the field's type. A precision does not
 apply to an integer:
 
 ```plenty-error
-import std.fmt
-
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError]:
     count = 3
     print(f"{count:.2f}"?)?
     Ok(())
@@ -112,7 +104,8 @@ format spec `.2f` does not apply to i64: integers take no precision; convert wit
 The [reference](../../design/language/04-expressions/format-strings.md) lists
 every option and conversion.
 
-An f-string suits a fixed number of pieces of any type. Its error type is
-always `FormatError`, which needs no import. A function that reports only
-`AllocError` can combine two strings with `a.concat(b)?` and any number of strings from a list,
-set, or generator with [`separator.join(pieces)?`](../../design/facilities/01-builtins/text-building.md#joining).
+An f-string suits a fixed number of pieces of any type. A field whose type has
+its own [formatting methods](../08-resources/formatting.md) also adds
+`FormatError`, since that method can fail. Combine two strings with
+`a.concat(b)?` and any number of strings from a list, set, or generator with
+[`separator.join(pieces)?`](../../design/facilities/01-builtins/text-building.md#joining).

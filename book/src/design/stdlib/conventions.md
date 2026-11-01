@@ -26,7 +26,7 @@ standard library.
   [reserved for the standard library](bytes.md#transport).
 - A module's error types and protocols are imported from that module. The
   [prelude](../language/02-source/names.md) holds builtin names, plus
-  `std.fmt.FormatError`, which every f-string produces (issue #632).
+  `std.fmt.FormatError`, which user formatting methods return (issue #632).
 - Each module page states ownership, allocation, error variants and limits
   for every public function, as described in
   [Reading a module page](index.md#reading-a-module-page), and ends with
@@ -284,8 +284,9 @@ they are one family:
 - `print` and f-strings call `display`; `str.repr`, `!r` and elements of
   formatted aggregates call `debug`. A type without `display` uses its
   `debug`, and one without `debug` uses its structure. When a user method can
-  run, `print` returns `Result[(), IoError | FormatError]` and `str.repr`
-  returns `Result[str, AllocError | FormatError]`. See
+  run, `print` returns `Result[(), IoError | FormatError]`, and `str.repr`
+  and f-strings return `Result[str, AllocError | FormatError]`; otherwise
+  `print` reports `IoError` and both others `AllocError`. See
   [formatting](../facilities/01-builtins/formatting.md).
 - `std.log.Logger.debug` and `std.cli.Progress.display` have other
   signatures, so `print` rejects those types; call their methods instead.

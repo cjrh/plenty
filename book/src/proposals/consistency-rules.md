@@ -416,7 +416,9 @@ everything that works on one iterator works on all.
 
 ### Today
 
-Allocation failure has several shapes (issue #632):
+Allocation failure has several shapes (issue #632). The f-string row and
+its probe describe the state before phasing item 2, which made f-strings
+without user formatting fail with `AllocError`:
 
 | Operation | Allocation failure reported as |
 | --- | --- |
@@ -522,7 +524,9 @@ and an argument bug traps.
    (issue #625); literal `split("")` rejected and the `chunks` message
    (issue #629).
 2. f-strings, `print` and `str.repr` report `AllocError` when no user method
-   runs.
+   runs. Done: `print` and `str.repr` with B89 phase 2 (issue #615),
+   f-strings with B92 phase 2. A `:c` spec counts as computed, since an
+   out-of-range scalar is `InvalidSpec`.
 3. std error types: `Allocation(AllocError)` variants, `std.bytes`
    constructors, negative capacities.
 

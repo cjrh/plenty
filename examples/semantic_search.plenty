@@ -8,7 +8,6 @@ from std.db.sqlite import Connection, DbError, Begin, Mode
 from std.json import Json, JsonError
 from std.crypto import CryptoError
 from std.encoding import EncodingError
-from std.fmt import FormatError
 import std.process as process
 from std.process import Stdio
 from std.bytes import BytesError
@@ -27,7 +26,7 @@ enum SearchError:
 const max_output_bytes: i64 = 16 * 1024 * 1024
 const max_value_bytes: i64 = 16 * 1024 * 1024
 
-type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | FormatError | BytesError | StreamError
+type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | BytesError | StreamError
 
 class Chunk:
     text: str

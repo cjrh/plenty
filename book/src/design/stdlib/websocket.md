@@ -44,7 +44,7 @@ pub class Shout:
                     socket.send_text(&message.to_text()?.upper()?, &soon()?)?
         Ok(())
 
-def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | FormatError | IoError]:
+def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
     with stop.cancel_on_exit():
         never = CancellationToken()?
         url = f"ws://127.0.0.1:{port}/chat"?
@@ -55,7 +55,7 @@ def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | FormatErr
         socket.close(1000, "bye", &soon()?)?
     Ok(())
 
-def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | ChatError | FormatError | IoError]:
+def main() -> Result[(), ThreadError | std.http.server.ServerError | std.net.NetError | ChatError | IoError]:
     mut routes = std.http.server.router[Route]()?
     routes.add("GET", "/chat", Route.Chat)?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?

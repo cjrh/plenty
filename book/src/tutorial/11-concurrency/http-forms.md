@@ -31,7 +31,7 @@ pub class Site:
     pub forms: FormLimits
     pub proxies: Proxies
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), FormatError | std.http.HttpError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.net.NetError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[TcpStream]) -> Result[(), AllocError | std.http.HttpError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.net.NetError]:
         match route:
             case Route.Login:
                 match std.http.body.read_form(exchange, &self.forms):

@@ -44,65 +44,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.encoding`](#stdencoding): 1168-1229
 - [`std.env`](#stdenv): 1231-1245
 - [`std.error`](#stderror): 1247-1267
-- [`std.fmt`](#stdfmt): 1269-1330
-- [`std.fs`](#stdfs): 1332-1415
-- [`std.fs.dirs`](#stdfsdirs): 1417-1427
-- [`std.fs.watch`](#stdfswatch): 1429-1464
-- [`std.graph`](#stdgraph): 1466-1554
-- [`std.http`](#stdhttp): 1556-1626
-- [`std.http.decoder`](#stdhttpdecoder): 1628-1645
-- [`std.http.body`](#stdhttpbody): 1647-1682
-- [`std.http.client`](#stdhttpclient): 1684-1794
-- [`std.http.cookie`](#stdhttpcookie): 1796-1828
-- [`std.http.files`](#stdhttpfiles): 1830-1843
-- [`std.http.https`](#stdhttphttps): 1845-1859
-- [`std.http.proxy`](#stdhttpproxy): 1861-1882
-- [`std.http.server`](#stdhttpserver): 1884-1969
-- [`std.http.sse`](#stdhttpsse): 1971-1990
-- [`std.http.tls`](#stdhttptls): 1992-2009
-- [`std.http.typed`](#stdhttptyped): 2011-2044
-- [`std.http.websocket`](#stdhttpwebsocket): 2046-2081
-- [`std.http.wss`](#stdhttpwss): 2083-2089
-- [`std.image`](#stdimage): 2091-2137
-- [`std.io`](#stdio): 2139-2219
-- [`std.io.typed`](#stdiotyped): 2221-2259
-- [`std.json`](#stdjson): 2261-2325
-- [`std.jwt`](#stdjwt): 2327-2374
-- [`std.log`](#stdlog): 2376-2443
-- [`std.markdown`](#stdmarkdown): 2445-2479
-- [`std.template`](#stdtemplate): 2481-2502
-- [`std.math`](#stdmath): 2504-2570
-- [`std.mime`](#stdmime): 2572-2596
-- [`std.net`](#stdnet): 2598-2680
-- [`std.path`](#stdpath): 2682-2699
-- [`std.process`](#stdprocess): 2701-2747
-- [`std.random`](#stdrandom): 2749-2770
-- [`std.ready`](#stdready): 2772-2802
-- [`std.regex`](#stdregex): 2804-2857
-- [`std.report`](#stdreport): 2859-2882
-- [`std.secrets`](#stdsecrets): 2884-2910
-- [`std.shlex`](#stdshlex): 2912-2921
-- [`std.sketch`](#stdsketch): 2923-2961
-- [`std.sketch.xor`](#stdsketchxor): 2963-2974
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2976-2991
-- [`std.signal`](#stdsignal): 2993-3010
-- [`std.simd`](#stdsimd): 3012-3113
-- [`std.stat`](#stdstat): 3115-3148
-- [`std.plot`](#stdplot): 3150-3239
-- [`std.linalg`](#stdlinalg): 3241-3282
-- [`std.sync`](#stdsync): 3284-3293
-- [`std.system`](#stdsystem): 3295-3353
-- [`std.tempfile`](#stdtempfile): 3355-3387
-- [`std.test`](#stdtest): 3389-3431
-- [`std.text`](#stdtext): 3433-3452
-- [`std.thread`](#stdthread): 3454-3458
-- [`std.time`](#stdtime): 3460-3504
-- [`std.tls`](#stdtls): 3506-3588
-- [`std.toml`](#stdtoml): 3590-3639
-- [`std.unicode`](#stdunicode): 3641-3653
-- [`std.url`](#stdurl): 3655-3683
-- [`std.uuid`](#stduuid): 3685-3708
-- [`std.xml`](#stdxml): 3710-3743
+- [`std.fmt`](#stdfmt): 1269-1332
+- [`std.fs`](#stdfs): 1334-1417
+- [`std.fs.dirs`](#stdfsdirs): 1419-1429
+- [`std.fs.watch`](#stdfswatch): 1431-1466
+- [`std.graph`](#stdgraph): 1468-1556
+- [`std.http`](#stdhttp): 1558-1628
+- [`std.http.decoder`](#stdhttpdecoder): 1630-1647
+- [`std.http.body`](#stdhttpbody): 1649-1684
+- [`std.http.client`](#stdhttpclient): 1686-1796
+- [`std.http.cookie`](#stdhttpcookie): 1798-1830
+- [`std.http.files`](#stdhttpfiles): 1832-1845
+- [`std.http.https`](#stdhttphttps): 1847-1861
+- [`std.http.proxy`](#stdhttpproxy): 1863-1884
+- [`std.http.server`](#stdhttpserver): 1886-1971
+- [`std.http.sse`](#stdhttpsse): 1973-1992
+- [`std.http.tls`](#stdhttptls): 1994-2011
+- [`std.http.typed`](#stdhttptyped): 2013-2046
+- [`std.http.websocket`](#stdhttpwebsocket): 2048-2083
+- [`std.http.wss`](#stdhttpwss): 2085-2091
+- [`std.image`](#stdimage): 2093-2139
+- [`std.io`](#stdio): 2141-2221
+- [`std.io.typed`](#stdiotyped): 2223-2261
+- [`std.json`](#stdjson): 2263-2327
+- [`std.jwt`](#stdjwt): 2329-2376
+- [`std.log`](#stdlog): 2378-2445
+- [`std.markdown`](#stdmarkdown): 2447-2481
+- [`std.template`](#stdtemplate): 2483-2504
+- [`std.math`](#stdmath): 2506-2572
+- [`std.mime`](#stdmime): 2574-2598
+- [`std.net`](#stdnet): 2600-2682
+- [`std.path`](#stdpath): 2684-2701
+- [`std.process`](#stdprocess): 2703-2749
+- [`std.random`](#stdrandom): 2751-2772
+- [`std.ready`](#stdready): 2774-2804
+- [`std.regex`](#stdregex): 2806-2859
+- [`std.report`](#stdreport): 2861-2884
+- [`std.secrets`](#stdsecrets): 2886-2912
+- [`std.shlex`](#stdshlex): 2914-2923
+- [`std.sketch`](#stdsketch): 2925-2963
+- [`std.sketch.xor`](#stdsketchxor): 2965-2976
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 2978-2993
+- [`std.signal`](#stdsignal): 2995-3012
+- [`std.simd`](#stdsimd): 3014-3115
+- [`std.stat`](#stdstat): 3117-3150
+- [`std.plot`](#stdplot): 3152-3241
+- [`std.linalg`](#stdlinalg): 3243-3284
+- [`std.sync`](#stdsync): 3286-3295
+- [`std.system`](#stdsystem): 3297-3355
+- [`std.tempfile`](#stdtempfile): 3357-3389
+- [`std.test`](#stdtest): 3391-3433
+- [`std.text`](#stdtext): 3435-3454
+- [`std.thread`](#stdthread): 3456-3460
+- [`std.time`](#stdtime): 3462-3506
+- [`std.tls`](#stdtls): 3508-3590
+- [`std.toml`](#stdtoml): 3592-3641
+- [`std.unicode`](#stdunicode): 3643-3655
+- [`std.url`](#stdurl): 3657-3685
+- [`std.uuid`](#stduuid): 3687-3710
+- [`std.xml`](#stdxml): 3712-3745
 
 ## `std.actor`
 
@@ -1322,6 +1322,8 @@ def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), F
 def repr_view_string[T](value: &[T]) -> Result[str, FormatError]
 def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]
+def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]
+def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]
 def debug_string(value: &str) -> Result[str, FormatError]
 def repr_substr_string(value: &substr) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
@@ -3153,7 +3155,7 @@ Layered charts from owned columns or record accessors, validated mappings, group
 
 ```text
 enum PlotError
-    Allocation(AllocError) | Format(FormatError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
+    Allocation(AllocError) | Bytes(BytesError) | Write(i64, StreamError) | Io(StreamError) | UnknownColumn(str) | DuplicateColumn(str) | ShapeMismatch(str) | MissingAesthetic(str) | WrongKind(str) | Conflict(str) | InvalidSetting(str)
 enum Column
     Num(list[f64]) | Int(list[i64]) | Text(list[str]) | Bool(list[bool]) | MaybeNum(list[Option[f64]]) | MaybeText(list[Option[str]])
 class Table

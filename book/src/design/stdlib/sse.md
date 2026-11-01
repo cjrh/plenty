@@ -35,7 +35,7 @@ pub class Feed:
         events.close()
         Ok(())
 
-type WatchError = AllocError | IoError | FormatError | std.bytes.BytesError | std.http.client.ClientError | RangeError
+type WatchError = AllocError | IoError | std.bytes.BytesError | std.http.client.ClientError | RangeError
 
 def watch(port: u16, stop: CancellationToken) -> Result[(), WatchError]:
     with stop.cancel_on_exit():
