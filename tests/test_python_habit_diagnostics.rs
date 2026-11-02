@@ -267,7 +267,7 @@ fn matching_an_unsupported_type_names_the_conditional_chain() {
         );
         assert_eq!(
             diagnostic(&source),
-            "3:11: match requires an enum, class, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain",
+            "3:11: match requires an enum, class, tuple, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain",
             "{value}"
         );
     }

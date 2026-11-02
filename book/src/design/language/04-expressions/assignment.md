@@ -111,9 +111,15 @@ target can change a later target's index: `i, items[i] = 2, 5` writes `items[2]`
 A target is a name, a field, a collection element, `*reference`, or `_`, which
 destroys its component. A name follows the single-assignment rule: it assigns an
 existing `mut` local or declares a new immutable one. `mut a, b = value`
-declares mutable locals and accepts names only. Naming the same local twice,
-nesting targets, starred targets, and a closure capture as a name target are
-rejected. In a constructor, a `self.field` target initializes its field, and
+declares mutable locals and accepts names or nested tuples of names only.
+Tuple targets nest recursively: `(a, (b, c)) = value` requires the same tuple
+shape. `mut (a, b), c = ((1, 2), 3)` and `mut ((a, b), c) = ((1, 2), 3)`
+declare the same nested components; the first tuple remains one target when an
+outer comma follows it. A singleton `(a,)` still requires one tuple component.
+Leaves are assigned left to right after the whole right side is evaluated;
+field, index and dereference leaves follow the same rules as flat targets.
+Naming the same local twice, starred targets, and a closure capture as a name
+target are rejected. In a constructor, a `self.field` target initializes its field, and
 later targets may read it.
 
 The right side obeys ordinary ownership, so reading an owned element such as a

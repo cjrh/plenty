@@ -27,6 +27,19 @@ cm
 Creating `(a, b)` does not allocate a tuple, so it needs no `?`. Operations that
 produce its components, such as the list construction below, can still fail.
 
+Nested tuples can be unpacked in one statement. Match each tuple's shape,
+using `_` for a component you do not need:
+
+```plenty
+def main() -> Result[(), IoError]:
+    ((x, y), label) = ((3, 4), "point")
+    print(label, x + y)?
+    Ok(())
+```
+```output
+point 7
+```
+
 Tuples of numbers, strings, or nested tuples of those can be compared. The first
 differing component decides the result, just as in `sort()`. Comparisons leave
 both values available:

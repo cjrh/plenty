@@ -82,7 +82,7 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             let mut inner = forbidden.clone();
             for clause in clauses {
                 match clause {
-                    Clause::For(names, iterable) => {
+                    Clause::For(names, iterable) | Clause::Unpack(names, _, iterable) => {
                         expression(iterable, &inner)?;
                         for name in names {
                             inner.remove(name);
