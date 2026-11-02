@@ -170,3 +170,67 @@ fn rejected(#[case] source: &str, #[case] diagnostic: &str) {
         "{source}\nexpected {diagnostic:?}, got {error:?}"
     );
 }
+
+#[test]
+fn domain_divisors_keep_floor_semantics_and_augmented_destinations() {
+    for ty in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"] {
+        let signed = ty.starts_with('i');
+        let mut source = format!(
+            "def quot(a: {ty}, d: NonZero[{ty}]) -> {ty}:\n    a // d\n\ndef rem(a: {ty}, d: NonZero[{ty}]) -> {ty}:\n    a % d\n\n"
+        );
+        source += &format!(
+            "d = NonZero.try_from(3{ty}).unwrap()\nprint(quot(7{ty}, d), rem(7{ty}, d)).unwrap()\nmut n = 7{ty}\nn //= d\nprint(n).unwrap()\nn %= d\nprint(n).unwrap()\nmut xs = [7{ty}].unwrap()\nxs[0] //= d\nprint(xs[0]).unwrap()\nr = &mut xs[0]\n*r %= d\nprint(*r).unwrap()\n"
+        );
+        let mut expected = "2 1\n2\n2\n2\n2\n".to_string();
+        if signed {
+            source += &format!(
+                "minus: NonZero[{ty}] = -3\nprint(quot(-7{ty}, d), rem(-7{ty}, d), quot(7{ty}, minus), rem(7{ty}, minus)).unwrap()\nnegative_one: NonZero[{ty}] = -1\nprint(rem({ty}.MIN, negative_one)).unwrap()\n"
+            );
+            expected += "-3 2 -3 -2\n0\n";
+        }
+        runs(&source, &expected);
+    }
+}
+
+#[test]
+fn checked_nonzero_divisor_has_only_overflow_error() {
+    runs(
+        r#"def quotient(n: i64, d: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
+    checked:
+        n // d
+
+def remainder(n: i64, d: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
+    checked:
+        (n % d) + 0
+
+print(quotient(-7, 3).unwrap(), remainder(-7, 3).unwrap()).unwrap()
+match quotient(i64.MIN, -1):
+    case Ok(n):
+        print(n).unwrap()
+    case Err(e):
+        print(e.wrapped).unwrap()
+mut n = i64.MIN
+result: Result[i64, OverflowError[i64]] = checked:
+    d: NonZero[i64] = -1
+    n //= d
+    n
+print(result.is_err(), n).unwrap()
+"#,
+        "-3 2\n-9223372036854775808\nTrue -9223372036854775808\n",
+    );
+    let error = check_error("d: NonZero[u64] = 3\nr = checked:\n    7u64 // d");
+    assert!(
+        error.contains("contains no arithmetic that can fail"),
+        "{error}"
+    );
+}
+
+#[test]
+fn nonzero_division_still_traps_signed_overflow() {
+    let output = support::run_file(
+        "def quot(n: i64, d: NonZero[i64]) -> i64:\n    n // d\n\ndef main() -> ():\n    drop(quot(i64.MIN, -1))\n",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("integer overflow"), "{stderr}");
+}

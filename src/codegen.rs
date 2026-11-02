@@ -2696,9 +2696,9 @@ impl Lowerer<'_, '_> {
             Op::Add => self.lower_add()?,
             Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
-            Op::Div => self.lower_div(false)?,
-            Op::FloorDiv => self.lower_div(true)?,
-            Op::Modulo => self.lower_modulo()?,
+            Op::Div => self.lower_div(false, crate::numeric::Divisor::Any)?,
+            Op::FloorDiv(proof) => self.lower_div(true, *proof)?,
+            Op::Modulo(proof) => self.lower_modulo(*proof)?,
             Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Numeric(operation) => self.lower_numeric(operation)?,
             Op::Eq => self.lower_eq()?,
@@ -3059,19 +3059,19 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Whether floor division or modulo of `a` by `b` may skip its sign
-    /// handling: a nonnegative dividend and a divisor that is nonnegative and,
-    /// once the zero check passes, positive.
-    fn nonnegative_operands(
+    fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
+        self.counters.nonnegative.contains(&value)
+            || induction::nonnegative_constant(&self.bcx.func.dfg, value)
+    }
+
+    fn nonnegative_division(
         &self,
         a: cranelift_codegen::ir::Value,
         b: cranelift_codegen::ir::Value,
+        proof: crate::numeric::Divisor,
     ) -> bool {
-        let known = |v| {
-            self.counters.nonnegative.contains(&v)
-                || induction::nonnegative_constant(&self.bcx.func.dfg, v)
-        };
-        known(a) && known(b)
+        self.nonnegative_operand(a)
+            && (proof == crate::numeric::Divisor::Positive || self.nonnegative_operand(b))
     }
 
     fn lower_integer(&mut self, kind: IntegerOp) -> Result<()> {
@@ -3112,7 +3112,7 @@ impl Lowerer<'_, '_> {
 
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
     /// so both failures produce runtime diagnostics instead of hardware traps.
-    fn lower_div(&mut self, floor: bool) -> Result<()> {
+    fn lower_div(&mut self, floor: bool, proof: crate::numeric::Divisor) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let a = self.float_left_operand(a, b);
@@ -3123,11 +3123,13 @@ impl Lowerer<'_, '_> {
         let cty = clif_type(ty.clone());
 
         let zero = self.bcx.ins().iconst(cty, 0);
-        let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
-        self.trap_if(b_is_zero, TrapKind::DivZero)?;
+        if proof == crate::numeric::Divisor::Any {
+            let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
+            self.trap_if(b_is_zero, TrapKind::DivZero)?;
+        }
 
-        let signed = is_signed(ty.clone()) && !self.nonnegative_operands(a, b);
-        if signed {
+        let signed = is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof);
+        if signed && proof != crate::numeric::Divisor::Positive {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -3164,16 +3166,22 @@ impl Lowerer<'_, '_> {
     }
 
     /// Python-style modulo has the divisor's sign, including negative divisors.
-    fn lower_modulo(&mut self) -> Result<()> {
+    fn lower_modulo(&mut self, proof: crate::numeric::Divisor) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
-        let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
-        self.trap_if(is_zero, TrapKind::DivZero)?;
-        let result = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
+        if proof == crate::numeric::Divisor::Any {
+            let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
+            self.trap_if(is_zero, TrapKind::DivZero)?;
+        }
+        let result = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
             // INT_MIN % -1 is zero, so avoid a hardware division overflow.
-            let minus_one = self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1);
-            let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
-            let divisor = self.bcx.ins().select(minus_one, one, b);
+            let divisor = if proof == crate::numeric::Divisor::Positive {
+                b
+            } else {
+                let minus_one = self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1);
+                let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
+                self.bcx.ins().select(minus_one, one, b)
+            };
             let rem = self.bcx.ins().srem(a, divisor);
             let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
             let signs = self.bcx.ins().bxor(rem, b);

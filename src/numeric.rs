@@ -135,6 +135,14 @@ pub fn int_kind(ty: &Ty) -> i64 {
     }
 }
 
+/// Proof supplied by the divisor's nominal type, retained in typed IR and cache keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Divisor {
+    Any,
+    NonZero,
+    Positive,
+}
+
 /// Arithmetic that exits the innermost enclosing `checked:` block with an
 /// error instead of trapping: `+ - *`, unary `-` (as `0 - x`), `//`, `%` and
 /// `pow` on integers, and float division for `div_checked`. The rules are in
@@ -144,8 +152,8 @@ pub enum Checked {
     Add,
     Sub,
     Mul,
-    FloorDiv,
-    Modulo,
+    FloorDiv(Divisor),
+    Modulo(Divisor),
     Pow,
     FloatDiv,
 }
@@ -157,8 +165,8 @@ impl Checked {
             "+" => Self::Add,
             "-" => Self::Sub,
             "*" => Self::Mul,
-            "//" => Self::FloorDiv,
-            "%" => Self::Modulo,
+            "//" => Self::FloorDiv(Divisor::Any),
+            "%" => Self::Modulo(Divisor::Any),
             _ => return None,
         })
     }
@@ -169,14 +177,19 @@ impl Checked {
     pub fn overflows(self, ty: &Ty) -> bool {
         match self {
             Self::Add | Self::Sub | Self::Mul | Self::Pow => true,
-            Self::FloorDiv => matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64),
-            Self::Modulo | Self::FloatDiv => false,
+            Self::FloorDiv(proof) => {
+                proof != Divisor::Positive && matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
+            }
+            Self::Modulo(_) | Self::FloatDiv => false,
         }
     }
 
     /// Whether a zero divisor is an error.
     pub fn divides(self) -> bool {
-        matches!(self, Self::FloorDiv | Self::Modulo | Self::FloatDiv)
+        matches!(
+            self,
+            Self::FloorDiv(Divisor::Any) | Self::Modulo(Divisor::Any) | Self::FloatDiv
+        )
     }
 
     /// Pops `T T` and pushes `T`.

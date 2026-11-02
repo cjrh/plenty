@@ -329,3 +329,38 @@ fn constant_false_guards_emit_no_branch() {
         }
     }
 }
+
+#[test]
+fn nonzero_divisors_remove_only_the_zero_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = String::new();
+    for (ty, _, _) in TYPES {
+        source += &format!(
+            "def q_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n // d\n\ndef r_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n % d\n\n"
+        );
+    }
+    source += "def main() -> ():\n    pass\n";
+    std::fs::write(dir.path().join("domain.plenty"), source).unwrap();
+    for mode in [&[][..], &["--release"][..]] {
+        let mut args = mode.to_vec();
+        args.extend(["--dump", "clif,clif-opt", "domain.plenty", "-o", "out"]);
+        stdout(plenty(dir.path(), &args));
+        for stage in ["clif.txt", "clif-opt.txt"] {
+            for (ty, _, signed) in TYPES {
+                for op in ["q", "r"] {
+                    let name = format!("{op}_{ty}");
+                    let body = section(dir.path(), stage, &name);
+                    assert!(
+                        !body.contains("plenty_trap_div_zero"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    assert_eq!(
+                        body.contains("plenty_trap_overflow"),
+                        signed && op == "q",
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                }
+            }
+        }
+    }
+}
