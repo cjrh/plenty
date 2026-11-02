@@ -3,7 +3,7 @@
 //! end to end between a Plenty client and server, over TCP and TLS. Every
 //! socket is on 127.0.0.1.
 mod support;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -93,17 +93,68 @@ fn connect(port: u16) -> TcpStream {
     stream
 }
 
-/// Reads a message head, a byte at a time, with CRLFs shown as `|`.
-fn head(stream: &mut TcpStream) -> String {
+fn read_head(stream: &mut impl Read) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut one = [0u8];
     while !out.ends_with(b"\r\n\r\n") {
-        if stream.read(&mut one).unwrap() == 0 {
-            break;
-        }
+        // read_exact retries EINTR and rejects a truncated opening handshake.
+        stream.read_exact(&mut one)?;
         out.push(one[0]);
     }
-    String::from_utf8(out).unwrap().replace("\r\n", "|")
+    Ok(out)
+}
+
+/// Reads a complete message head, a byte at a time, with CRLFs shown as `|`.
+fn head(stream: &mut TcpStream) -> String {
+    String::from_utf8(read_head(stream).unwrap())
+        .unwrap()
+        .replace("\r\n", "|")
+}
+
+#[test]
+fn opening_head_retries_interruptions_and_preserves_the_first_frame() {
+    struct InterruptedReads<'a> {
+        remaining: &'a [u8],
+        interrupt: bool,
+    }
+    impl Read for InterruptedReads<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.interrupt = !self.interrupt;
+            if self.interrupt {
+                Err(io::ErrorKind::Interrupted.into())
+            } else {
+                self.remaining.read(buf)
+            }
+        }
+    }
+    let expected = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n";
+    let response = [expected.as_slice(), b"\x81\x02hi"].concat();
+    let mut stream = InterruptedReads {
+        remaining: &response,
+        interrupt: false,
+    };
+    assert_eq!(read_head(&mut stream).unwrap(), expected);
+    assert_eq!(stream.remaining, b"\x81\x02hi");
+}
+
+#[test]
+fn opening_head_rejects_truncation_and_preserves_timeout_errors() {
+    assert_eq!(
+        read_head(&mut b"HTTP/1.1 101 Switching Protocols\r\n".as_slice())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+    struct Timeout;
+    impl Read for Timeout {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::TimedOut.into())
+        }
+    }
+    assert_eq!(
+        read_head(&mut Timeout).unwrap_err().kind(),
+        io::ErrorKind::TimedOut
+    );
 }
 
 fn upgrade(path: &str, key: &str, extra: &str) -> String {

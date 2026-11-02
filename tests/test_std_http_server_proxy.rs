@@ -14,7 +14,7 @@
 
 mod support;
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
@@ -627,17 +627,25 @@ fn connect(port: u16) -> TcpStream {
 }
 
 /// Reads until `received` contains `marker`.
-fn read_until(stream: &mut TcpStream, received: &mut Vec<u8>, marker: &str) {
+fn read_until(stream: &mut impl Read, received: &mut Vec<u8>, marker: &str) -> io::Result<()> {
     let mut buffer = [0u8; 4096];
     while !String::from_utf8_lossy(received).contains(marker) {
-        let count = stream.read(&mut buffer).unwrap();
-        assert!(
-            count > 0,
-            "ended before {marker:?}: {}",
-            String::from_utf8_lossy(received)
-        );
+        let count = match stream.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "ended before {marker:?}: {}",
+                    String::from_utf8_lossy(received)
+                ),
+            ));
+        }
         received.extend_from_slice(&buffer[..count]);
     }
+    Ok(())
 }
 
 fn payload(size: usize) -> Vec<u8> {
@@ -805,7 +813,7 @@ fn bodies_and_continue(kind: Kind) {
             )
             .unwrap();
         let mut received = Vec::new();
-        read_until(&mut stream, &mut received, "\r\n\r\n");
+        read_until(&mut stream, &mut received, "\r\n\r\n").unwrap();
         let interim = String::from_utf8_lossy(&received).into_owned();
         assert!(
             interim.starts_with("HTTP/1.1 100 Continue\r\n"),
@@ -833,7 +841,7 @@ fn bodies_and_continue(kind: Kind) {
         .write_all(b"GET /stream/hold HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         .unwrap();
     let mut received = Vec::new();
-    read_until(&mut stream, &mut received, "first\n");
+    read_until(&mut stream, &mut received, "first\n").unwrap();
     assert!(!String::from_utf8_lossy(&received).contains("second"));
     assert_eq!(
         fetch(&[&proxy.url("/release")]),
@@ -962,7 +970,7 @@ fn shutdown_drains_through_the_proxy(kind: Kind) {
         .write_all(b"GET /stream/tick HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
         .unwrap();
     let mut received = Vec::new();
-    read_until(&mut stream, &mut received, "tick\n");
+    read_until(&mut stream, &mut received, "tick\n").unwrap();
     let counts = report(&server.terminate());
     stream.read_to_end(&mut received).unwrap();
     let text = String::from_utf8_lossy(&received);
@@ -1004,3 +1012,57 @@ behind!(
     caddy_slow_clients_timeouts_and_refusals => slow_clients_timeouts_and_refusals,
     caddy_shutdown_drains => shutdown_drains_through_the_proxy,
 );
+
+#[test]
+fn marker_read_retries_only_interruptions_and_requires_the_marker() {
+    struct ScriptedReads<'a> {
+        steps: std::collections::VecDeque<io::Result<&'a [u8]>>,
+    }
+    impl Read for ScriptedReads<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let data = self
+                .steps
+                .pop_front()
+                .expect("unexpected read past marker")?;
+            assert!(data.len() <= buf.len());
+            buf[..data.len()].copy_from_slice(data);
+            Ok(data.len())
+        }
+    }
+    let mut stream = ScriptedReads {
+        steps: [
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(b"ti".as_slice()),
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(b"ck\n".as_slice()),
+        ]
+        .into(),
+    };
+    let mut received = Vec::new();
+    read_until(&mut stream, &mut received, "tick").unwrap();
+    assert_eq!(received, b"tick\n");
+    for kind in [
+        io::ErrorKind::TimedOut,
+        io::ErrorKind::WouldBlock,
+        io::ErrorKind::ConnectionReset,
+    ] {
+        let mut stream = ScriptedReads {
+            steps: [Ok(b"ti".as_slice()), Err(kind.into())].into(),
+        };
+        let mut received = Vec::new();
+        assert_eq!(
+            read_until(&mut stream, &mut received, "tick")
+                .unwrap_err()
+                .kind(),
+            kind
+        );
+        assert_eq!(received, b"ti");
+    }
+    let mut received = Vec::new();
+    assert_eq!(
+        read_until(&mut b"ti".as_slice(), &mut received, "tick")
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+}
