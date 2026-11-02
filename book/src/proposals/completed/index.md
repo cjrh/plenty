@@ -11,7 +11,7 @@ designs and the policy for moving completed proposals.
 
 | Proposal | Reference | Further work |
 | --- | --- | --- |
-| [Single-file scripts](../single-file-scripts.md) | [Script runner](../../design/toolchain/01-building/scripts.md) | B17/B18: wider executable-cache coverage |
+| [Single-file scripts](single-file-scripts.md) | [Script runner](../../design/toolchain/01-building/scripts.md) | B17/B18: wider executable-cache coverage |
 | [Library-owned operations and backend hooks](library-owned-operations.md) — investigation complete; no language change | [Protocols](../../design/language/07-generics/protocols.md), [visibility](../../design/language/02-source/visibility.md) | B29; future default/final methods and private-hook grants belong to [Protocol method bodies](../protocol-method-bodies.md) |
 | [Fluent iterator pipelines](fluent-iterators.md) | [Pipelines](../../design/language/09-iteration/06-pipelines.md) | B75 extensions; related B12, B22, B24 |
 | [Owned response experiment](typestate-response-experiment.md) | [Field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) | B72: real HTTP integration remains unexplored |
