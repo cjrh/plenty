@@ -4548,6 +4548,15 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
+            // `len` borrows its operand as user calls do, so an explicit `&`
+            // lends the same operand, including a literal or temporary. `&` on
+            // a slice instead forms a view, which `len` observes directly.
+            if let Expression::Unary(op, inner) = &ungroup(&args[0]).kind
+                && op == "&"
+                && !matches!(ungroup(inner).kind, Expression::Slice(..))
+            {
+                return self.builtin_collection(name, std::slice::from_ref(&**inner), at, ops);
+            }
             // A projection borrows its enclosing owner, including when that
             // owner is a temporary or returned reference. Reuse method receiver
             // lowering rather than asking a projected field/element to move.
