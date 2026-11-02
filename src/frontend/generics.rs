@@ -1897,7 +1897,7 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                     positional_protocol_methods(&case.body)?;
                 }
             }
-            Expression::Checked(body) => positional_protocol_methods(body)?,
+            Expression::Checked(body) | Expression::If(body) => positional_protocol_methods(body)?,
             Expression::Collection {
                 entries, clauses, ..
             } => {
@@ -2053,7 +2053,7 @@ fn substitute_match(
 pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
-        Expression::Checked(body) => substitute_block(body, substitutions)?,
+        Expression::Checked(body) | Expression::If(body) => substitute_block(body, substitutions)?,
 
         Expression::GenericMethod(base, _, types, args, _) => {
             substitute_expr(base, substitutions)?;

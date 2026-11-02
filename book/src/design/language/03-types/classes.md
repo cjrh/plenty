@@ -33,7 +33,12 @@ closures, but not references, generators, or unit.
 
 Every successful initializer exit must initialize every field. Branches merge
 their definitely initialized fields; a loop alone cannot establish initialization
-because it may run zero times. Initialized fields may be read. Borrowing or
+because it may run zero times. Field assignments performed inside an `if` or
+`match` block used as a binding or assignment's value do not establish
+initialization after that value block. Assign the selected value directly to
+`self.field` instead; the outer assignment initializes that field. See
+[conditional values](../04-expressions/branches.md#an-if-as-a-statements-value).
+Initialized fields may be read. Borrowing or
 passing the whole partially initialized instance is rejected, and initialization
 cannot be delegated to another method. Constructors accept named arguments,
 using field names for generated constructors and parameter names for explicit

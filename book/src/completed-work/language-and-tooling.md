@@ -117,6 +117,12 @@ Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 
 ## B16: Values and syntax
 
+Block `if`/`elif`/`else` supports whole-RHS bindings, single-place assignments,
+and explicit returns with the same contextual types, cleanup and lifetime
+restrictions as match-valued statements (issue #674). Arbitrary expression
+nesting remains intentionally unsupported; see
+[conditional values](../design/language/04-expressions/branches.md#an-if-as-a-statements-value).
+
 Tuple component borrows (issue #68), once-only numeric augmented-assignment
 index evaluation (issue #32), checked casts/explicit wrapping conversions
 (issues #39/#65), `RangeError` conversions and unsigned-negation checks

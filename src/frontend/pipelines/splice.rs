@@ -82,6 +82,7 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
         | Expression::Anonymous(_)
         | Expression::Match(..)
         | Expression::Checked(_)
+        | Expression::If(_)
         | Expression::Ambiguous { .. }
         | Expression::ClassNew(_)
         | Expression::ClassReady(..) => false,

@@ -811,7 +811,7 @@ def main() -> Result[(), IoError]:
     Ok(())
 "#
         ),
-        "a `match` block used as a value cannot produce a reference",
+        "an `if` or `match` block used as a value cannot produce a reference",
     );
 }
 
@@ -862,5 +862,413 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "#,
         POSITION,
+    );
+}
+
+#[test]
+fn block_if_bindings_assignments_and_expected_types() {
+    run(
+        r#"
+def select(n: i64) -> i64:
+    value: Option[u8] = if n == 0:
+        Nothing
+    elif n == 1:
+        Some(200)
+    else:
+        Some(10)
+    mut result = 0
+    result = if value.is_some():
+        i64(value.unwrap())
+    else:
+        42
+    result
+
+def main() -> Result[(), IoError]:
+    print(select(0), select(1), select(2))?
+    Ok(())
+"#,
+        "42 200 10\n",
+    );
+}
+
+#[test]
+fn return_if_preserves_returns_and_reference_origins() {
+    run(
+        r#"
+class Pair:
+    left: i64
+    right: i64
+
+def selected(flag: bool, pair: &Pair) -> &i64:
+    return if flag:
+        &pair.left
+    else:
+        &pair.right
+
+def count(n: i64) -> i64:
+    return if n < 0:
+        return 10
+    elif n == 0:
+        base = 20
+        base + 1
+    else:
+        30
+
+def main() -> Result[(), IoError]:
+    pair = Pair(1, 2)
+    print(*selected(True, &pair), *selected(False, &pair))?
+    print(count(-1), count(0), count(1))?
+    Ok(())
+"#,
+        "1 2\n10 21 30\n",
+    );
+}
+
+#[test]
+fn block_if_rejects_unstorable_and_exiting_values() {
+    reject(
+        r#"
+def main() -> ():
+    value = if True:
+        return
+    else:
+        return
+"#,
+        "every branch of this `if` exits",
+    );
+    reject(
+        r#"
+def main() -> ():
+    value = if True:
+        1
+"#,
+        "expected",
+    );
+    reject(
+        r#"
+def main() -> ():
+    a = 1
+    value = if True:
+        &a
+    else:
+        &a
+"#,
+        "cannot produce a reference",
+    );
+    reject(
+        r#"
+def main() -> ():
+    mut a = 1
+    a += if True:
+        2
+    else:
+        3
+"#,
+        "an `if` block is a value only as the whole right side",
+    );
+}
+
+#[test]
+fn block_if_cleans_owned_values_before_assignment_destination() {
+    run(
+        &format!(
+            r#"{NOISY}
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Noisy("old")]?
+    items[index()] = if True:
+        local = Noisy("local")
+        Noisy("new")
+    else:
+        Noisy("unused")
+    print("assigned")?
+    Ok(())
+"#
+        ),
+        "local\nindex\nold\nassigned\nnew\n",
+    );
+}
+
+#[test]
+fn block_if_exits_keep_the_enclosing_loop_and_function() {
+    run(
+        r#"
+def values() -> Result[i64, ParseError]:
+    mut total = 0
+    for n in range(5):
+        chosen = if n == 0:
+            continue
+        elif n == 3:
+            break
+        else:
+            i64.parse("10")?
+        total += chosen
+    Ok(total)
+
+def fail() -> Result[i64, ParseError]:
+    value = if True:
+        i64.parse("bad")?
+    else:
+        5
+    Ok(value)
+
+def main() -> Result[(), IoError]:
+    print(values().unwrap(), fail().is_err())?
+    Ok(())
+"#,
+        "20 True\n",
+    );
+}
+
+#[test]
+fn block_if_substitution_closures_and_generator_visitors() {
+    run(
+        r#"
+def choose[T](flag: bool, yes: T, no: T) -> T:
+    selected = if flag:
+        yes
+    else:
+        no
+    selected
+
+def numbers() -> Generator[i64]:
+    selected = if True:
+        yield 1
+        2
+    else:
+        3
+    yield selected
+
+def main() -> Result[(), IoError]:
+    offset = 10
+    f = def [offset](flag: bool) -> i64:
+        return if flag:
+            offset + 1
+        else:
+            offset + 2
+    print(choose(True, 5, 6), f(False))?
+    for value in numbers():
+        print(value)?
+    Ok(())
+"#,
+        "5 12\n1\n2\n",
+    );
+}
+
+#[test]
+fn block_if_checks_all_arms_and_rejects_implicit_result_discard() {
+    reject(
+        r#"
+def main() -> ():
+    value = if True:
+        1
+    else:
+        "bad"
+"#,
+        "expected",
+    );
+    reject(
+        r#"
+def main() -> ():
+    value = if True:
+        print("unhandled")
+        1
+    else:
+        2
+"#,
+        "cannot implicitly discard a Result",
+    );
+    reject(
+        r#"
+def main() -> ():
+    value = 2 * if True:
+        1
+    else:
+        2
+"#,
+        "an `if` block is a value only as the whole right side",
+    );
+    reject(
+        r#"
+def main() -> ():
+    a, b = if True:
+        (1, 2)
+    else:
+        (3, 4)
+"#,
+        "an `if` block is a value only as the whole right side",
+    );
+}
+
+#[test]
+fn block_if_places_supply_context_and_return_paths_may_all_exit() {
+    run(
+        r#"
+class Holder:
+    values: list[u8]
+
+def write(target: &mut i64) -> ():
+    *target = if True:
+        9
+    else:
+        0
+
+def answer(flag: bool) -> i64:
+    return if flag:
+        return 1
+    else:
+        return 2
+
+def empty_return() -> ():
+    return if False:
+        pass
+
+def main() -> Result[(), AllocError | IoError]:
+    mut holder = Holder([1u8]?)
+    holder.values = if True:
+        []?
+    else:
+        [200]?
+    mut number = 0
+    write(&mut number)
+    values: list[u8] = if False:
+        []?
+    elif True:
+        [200]?
+    else:
+        []?
+    empty_return()
+    print(holder.values, number, values, answer(True), answer(False))?
+    Ok(())
+"#,
+        "[] 9 [200] 1 2\n",
+    );
+}
+
+#[test]
+fn statements_after_return_if_are_unreachable() {
+    for prefix in ["", "    unused = 0\n"] {
+        reject(
+            &format!(
+                r#"
+def select(flag: bool) -> i64:
+{prefix}    return if flag:
+        1
+    else:
+        2
+    print("unreachable").unwrap()
+    undefined_name + "x"
+"#
+            ),
+            "unreachable statement after a control-flow exit",
+        );
+    }
+    reject(
+        r#"
+def main() -> ():
+    return if True:
+        pass
+    pass
+"#,
+        "unreachable statement after a control-flow exit",
+    );
+}
+
+#[test]
+fn return_if_recursive_arms_are_tail_calls() {
+    run(
+        r#"
+def count(n: i64, total: i64) -> i64:
+    return if n == 0:
+        total
+    elif n % 2 == 0:
+        count(n - 1, total + 1)
+    else:
+        count(n - 1, total + 1)
+
+def main() -> Result[(), IoError]:
+    print(count(5000000, 0))?
+    Ok(())
+"#,
+        "5000000\n",
+    );
+}
+
+#[test]
+fn return_if_loop_exits_can_reach_code_after_the_loop() {
+    run(
+        r#"
+def choose(stop: i64) -> i64:
+    for n in range(stop):
+        return if n == 0:
+            continue
+        elif n == 1:
+            break
+        else:
+            n
+    99
+
+def main() -> Result[(), IoError]:
+    print(choose(0), choose(1), choose(5))?
+    Ok(())
+"#,
+        "99 99 99\n",
+    );
+}
+
+#[test]
+fn block_if_constructor_initialization_is_credited_to_the_outer_assignment() {
+    run(
+        r#"
+class Pair:
+    first: i64
+    second: i64
+    def __init__(self, flag: bool) -> ():
+        self.first = if flag:
+            1
+        else:
+            2
+        self.second = 3
+
+def main() -> Result[(), IoError]:
+    print(Pair(True), Pair(False))?
+    Ok(())
+"#,
+        "Pair(first=1, second=3) Pair(first=2, second=3)\n",
+    );
+    reject(
+        r#"
+class Pair:
+    first: i64
+    second: i64
+    def __init__(self, flag: bool) -> ():
+        self.first = if flag:
+            self.second = 3
+            1
+        else:
+            self.second = 4
+            2
+
+def main() -> ():
+    drop(Pair(True))
+"#,
+        "fields not initialized: second",
+    );
+}
+
+#[test]
+fn compile_time_if_is_rejected_as_a_block_value() {
+    reject(
+        r#"
+def main() -> ():
+    value = if const True:
+        1
+    else:
+        2
+"#,
+        "`if const` selects statements at compile time and cannot be used as a block value",
     );
 }

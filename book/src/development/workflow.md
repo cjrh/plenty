@@ -27,6 +27,8 @@ just engine dataframe      # one engine and its redistribution notices
 just engine linalg
 just test                  # all-features workspace suite
 just docs                  # all three published-site checks
+just ci                    # every CI check this Linux host can run
+just release-check         # just ci plus the Docker release build and smoke tests
 just --list
 ```
 

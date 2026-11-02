@@ -2,9 +2,10 @@
 
 A source-tail call supplies the function's result without further work. This
 includes final expressions, explicit returns, selected conditional-expression
-branches, tail `if`/`match` arms, the cases of `return match`, and result
-branches of `and`/`or`. A `match` block bound or assigned to a name is not a
-tail position. Arithmetic,
+branches, tail `if`/`match` arms, the arms of `return if`, the cases of
+`return match`, and result branches of `and`/`or`. An `if` or `match` block
+bound to a local or used as an assignment's value is not a tail position.
+Arithmetic,
 wrapping in `Ok` or `Some`, conversion, or `?` after a call makes it non-tail.
 Evaluating arguments before the call does not make it non-tail.
 

@@ -4,9 +4,10 @@
 `name: Type = expression` adds an annotation. `mut name = expression` or
 `mut name: Type = expression` declares a mutable local.
 
-The value of a binding or a single-target assignment is an expression or a
-[`match` block](matching.md#a-match-as-a-statements-value), whose selected case
-supplies it.
+The value of a binding or a single-target assignment is an expression, an
+[`if` block](branches.md#an-if-as-a-statements-value), or a
+[`match` block](matching.md#a-match-as-a-statements-value). The selected suite
+supplies a block's value.
 
 Later `name = value` assigns to an existing local and requires `mut` and the same
 type. Repeating `mut` or an annotation for that name is a duplicate declaration.
