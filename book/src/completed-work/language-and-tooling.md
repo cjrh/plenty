@@ -222,6 +222,11 @@ checked/emitted when used or required by a protocol/destructor
 (issue #515, local PR #616); `--check-all-methods` checks the program's own
 instances, not dependency/std types (issue #517, local PR #621).
 See [generic data](../design/language/07-generics/data.md).
+The [library-owned operations investigation](../proposals/completed/library-owned-operations.md)
+completed in issue #145 (local PR #177): existing owning wrappers and optional
+capabilities meet the assessed use cases; no language or stdlib change was approved.
+Future default/final methods and private-hook grants belong to the separate
+[protocol-body proposal](../proposals/protocol-method-bodies.md).
 Additional bounds/default-body contracts remain **B29** in the [backlog](../backlog.md).
 
 ## B32: Callback storage
