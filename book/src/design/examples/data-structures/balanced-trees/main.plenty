@@ -1,0 +1,19 @@
+import btree
+import red_black
+
+def main() -> Result[(), AllocError | IoError]:
+    mut b = btree.create()?
+    mut r = red_black.create()?
+    for key in [40, 10, 70, 20, 60, 30, 50]?:
+        drop(btree.insert(&mut b, key)?)
+        drop(red_black.insert(&mut r, key)?)
+    print(btree.ordered(&b)?)?
+    print(red_black.ordered(&r)?)?
+    print(btree.insert(&mut b, 40)?, red_black.insert(&mut r, 40)?)?
+    print(btree.has(&b, 30), red_black.has(&r, 99))?
+    print(btree.remove(&mut b, 40), red_black.remove(&mut r, 40))?
+    print(btree.remove(&mut b, 99), red_black.remove(&mut r, 99))?
+    print(btree.ordered(&b)?)?
+    print(red_black.ordered(&r)?)?
+    print(btree.valid(&b)?, red_black.valid(&r)?)?
+    Ok(())

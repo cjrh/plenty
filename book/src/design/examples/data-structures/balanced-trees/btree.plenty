@@ -1,0 +1,367 @@
+# A minimum-degree-2 B-tree (a 2-3-4 tree), storing distinct i64 keys.
+# Algorithm reference: Cormen, Leiserson, Rivest and Stein, Introduction to
+# Algorithms: B-tree splitting and top-down borrow/merge deletion.
+# https://mitpress.mit.edu/9780262046305/introduction-to-algorithms/
+# Original Plenty implementation; no external source code or data is bundled.
+class Node:
+    n: i64
+    leaf: bool
+    keys: list[i64]
+    children: list[i64]
+    live: bool
+    next_free: i64
+
+pub class Tree:
+    nodes: list[Node]
+    root: i64
+    size: i64
+    free: i64
+    available: i64
+
+pub def create() -> Result[Tree, AllocError]:
+    Ok(Tree([]?, -1, 0, -1, 0))
+
+pub def length(tree: &Tree) -> i64:
+    tree.size
+
+pub def has(tree: &Tree, key: i64) -> bool:
+    mut id = tree.root
+    while id != -1:
+        mut i = 0
+        while i < tree.nodes[id].n and key > tree.nodes[id].keys[i]:
+            i += 1
+        if i < tree.nodes[id].n and key == tree.nodes[id].keys[i]:
+            return True
+        if tree.nodes[id].leaf:
+            return False
+        id = tree.nodes[id].children[i]
+    False
+
+# Prepare all split storage before changing any reachable node. Partial failure
+# may grow the free pool, but cannot change the set or the reachable tree.
+def prepare(tree: &mut Tree, wanted: i64) -> Result[(), AllocError]:
+    while tree.available < wanted:
+        node = Node(0, True, [0, 0, 0]?, [-1, -1, -1, -1]?, False, tree.free)
+        id = len(tree.nodes)
+        tree.nodes.append(node)?
+        tree.free = id
+        tree.available += 1
+    Ok(())
+
+def take(tree: &mut Tree, leaf: bool) -> i64:
+    id = tree.free
+    tree.free = tree.nodes[id].next_free
+    tree.available -= 1
+    tree.nodes[id].n = 0
+    tree.nodes[id].leaf = leaf
+    tree.nodes[id].live = True
+    tree.nodes[id].next_free = -1
+    for i in range(4):
+        tree.nodes[id].children[i] = -1
+    id
+
+def release(tree: &mut Tree, id: i64) -> ():
+    tree.nodes[id].live = False
+    tree.nodes[id].n = 0
+    tree.nodes[id].next_free = tree.free
+    tree.free = id
+    tree.available += 1
+
+# Split a full child into two one-key nodes; move its median into the parent.
+def split(tree: &mut Tree, parent: i64, index: i64) -> ():
+    left = tree.nodes[parent].children[index]
+    leaf = tree.nodes[left].leaf
+    right = take(&mut tree, leaf)
+    median = tree.nodes[left].keys[1]
+    last = tree.nodes[left].keys[2]
+    tree.nodes[right].keys[0] = last
+    tree.nodes[right].n = 1
+    if not leaf:
+        for j in range(2):
+            child = tree.nodes[left].children[j + 2]
+            tree.nodes[right].children[j] = child
+            tree.nodes[left].children[j + 2] = -1
+    tree.nodes[left].n = 1
+    mut j = tree.nodes[parent].n
+    while j > index:
+        child = tree.nodes[parent].children[j]
+        key = tree.nodes[parent].keys[j - 1]
+        tree.nodes[parent].children[j + 1] = child
+        tree.nodes[parent].keys[j] = key
+        j -= 1
+    tree.nodes[parent].children[index + 1] = right
+    tree.nodes[parent].keys[index] = median
+    tree.nodes[parent].n += 1
+
+pub def insert(tree: &mut Tree, key: i64) -> Result[bool, AllocError]:
+    if has(&tree, key):
+        return Ok(False)
+    mut height = 0
+    mut cursor = tree.root
+    while cursor != -1:
+        height += 1
+        if tree.nodes[cursor].leaf:
+            break
+        cursor = tree.nodes[cursor].children[0]
+    # A full root needs two nodes; at most one additional split per level.
+    prepare(&mut tree, height + 1)?
+    if tree.root == -1:
+        tree.root = take(&mut tree, True)
+    else:
+        if tree.nodes[tree.root].n == 3:
+            old = tree.root
+            root = take(&mut tree, False)
+            tree.nodes[root].children[0] = old
+            tree.root = root
+            split(&mut tree, root, 0)
+    mut id = tree.root
+    while not tree.nodes[id].leaf:
+        mut i = 0
+        while i < tree.nodes[id].n and key > tree.nodes[id].keys[i]:
+            i += 1
+        child = tree.nodes[id].children[i]
+        if tree.nodes[child].n == 3:
+            split(&mut tree, id, i)
+            if key > tree.nodes[id].keys[i]:
+                i += 1
+        id = tree.nodes[id].children[i]
+    mut i = tree.nodes[id].n
+    while i > 0 and key < tree.nodes[id].keys[i - 1]:
+        previous = tree.nodes[id].keys[i - 1]
+        tree.nodes[id].keys[i] = previous
+        i -= 1
+    tree.nodes[id].keys[i] = key
+    tree.nodes[id].n += 1
+    tree.size += 1
+    Ok(True)
+
+# Merge child[index], a separating parent key, and child[index + 1].
+def merge(tree: &mut Tree, parent: i64, index: i64) -> i64:
+    left = tree.nodes[parent].children[index]
+    right = tree.nodes[parent].children[index + 1]
+    n = tree.nodes[left].n
+    separator = tree.nodes[parent].keys[index]
+    tree.nodes[left].keys[n] = separator
+    for j in range(tree.nodes[right].n):
+        key = tree.nodes[right].keys[j]
+        tree.nodes[left].keys[n + 1 + j] = key
+    if not tree.nodes[left].leaf:
+        for j in range(tree.nodes[right].n + 1):
+            child = tree.nodes[right].children[j]
+            tree.nodes[left].children[n + 1 + j] = child
+    tree.nodes[left].n += tree.nodes[right].n + 1
+    for j in range(index, tree.nodes[parent].n - 1):
+        key = tree.nodes[parent].keys[j + 1]
+        child = tree.nodes[parent].children[j + 2]
+        tree.nodes[parent].keys[j] = key
+        tree.nodes[parent].children[j + 1] = child
+    last = tree.nodes[parent].n
+    tree.nodes[parent].children[last] = -1
+    tree.nodes[parent].n -= 1
+    release(&mut tree, right)
+    left
+
+# Move a separator down and a left sibling key up.
+def borrow_left(tree: &mut Tree, parent: i64, index: i64) -> ():
+    id = tree.nodes[parent].children[index]
+    sibling = tree.nodes[parent].children[index - 1]
+    n = tree.nodes[id].n
+    mut j = n
+    while j > 0:
+        key = tree.nodes[id].keys[j - 1]
+        tree.nodes[id].keys[j] = key
+        j -= 1
+    if not tree.nodes[id].leaf:
+        j = n + 1
+        while j > 0:
+            child = tree.nodes[id].children[j - 1]
+            tree.nodes[id].children[j] = child
+            j -= 1
+        child = tree.nodes[sibling].children[tree.nodes[sibling].n]
+        tree.nodes[id].children[0] = child
+        last = tree.nodes[sibling].n
+        tree.nodes[sibling].children[last] = -1
+    separator = tree.nodes[parent].keys[index - 1]
+    replacement = tree.nodes[sibling].keys[tree.nodes[sibling].n - 1]
+    tree.nodes[id].keys[0] = separator
+    tree.nodes[parent].keys[index - 1] = replacement
+    tree.nodes[id].n += 1
+    tree.nodes[sibling].n -= 1
+
+def borrow_right(tree: &mut Tree, parent: i64, index: i64) -> ():
+    id = tree.nodes[parent].children[index]
+    sibling = tree.nodes[parent].children[index + 1]
+    n = tree.nodes[id].n
+    separator = tree.nodes[parent].keys[index]
+    tree.nodes[id].keys[n] = separator
+    if not tree.nodes[id].leaf:
+        child = tree.nodes[sibling].children[0]
+        tree.nodes[id].children[n + 1] = child
+        for j in range(tree.nodes[sibling].n):
+            next = tree.nodes[sibling].children[j + 1]
+            tree.nodes[sibling].children[j] = next
+        last = tree.nodes[sibling].n
+        tree.nodes[sibling].children[last] = -1
+    replacement = tree.nodes[sibling].keys[0]
+    tree.nodes[parent].keys[index] = replacement
+    for j in range(tree.nodes[sibling].n - 1):
+        next = tree.nodes[sibling].keys[j + 1]
+        tree.nodes[sibling].keys[j] = next
+    tree.nodes[id].n += 1
+    tree.nodes[sibling].n -= 1
+
+def extreme(tree: &Tree, start: i64, greatest: bool) -> i64:
+    mut id = start
+    while not tree.nodes[id].leaf:
+        i = tree.nodes[id].n if greatest else 0
+        id = tree.nodes[id].children[i]
+    tree.nodes[id].keys[tree.nodes[id].n - 1 if greatest else 0]
+
+def erase(tree: &mut Tree, id: i64, key: i64) -> ():
+    mut i = 0
+    while i < tree.nodes[id].n and key > tree.nodes[id].keys[i]:
+        i += 1
+    if i < tree.nodes[id].n and key == tree.nodes[id].keys[i]:
+        if tree.nodes[id].leaf:
+            for j in range(i, tree.nodes[id].n - 1):
+                next = tree.nodes[id].keys[j + 1]
+                tree.nodes[id].keys[j] = next
+            tree.nodes[id].n -= 1
+            return
+        left = tree.nodes[id].children[i]
+        right = tree.nodes[id].children[i + 1]
+        if tree.nodes[left].n >= 2:
+            predecessor = extreme(&tree, left, True)
+            tree.nodes[id].keys[i] = predecessor
+            erase(&mut tree, left, predecessor)
+        else:
+            if tree.nodes[right].n >= 2:
+                successor = extreme(&tree, right, False)
+                tree.nodes[id].keys[i] = successor
+                erase(&mut tree, right, successor)
+            else:
+                merged = merge(&mut tree, id, i)
+                erase(&mut tree, merged, key)
+        return
+    child = tree.nodes[id].children[i]
+    if tree.nodes[child].n == 1:
+        mut borrowed = False
+        if i > 0:
+            left = tree.nodes[id].children[i - 1]
+            if tree.nodes[left].n >= 2:
+                borrow_left(&mut tree, id, i)
+                borrowed = True
+        if not borrowed and i < tree.nodes[id].n:
+            right = tree.nodes[id].children[i + 1]
+            if tree.nodes[right].n >= 2:
+                borrow_right(&mut tree, id, i)
+                borrowed = True
+        if not borrowed:
+            if i == tree.nodes[id].n:
+                i -= 1
+            merged = merge(&mut tree, id, i)
+            erase(&mut tree, merged, key)
+            return
+    next = tree.nodes[id].children[i]
+    erase(&mut tree, next, key)
+
+pub def remove(tree: &mut Tree, key: i64) -> bool:
+    if not has(&tree, key):
+        return False
+    root = tree.root
+    erase(&mut tree, root, key)
+    tree.size -= 1
+    if tree.nodes[root].n == 0:
+        tree.root = -1 if tree.nodes[root].leaf else tree.nodes[root].children[0]
+        release(&mut tree, root)
+    True
+
+def walk(tree: &Tree, id: i64, out: &mut list[i64]) -> Result[(), AllocError]:
+    if id == -1:
+        return Ok(())
+    for i in range(tree.nodes[id].n):
+        if not tree.nodes[id].leaf:
+            walk(&tree, tree.nodes[id].children[i], &mut out)?
+        out.append(tree.nodes[id].keys[i])?
+    if not tree.nodes[id].leaf:
+        walk(&tree, tree.nodes[id].children[tree.nodes[id].n], &mut out)?
+    Ok(())
+
+pub def ordered(tree: &Tree) -> Result[list[i64], AllocError]:
+    mut out = list[i64].with_capacity(tree.size)?
+    walk(&tree, tree.root, &mut out)?
+    Ok(out)
+
+# Return (leaf depth, key count), or (-1, 0) for a malformed subtree.
+def audit(tree: &Tree, id: i64, low: Option[i64], high: Option[i64], seen: &mut list[bool]) -> (i64, i64):
+    if id < 0 or id >= len(tree.nodes):
+        return (-1, 0)
+    if seen[id] or not tree.nodes[id].live:
+        return (-1, 0)
+    seen[id] = True
+    n = tree.nodes[id].n
+    if n < 1 or n > 3:
+        return (-1, 0)
+    for i in range(n):
+        key = tree.nodes[id].keys[i]
+        if i > 0 and tree.nodes[id].keys[i - 1] >= key:
+            return (-1, 0)
+        match low:
+            case Some(bound):
+                if key <= bound:
+                    return (-1, 0)
+            case Nothing:
+                pass
+        match high:
+            case Some(bound):
+                if key >= bound:
+                    return (-1, 0)
+            case Nothing:
+                pass
+    if tree.nodes[id].leaf:
+        for i in range(4):
+            if tree.nodes[id].children[i] != -1:
+                return (-1, 0)
+        return (0, n)
+    mut depth = -1
+    mut count = n
+    for i in range(n + 1):
+        lower = low if i == 0 else Some(tree.nodes[id].keys[i - 1])
+        upper = high if i == n else Some(tree.nodes[id].keys[i])
+        child_depth, child_count = audit(&tree, tree.nodes[id].children[i], lower, upper, &mut seen)
+        if child_depth < 0:
+            return (-1, 0)
+        if i > 0 and child_depth != depth:
+            return (-1, 0)
+        depth = child_depth
+        count += child_count
+    for i in range(n + 1, 4):
+        if tree.nodes[id].children[i] != -1:
+            return (-1, 0)
+    (depth + 1, count)
+
+pub def valid(tree: &Tree) -> Result[bool, AllocError]:
+    mut seen = [False for _ in range(len(tree.nodes))]?
+    if tree.root == -1:
+        if tree.size != 0:
+            return Ok(False)
+    else:
+        depth, count = audit(&tree, tree.root, Nothing, Nothing, &mut seen)
+        if depth < 0 or count != tree.size:
+            return Ok(False)
+    mut id = tree.free
+    mut count = 0
+    while id != -1:
+        if id < 0 or id >= len(tree.nodes):
+            return Ok(False)
+        if seen[id] or tree.nodes[id].live:
+            return Ok(False)
+        seen[id] = True
+        count += 1
+        id = tree.nodes[id].next_free
+    if count != tree.available:
+        return Ok(False)
+    for visited in &seen:
+        if not *visited:
+            return Ok(False)
+    Ok(True)

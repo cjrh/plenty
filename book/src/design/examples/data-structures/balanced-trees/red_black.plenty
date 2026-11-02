@@ -1,0 +1,267 @@
+# A left-leaning red-black tree storing distinct i64 keys.
+# Algorithm reference: Sedgewick and Wayne, Algorithms, Balanced Search Trees:
+# left-leaning red links, rotations, color flips and top-down deletion.
+# https://algs4.cs.princeton.edu/33balanced/
+# Original Plenty implementation; no external source code or data is bundled.
+class Node:
+    key: i64
+    left: i64
+    right: i64
+    red: bool
+    live: bool
+    next_free: i64
+
+pub class Tree:
+    nodes: list[Node]
+    root: i64
+    size: i64
+    free: i64
+
+pub def create() -> Result[Tree, AllocError]:
+    Ok(Tree([]?, -1, 0, -1))
+
+pub def length(tree: &Tree) -> i64:
+    tree.size
+
+pub def has(tree: &Tree, key: i64) -> bool:
+    mut id = tree.root
+    while id != -1:
+        if key == tree.nodes[id].key:
+            return True
+        id = tree.nodes[id].left if key < tree.nodes[id].key else tree.nodes[id].right
+    False
+
+def red(tree: &Tree, id: i64) -> bool:
+    id != -1 and tree.nodes[id].red
+
+def allocate(tree: &mut Tree, key: i64) -> Result[i64, AllocError]:
+    mut id = tree.free
+    if id == -1:
+        id = len(tree.nodes)
+        tree.nodes.append(Node(key, -1, -1, True, True, -1))?
+    else:
+        tree.free = tree.nodes[id].next_free
+        tree.nodes[id] = Node(key, -1, -1, True, True, -1)
+    Ok(id)
+
+def release(tree: &mut Tree, id: i64) -> ():
+    tree.nodes[id].live = False
+    tree.nodes[id].next_free = tree.free
+    tree.free = id
+
+def rotate_left(tree: &mut Tree, id: i64) -> i64:
+    pivot = tree.nodes[id].right
+    middle = tree.nodes[pivot].left
+    color = tree.nodes[id].red
+    tree.nodes[id].right = middle
+    tree.nodes[pivot].left = id
+    tree.nodes[pivot].red = color
+    tree.nodes[id].red = True
+    pivot
+
+def rotate_right(tree: &mut Tree, id: i64) -> i64:
+    pivot = tree.nodes[id].left
+    middle = tree.nodes[pivot].right
+    color = tree.nodes[id].red
+    tree.nodes[id].left = middle
+    tree.nodes[pivot].right = id
+    tree.nodes[pivot].red = color
+    tree.nodes[id].red = True
+    pivot
+
+def flip(tree: &mut Tree, id: i64) -> ():
+    left = tree.nodes[id].left
+    right = tree.nodes[id].right
+    tree.nodes[id].red = not tree.nodes[id].red
+    tree.nodes[left].red = not tree.nodes[left].red
+    tree.nodes[right].red = not tree.nodes[right].red
+
+def balance(tree: &mut Tree, start: i64) -> i64:
+    mut id = start
+    if red(&tree, tree.nodes[id].right):
+        id = rotate_left(&mut tree, id)
+    left = tree.nodes[id].left
+    if red(&tree, left):
+        if red(&tree, tree.nodes[left].left):
+            id = rotate_right(&mut tree, id)
+    if red(&tree, tree.nodes[id].left) and red(&tree, tree.nodes[id].right):
+        flip(&mut tree, id)
+    id
+
+def put(tree: &mut Tree, id: i64, node: i64, key: i64) -> i64:
+    if id == -1:
+        return node
+    if key < tree.nodes[id].key:
+        left = tree.nodes[id].left
+        child = put(&mut tree, left, node, key)
+        tree.nodes[id].left = child
+    else:
+        right = tree.nodes[id].right
+        child = put(&mut tree, right, node, key)
+        tree.nodes[id].right = child
+    balance(&mut tree, id)
+
+pub def insert(tree: &mut Tree, key: i64) -> Result[bool, AllocError]:
+    if has(&tree, key):
+        return Ok(False)
+    # Allocate before recursively changing links or colors.
+    node = allocate(&mut tree, key)?
+    old = tree.root
+    root = put(&mut tree, old, node, key)
+    tree.root = root
+    tree.nodes[root].red = False
+    tree.size += 1
+    Ok(True)
+
+# Give the left child a red link before descending into a 2-node.
+def move_red_left(tree: &mut Tree, start: i64) -> i64:
+    mut id = start
+    flip(&mut tree, id)
+    right = tree.nodes[id].right
+    if red(&tree, tree.nodes[right].left):
+        child = rotate_right(&mut tree, right)
+        tree.nodes[id].right = child
+        id = rotate_left(&mut tree, id)
+        flip(&mut tree, id)
+    id
+
+def move_red_right(tree: &mut Tree, start: i64) -> i64:
+    mut id = start
+    flip(&mut tree, id)
+    left = tree.nodes[id].left
+    if red(&tree, tree.nodes[left].left):
+        id = rotate_right(&mut tree, id)
+        flip(&mut tree, id)
+    id
+
+def minimum(tree: &Tree, start: i64) -> i64:
+    mut id = start
+    while tree.nodes[id].left != -1:
+        id = tree.nodes[id].left
+    tree.nodes[id].key
+
+def delete_min(tree: &mut Tree, start: i64) -> i64:
+    mut id = start
+    if tree.nodes[id].left == -1:
+        release(&mut tree, id)
+        return -1
+    left = tree.nodes[id].left
+    if not red(&tree, left) and not red(&tree, tree.nodes[left].left):
+        id = move_red_left(&mut tree, id)
+    next = tree.nodes[id].left
+    child = delete_min(&mut tree, next)
+    tree.nodes[id].left = child
+    balance(&mut tree, id)
+
+def erase(tree: &mut Tree, start: i64, key: i64) -> i64:
+    mut id = start
+    if key < tree.nodes[id].key:
+        left = tree.nodes[id].left
+        if not red(&tree, left) and not red(&tree, tree.nodes[left].left):
+            id = move_red_left(&mut tree, id)
+        next = tree.nodes[id].left
+        child = erase(&mut tree, next, key)
+        tree.nodes[id].left = child
+    else:
+        if red(&tree, tree.nodes[id].left):
+            id = rotate_right(&mut tree, id)
+        if key == tree.nodes[id].key and tree.nodes[id].right == -1:
+            release(&mut tree, id)
+            return -1
+        right = tree.nodes[id].right
+        if not red(&tree, right) and not red(&tree, tree.nodes[right].left):
+            id = move_red_right(&mut tree, id)
+        next = tree.nodes[id].right
+        if key == tree.nodes[id].key:
+            replacement = minimum(&tree, next)
+            tree.nodes[id].key = replacement
+            child = delete_min(&mut tree, next)
+            tree.nodes[id].right = child
+        else:
+            child = erase(&mut tree, next, key)
+            tree.nodes[id].right = child
+    balance(&mut tree, id)
+
+pub def remove(tree: &mut Tree, key: i64) -> bool:
+    # The descent helpers assume the key is present.
+    if not has(&tree, key):
+        return False
+    old = tree.root
+    if not red(&tree, tree.nodes[old].left) and not red(&tree, tree.nodes[old].right):
+        tree.nodes[old].red = True
+    root = erase(&mut tree, old, key)
+    tree.root = root
+    if root != -1:
+        tree.nodes[root].red = False
+    tree.size -= 1
+    True
+
+def walk(tree: &Tree, id: i64, out: &mut list[i64]) -> Result[(), AllocError]:
+    if id == -1:
+        return Ok(())
+    walk(&tree, tree.nodes[id].left, &mut out)?
+    out.append(tree.nodes[id].key)?
+    walk(&tree, tree.nodes[id].right, &mut out)?
+    Ok(())
+
+pub def ordered(tree: &Tree) -> Result[list[i64], AllocError]:
+    mut out = list[i64].with_capacity(tree.size)?
+    walk(&tree, tree.root, &mut out)?
+    Ok(out)
+
+# Return (black height, key count), or (-1, 0) for a malformed subtree.
+def audit(tree: &Tree, id: i64, low: Option[i64], high: Option[i64], parent_red: bool, seen: &mut list[bool]) -> (i64, i64):
+    if id == -1:
+        return (1, 0)
+    if id < 0 or id >= len(tree.nodes):
+        return (-1, 0)
+    if seen[id] or not tree.nodes[id].live:
+        return (-1, 0)
+    seen[id] = True
+    key = tree.nodes[id].key
+    match low:
+        case Some(bound):
+            if key <= bound:
+                return (-1, 0)
+        case Nothing:
+            pass
+    match high:
+        case Some(bound):
+            if key >= bound:
+                return (-1, 0)
+        case Nothing:
+            pass
+    color = tree.nodes[id].red
+    if parent_red and color:
+        return (-1, 0)
+    left_height, left_count = audit(&tree, tree.nodes[id].left, low, Some(key), color, &mut seen)
+    right_height, right_count = audit(&tree, tree.nodes[id].right, Some(key), high, color, &mut seen)
+    if left_height < 0 or right_height != left_height:
+        return (-1, 0)
+    # Checked children are now known valid IDs or -1.
+    if red(&tree, tree.nodes[id].right):
+        return (-1, 0)
+    (left_height + (0 if color else 1), left_count + right_count + 1)
+
+pub def valid(tree: &Tree) -> Result[bool, AllocError]:
+    mut seen = [False for _ in range(len(tree.nodes))]?
+    if tree.root != -1:
+        if tree.root < 0 or tree.root >= len(tree.nodes):
+            return Ok(False)
+        if tree.nodes[tree.root].red:
+            return Ok(False)
+    height, count = audit(&tree, tree.root, Nothing, Nothing, False, &mut seen)
+    if height < 0 or count != tree.size:
+        return Ok(False)
+    mut id = tree.free
+    while id != -1:
+        if id < 0 or id >= len(tree.nodes):
+            return Ok(False)
+        if seen[id] or tree.nodes[id].live:
+            return Ok(False)
+        seen[id] = True
+        id = tree.nodes[id].next_free
+    for visited in &seen:
+        if not *visited:
+            return Ok(False)
+    Ok(True)

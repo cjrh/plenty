@@ -197,4 +197,7 @@ than adding a `prev` field to an owned chain.
 See [representation choices](../../design/examples/data-structures/index.md)
 for trade-offs, [recursive storage](../../design/language/03-types/recursive-data.md)
 for ownership limits, and [parent links with arena IDs](../09-generics/arena-trees.md)
-for another use of index-based links.
+for another use of index-based links. The
+[balanced-tree examples](../../design/examples/data-structures/balanced-trees.md)
+apply the same representation to B-tree and red-black insertion, deletion,
+and sorted traversal.

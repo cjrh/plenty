@@ -1,0 +1,94 @@
+# Run only with the integration harness's allocation-checking runtime.
+import btree
+import red_black
+
+enum TestError:
+    ChangedOnFailure
+    Invalid
+    NoFailureOrSuccess
+    DeleteOrReuse
+
+def main() -> Result[(), AllocError | IoError | TestError]:
+    mut b_failed = False
+    mut b_succeeded = False
+    for budget in range(48):
+        mut b = btree.create()?
+        for key in range(4):
+            drop(btree.insert(&mut b, key)?)
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        result = btree.insert(&mut b, 4)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(added):
+                if not added or btree.length(&b) != 5 or not btree.has(&b, 4):
+                    return Err(TestError.ChangedOnFailure)
+                b_succeeded = True
+            case Err(_):
+                if btree.length(&b) != 4 or btree.has(&b, 4):
+                    return Err(TestError.ChangedOnFailure)
+                b_failed = True
+                for key in range(4):
+                    if not btree.has(&b, key):
+                        return Err(TestError.ChangedOnFailure)
+        if not btree.valid(&b)?:
+            return Err(TestError.Invalid)
+        # A failed preparation can leave reusable spare nodes. Retrying works.
+        drop(btree.insert(&mut b, 4)?)
+        if not btree.valid(&b)? or btree.length(&b) != 5:
+            return Err(TestError.Invalid)
+
+    mut r_failed = False
+    mut r_succeeded = False
+    for budget in range(16):
+        mut r = red_black.create()?
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        result = red_black.insert(&mut r, 4)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(added):
+                if not added or red_black.length(&r) != 1 or not red_black.has(&r, 4):
+                    return Err(TestError.ChangedOnFailure)
+                r_succeeded = True
+            case Err(_):
+                if red_black.length(&r) != 0 or red_black.has(&r, 4):
+                    return Err(TestError.ChangedOnFailure)
+                r_failed = True
+        if not red_black.valid(&r)?:
+            return Err(TestError.Invalid)
+        drop(red_black.insert(&mut r, 4)?)
+        if not red_black.valid(&r)? or red_black.length(&r) != 1:
+            return Err(TestError.Invalid)
+    if not b_failed or not b_succeeded or not r_failed or not r_succeeded:
+        return Err(TestError.NoFailureOrSuccess)
+    print("allocation failure sweeps passed")?
+
+    mut b = btree.create()?
+    mut r = red_black.create()?
+    for key in range(257):
+        drop(btree.insert(&mut b, key)?)
+        drop(red_black.insert(&mut r, key)?)
+    mut correct = True
+    print("__test_begin_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    # Duplicates and missing removals do not allocate or change the set.
+    correct = correct and not btree.insert(&mut b, 128)?
+    correct = correct and not red_black.insert(&mut r, 128)?
+    correct = correct and not btree.remove(&mut b, -1)
+    correct = correct and not red_black.remove(&mut r, -1)
+    for key in range(257):
+        correct = btree.remove(&mut b, key) and correct
+        correct = red_black.remove(&mut r, key) and correct
+    # Reuse the existing slots and capacities without allocating.
+    for key in range(64):
+        correct = btree.insert(&mut b, key)? and correct
+        correct = red_black.insert(&mut r, key)? and correct
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    if not correct or btree.length(&b) != 64 or red_black.length(&r) != 64:
+        return Err(TestError.DeleteOrReuse)
+    if not btree.valid(&b)? or not red_black.valid(&r)?:
+        return Err(TestError.Invalid)
+    print("allocation-free deletion and slot reuse passed")?
+    Ok(())

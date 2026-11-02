@@ -5,6 +5,17 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Balanced-tree examples
+
+[Executable B-tree and left-leaning red-black sets](../design/examples/data-structures/balanced-trees.md)
+implement integer-key insertion, lookup, deletion, ordered traversal and private
+slot reuse directly in Plenty. A sorted-list model and independent structural
+validators check exhaustive five-key permutation pairs, multi-level trees and
+mixed histories. Runtime allocation-failure sweeps check preservation and retry;
+deletion and reuse are checked with allocation disabled. These are educational
+examples, not new `std` APIs or storage-engine performance qualification.
+B73's general arena identity/deletion qualification remains outstanding.
+
 ## Linked-list tutorial
 
 The [linked-list lesson](../tutorial/04-collections/linked-lists.md) demonstrates
