@@ -117,21 +117,14 @@ the original process exit status; a successful `grep` does not prove tests passe
 
 ### Shell conditions and pipelines
 
-Agent shells run with `set -o pipefail`, and an `rtk` hook rewrites some
-commands before they run: `grep` becomes `rtk grep`, and a leading `git log` or
-`cargo test` becomes `rtk git log` or `rtk cargo test`. `rtk grep` reads stdin
-and keeps grep's exit status. These cause failures:
-
-- `grep -q` or `grep -m1` stops reading at the first match, so the writer dies
-  of SIGPIPE and the pipeline exits 141. `until git log main | grep -q X` never
-  ends, even after `X` lands.
-- `rtk git log` prints at most 50 commits. `rtk cargo test` replaces the
-  `test result:` lines with one summary line.
+Agent shells run with `set -o pipefail`. A reader such as `grep -q` or
+`grep -m1` can stop at the first match, causing the writer to receive SIGPIPE
+and the pipeline to fail with exit status 141.
 
 In `if`, `until`, `while`, and `&&` conditions, prefer a command that needs no
-pipe. In a pipe, use `grep -c` (reads all input), not `-q` or `-m`. Do not parse
-`rtk` output; use its exit status. To wait for a merge, test the branch while it
-exists and has commits; otherwise test the merge commit's subject:
+pipe. If filtering a pipeline, use `grep -c` to read all input. To wait for a
+merge, test the branch while it exists and has commits; otherwise test the
+merge commit's subject:
 
 ```sh
 until git -C "$PLENTY_MAIN_WORKTREE" merge-base --is-ancestor claude/issue-15 main; do sleep 30; done
@@ -274,7 +267,7 @@ be named `main`. Resolve the path once for the session and pass it explicitly
 to every SQLite command or script:
 
 ```sh
-export PLENTY_MAIN_WORKTREE="$(rtk proxy git worktree list --porcelain | sed -n '1s/^worktree //p')"
+export PLENTY_MAIN_WORKTREE="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
 export PLENTY_ISSUES_DB="$PLENTY_MAIN_WORKTREE/issues.db"
 export PLENTY_REVIEW_CLI="$(dirname "$PLENTY_MAIN_WORKTREE")/issues-browser/cli.js"
 test -n "$PLENTY_MAIN_WORKTREE" && test -f "$PLENTY_ISSUES_DB"
@@ -324,11 +317,11 @@ The helper uses existing `comments` rows; it does not add tables or change issue
 status. Run these from your checkout, always passing the shared database path:
 
 ```sh
-rtk proxy sqlite3 -readonly "$PLENTY_ISSUES_DB" \
+sqlite3 -readonly "$PLENTY_ISSUES_DB" \
   "SELECT number, author, body, pull_request_number FROM comments WHERE issue_number = 15 ORDER BY number"
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-list --status open
-rtk proxy python3 scripts/issue_claim.py status --db "$PLENTY_ISSUES_DB" --issue 15
-rtk proxy python3 scripts/issue_claim.py claim --db "$PLENTY_ISSUES_DB" --issue 15 \
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-list --status open
+python3 scripts/issue_claim.py status --db "$PLENTY_ISSUES_DB" --issue 15
+python3 scripts/issue_claim.py claim --db "$PLENTY_ISSUES_DB" --issue 15 \
   --author codex-issue-15-SESSION --note 'Implementing issue #15 in branch codex/issue-15, worktree /tmp/plenty-issue-15.'
 ```
 
@@ -350,14 +343,14 @@ abandonment/handoff, the owner releases it with a reason (replace `42` with the
 actual claim comment number):
 
 ```sh
-rtk proxy python3 scripts/issue_claim.py release --db "$PLENTY_ISSUES_DB" --issue 15 \
+python3 scripts/issue_claim.py release --db "$PLENTY_ISSUES_DB" --issue 15 \
   --author codex-issue-15-SESSION --claim 42 --note 'Merged into main as COMMIT; issue resolved.'
 ```
 
 For a user-authorized takeover, record the authorization in the release note
 under the original owner label, then claim with the new owner's label. Do not
 delete/edit old claims or silently release another agent's work. Claim helper
-checks run with `rtk proxy python3 -B -m unittest discover -s scripts -p 'test_issue_claim.py'`.
+checks run with `python3 -B -m unittest discover -s scripts -p 'test_issue_claim.py'`.
 
 ### Create and link a local PR
 
@@ -368,8 +361,8 @@ fall back to GitHub. On an older database, run its additive migration before
 using claims or PRs:
 
 ```sh
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" migrate
-rtk proxy git worktree add -b codex/issue-15 /tmp/plenty-issue-15 main
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" migrate
+git worktree add -b codex/issue-15 /tmp/plenty-issue-15 main
 ```
 
 Use task-specific branch/path values; reuse an assigned worktree. After working,
@@ -377,7 +370,7 @@ validating, and committing there, write the review description to a real Markdow
 file and create the local PR (example paths and numbers must be replaced):
 
 ```sh
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-create \
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-create \
   --repo "$PLENTY_MAIN_WORKTREE" --worktree /tmp/plenty-issue-15 --target main \
   --title 'Fixes #15: explain the resulting behavior' --details-file /tmp/issue-15-pr.md
 ```
@@ -393,16 +386,16 @@ links to local issues. Alternatively (or additionally), write an issue comment
 with the PR foreign key; a number only in the comment text is insufficient:
 
 ```sh
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" comment \
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" comment \
   --issue 15 --pr 3 --author codex-issue-15-SESSION --body-file /tmp/issue-15-review-comment.md
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-show --number 3
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-show --number 3
 ```
 
 Reuse the same record for revisions. Read it first and pass its returned
 `revision` to detect concurrent edits (here `1` is only an example):
 
 ```sh
-rtk proxy node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-update \
+node "$PLENTY_REVIEW_CLI" --db "$PLENTY_ISSUES_DB" pr-update \
   --number 3 --revision 1 --details-file /tmp/issue-15-pr.md
 ```
 

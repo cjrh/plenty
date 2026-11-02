@@ -17,11 +17,11 @@ compatibility. `rustup run 1.99.0 python3 run.py` selects that installed toolcha
 if it is not the default.
 
 ```sh
-rtk proxy python3 run.py
-rtk proxy cargo test --locked --offline
-rtk proxy cargo clippy --locked --offline --all-targets -- -D warnings
-rtk proxy cargo fmt --all -- --check
-rtk proxy python3 -B -m unittest test_generator.py
+python3 run.py
+cargo test --locked --offline
+cargo clippy --locked --offline --all-targets -- -D warnings
+cargo fmt --all -- --check
+python3 -B -m unittest test_generator.py
 ```
 
 The script uses its own `target/`, emits all intermediate sources/object/rlibs,
@@ -34,9 +34,9 @@ The **separate** compiler-private observation uses installed
 `nightly-2026-10-01`, `rustc-dev` and `llvm-tools`:
 
 ```sh
-rtk proxy rustup component add --toolchain nightly-2026-10-01 rustc-dev llvm-tools
-rtk proxy python3 run_abi.py
-rtk proxy rustfmt +nightly-2026-10-01 --edition=2024 --check abi-helper.rs abi-input.rs
+rustup component add --toolchain nightly-2026-10-01 rustc-dev llvm-tools
+python3 run_abi.py
+rustfmt +nightly-2026-10-01 --edition=2024 --check abi-helper.rs abi-input.rs
 ```
 
 It prints/saves `FnAbi` pass modes for scalars, `&str` and a 24-byte record.
