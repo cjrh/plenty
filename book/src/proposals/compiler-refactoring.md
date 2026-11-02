@@ -9,32 +9,29 @@
 
 ## Assessment and scope
 
-The compiler is thoughtfully engineered. Its strongest properties are an
-independent typed-operation checker, deterministic parallel emission and
-diagnostics, explicit ownership checks, cycle-safe nominal metadata, and
-profiling-backed allocation decisions. Preserve these rather than replacing
-them to obtain a more fashionable Rust architecture.
+The compiler's strongest properties are an independent typed-operation checker,
+deterministic parallel emission and diagnostics, explicit ownership checks,
+cycle-safe nominal metadata, and profiling-backed allocation decisions. Preserve
+them; the aim is code that is easier to change, not a different architecture.
 
 The main concern is coupling: parsing, generic expansion, local inference,
 ownership provenance, editor recording and operation construction meet in a
-large frontend with shared mutable tables. Improvements should make those
-dependencies explicit and independently testable.
+large frontend with shared mutable tables, and diagnostics travel between
+phases as rendered text. Improvements should make those dependencies explicit
+and independently testable.
 
-The source assessment was checked against local main `1c8e4113`. Earlier
-discussion used `4327501e`; this proposal rechecked the relevant source
-boundaries at the newer revision. No new compiler benchmark, correctness
-audit, Rust lint run or implementation experiment was performed for this
-proposal. Historical numbers below retain their original scope.
-
-The runtime crate, optional dataframe/linalg engines and every standard-library
-adapter were not audited. This is not an unsafe-code or security review.
-There is no proposed learner-visible language change.
+The source map was rechecked against local main `6477751e` (0.8.7). No new
+compiler benchmark or correctness audit was performed for this revision;
+historical numbers below retain their original scope. The runtime crate,
+optional dataframe/linalg engines and standard-library adapters were not
+audited. This is not an unsafe-code or security review. There is no proposed
+learner-visible language change.
 
 ## Design map
 
 | Question | Detailed design |
 | --- | --- |
-| How should lowering and ambient state be separated? | [Frontend and session boundaries](compiler-refactoring/frontend-and-sessions.md) |
+| How should lowering, syntax and ambient state be separated? | [Frontend and session boundaries](compiler-refactoring/frontend-and-sessions.md) |
 | How should errors reach CLI, workers and editors? | [Structured diagnostics](compiler-refactoring/diagnostics.md) |
 | Which hot representations merit experiments? | [Identity, type facts and dataflow](compiler-refactoring/performance.md) |
 | What must exist before caching lowered imports? | [Replayable module results](compiler-refactoring/module-results.md) |
@@ -45,24 +42,53 @@ schedule. The backlog owns priority, and the shared local issues register owns
 defects, claims and PR state. Existing closed investigations remain closed
 unless new evidence justifies a separately scoped follow-up.
 
-## Recommended direction
+## Implementation order
 
-Structured diagnostics are the best bounded starting point: the editor currently
-renders errors to text and reparses that text for positions. Fixing the boundary
-improves correctness of the representation without requiring an IR redesign.
+Each step is one local PR that preserves behavior unless it says otherwise.
 
-Frontend decomposition is the most important structural work. Start with a
-single cohesive state owner and behavior-preserving changes; do not move every
-field at once. Session lifetime improvements can be introduced independently
-where they remove ambient policy.
+1. **Structured diagnostics.** The editor renders errors to text and reparses
+   that text for positions; the parallel checker flattens errors to strings.
+   Replace both with one sendable diagnostic value. This fixes a
+   representation, not an IR.
+2. **Scoped ambient state.** Install the editor recorder through a guard that
+   restores the previous state on return and unwind, and make teardown skipping
+   a per-call option instead of a process-global flag.
+3. **Split `src/op.rs` by responsibility.** It holds the IR definition, the
+   historical stack-syntax compiler and the independent checker. Separate
+   files give the checker an explicit boundary and keep the legacy compiler out
+   of the IR module.
+4. **Separate the syntax layer from lowering.** Tokens, the lexer, the syntax
+   tree and the core parser make up about a third of `src/frontend.rs` and do
+   not use lowering state. Moving them into child modules makes that
+   independence checked by visibility rather than convention.
+5. **Group lowering state.** Start with passive pipeline state on `Lower`,
+   then borrow/provenance state if the first extraction shows a clear gain.
+6. **Attribution before optimization.** Function-name and nominal-type lookups
+   are candidates only. Profile them and record the result; change the
+   representation only on measured evidence.
 
-Remaining function-name and nominal-type lookups are performance **candidates**.
-The frontend already interns function identities and caches type facts. Extend
-what exists only after attribution shows a worthwhile cost.
+Steps 1 and 2 both edit `src/frontend/ide.rs`; steps 1, 4 and 5 edit
+`src/frontend.rs`. Land them in order rather than concurrently.
 
 Replayable module lowering is a larger architectural opportunity, not a quick
 cache patch. Imported source dependencies, generic instances and inferred
-returned-reference facts must be reproducible before persistence is safe.
+returned-reference facts must be reproducible before persistence is safe. It
+stays a design until steps 1–5 land and a std-heavy application shows the need.
+
+## Related plans
+
+Several unimplemented plans meet these boundaries:
+
+- B17 editor work (find references, document symbols, signature help and
+  incremental module re-checking) consumes structured diagnostics and needs a
+  recorder whose lifetime is explicit.
+- B19 module caching needs the replay contract in
+  [replayable module results](compiler-refactoring/module-results.md).
+- B20's [GCC](codegen-gcc.md) and [Rust-source](rust-source-backend.md)
+  backends consume checked operations; a separate checker module and, later,
+  function IDs in the IR affect what a second backend must reimplement.
+- [Language editions](language-editions.md) would need per-module options to
+  flow through lowering, which explicit lowering state makes easier.
 
 ## Existing work not to redo
 

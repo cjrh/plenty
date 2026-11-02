@@ -78,7 +78,7 @@ graph checks. Use `src/nominal/clone_tests.rs`, nominal unit tests,
 
 ## Ownership dataflow: conditional follow-up only
 
-`src/ownership.rs::check_loans` skips loan-free bodies, borrows operations
+`Checker::loans` in `src/ownership.rs` skips loan-free bodies, borrows operations
 in its CFG and reuses sorted `Live` buffers. Its liveness fixed point scans
 reachable nodes until no set changes. Issue #303 already removed operation
 cloning and per-round tree allocation; do not undo those improvements.
