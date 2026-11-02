@@ -177,6 +177,11 @@ this rule. Standard-library code reports these with the std-only `__trap`
 statement; a handle from the same object that has become invalid may trap the
 same way (`std.graph`).
 
+A limit, size or count whose fixed lower bound is `0` or `1` is a
+`NonNegative[i64]` or `Positive[i64]` parameter or field, so the caller checks
+it once with `try_from` and a literal is checked at compile time
+([integer domains](../language/03-types/numbers.md#positive-and-non-negative-integers)).
+A fixed ceiling on such a value traps, naming the operation and the argument.
 Another run-time value the caller supplies (a limit or configuration) that the
 operation cannot accept is an `Err` with a named variant: `OutOfRange`,
 `InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Buffer
@@ -233,14 +238,17 @@ compatibility aliases. SSE's optional `event` and `id` follow the required
 
 Every input-driven allocation has a cap.
 
-- One or two caps: named `max_<thing>: i64` parameters with defaults
+- One or two caps: named `max_<thing>: NonNegative[i64]` parameters with defaults
   (`std.url.parse(text, max_bytes)`, `std.db.kv.connect(..., max_length)`).
 - Several caps: a `Limits` class with public `max_<thing>` fields, a
   `limits()` function returning documented defaults, and a `limits: &Limits`
   parameter. A module with several such classes qualifies both names
   (`FormLimits`, `form_limits()`).
-- An invalid `Limits` is `InvalidLimits` when the operation starts; an input
-  that exceeds one is `LimitExceeded` or a specific variant (`TooLarge`).
+- Fields with a lower bound of `0` or `1` use `NonNegative[i64]` or
+  `Positive[i64]`; a field above a fixed ceiling traps when the operation
+  starts. A relation between fields that no type states remains
+  `InvalidLimits`. An input that exceeds a limit is `LimitExceeded` or a
+  specific variant (`TooLarge`).
 
 `std.json`, `std.toml`, `std.markdown`, `std.template`, `std.regex` and
 `std.xml` name the parameter `bounds: &Limits`; `std.http` and `std.image` use
@@ -292,14 +300,17 @@ operation that offers a mode by a separate method instead, such as
 
 | Quantity | Type |
 |---|---|
-| Length, index, offset, size, capacity, limit | `i64`, matching `len()` and indexing |
+| Length, index, offset, size | `i64`, matching `len()` and indexing |
+| Capacity, limit or count with a fixed lower bound | `NonNegative[i64]` (`>= 0`) or `Positive[i64]` (`>= 1`) |
 | Hash, key, seed, bit pattern, selector key | `u64` |
 | Value fixed by a format or the OS (file size, inode, wire integer) | Its own width |
 | Running statistics counter | `u64` |
 
-Fixed positive builtin capacities and worker/chunk counts use `Positive[i64]`:
+Builtin capacities and worker/chunk counts also use `Positive[i64]`:
 `channel(capacity)`, `ThreadPoolExecutor(max_workers, queue_capacity)` and
-`.par(pool, chunks=...)`. `CuckooFilter.len()` returns `u64`; low-level timed
+`.par(pool, chunks=...)`. Allocation sizes (`with_capacity`, `reserve`) stay
+`i64` and report a negative size as `CapacityOverflow`. Results such as
+`len()` stay `i64`. `CuckooFilter.len()` returns `u64`; low-level timed
 waits still take `u64` milliseconds.
 
 ## Formatting
