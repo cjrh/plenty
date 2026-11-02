@@ -1,7 +1,10 @@
 # Frontend and checking
 
-`frontend.rs` handles syntax, name resolution, local inference, mutability, and
-lowering to typed operations.
+`frontend.rs` handles name resolution, local inference, mutability, and
+lowering to typed operations. Tokens and the lexer (`frontend/lexer.rs`), the
+syntax tree (`frontend/syntax.rs`) and the core parser (`frontend/parser.rs`)
+read no lowering state; feature modules add their own parsing beside their
+lowering.
 Type references retain source positions. Aliases resolve through an iterative,
 cached dependency walk before signatures are collected; alias-only cycles are
 rejected without recursive traversal of long chains.
