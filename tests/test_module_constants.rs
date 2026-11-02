@@ -390,3 +390,61 @@ fn included_paths_are_checked() {
         assert!(error.contains(&message), "{declaration}: {error}");
     }
 }
+
+#[test]
+fn integer_domain_constants_fold_as_their_integer() {
+    // Issue #685: a domain constant is checked once, at its declaration, and
+    // each read converts as a literal does.
+    let output = run("\
+const limit: NonNegative[i64] = 64
+const plain: i64 = 3
+const page: Positive[i64] = limit.get() * 2 + plain
+const step: NonZero[i32] = -3
+const same: Positive[i64] = page
+assert limit.get() <= 1024
+def take(n: Positive[i64] = page) -> i64:
+    n.get()
+def main() -> Result[(), IoError]:
+    print(limit, page, step, same)?
+    print(take(), take(same))?
+    held = limit
+    print(held.get() + 1)?
+    Ok(())
+");
+    assert_eq!(output, "64 131 -3 131\n131 131\n65\n");
+}
+
+#[test]
+fn integer_domain_constants_reject_out_of_domain_values_and_bare_reads() {
+    for (source, message) in [
+        (
+            "const bad: Positive[i64] = 0\n",
+            "constant `bad` is 0, which is not a `Positive[i64]`",
+        ),
+        (
+            "const bad: NonNegative[i64] = 3 - 5\n",
+            "constant `bad` is -2, which is not a `NonNegative[i64]`",
+        ),
+        (
+            "const bad: NonZero[u8] = 1u8 - 1u8\n",
+            "constant `bad` is 0, which is not a `NonZero[u8]`",
+        ),
+        (
+            "const size: Positive[i64] = 3\nconst bad: i64 = size + 1\n",
+            "`size` is a `Positive[i64]`; read its integer with `size.get()`",
+        ),
+        (
+            "const size: Positive[i64] = 3\nconst bad: NonNegative[i64] = size\n",
+            "read its integer with `size.get()`",
+        ),
+        (
+            "const bad: Positive[u8] = 3\n",
+            "requires a signed integer type",
+        ),
+        ("const bad: Positive[f64] = 3\n", "integer domain"),
+    ] {
+        let source = format!("{source}def main() -> ():\n    pass\n");
+        let error = plenty::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(message), "{error}");
+    }
+}

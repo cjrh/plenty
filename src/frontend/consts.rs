@@ -9,6 +9,7 @@
 //! an overflow, division by zero, or invalid shift is a compile-time error
 //! here. See `book/src/design/language/02-source/modules.md#constants`.
 use super::*;
+use crate::op::IntegerDomain;
 use std::rc::Rc;
 
 /// The parse-time name prefix of a static assertion's getter.
@@ -94,11 +95,11 @@ pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
             asserts.insert(i);
             continue;
         }
-        let ty = declared(f);
-        let value = value.unwrap_or_else(|| default(&ty));
+        let (ty, domain) = declared(f);
+        let value = value.unwrap_or_else(|| default(&ty, domain));
         f.body = vec![Stmt {
             at: f.at.clone(),
-            kind: Statement::Expr(literal(&value, &f.at)),
+            kind: Statement::Expr(literal(&value, domain.is_some(), &f.at)),
         }];
     }
     let mut index = 0;
@@ -116,28 +117,48 @@ fn is_assert(f: &Function) -> bool {
         .is_some_and(|n| n.starts_with(ASSERT))
 }
 
-fn declared(f: &Function) -> Ty {
-    f.output
-        .concrete
-        .as_deref()
-        .cloned()
-        .or_else(|| f.output.name.as_deref().and_then(named_type))
-        .expect("module constants have a concrete type")
+/// The type a constant folds as, and its integer domain: `Positive[i64]`
+/// folds as `i64`.
+fn declared(f: &Function) -> (Ty, Option<IntegerDomain>) {
+    let output = &f.output;
+    let domain = output.name.as_deref().and_then(IntegerDomain::named);
+    let ty = match (domain, output.args.as_slice()) {
+        (Some(_), [element]) => element.name.as_deref().and_then(named_type),
+        _ => output
+            .concrete
+            .as_deref()
+            .cloned()
+            .or_else(|| output.name.as_deref().and_then(named_type)),
+    };
+    (ty.expect("module constants have a concrete type"), domain)
 }
 
-fn default(ty: &Ty) -> Value {
+fn default(ty: &Ty, domain: Option<IntegerDomain>) -> Value {
     match ty {
         Ty::Bool => Value::Bool(false),
         Ty::Str => Value::Str("".into()),
         Ty::ByteStr => Value::Bytes(Rc::from(&[][..])),
         t if t.is_float() => Value::Float(0.0, t.clone()),
-        t => Value::Int(0, t.clone()),
+        // An editor placeholder for a domain constant stays in its domain.
+        t => Value::Int(
+            i128::from(domain.is_some_and(|d| d != IntegerDomain::NonNegative)),
+            t.clone(),
+        ),
+    }
+}
+
+fn admits(domain: IntegerDomain, n: i128) -> bool {
+    match domain {
+        IntegerDomain::NonZero => n != 0,
+        IntegerDomain::Positive => n > 0,
+        IntegerDomain::NonNegative => n >= 0,
     }
 }
 
 /// A literal expression denoting `value`, in the form the checker types
-/// exactly as the constant's declared type.
-fn literal(value: &Value, at: &Token) -> Expr {
+/// exactly as the constant's declared type. An integer domain's literal is
+/// unsuffixed, so the checker converts it as it converts a literal argument.
+fn literal(value: &Value, domain: bool, at: &Token) -> Expr {
     let expr = |kind| Expr {
         at: at.clone(),
         kind,
@@ -145,7 +166,12 @@ fn literal(value: &Value, at: &Token) -> Expr {
     let negate = |inner: Expr| expr(Expression::Unary("-".into(), Box::new(inner)));
     match value {
         Value::Int(n, ty) => {
-            let number = expr(Expression::Number(format!("{}{ty}", n.unsigned_abs())));
+            let suffix = if domain {
+                String::new()
+            } else {
+                ty.to_string()
+            };
+            let number = expr(Expression::Number(format!("{}{suffix}", n.unsigned_abs())));
             if *n < 0 { negate(number) } else { number }
         }
         Value::Float(x, ty) => {
@@ -181,7 +207,7 @@ fn display(getter: &str) -> &str {
     getter.strip_prefix(GETTER).unwrap_or(getter)
 }
 
-impl Folder<'_> {
+impl<'a> Folder<'a> {
     fn constant(&mut self, f: &Function) -> Result<Value> {
         if let Some(value) = self.values.get(&f.name) {
             return Ok(value.clone());
@@ -200,7 +226,7 @@ impl Folder<'_> {
                 "constant dependencies nest more than {MAX_DEPTH} deep"
             )));
         }
-        let ty = declared(f);
+        let (ty, domain) = declared(f);
         let [
             Stmt {
                 kind: Statement::Expr(initializer),
@@ -209,14 +235,44 @@ impl Folder<'_> {
         ] = f.body.as_slice()
         else {
             // An editor check clears a body that does not resolve.
-            return Ok(default(&ty));
+            return Ok(default(&ty, domain));
         };
         self.active.push(f.name.clone());
-        let value = self.typed(initializer, &ty);
+        let value = match (domain, self.domain_read(initializer)) {
+            // Another constant of the same domain type is already checked.
+            (Some(_), Some(g)) if declared(g) == (ty.clone(), domain) => self.constant(g),
+            _ => self.typed(initializer, &ty),
+        };
         self.active.pop();
         let value = value?;
+        if let (Some(domain), Value::Int(n, _)) = (domain, &value)
+            && !admits(domain, *n)
+        {
+            let reason = match domain {
+                IntegerDomain::NonZero => "a NonZero value cannot be zero",
+                IntegerDomain::Positive => "a Positive value must be greater than zero",
+                IntegerDomain::NonNegative => "a NonNegative value cannot be negative",
+            };
+            return Err(initializer.at.error(format!(
+                "constant `{}` is {n}, which is not a `{}[{ty}]`: {reason}",
+                display(&f.name),
+                domain.name()
+            )));
+        }
         self.values.insert(f.name.clone(), value.clone());
         Ok(value)
+    }
+
+    /// The getter `e` reads, when it reads an integer domain constant.
+    fn domain_read(&self, e: &Expr) -> Option<&'a Function> {
+        match &ungroup(e).kind {
+            Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => self
+                .getters
+                .get(name.as_str())
+                .copied()
+                .filter(|f| declared(f).1.is_some()),
+            _ => None,
+        }
     }
 
     fn assertion(&mut self, f: &Function) -> Result<()> {
@@ -268,8 +324,14 @@ impl Folder<'_> {
             Expression::Text(_) => Some(Ty::Str),
             Expression::Bytes(_) => Some(Ty::ByteStr),
             Expression::Bool(_) => Some(Ty::Bool),
-            Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => {
-                self.getters.get(name.as_str()).map(|f| declared(f))
+            Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => self
+                .getters
+                .get(name.as_str())
+                .map(|f| declared(f))
+                .filter(|(_, domain)| domain.is_none())
+                .map(|(ty, _)| ty),
+            Expression::Method(base, method, args, _) if method == "get" && args.is_empty() => {
+                self.domain_read(base).map(|f| declared(f).0)
             }
             Expression::Call(name, _) => named_type(name).filter(|t| t.is_int() || t.is_float()),
             Expression::Member(base, _, _) => match &base.kind {
@@ -301,6 +363,19 @@ impl Folder<'_> {
                 let Some(f) = self.getters.get(name.as_str()).copied() else {
                     return Err(e.at.error(format!("unknown constant `{}`", display(name))));
                 };
+                if let (ty, Some(domain)) = declared(f) {
+                    let name = display(name);
+                    return Err(e.at.error(format!(
+                        "`{name}` is a `{}[{ty}]`; read its integer with `{name}.get()`",
+                        domain.name()
+                    )));
+                }
+                self.constant(f)
+            }
+            Expression::Method(base, method, args, _)
+                if method == "get" && args.is_empty() && self.domain_read(base).is_some() =>
+            {
+                let f = self.domain_read(base).unwrap();
                 self.constant(f)
             }
             Expression::Call(name, args) => {

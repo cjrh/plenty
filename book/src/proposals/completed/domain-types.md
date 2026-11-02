@@ -342,9 +342,11 @@ migration (2026-11-02):
   above `max_heap_limit`. `quantiles_from_bytes` and
   `frequent_items_from_bytes` had no ceiling and gained none. The compile-time
   rejection of a literal above a ceiling is not implemented (issue #686).
-- **Constants.** A module constant cannot have a domain type (issue #685), so
-  std passes constant limits through private getters such as
-  `def max_url() -> NonNegative[i64]:`.
+- **Constants.** A module constant could not have a domain type, so std
+  passed constant limits through private getters such as
+  `def max_url() -> NonNegative[i64]:`. Issue #685 later added domain
+  constants (`const max_url: NonNegative[i64] = 8192`) and replaced the
+  getters.
 - **Internal lengths.** Two std callers of `encode_chunk_size` convert a
   `len()` result with `NonNegative.try_from(n).unwrap()`, which cannot fail
   (decision 5).
