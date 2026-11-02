@@ -109,8 +109,11 @@ Single-file compile-and-run now caches linked executables by default on
 supported Linux toolchains, including hashbang launches. Native dependency
 and toolchain identities invalidate reuse; entries share cache inspection,
 cleanup and eviction. Linker wrappers, including GCC-private overrides, are
-excluded before executable lookup (issue #676). Explicit build outputs, project
-runs, custom linkers, non-Linux hosts and instrumented builds still link normally.
+excluded before executable lookup (issue #676). Wrapper regressions isolate GCC's
+private search paths and verify linker selection, including the manylinux GCC
+toolchain that prefers its private `ld` over PATH (issue #679). Explicit build
+outputs, project runs, custom linkers, non-Linux hosts and instrumented builds
+still link normally.
 See the
 [executable cache contract](../design/toolchain/02-architecture/cache.md#single-file-executables).
 
