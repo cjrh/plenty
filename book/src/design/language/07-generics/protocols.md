@@ -119,4 +119,4 @@ The [original protocol design](../../../proposals/completed/protocols-generics-a
 records the shipped foundation. [Protocol method bodies](../../../proposals/protocol-method-bodies.md)
 propose defaults, final methods, and explicit private-hook grants; those
 extensions are not implemented. For an existing-language solution, see
-[library-owned operations](../../../proposals/library-owned-operations.md).
+[library-owned operations](../../../proposals/completed/library-owned-operations.md).
