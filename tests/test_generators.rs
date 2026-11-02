@@ -188,7 +188,7 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
 #[case("next(count(2))", "named mutable generator")]
 #[case("mut a = 1\nnext(a)", "requires a generator")]
 #[case("print(count(2)).unwrap()", "cannot be printed")]
-#[case("len(count(2))", "len requires")]
+#[case("len(count(2))", "len() is not defined for `Generator[i64]")]
 #[case("1 in count(2)", "membership does not consume")]
 #[case("count(2) == count(2)", "binary operators")]
 #[case("[count(2)].unwrap()", "cannot be stored in collections")]

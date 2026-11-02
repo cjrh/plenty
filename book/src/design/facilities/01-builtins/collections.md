@@ -40,6 +40,20 @@ one, reporting the source position. An index is one expression evaluated once; m
 comma-separated indices are rejected. [`std.bytes.Bytes`](../../stdlib/bytes.md#index-syntax-and-iteration)
 uses the list index rules for `buffer[i]` reads and writes.
 
+`len(value)` also calls an accessible ordinary `def len(self) -> i64` method
+on a class or enum, including standard-library containers such as
+[`Deque`](../../stdlib/deque.md) and [`Bytes`](../../stdlib/bytes.md).
+It borrows the receiver, including a temporary, and evaluates it once. A mutable
+or owned receiver, extra parameters, method type parameters, or another return
+type does not meet this contract; call such methods directly instead. The method
+body determines its cost and whether it allocates. Built-in collections retain
+their intrinsic length operations.
+
+`in` and `not in` do not dispatch to methods on classes or enums, even if they
+have an ordinary `contains` method. Use the container's explicit API; for
+example, [`Bytes.find`](../../stdlib/bytes.md#scanning) searches a byte range.
+A type being iterable or indexable does not imply that it supports membership.
+
 Collections move on assignment, owned calls, and returns. Independent duplication
 uses [copy](construction-copy.md). Indexed reads do not extract affine owners:
 use an explicit element reference, an owned removal operation, or copying.

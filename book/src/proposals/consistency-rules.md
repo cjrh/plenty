@@ -405,8 +405,9 @@ Under the rule:
   `test_pipelines.rs`). Each becomes `iter(...)` or the iterator method.
 - Dictionary-view changes are additive.
 - `find`/`reduce` on copyable references is additive.
-- `len`/`in` on std containers depends on B49's protocol work; until then
-  the diagnostic names `.len()`.
+- `len` method dispatch is [implemented](../completed-work/language-and-tooling.md#b49-length-method-dispatch)
+  for classes and enums (issue #623). Membership on std containers still
+  depends on B49's protocol work; unsupported operations name their actual type.
 
 ### What a learner no longer has to learn
 
@@ -420,7 +421,8 @@ everything that works on one iterator works on all.
    copyable items (issue #621).
 2. Uniform dictionary views (issue #624).
 3. Remove direct adapters from `enumerate`, `zip` and `items()`.
-4. `len` and `in` on std containers, with B49 (issue #623).
+4. `len` method dispatch delivered (issue #623); `in` on std containers
+   remains with B49.
 
 ## Rule 5: an error type names only what can fail
 
@@ -720,6 +722,6 @@ become `proposals/consistency-rules.md#...`.
 | B88 | Copy rule | One copy rule in the reference, cheat sheet and skill, checked by a test; `@copy` on enums; undeclared enums affine after a migration that annotates every currently copyable enum. Generic enums wait for B84's copyable bound, so B84 moves earlier. [Proposal](#rule-1-one-copy-rule); issue #636. |
 | B89 | Formatting path | `print`/`f"{x}"`/`main`'s report use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module. Report hook migration uses the shared formatter delivered by issue #634. [Proposal](#rule-2-one-formatting-path); issue #615. |
 | B90 | Owner-to-view conversion | `&xs`, `&s`, `b"..."` accepted at view types; `&[u8]` satisfies `ByteSource`; `&Shared[T]` converts to `&T` like `Box`; then byte-reading std APIs take `&[u8]` and `ByteSource` is removed. Text APIs accepting `&substr` stay in B12. [Proposal](#rule-3-an-owner-converts-to-its-view). |
-| B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. `len`/`in` on std containers stays B49. [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
+| B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; uniform dictionary views; uniform terminals over copyable references. Membership on std containers stays B49; `len` method dispatch is delivered (issue #623). [Proposal](#rule-4-adapters-belong-to-iterators); issues #621, #622, #624. |
 | B92 | Error types and invalid arguments | Allocation-only failure is `AllocError`, including f-strings without user formatting; domain errors carry `Allocation(AllocError)`; `FormatError` in the prelude; infallible tuple slices; the four-part invalid-argument policy. [Proposal](#rule-5-an-error-type-names-only-what-can-fail); issues #625, #629, #632. |
 | B93 | Callable forms | Every callable form accepted at every callback parameter; `&mut` named functions; class constructors and generic variants, including `Some`/`Ok`/`Err`, as function values; inside `checked:`, closures defined in the block report `Err` and other functions follow their signatures. Callable names stay (issue #24). [Proposal](#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted); issues #614, #617–#620. |
