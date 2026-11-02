@@ -1,7 +1,7 @@
 # Rust compiler boundaries and measured performance
 
-> **Status: Not implemented.** This is a design proposal, not an approved
-> compiler rewrite or a report of new speedups. The
+> **Status: Steps 1–6 implemented** (issues #691–#696). Replayable module
+> lowering remains a design. No speedup is claimed. The
 > [frontend reference](../design/toolchain/02-architecture/frontend.md) and
 > [cache reference](../design/toolchain/02-architecture/cache.md) describe current
 > behavior. Remaining scope and priority belong to B17/B19 in the
@@ -20,9 +20,10 @@ large frontend with shared mutable tables, and diagnostics travel between
 phases as rendered text. Improvements should make those dependencies explicit
 and independently testable.
 
-The source map was rechecked against local main `6477751e` (0.8.7). No new
-compiler benchmark or correctness audit was performed for this revision;
-historical numbers below retain their original scope. The runtime crate,
+The source map was rechecked against local main `6477751e` (0.8.7). Step 6's
+profile is recorded in [measured attribution](compiler-refactoring/performance.md#measured-attribution-issue-696);
+no correctness audit was performed, and historical numbers below retain their
+original scope. The runtime crate,
 optional dataframe/linalg engines and standard-library adapters were not
 audited. This is not an unsafe-code or security review. There is no proposed
 learner-visible language change.
@@ -63,9 +64,13 @@ Each step is one local PR that preserves behavior unless it says otherwise.
    independence checked by visibility rather than convention.
 5. **Group lowering state.** Start with passive pipeline state on `Lower`,
    then borrow/provenance state if the first extraction shows a clear gain.
+   The pipeline grouping did not show one, so borrow/provenance state stays
+   on `Lower`.
 6. **Attribution before optimization.** Function-name and nominal-type lookups
    are candidates only. Profile them and record the result; change the
-   representation only on measured evidence.
+   representation only on measured evidence. The
+   [measured attribution](compiler-refactoring/performance.md#measured-attribution-issue-696)
+   found neither material, so no representation changed.
 
 Steps 1 and 2 both edit `src/frontend/ide.rs`; steps 1, 4 and 5 edit
 `src/frontend.rs`. Land them in order rather than concurrently.

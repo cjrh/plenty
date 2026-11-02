@@ -1,9 +1,12 @@
 # Frontend and session boundaries
 
-[Parent proposal](../compiler-refactoring.md). All structures described as
-proposed are design sketches, not implemented APIs.
+[Parent proposal](../compiler-refactoring.md). The syntax/IR split, pipeline
+state and scoped ambient state are implemented (issues #692–#695); the
+session and further lowering-state options remain design sketches.
 
-## Current source map
+## Source map
+
+The table records the layout these steps started from, at `6477751e`.
 
 | File / symbol | Responsibility and coupling |
 | --- | --- |
@@ -19,7 +22,10 @@ proposed are design sketches, not implemented APIs.
 | `src/frontend/ide.rs` | Ambient per-thread recording and error recovery alter analysis behavior. |
 | `src/op.rs` | The operation IR (about 1,350 lines), the historical stack-syntax compiler (about 600 lines, with `src/lexer.rs`) and the independent checker (about 1,250 lines). |
 
-At `6477751e`, `src/frontend.rs` is about 7,650 lines. File length is evidence
+At `6477751e`, `src/frontend.rs` was about 7,650 lines. After the moves it is
+about 4,950, with `frontend/lexer.rs`, `syntax.rs` and `parser.rs` beside it;
+`src/op.rs` keeps the IR (about 1,500 lines), with `op/check.rs` and
+`op/legacy.rs` (which now holds the stack-syntax lexer). File length is evidence
 of navigation cost, not a reason by itself to rewrite the frontend. A move is
 worthwhile where it turns an existing independence into one the compiler
 enforces; adding files without changing dependencies would not address the main
@@ -64,7 +70,7 @@ variant with a trait:
    attribution and consumption state. Give this state explicit entry/exit
    operations before moving pipeline lowering methods.
 
-The first extraction is passive pipeline state. Its nine fields are read and
+The first extraction, `frontend::pipelines::State`, is passive pipeline state. Its nine fields are read and
 written almost only by `src/frontend/pipelines/` (plus three sites in
 `references.rs`, `generators.rs` and the generator bridge), and every function
 starts with them empty. Group them in one struct owned by the pipelines module,
@@ -73,7 +79,9 @@ documentation then says what the pipeline code owns, and `Lower`'s
 construction loses nine lines. Move operations only when their actual
 dependencies are understood. Borrow/provenance state is used throughout
 expression lowering and is more correctness-sensitive; extract it only if the
-pipeline step shows a clear reduction in coupling.
+pipeline step shows a clear reduction in coupling. Grouping pipeline state
+documented ownership but did not change who calls what, so borrow/provenance
+state was not extracted.
 
 The goal is that a reviewer can identify which service a lowering operation
 may mutate. Avoid a giant context with unrestricted mutable access, cosmetic
@@ -87,9 +95,10 @@ that transformed IR remains valid.
 
 ## Ambient state and lifetime policy
 
-Three mechanisms deserve separate treatment:
+Three mechanisms deserved separate treatment; the recommended smallest change
+below is implemented (issue #692). This list records the starting state:
 
-- `src/frontend.rs`: process-global `FILES: RwLock<Files>` maps paths to
+- `src/frontend.rs` (now `frontend/lexer.rs`): process-global `FILES: RwLock<Files>` maps paths to
   compact `FileId`s. It intentionally avoids atomic path clones per token.
   It retains each distinct path for the process lifetime.
 - `src/frontend/ide.rs`: thread-local `ACTIVE` and `RECORDER`; `analyze`
