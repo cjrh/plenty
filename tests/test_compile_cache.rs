@@ -855,6 +855,28 @@ fi
             state = quote(&state)
         ),
     );
+    let selected = Command::new(tools.join("cc"))
+        .env("PATH", tools)
+        .env_remove("COMPILER_PATH")
+        .arg(format!(
+            "-print-prog-name={}",
+            wrapper.file_name().unwrap().to_str().unwrap()
+        ))
+        .output()
+        .unwrap();
+    assert!(selected.status.success());
+    let name = String::from_utf8(selected.stdout).unwrap();
+    let selected = Path::new(name.trim());
+    let selected = if selected.is_absolute() {
+        selected.to_path_buf()
+    } else {
+        tools.join(selected)
+    };
+    assert_eq!(
+        selected.canonicalize().unwrap(),
+        wrapper.canonicalize().unwrap(),
+        "the fixture must select its wrapper, not a host-private linker"
+    );
     let script = root.join("hello.plenty");
     std::fs::write(&script, "def main() -> i32:\n    23i32\n").unwrap();
     let cache = root.join("cache");
@@ -900,7 +922,6 @@ fi
 #[cfg(target_os = "linux")]
 #[test]
 fn selected_linker_wrappers_never_hide_configuration_changes_or_failures() {
-    use std::os::unix::fs::symlink;
     let Some(gcc) = native_tool("cc") else {
         return;
     };
@@ -909,9 +930,7 @@ fn selected_linker_wrappers_never_hide_configuration_changes_or_failures() {
             continue;
         };
         let dir = tempfile::tempdir().unwrap();
-        let tools = dir.path().join("tools");
-        std::fs::create_dir(&tools).unwrap();
-        symlink(&gcc, tools.join("cc")).unwrap();
+        let (tools, _) = isolated_gcc(dir.path(), &gcc, name);
         linker_wrapper_changes_are_observed(dir.path(), &tools, &tools.join(name), &real);
     }
 }
@@ -923,17 +942,28 @@ fn gcc_private_linker_wrapper_overrides_a_native_path_candidate_without_reuse() 
     if !host_supports_executable_cache() {
         return;
     }
-    let Some(real) = native_tool("ld.mold") else {
-        return;
-    };
     let gcc = native_tool("cc").unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let tools = dir.path().join("bin");
+    for name in ["ld.mold", "ld.lld", "ld"] {
+        let Some(real) = native_tool(name) else {
+            continue;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let (tools, private) = isolated_gcc(dir.path(), &gcc, name);
+        symlink(&real, tools.join(name)).unwrap();
+        linker_wrapper_changes_are_observed(dir.path(), &tools, &private.join(name), &real);
+    }
+}
+
+// A PATH override alone does not control GCC's private tool lookup (issue #679).
+// Relocate the driver and support files without copying the linker under test.
+#[cfg(target_os = "linux")]
+fn isolated_gcc(root: &Path, gcc: &Path, linker: &str) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::symlink;
+    let tools = root.join("bin");
     std::fs::create_dir(&tools).unwrap();
     let copied = tools.join("gcc");
-    std::fs::copy(&gcc, &copied).unwrap();
+    support::install_executable(gcc, &copied);
     symlink(&copied, tools.join("cc")).unwrap();
-    symlink(&real, tools.join("ld.mold")).unwrap();
     let directories = |driver: &Path| {
         let output = Command::new(driver)
             .env_remove("COMPILER_PATH")
@@ -955,7 +985,7 @@ fn gcc_private_linker_wrapper_overrides_a_native_path_candidate_without_reuse() 
             std::env::split_paths(programs).next().unwrap(),
         )
     };
-    let original = directories(&gcc);
+    let original = directories(gcc);
     let relocated = directories(&copied);
     assert_ne!(
         original, relocated,
@@ -966,17 +996,16 @@ fn gcc_private_linker_wrapper_overrides_a_native_path_candidate_without_reuse() 
     for (source, destination) in [(&original.0, &relocated.0), (&original.1, &relocated.1)] {
         std::fs::create_dir_all(destination).unwrap();
         for entry in std::fs::read_dir(source).unwrap().flatten() {
+            if entry.file_name() == linker {
+                continue;
+            }
             let target = destination.join(entry.file_name());
             if target.symlink_metadata().is_err() {
                 symlink(entry.path(), target).unwrap();
             }
         }
     }
-    let wrapper = relocated.1.join("ld.mold");
-    if wrapper.symlink_metadata().is_ok() {
-        std::fs::remove_file(&wrapper).unwrap();
-    }
-    linker_wrapper_changes_are_observed(dir.path(), &tools, &wrapper, &real);
+    (tools, relocated.1)
 }
 
 #[cfg(target_os = "linux")]
