@@ -68,7 +68,6 @@ use cranelift_object::ObjectModule;
 
 use crate::cache::{Cache, Lookup, ProgramKey};
 use crate::frontend::Sources;
-use crate::lexer;
 mod atomic;
 mod casts;
 mod channels;
@@ -309,9 +308,9 @@ pub fn compile_legacy_source_to_executable_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    let toks = lexer::lex(source)?;
+    let toks = op::legacy::lexer::lex(source)?;
     let mut heap = Heap::default();
-    let ops = op::compile(&toks, &mut heap)?;
+    let ops = op::legacy::compile(&toks, &mut heap)?;
     compile_ops_to_executable(ops, &heap, output, false, options, false)
 }
 

@@ -56,7 +56,6 @@ mod foreign;
 mod frontend;
 mod generator;
 mod hash;
-mod lexer;
 mod library;
 mod library_metadata;
 #[path = "../plenty-runtime/src/list_layout.rs"]
