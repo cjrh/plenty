@@ -534,3 +534,95 @@ print(b == {3}.unwrap()).unwrap()
         "True\nTrue",
     );
 }
+
+#[rstest]
+#[case("values", "value")]
+#[case("items", "key, value")]
+fn reversed_dictionary_projections_are_rejected_for_every_local_form(
+    #[case] projection: &str,
+    #[case] bindings: &str,
+) {
+    for source in [
+        "view",
+        "alias",
+        "reference",
+        "&alias",
+        "(&reference)",
+        "data.PROJECTION()",
+    ] {
+        let source = source.replace("PROJECTION", projection);
+        let program = format!(
+            "data = {{1: 10, 2: 20, 3: 30}}.unwrap()\nview = data.{projection}()\nalias = view\nreference = &alias\nfor {bindings} in reversed({source}):\n    pass"
+        );
+        let error = support::check_source(&program).unwrap_err().to_string();
+        assert!(error.contains("reversed requires"), "{program}: {error}");
+    }
+}
+
+#[test]
+fn explicitly_shared_item_receivers_create_reusable_views() {
+    native(
+        r#"
+data = {1: 10, 2: 20}.unwrap()
+view = (&data).items()
+alias = view
+reference = &alias
+print(len((&data).items()), len(view), len(reference)).unwrap()
+for key, value in view:
+    print(*key, *value).unwrap()
+for key, value in reference:
+    print(*key, *value).unwrap()
+print(iter(&alias).map(def(k: &i64, v: &i64) -> i64: *k + *v).count()).unwrap()
+boxed = Box(data).unwrap()
+boxed_view = (&boxed).items()
+print(len(boxed_view), len((&boxed).values())).unwrap()
+"#,
+        "2 2 2\n1 10\n2 20\n1 10\n2 20\n2\n2 2",
+    );
+}
+
+#[test]
+fn explicit_mutable_values_cannot_bind_as_a_reusable_view() {
+    let error = support::check_source(
+        "mut data = {1: 10}.unwrap()\nview = (&mut data).values()\nprint(len(view)).unwrap()",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("mutable dictionary projections are immediate iteration sources"),
+        "{error}"
+    );
+    let error = support::check_source(
+        "mut data = {1: 10}.unwrap()\nview = (&mut data).items()\nprint(len(view)).unwrap()",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("iterator pipelines cannot be passed as values"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shared_receivers_preserve_inherent_projection_named_methods() {
+    native(
+        r#"
+class Custom:
+    def items(self) -> i64:
+        7
+    def values(self) -> i64:
+        8
+enum Choice:
+    One
+    def items(self) -> i64:
+        9
+    def values(self) -> i64:
+        10
+custom = Custom()
+choice = Choice.One
+print((&custom).items(), (&custom).values()).unwrap()
+print((&choice).items(), (&choice).values()).unwrap()
+"#,
+        "7 8\n9 10",
+    );
+}

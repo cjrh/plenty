@@ -1657,6 +1657,11 @@ impl Lower<'_> {
             return Ok(plan);
         }
         if let Some((_, values)) = self.dictionary_projection_type(iterable) {
+            if reverse {
+                return Err(iterable
+                    .at
+                    .error("reversed requires a list, str, range, or Bytes"));
+            }
             return self.dictionary_iteration(names, iterable, false, values, ops);
         }
         if let Some((base, mutable)) = dictionary_items(iterable)
@@ -3465,6 +3470,11 @@ impl Lower<'_> {
             let Ty::Dict(key, _) = &*owner else {
                 return Err(base.at.error(format!("{name} requires a dictionary")));
             };
+            if matches!(name, "values" | "items")
+                && matches!(&ungroup(base).kind, Expression::Unary(op, _) if op == "&mut")
+            {
+                return Err(base.at.error("mutable dictionary projections are immediate iteration sources; use a shared receiver for a reusable view"));
+            }
             let key = key.clone();
             self.loans[loan].precise = false;
             for op in ops.iter_mut() {

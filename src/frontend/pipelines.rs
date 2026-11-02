@@ -145,17 +145,15 @@ impl Lower<'_> {
     /// Bare projections bind as reusable views; an adapter chain still creates
     /// a single-use pipeline plan.
     pub(super) fn is_dictionary_projection(&self, e: &Expr) -> bool {
-        let Expression::Method(base, name, args, _) = &ungroup(e).kind else {
+        let Some((base, false)) = super::collections::dictionary_items(e) else {
             return false;
         };
-        matches!(name.as_str(), "items" | "values")
-            && args.is_empty()
-            && matches!(
-                self.place_type(base)
-                    .or_else(|| self.expression_type_hint(base))
-                    .map(classes::unbox),
-                Some(Ty::Dict(..))
-            )
+        matches!(
+            self.place_type(base)
+                .or_else(|| self.expression_type_hint(base))
+                .map(classes::unbox),
+            Some(Ty::Dict(..))
+        )
     }
 
     pub(super) fn is_pipeline(&self, e: &Expr) -> bool {
