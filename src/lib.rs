@@ -94,6 +94,7 @@ mod regex;
 #[doc(hidden)]
 #[path = "../experiments/rust-source-backend/emitter/mod.rs"]
 pub mod rust_source_spike;
+pub mod script;
 mod sqlite;
 mod stream;
 mod sum;

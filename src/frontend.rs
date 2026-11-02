@@ -6421,6 +6421,18 @@ pub(crate) fn compile_graph(
     lower(modules::load_graph(path, graph, require_main)?, heap, check)
 }
 
+pub(crate) fn compile_script(
+    path: &std::path::Path,
+    graph: &crate::project::SourceGraph,
+    heap: &mut Heap,
+) -> Result<Program> {
+    lower(
+        modules::load_graph_with(path, graph, true, None, true)?,
+        heap,
+        crate::CheckOptions::default(),
+    )
+}
+
 /// The sources of one application build, as the program cache names them.
 pub(crate) enum Sources<'a> {
     /// A standalone source, which can import only `std`.
@@ -6431,6 +6443,7 @@ pub(crate) enum Sources<'a> {
         entry: std::path::PathBuf,
         graph: std::borrow::Cow<'a, crate::project::SourceGraph>,
         appendix: Option<String>,
+        script: bool,
     },
 }
 
@@ -6445,6 +6458,7 @@ impl<'a> Sources<'a> {
             entry,
             graph: std::borrow::Cow::Owned(graph),
             appendix: None,
+            script: false,
         })
     }
 
@@ -6455,8 +6469,9 @@ impl<'a> Sources<'a> {
                 entry,
                 graph,
                 appendix,
+                script,
             } => lower(
-                modules::load_graph_with(entry, graph, true, appendix.as_deref())?,
+                modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
                 heap,
                 crate::CheckOptions::default(),
             ),
@@ -6476,10 +6491,11 @@ impl<'a> Sources<'a> {
                 entry,
                 graph,
                 appendix,
+                script,
             } => {
                 identity.extend_from_slice(b"graph\n");
                 identity.extend_from_slice(modules::identity(entry, graph)?.as_bytes());
-                identity.extend_from_slice(format!("\n{appendix:?}").as_bytes());
+                identity.extend_from_slice(format!("\n{appendix:?} script={script}").as_bytes());
             }
         }
         Some(identity)

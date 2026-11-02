@@ -239,10 +239,95 @@ pub fn parse(text: &str, name: &str, directory: &Path) -> Result<Manifest, Strin
         .ok_or_else(|| format!("{name}: missing [package] table"))
 }
 
+/// Adapt an embedded manifest without relaxing ordinary package validation.
+/// `text` is padded to its original source lines.
+pub(crate) fn parse_script(text: &str, name: &str, path: &Path) -> Result<Manifest, String> {
+    let mut document = toml::parse(text, name)?;
+    let reader = Reader { name };
+    reader.known(
+        &document,
+        "a script manifest",
+        &["manifest-version", "package", "dependencies"],
+    )?;
+    let entry = |value| Entry {
+        value,
+        line: 1,
+        table_array: false,
+        header_lines: vec![],
+    };
+    document
+        .entry("manifest-version".into())
+        .or_insert_with(|| entry(Value::Integer(MANIFEST_VERSION)));
+    let package = document
+        .entry("package".into())
+        .or_insert_with(|| entry(Value::Table(Table::new())));
+    let Value::Table(package) = &mut package.value else {
+        return Err(format!(
+            "{name}:{}: `package` must be a table",
+            package.line
+        ));
+    };
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let mut default_name: String = stem
+        .chars()
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if !valid_name(&default_name) || default_name == "std" {
+        default_name.insert_str(0, "script_");
+    }
+    package
+        .entry("name".into())
+        .or_insert_with(|| entry(Value::String(default_name)));
+    package
+        .entry("version".into())
+        .or_insert_with(|| entry(Value::String("0.0.0".into())));
+    // Supply a target to the existing reader; it never discovers neighboring
+    // targets. Replace this internal target with the original source below.
+    let mut target = Table::new();
+    target.insert("name".into(), entry(Value::String("script".into())));
+    target.insert(
+        "path".into(),
+        entry(Value::String("src/main.plenty".into())),
+    );
+    let mut bins = entry(Value::Array(vec![Value::Table(target)]));
+    bins.table_array = true;
+    document.insert("bin".into(), bins);
+    let mut manifest = read_document(document, name, Path::new(""), false)?
+        .package
+        .unwrap();
+    manifest.library = None;
+    manifest.binaries = vec![(manifest.name.clone(), path.to_path_buf())];
+    if let Some(minimum) = &manifest.plenty_version
+        && parse_version(minimum).unwrap() > parse_version(env!("CARGO_PKG_VERSION")).unwrap()
+    {
+        return Err(format!(
+            "{name}: requires Plenty {minimum} or newer; this toolchain is {}",
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+    Ok(manifest)
+}
+
 /// Parse a manifest that may declare a `[workspace]` instead of, or as well
 /// as, a package.
 pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Document, String> {
     let document = toml::parse(text, name)?;
+    read_document(document, name, directory, true)
+}
+
+fn read_document(
+    document: Table,
+    name: &str,
+    directory: &Path,
+    infer_targets: bool,
+) -> Result<Document, String> {
     let reader = Reader { name };
     reader.known(
         &document,
@@ -396,9 +481,7 @@ pub fn parse_document(text: &str, name: &str, directory: &Path) -> Result<Docume
                 None => PathBuf::from("src/lib.plenty"),
             })
         }
-        None => directory
-            .join("src/lib.plenty")
-            .is_file()
+        None => (infer_targets && directory.join("src/lib.plenty").is_file())
             .then(|| PathBuf::from("src/lib.plenty")),
     };
     let binaries = match document.get("bin") {

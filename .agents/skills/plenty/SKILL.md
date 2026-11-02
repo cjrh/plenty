@@ -25,15 +25,18 @@ diagnostics over this text.
 2. Write the program. Executable statements belong in a function; a bare
    top-level statement is an error.
 3. Type-check: `plenty --check FILE` for one file, or `plenty check` inside a
-   package. Fix every diagnostic, then check again. Diagnostics are precise;
+   package. For an embedded script manifest, use `plenty script --check FILE`.
+   Fix every diagnostic, then check again. Diagnostics are precise;
    read the whole message, including its notes.
 4. Run: `plenty FILE`, or `plenty run` / `plenty test` in a package.
-   `plenty FILE ARGS` is rejected; to pass arguments, build with
+   `plenty FILE ARGS` is rejected; to pass arguments, use
+   `plenty script FILE ARGS` (runner options precede FILE), or build with
    `plenty --compile FILE -o OUT` and run `./OUT ARGS`, or use
    `plenty run -- ARGS` in a package.
 
-Use a package (`plenty new NAME`) for anything with dependencies, several
-executables, or tests. See [workflow and packages](references/workflow.md).
+Use a package (`plenty new NAME`) for several executables or tests. Single-file
+utilities can declare path/Git dependencies in an optional script header.
+See [workflow and packages](references/workflow.md).
 
 ## Rules that prevent most errors
 

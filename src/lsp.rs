@@ -255,7 +255,18 @@ impl Server {
             .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
             .collect();
         let path = document.path.clone();
-        let graph = source_graph(&path);
+        let is_script = crate::script::header(&document.text, &path.display().to_string())
+            .is_ok_and(|header| header.manifest.is_some())
+            || document
+                .text
+                .lines()
+                .next()
+                .is_some_and(|line| line.starts_with("#!") && line.contains("plenty script"));
+        let graph = if is_script {
+            crate::script::editor_graph(&path, &document.text)
+        } else {
+            source_graph(&path)
+        };
         let mut analysis = ide::analyze(&path, graph.as_ref(), overlay);
         // A file that does not parse yields no names; keep the last ones so
         // queries away from the edit still work.

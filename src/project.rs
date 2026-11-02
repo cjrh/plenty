@@ -465,6 +465,119 @@ fn read_pins(path: &Path) -> Result<Pins> {
     Ok(pins)
 }
 
+/// Validate locally knowable lock changes before any Git checkout can fetch.
+/// Git manifests at pinned immutable commits are checked during resolution.
+fn script_lock_preflight(manifest: &Manifest, directory: &Path, lockfile: &Path) -> Result<()> {
+    let stale = || {
+        format!(
+            "{} is missing or stale; --locked forbids changing it",
+            lockfile.display()
+        )
+    };
+    let text = match std::fs::read_to_string(lockfile) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && manifest.dependencies.is_empty() => {
+            return Ok(());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(stale().into()),
+        Err(e) => return Err(e.into()),
+    };
+    let doc = toml::parse(&text, &lockfile.display().to_string())?;
+    let Some(toml::Value::Array(packages)) = doc.get("package").map(|e| &e.value) else {
+        return Err(stale().into());
+    };
+    let string = |table: &toml::Table, key: &str| -> Option<String> {
+        match table.get(key).map(|e| &e.value) {
+            Some(toml::Value::String(s)) => Some(s.clone()),
+            _ => None,
+        }
+    };
+    let tables: Vec<_> = packages
+        .iter()
+        .filter_map(|p| match p {
+            toml::Value::Table(t) => Some(t),
+            _ => None,
+        })
+        .collect();
+    let Some(root) = tables
+        .iter()
+        .find(|t| string(t, "source").as_deref() == Some("root"))
+    else {
+        return Err(stale().into());
+    };
+    let mut pending = vec![(manifest.clone(), directory.to_path_buf(), *root)];
+    let mut seen = BTreeSet::new();
+    while let Some((manifest, base, table)) = pending.pop() {
+        if !seen.insert(base.clone()) {
+            continue;
+        }
+        if string(table, "name").as_deref() != Some(&manifest.name)
+            || string(table, "version").as_deref() != Some(&manifest.version)
+        {
+            return Err(stale().into());
+        }
+        let Some(toml::Value::Array(edges)) = table.get("dependencies").map(|e| &e.value) else {
+            return Err(stale().into());
+        };
+        if edges.len() != manifest.dependencies.len() {
+            return Err(stale().into());
+        }
+        for (alias, dependency) in &manifest.dependencies {
+            let target = edges
+                .iter()
+                .find_map(|edge| match edge {
+                    toml::Value::Table(t) if string(t, "alias").as_deref() == Some(alias) => {
+                        string(t, "package")
+                    }
+                    _ => None,
+                })
+                .ok_or_else(stale)?;
+            let target = tables
+                .iter()
+                .find(|t| string(t, "name").as_deref() == Some(&target))
+                .ok_or_else(stale)?;
+            if let Some(requirement) = &dependency.version
+                && !string(target, "version")
+                    .and_then(|s| manifest::parse_version(&s))
+                    .is_some_and(|v| requirement.matches(v))
+            {
+                return Err(stale().into());
+            }
+            match &dependency.source {
+                Source::Path(path) => {
+                    let path = base.join(path).canonicalize()?;
+                    let expected = format!("path+{}", relative_path(directory, &path));
+                    if string(target, "source").as_deref() != Some(&expected) {
+                        return Err(stale().into());
+                    }
+                    pending.push((read_manifest(&path)?, path, *target));
+                }
+                Source::Git {
+                    url,
+                    subdir,
+                    selector,
+                } => {
+                    let expected = format!("git+{url}");
+                    if string(target, "source").as_deref() != Some(&expected)
+                        || string(target, "subdir") != *subdir
+                    {
+                        return Err(stale().into());
+                    }
+                    let Some(toml::Value::Array(selectors)) =
+                        target.get("selectors").map(|e| &e.value)
+                    else {
+                        return Err(stale().into());
+                    };
+                    if !selectors.contains(&toml::Value::String(selector.to_string())) {
+                        return Err(stale().into());
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The resolution state of one `Project::load`.
 struct Resolver {
     options: ResolveOptions,
@@ -477,6 +590,38 @@ impl Project {
     /// manifest, and fetch and snapshot Git dependencies as needed.
     pub fn load(start: &Path, options: &ResolveOptions) -> Result<Project> {
         Self::load_with(start, options, None)
+    }
+
+    /// Resolve one script without workspace discovery or adjacent generated files.
+    pub(crate) fn load_script(
+        manifest: Manifest,
+        directory: &Path,
+        storage: &Path,
+        lockfile: &Path,
+        options: &ResolveOptions,
+    ) -> Result<Project> {
+        if options.locked {
+            script_lock_preflight(&manifest, directory, lockfile)?;
+        }
+        let mut resolver = Resolver {
+            options: options.clone(),
+            pins: read_pins(lockfile)?,
+            cache: git::Cache::new(storage.join(PACKAGE_CACHE), options.offline),
+        };
+        let mut project = Project {
+            packages: vec![],
+            root: directory.to_path_buf(),
+            members: vec![0],
+            selected: vec![0],
+        };
+        project.visit(
+            Some(manifest),
+            directory.to_path_buf(),
+            PackageSource::Local,
+            &mut vec![],
+            &mut resolver,
+        )?;
+        Ok(project)
     }
 
     /// `load`, reusing a cache that has already fetched some repositories
@@ -517,6 +662,7 @@ impl Project {
         };
         for member in &layout.members {
             let index = project.visit(
+                None,
                 member.clone(),
                 PackageSource::Local,
                 &mut vec![],
@@ -549,6 +695,7 @@ impl Project {
     /// member, so cycles and conflicts can name how each package was reached.
     fn visit(
         &mut self,
+        supplied: Option<Manifest>,
         directory: PathBuf,
         source: PackageSource,
         chain: &mut Vec<String>,
@@ -559,7 +706,10 @@ impl Project {
         if let Some(index) = self.packages.iter().position(|p| p.directory == directory) {
             return Ok(index);
         }
-        let manifest = read_manifest(&directory)?;
+        let manifest = match supplied {
+            Some(manifest) => manifest,
+            None => read_manifest(&directory)?,
+        };
         if chain.contains(&manifest.name) {
             return Err(format!(
                 "dependency cycle: {} -> {}",
@@ -734,7 +884,7 @@ impl Project {
         if let Some(existing) = self.same_git_package(&target_source) {
             return self.merge_git(existing, &target_source, chain);
         }
-        self.visit(path, target_source, chain, resolver)
+        self.visit(None, path, target_source, chain, resolver)
     }
 
     /// A package already in the graph from the same repository directory.

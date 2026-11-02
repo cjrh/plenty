@@ -923,6 +923,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         owners: vec![],
         appendix: None,
         inputs: vec![],
+        script: false,
     };
     let mut entry = vec![];
     for import in &module.imports {
@@ -1042,6 +1043,8 @@ struct Loader {
     appendix: Option<String>,
     /// Each source file read, with its imports' resolutions.
     inputs: Vec<inputs::File>,
+    /// Only the selected entry may carry an embedded script manifest.
+    script: bool,
 }
 impl Loader {
     /// Reads the files named by `include_str` and `include_bytes` in the
@@ -1121,6 +1124,34 @@ impl Loader {
             }
             ModuleSource::Standard(_) => None,
         };
+        if let ModuleSource::File(path) = &source {
+            let header = crate::script::header(&text, &path.display().to_string())?;
+            if header.manifest.is_some() {
+                let entry = self.active.len() == 1;
+                if !entry {
+                    return Err(format!(
+                        "{}: imported modules cannot carry script manifests",
+                        path.display()
+                    )
+                    .into());
+                }
+                if !self.script && !super::ide::active() {
+                    return Err(format!(
+                        "{}: embedded manifest requires `plenty script`",
+                        path.display()
+                    )
+                    .into());
+                }
+                if super::ide::active() {
+                    crate::project::manifest::parse_script(
+                        header.manifest.as_deref().unwrap(),
+                        &path.display().to_string(),
+                        path,
+                    )?;
+                }
+                text = header.source.expect("a manifest has masked source");
+            }
+        }
         if let Some(appendix) = self.appendix.take() {
             text.push_str(&appendix);
         }
@@ -1348,7 +1379,7 @@ pub(super) fn load_graph(
     graph: &crate::project::SourceGraph,
     require_main: bool,
 ) -> Result<Resolved> {
-    load_graph_with(path, graph, require_main, None)
+    load_graph_with(path, graph, require_main, None, false)
 }
 
 /// [`load_graph`], with `appendix` added to the end of the entry file's text.
@@ -1359,6 +1390,7 @@ pub(super) fn load_graph_with(
     graph: &crate::project::SourceGraph,
     require_main: bool,
     appendix: Option<&str>,
+    script: bool,
 ) -> Result<Resolved> {
     let entry = path
         .canonicalize()
@@ -1382,6 +1414,7 @@ pub(super) fn load_graph_with(
         owners: vec![],
         appendix: appendix.map(str::to_owned),
         inputs: vec![],
+        script,
     };
     let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
     loader.slice_bytes(None).map_err(|e| at.error(e))?;

@@ -6,11 +6,20 @@
 |---|---|
 | `plenty --check FILE` | Type-check only; fastest feedback |
 | `plenty FILE` | Compile and run |
+| `plenty script [OPTIONS] FILE [ARGS...]` | Run with arguments and optional embedded dependencies |
 | `plenty --compile FILE -o OUT` | Write a native executable |
 | `plenty --release FILE` | Run with optimized code generation |
 
 Profiles change code generation only; every check behaves the same. Linking
 needs a C compiler driver, `cc`, on `PATH`.
+
+Executable Unix scripts use `#!/usr/bin/env -S plenty script`. All arguments
+after FILE belong to the application; script options must precede it. An optional
+`---plenty` / `---` TOML header supplies package metadata and path/Git dependencies.
+Resolution ignores surrounding workspaces and writes generated state to the Plenty
+cache, not beside the source. Use `--lockfile PATH` for a durable lock and
+`--locked --offline` for pinned cached resolution. See
+[script contracts](../../../../book/src/design/toolchain/01-building/scripts.md).
 
 ## Packages
 

@@ -129,6 +129,7 @@
             aliases: ["plenty-error", "plenty-file"],
             keywords,
             contains: [
+                { begin: /^---plenty\r?$/, end: /^---\r?$/, subLanguage: "toml" },
                 hljs.HASH_COMMENT_MODE,
                 fstring('"""', true),
                 fstring("'''", true),

@@ -38,6 +38,7 @@ REFERENCES = f"{SKILL}/references"
 BUNDLE = {
     "book/src/design/examples/cheatsheet.md": f"{REFERENCES}/cheatsheet.md",
     "book/src/design/toolchain/01-building/packages.md": f"{REFERENCES}/packages.md",
+    "book/src/design/toolchain/01-building/scripts.md": f"{REFERENCES}/scripts.md",
     "book/src/design/stdlib": f"{REFERENCES}/std",
     "book/src/design/facilities/01-builtins": f"{REFERENCES}/builtins",
     "book/src/design/facilities/02-io": f"{REFERENCES}/io",

@@ -128,6 +128,9 @@ object. Without markers, one run of the test suite stored 3,870 objects
 (1.3 GB, beside 194 MB of compiled functions); with them it stores 438
 objects and 2,925 markers (96 MB).
 
+[`plenty script`](../01-building/scripts.md) records its successful object on the
+first build, so its first unchanged rerun can skip both compilation and linking.
+
 The frontend and code generation are a function of these inputs: no phase
 reads the environment, the clock, or any file other than the modules it
 loads, and the object is the same for any number of cores. A program hit
@@ -150,7 +153,9 @@ function hits or misses.
 ## Single-file executables
 
 `plenty FILE` and `plentyc FILE`, including Unix hashbang launches such as
-`#!/usr/bin/env plenty`, cache their linked executable by default. No extra
+`#!/usr/bin/env plenty`, cache their linked executable by default.
+`plenty script`, including `#!/usr/bin/env -S plenty script`, uses the same
+executable reuse contract. No extra
 flag is needed. The first successful link stores an entry; an unchanged run
 can reuse it immediately. The object/function caches still run before this
 lookup, so this avoids linking, not the object cache's initial warm-up.

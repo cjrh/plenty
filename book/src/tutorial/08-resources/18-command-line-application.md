@@ -56,7 +56,19 @@ def main() -> Result[(), AppError]:
 usage: number-report INPUT OUTPUT
 ```
 
-Compile and pass arguments to the binary:
+Run the application with its arguments:
+
+```sh
+plenty script main.plenty numbers.txt report.txt
+```
+
+To make it directly executable on Unix, add `#!/usr/bin/env -S plenty script`
+as its first line, then run `chmod +x main.plenty`. Runner options precede the
+filename; everything after it belongs to your application. See
+[single-file scripts](../../design/toolchain/01-building/scripts.md) for optional
+dependency metadata and locks.
+
+For a retained native binary instead:
 
 ```sh
 plenty --compile main.plenty -o number-report

@@ -134,6 +134,15 @@ Remaining inference/value candidates stay **B16** in the [backlog](../backlog.md
 
 ## B17: Tooling and packaging
 
+[`plenty script`](../design/toolchain/01-building/scripts.md) delivers executable
+shebang scripts, lossless Unix argument forwarding, strict optional embedded
+manifests, isolated path/Git resolution, cached and durable locks, and original-source
+diagnostics. Per-script private cache state and resolution locks keep generated files
+out of source directories; warm runs reuse objects and eligible Linux executables.
+Check/compile modes, editor header handling and cache inspection/cleanup accompany
+the runner. A script test command and broader executable-cache platforms remain
+outside this delivery.
+
 File imports/visibility, reserved embedded `std`, the `plentyc`/`plenty` split,
 strict manifests, pinned Git/path dependencies, locks/offline mode, workspaces,
 project commands/tests, per-target build reuse and `--package-graph` shipped

@@ -130,11 +130,10 @@ These belong to B17 and are not scheduled implementation commitments:
   diagnostics; evaluate one bounded refactor at a time. Identity/fact lookup and
   module replay experiments remain B19, not a wholesale frontend rewrite.
 
-- [`plenty script`](proposals/single-file-scripts.md): embedded manifests,
-  isolated dependencies and script arguments. Plain single-file executable
-  reuse is [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging);
-  broader toolchain coverage remains. Settle headers and lock/storage rules
-  before implementing embedded dependency resolution.
+- Single-file script manifests, isolated dependency resolution, durable locks and
+  argument forwarding are [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging).
+  Broader executable-cache toolchain coverage remains B17/B18; a script test command
+  would require its own entry-point/discovery design.
 - [`plenty-manager`](proposals/plenty-manager.md): a Plenty-written tool in a
   separate `plentylang/plenty-manager` repository for compiler installation,
   explicit updates, side-by-side versions and project pins. Settle release

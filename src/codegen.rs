@@ -226,6 +226,22 @@ pub fn compile_package_to_executable(
     compile_graph_to_executable(path, graph, output, options, false)
 }
 
+pub(crate) fn compile_script_to_executable(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    output: &Path,
+    options: &crate::CompileOptions,
+) -> Result<()> {
+    crate::validate_target(options.target.as_deref())?;
+    let sources = Sources::Graph {
+        entry: path.to_path_buf(),
+        graph: std::borrow::Cow::Borrowed(graph),
+        appendix: None,
+        script: true,
+    };
+    compile_sources_to_executable(&sources, output, options, false)
+}
+
 fn compile_graph_to_executable(
     path: &Path,
     graph: &crate::project::SourceGraph,
@@ -238,6 +254,7 @@ fn compile_graph_to_executable(
         entry: path.to_path_buf(),
         graph: std::borrow::Cow::Borrowed(graph),
         appendix: None,
+        script: false,
     };
     compile_sources_to_executable(&sources, output, options, test_hooks)
 }
@@ -267,6 +284,7 @@ pub(crate) fn compile_tests_to_executable(
         entry: path.to_path_buf(),
         graph: std::borrow::Cow::Borrowed(graph),
         appendix: Some(crate::frontend::test_appendix(tests)),
+        script: false,
     };
     compile_sources_to_executable(&sources, output, options, true)
 }
@@ -359,12 +377,21 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
             );
             Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
         });
-    let mut seen = false;
+    let script = matches!(sources, Sources::Graph { script: true, .. });
+    let mut seen = script;
     if let Some((cache, key)) = &cached {
         match cache.load_program(key, |inputs| sources.current(inputs), object)? {
             Lookup::Hit => return Ok(()),
-            Lookup::Miss { seen: before } => seen = before,
+            Lookup::Miss { seen: before } => seen = before || script,
         }
+    }
+    if let Sources::Graph {
+        entry,
+        script: true,
+        ..
+    } = sources
+    {
+        eprintln!(" Compiling {}", entry.display());
     }
     let mut heap = Heap::default();
     let program = sources.compile(&mut heap)?;

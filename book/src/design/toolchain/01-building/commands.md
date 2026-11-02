@@ -64,6 +64,6 @@ default, avoiding linking when its inputs match. Other runs link normally.
 Unix scripts can use `#!/usr/bin/env plenty` as their first line and be made
 executable with `chmod +x FILE`; hashbang launches use the same caches.
 
-The proposed [`plenty script` workflow](../../../proposals/single-file-scripts.md)
-would add embedded manifests, isolated dependencies and script arguments.
-Those extensions are not implemented; the commands above describe current behavior.
+For argument forwarding, optional embedded manifests and isolated dependency
+resolution, use [`plenty script`](scripts.md), with the Unix shebang
+`#!/usr/bin/env -S plenty script`. The compiler shortcuts above remain unchanged.

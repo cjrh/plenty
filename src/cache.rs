@@ -504,7 +504,19 @@ impl std::fmt::Display for Summary {
 /// The cache `mode` names, or `None` when it is off.
 pub fn summary(mode: &CacheMode) -> Option<Summary> {
     let directory = mode.directory()?;
-    let entries = entries(&directory);
+    let mut entries = entries(&directory);
+    entries.extend(
+        crate::script::cache_files(&directory)
+            .into_iter()
+            .filter_map(|path| {
+                let metadata = fs::metadata(&path).ok()?;
+                Some(Entry {
+                    path,
+                    bytes: metadata.len(),
+                    used: SystemTime::UNIX_EPOCH,
+                })
+            }),
+    );
     Some(Summary {
         entries: entries.len() as u64,
         bytes: entries.iter().map(|e| e.bytes).sum(),
@@ -519,13 +531,15 @@ pub fn clean(mode: &CacheMode) -> io::Result<Option<(u64, u64)>> {
     let Some(directory) = mode.directory() else {
         return Ok(None);
     };
+    let (script_count, script_bytes) =
+        crate::script::clean_cache(&directory).map_err(|e| io::Error::other(e.to_string()))?;
     if ![ENTRIES, PROGRAMS, EXECUTABLES]
         .iter()
         .any(|kind| directory.join(kind).exists())
     {
-        return Ok(Some((0, 0)));
+        return Ok(Some((script_count, script_bytes)));
     }
-    trim(&directory, 0).map(Some)
+    trim(&directory, 0).map(|(count, bytes)| Some((count + script_count, bytes + script_bytes)))
 }
 
 #[cfg(test)]

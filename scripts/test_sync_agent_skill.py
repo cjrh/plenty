@@ -72,6 +72,12 @@ class BuildTests(unittest.TestCase):
         self.assertGreater(checked, 100)
         self.assertEqual(missing, [])
 
+    def test_script_reference_is_bundled_and_linked(self):
+        reference = self.out / "skills/plenty/references/scripts.md"
+        self.assertIn("plenty script", reference.read_text())
+        workflow = (self.out / "skills/plenty/references/workflow.md").read_text()
+        self.assertIn("[script contracts](scripts.md)", workflow)
+
     def test_version_is_stamped_everywhere(self):
         for path in self.out.rglob("*"):
             if path.is_file():

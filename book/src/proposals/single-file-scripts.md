@@ -1,11 +1,14 @@
 # Single-file scripts with embedded manifests
 
-> **Status: Not implemented.** Proposed under [B17](../backlog.md):
+> **Status: Implemented.** Delivered under
+> [B17](../completed-work/language-and-tooling.md#b17-tooling-and-packaging):
 > `plenty script`, optional embedded manifests, and reusable script builds.
+> The [script reference](../design/toolchain/01-building/scripts.md) describes
+> current contracts and platform limits; this page records the design rationale.
 > Ordinary [single-file compilation](../design/toolchain/01-building/commands.md)
 > and [package resolution](../design/toolchain/01-building/packages.md) already
 > exist. This proposal preserves native compilation and explicit `main`.
-> Commands and headers below are candidate syntax, not executable lessons.
+> Examples involving external dependencies are illustrative rather than standalone lessons.
 
 ## Motivation and precedent
 
@@ -189,7 +192,7 @@ To grow into a package, move the body to `src/main.plenty` and the header to
 No language rewrite is needed. Existing module and entry-point rationale is
 recorded in [Explicit applications and modules](completed/entrypoints-modules-and-tutorials.md).
 
-## Implementation assessment and acceptance
+## Original implementation assessment and acceptance
 
 This is a moderate toolchain change, not a borrow-checker or code-generation
 project. A shebang-only prototype is small: at `daf964d1`, a real
@@ -211,9 +214,8 @@ symlink launchers, surrounding-workspace independence, concurrent launches,
 and invalidation after source/dependency/compiler changes. Verify that warm
 runs skip compilation and linking, and failed builds never run an old binary.
 
-Before implementation, settle the storage location/lifetime, exact header
-grammar, and whether first delivery includes durable lockfiles or restricts
-reproducible sharing to ordinary packages. A single-file test command needs
+The implementation settles storage under the existing Plenty cache, uses the
+standalone header delimiters shown here, and includes durable `--lockfile` support. A single-file test command needs
 its own entry-point/discovery design: existing package tests reject a test
 file mixing `main` and `test_` functions. It is not implicitly solved here.
-Scheduling remains in B17.
+Remaining toolchain/platform scope stays in B17/B18.

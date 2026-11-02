@@ -98,6 +98,7 @@ impl Inputs {
             owners: vec![],
             appendix: None,
             inputs: vec![],
+            script: false,
         };
         self.files.iter().all(|file| {
             std::fs::read(&file.path).is_ok_and(|text| *Sha256::digest(text) == file.digest)

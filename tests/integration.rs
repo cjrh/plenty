@@ -418,6 +418,8 @@ mod test_runtime_libraries;
 mod test_runtime_packaging;
 #[path = "test_runtime_panics.rs"]
 mod test_runtime_panics;
+#[path = "test_script.rs"]
+mod test_script;
 #[path = "test_set_operations.rs"]
 mod test_set_operations;
 #[path = "test_set_removal.rs"]

@@ -23,6 +23,7 @@ static ALLOCATOR: hotpath::CountingAllocator<mimalloc::MiMalloc> =
 
 const PROJECT_USAGE: &str = "\
 Project commands (run inside a directory containing plenty.toml or below it):
+       plenty script [OPTIONS] [--] FILE [ARGS...]
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
        plenty check [--locked] [--offline] [--check-all-methods]
@@ -72,7 +73,22 @@ fn main() -> ExitCode {
     #[cfg(feature = "profile")]
     // SAFETY: startup has not spawned any threads.
     let _profile = unsafe { plenty::profile::start() };
-    match run(std::env::args().skip(1).collect()) {
+    let mut native = std::env::args_os().skip(1);
+    let first = native.next();
+    let result = if first.as_deref() == Some(std::ffi::OsStr::new("script")) {
+        plenty::script::run(native.collect())
+    } else {
+        first
+            .into_iter()
+            .chain(native)
+            .map(|arg| {
+                arg.into_string()
+                    .map_err(|_| "compiler arguments must be UTF-8".into())
+            })
+            .collect::<Result<Vec<_>, Box<dyn Error>>>()
+            .and_then(run)
+    };
+    match result {
         Ok(code) => code,
         Err(error) => {
             eprintln!("error: {error}");

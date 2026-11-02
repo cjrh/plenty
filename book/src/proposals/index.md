@@ -68,6 +68,8 @@ Companion examples and evidence do not imply additional implementation commitmen
 
 See [Completed proposals](completed/index.md) for shipped designs and their
 reference pages. Further extensions remain tracked in the backlog.
+[Single-file scripts](single-file-scripts.md) are also implemented; see the
+[script reference](../design/toolchain/01-building/scripts.md).
 
 ## Partly implemented
 
@@ -90,7 +92,6 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |
 | [Async/await exploration](async-await.md) — owned movable frames, fallible admission and synchronous cancellation; isolated spike only | Unscheduled exploration; async implementation remains out of scope pending an adoption decision |
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
-| [Single-file scripts with embedded manifests](single-file-scripts.md) — `plenty script`, isolated resolution and cached builds | B17 |
 | [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
 | [Value generic parameters](value-generics.md) — accepted design for `const N` and inline arrays | B83; related B13, B23 |
 | [Positive and NonNegative domain types](domain-types.md) — accepted design for integer types stating fixed lower bounds on std parameters | Proposes B95; related B92, B83 |
