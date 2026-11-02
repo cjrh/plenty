@@ -48,9 +48,8 @@ std.http.body.BodyError.Malformed 400
 | `Malformed` | Bad percent-escape, multipart structure, boundary or part header | 400 |
 | `InvalidUtf8` | A decoded name or value, or a multipart field, is not UTF-8 | 400 |
 | `Http(HttpError)` | Reading the body failed; `BodyTooLarge` is 413, `Stream` (timeout, cancellation, reset) 408 | 413, 408, 400 or 500 |
-| `Json(JsonError)` | The document is invalid (400), over `max_input` (413), or fails on allocation or invalid limits (500) | 400, 413 or 500 |
+| `Json(JsonError)` | The document is invalid (400), over `max_input` (413), or fails on allocation (500) | 400, 413 or 500 |
 | `Storage(StreamError)` | Writing an upload to its temporary file failed | 500 |
-| `InvalidLimit` | A negative `max_input` passed to `read_json` | 500 |
 | `Allocation(AllocError)` | Memory ran out, including while writing an upload to its file | 500 |
 
 `status(&error) -> i64` gives the status, and

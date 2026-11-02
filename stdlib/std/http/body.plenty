@@ -21,7 +21,6 @@ from std.json import Json, JsonError, JsonFault
 from std.url import Pair
 
 pub enum BodyError:
-    InvalidLimit
     UnsupportedMediaType
     TooLarge
     TooManyFields
@@ -415,8 +414,6 @@ def is_json(essence: &str) -> bool:
 # Reads a request whose Content-Type is application/json or another
 # `application/...+json` type. `limits.max_input` bounds the body.
 pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]:
-    if limits.max_input < 0:
-        return Err(BodyError.InvalidLimit)
     media = content_type(&exchange.request.headers)?
     if not is_json(&media.essence):
         return Err(BodyError.UnsupportedMediaType)

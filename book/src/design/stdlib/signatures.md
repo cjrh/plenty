@@ -1670,7 +1670,7 @@ Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uplo
 
 ```text
 enum BodyError
-    InvalidLimit | UnsupportedMediaType | TooLarge | TooManyFields | Malformed | InvalidUtf8 | Http(HttpError) | Json(JsonError) | Storage(StreamError) | Allocation(AllocError)
+    UnsupportedMediaType | TooLarge | TooManyFields | Malformed | InvalidUtf8 | Http(HttpError) | Json(JsonError) | Storage(StreamError) | Allocation(AllocError)
 def status(error: &BodyError) -> i64
 def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> Result[(), HttpError]
 class FormLimits
