@@ -85,6 +85,14 @@ only to the [backlog](../backlog.md).
   Linker preference chooses mold/lld while preserving overrides
   (issue #314, local PR #367).
 
+## Compiler architecture assessment
+
+A source-based [refactoring proposal](../proposals/compiler-refactoring.md)
+records the compiler boundary assessment at `1c8e4113`, file/symbol maps,
+alternatives and validation gates. This delivers design documentation only:
+no compiler refactor or new performance measurement is claimed. Existing B19
+measurements below remain historical; remaining scope stays in the backlog.
+
 ## B19: Profiling and concluded investigations
 
 `--features profile` exposes hotpath timing/calls/allocations per phase
