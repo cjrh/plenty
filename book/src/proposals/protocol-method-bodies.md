@@ -24,7 +24,7 @@ definition-time contract checking adds substantial frontend work; the complete
 design with that checking and private-hook grants is not a small syntactic change.
 
 This investigates sharing implementations. The earlier
-[library-owned operations assessment](library-owned-operations.md) addresses
+[library-owned operations assessment](completed/library-owned-operations.md) addresses
 preventing callers from bypassing an algorithm; it remains relevant, because
 ordinary overridable defaults do not provide that guarantee.
 

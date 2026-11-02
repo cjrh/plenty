@@ -27,7 +27,10 @@ LSP server information, source-cache paths, compilation fingerprints, and the
 minimum compiler version written by `plenty new`/`plenty init` use Cargo's
 `CARGO_PKG_VERSION` at build time. Release scripts read the same manifest to
 name archives and fill the packaged README; packaging rejects a compiler whose
-reported version disagrees. Rebuild executables after bumping the manifest.
+reported version disagrees. The Python engine packager reads `[package].version`
+directly with `tomllib`, without invoking Bash with a native Windows path;
+`check-version.sh` remains the shell interface for archive/tag checks.
+Rebuild executables after bumping the manifest.
 
 Do not globally replace older version strings. The private runtime has an
 independent version; new user packages start at `0.1.0`; example manifests,

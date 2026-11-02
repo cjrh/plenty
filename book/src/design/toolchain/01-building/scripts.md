@@ -141,5 +141,5 @@ non-Unix script argument zero is the generated executable name.
 
 This is not a sandbox or interpreter, and does not provide a script test command.
 For a multi-target application, portable package locks, or package test discovery,
-use [packages](packages.md). See the [design rationale](../../../proposals/single-file-scripts.md)
+use [packages](packages.md). See the [design rationale](../../../proposals/completed/single-file-scripts.md)
 for alternatives.

@@ -5,6 +5,7 @@ mod support;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 /// An echo server whose limits each test sets; see the fixture's header.
@@ -385,21 +386,164 @@ fn pauses_at_capacity() {
     assert_clean(&summary, 3);
 }
 
+const PEER_POLL: Duration = Duration::from_millis(10);
+
+struct DialPeer {
+    stop: Sender<()>,
+    thread: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl DialPeer {
+    fn start(listener: TcpListener, limit: Duration) -> Self {
+        let (stop, cancelled) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            serve_dial_peer(listener, &cancelled, Instant::now() + limit)
+        });
+        Self {
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn finish(mut self) {
+        self.thread.take().unwrap().join().unwrap().unwrap();
+    }
+}
+
+impl Drop for DialPeer {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn peer_remaining(cancelled: &Receiver<()>, deadline: Instant) -> std::io::Result<Duration> {
+    if !matches!(cancelled.try_recv(), Err(mpsc::TryRecvError::Empty)) {
+        return Err(std::io::Error::new(
+            ErrorKind::Interrupted,
+            "peer cancelled",
+        ));
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(std::io::Error::new(ErrorKind::TimedOut, "peer deadline"));
+    }
+    Ok(remaining.min(PEER_POLL))
+}
+
+fn serve_dial_peer(
+    listener: TcpListener,
+    cancelled: &Receiver<()>,
+    deadline: Instant,
+) -> std::io::Result<()> {
+    listener.set_nonblocking(true)?;
+    let mut stream = loop {
+        let wait = peer_remaining(cancelled, deadline)?;
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                match cancelled.recv_timeout(wait) {
+                    Err(RecvTimeoutError::Timeout) => (),
+                    _ => {
+                        return Err(std::io::Error::new(
+                            ErrorKind::Interrupted,
+                            "peer cancelled",
+                        ));
+                    }
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    // An accepted stream may inherit nonblocking mode on some platforms.
+    stream.set_nonblocking(false)?;
+    let mut request = Vec::new();
+    let mut buffer = [0; 6];
+    loop {
+        stream.set_read_timeout(Some(peer_remaining(cancelled, deadline)?))?;
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                request.extend_from_slice(&buffer[..count]);
+                if request.len() > 5 {
+                    return Err(std::io::Error::other("oversized peer request"));
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::Interrupted | ErrorKind::WouldBlock | ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    if request != b"hello" {
+        return Err(std::io::Error::other(format!(
+            "unexpected peer request: {request:?}"
+        )));
+    }
+    // The reply is tiny, but retain the same absolute deadline for writes.
+    let mut reply = &b"hi there"[..];
+    while !reply.is_empty() {
+        stream.set_write_timeout(Some(peer_remaining(cancelled, deadline)?))?;
+        match stream.write(reply) {
+            Ok(0) => return Err(std::io::Error::new(ErrorKind::WriteZero, "peer reply")),
+            Ok(count) => reply = &reply[count..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::Interrupted | ErrorKind::WouldBlock | ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn dial_peer_deadline_bounds_missing_connection_and_missing_eof() {
+    for connect in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _stream = connect.then(|| TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let (_stop, cancelled) = mpsc::channel();
+        let error = serve_dial_peer(
+            listener,
+            &cancelled,
+            Instant::now() + Duration::from_millis(30),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::TimedOut);
+    }
+}
+
+#[test]
+fn dial_peer_cancels_on_early_child_exit() {
+    for connect in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let _stream = connect.then(|| TcpStream::connect(listener.local_addr().unwrap()).unwrap());
+        let peer = DialPeer::start(listener, Duration::from_secs(30));
+        let started = Instant::now();
+        drop(peer);
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+}
+
 /// Lookup, a refused connect, and a request over a dialled connection.
 #[test]
 fn dial_and_lookup_from_an_actor() {
     let closed = TcpListener::bind("127.0.0.1:0").unwrap();
     let closed_port = closed.local_addr().unwrap().port();
-    drop(closed);
     let open = TcpListener::bind("127.0.0.1:0").unwrap();
     let open_port = open.local_addr().unwrap().port();
-    let peer = std::thread::spawn(move || {
-        let (mut stream, _) = open.accept().unwrap();
-        let mut request = Vec::new();
-        stream.read_to_end(&mut request).unwrap();
-        assert_eq!(request, b"hello");
-        stream.write_all(b"hi there").unwrap();
-    });
     let source = configured(
         CLIENT,
         &[
@@ -408,12 +552,21 @@ fn dial_and_lookup_from_an_actor() {
         ],
     );
     let (_dir, executable) = support::build_file(&source);
-    let output = Command::new(executable).output().unwrap();
+    // Keep both ports reserved while compiling. Another test can still reuse
+    // the refused port after this drop, so validate the client before joining.
+    drop(closed);
+    let peer = DialPeer::start(open, Duration::from_secs(40));
+    let output =
+        support::output_within(&mut Command::new(executable), b"", Duration::from_secs(35));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{stderr}");
-    peer.join().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}: {stdout}\n{stderr}",
+        output.status
+    );
     let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 4, "{stdout}\n{stderr}");
     assert_eq!(
         lines[..3],
         [
@@ -421,13 +574,14 @@ fn dial_and_lookup_from_an_actor() {
             "closed port std.net.NetError.Refused",
             "reply hi there"
         ],
-        "{stdout}"
+        "{stdout}\n{stderr}"
     );
     // Readiness can arrive in more or fewer messages.
     assert!(
         lines[3]
             .starts_with("std.actor.Stats(started=1, stopped=1, failed=0, trapped=0, restarted=0,")
             && lines[3].ends_with("lost=0) 0"),
-        "{stdout}"
+        "{stdout}\n{stderr}"
     );
+    peer.finish();
 }
