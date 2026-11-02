@@ -414,17 +414,16 @@ signer = hs256()?
 key = signer.verifying_key()?
 token = signed(&signer, "{\"exp\":9}")?
 mut rules = std.jwt.validation(&std.time.Timestamp(0, 0u32))
-rules.max_size = token.byte_len()
+rules.max_size = Positive.try_from(token.byte_len()).unwrap()
 check(&token, &key, &rules)?
-rules.max_size = token.byte_len() - 1
+rules.max_size = Positive.try_from(token.byte_len() - 1).unwrap()
 check(&token, &key, &rules)?
-print(str.repr(std.jwt.decode_header(&token, token.byte_len() - 1))?)?
+print(str.repr(std.jwt.decode_header(&token, Positive.try_from(token.byte_len() - 1).unwrap()))?)?
 huge = "a".repeat(std.jwt.default_max_size + 1)?
 check(&huge, &key, &std.jwt.validation(&std.time.Timestamp(0, 0u32)))?
-for setting in [0, std.jwt.max_token_size + 1]?:
-    rules.max_size = setting
-    check(&token, &key, &rules)?
-rules.max_size = std.jwt.default_max_size
+rules.max_size = 1048576
+check(&token, &key, &rules)?
+rules.max_size = 8192
 rules.now.nanoseconds = 1000000000u32
 check(&token, &key, &rules)?
 rules.now.nanoseconds = 0u32
@@ -439,13 +438,37 @@ ok HS256 1
 TooLarge
 Result[std.jwt.Header, std.jwt.JwtError].Err(TooLarge)
 TooLarge
-InvalidValidation
-InvalidValidation
+ok HS256 1
 InvalidValidation
 InvalidValidation
 InvalidValidation
 "#,
     );
+}
+
+/// `max_size` has a type for its lower bound; the `max_token_size` ceiling
+/// traps in both decoding entry points.
+#[test]
+fn size_above_the_token_ceiling_traps() {
+    for (call, message) in [
+        (
+            "rules = std.jwt.Validation(std.time.Timestamp(0, 0u32), std.time.seconds(0u32), True, Nothing, Nothing, 1048577)\ndrop(std.jwt.verify(\"a.b.c\", &signer.verifying_key()?, &rules))",
+            "std.jwt.verify: max_size is above max_token_size",
+        ),
+        (
+            "drop(std.jwt.decode_header(\"a.b.c\", 1048577))",
+            "std.jwt.decode_header: max_size is above max_token_size",
+        ),
+    ] {
+        let source = program(&format!("signer = hs256()?\n{call}"));
+        let output = support::run_file(&source);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(": {message}\n")),
+            "{call}\n{stderr}"
+        );
+    }
 }
 
 /// `now` sits at 1000. Expiry is exclusive and rounds down; `nbf` and `iat`

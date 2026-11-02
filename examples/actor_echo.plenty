@@ -18,12 +18,13 @@ from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
 const connections: i64 = 3
-const connection_heap: i64 = 65536
+def connection_heap() -> Positive[i64]:
+    65536
 
 pub enum Note:
     Hello
 
-type Fault = NetError | BytesError | TimerError
+type Fault = AllocError | NetError | BytesError | TimerError
 
 pub class Acceptor:
     pub listener: Listener
@@ -102,7 +103,7 @@ def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetErro
     limits = Limits(4096, 4096, seconds(30), seconds(30))
     mut actors = stage[Node, Note, Fault](256, 4, 64)?
     actors.add_timers(256)?
-    acceptor = Acceptor(listener(socket, limits, 200, connection_heap, 0, Admission.Pause)?, 0, 0)
+    acceptor = Acceptor(listener(socket, limits, 200, connection_heap(), 0, Admission.Pause)?, 0, 0)
     actors.start(Node.Accepting(acceptor), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
     print(actors.stats(), heaps_live(), heap_bytes_used(), heap_bytes_committed())?

@@ -3,9 +3,10 @@
 # nonblocking connect and name lookup. Buffers are allocated when a
 # connection is admitted; handling readiness and timers allocates nothing.
 # See book/src/design/stdlib/actor-net.md.
+import std.actor
 import std.bytes
 from std.actor import Context, Mail, Timer, TimerError, Watch
-from std.bytes import Bytes, BytesError
+from std.bytes import Bytes
 from std.io import StreamError
 from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpListener, TcpStream, start_connect, start_lookup
 from std.ready import Interest, WaitError
@@ -29,10 +30,10 @@ def later(at: u64, span: u64) -> u64:
 pub class Limits:
     # Bytes of received input held until the handler consumes them. A full
     # input buffer stops reading, so the peer's sends block in turn.
-    pub input: i64
+    pub input: Positive[i64]
     # Bytes of output held until the socket takes them. `write` accepts only
     # what fits.
-    pub output: i64
+    pub output: Positive[i64]
     # Ends a connection that has moved no bytes either way for this long.
     pub idle: Duration
     # Ends a connection whose pending output has made no progress for this
@@ -189,22 +190,21 @@ pub class Connection:
     # for `wanted` bytes and returns the room at
     # `output()[output_stop():]`, at most `wanted`. Write there, then
     # `commit`. Fails after `shutdown_write` or `close`.
-    pub def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]:
-        if wanted < 0:
-            return Err(invalid())
+    pub def reserve(self: &mut Connection, wanted: NonNegative[i64]) -> Result[i64, NetError]:
+        want = wanted.get()
         if self._closed or self._shutdown or not self._writing:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         if self._output_start == self._output_stop:
             self._output_start = 0
             self._output_stop = 0
             self._progress = now()
-        elif self._output_stop + wanted > self._output.len() and self._output_start > 0:
+        elif self._output_stop + want > self._output.len() and self._output_start > 0:
             shift(&mut self._output, self._output_start, self._output_stop)
             self._output_stop -= self._output_start
             self._output_start = 0
         room = self._output.len() - self._output_stop
-        if wanted < room:
-            return Ok(wanted)
+        if want < room:
+            return Ok(want)
         Ok(room)
 
     pub def output(self: &mut Connection) -> &mut Bytes:
@@ -481,13 +481,11 @@ def invalid() -> NetError:
 
 # A connection over `stream` with buffers sized by `limits`, allocated in
 # the current heap. Call `start` from the owning actor.
-pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]:
-    if limits.input < 1 or limits.output < 1:
-        return Err(BytesError.OutOfRange)
-    mut input = std.bytes.with_capacity(limits.input).map_error(BytesError.Allocation)?
-    input.resize(limits.input, 0u8).map_error(BytesError.Allocation)?
-    mut output = std.bytes.with_capacity(limits.output).map_error(BytesError.Allocation)?
-    output.resize(limits.output, 0u8).map_error(BytesError.Allocation)?
+pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, AllocError]:
+    mut input = std.bytes.with_capacity(limits.input.get())?
+    input.resize(limits.input.get(), 0u8)?
+    mut output = std.bytes.with_capacity(limits.output.get())?
+    output.resize(limits.output.get(), 0u8)?
     Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64, Nothing))
 
 # What a listener does with a connection that arrives at capacity.
@@ -505,7 +503,7 @@ pub class Listener:
     _listener: TcpListener
     _limits: Limits
     _capacity: i64
-    _heap: i64
+    _heap: Positive[i64]
     _tag: i64
     _admission: Admission
     _live: i64
@@ -554,7 +552,7 @@ pub class Listener:
     # buffers in the current heap. Call it from the `spawn` hook for this
     # listener's tag; Nothing means another actor took the connection, and
     # the hook should return Nothing.
-    pub def accept(self) -> Result[Option[Connection], NetError | BytesError]:
+    pub def accept(self) -> Result[Option[Connection], NetError | AllocError]:
         match self._listener.accept_now():
             case Ok(stream):
                 Ok(Some(connection(stream, &self._limits)?))
@@ -600,10 +598,12 @@ pub class Listener:
 
 # A listener over `listener`. `capacity` bounds live connections and
 # `heap` is each connection actor's heap limit in bytes.
-pub def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]:
-    if capacity < 1 or heap < 1 or limits.input < 1 or limits.output < 1:
-        return Err(invalid())
-    Ok(Listener(socket, limits, capacity, heap, tag, admission, 0, False, 0, Nothing))
+pub def listener(socket: TcpListener, limits: Limits, capacity: Positive[i64], heap: Positive[i64], tag: i64, admission: Admission) -> Result[Listener, NetError]:
+    # Checked here so a bad heap fails where it is configured, not in the
+    # actor that later spawns a connection.
+    if heap.get() > std.actor.max_heap_limit:
+        __trap("std.actor.net.listener: heap is above max_heap_limit")
+    Ok(Listener(socket, limits, capacity.get(), heap, tag, admission, 0, False, 0, Nothing))
 
 # An outbound connection attempt owned by an actor, with a timeout.
 pub class Dialing:

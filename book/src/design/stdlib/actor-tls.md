@@ -23,7 +23,7 @@ from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 from std.tls import ClientConfig, ServerConfig, TlsError, client_config, roots_from_pem, server_config
 
-type Fault = NetError | BytesError | TimerError | TlsError | IoError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError | IoError
 
 # Test-only CA and a localhost leaf it signed; never reuse a published key.
 const CA_PEM: str = "-----BEGIN CERTIFICATE-----\nMIIBmjCCAT+gAwIBAgIULOQ2Qxr8CVZY2bG0uRYKKEdMD3swCgYIKoZIzj0EAwIw\nGTEXMBUGA1UEAwwOUGxlbnR5IFRlc3QgQ0EwIBcNMjQwMTAxMDAwMDAwWhgPMjEy\nNDAxMDEwMDAwMDBaMBkxFzAVBgNVBAMMDlBsZW50eSBUZXN0IENBMFkwEwYHKoZI\nzj0CAQYIKoZIzj0DAQcDQgAEkiB3Ogehrrt6YbQghwDPv6tkhE+z9zTCVih8fvtR\nZ1/691Nfh7/J9IgaNgNSTMJjGTolzGnjaCUDqoARlFyM+6NjMGEwHQYDVR0OBBYE\nFOTFBDgWXHj/qmVJDMlAHYCEZFX5MB8GA1UdIwQYMBaAFOTFBDgWXHj/qmVJDMlA\nHYCEZFX5MA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgIEMAoGCCqGSM49\nBAMCA0kAMEYCIQD41ATQnIjKkKMLQAb9AyoyOFmljYZyz348XJEIbqMgKwIhAL3m\nmWd8On5gvkfytspatH5mDWOcSyW+au7vuIC2gHhO\n-----END CERTIFICATE-----\n"
@@ -288,9 +288,9 @@ private keys are zeroized on normal destruction; trap cleanup discards actor pag
 
 | Export | Contract |
 |---|---|
-| `server(net, &config, input)` | `Result[TlsConnection, TlsError]`: a server session in the current heap |
-| `client(net, &config, server_name, input)` | `Result[TlsConnection, TlsError]`: verifies the server against `config` and `server_name` |
-| `over(net, session, input)` | `Result[TlsConnection, TlsError]`; `Net(InvalidInput)` for `input` below 1 |
+| `server(net, &config, input: Positive[i64])` | `Result[TlsConnection, TlsError]`: a server session in the current heap |
+| `client(net, &config, server_name, input: Positive[i64])` | `Result[TlsConnection, TlsError]`: verifies the server against `config` and `server_name` |
+| `over(net, session, input: Positive[i64])` | `Result[TlsConnection, TlsError]` |
 | `TlsConnection.start(context)` | `Result[(), TlsError \| TimerError]` |
 | `TlsConnection.handle(&mail, context)` | `Result[Events, TlsError \| TimerError]` |
 | `TlsConnection.input()`, `input_start()`, `input_stop()`, `available()` | The plaintext buffer and the unconsumed range |

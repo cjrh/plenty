@@ -50,7 +50,7 @@ std.http.body.BodyError.Malformed 400
 | `Http(HttpError)` | Reading the body failed; `BodyTooLarge` is 413, `Stream` (timeout, cancellation, reset) 408 | 413, 408, 400 or 500 |
 | `Json(JsonError)` | The document is invalid (400), over `max_input` (413), or fails on allocation or invalid limits (500) | 400, 413 or 500 |
 | `Storage(StreamError)` | Writing an upload to its temporary file failed | 500 |
-| `InvalidLimit` | A negative limit | 500 |
+| `InvalidLimit` | A negative `max_input` passed to `read_json` | 500 |
 | `Allocation(AllocError)` | Memory ran out, including while writing an upload to its file | 500 |
 
 `status(&error) -> i64` gives the status, and
@@ -63,7 +63,7 @@ instead of returning the error.
 
 | Item | Meaning |
 |---|---|
-| `FormLimits(max_bytes, max_fields)` | Public fields; `form_limits()` is 64 KiB and 256 fields |
+| `FormLimits(max_bytes, max_fields)` | Public `NonNegative[i64]` fields; `form_limits()` is 64 KiB and 256 fields |
 | `read_form(exchange, &limits)` | `Result[list[Pair], BodyError]`: read an `application/x-www-form-urlencoded` body |
 | `parse_form(&bytes, &limits)` | Decode a form already in memory |
 | `parse_form_text(&text, &limits)` | Decode text, such as `exchange.query` |
@@ -95,7 +95,7 @@ and depth, duplicate keys and output size follow it. The request must be
 
 | Item | Meaning |
 |---|---|
-| `MultipartLimits(max_parts, max_head, max_field, max_file, max_body)` | Public fields; `multipart_limits()` is 64 parts, 4 KiB heads, 64 KiB fields, 8 MiB files, 16 MiB in all |
+| `MultipartLimits(max_parts, max_head, max_field, max_file, max_body)` | Public `NonNegative[i64]` fields; `multipart_limits()` is 64 parts, 4 KiB heads, 64 KiB fields, 8 MiB files, 16 MiB in all |
 | `read_multipart(exchange, &limits, storage: &Root)` | `Result[list[Part], BodyError]`: read a `multipart/form-data` body |
 | `Part` | `name`, `filename: Option[str]`, `content_type`, `size`, `content: Content` |
 | `Content` | `Text(str)` for a field, `File(TempFile)` for an upload |

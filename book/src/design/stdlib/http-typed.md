@@ -131,7 +131,7 @@ ownership too, so a construction failure drops the supplied transport.
 
 | Constructor | Framing |
 | --- | --- |
-| `fixed_body(inner, length)` | `Result[FixedBody[E, R], FramingError[E]]`; rejects negative length |
+| `fixed_body(inner, length: NonNegative[i64])` | `Result[FixedBody[E, R], FramingError[E]]` |
 | `close_body(inner)` | `CloseBody[E, R]`; reads until transport EOF |
 | `chunked_body(inner, limits)` | `Result[ChunkedBody[E, R], FramingError[E]]`; bounded chunked decoding with [`std.http.Limits`](http.md) |
 
@@ -158,8 +158,8 @@ body. Valid empty reads return zero without reading or marking EOF.
 ## Chunked bodies
 
 `chunked_body` requires a validated head selecting chunked transfer coding.
-It checks `Limits` at construction (`max_line` and `max_head` at least two,
-nonnegative `max_headers` and `max_body`). Chunk-size lines and trailer fields
+It checks `Limits` at construction (`max_line` and `max_head` at least two;
+the types of `max_headers` and `max_body` already exclude negative values). Chunk-size lines and trailer fields
 include CRLF in their line limit. `max_head` bounds the entire trailer section,
 including its final CRLF; `max_headers` bounds trailer fields, and `max_body`
 bounds decoded payload. A chunk exceeding the remaining body budget is rejected

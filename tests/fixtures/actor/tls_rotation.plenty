@@ -11,6 +11,10 @@ const iterations: i64 = 100
 const child_heap: i64 = 262144
 const mode: i64 = 0
 
+# Tests rewrite `child_heap`, always to a positive value.
+def positive(value: i64) -> Positive[i64]:
+    Positive.try_from(value).unwrap()
+
 def configs(trap: bool = False) -> (ServerConfig, ClientConfig):
     chain = read_text("FIXTURES/leaf.pem").unwrap()
     key = read_text("FIXTURES/leaf.key").unwrap()
@@ -63,7 +67,7 @@ pub enum Node:
             case Node.Empty:
                 drop(context.spawn_isolated(0, 262144).unwrap())
             case Node.Root(_, _, _):
-                drop(context.spawn_isolated(0, child_heap).unwrap())
+                drop(context.spawn_isolated(0, positive(child_heap)).unwrap())
                 if mode == 5:
                     context.send(context.address(), 0).unwrap()
             case Node.Child(server, client):

@@ -86,7 +86,7 @@ finished before the callback completes, which can fail on a length mismatch.
 | `response_timeout` | 60 s | Completing a response |
 | `handshake_timeout` | 10 s | Establishing TLS |
 | `drain_timeout` | 5 s | Grace period before forced stage shutdown |
-| `max_requests` | 1000 | Maximum requests per connection; at least one |
+| `max_requests` | 1000 | Maximum requests per connection, a `Positive[i64]` |
 
 Zero phase durations disable those phase timers. A zero drain duration instead
 requests immediate teardown. The independent heap, buffer and protocol limits

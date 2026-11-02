@@ -69,7 +69,7 @@ pub class Config:
     pub response_timeout: Duration
     pub handshake_timeout: Duration
     pub drain_timeout: Duration
-    pub max_requests: i64
+    pub max_requests: Positive[i64]
 
 pub class Report:
     pub actors: Stats
@@ -186,7 +186,8 @@ pub class Response:
             return Ok(0)
         self.compact()?
         if self._state == 2:
-            size = std.http.encode_chunk_size(count)?
+            # `count` is positive here, so the conversion cannot fail.
+            size = std.http.encode_chunk_size(NonNegative.try_from(count).unwrap())?
             self._output.extend(&size)?
         self._output.extend(&source[:count])?
         if self._state == 2:
@@ -259,6 +260,14 @@ pub class Response:
 
 pub def config() -> Config:
     Config(256, 4194304, 4096, 4096, 65536, std.http.limits(), seconds(5u32), seconds(10u32), seconds(30u32), seconds(10u32), seconds(60u32), seconds(10u32), seconds(5u32), 1000)
+
+# A size `run` has already checked against its minimum, which is above 1.
+def configured(size: i64) -> Result[Positive[i64], ServerError]:
+    match Positive.try_from(size):
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(ServerError.InvalidConfig)
 
 def response(limit: i64) -> Result[Response, BytesError]:
     Ok(Response(std.bytes.with_capacity(limit).map_error(BytesError.Allocation)?, 0, limit, 0, 0, False, 1, True, False, False, False))
@@ -430,7 +439,7 @@ class Acceptor[F]:
                     match &mut self.children:
                         case Some(children):
                             if len(children) < self.config.capacity:
-                                match context.spawn_isolated(0, self.config.heap_limit):
+                                match context.spawn_isolated(0, configured(self.config.heap_limit)?):
                                     case Ok(child):
                                         storage(children.append(child))?
                                         return Ok(())
@@ -779,7 +788,7 @@ class Client[F, H]:
                             self.requests += 1
                             reply._head = head.method == "HEAD"
                             reply._minor = head.minor
-                            reply._keep = not self.draining and self.requests < self.config.max_requests and std.http.request_keeps_alive(&head)
+                            reply._keep = not self.draining and self.requests < self.config.max_requests.get() and std.http.request_keeps_alive(&head)
                             expect = wants_continue(&head)
                             self.phase = 3
                             self.set_deadline(context)?
@@ -890,11 +899,11 @@ pub class Node[F, H]:
                         context.stop()
                         return Ok(())
                 drop(socket.set_no_delay(True))
-                limits = std.actor.net.Limits(client.config.input_buffer, client.config.output_buffer, seconds(0u32), nanoseconds(client.config.write_timeout.as_nanoseconds()))
+                limits = std.actor.net.Limits(configured(client.config.input_buffer)?, configured(client.config.output_buffer)?, seconds(0u32), nanoseconds(client.config.write_timeout.as_nanoseconds()))
                 net = network(std.actor.net.connection(socket, &limits))?
                 mut wire = match replace(client.session, Nothing):
                     case Some(session):
-                        Wire.Secure(network(std.actor.tls.over(net, session, client.config.input_buffer))?)
+                        Wire.Secure(network(std.actor.tls.over(net, session, configured(client.config.input_buffer)?))?)
                     case Nothing:
                         Wire.Plain(net)
                 wire.start(context)?
@@ -991,7 +1000,7 @@ class Whole[H, E]:
                 self.body.clear()
                 self.trailers.clear()
             case Event.Body(bytes):
-                if bytes.len() > self.limits.max_body - self.body.len():
+                if bytes.len() > self.limits.max_body.get() - self.body.len():
                     return Err(HttpError.BodyTooLarge)
                 self.body.extend(&bytes)?
             case Event.Trailers(fields):
@@ -1038,9 +1047,9 @@ pub def serve_tls_events[F: Callable[[], Result[H, FE]], H: Handler[M, HE], M, F
 def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], config: &Config, stop: &CancellationToken) -> Result[Report, ServerError | AllocError | WaitError | std.actor.StageError | std.actor.StartError | RangeError]:
     if config.capacity < 1 or config.capacity > 1000 or config.heap_limit < 262144 or config.heap_limit > std.actor.max_heap_limit:
         return Err(ServerError.InvalidConfig)
-    if config.input_buffer < 64 or config.output_buffer < 64 or config.pending_output < 512 or config.max_requests < 1:
+    if config.input_buffer < 64 or config.output_buffer < 64 or config.pending_output < 512:
         return Err(ServerError.InvalidConfig)
-    if config.limits.max_line < 1 or config.limits.max_head < 1 or config.limits.max_headers < 1 or config.limits.max_body < 0:
+    if config.limits.max_line < 1 or config.limits.max_head < 1 or config.limits.max_headers == 0:
         return Err(ServerError.InvalidConfig)
     mut actors = std.actor.stage[Node[F, H], Notice[M], ServerError](config.capacity + 1, 16, 64)?
     actors.add_timers(5 * config.capacity + 8)?

@@ -99,7 +99,8 @@ curve. Their names are `UnsupportedAlgorithm`.
 the claims as a `list[Member]` from [`std.json`](json.md#value-tree). It
 checks, in order:
 
-1. `rules` are in range, otherwise `InvalidValidation`.
+1. `rules` are in range, otherwise `InvalidValidation`. A `max_size` above
+   `max_token_size` traps.
 2. The token is at most `rules.max_size` bytes, otherwise `TooLarge`. Nothing
    is decoded before this check.
 3. The token is three segments separated by dots, each strict unpadded
@@ -119,8 +120,9 @@ checks, in order:
    they must be a JSON object without duplicate members.
 8. The claims satisfy the time, issuer and audience rules below.
 
-`decode_header(&token, max_size)` performs steps 2 to 4 without a key, for
-choosing a key by `kid`. Its result is unauthenticated: use it only to pick
+`decode_header(&token, max_size: Positive[i64] = 8192)` performs steps 2 to 4
+without a key, for choosing a key by `kid`; a `max_size` above
+`max_token_size` traps. Its result is unauthenticated: use it only to pick
 among keys the program already trusts, then call `verify`.
 
 ### Validation rules
@@ -134,7 +136,7 @@ among keys the program already trusts, then call `verify`.
 | `require_expiry` | `True` | Whether a token without `exp` is `MissingClaim(Claim.Expiry)` |
 | `issuer` | `Nothing` | When set, `iss` must be present and equal it |
 | `audience` | `Nothing` | The audience this program accepts |
-| `max_size` | `default_max_size` (8192) | Token limit in bytes, `1` to `max_token_size` (1 MiB) |
+| `max_size` | `default_max_size` (8192) | Token limit in bytes, a `Positive[i64]` of at most `max_token_size` (1 MiB) |
 
 The clock is explicit so tests and programs choose its source. The claims are
 checked as RFC 7519 section 4.1 describes:
@@ -187,7 +189,7 @@ repeats token contents or key material.
 | `MissingClaim(Claim)`, `InvalidClaim(Claim)` | A required claim is absent, or a claim has the wrong type or range |
 | `WrongIssuer`, `WrongAudience` | `iss` or `aud` does not match |
 | `InvalidKey` | A key does not suit its algorithm |
-| `InvalidValidation` | A `Validation` field is out of range |
+| `InvalidValidation` | `now` or `leeway` is out of range |
 | `RandomFailure` | Randomness failed while signing |
 | `Allocation(AllocError)` | An allocation failed |
 

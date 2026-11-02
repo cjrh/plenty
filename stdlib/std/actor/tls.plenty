@@ -272,7 +272,8 @@ pub class TlsConnection:
         if self._net.closed():
             return Ok(())
         while self._session.wants_write():
-            room = net_only(self._net.reserve(self._net.space()))?
+            # `space()` is never negative, so the conversion cannot fail.
+            room = net_only(self._net.reserve(NonNegative.try_from(self._net.space()).unwrap()))?
             if room == 0:
                 break
             stop = self._net.output_stop()
@@ -300,23 +301,21 @@ def idle() -> Events:
 # A TLS connection running `session` over `net`, with `input` bytes for
 # decrypted input. Open the session where the actor's heap is current, such
 # as in the spawn hook or a handler, so the heap holds and bounds it.
-pub def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]:
-    if input <= 0:
-        return Err(TlsError.Net(invalid()))
-    mut buffer = std.bytes.with_capacity(input).map_error(TlsError.Allocation)?
-    buffer.resize(input, 0u8).map_error(TlsError.Allocation)?
+pub def over(net: Connection, session: Session, input: Positive[i64]) -> Result[TlsConnection, TlsError]:
+    mut buffer = std.bytes.with_capacity(input.get()).map_error(TlsError.Allocation)?
+    buffer.resize(input.get(), 0u8).map_error(TlsError.Allocation)?
     Ok(TlsConnection(net, session, buffer, 0, 0, False, False, False, False, True))
 
 # A server session over `net`, with `input` bytes for decrypted input.
 # Typically called from a spawn hook with the connection that
 # `Listener.accept` returned; the session is then allocated in the new
 # actor's heap.
-pub def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]:
+pub def server(net: Connection, config: &ServerConfig, input: Positive[i64]) -> Result[TlsConnection, TlsError]:
     over(net, server_session(config)?, input)
 
 # A client session over `net` that verifies the server against `config`
 # and `server_name`.
-pub def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]:
+pub def client(net: Connection, config: &ClientConfig, server_name: &str, input: Positive[i64]) -> Result[TlsConnection, TlsError]:
     over(net, client_session(config, server_name)?, input)
 
 # Callers keep 0 <= start <= stop <= len, so the overlapping copy cannot fail.

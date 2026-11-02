@@ -75,8 +75,9 @@ separate; nothing is combined.
 | `max_headers` | Field lines in a head or trailer section | 100 |
 | `max_body` | Decoded body bytes | 1048576 |
 
-`max_line` and `max_head` must be at least 2 and the others at least 0, or
-the call fails with `InvalidLimit`. Memory use is one line buffer of at most
+`max_headers` and `max_body` are `NonNegative[i64]`, so a negative count is a
+type error; read them with `.get()`. `max_line` and `max_head` must be at least
+2, or the call fails with `InvalidLimit`. Memory use is one line buffer of at most
 `max_line` bytes plus the parsed fields; the body is never held unless the
 caller collects it.
 
@@ -228,10 +229,9 @@ failure may leave part of a message delivered. Heads are written with one
 `write_all`; a chunk with three. The caller flushes.
 
 `encode_request(head)`, `encode_response(head)`, `encode_last_chunk(trailers)`
-and `encode_chunk_size(length)` return `Result[Bytes, HttpError]`. They perform
-the same validation and serialization without writing, sharing implementation
-with the typed writers. A negative chunk length is `Stream(OutOfRange)`;
-zero encodes `0\r\n` without the final trailer-section terminator.
+and `encode_chunk_size(length: NonNegative[i64])` return `Result[Bytes, HttpError]`.
+They perform the same validation and serialization without writing, sharing
+implementation with the typed writers. A chunk length of zero encodes `0\r\n` without the final trailer-section terminator.
 
 ## Errors
 
@@ -239,7 +239,7 @@ zero encodes `0\r\n` without the final trailer-section terminator.
 |---|---|
 | `Stream(StreamError)` | The underlying stream failed, or a range was out of bounds |
 | `Allocation(AllocError)` | Memory for a line, field, or output ran out |
-| `InvalidLimit` | A `Limits` field out of range |
+| `InvalidLimit` | `max_line` or `max_head` below 2 |
 | `Truncated` | Input ended inside a head, a body, or a chunk |
 | `LineTooLong`, `HeadTooLarge`, `TooManyHeaders`, `BodyTooLarge` | A limit was reached |
 | `BareLineFeed` | A line ended in LF without CR |

@@ -204,7 +204,7 @@ continue to follow the configured restart policy.
 | Export | Contract |
 |---|---|
 | `stage[N, M, E](capacity, mailbox, events)` | `Result[Stage[N, M, E], StageError]`: at most `capacity` live actors, `mailbox` messages per actor, `events` ready handles per wait. Allocates every slot table now |
-| `Stage.start(node, limit)` | `Result[Address, StartError]`: a root actor with a heap of `limit` bytes. Allocates its mailbox now |
+| `Stage.start(node, limit: Positive[i64])` | `Result[Address, StartError]`: a root actor with a heap of `limit` bytes. Allocates its mailbox now |
 | `Stage.send(to, message)` | `Result[(), Undelivered[M]]` |
 | `Stage.stop_actor(to)` | `bool`: queues `Mail.Stop`; `False` when the actor has stopped or its mailbox is full |
 | `Stage.run(&deadline, &cancel)` | `Result[(), WaitError]`: delivers mail and readiness until no actor is live; fails when the deadline passes or `cancel` is cancelled first |
@@ -216,7 +216,7 @@ continue to follow the configured restart policy.
 | `Context.send(to, message)` | `Result[(), Undelivered[M]]` |
 | `Context.stop()` | Stops the running actor after this handler returns |
 | `Context.stop_actor(to)` | As `Stage.stop_actor` |
-| `Context.spawn(tag, limit)` | `Result[Address, StartError]`: reserves a child slot, heap and mailbox now; the parent's `spawn` hook builds the child after the handler returns |
+| `Context.spawn(tag, limit: Positive[i64])` | `Result[Address, StartError]`: reserves a child slot, heap and mailbox now; the parent's `spawn` hook builds the child after the handler returns |
 | `Context.restart(child, limit, &window)` | `bool`: restarts the child when it fails or traps, at most `limit` times per `window`; see [Restart](#restart) |
 | `Context.after(&delay, tag)`, `every(&period, tag)` | `Result[Timer, TimerError]`: delivers `Mail.Timer` once after `delay`, or every `period` |
 | `Context.cancel(timer)` | `bool`: no `Mail.Timer` for it follows; `False` when it has already ended |
@@ -227,7 +227,7 @@ continue to follow the configured restart policy.
 | `Context.unwatch(&handle)` | `Result[(), WaitError]`: stops delivering it |
 | `supported()` | Whether this target has actor heaps |
 | `heaps_live()`, `heap_bytes_used()`, `heap_bytes_committed()` | Process totals over all actor heaps |
-| `max_heap_limit` | 64 MiB, the largest heap limit |
+| `max_heap_limit` | 64 MiB, the largest heap limit; `Stage.start`, `Context.spawn` and `Context.spawn_isolated` trap above it |
 | `max_spawns` | 16 spawn requests per handler |
 | `max_capacity` | 1,048,576, the largest stage `capacity`; `stage` returns `StageError.Allocation(CapacityOverflow)` for a negative capacity or one above it |
 
@@ -245,7 +245,7 @@ continue to follow the configured restart policy.
 | `TrapKind` | `Memory`, `Index`, `Arithmetic`, `Unwrap`, `Other`; see [Traps](#traps) |
 | `Undelivered[M]` | `Full(M)`: the mailbox is full or the receiver's heap cannot hold the copy. `Gone(M)`: the receiver has stopped |
 | `StageError` | `Allocation(AllocError)` (slot tables, or a capacity that is negative or over `max_capacity`: `CapacityOverflow`), `Wait(WaitError)` (the readiness selector) |
-| `StartError` | `Unsupported`, `Capacity` (no free slot, or `max_spawns` reached), `Heaps` (1024 heaps live or the reservation failed), `Limit` (not in 1..`max_heap_limit`), `Mailbox` (its allocation failed) |
+| `StartError` | `Unsupported`, `Capacity` (no free slot, or `max_spawns` reached), `Heaps` (1024 heaps live or the reservation failed), `Mailbox` (its allocation failed) |
 | `Stats` | `started`, `stopped`, `failed`, `trapped`, `restarted`, `delivered`, `full` (refused sends, and readiness deferred by a full mailbox), `gone` (sends and readiness for stopped actors), `lost` (`Down` for a parent that had stopped) |
 
 ### Delivery

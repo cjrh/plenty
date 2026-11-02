@@ -534,8 +534,6 @@ close = std.bytes.from_text("HTTP/1.1 200 OK\r\n\r\n123456789")?
 shown(responses_from(close, "GET", &small))?
 shown(requests_from(std.bytes.empty()?, &Limits(0, 64, 2, 8)))?
 shown(requests_from(std.bytes.empty()?, &Limits(32, 1, 2, 8)))?
-shown(requests_from(std.bytes.empty()?, &Limits(32, 64, -1, 8)))?
-shown(requests_from(std.bytes.empty()?, &Limits(32, 64, 2, -1)))?
 "#,
         r#"
 err LineTooLong
@@ -550,8 +548,6 @@ req POST / 1 1 Chunked True "12345678"
 eof
 err TooManyHeaders
 err BodyTooLarge
-err InvalidLimit
-err InvalidLimit
 err InvalidLimit
 err InvalidLimit
 "#,
@@ -1266,4 +1262,28 @@ Host "x"
 Result[std.http.Header, std.http.HttpError].Err(InvalidHeader)
 "#,
     );
+}
+
+/// Counts and sizes that cannot be negative, and websocket frame sizes that
+/// cannot be zero, are rejected when the literal is checked rather than
+/// reported as `InvalidLimit` or `InvalidConfig` at run time.
+#[test]
+fn out_of_domain_limit_literals_are_rejected() {
+    for (statement, kind) in [
+        ("limits = std.http.Limits(32, 64, -1, 8)", "NonNegative"),
+        ("limits = std.http.body.FormLimits(-1, 8)", "NonNegative"),
+        ("size = std.http.encode_chunk_size(-1)", "NonNegative"),
+        (
+            "mut config = std.http.websocket.config()\n    config.max_frame = 0",
+            "Positive",
+        ),
+    ] {
+        let error = support::check_file_error(&format!(
+            "import std.http\nimport std.http.body\nimport std.http.websocket\n\ndef main() -> ():\n    {statement}\n"
+        ));
+        assert!(
+            error.contains(&format!("literal is not a `{kind}[i64]`")),
+            "{statement}\n{error}"
+        );
+    }
 }

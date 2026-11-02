@@ -855,7 +855,7 @@ const drain_budget: i64 = 65536
 
 def checked(config: &Config) -> bool:
     limits = &config.limits
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return False
     config.max_idle >= 0 and config.max_idle_per_origin >= 0 and config.redirects >= 0 and config.redirects <= 100 and config.retries >= 0 and config.retries <= 10
 

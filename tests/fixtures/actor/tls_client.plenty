@@ -27,6 +27,10 @@ const mode: i64 = 0
 const roots: str = "ca.pem"
 const server_name: str = "localhost"
 
+# Tests rewrite the size constants above, always to positive values.
+def positive(value: i64) -> Positive[i64]:
+    Positive.try_from(value).unwrap()
+
 type Fault = AllocError | NetError | BytesError | TimerError | TlsError
 
 pub enum Note:
@@ -78,9 +82,9 @@ pub class Client:
             case Some(attempt):
                 match attempt.handle(mail, context)?:
                     case Some(stream):
-                        limits = Limits(input_size, output_size, milliseconds(0u32), milliseconds(0u32))
+                        limits = Limits(positive(input_size), positive(output_size), milliseconds(0u32), milliseconds(0u32))
                         session = replace(self.session, Nothing).unwrap()
-                        mut tls = over(connection(stream, &limits)?, session, plain_size)?
+                        mut tls = over(connection(stream, &limits)?, session, positive(plain_size))?
                         tls.start(context)?
                         self.tls = Some(tls)
                         self.dialing = Nothing
