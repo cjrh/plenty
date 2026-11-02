@@ -1,5 +1,5 @@
-//! The syntax layer: turns raw source text into a flat stream of words and
-//! string literals.
+//! The legacy stack syntax's lexer: turns raw source text into a flat stream
+//! of words and string literals.
 
 use std::error::Error;
 
