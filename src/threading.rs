@@ -64,15 +64,19 @@ impl Task {
 
 /// Inspect each reachable body and stored type once. Cycles through recursive
 /// source data and recursive functions terminate through their nominal identity.
-/// A structural signature cannot certify the effects of an indirect callee.
+/// Thin callable targets are bounded by the addresses in this closed program.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     let mut roots = Vec::new();
     // Definitions are recorded during the one walk over every body; only a
     // program with roots indexes them by name.
     let mut definitions = Vec::with_capacity(ops.len());
+    let mut addresses = Vec::new();
     walk(ops, &mut |op| {
         if let Op::DefineFn(name, function) = op {
             definitions.push((name.as_str(), function.as_ref()));
+        }
+        if let Op::FunctionAddress(name, signature) = op {
+            addresses.push((name.as_str(), signature));
         }
         if let Op::Thread(ThreadOp::Start(task, _, _)) = op {
             let mut types = task.inputs.clone();
@@ -103,6 +107,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let functions: HashMap<_, _> = definitions.into_iter().collect();
+    let targets = CallableTargets::new(addresses);
     let mut checked = HashSet::default();
     let mut checked_receivers = HashSet::default();
     for (kind, mut queue, mut types) in roots {
@@ -127,6 +132,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                     &mut checked_receivers,
                     &mut types,
                     &mut queue,
+                    &targets,
                 )
                 .map_err(|reason| {
                     match current.as_ref().filter(|name| *name != &root) {
@@ -135,17 +141,20 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                         Some(name) => format!(
                             "{origin} reaches {}{}: {reason}",
                             describe(name, &functions),
-                            path(name, &callers, &functions)
+                            path(name, &callers, &functions, &root)
                         ),
                         None => format!("{origin}: {reason}"),
                     }
                 })?;
             }
-            if let Some(caller) = &current {
+            if let Some(caller) = current
+                .as_deref()
+                .or_else(|| (!root.is_empty()).then_some(root.as_str()))
+            {
                 for callee in &queue[queued..] {
                     callers
                         .entry(callee.clone())
-                        .or_insert_with(|| caller.clone());
+                        .or_insert_with(|| caller.to_owned());
                 }
             }
             let Some(name) = queue.pop() else { break };
@@ -160,7 +169,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                 format!(
                     "{origin} reaches {}{}: {reason}",
                     describe(&name, &functions),
-                    path(&name, &callers, &functions)
+                    path(&name, &callers, &functions, &root)
                 )
             })?;
             for callee in &queue[queued..] {
@@ -172,6 +181,39 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+/// `FunctionAddress` is the sole source of thin callable values in typed IR.
+/// FFI accepts only numeric/opaque scalars and their borrows, numeric casts
+/// cannot reinterpret a callable, and storage only transfers existing values.
+/// Boxed-call adapters construct native code addresses during codegen, but
+/// their erased owner remains rejected separately. Thus every value of a
+/// signature is bounded by *all* addresses of that signature in the program,
+/// including addresses outside the worker's reachable call graph. Checking
+/// only one apparently suitable target would make a conditional or forwarded
+/// callback an effect escape. Signature-wide sets deliberately remain
+/// conservative when unrelated main-thread code takes an unsafe address.
+struct CallableTargets {
+    by_signature: HashMap<String, Vec<String>>,
+}
+
+impl CallableTargets {
+    fn new<'a>(
+        addresses: impl IntoIterator<Item = (&'a str, &'a Arc<crate::op::CallableSig>)>,
+    ) -> Self {
+        let mut by_signature: HashMap<String, Vec<String>> = HashMap::default();
+        for (name, signature) in addresses {
+            by_signature
+                .entry(Ty::Callable(signature.clone()).identity_name())
+                .or_default()
+                .push(name.to_owned());
+        }
+        for names in by_signature.values_mut() {
+            names.sort_unstable();
+            names.dedup();
+        }
+        Self { by_signature }
+    }
 }
 
 /// A function's name for a diagnostic. A generic instance's symbol is
@@ -192,6 +234,7 @@ fn path(
     name: &str,
     callers: &HashMap<String, String>,
     functions: &HashMap<&str, &CompiledFn>,
+    root: &str,
 ) -> String {
     let mut chain = Vec::new();
     let mut seen = HashSet::from_iter([name]);
@@ -203,8 +246,11 @@ fn path(
         chain.push(caller.as_str());
         at = caller;
     }
-    // The last caller is the root, which the origin already names.
-    chain.pop();
+    // A named worker is already in the origin. Channel roots have no named
+    // function, so their entire path remains useful context.
+    if chain.last().copied() == Some(root) {
+        chain.pop();
+    }
     if chain.is_empty() {
         return String::new();
     }
@@ -222,6 +268,7 @@ fn check_type(
     checked_receivers: &mut HashSet<String>,
     types: &mut Vec<Ty>,
     functions: &mut Vec<String>,
+    targets: &CallableTargets,
 ) -> Result<(), String> {
     match ty {
         Ty::Executor | Ty::Future(_) => {
@@ -238,8 +285,13 @@ fn check_type(
         Ty::ForeignPtr(_) => {
             return Err(format!("{ty} has no cross-thread ownership contract"))
         }
-        Ty::Callable(_) => {
-            return Err("indirect callable effects are not certified for worker threads".into())
+        Ty::Callable(signature) if seen.insert(format!("callable:{}", ty.identity_name())) => {
+            let Some(names) = targets.by_signature.get(&ty.identity_name()) else {
+                return Err(format!("indirect callable effects are not certified for worker threads: no statically known targets for {ty}"));
+            };
+            functions.extend(names.iter().cloned());
+            types.extend(signature.inputs.iter().cloned());
+            types.extend(signature.output.iter().cloned());
         }
         Ty::BoxedCallable(_) => {
             return Err("boxed callable captures and effects are not certified for worker threads".into())
@@ -423,8 +475,8 @@ fn inspect(
         Op::ForeignCall { .. } => {
             error = Some("foreign calls have no worker-thread effect contract")
         }
-        Op::CallIndirect(_) | Op::TailCallIndirect(_) => {
-            error = Some("indirect callable effects are not certified for worker threads")
+        Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
+            types.push(Ty::Callable(signature.clone()));
         }
         Op::Collection(op) => {
             // The runtime calls this key through the sort's adapter.

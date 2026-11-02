@@ -8,13 +8,6 @@ from std.io import Reader
 from std.secrets import Source, SecretsError
 from std.time import Timestamp
 
-def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BytesError.Allocation(cause))
-
 const max_milliseconds: u64 = 281474976710655
 
 pub class Uuid:
@@ -63,20 +56,20 @@ pub class Uuid:
             target.set(offset + index + 8, u8((self._low >> shift) & 255u64))
 
     pub def to_bytes(self) -> Result[Bytes, BytesError]:
-        mut result = bytes_error_allocated(std.bytes.with_capacity(16))?
-        bytes_error_allocated(result.resize(16, 0u8))?
+        mut result = std.bytes.with_capacity(16).map_error(BytesError.Allocation)?
+        result.resize(16, 0u8).map_error(BytesError.Allocation)?
         self.write_bytes(&mut result, 0)
         Ok(result)
 
     pub def to_string(self) -> Result[str, BytesError]:
-        mut text = bytes_error_allocated(std.bytes.with_capacity(36))?
+        mut text = std.bytes.with_capacity(36).map_error(BytesError.Allocation)?
         digits = b"0123456789abcdef"
         for index in range(32):
             if index == 8 or index == 12 or index == 16 or index == 20:
-                bytes_error_allocated(text.push(45u8))?
+                text.push(45u8).map_error(BytesError.Allocation)?
             word = self._high if index < 16 else self._low
             shift = u64((15 - index % 16) * 4)
-            bytes_error_allocated(text.push(digits[i64((word >> shift) & 15u64)]))?
+            text.push(digits[i64((word >> shift) & 15u64)]).map_error(BytesError.Allocation)?
         text.to_text()
 
 pub def nil() -> Uuid:

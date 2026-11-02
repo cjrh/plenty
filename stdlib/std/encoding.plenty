@@ -1,13 +1,6 @@
 import std.bytes
 from std.bytes import Bytes, BytesError
 
-def encoding_error_allocated[T](result: Result[T, AllocError]) -> Result[T, EncodingError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(EncodingError.Allocation(cause))
-
 # Binary-to-text codecs and fixed-width integer/IEEE 754 float packing over Bytes.
 # Byte manipulation is checked Plenty; four std-only compiler bitcasts preserve
 # float representations without arithmetic. Ranges are validated before reads and
@@ -46,14 +39,14 @@ pub class Encoding:
         lifted(self.encode(source)?.to_text())
 
     pub def from_text(self, text: &str) -> Result[Bytes, EncodingError]:
-        source = encoding_error_allocated(std.bytes.from_text(text))?
+        source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
         self.decode(&source)
 
 pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
     count = len(symbols)
     if count < 2 or count > 64 or count & (count - 1) != 0:
         return Err(EncodingError.InvalidAlphabet)
-    alphabet = encoding_error_allocated(std.bytes.from_text(symbols))?
+    alphabet = std.bytes.from_text(symbols).map_error(EncodingError.Allocation)?
     if alphabet.len() != count:
         return Err(EncodingError.InvalidAlphabet)
     mut pad = -1
@@ -64,8 +57,8 @@ pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encodi
                 return Err(EncodingError.InvalidAlphabet)
         case Nothing:
             pass
-    mut values = encoding_error_allocated(std.bytes.with_capacity(128))?
-    encoding_error_allocated(values.resize(128, 255u8))?
+    mut values = std.bytes.with_capacity(128).map_error(EncodingError.Allocation)?
+    values.resize(128, 255u8).map_error(EncodingError.Allocation)?
     for index in range(count):
         code = i64(alphabet[index])
         if code < 33 or code > 126 or code == pad:
@@ -88,7 +81,7 @@ pub def base32_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base32_encode(source)?.to_text())
 
 pub def base32_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     base32_decode(&source)
 
 pub def base32hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
@@ -101,7 +94,7 @@ pub def base32hex_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base32hex_encode(source)?.to_text())
 
 pub def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     base32hex_decode(&source)
 
 # MIME's 76-column layout, CRLF between lines, no final line terminator.
@@ -110,7 +103,7 @@ pub def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
     mut breaks = 0
     if encoded.len() > 0:
         breaks = (encoded.len() - 1) // 76
-    mut wrapped = encoding_error_allocated(std.bytes.with_capacity(encoded.len() + breaks * 2))?
+    mut wrapped = std.bytes.with_capacity(encoded.len() + breaks * 2).map_error(EncodingError.Allocation)?
     for index in range(encoded.len()):
         if index > 0 and index % 76 == 0:
             emit(&mut wrapped, 13)?
@@ -125,7 +118,7 @@ pub def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
     for index in range(len(source)):
         if not mime_space(source[index]):
             size += 1
-    mut compact = encoding_error_allocated(std.bytes.with_capacity(size))?
+    mut compact = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     for index in range(len(source)):
         if not mime_space(source[index]):
             emit(&mut compact, i64(source[index]))?
@@ -147,7 +140,7 @@ pub def base64mime_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base64mime_encode(source)?.to_text())
 
 pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     base64mime_decode(&source)
 
 # RFC 7468 strict PEM: one BEGIN line, base64 lines of exactly 64 symbols
@@ -159,7 +152,7 @@ pub def pem_encode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
         return Err(EncodingError.InvalidLength)
     encoded = base64_encode(source)?
     lines = (encoded.len() + 63) // 64
-    mut text = encoding_error_allocated(std.bytes.with_capacity(encoded.len() + lines + 2 * len(label) + 32))?
+    mut text = std.bytes.with_capacity(encoded.len() + lines + 2 * len(label) + 32).map_error(EncodingError.Allocation)?
     pem_boundary(&mut text, b"-----BEGIN ", label)?
     for index in range(encoded.len()):
         emit(&mut text, i64(encoded[index]))?
@@ -214,7 +207,7 @@ pub def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
         at = pem_line_end(source, at, eol)?
         if at < len(source):
             return Err(EncodingError.InvalidPem(at))
-    mut compact = encoding_error_allocated(std.bytes.with_capacity(count))?
+    mut compact = std.bytes.with_capacity(count).map_error(EncodingError.Allocation)?
     for index in range(body, body + count + (count + 63) // 64 * eol):
         code = source[index]
         if code != 10u8 and code != 13u8:
@@ -234,7 +227,7 @@ pub def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
                     Err(error)
 
 pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     pem_decode(&source, label)
 
 # RFC 7468 section 3: printable ASCII except `-`, with single spaces or
@@ -317,7 +310,7 @@ def encode_radix(source: &[u8], symbols: &[u8], bits: i64, padding: i64) -> Resu
     if padding >= 0:
         group = quantum(bits)
         size += (group - size % group) % group
-    mut encoded = encoding_error_allocated(std.bytes.with_capacity(size))?
+    mut encoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     mask = (1 << bits) - 1
     mut pending = 0
     mut available = 0
@@ -369,7 +362,7 @@ def decode_radix(source: &[u8], values: &[u8], kind: i64, bits: i64, padding: i6
     if padding >= 0 and len(source) - end != (group - count % group) % group:
         return Err(EncodingError.InvalidPadding(end))
     size = (count // 8) * bits + (count % 8) * bits // 8
-    mut decoded = encoding_error_allocated(std.bytes.with_capacity(size))?
+    mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     mut pending = 0
     mut available = 0
     for index in range(end):
@@ -392,7 +385,7 @@ def decode_radix(source: &[u8], values: &[u8], kind: i64, bits: i64, padding: i6
 # Lowercase digits. Sizes below cannot overflow: a buffer large enough to make
 # them wrap cannot have been allocated.
 pub def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
-    mut encoded = encoding_error_allocated(std.bytes.with_capacity(len(source) * 2))?
+    mut encoded = std.bytes.with_capacity(len(source) * 2).map_error(EncodingError.Allocation)?
     for index in range(len(source)):
         value = i64(source[index])
         emit(&mut encoded, hex_digit(value >> 4))?
@@ -403,7 +396,7 @@ pub def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
     if len(source) % 2 != 0:
         return Err(EncodingError.InvalidLength)
-    mut decoded = encoding_error_allocated(std.bytes.with_capacity(len(source) // 2))?
+    mut decoded = std.bytes.with_capacity(len(source) // 2).map_error(EncodingError.Allocation)?
     for pair in range(len(source) // 2):
         index = pair * 2
         high = hex_value(i64(source[index]))
@@ -419,7 +412,7 @@ pub def hex_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(hex_encode(source)?.to_text())
 
 pub def hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     hex_decode(&source)
 
 # RFC 4648 section 4: `+` and `/`, always padded with `=` to a multiple of four.
@@ -433,7 +426,7 @@ pub def base64_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(encode64(source, False)?.to_text())
 
 pub def base64_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     decode64(&source, False)
 
 # RFC 4648 section 5: `-` and `_`, never padded.
@@ -447,7 +440,7 @@ pub def base64url_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(encode64(source, True)?.to_text())
 
 pub def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = encoding_error_allocated(std.bytes.from_text(text))?
+    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
     decode64(&source, True)
 
 # `pack_` overwrites existing bytes and never grows the buffer; `append_`
@@ -543,7 +536,7 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
 # Output buffers are created with their exact final capacity, so this never
 # allocates.
 def emit(target: &mut Bytes, value: i64) -> Result[(), EncodingError]:
-    encoding_error_allocated(target.push(u8(value)))
+    target.push(u8(value)).map_error(EncodingError.Allocation)
 
 def hex_digit(value: i64) -> i64:
     if value < 10:
@@ -602,7 +595,7 @@ def encode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
             size += tail + 1
         else:
             size += 4
-    mut encoded = encoding_error_allocated(std.bytes.with_capacity(size))?
+    mut encoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     for group in range(groups):
         index = group * 3
         first = i64(source[index])
@@ -658,7 +651,7 @@ def decode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
     mut size = groups * 3
     if tail > 0:
         size += tail - 1
-    mut decoded = encoding_error_allocated(std.bytes.with_capacity(size))?
+    mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     for group in range(groups):
         index = group * 4
         first = symbol_at(source, index, url)?
@@ -708,7 +701,7 @@ def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(),
     offset = target.len()
     if offset > i64.MAX - width:
         return Err(EncodingError.Allocation(AllocError.CapacityOverflow))
-    encoding_error_allocated(target.resize(offset + width, 0u8))?
+    target.resize(offset + width, 0u8).map_error(EncodingError.Allocation)?
     place(target, offset, bits, width, order)
     Ok(())
 

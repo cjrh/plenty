@@ -339,7 +339,10 @@ fn rejects_worker_effects_in_helpers_destructors_and_stored_data() {
     for (source, expected) in [
         (
             r#"
+import std.env
 def seven() -> i64:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     7
 class Resource:
     value: i64
@@ -355,11 +358,14 @@ def main() -> Result[(), SpawnError[()]]:
         pass
     Ok(())
 "#,
-            "indirect callable effects",
+            "changing the working directory",
         ),
         (
             r#"
+import std.env
 def identity(n: i64) -> i64:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     n
 def worker(callback: Callable[[i64], i64]) -> i64:
     callback(1)
@@ -368,7 +374,7 @@ def main() -> Result[(), SpawnError[()]]:
         pass
     Ok(())
 "#,
-            "indirect callable effects",
+            "changing the working directory",
         ),
         (
             r#"
@@ -398,7 +404,10 @@ fn worker_rejections_name_generic_functions_and_the_call_path() {
         &path,
         r#"
 from std.error import map_error
+import std.env
 def wrap(cause: ParseError) -> str:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     return "bad"
 class Parser:
     pub def parse(self, text: &str) -> Result[i64, str]:
@@ -418,8 +427,7 @@ def main() -> Result[(), SpawnError[()]]:
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
         error.contains(
-            "worker `work` reaches the generic function at std/error.plenty:7:5 \
-             through `outer` -> `Parser.parse`: indirect callable effects"
+            "worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> the generic function at std/error.plenty:7:5 -> `wrap`: changing the working directory"
         ),
         "{error}"
     );

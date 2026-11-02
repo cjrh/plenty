@@ -269,6 +269,8 @@ fn channel_messages_do_not_hide_bad_destructors_or_bad_callback_bodies() {
     for source in [
         r#"
 def seven() -> i64:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     7
 class Guard:
     n: i64
@@ -283,6 +285,8 @@ def queue[F](job: F) -> ():
     sender, receiver = channel[F](1).unwrap()
     sender.send(job).unwrap()
 def seven() -> i64:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     7
 n = 1
 job = def [n]() -> i64:
@@ -291,9 +295,10 @@ job = def [n]() -> i64:
 queue(job)
 "#,
     ] {
-        let error = support::check_source(source).unwrap_err().to_string();
+        let source = format!("import std.env\n{}", support::program(source));
+        let error = plenty::check_source(&source).unwrap_err().to_string();
         assert!(
-            error.contains("channel") && error.contains("indirect callable"),
+            error.contains("channel") && error.contains("changing the working directory"),
             "{error}"
         );
     }

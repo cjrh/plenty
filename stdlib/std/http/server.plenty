@@ -345,13 +345,6 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
                 return end == bound
     True
 
-def net_allocated[T](result: Result[T, AllocError]) -> Result[T, NetError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(NetError.Stream(StreamError.Allocation(cause)))
-
 # Appends input that has already arrived to `input.data`, without waiting.
 # Zero is the end of the peer's stream; TimedOut means nothing has arrived.
 # An empty buffer starts at `read_chunk`; a full one doubles, so a head
@@ -367,15 +360,15 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
             size = read_chunk
         if size > limits.max_head:
             size = limits.max_head
-        mut grown = net_allocated(std.bytes.with_capacity(size))?
-        net_allocated(grown.extend(&input.data))?
+        mut grown = std.bytes.with_capacity(size).map_error(StreamError.Allocation).map_error(NetError.Stream)?
+        grown.extend(&input.data).map_error(StreamError.Allocation).map_error(NetError.Stream)?
         input.data = grown
     mut room = input.data.capacity() - have
     if room > read_chunk:
         room = read_chunk
     if room > limits.max_head - have:
         room = limits.max_head - have
-    net_allocated(input.data.resize(have + room, 0u8))?
+    input.data.resize(have + room, 0u8).map_error(StreamError.Allocation).map_error(NetError.Stream)?
     match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
         case Ok(count):
             input.data.truncate(have + count)

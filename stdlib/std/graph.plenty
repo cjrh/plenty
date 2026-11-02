@@ -24,13 +24,6 @@ pub enum GraphError:
     InvalidEstimate(NodeId)
     Allocation(AllocError)
 
-def allocated[T](result: Result[T, AllocError]) -> Result[T, GraphError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(GraphError.Allocation(cause))
-
 # Chain heads. A directed graph links outgoing edges through `out_*` and
 # incoming edges through `in_*`; an undirected graph links every incident edge
 # through `out_*` alone, so neighbors follow insertion order.
@@ -415,14 +408,14 @@ class Store[N, E]:
     # has an unsorted predecessor.
     def toposort(self) -> Result[list[NodeId], GraphError]:
         bound = len(self.nodes)
-        mut pending = allocated([0 for _ in range(bound)])?
+        mut pending = ([0 for _ in range(bound)]).map_error(GraphError.Allocation)?
         for edge in range(len(self.edges)):
             if self.edges[edge].data.is_some():
                 pending[self.edges[edge].target] += 1
-        mut order = allocated(list[NodeId].with_capacity(self.node_count))?
+        mut order = list[NodeId].with_capacity(self.node_count).map_error(GraphError.Allocation)?
         for node in range(bound):
             if self.nodes[node].data.is_some() and pending[node] == 0:
-                allocated(order.append(node))?
+                order.append(node).map_error(GraphError.Allocation)?
         mut head = 0
         while head < len(order):
             node = order[head]
@@ -432,7 +425,7 @@ class Store[N, E]:
                 target = self.edges[edge].target
                 pending[target] -= 1
                 if pending[target] == 0:
-                    allocated(order.append(target))?
+                    order.append(target).map_error(GraphError.Allocation)?
                 edge = self.edges[edge].next_out
         if len(order) == self.node_count:
             return Ok(order)
@@ -447,8 +440,8 @@ class Store[N, E]:
             while pending[self.edges[back].source] == 0:
                 back = self.edges[back].next_in
             node = self.edges[back].source
-        mut cycle = allocated(list[NodeId]())?
-        allocated(cycle.append(node))?
+        mut cycle = list[NodeId]().map_error(GraphError.Allocation)?
+        cycle.append(node).map_error(GraphError.Allocation)?
         mut current = node
         while True:
             mut back = self.nodes[current].in_first
@@ -457,7 +450,7 @@ class Store[N, E]:
             current = self.edges[back].source
             if current == node:
                 break
-            allocated(cycle.append(current))?
+            cycle.append(current).map_error(GraphError.Allocation)?
         cycle.reverse()
         Err(GraphError.Cycle(cycle))
 
@@ -525,15 +518,15 @@ class Store[N, E]:
     def search[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Paths, GraphError]:
         self.check_node(start)
         bound = len(self.nodes)
-        mut distance = allocated([f64.INF for _ in range(bound)])?
-        mut via = allocated([-1 for _ in range(bound)])?
-        mut previous = allocated([-1 for _ in range(bound)])?
-        mut queue = allocated(Heap[(f64, f64, i64)]())?
+        mut distance = ([f64.INF for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut via = ([-1 for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut previous = ([-1 for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut queue = Heap[(f64, f64, i64)]().map_error(GraphError.Allocation)?
         first = estimate(start)
         if not (first >= 0.0):
             return Err(GraphError.InvalidEstimate(start))
         distance[start] = 0.0
-        allocated(queue.push((first, 0.0, start)))?
+        queue.push((first, 0.0, start)).map_error(GraphError.Allocation)?
         while True:
             match queue.pop():
                 case Some(entry):
@@ -556,7 +549,7 @@ class Store[N, E]:
                             distance[other] = total
                             via[other] = edge
                             previous[other] = node
-                            allocated(queue.push((total + guess, total, other)))?
+                            queue.push((total + guess, total, other)).map_error(GraphError.Allocation)?
                         edge = self.link(edge, node, 0)
                 case Nothing:
                     break
@@ -565,18 +558,18 @@ class Store[N, E]:
     def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]:
         self.check_node(start)
         bound = len(self.nodes)
-        mut distance = allocated([f64.INF for _ in range(bound)])?
-        mut via = allocated([-1 for _ in range(bound)])?
-        mut previous = allocated([-1 for _ in range(bound)])?
-        mut steps: list[f64] = allocated(list[f64].with_capacity(len(self.edges)))?
+        mut distance = ([f64.INF for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut via = ([-1 for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut previous = ([-1 for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut steps: list[f64] = list[f64].with_capacity(len(self.edges)).map_error(GraphError.Allocation)?
         for edge in range(len(self.edges)):
             if self.edges[edge].data.is_none():
-                allocated(steps.append(0.0))?
+                steps.append(0.0).map_error(GraphError.Allocation)?
                 continue
             step = weight(self.edge(edge))
             if step != step or step == -f64.INF:
                 return Err(GraphError.InvalidWeight(edge))
-            allocated(steps.append(step))?
+            steps.append(step).map_error(GraphError.Allocation)?
         distance[start] = 0.0
         # Relax until nothing changes; a change in round node_count proves a
         # negative cycle, and `changed_node` is reachable from it.
@@ -601,10 +594,10 @@ class Store[N, E]:
         mut node = changed_node
         for _ in range(self.node_count):
             node = previous[node]
-        mut cycle = allocated(list[NodeId]())?
+        mut cycle = list[NodeId]().map_error(GraphError.Allocation)?
         mut current = node
         while True:
-            allocated(cycle.append(current))?
+            cycle.append(current).map_error(GraphError.Allocation)?
             current = previous[current]
             if current == node:
                 break
@@ -613,18 +606,18 @@ class Store[N, E]:
 
     # Kruskal's algorithm with a size-ranked, path-halving union-find.
     def spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], GraphError]:
-        mut order = allocated(list[(f64, i64)].with_capacity(self.edge_count))?
+        mut order = list[(f64, i64)].with_capacity(self.edge_count).map_error(GraphError.Allocation)?
         for edge in range(len(self.edges)):
             if self.edges[edge].data.is_some():
                 step = weight(self.edge(edge))
                 if step != step:
                     return Err(GraphError.InvalidWeight(edge))
-                allocated(order.append((step, edge)))?
+                order.append((step, edge)).map_error(GraphError.Allocation)?
         order.sort()
         bound = len(self.nodes)
-        mut parent = allocated([node for node in range(bound)])?
-        mut size = allocated([1 for _ in range(bound)])?
-        mut tree = allocated(list[EdgeId]())?
+        mut parent = ([node for node in range(bound)]).map_error(GraphError.Allocation)?
+        mut size = ([1 for _ in range(bound)]).map_error(GraphError.Allocation)?
+        mut tree = list[EdgeId]().map_error(GraphError.Allocation)?
         for entry in &order:
             edge = entry[1]
             mut a = find_root(&mut parent, self.edges[edge].source)
@@ -635,7 +628,7 @@ class Store[N, E]:
                 a, b = b, a
             parent[b] = a
             size[a] += size[b]
-            allocated(tree.append(edge))?
+            tree.append(edge).map_error(GraphError.Allocation)?
         Ok(tree)
 
 def relax(distance: &mut list[f64], via: &mut list[i64], previous: &mut list[i64], edge: EdgeId, source: NodeId, target: NodeId, step: f64) -> bool:
@@ -786,7 +779,7 @@ pub class DiGraph[N, E]:
     pub def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]:
         self._store.check_node(goal)
         paths = self._store.search(start, goal, weight, estimate)?
-        allocated(goal_path(&paths, goal))
+        goal_path(&paths, goal).map_error(GraphError.Allocation)
 
     pub def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]:
         self._store.bellman_ford(start, weight)
@@ -900,7 +893,7 @@ pub class UnGraph[N, E]:
     pub def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]:
         self._store.check_node(goal)
         paths = self._store.search(start, goal, weight, estimate)?
-        allocated(goal_path(&paths, goal))
+        goal_path(&paths, goal).map_error(GraphError.Allocation)
 
     pub def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]:
         self._store.bellman_ford(start, weight)

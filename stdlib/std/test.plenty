@@ -14,13 +14,6 @@ from std.random import Rng
 from std.sync import CancellationToken
 from std.time import Duration, Instant, instant_at
 
-def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(StreamError.Allocation(cause))
-
 pub enum TestError:
     # The explanation is already on standard error.
     Assertion
@@ -329,7 +322,7 @@ pub class FakeStream:
     pub def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]:
         self.begin()?
         count = self.allowed(len(source))
-        stream_error_allocated(self.output.extend(&source[:count]))?
+        self.output.extend(&source[:count]).map_error(StreamError.Allocation)?
         Ok(count)
 
     pub def flush(self: &mut FakeStream) -> Result[(), StreamError]:

@@ -636,9 +636,11 @@ exit (decision 5). Constructor values make a class name usable as a value
 expression; how that interacts with local bindings of the same name needs a
 check against the name-resolution rules in
 [names](../design/language/02-source/names.md). Worker-thread effect
-certification currently rejects thin function values, including constructor
-values (local PR #681); that restriction is about effects, not forms, and
-should be stated as such, but it is outside this rule.
+certification originally rejected thin function values, including constructor
+values (local PR #681). Issue #661 adds conservative certification of every
+matching address in the closed program; see
+[thin callable targets](../design/facilities/03-concurrency/effects.md#thin-callable-targets).
+This is an effect rule independent of callable forms.
 
 ### What a learner no longer has to learn
 

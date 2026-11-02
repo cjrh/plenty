@@ -231,9 +231,12 @@ def main() -> ():
 
 #[test]
 fn enum_methods_preserve_transitive_worker_effect_checks() {
-    let error = support::check_source(
+    let error = plenty::check_source(
         r#"
+import std.env
 def seven() -> i64:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
     7
 enum E:
     V
@@ -242,14 +245,15 @@ enum E:
         callback()
 def worker(value: E) -> i64:
     value.run()
-with spawn(worker, E.V).unwrap():
-    pass
+def main() -> ():
+    with spawn(worker, E.V).unwrap():
+        pass
 "#,
     )
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("worker") && error.contains("indirect callable"),
+        error.contains("worker") && error.contains("changing the working directory"),
         "{error}"
     );
 }

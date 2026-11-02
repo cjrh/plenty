@@ -681,3 +681,5 @@ mod test_signal_host;
 
 #[path = "test_constructor_values.rs"]
 mod test_constructor_values;
+#[path = "test_worker_callables.rs"]
+mod test_worker_callables;

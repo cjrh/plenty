@@ -235,3 +235,13 @@ seek targets that still return named errors. `BytesError.OutOfRange` remains
 for actor networking connection limits until B95's domain-type migration.
 See the [invalid-argument convention](../design/stdlib/conventions.md#invalid-arguments)
 and [byte-stream contract](../design/stdlib/io.md).
+
+B92's remaining worker-certification subset is delivered in issue #661. Thin
+function and variant-constructor values are certified against all matching
+function addresses in the closed program. The 30 pure allocation adapters
+introduced by local PR #804 now use direct `map_error` calls at 227 current
+call sites, including nested domain-error wrapping. Helpers that attach
+partial-progress context retain that behavior. See
+[worker callable certification](../design/facilities/03-concurrency/effects.md#thin-callable-targets)
+for its signature-wide conservatism and remaining erased-callable limits.
+Static integer domains remain B95 in the [backlog](../backlog.md).

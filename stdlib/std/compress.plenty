@@ -6,13 +6,6 @@ import std.bytes
 from std.bytes import Bytes
 from std.io import StreamError
 
-def compress_error_allocated[T](result: Result[T, AllocError]) -> Result[T, CompressError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(CompressError.Allocation(cause))
-
 pub enum Format:
     Deflate
     Zlib
@@ -174,7 +167,7 @@ pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
 pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]:
     leveled(format, level)?
     mut state = codec(kind(format, False), level, window)?
-    mut out = compress_error_allocated(std.bytes.empty())?
+    mut out = std.bytes.empty().map_error(CompressError.Allocation)?
     mut at = 0
     total = len(data)
     while at < total:
@@ -182,13 +175,13 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
         if consumed < 0:
             return Err(failed(consumed))
         at += consumed
-        compress_error_allocated(out.extend(&state))?
+        out.extend(&state).map_error(CompressError.Allocation)?
         state.clear()
     while True:
         done = __compress_flush(state, finish_flush)
         if done < 0:
             return Err(failed(done))
-        compress_error_allocated(out.extend(&state))?
+        out.extend(&state).map_error(CompressError.Allocation)?
         state.clear()
         if done == 1:
             return Ok(out)
@@ -199,14 +192,14 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
 # LimitExceeded; nothing is returned on any error.
 pub def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]:
     mut decoder = inflater(format, limit)?
-    mut out = compress_error_allocated(std.bytes.empty())?
+    mut out = std.bytes.empty().map_error(CompressError.Allocation)?
     mut at = 0
     total = len(data)
     while at < total or not decoder.complete():
         consumed = decoder.step(&data[at:total])?
         produced = decoder._state.len()
         at += consumed
-        compress_error_allocated(out.extend(&decoder._state))?
+        out.extend(&decoder._state).map_error(CompressError.Allocation)?
         decoder._state.clear()
         if at == total and consumed == 0 and produced == 0:
             break
@@ -381,6 +374,6 @@ pub class Decompressor[R]:
 
 pub def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]:
     decoder = inflater(format, limit)?
-    mut input = compress_error_allocated(std.bytes.with_capacity(window))?
-    compress_error_allocated(input.resize(window, 0u8))?
+    mut input = std.bytes.with_capacity(window).map_error(CompressError.Allocation)?
+    input.resize(window, 0u8).map_error(CompressError.Allocation)?
     Ok(Decompressor(inner, decoder, 0, input, 0, 0, False, Nothing))

@@ -12,13 +12,6 @@ from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 
-def tls_error_allocated[T](result: Result[T, AllocError]) -> Result[T, TlsError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(TlsError.Allocation(cause))
-
 pub enum TlsError:
     Net(NetError)
     UntrustedCertificate
@@ -414,12 +407,12 @@ def described(session: &ByteStorage, target: &mut Bytes, which: i64) -> i64:
 
 # A session detail as bytes, or Nothing when absent.
 def detail(session: &ByteStorage, which: i64) -> Result[Option[Bytes], TlsError]:
-    mut probe = tls_error_allocated(std.bytes.with_capacity(0))?
+    mut probe = std.bytes.with_capacity(0).map_error(TlsError.Allocation)?
     length = described(session, &mut probe, which)
     if length == absent:
         return Ok(Nothing)
-    mut value = tls_error_allocated(std.bytes.with_capacity(length))?
-    tls_error_allocated(value.resize(length, 0u8))?
+    mut value = std.bytes.with_capacity(length).map_error(TlsError.Allocation)?
+    value.resize(length, 0u8).map_error(TlsError.Allocation)?
     described(session, &mut value, which)
     Ok(Some(value))
 
@@ -792,10 +785,10 @@ def flowed_net(result: Result[(), StreamError]) -> Result[(), NetError]:
             Err(NetError.Stream(cause))
 
 def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStream, TlsError]:
-    mut incoming = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
-    tls_error_allocated(incoming.resize(buffer_size, 0u8))?
-    mut outgoing = tls_error_allocated(std.bytes.with_capacity(buffer_size))?
-    tls_error_allocated(outgoing.resize(buffer_size, 0u8))?
+    mut incoming = std.bytes.with_capacity(buffer_size).map_error(TlsError.Allocation)?
+    incoming.resize(buffer_size, 0u8).map_error(TlsError.Allocation)?
+    mut outgoing = std.bytes.with_capacity(buffer_size).map_error(TlsError.Allocation)?
+    outgoing.resize(buffer_size, 0u8).map_error(TlsError.Allocation)?
     Ok(TlsStream(tcp, session, incoming, 0, 0, outgoing, 0, 0, False, False, server))
 
 # Starts a client session on a connected stream without waiting; the
