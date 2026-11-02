@@ -361,6 +361,10 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
                         !body.contains("plenty_trap"),
                         "{mode:?} {stage} {name}:\n{body}"
                     );
+                    assert!(
+                        !body.contains(".get") && !body.contains("plenty_caller_enter"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
                     if op == "pn" && stage != "asm.txt" {
                         assert!(
                             body.contains("udiv")
@@ -375,6 +379,10 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
                 for op in ["q", "r"] {
                     let name = format!("{op}_{ty}");
                     let body = section(dir.path(), stage, &name);
+                    assert!(
+                        !body.contains(".get") && !body.contains("plenty_caller_enter"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
                     assert!(
                         !body.contains("plenty_trap_div_zero"),
                         "{mode:?} {stage} {name}:\n{body}"

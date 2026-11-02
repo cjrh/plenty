@@ -42,25 +42,35 @@ impl Lower<'_> {
         }
         let (actual, loans) = self.observe_expected(left, Some(element.clone()), ops)?;
         self.same(Some(actual), Some(element.clone()), &left.at)?;
-        self.divisor_operand(right, &element, ops)?;
+        self.divisor_operand(right, &element, proof, ops)?;
         self.mark_arithmetic(op, &element, at, ops);
         self.division_operation(op, &element, proof, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(Some(Some(element)))
     }
 
-    fn divisor_operand(&mut self, value: &Expr, element: &Ty, ops: &mut Vec<Op>) -> Result<()> {
-        let get = Expr {
-            at: value.at.clone(),
-            kind: Expression::Method(
-                Box::new(value.clone()),
-                "get".into(),
-                vec![],
-                Pos::of(&value.at),
-            ),
+    fn divisor_operand(
+        &mut self,
+        value: &Expr,
+        element: &Ty,
+        proof: Divisor,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let (ty, loans) = self.observe(value, ops)?;
+        let actual = match proof {
+            Divisor::NonZero => ty.nonzero_element(),
+            Divisor::Positive => ty.positive_element(),
+            Divisor::Any => unreachable!("domain divisors carry a proof"),
         };
-        let actual = self.expr(&get, ops)?;
-        self.same(actual, Some(element.clone()), &value.at)
+        self.same(actual, Some(element.clone()), &value.at)?;
+        let Ty::Class(class) = ty else {
+            unreachable!("validated integer domain class")
+        };
+        // A builtin domain is a copyable newtype. Project its integer directly
+        // rather than calling `.get()` and introducing caller state/temporaries.
+        ops.push(Op::Class(crate::record::ClassOp::Field(class, 0)));
+        Self::end_reads(loans, ops);
+        Ok(())
     }
 
     fn division_operation(
@@ -97,7 +107,7 @@ impl Lower<'_> {
     ) -> Result<()> {
         if let Some((element, proof)) = self.divisor_type(op, value) {
             self.same(Some(element.clone()), Some(ty.clone()), &value.at)?;
-            self.divisor_operand(value, &element, ops)?;
+            self.divisor_operand(value, &element, proof, ops)?;
             self.mark_arithmetic(op, ty, at, ops);
             self.division_operation(op, ty, proof, at, ops)
         } else {
