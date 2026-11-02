@@ -5,6 +5,14 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Linked-list tutorial
+
+The [linked-list lesson](../tutorial/04-collections/linked-lists.md) demonstrates
+owned singly linked push/pop and mutable traversal, then index-based doubly
+linked append and bidirectional traversal. Executable examples preserve existing
+links on allocation failure. Deletion, slot reuse and public handle validation
+are explicitly outside this teaching implementation; B73 remains unchanged.
+
 ## Documentation interpolation colours
 
 The default Ayu documentation theme colours f-string interpolation expressions
