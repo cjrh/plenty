@@ -17,6 +17,14 @@ Without `__init__`, the generated constructor takes fields in declaration order.
 allocates nothing; arguments and initializer operations retain their own error
 contracts. `new` is a reserved class member.
 
+A class name without arguments is a [function value](../06-functions/02-function-values.md)
+with the constructor's positional signature: `make = Point` lets
+`make(3, 4)` construct a point. A generic class needs an explicit instance,
+such as `Cell[i64]`, or a concrete expected `Callable` result naming the class
+instance. Constructor values require all positional arguments; parameter names
+and defaults belong to the statically resolved constructor call. Taking the
+value allocates nothing and preserves constructor visibility and fallibility.
+
 An explicit `__init__` overrides the generated constructor and returns either
 `()` or `Result[(), AllocError]`. The fallible form makes both constructor spellings
 return `Result[Class, AllocError]`. Other initializer error types are unsupported.

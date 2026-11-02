@@ -32,11 +32,15 @@ A payload variant named without arguments is a
 [function value](../06-functions/02-function-values.md): `Reading.Value` has
 type `Callable[[i64], Reading]`, and a variant with two payloads takes two
 arguments. Pass it where a callable is expected, for example
-`i64.parse(text).map_error(ConfigError.InvalidCount)`. A generic enum needs its
-instance, as in `Wrapped[i64].One`. Nullary variants remain values of the enum,
-not functions. The prelude `Some`, `Ok`, and `Err` and variants of `Option` or
-`Result` are not function values; write a closure such as
-`def(value: i64) -> Option[i64]: Some(value)`.
+`i64.parse(text).map_error(ConfigError.InvalidCount)` or
+`iter(range(3)).map(Reading.Value)`. A generic enum needs an explicit instance,
+as in `Wrapped[i64].One`, or a concrete expected `Callable` whose result names
+that instance. This includes `Option[i64].Some`, `Result[i64, str].Ok`, and
+`Result[i64, str].Err`. The prelude `Some`, `Ok`, and `Err` specialize from an
+expected callable signature, for example
+`wrap: Callable[[i64], Option[i64]] = Some`. Nullary variants remain values of
+the enum, not functions. A constructor value cannot have unit or generator
+payload parameters; use a closure for those signatures.
 Enums with permitted element types can be list elements or dictionary values;
 they are not dictionary keys or set elements.
 

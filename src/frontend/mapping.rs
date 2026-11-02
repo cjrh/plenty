@@ -133,6 +133,78 @@ impl Lower<'_> {
         Ok(name)
     }
 
+    pub(super) fn class_constructor_value(
+        &mut self,
+        ty: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        if ty.layout_depth() >= 64 {
+            return Err(at.error("type nesting exceeds the implementation limit of 64"));
+        }
+        let Ty::Class(class) = ty else { unreachable!() };
+        modules::check_member(self.access, &class.name, "__new__", at)?;
+        self.sync_data()?;
+        self.function_value(&crate::record::method(&class.name, "new"), at, ops)
+    }
+
+    /// A constructor's expected result identifies its concrete data instance.
+    /// Inference never guesses missing enum or class type arguments.
+    pub(super) fn constructor_expected(
+        &mut self,
+        e: &Expr,
+        expected: &Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<Ty>> {
+        let Ty::Callable(signature) = expected else {
+            return Ok(None);
+        };
+        let Some(output) = &signature.output else {
+            return Ok(None);
+        };
+        match &ungroup(e).kind {
+            Expression::Name(name) if !self.names.contains_key(name) => {
+                if enums::prelude_variant(name) && name != "Nothing" {
+                    if !enums::prelude_owner(name, output) {
+                        return Err(e.at.error(format!("constructor `{name}` does not produce the expected Callable result {output}")));
+                    }
+                    return self.variant(output.clone(), name, None, &e.at, ops);
+                }
+                if self.aliases.data.is_class(name) {
+                    let class = match output {
+                        Ty::Enum(t) if t.is_result() => &t.get().variants[0].fields[0],
+                        other => other,
+                    };
+                    if self
+                        .aliases
+                        .data
+                        .arguments(class)
+                        .is_some_and(|(owner, _)| owner == *name)
+                    {
+                        return self
+                            .class_constructor_value(class.clone(), &e.at, ops)
+                            .map(Some);
+                    }
+                }
+            }
+            Expression::Member(base, variant, _) => {
+                if let Expression::Name(owner) = &ungroup(base).kind
+                    && !self.names.contains_key(owner)
+                    && self.aliases.data.is_enum(owner)
+                    && self
+                        .aliases
+                        .data
+                        .arguments(output)
+                        .is_some_and(|(name, _)| name == *owner)
+                {
+                    return self.variant(output.clone(), variant, None, &e.at, ops);
+                }
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
     /// The function value for variant `tag` of `t`: a generated function
     /// taking the payloads in order and returning the constructed variant.
     /// Calling it is equivalent to `Enum.Variant(payloads...)`.
@@ -145,12 +217,6 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let variant = t.get().variants[tag].name.clone();
         let fields = t.get().variants[tag].fields.clone();
-        if t.propagatable() {
-            return Err(at.error(format!(
-                "`{variant}` is not a function value; write a closure such as `def(value: T) -> {}: {variant}(value)`",
-                Ty::Enum(t.clone())
-            )));
-        }
         if fields
             .iter()
             .any(|field| *field == Ty::Unit || field.unresolved_generator())

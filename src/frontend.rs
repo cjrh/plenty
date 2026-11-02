@@ -3990,6 +3990,18 @@ impl Lower<'_> {
                 Some(self.function_value(&name, &e.at, ops)?)
             }
             Expression::GenericValue(name, types) => {
+                if self.aliases.data.is_class(name) {
+                    let ty = TypeRef {
+                        concrete: None,
+                        parameter: false,
+                        at: e.at.clone(),
+                        name: Some(name.clone()),
+                        args: types.clone(),
+                    }
+                    .resolve(self.aliases)?
+                    .unwrap();
+                    return self.class_constructor_value(ty, &e.at, ops).map(Some);
+                }
                 let actual = types
                     .iter()
                     .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
@@ -4026,7 +4038,10 @@ impl Lower<'_> {
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
             Expression::Checked(body) => self.checked_value(&e.at, body, None, ops)?,
-            Expression::Type(_) => {
+            Expression::Type(ty) => {
+                if let Some(ty @ Ty::Class(_)) = ty.resolve(self.aliases)? {
+                    return self.class_constructor_value(ty, &e.at, ops).map(Some);
+                }
                 return Err(e.at.error("a type is not a value; select a variant"));
             }
             Expression::ClassNew(t) => {
@@ -4197,8 +4212,16 @@ impl Lower<'_> {
                 if enums::prelude_variant(name) && !self.names.contains_key(name) {
                     return self.prelude_constructor(name, None, None, &e.at, ops);
                 }
+                if !self.names.contains_key(name)
+                    && let Some(Some(ty @ Ty::Class(_))) = lookup_type(name, self.aliases)
+                {
+                    return self.class_constructor_value(ty, &e.at, ops).map(Some);
+                }
                 if !self.names.contains_key(name) && self.sigs.contains_key(name) {
                     return self.function_value(name, &e.at, ops).map(Some);
+                }
+                if !self.names.contains_key(name) && self.aliases.data.is_class(name) {
+                    return Err(e.at.error(format!("generic constructor `{name}` requires explicit type arguments or an expected Callable type")));
                 }
                 if !self.names.contains_key(name) && self.generics.templates.contains_key(name) {
                     return Err(e.at.error("generic function values require explicit type arguments, such as function[u8]"));
@@ -5148,6 +5171,15 @@ impl Lower<'_> {
             }
         };
         if mutable {
+            if let Some(expected) = &expected
+                && let Some(ty) = self.constructor_expected(base, expected, ops)?
+            {
+                let slot = self.slot(ty.clone(), &base.at)?;
+                ops.push(Op::StoreLocal(slot));
+                let loan = self.new_loan(slot, true, None, ops);
+                ops.push(Op::BorrowLocal(slot, true));
+                return Ok((Ty::Ref(Arc::new(ty), true), loan));
+            }
             self.borrow(base, true, ops)
         } else {
             self.shared_argument(base, expected, ops)

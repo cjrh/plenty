@@ -934,6 +934,11 @@ impl Lower<'_> {
     }
 
     fn expr_hinted(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
+        if let Some(expected) = &expected
+            && let Some(ty) = self.constructor_expected(e, expected, ops)?
+        {
+            return Ok(Some(ty));
+        }
         match &e.kind {
             Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "collect" | "try_collect")

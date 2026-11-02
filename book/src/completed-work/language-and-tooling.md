@@ -254,3 +254,14 @@ mdBook migration are delivered. Integer bitwise operations, checked shift counts
 and explicit wrapping arithmetic shipped for issue #33.
 
 [Outstanding work](../backlog.md) is not duplicated here.
+
+## Constructor function values
+
+B93's constructor subset (issue #618): class constructors and payload-bearing
+variants, including `Some`, `Ok`, and `Err`, are positional function values.
+Concrete expected callable results specialize generic constructors; explicit
+instances work without context. Pipelines accept constructor values, and shared
+or mutable callback arguments can borrow their code addresses. Fallible class
+initializers keep `Result[Class, AllocError]` as their callable result. See
+[function values](../design/language/06-functions/02-function-values.md) and
+[remaining B93 scope](../backlog.md).

@@ -774,7 +774,9 @@ impl Lower<'_> {
                     .error("`*` requires a reference, a Box, or a Shared handle")),
             };
         }
-        if let Expression::Member(base, name, _) = &ungroup(e).kind {
+        if let Expression::Member(base, name, _) = &ungroup(e).kind
+            && !self.is_function_place(e)
+        {
             if matches!(self.place_type(base), Some(Ty::Shared(_))) {
                 return self.borrow_with_indices(
                     &Expr {
@@ -908,11 +910,20 @@ impl Lower<'_> {
     fn is_function_place(&self, e: &Expr) -> bool {
         match &ungroup(e).kind {
             Expression::Name(name) => {
-                !self.names.contains_key(name) && self.sigs.contains_key(name)
+                !self.names.contains_key(name)
+                    && (self.sigs.contains_key(name)
+                        || matches!(lookup_type(name, self.aliases), Some(Some(Ty::Class(_)))))
             }
             Expression::GenericValue(name, _) => {
-                !self.names.contains_key(name) && self.generics.templates.contains_key(name)
+                !self.names.contains_key(name)
+                    && (self.generics.templates.contains_key(name)
+                        || self.aliases.data.is_class(name))
             }
+            Expression::Member(base, variant, _) => {
+                matches!(self.qualified_type(base), Ok(Some(Ty::Enum(t)))
+                    if t.get().tag(variant).is_some_and(|tag| !t.get().variants[tag].fields.is_empty()))
+            }
+            Expression::Type(ty) => matches!(ty.resolve(self.aliases), Ok(Some(Ty::Class(_)))),
             _ => false,
         }
     }
