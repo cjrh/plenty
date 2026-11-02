@@ -166,14 +166,15 @@ table (`NotATable`), a table with a repeated key (`DuplicateKey`), and a
 
 ```text
 pub class Limits:
-    pub max_depth: i64
-    pub max_input: i64
-    pub max_output: i64
+    pub max_depth: NonNegative[i64]
+    pub max_input: NonNegative[i64]
+    pub max_output: NonNegative[i64]
 ```
 
 `limits()` returns `Limits(64, 67108864, 67108864)`. The fields are public;
-adjust a copy. Every function takes `&Limits` and returns `InvalidLimits` unless
-`0 <= max_depth <= 1024`, `max_input >= 0`, and `max_output >= 0`.
+adjust a copy. A literal converts on assignment; a computed value needs
+`NonNegative.try_from(value)?`. Every function takes `&Limits` and traps when
+`max_depth` is above 1024.
 
 | Field | Bounds | When exceeded |
 |---|---|---|
@@ -207,7 +208,7 @@ value after a successful scan points one past the last byte.
 
 For writing and for stream failures, `offset` is the number of bytes produced,
 written, or read when the call failed, and `line` and `column` are 0.
-`InvalidLimits` and `NotATable` report 0, 0, 0.
+`NotATable` reports 0, 0, 0.
 
 | `TomlFault` | Meaning |
 |---|---|
@@ -225,7 +226,6 @@ written, or read when the call failed, and `line` and `column` are 0.
 | `DepthExceeded` | Nesting beyond `max_depth` |
 | `InputTooLarge`, `OutputTooLarge` | A size limit was reached |
 | `NotATable` | `encode` was given a root that is not a table |
-| `InvalidLimits` | `Limits` outside the valid ranges |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |
 | `Allocation(AllocError)` | Memory was refused |
 

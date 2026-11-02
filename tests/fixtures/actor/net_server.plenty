@@ -18,6 +18,10 @@ const idle_ms: u32 = 0u32
 const stall_ms: u32 = 0u32
 const read_ms: u32 = 0u32
 
+# Tests rewrite the size constants above, always to positive values.
+def positive(value: i64) -> Positive[i64]:
+    Positive.try_from(value).unwrap()
+
 type Fault = AllocError | NetError | BytesError | TimerError
 
 pub enum Note:
@@ -140,13 +144,13 @@ pub enum Node:
 def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError]:
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?
-    limits = Limits(input_size, output_size, milliseconds(idle_ms), milliseconds(stall_ms))
+    limits = Limits(positive(input_size), positive(output_size), milliseconds(idle_ms), milliseconds(stall_ms))
     mut admission = Admission.Pause
     if refuse:
         admission = Admission.Refuse
     mut actors = stage[Node, Note, Fault](capacity + 8, 8, 64)?
     actors.add_timers(capacity + 8)?
-    acceptor = Acceptor(listener(socket, limits, capacity, 65536, 0, admission)?, Nothing, 0, 0, 0, 0, 0, 0)
+    acceptor = Acceptor(listener(socket, limits, positive(capacity), 65536, 0, admission)?, Nothing, 0, 0, 0, 0, 0, 0)
     actors.start(Node.Accepting(acceptor), 65536).unwrap()
     actors.run(&deadline_after(&monotonic_now(), &seconds(60)).unwrap(), &CancellationToken()?)?
     print(actors.stats(), heaps_live(), heap_bytes_used())?

@@ -122,17 +122,16 @@ pub def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]:
 pub def median(values: &list[f64]) -> Result[f64, StatError]:
     quantile(values, 0.5)
 
-pub def quantiles(values: &list[f64], n: i64 = 4) -> Result[list[f64], StatError]:
-    if n < 1:
-        return Err(StatError.Domain)
+pub def quantiles(values: &list[f64], n: Positive[i64] = 4) -> Result[list[f64], StatError]:
+    parts = n.get()
     data = ordered(values)?
-    mut result = match list[f64].with_capacity(n - 1):
+    mut result = match list[f64].with_capacity(parts - 1):
         case Ok(items):
             items
         case Err(error):
             return Err(StatError.Allocation(error))
-    for index in range(1, n):
-        match result.append(sorted_quantile(&data, f64(index) / f64(n))):
+    for index in range(1, parts):
+        match result.append(sorted_quantile(&data, f64(index) / f64(parts))):
             case Ok(_):
                 pass
             case Err(error):

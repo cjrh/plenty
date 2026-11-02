@@ -386,9 +386,8 @@ pub class Child:
     # whichever is ready, so no pipe fills while another is being served. Then
     # closes stdin and waits. More than `limit` bytes on either stream is
     # OutOfRange; the child is then still running and still owned.
-    pub def communicate(self: &mut Child, input: &[u8], limit: i64) -> Result[Output, StreamError]:
-        if limit < 0:
-            return Err(StreamError.OutOfRange)
+    pub def communicate(self: &mut Child, input: &[u8], limit: NonNegative[i64]) -> Result[Output, StreamError]:
+        most = limit.get()
         mut out = empty()?
         mut err = empty()?
         mut sent = 0
@@ -418,7 +417,7 @@ pub class Child:
                 mut ended = False
                 match &mut self._stdout:
                     case Some(file):
-                        ended = drained(file, &mut out, limit)?
+                        ended = drained(file, &mut out, most)?
                     case Nothing:
                         pass
                 if ended:
@@ -427,7 +426,7 @@ pub class Child:
                 mut ended = False
                 match &mut self._stderr:
                     case Some(file):
-                        ended = drained(file, &mut err, limit)?
+                        ended = drained(file, &mut err, most)?
                     case Nothing:
                         pass
                 if ended:
@@ -436,7 +435,7 @@ pub class Child:
         Ok(Output(status, out, err))
 
     # communicate with no input: stdin is closed at once.
-    pub def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]:
+    pub def output(self: &mut Child, limit: NonNegative[i64]) -> Result[Output, StreamError]:
         nothing = empty()?
         self.communicate(&nothing, limit)
 

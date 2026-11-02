@@ -1,8 +1,8 @@
 # Bounded copy, deletion and glob filtering
 
-`copy_file(&root, &source, &destination, max_bytes, &cancel, preserve=CopyMetadata.ContentsOnly)` copies one
+`copy_file(&root, &source, &destination, max_bytes: NonNegative[i64], &cancel, preserve=CopyMetadata.ContentsOnly)` copies one
 regular file to a new name in the same root and returns `Result[i64, FsError]`.
-`copy_from(&mut reader, &root, &destination, max_bytes, &cancel)` accepts any
+`copy_from(&mut reader, &root, &destination, max_bytes: NonNegative[i64], &cancel)` accepts any
 checked `std.io.Reader`. Both stage into an anonymous temporary file and
 publish only after EOF, flushing, and a final cancellation observation.
 They never replace an existing name. `copy_file` optionally preserves selected
@@ -39,16 +39,14 @@ The loop uses one 8192-byte buffer, retries interrupted reads, checks reader
 progress, and checks cancellation before and after each read and before
 publication. Writes use `std.io.write_all`. Cancellation is cooperative,
 cannot interrupt an in-progress syscall/write-all, and may race a successful
-publication after the final check. Negative bounds are invalid; exceeding the
-byte bound reports `Limit`. One read of up to 8192 bytes can consume beyond the
+publication after the final check. Exceeding the byte bound reports `Limit`. One read of up to 8192 bytes can consume beyond the
 bound before rejecting it. A concurrently changing source is not a snapshot.
 The count is bytes published. Costs are O(bytes) time and O(8192 + path lengths)
 scratch storage, without a whole-file allocation. A successful result does not
 promise durable storage. See [temporary-file requirements](temporary.md).
 
-`remove_tree(&root, &name, max_entries, max_depth, &cancel)` explicitly removes
-a child directory tree. It requires positive entry/depth budgets, with depth
-at most 64. The root directory counts as one entry and one level. Each
+`remove_tree(&root, &name, max_entries: Positive[i64], max_depth: Positive[i64], &cancel)`
+explicitly removes a child directory tree. A `max_depth` above 64 traps. The root directory counts as one entry and one level. Each
 encountered child consumes the shared entry budget. Depth is checked before
 opening a recursive frame. File/link unlinking and empty-directory removal
 use the anchored parent handle. Links (including cycles) are unlinked and
@@ -64,7 +62,8 @@ adversarial sandbox. A directory identity check precedes the final rmdir, with
 the same non-atomic race limitation as temporary-directory cleanup. Other
 processes must not relocate entries during destructive traversal.
 
-`glob(&root, &pattern, max_entries, max_matches, max_steps)` returns
+`glob(&root, &pattern, max_entries, max_matches, max_steps)`, each budget a
+`NonNegative[i64]`, returns
 `Result[list[Path], FsError]` for names directly inside the root. `*` matches
 any byte sequence, `?` one byte, and every other byte is literal (including
 brackets, backslash and leading dot). Slash/NUL and patterns over 4096 bytes
@@ -72,7 +71,7 @@ are invalid; there is no recursive `**`, character class, escaping, sorting or
 Unicode normalization. Consecutive stars retain their ordinary star meaning.
 Invalid UTF-8 names remain lossless.
 
-Entry, result and matching-step budgets are independent nonnegative limits.
+Entry, result and matching-step budgets are independent limits.
 Each examined entry and each matcher iteration consumes its budget; exceeding
 one returns `Limit`, releasing partial results. Greedy star backtracking takes
 O(pattern length * name length) worst-case time, bounded by `max_steps` across

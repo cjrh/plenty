@@ -38,8 +38,8 @@ def main() -> Result[(), IoError | ImageError]:
 
 | Function | Result | Contract |
 |---|---|---|
-| `new(width: i64, height: i64, color: ColorType)` | `Result[Image, ImageError]` | A zeroed image: black, and transparent if it has alpha |
-| `from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes)` | `Result[Image, ImageError]` | Takes `pixels` as the buffer, without copying |
+| `new(width: Positive[i64], height: Positive[i64], color: ColorType)` | `Result[Image, ImageError]` | A zeroed image: black, and transparent if it has alpha |
+| `from_pixels(width: Positive[i64], height: Positive[i64], color: ColorType, pixels: Bytes)` | `Result[Image, ImageError]` | Takes `pixels` as the buffer, without copying |
 | `detect(data: &[u8])` | `Option[Format]` | The format named by the first bytes of `data` |
 | `info(data: &[u8])` | `Result[Info, ImageError]` | The header of a PNG file, without decoding pixels |
 | `decode(data: &[u8], limits: &Limits)` | `Result[Image, ImageError]` | The image in a whole PNG file, within `limits` |
@@ -47,8 +47,10 @@ def main() -> Result[(), IoError | ImageError]:
 | `limits()` | `Limits` | The default limits; see [Decoding limits](#decoding-limits) |
 
 Width and height lie in 1 to 2³¹−1, the PNG maximum, so every image can be
-encoded; other values are `OutOfRange`, and an image whose size in bytes does
-not fit in `i64` is `LimitExceeded`. `from_pixels` needs a buffer of exactly
+encoded. `new` and `from_pixels` trap on a dimension above 2³¹−1; convert a
+computed size with `Positive.try_from`, or check it first with
+`Limits.check`. An image whose size in bytes does not fit in `i64` is
+`LimitExceeded`. `from_pixels` needs a buffer of exactly
 `width * height * channels` bytes, otherwise `OutOfRange`.
 
 `detect` recognises PNG, JPEG, GIF and WebP signatures and returns `Nothing`
@@ -104,15 +106,15 @@ with `LimitExceeded`:
 
 | Field | Bound |
 |---|---|
-| `max_width: i64` | Width in pixels |
-| `max_height: i64` | Height in pixels |
-| `max_bytes: i64` | The decoded buffer, `width * height * channels` bytes |
+| `max_width: NonNegative[i64]` | Width in pixels |
+| `max_height: NonNegative[i64]` | Height in pixels |
+| `max_bytes: NonNegative[i64]` | The decoded buffer, `width * height * channels` bytes |
 
 `std.image.limits()` returns 16384 × 16384 pixels and 256 MiB, enough for an
 8192 × 8192 `Rgba` image. Construct `Limits(max_width, max_height, max_bytes)`
 for other bounds. `max_bytes` counts the channels of the decoded colour type:
-a palette image with transparency decodes to `Rgba`, four bytes per pixel. A
-negative limit is `OutOfRange`. `check(width, height, color)` applies the same
+a palette image with transparency decodes to `Rgba`, four bytes per pixel.
+`check(width, height, color)` applies the same
 test to any dimensions, for example before `new` or `resize` with sizes taken
 from input.
 
@@ -138,12 +140,12 @@ from std.image import ColorType, ImageError, Limits
 type Problem = AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.io.Partial | ImageError
 
 # The whole file, or LimitExceeded if it is longer than `limit` bytes.
-def load(path: &str, limit: i64) -> Result[Bytes, Problem]:
+def load(path: &str, limit: NonNegative[i64]) -> Result[Bytes, Problem]:
     mut file = std.io.open_file(path, "r")?
     mut data = std.bytes.empty()?
     read = std.io.read_up_to(&mut file, &mut data, limit + 1)?
     file.close()?
-    if read > limit:
+    if read > limit.get():
         return Err(ImageError.LimitExceeded)
     Ok(data)
 
@@ -273,7 +275,7 @@ pub enum ImageError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A dimension, coordinate, channel, rectangle, buffer length, level, or limit out of bounds |
+| `OutOfRange` | A dimension, coordinate, channel, rectangle, buffer length, or level out of bounds |
 | `Corrupt` | A malformed PNG file; see [Decoding](#decoding) |
 | `Checksum` | A chunk CRC or zlib Adler-32 mismatch |
 | `Truncated` | The input ended inside a chunk or before `IEND` |

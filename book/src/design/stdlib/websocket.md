@@ -125,7 +125,7 @@ pieces, so `send` allocates nothing for any message size.
 | `max_message` | 1048576 | Largest message `receive` joins |
 | `subprotocol` | `Nothing` | The subprotocol a client offers, or a server accepts when the client offers it |
 
-Both maxima must be at least 1 (`InvalidConfig`).
+Both maxima are `Positive[i64]`, so a zero or negative maximum is a type error.
 
 ## Servers
 

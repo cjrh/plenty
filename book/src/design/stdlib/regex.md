@@ -56,7 +56,9 @@ Released 15/03/2024, patched 02/04/2024.
 | `compile(pattern: &str, bounds: &Limits)` | `Result[Regex, RegexError]` | The compiled pattern, or its first error |
 
 `Limits(max_pattern_bytes, max_nesting, max_repeat, max_instructions,
-max_memory, max_work)` has public fields in that order:
+max_memory, max_work)` has public `NonNegative[i64]` fields in that order. A
+literal converts where a field is expected; a computed value needs
+`NonNegative.try_from(value)?`.
 
 | Field | Default | Bounds | Exceeded as |
 |---|---|---|---|
@@ -67,7 +69,7 @@ max_memory, max_work)` has public fields in that order:
 | `max_memory` | 67108864 | Matcher scratch bytes for one search | `Limit.Memory` |
 | `max_work` | 100000000 | Matcher steps in one call | `Limit.Work` |
 
-A negative field, or `max_nesting` above 1000, is `InvalidLimits`. Matcher
+`compile` traps when `max_nesting` is above 1000. Matcher
 memory is `8 × (7n + 2ns + 2s + 8)` bytes for `n` instructions and `s`
 capture slots (two per group, counting the whole match); `compile` checks it
 for the largest `s` the regex can use, so no later search fails on memory.
@@ -78,7 +80,6 @@ for the largest `s` the regex can use, so no later search fails on memory.
 |---|---|
 | `Syntax(SyntaxError)` | Invalid pattern or replacement template; `SyntaxError(offset, message)` gives the byte offset into it |
 | `LimitExceeded(Limit)` | A limit was exceeded; also `Limit.Output` and `Limit.Matches` for the per-call limits below |
-| `InvalidLimits` | A `Limits` field is out of range |
 | `OutOfRange` | A start offset outside the input or inside a UTF-8 sequence, a `Match` outside its haystack, or a `Cursor` from another regex |
 | `Allocation(AllocError)` | Allocation failed |
 

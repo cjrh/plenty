@@ -44,9 +44,9 @@ def noise(count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesErr
         out.push(u8.wrapping_from(x >> 24))?
     Ok(out)
 
-def trip(format: Format, level: i64, data: &Bytes) -> Result[bool, AllocError | IoError | std.compress.CompressError | std.encoding.EncodingError]:
+def trip(format: Format, level: i64, data: &Bytes) -> Result[bool, AllocError | IoError | RangeError | std.compress.CompressError | std.encoding.EncodingError]:
     packed = std.compress.compress(format, data, level)?
-    plain = std.compress.decompress(format, &packed, data.len())?
+    plain = std.compress.decompress(format, &packed, NonNegative.try_from(data.len())?)?
     Ok(hex(&plain)? == hex(data)?)
 
 # A reader that delivers one byte per call and is interrupted every other call.
@@ -120,7 +120,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -250,12 +250,11 @@ print(shown(std.compress.decompress(Format.Gzip, &unhex("{FOX_GZIP}00")?, 100))?
 print(shown(std.compress.decompress(Format.Zlib, &unhex("{FOX_ZLIB}{FOX_ZLIB}")?, 100))?)?
 print(shown(std.compress.decompress(Format.Deflate, &unhex("{FOX_RAW}ff")?, 100))?)?
 print(shown(std.compress.decompress(Format.Zlib, &unhex("{FOX_GZIP}")?, 100))?)?
-print(shown(std.compress.decompress(Format.Gzip, &unhex("{FOX_GZIP}")?, -1))?)?
 print(str.repr(std.compress.compress(Format.Gzip, &unhex("")?, 10))?)?
 "#
         ),
         "Checksum\nChecksum\nChecksum\nTruncated\nTruncated\nTrailingData\nTrailingData\n\
-         TrailingData\nCorrupt\nOutOfRange\nResult[Bytes, E].Err(OutOfRange)",
+         TrailingData\nCorrupt\nResult[Bytes, E].Err(OutOfRange)",
     );
 }
 
@@ -419,6 +418,16 @@ print(str.repr(std.compress.crc32(-1, &data[:1]))?)?
 "#,
         "3421780262\n3421780262\n3421780262 3421780262\nResult[i64, E].Err(OutOfRange)",
     );
+}
+
+/// B95: the output limit is `NonNegative[i64]`, so a negative literal is a
+/// compile error rather than `OutOfRange`.
+#[test]
+fn negative_limit_literal_is_rejected() {
+    let error = support::check_file_error(&program(
+        "drop(std.compress.decompress(Format.Gzip, &std.bytes.empty()?, -1))\n",
+    ));
+    assert!(error.contains("NonNegative"), "{error}");
 }
 
 // Issue #633: the codec primitives are std-only intrinsics, so user code

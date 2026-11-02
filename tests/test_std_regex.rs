@@ -65,7 +65,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -556,8 +556,6 @@ print(shown(std.regex.compile("(a{1000}){1000}", &base))?)?
 print(shown(std.regex.compile("abcdef", &Limits(100, 128, 1000, 8, 67108864, 100000000)))?)?
 print(shown(std.regex.compile("[abc]", &Limits(100, 128, 1000, 2, 67108864, 100000000)))?)?
 print(shown(std.regex.compile("(a)(b)(c)", &Limits(100, 128, 1000, 100, 1000, 100000000)))?)?
-print(shown(std.regex.compile("a", &Limits(100, 1001, 1000, 100, 1000, 100000000)))?)?
-print(shown(std.regex.compile("a", &Limits(-1, 128, 1000, 100, 1000, 100000000)))?)?
 small = std.regex.compile("a+b", &Limits(100, 128, 1000, 100, 100000, 200))?
 print(shown(small.find("aaaaaaaaaab"))?)?
 print(shown(small.find(&repeated("a", 100)?))?)?
@@ -580,13 +578,28 @@ LimitExceeded(Instructions)
 LimitExceeded(Instructions)
 LimitExceeded(Instructions)
 LimitExceeded(Memory)
-InvalidLimits
-InvalidLimits
 ok
 LimitExceeded(Work)
 LimitExceeded(Nesting)
 "#,
     );
+}
+
+#[test]
+fn a_nesting_limit_above_the_ceiling_traps() {
+    support::assert_file_traps(
+        &program("drop(std.regex.compile(\"a\", &Limits(100, 1001, 1000, 100, 1000, 100000000)))"),
+        "std.regex.compile: max_nesting is above 1000",
+    );
+}
+
+#[test]
+fn negative_limits_are_compile_errors() {
+    // Every field is `NonNegative[i64]`, replacing the old `InvalidLimits` case.
+    let error = support::check_file_error(&program(
+        "drop(std.regex.compile(\"a\", &Limits(-1, 128, 1000, 100, 1000, 100000000)))",
+    ));
+    assert!(error.contains("cannot be negative"), "{error}");
 }
 
 /// Patterns that take exponential time in a backtracking matcher. Here the
@@ -609,7 +622,7 @@ fn pathological_patterns_run_in_linear_time() {
     for (i, pattern) in patterns.iter().enumerate() {
         body.push_str(&format!(
             "    probe{i} = std.regex.compile({p}, &std.regex.limits())?\n\
-             \x20   work{i} = 2 * probe{i}.instructions() * (size + 1)\n\
+             \x20   work{i} = NonNegative.try_from(2 * probe{i}.instructions() * (size + 1))?\n\
              \x20   regex{i} = std.regex.compile({p}, &Limits(65536, 128, 1000, 100000, 67108864, work{i}))?\n\
              \x20   found{i} = regex{i}.find(&text)?.is_some() or regex{i}.find(&x)?.is_some()\n\
              \x20   print(found{i}, regex{i}.is_match(&text)?, regex{i}.captures(&text)?.is_some())?\n",

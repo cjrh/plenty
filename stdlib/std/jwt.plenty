@@ -377,13 +377,17 @@ pub class Validation:
     pub require_expiry: bool
     pub issuer: Option[str]
     pub audience: Option[str]
-    pub max_size: i64
+    pub max_size: Positive[i64]
 
 pub def validation(now: &Timestamp) -> Validation:
-    Validation(Timestamp(now.seconds, now.nanoseconds), nanoseconds(0u64), True, Nothing, Nothing, default_max_size)
+    Validation(Timestamp(now.seconds, now.nanoseconds), nanoseconds(0u64), True, Nothing, Nothing, default_size())
 
 def valid_rules(rules: &Validation) -> bool:
-    rules.now.seconds >= 0 and rules.now.nanoseconds < 1000000000u32 and rules.leeway.as_nanoseconds() <= u64(max_leeway) * 1000000000u64 and rules.max_size > 0 and rules.max_size <= max_token_size
+    rules.now.seconds >= 0 and rules.now.nanoseconds < 1000000000u32 and rules.leeway.as_nanoseconds() <= u64(max_leeway) * 1000000000u64
+
+# `default_max_size` as a typed default; a module constant cannot be one.
+def default_size() -> Positive[i64]:
+    8192
 
 # `token_type` is the `typ` member. Before verification, every field is
 # unauthenticated.
@@ -397,8 +401,11 @@ pub class Token:
     pub claims: list[Member]
 
 # Header nesting has no use beyond a few levels; claims may nest.
-const header_depth: i64 = 4
-const claims_depth: i64 = 32
+def header_depth() -> NonNegative[i64]:
+    4
+
+def claims_depth() -> NonNegative[i64]:
+    32
 
 # A token as bytes with the offsets of its two dots.
 class Parts:
@@ -407,8 +414,6 @@ class Parts:
     second: i64
 
 def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
-    if max_size <= 0 or max_size > max_token_size:
-        return Err(JwtError.InvalidValidation)
     if token.byte_len() > max_size:
         return Err(JwtError.TooLarge)
     source = std.bytes.from_text(token).map_error(JwtError.Allocation)?
@@ -425,8 +430,9 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
     # A third dot is rejected by the strict base64url decoder.
     Ok(Parts(source, first, second))
 
-def object(source: &[u8], depth: i64) -> Result[list[Member], JwtError]:
-    bounds = Limits(depth, len(source), 0, DuplicateKeys.Reject)
+def object(source: &[u8], depth: NonNegative[i64]) -> Result[list[Member], JwtError]:
+    # A length is never negative, so the conversion cannot fail.
+    bounds = Limits(depth, NonNegative.try_from(len(source)).unwrap(), 0, DuplicateKeys.Reject)
     match from_json(std.json.parse(source, &bounds))?:
         case Json.Object(members):
             Ok(members)
@@ -444,7 +450,7 @@ def header_text(value: Json) -> Result[str, JwtError]:
 # never supply a key: the caller chooses it.
 def read_header(parts: &Parts) -> Result[Header, JwtError]:
     raw = from_encoding(std.encoding.base64url_decode(&parts.source[:parts.first]))?
-    members = object(&raw, header_depth)?
+    members = object(&raw, header_depth())?
     mut name: Option[str] = Nothing
     mut key_id: Option[str] = Nothing
     mut token_type: Option[str] = Nothing
@@ -473,9 +479,12 @@ def read_header(parts: &Parts) -> Result[Header, JwtError]:
     Ok(Header(algorithm, key_id, token_type))
 
 # Reads the header without verifying anything, for example to choose a key
-# by `kid`. The result is attacker-controlled until `verify` succeeds.
-pub def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[Header, JwtError]:
-    parts = split(token, max_size)?
+# by `kid`. The result is attacker-controlled until `verify` succeeds. The
+# default is `default_max_size`, written as a literal so it converts.
+pub def decode_header(token: &str, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]:
+    if max_size.get() > max_token_size:
+        __trap("std.jwt.decode_header: max_size is above max_token_size")
+    parts = split(token, max_size.get())?
     read_header(&parts)
 
 def signature_valid(key: &VerifyingKey, message: &[u8], signature: &[u8]) -> Result[bool, JwtError]:
@@ -607,9 +616,11 @@ def check_claims(claims: &list[Member], rules: &Validation) -> Result[(), JwtErr
 # claims JSON, then claim rules. The claims are not parsed before the
 # signature verifies.
 pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]:
+    if rules.max_size.get() > max_token_size:
+        __trap("std.jwt.verify: max_size is above max_token_size")
     if not valid_rules(rules):
         return Err(JwtError.InvalidValidation)
-    mut parts = split(token, rules.max_size)?
+    mut parts = split(token, rules.max_size.get())?
     header = read_header(&parts)?
     if header.algorithm != key._algorithm:
         return Err(JwtError.AlgorithmMismatch)
@@ -618,7 +629,7 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
     parts.source.truncate(parts.second)
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)
-    claims = object(&payload, claims_depth)?
+    claims = object(&payload, claims_depth())?
     check_claims(&claims, rules)?
     Ok(Token(header, claims))
 

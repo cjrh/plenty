@@ -20,7 +20,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = NetError | BytesError | TimerError | StartError | IoError
+type Fault = AllocError | NetError | BytesError | TimerError | StartError | IoError
 
 # Spawn tags: the listener's connections and the client.
 const connection_tag: i64 = 0
@@ -266,13 +266,13 @@ heap.
 
 | Export | Contract |
 |---|---|
-| `Limits(input, output, idle, stall)` | Buffer sizes in bytes and deadlines; see [Deadlines](#deadlines) |
-| `listener(socket, limits, capacity, heap, tag, admission)` | `Result[Listener, NetError]`; `InvalidInput` for a size, capacity or heap below 1 |
+| `Limits(input, output, idle, stall)` | Buffer sizes in bytes (`Positive[i64]`) and deadlines; see [Deadlines](#deadlines) |
+| `listener(socket, limits, capacity: Positive[i64], heap: Positive[i64], tag, admission)` | `Result[Listener, NetError]`; traps for a `heap` above [`max_heap_limit`](actor.md) |
 | `Listener.start(context)` | `Result[(), NetError]` |
 | `Listener.handle(&mail, context)` | `Result[bool, NetError]`: `True` for mail the listener used |
-| `Listener.accept()` | `Result[Option[Connection], NetError \| BytesError]`: in the spawn hook; `Nothing` when no connection waits, and the hook should return `Nothing` |
+| `Listener.accept()` | `Result[Option[Connection], NetError \| AllocError]`: in the spawn hook; `Nothing` when no connection waits, and the hook should return `Nothing` |
 | `Listener.live()`, `refused()`, `tag()`, `local_address()` | Admitted connections not yet ended, connections refused, the child tag, the bound address |
-| `connection(stream, &limits)` | `Result[Connection, BytesError]`: buffers in the current heap |
+| `connection(stream, &limits)` | `Result[Connection, AllocError]`: buffers in the current heap |
 | `Connection.start(context)` | `Result[(), NetError \| TimerError]` |
 | `Connection.handle(&mail, context)` | `Result[Events, NetError \| TimerError]` |
 | `Connection.input()`, `input_start()`, `input_stop()`, `available()` | The input buffer and the unconsumed range |
@@ -280,7 +280,7 @@ heap.
 | `Connection.write(&source[start:stop], context)` | `Result[i64, NetError \| TimerError]`: bytes accepted; `Stream(StreamError.Io(IoError.Closed))` after `shutdown_write` or `close`, and `InvalidInput` for a range outside `source` |
 | `Connection.forward(count, context)` | `Result[i64, NetError \| TimerError]`: bytes moved from input to output |
 | `Connection.pending()`, `space()` | Unsent output bytes; bytes `write` would accept now |
-| `Connection.reserve(wanted)`, `output()`, `output_stop()`, `commit(count, context)` | Produce output in place: `reserve` compacts and returns `Result[i64, NetError]`, the room up to `wanted`; write into `output()` from `output_stop()`; `commit` sends the `count` bytes written. For layers such as [`std.actor.tls`](actor-tls.md) |
+| `Connection.reserve(wanted: NonNegative[i64])`, `output()`, `output_stop()`, `commit(count, context)` | Produce output in place: `reserve` compacts and returns `Result[i64, NetError]`, the room up to `wanted`; write into `output()` from `output_stop()`; `commit` sends the `count` bytes written. For layers such as [`std.actor.tls`](actor-tls.md) |
 | `Connection.acknowledge_now()` | Acknowledge received data at once (`TCP_QUICKACK`), as `TcpStream.acknowledge_now` in [`std.net`](net.md); best effort |
 | `Connection.read_within(&span, context)`, `clear_read_deadline()` | Set or clear the read deadline |
 | `Connection.shutdown_write(context)`, `close(context)` | End output after pending bytes; close at once |

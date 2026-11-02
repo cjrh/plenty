@@ -239,8 +239,9 @@ failure return plain values (issue #667).
 Unused byte-error adapters and unreachable range variants have been removed
 (issue #668). Real failures remain recoverable: truncation, malformed encoded
 text, allocation failure, transport failures and the capacities, limits and
-seek targets that still return named errors. `BytesError.OutOfRange` remains
-for actor networking connection limits until B95's domain-type migration.
+seek targets that still return named errors. `BytesError.OutOfRange`, kept
+then for actor networking connection limits, was removed by
+[B95](language-and-tooling.md#b95-std-limit-domains).
 See the [invalid-argument convention](../design/stdlib/conventions.md#invalid-arguments)
 and [byte-stream contract](../design/stdlib/io.md).
 
@@ -252,7 +253,7 @@ call sites, including nested domain-error wrapping. Helpers that attach
 partial-progress context retain that behavior. See
 [worker callable certification](../design/facilities/03-concurrency/effects.md#thin-callable-targets)
 for its signature-wide conservatism and remaining erased-callable limits.
-Static integer domains remain B95 in the [backlog](../backlog.md).
+Static integer domains were completed by [B95](language-and-tooling.md#b95-std-limit-domains).
 
 ### Dataframe byte-view inputs (issue #657)
 

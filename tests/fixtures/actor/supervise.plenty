@@ -3,7 +3,8 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-const small_heap: i64 = 65536
+def small_heap() -> Positive[i64]:
+    65536
 
 pub enum Note:
     Text(str)
@@ -17,9 +18,9 @@ pub class Node:
 
     pub def started(self: &mut Node, context: &mut Context[Note, AllocError]) -> Result[(), AllocError]:
         if self.tag == 0:
-            grower = context.spawn(11, small_heap).unwrap()
-            replier = context.spawn(12, small_heap).unwrap()
-            trapper = context.spawn(13, small_heap).unwrap()
+            grower = context.spawn(11, small_heap()).unwrap()
+            replier = context.spawn(12, small_heap()).unwrap()
+            trapper = context.spawn(13, small_heap()).unwrap()
             context.send(grower, Note.Grow(100000)).unwrap()
             context.send(replier, Note.Reply(context.address())).unwrap()
             context.send(trapper, Note.Boom).unwrap()
@@ -67,13 +68,13 @@ def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
     deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
     cancel = CancellationToken()?
     mut tree = stage[Node, Note, AllocError](8, 4, 8)?
-    root = tree.start(Node(0, 0), small_heap).unwrap()
+    root = tree.start(Node(0, 0), small_heap()).unwrap()
     tree.run(&deadline, &cancel)?
     print(tree.stats(), heaps_live(), heap_bytes_used(), heap_bytes_committed())?
     describe(tree.send(root, Note.Text("late")))?
 
     mut sink = stage[Node, Note, AllocError](1, 1, 1)?
-    only = sink.start(Node(9, 0), small_heap).unwrap()
+    only = sink.start(Node(9, 0), small_heap()).unwrap()
     describe(sink.send(only, Note.Text("first")))?
     describe(sink.send(only, Note.Text("second")))?
     sink.run(&deadline, &cancel)?

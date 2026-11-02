@@ -138,7 +138,7 @@ enum Undelivered[M]
 enum StageError
     Allocation(AllocError) | Wait(WaitError)
 enum StartError
-    Unsupported | Capacity | Heaps | Limit | Mailbox
+    Unsupported | Capacity | Heaps | Mailbox
 class Stats
     started: i64
     stopped: i64
@@ -159,8 +159,8 @@ class Context[M, E]
     def heap_used(self) -> i64
     def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Context[M, E], to: Address) -> bool
-    def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
-    def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
+    def spawn(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]
+    def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]
     def restart(self: &mut Context[M, E], child: Address, limit: i64, window: &Duration) -> bool
     def after(self: &mut Context[M, E], delay: &Duration, tag: i64) -> Result[Timer, TimerError]
     def every(self: &mut Context[M, E], period: &Duration, tag: i64) -> Result[Timer, TimerError]
@@ -171,7 +171,7 @@ class Context[M, E]
     def unwatch[H: Watchable](self: &mut Context[M, E], handle: &H) -> Result[(), WaitError]
 class Stage[N, M, E]
     def shutdown(self: &mut Stage[N, M, E]) -> ()
-    def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
+    def start(self: &mut Stage[N, M, E], node: N, limit: Positive[i64]) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool
     def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]
@@ -189,8 +189,8 @@ TCP for actors: a listener that starts one actor per connection with admission l
 
 ```text
 class Limits
-    input: i64
-    output: i64
+    input: Positive[i64]
+    output: Positive[i64]
     idle: Duration
     stall: Duration
 enum Expired
@@ -213,7 +213,7 @@ class Connection
     def pending(self) -> i64
     def space(self) -> i64
     def write[M, E](self: &mut Connection, source: &[u8], context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
-    def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]
+    def reserve(self: &mut Connection, wanted: NonNegative[i64]) -> Result[i64, NetError]
     def output(self: &mut Connection) -> &mut Bytes
     def output_stop(self) -> i64
     def commit[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
@@ -226,18 +226,18 @@ class Connection
     def reading(self) -> bool
     def closed(self) -> bool
     def stream(self) -> &TcpStream
-def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]
+def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, AllocError]
 enum Admission
     Pause | Refuse
 class Listener
     def start[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]
     def handle[M, E](self: &mut Listener, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[bool, NetError]
-    def accept(self) -> Result[Option[Connection], NetError | BytesError]
+    def accept(self) -> Result[Option[Connection], NetError | AllocError]
     def live(self) -> i64
     def refused(self) -> i64
     def tag(self) -> i64
     def local_address(self) -> Result[SocketAddress, NetError]
-def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]
+def listener(socket: TcpListener, limits: Limits, capacity: Positive[i64], heap: Positive[i64], tag: i64, admission: Admission) -> Result[Listener, NetError]
 class Dialing
     def handle[M, E](self: &mut Dialing, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[TcpStream], NetError]
     def abandon[M, E](self: &mut Dialing, context: &mut Context[M, E]) -> Result[(), NetError]
@@ -274,9 +274,9 @@ class TlsConnection
     def closed(self) -> bool
     def session(self) -> &Session
     def connection(self) -> &Connection
-def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]
-def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]
-def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]
+def over(net: Connection, session: Session, input: Positive[i64]) -> Result[TlsConnection, TlsError]
+def server(net: Connection, config: &ServerConfig, input: Positive[i64]) -> Result[TlsConnection, TlsError]
+def client(net: Connection, config: &ClientConfig, server_name: &str, input: Positive[i64]) -> Result[TlsConnection, TlsError]
 ```
 
 ## `std.actor.http.server`
@@ -304,7 +304,7 @@ class Config
     response_timeout: Duration
     handshake_timeout: Duration
     drain_timeout: Duration
-    max_requests: i64
+    max_requests: Positive[i64]
 class Report
     actors: Stats
     requests: u64
@@ -398,7 +398,7 @@ class ZipReader[R]
     def failure(self) -> Option[ArchiveError]
     def open(self: &mut ZipReader[R], index: i64) -> Result[(), ArchiveError]
     def read(self: &mut ZipReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], ArchiveError]
+def zip_reader[R](inner: R, max_entries: NonNegative[i64]) -> Result[ZipReader[R], ArchiveError]
 enum Method
     Stored | Deflate
 class ZipWriter[W]
@@ -429,7 +429,7 @@ Compact owning byte buffers with checked ranges, explicit copies and validated t
 
 ```text
 enum BytesError
-    OutOfRange | InvalidUtf8 | Allocation(AllocError)
+    InvalidUtf8 | Allocation(AllocError)
 class Bytes
     def len(self) -> i64
     def is_empty(self) -> bool
@@ -643,9 +643,9 @@ class Inflater
     def complete(self) -> bool
     def output(self) -> &Bytes
     def clear(self: &mut Inflater) -> ()
-def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]
+def inflater(format: Format, limit: NonNegative[i64]) -> Result[Inflater, CompressError]
 def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]
-def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]
+def decompress(format: Format, data: &[u8], limit: NonNegative[i64]) -> Result[Bytes, CompressError]
 def crc32(seed: i64, data: &[u8]) -> Result[i64, CompressError]
 class Compressor[W]
     inner: W
@@ -657,7 +657,7 @@ class Decompressor[R]
     inner: R
     def failure(self) -> Option[CompressError]
     def read(self: &mut Decompressor[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]
+def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result[Decompressor[R], CompressError]
 ```
 
 ## `std.concurrent`
@@ -715,7 +715,7 @@ def ed25519_sign_into(seed: &[u8], message: &[u8], target: &mut Bytes) -> Result
 def ed25519_sign(seed: &[u8], message: &[u8]) -> Result[Bytes, AdvancedError]
 def ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]
 def hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
-def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64) -> Result[Bytes, AdvancedError]
+def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: NonNegative[i64]) -> Result[Bytes, AdvancedError]
 class X25519Key
     def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]
     def public_key(self) -> Result[Bytes, AdvancedError]
@@ -762,7 +762,7 @@ class Position
     line: i64
     offset: i64
 enum CsvError
-    Invalid(Fault, Position) | Rejected(Fault, i64, i64) | Width(i64, i64, i64) | EmptyRecord(i64) | InvalidUtf8(i64, i64) | InvalidDialect | OutOfRange | Stopped | Stream(StreamError) | Allocation(AllocError)
+    Invalid(Fault, Position) | Rejected(Fault, i64, i64) | Width(i64, i64, i64) | EmptyRecord(i64) | InvalidUtf8(i64, i64) | InvalidDialect | Stopped | Stream(StreamError) | Allocation(AllocError)
 enum Width
     Any | First | Exactly(i64)
 enum Newline
@@ -799,7 +799,7 @@ class Reader[R]
     def line(self) -> i64
     def offset(self) -> i64
     def read(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]
-def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R], CsvError]
+def reader[R](inner: R, dialect: &Dialect, capacity: Positive[i64]) -> Result[Reader[R], CsvError]
 class Writer[W]
     inner: W
     def records(self) -> i64
@@ -1023,7 +1023,7 @@ Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQ
 enum Mode
     ReadOnly | ReadWrite | Create
 enum KvError
-    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | InvalidLimit | ForeignDatabase | UnsupportedVersion(i64)
+    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | ForeignDatabase | UnsupportedVersion(i64)
 const format_version: i64 = 1
 class Entry
     key: Bytes
@@ -1043,8 +1043,8 @@ class Store
     def remove(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
     def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
     def len(self: &mut Store, table: &str) -> Result[i64, KvError]
-    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
-    def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]
+    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan_all(self: &mut Store, table: &str, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]
 def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
 def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
 ```
@@ -1298,9 +1298,9 @@ class Formatter[W]
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
-    def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64 = 0) -> Result[(), FormatError]
-    def integer(self: &mut Formatter[W], value: i64, width: i64 = 0) -> Result[(), FormatError]
+    def floating(self: &mut Formatter[W], value: f64, width: NonNegative[i64]) -> Result[(), FormatError]
+    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
+    def integer(self: &mut Formatter[W], value: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
@@ -1313,14 +1313,14 @@ class Formatter[W]
     def float32_spec(self: &mut Formatter[W], value: f32, spec: &Spec) -> Result[(), FormatError]
     def enter(self: &mut Formatter[W]) -> Result[(), FormatError]
     def leave(self: &mut Formatter[W]) -> ()
-def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]
-def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Stderr], FormatError]
-def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]
+def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[W], FormatError]
+def stderr_formatter(max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[Stderr], FormatError]
+def string_formatter(max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[Cursor], FormatError]
 def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]
 def display[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def debug[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
-def to_string[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
-def to_debug[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
+def to_string[T](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+def to_debug[T](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
 def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_string[T](value: &T) -> Result[str, FormatError]
 def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]
@@ -1368,13 +1368,13 @@ class TempDir
     def root(self) -> &Root
     def cleanup(self: &mut TempDir) -> Result[(), FsError]
     def keep(self: &mut TempDir) -> ()
-    def cleanup_tree(self: &mut TempDir, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
+    def cleanup_tree(self: &mut TempDir, max_entries: Positive[i64], max_depth: Positive[i64], cancel: &CancellationToken) -> Result[(), FsError]
 def temporary_dir_named(parent: &Root, name: &Path) -> Result[TempDir, FsError]
-def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[TempDir, FsError]
+def temporary_dir(parent: &Root, prefix: &Path, attempts: Positive[i64]) -> Result[TempDir, FsError]
 enum CopyMetadata
     ContentsOnly | PermissionsAndTimes
-def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]
-def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]
+def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: NonNegative[i64], cancel: &CancellationToken) -> Result[i64, FsError]
+def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: NonNegative[i64], cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]
 class CopyLimits
     max_entries: i64
     max_depth: i64
@@ -1384,8 +1384,8 @@ def copy_limits() -> CopyLimits
 enum TreeCopyError
     Setup(FsError) | Partial(FsError) | Entry(Path, i64, FsError)
 def copy_tree(source_parent: &Root, source: &Path, destination_parent: &Root, destination: &Path, limits: &CopyLimits, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, TreeCopyError]
-def remove_tree(parent: &Root, name: &Path, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]
-def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, max_steps: i64) -> Result[list[Path], FsError]
+def remove_tree(parent: &Root, name: &Path, max_entries: Positive[i64], max_depth: Positive[i64], cancel: &CancellationToken) -> Result[(), FsError]
+def glob(parent: &Root, pattern: &Path, max_entries: NonNegative[i64], max_matches: NonNegative[i64], max_steps: NonNegative[i64]) -> Result[list[Path], FsError]
 enum FileType
     File | Directory | Symlink | Other
 class Permissions
@@ -1583,8 +1583,8 @@ enum HttpError
 class Limits
     max_line: i64
     max_head: i64
-    max_headers: i64
-    max_body: i64
+    max_headers: NonNegative[i64]
+    max_body: NonNegative[i64]
 def limits() -> Limits
 class Header
     name: str
@@ -1639,7 +1639,7 @@ def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]
 def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]
 def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]
 def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]
-def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]
+def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]
@@ -1670,12 +1670,12 @@ Bounded request bodies for handlers: URL-encoded forms, JSON, and multipart uplo
 
 ```text
 enum BodyError
-    InvalidLimit | UnsupportedMediaType | TooLarge | TooManyFields | Malformed | InvalidUtf8 | Http(HttpError) | Json(JsonError) | Storage(StreamError) | Allocation(AllocError)
+    UnsupportedMediaType | TooLarge | TooManyFields | Malformed | InvalidUtf8 | Http(HttpError) | Json(JsonError) | Storage(StreamError) | Allocation(AllocError)
 def status(error: &BodyError) -> i64
 def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> Result[(), HttpError]
 class FormLimits
-    max_bytes: i64
-    max_fields: i64
+    max_bytes: NonNegative[i64]
+    max_fields: NonNegative[i64]
 def form_limits() -> FormLimits
 def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]
 def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]
@@ -1684,11 +1684,11 @@ def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> 
 def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]
 def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]
 class MultipartLimits
-    max_parts: i64
-    max_head: i64
-    max_field: i64
-    max_file: i64
-    max_body: i64
+    max_parts: NonNegative[i64]
+    max_head: NonNegative[i64]
+    max_field: NonNegative[i64]
+    max_file: NonNegative[i64]
+    max_body: NonNegative[i64]
 def multipart_limits() -> MultipartLimits
 enum Content
     Text(str) | File(TempFile)
@@ -2041,7 +2041,7 @@ def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result
 def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]
 def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]
 def write_chunk[E, W: Writer[E]](writer: &mut W, source: &[u8]) -> Result[(), Partial[FramingError[E]]]
-def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
+def fixed_body[E, R: Reader[E]](inner: R, length: NonNegative[i64]) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
 def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]
@@ -2071,8 +2071,8 @@ RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` cli
 enum WebSocketError
     Net(NetError) | Allocation(AllocError) | Http(HttpError) | Connect(ClientError) | Entropy(StreamError) | InvalidConfig | InvalidUrl | UnsupportedScheme | OutOfRange | Refused(i64) | Rejected(i64) | InvalidHandshake | Protocol | TooLarge | InvalidText | Closed | Stopping
 class Config
-    max_frame: i64
-    max_message: i64
+    max_frame: Positive[i64]
+    max_message: Positive[i64]
     subprotocol: Option[str]
 def config() -> Config
 enum Message
@@ -2124,9 +2124,9 @@ enum Format
 enum Filter
     Nearest | Bilinear
 class Limits
-    max_width: i64
-    max_height: i64
-    max_bytes: i64
+    max_width: NonNegative[i64]
+    max_height: NonNegative[i64]
+    max_bytes: NonNegative[i64]
     def check(self, width: i64, height: i64, color: ColorType) -> Result[(), ImageError]
 def limits() -> Limits
 class Info
@@ -2148,8 +2148,8 @@ class Image
     def crop(self, x: i64, y: i64, width: i64, height: i64) -> Result[Image, ImageError]
     def convert(self, color: ColorType) -> Result[Image, ImageError]
     def resize(self, width: i64, height: i64, filter: Filter) -> Result[Image, ImageError]
-def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]
-def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) -> Result[Image, ImageError]
+def new(width: Positive[i64], height: Positive[i64], color: ColorType) -> Result[Image, ImageError]
+def from_pixels(width: Positive[i64], height: Positive[i64], color: ColorType, pixels: Bytes) -> Result[Image, ImageError]
 def detect(data: &[u8]) -> Option[Format]
 def info(data: &[u8]) -> Result[Info, ImageError]
 def decode(data: &[u8], limits: &Limits) -> Result[Image, ImageError]
@@ -2186,15 +2186,15 @@ protocol Closer
 def classify(error: IoError) -> StreamError
 def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial]
 def write_all[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), Partial]
-def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]
+def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: NonNegative[i64]) -> Result[i64, Partial]
 def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyError]
 class BufReader[R]
     inner: R
     def capacity(self) -> i64
     def buffered(self) -> i64
     def read(self: &mut BufReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
-    def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: i64) -> Result[i64, StreamError]
-def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]
+    def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: Positive[i64]) -> Result[i64, StreamError]
+def buffered_reader[R](inner: R, capacity: Positive[i64]) -> Result[BufReader[R], StreamError]
 def seek_reader[R: Seeker](reader: &mut BufReader[R], target: SeekFrom) -> Result[i64, StreamError]
 class BufWriter[W]
     inner: W
@@ -2202,7 +2202,7 @@ class BufWriter[W]
     def pending(self) -> i64
     def write(self: &mut BufWriter[W], source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]
-def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]
+def buffered_writer[W](inner: W, capacity: Positive[i64]) -> Result[BufWriter[W], StreamError]
 def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]
 def close_buffered[W: Closer](writer: &mut BufWriter[W]) -> Result[(), CloseError]
 class Cursor
@@ -2290,7 +2290,7 @@ class BufReader[E, R]
     def capacity(self) -> i64
     def buffered(self) -> i64
     def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]
-def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]
+def buffered_reader[E, R: Reader[E]](inner: R, capacity: Positive[i64]) -> Result[BufReader[E, R], StreamError]
 enum WriteFailure[E]
     Source(E) | WriteZero | InvalidProgress
 class Partial[E]
@@ -2310,7 +2310,7 @@ Strict JSON under depth, input, and output limits: resumable event decoder, vali
 
 ```text
 enum JsonFault
-    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | Stream(StreamError) | Allocation(AllocError)
 class JsonError
     fault: JsonFault
     offset: i64
@@ -2319,9 +2319,9 @@ class JsonError
 enum DuplicateKeys
     Reject | Keep
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
     duplicate_keys: DuplicateKeys
 enum Json
     Null | Bool(bool) | Int(i64) | Float(f64) | Text(str) | Array(list[Json]) | Object(list[Member])
@@ -2405,7 +2405,7 @@ class Validation
     require_expiry: bool
     issuer: Option[str]
     audience: Option[str]
-    max_size: i64
+    max_size: Positive[i64]
 def validation(now: &Timestamp) -> Validation
 class Header
     algorithm: Algorithm
@@ -2414,7 +2414,7 @@ class Header
 class Token
     header: Header
     claims: list[Member]
-def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[Header, JwtError]
+def decode_header(token: &str, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]
 def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]
 def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> Result[str, JwtError]
 ```
@@ -2470,11 +2470,11 @@ class LineBuffer
 class TextSink[W]
     writer: W
     def emit(self: &mut TextSink[W], event: Event) -> Result[(), LogError]
-def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], LogError]
+def text_sink[W: Writer](writer: W, max_line: Positive[i64]) -> Result[TextSink[W], LogError]
 class MemorySink
     events: list[Event]
     def emit(self: &mut MemorySink, event: Event) -> Result[(), LogError]
-def memory_sink(capacity: i64) -> Result[MemorySink, LogError]
+def memory_sink(capacity: NonNegative[i64]) -> Result[MemorySink, LogError]
 class Discard
     def emit(self: &mut Discard, event: Event) -> Result[(), LogError]
 def discard() -> Discard
@@ -2494,15 +2494,15 @@ CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, an
 
 ```text
 enum MarkdownFault
-    InvalidUtf8 | InputTooLarge | OutputTooLarge | DepthExceeded | InvalidLimits | InvalidState | Stream(StreamError) | Allocation(AllocError)
+    InvalidUtf8 | InputTooLarge | OutputTooLarge | DepthExceeded | InvalidState | Stream(StreamError) | Allocation(AllocError)
 class MarkdownError
     fault: MarkdownFault
     offset: i64
     line: i64
 class Limits
-    max_input: i64
-    max_depth: i64
-    max_output: i64
+    max_input: NonNegative[i64]
+    max_depth: NonNegative[i64]
+    max_output: NonNegative[i64]
 enum Tag
     Paragraph | Heading(i64) | BlockQuote | CodeBlock(str) | BulletList | OrderedList(i64) | Item | Emphasis | Strong | Link(str, str) | Image(str, str)
 enum Event
@@ -2530,16 +2530,16 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    InvalidLimits | LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
 class Limits
-    max_source: i64
-    max_tokens: i64
-    max_templates: i64
-    max_context_nodes: i64
-    max_context_bytes: i64
-    max_depth: i64
-    max_steps: i64
-    max_output: i64
+    max_source: NonNegative[i64]
+    max_tokens: NonNegative[i64]
+    max_templates: NonNegative[i64]
+    max_context_nodes: Positive[i64]
+    max_context_bytes: NonNegative[i64]
+    max_depth: Positive[i64]
+    max_steps: NonNegative[i64]
+    max_output: NonNegative[i64]
 def limits() -> Limits
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
@@ -2598,7 +2598,7 @@ def trunc(x: f64) -> Result[i64, MathError]
 def round(x: f64) -> Result[i64, MathError]
 def divmod[T: IntType](a: T, b: T) -> Result[(T, T), MathError]
 def divmod_float(a: f64, b: f64) -> Result[(f64, f64), MathError]
-def factorial(n: i64) -> Result[u64, MathError]
+def factorial(n: NonNegative[i64]) -> Result[u64, MathError]
 def gcd(a: u64, b: u64) -> u64
 def lcm(a: u64, b: u64) -> Result[u64, MathError]
 def isqrt(n: u64) -> u64
@@ -2791,8 +2791,8 @@ class Child
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
-    def communicate(self: &mut Child, input: &[u8], limit: i64) -> Result[Output, StreamError]
-    def output(self: &mut Child, limit: i64) -> Result[Output, StreamError]
+    def communicate(self: &mut Child, input: &[u8], limit: NonNegative[i64]) -> Result[Output, StreamError]
+    def output(self: &mut Child, limit: NonNegative[i64]) -> Result[Output, StreamError]
 enum WaitError
     Io(IoError) | Cancelled
 ```
@@ -2864,14 +2864,14 @@ class SyntaxError
     offset: i64
     message: str
 enum RegexError
-    Syntax(SyntaxError) | LimitExceeded(Limit) | InvalidLimits | OutOfRange | Allocation(AllocError)
+    Syntax(SyntaxError) | LimitExceeded(Limit) | OutOfRange | Allocation(AllocError)
 class Limits
-    max_pattern_bytes: i64
-    max_nesting: i64
-    max_repeat: i64
-    max_instructions: i64
-    max_memory: i64
-    max_work: i64
+    max_pattern_bytes: NonNegative[i64]
+    max_nesting: NonNegative[i64]
+    max_repeat: NonNegative[i64]
+    max_instructions: NonNegative[i64]
+    max_memory: NonNegative[i64]
+    max_work: NonNegative[i64]
 def limits() -> Limits
 class Match
     start: i64
@@ -2914,7 +2914,7 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
-def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
+def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -2979,8 +2979,8 @@ class Quantiles
     def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError]
     def quantile(self, fraction: f64) -> Result[f64, SketchError]
     def to_bytes(self) -> Result[Bytes, AllocError]
-def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]
-def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError]
+def quantiles(capacity: Positive[i64] = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]
+def quantiles_from_bytes(data: &[u8], max_capacity: Positive[i64] = 1048576) -> Result[Quantiles, SketchError]
 class Frequency
     key: u64
     lower: u64
@@ -2992,8 +2992,8 @@ class FrequentItems
     def frequency(self, key: u64) -> Frequency
     def candidates(self) -> Result[list[Frequency], AllocError]
     def to_bytes(self) -> Result[Bytes, AllocError]
-def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError]
-def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError]
+def frequent_items(capacity: Positive[i64] = 128) -> Result[FrequentItems, SketchError]
+def frequent_items_from_bytes(data: &[u8], max_capacity: Positive[i64] = 65536) -> Result[FrequentItems, SketchError]
 ```
 
 ## `std.sketch.xor`
@@ -3005,8 +3005,8 @@ class XorFilter
     def len(self) -> i64
     def contains(self, key: u64) -> bool
     def to_bytes(self) -> Result[Bytes, AllocError]
-def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFilter, SketchError]
-def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
+def build(keys: &list[u64], max_keys: NonNegative[i64], seed: u64 = 0u64) -> Result[XorFilter, SketchError]
+def from_bytes(data: &[u8], max_keys: NonNegative[i64]) -> Result[XorFilter, SketchError]
 ```
 
 ## `std.sketch.cuckoo`
@@ -3022,8 +3022,8 @@ class CuckooFilter
     def insert(self: &mut CuckooFilter, key: u64) -> Result[i64, SketchError]
     def remove(self: &mut CuckooFilter, key: u64, layer_index: i64) -> Result[bool, SketchError]
     def to_bytes(self) -> Result[Bytes, AllocError]
-def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]
-def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError]
+def cuckoo(initial_buckets: i64 = 64, max_buckets: Positive[i64] = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]
+def from_bytes(data: &[u8], max_buckets: Positive[i64]) -> Result[CuckooFilter, SketchError]
 ```
 
 ## `std.signal`
@@ -3162,7 +3162,7 @@ def pvariance(values: &list[f64]) -> Result[f64, StatError]
 def variance(values: &list[f64]) -> Result[f64, StatError]
 def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]
 def median(values: &list[f64]) -> Result[f64, StatError]
-def quantiles(values: &list[f64], n: i64 = 4) -> Result[list[f64], StatError]
+def quantiles(values: &list[f64], n: Positive[i64] = 4) -> Result[list[f64], StatError]
 class Uniform
     def pdf(self, x: f64) -> Result[f64, StatError]
     def cdf(self, x: f64) -> Result[f64, StatError]
@@ -3343,7 +3343,7 @@ Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk 
 
 ```text
 enum SystemError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | InvalidInput | Limit | Malformed(str)
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str)
 class Memory
     total_bytes: u64
     free_bytes: u64
@@ -3385,14 +3385,14 @@ class Process
     virtual_bytes: Option[u64]
     resident_bytes: Option[u64]
 class Procfs
-    def cpu_count(self, max_bytes: i64 = 1048576) -> Result[i64, SystemError]
-    def memory(self, max_bytes: i64 = 65536) -> Result[Memory, SystemError]
-    def load_average(self, max_bytes: i64 = 4096) -> Result[LoadAverage, SystemError]
-    def uptime(self, max_bytes: i64 = 4096) -> Result[Uptime, SystemError]
-    def block_devices(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[BlockDevice], SystemError]
-    def disk_io(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[DiskIo], SystemError]
-    def process_ids(self, max_entries: i64 = 65536) -> Result[list[u32], SystemError]
-    def process(self, pid: u32, max_bytes: i64 = 65536) -> Result[Process, SystemError]
+    def cpu_count(self, max_bytes: Positive[i64] = 1048576) -> Result[i64, SystemError]
+    def memory(self, max_bytes: Positive[i64] = 65536) -> Result[Memory, SystemError]
+    def load_average(self, max_bytes: Positive[i64] = 4096) -> Result[LoadAverage, SystemError]
+    def uptime(self, max_bytes: Positive[i64] = 4096) -> Result[Uptime, SystemError]
+    def block_devices(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[BlockDevice], SystemError]
+    def disk_io(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[DiskIo], SystemError]
+    def process_ids(self, max_entries: NonNegative[i64] = 65536) -> Result[list[u32], SystemError]
+    def process(self, pid: u32, max_bytes: Positive[i64] = 65536) -> Result[Process, SystemError]
 def open_procfs(path: &Path) -> Result[Procfs, IoError]
 def local() -> Result[Procfs, IoError]
 ```
@@ -3428,7 +3428,7 @@ class TemporaryDirectory
     def keep(self: &mut TemporaryDirectory) -> Result[Path, AllocError]
     def __enter__(self: &mut TemporaryDirectory) -> &mut TemporaryDirectory
     def __exit__(self: &mut TemporaryDirectory) -> ()
-def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: i64 = 100000, max_depth: i64 = 64) -> Result[TemporaryDirectory, FsError]
+def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64) -> Result[TemporaryDirectory, FsError]
 ```
 
 ## `std.test`
@@ -3491,11 +3491,11 @@ class Builder
     def clear(self: &mut Builder) -> ()
     def to_text(self) -> Result[str, TextError]
     def finish(self: Builder) -> Result[str, TextError]
-def builder(max_bytes: i64) -> Result[Builder, TextError]
-def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]
-def hard_wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]
+def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]
+def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
 class TextWrapper
-    width: i64
+    width: Positive[i64]
     initial_indent: str
     subsequent_indent: str
     expand_tabs: bool
@@ -3504,20 +3504,20 @@ class TextWrapper
     break_long_words: bool
     drop_whitespace: bool
     break_on_hyphens: bool
-    tabsize: i64
-    max_lines: Option[i64]
+    tabsize: NonNegative[i64]
+    max_lines: Option[Positive[i64]]
     placeholder: str
-    max_bytes: i64
-    max_input_bytes: i64
+    max_bytes: NonNegative[i64]
+    max_input_bytes: NonNegative[i64]
     def wrap(self, text: &str) -> Result[list[str], TextError]
     def fill(self, text: &str) -> Result[str, TextError]
-def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper
-def wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]
-def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
-def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def indent(text: &str, prefix: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
+def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper
+def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
+def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
+def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
 ```
 
 ## `std.thread`
@@ -3662,16 +3662,16 @@ Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits
 
 ```text
 enum TomlFault
-    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | Stream(StreamError) | Allocation(AllocError)
 class TomlError
     fault: TomlFault
     offset: i64
     line: i64
     column: i64
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
 enum DateTimeKind
     OffsetDateTime | LocalDateTime | LocalDate | LocalTime
 class DateTime
@@ -3715,10 +3715,10 @@ Unicode 17 normalization, combining classes, and Mark classification. Errors: `T
 def version() -> str
 def combining_class(scalar: &str) -> Option[u32]
 def is_mark(scalar: &str) -> Option[bool]
-def nfd(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfc(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfkd(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfkc(text: &str, max_scalars: i64) -> Result[str, TextError]
+def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 ```
 
 ## `std.url`
@@ -3727,7 +3727,7 @@ Strict RFC 3986 absolute URL parsing and formatting without normalization, compo
 
 ```text
 enum UrlError
-    InvalidLimit | LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
+    LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
 enum Component
     Userinfo | Segment | Path | Query | QueryPart | Fragment
 class Url
@@ -3742,7 +3742,7 @@ class Url
 class Pair
     key: str
     value: str
-def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]
+def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]
 def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]
 def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]
 def encode(text: &str, component: Component) -> Result[str, UrlError]
@@ -3782,16 +3782,16 @@ Bounded UTF-8 XML event readers and validating stream writers, without DTDs or e
 
 ```text
 enum Fault
-    Syntax | UnexpectedEnd | InvalidName | InvalidCharacter | InvalidUtf8 | InvalidReference | UnknownEntity | DuplicateAttribute | MismatchedEnd | DoctypeForbidden | UnsupportedDeclaration | DepthExceeded | InputTooLarge | OutputTooLarge | TokenTooLarge | TooManyAttributes | InvalidLimits | InvalidState | Stopped | Allocation(AllocError) | Stream(StreamError)
+    Syntax | UnexpectedEnd | InvalidName | InvalidCharacter | InvalidUtf8 | InvalidReference | UnknownEntity | DuplicateAttribute | MismatchedEnd | DoctypeForbidden | UnsupportedDeclaration | DepthExceeded | InputTooLarge | OutputTooLarge | TokenTooLarge | TooManyAttributes | InvalidState | Stopped | Allocation(AllocError) | Stream(StreamError)
 class XmlError
     fault: Fault
     offset: i64
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
-    max_token: i64
-    max_attributes: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
+    max_token: Positive[i64]
+    max_attributes: NonNegative[i64]
 def limits() -> Limits
 class Attribute
     name: str

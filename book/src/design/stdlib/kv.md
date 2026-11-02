@@ -80,16 +80,16 @@ loop or connection pool is introduced.
 
 ## Bounded scans
 
-`scan(table, start, stop, max_rows, after=False, reverse=False)` returns a
+`scan(table, start, stop, max_rows: NonNegative[i64], after=False, reverse=False)` returns a
 `Scan` over `[start, stop)`; `after=True` excludes `start` too, allowing an
 ascending scan to resume after its last returned key. `reverse=True` changes
 the order without changing the bounds. Reversed/equal bounds yield no rows.
 `scan_all(table, max_rows, reverse=False)` has no key bounds, so it can include
 every byte key, including keys composed entirely of `0xff` bytes.
 
-The row limit is required: negative limits are rejected and zero yields
-nothing. A limit truncates the scan, not an error; it does not promise that no
-more matching rows exist. `Scan.next()` returns `Result[Option[Entry], KvError]`;
+The row limit is required and is a `NonNegative[i64]`; zero yields nothing.
+A limit truncates the scan, not an error; it does not promise that no more
+matching rows exist. `Scan.next()` returns `Result[Option[Entry], KvError]`;
 each `Entry` owns public `key` and `value` buffers. Only one row is copied per
 call. A copy allocation failure preserves the pending row for retry; a SQLite
 step failure terminates that scan, avoiding silent replay of earlier rows.
@@ -109,7 +109,7 @@ Scan to release its statement and any read lock promptly.
 payload is therefore smaller. It is not a total database size, page-cache
 memory cap or execution deadline. Callers choose scan row limits independently.
 
-`KvError` includes `InvalidName`, `InvalidLimit`, `ForeignDatabase`,
+`KvError` includes `InvalidName`, `ForeignDatabase`,
 `UnsupportedVersion(version)`, `Allocation(AllocError)` and
 `Database(std.db.sqlite.DbError)`. SQLite allocation errors are flattened to
 `KvError.Allocation`; other database failures retain their structured cause,

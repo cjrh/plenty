@@ -5,10 +5,6 @@
 # growth or movement while one is live.
 
 pub enum BytesError:
-    # A size or limit argument below its minimum, such as
-    # `std.actor.net.Limits.input`. No `Bytes` method returns it: a range
-    # outside the buffer traps.
-    OutOfRange
     InvalidUtf8
     Allocation(AllocError)
 

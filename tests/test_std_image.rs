@@ -52,12 +52,12 @@ def described(text: &str) -> Result[str, Problem]:
         case Err(error):
             Ok(str.repr(error)?)
 
-def made(width: i64, height: i64, color: ColorType, text: &str) -> Result[Image, Problem]:
+def made(width: Positive[i64], height: Positive[i64], color: ColorType, text: &str) -> Result[Image, Problem]:
     Ok(std.image.from_pixels(width, height, color, unhex(text)?)?)
 
 # A deterministic image whose bytes do not compress.
-def noisy(width: i64, height: i64, color: ColorType, seed: i64) -> Result[Image, Problem]:
-    total = width * height * color.channels()
+def noisy(width: Positive[i64], height: Positive[i64], color: ColorType, seed: i64) -> Result[Image, Problem]:
+    total = width.get() * height.get() * color.channels()
     mut pixels = std.bytes.with_capacity(total)?
     mut x = seed
     for _ in range(0, total):
@@ -68,10 +68,10 @@ def noisy(width: i64, height: i64, color: ColorType, seed: i64) -> Result[Image,
     Ok(std.image.from_pixels(width, height, color, pixels)?)
 
 # A smooth image, which the PNG filters predict well.
-def smooth(width: i64, height: i64, color: ColorType) -> Result[Image, Problem]:
+def smooth(width: Positive[i64], height: Positive[i64], color: ColorType) -> Result[Image, Problem]:
     mut image = std.image.new(width, height, color)?
-    for y in range(0, height):
-        for x in range(0, width):
+    for y in range(0, height.get()):
+        for x in range(0, width.get()):
             for c in range(0, color.channels()):
                 image.set(x, y, c, u8.wrapping_from(3 * x + 5 * y + 40 * c))?
     Ok(image)
@@ -820,7 +820,7 @@ fn limits_bound_width_height_and_bytes() {
         &format!(
             r#"
 data = unhex("{png}")?
-for limits in [Limits(5, 3, 15), Limits(4, 3, 15), Limits(5, 2, 15), Limits(5, 3, 14), Limits(-1, 3, 15), Limits(5, 3, -1)]?:
+for limits in [Limits(5, 3, 15), Limits(4, 3, 15), Limits(5, 2, 15), Limits(5, 3, 14)]?:
     print(shown(std.image.decode(&data, &limits))?)?
 defaults = std.image.limits()
 print(defaults.max_width, defaults.max_height, defaults.max_bytes)?
@@ -829,14 +829,14 @@ print(str.repr(defaults.check(8193, 8192, ColorType.Rgba))?)?
 print(str.repr(defaults.check(16384, 16384, ColorType.Gray))?)?
 print(str.repr(defaults.check(16385, 1, ColorType.Gray))?)?
 print(str.repr(defaults.check(0, 1, ColorType.Gray))?)?
-widest = Limits(i64.MAX, i64.MAX, i64.MAX)
+widest = Limits(9223372036854775807, 9223372036854775807, 9223372036854775807)
 print(str.repr(widest.check(2147483647, 2147483647, ColorType.Gray))?)?
 print(str.repr(widest.check(2147483647, 2147483647, ColorType.Rgba))?)?
 print(str.repr(widest.check(2147483648, 1, ColorType.Gray))?)?
 "#
         ),
         &format!(
-            "{want}\nLimitExceeded\nLimitExceeded\nLimitExceeded\nOutOfRange\nOutOfRange\n\
+            "{want}\nLimitExceeded\nLimitExceeded\nLimitExceeded\n\
              16384 16384 268435456\nResult[(), ImageError].Ok(())\n\
              Result[(), ImageError].Err(LimitExceeded)\nResult[(), ImageError].Ok(())\n\
              Result[(), ImageError].Err(LimitExceeded)\nResult[(), ImageError].Err(OutOfRange)\n\
@@ -865,9 +865,6 @@ print(hex(&pixels)?)?
 print(shown(std.image.from_pixels(1, 1, ColorType.Rgb, unhex("010203")?))?)?
 print(shown(std.image.from_pixels(1, 1, ColorType.Rgb, unhex("0102")?))?)?
 print(shown(std.image.from_pixels(1, 1, ColorType.Rgb, unhex("01020304")?))?)?
-print(shown(std.image.new(0, 1, ColorType.Gray))?)?
-print(shown(std.image.new(1, -1, ColorType.Gray))?)?
-print(shown(std.image.new(2147483648, 1, ColorType.Gray))?)?
 print(shown(std.image.new(2147483647, 2147483647, ColorType.Rgba))?)?
 print(ColorType.Gray.channels(), ColorType.GrayAlpha.channels(), ColorType.Rgb.channels(), ColorType.Rgba.channels())?
 print(ColorType.Gray.has_alpha(), ColorType.GrayAlpha.has_alpha(), ColorType.Rgb.has_alpha(), ColorType.Rgba.has_alpha())?
@@ -878,9 +875,35 @@ print(ColorType.Gray.has_alpha(), ColorType.GrayAlpha.has_alpha(), ColorType.Rgb
          Result[u8, ImageError].Err(OutOfRange) Result[(), ImageError].Err(OutOfRange)\n\
          Result[u8, ImageError].Err(OutOfRange) Result[(), ImageError].Err(OutOfRange)\n\
          Result[u8, ImageError].Err(OutOfRange) Result[(), ImageError].Err(OutOfRange)\n\
-         000000000000000000000009\n1x1 Rgb 010203\nOutOfRange\nOutOfRange\nOutOfRange\n\
-         OutOfRange\nOutOfRange\nLimitExceeded\n1 2 3 4\nFalse True False True",
+         000000000000000000000009\n1x1 Rgb 010203\nOutOfRange\nOutOfRange\nLimitExceeded\n1 2 3 4\nFalse True False True",
     );
+}
+
+/// B95: dimensions are `Positive[i64]`; one above the PNG maximum is a caller
+/// bug, so it traps instead of returning `OutOfRange`.
+#[test]
+fn dimensions_above_the_png_maximum_trap() {
+    for (call, message) in [
+        (
+            "drop(std.image.new(2147483648, 1, ColorType.Gray))",
+            "std.image.new: width or height is above 2147483647",
+        ),
+        (
+            "drop(std.image.from_pixels(1, 2147483648, ColorType.Gray, std.bytes.empty()?))",
+            "std.image.from_pixels: width or height is above 2147483647",
+        ),
+    ] {
+        let output = run(&program(call));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+        assert!(stderr.contains(message), "{call}\n{stderr}");
+    }
+}
+
+#[test]
+fn zero_dimension_literal_is_rejected() {
+    let error = support::check_file_error(&program("drop(std.image.new(0, 1, ColorType.Gray))\n"));
+    assert!(error.contains("Positive"), "{error}");
 }
 
 #[test]

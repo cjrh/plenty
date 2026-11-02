@@ -251,7 +251,31 @@ fn admission_reports_allocation_failure() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "refused 0 0\nstarted 2\nthen admitted 0 0\nstd.actor.StartError.Limit\n"
+        "refused 0 0\nstarted 2\nthen admitted 0 0\n"
+    );
+}
+
+/// A heap limit has a type for its lower bound; `max_heap_limit` is a fixed
+/// ceiling, so a larger limit is a programming error and traps.
+#[test]
+fn heap_limits_reject_zero_and_trap_above_the_ceiling() {
+    let start = "    refused = actors.start(Node(1), 65536)\n";
+    let error = support::check_file_error(
+        &ADMISSION.replace(start, "    refused = actors.start(Node(1), 0)\n"),
+    );
+    assert!(
+        error.contains("literal is not a `Positive[i64]`"),
+        "{error}"
+    );
+    let (_dir, executable) = build_with_hooks(
+        &ADMISSION.replace(start, "    refused = actors.start(Node(1), 67108865)\n"),
+    );
+    let output = Command::new(executable).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(": std.actor.Stage.start: limit is above max_heap_limit\n"),
+        "{stderr}"
     );
 }
 

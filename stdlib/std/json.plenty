@@ -25,7 +25,6 @@ pub enum JsonFault:
     OutputTooLarge
     NonFiniteNumber
     InvalidState
-    InvalidLimits
     Stream(StreamError)
     Allocation(AllocError)
 
@@ -43,9 +42,9 @@ pub enum DuplicateKeys:
     Keep
 
 pub class Limits:
-    pub max_depth: i64
-    pub max_input: i64
-    pub max_output: i64
+    pub max_depth: NonNegative[i64]
+    pub max_input: NonNegative[i64]
+    pub max_output: NonNegative[i64]
     pub duplicate_keys: DuplicateKeys
 
 pub enum Json:
@@ -78,10 +77,10 @@ pub enum Event:
     EndObject
 
 # Encoder recursion over a tree is bounded by the depth limit, so the limit
-# itself is capped to keep that recursion within the native stack.
+# itself is capped to keep that recursion within the native stack; a larger
+# `max_depth` traps.
 const depth_ceiling: i64 = 1024
 const read_chunk: i64 = 4096
-const default_size: i64 = 64 * 1024 * 1024
 
 const expect_value: i64 = 0
 const expect_first_item: i64 = 1
@@ -112,11 +111,9 @@ const emit_next_key: i64 = 4
 const emit_member_value: i64 = 5
 const emit_done: i64 = 6
 
+# 64 MiB of input and of output.
 pub def limits() -> Limits:
-    Limits(64, default_size, default_size, DuplicateKeys.Reject)
-
-def valid(bounds: &Limits) -> bool:
-    bounds.max_depth >= 0 and bounds.max_depth <= depth_ceiling and bounds.max_input >= 0 and bounds.max_output >= 0
+    Limits(64, 67108864, 67108864, DuplicateKeys.Reject)
 
 def faulted[T](result: Result[T, BytesError]) -> Result[T, JsonFault]:
     std.error.map_error(result, def once (cause: BytesError) -> JsonFault: bytes_fault(cause))
@@ -127,9 +124,6 @@ def bytes_fault(error: BytesError) -> JsonFault:
             JsonFault.Allocation(cause)
         case BytesError.InvalidUtf8:
             JsonFault.InvalidUtf8
-        # No call here passes a range, so this would be a decoder defect.
-        case _:
-            __trap("byte text conversion: unexpected range error")
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
     std.error.map_error(result, def once (cause: AllocError) -> JsonFault: JsonFault.Allocation(cause))
@@ -689,13 +683,13 @@ pub class Decoder:
         Ok(Some(Event.Null))
 
 pub def decoder(bounds: &Limits) -> Result[Decoder, JsonError]:
-    if not valid(bounds):
-        return Err(JsonError(JsonFault.InvalidLimits, 0, 0, 0))
+    if bounds.max_depth.get() > depth_ceiling:
+        __trap("std.json.decoder: max_depth is above 1024")
     window = unplaced(reserved(std.bytes.empty()))?
     stack = unplaced(reserved(std.bytes.empty()))?
     scratch = unplaced(reserved(std.bytes.empty()))?
     plain = unplaced(plain_bytes())?
-    Ok(Decoder(window, 0, 0, False, False, 0, 1, 1, 0, 1, 1, stack, scratch, plain, expect_value, mode_none, False, 0, 0, 0, 0, 0, 0, 0, 0, 0, bounds.max_depth, bounds.max_input))
+    Ok(Decoder(window, 0, 0, False, False, 0, 1, 1, 0, 1, 1, stack, scratch, plain, expect_value, mode_none, False, 0, 0, 0, 0, 0, 0, 0, 0, 0, bounds.max_depth.get(), bounds.max_input.get()))
 
 def is_pending(event: &Event) -> bool:
     match event:
@@ -1256,12 +1250,12 @@ pub class Encoder:
                 Err(JsonError(fault, self._written, 0, 0))
 
 pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
-    if not valid(bounds):
-        return Err(JsonError(JsonFault.InvalidLimits, 0, 0, 0))
+    if bounds.max_depth.get() > depth_ceiling:
+        __trap("std.json.encoder: max_depth is above 1024")
     out = unplaced(reserved(std.bytes.empty()))?
     stack = unplaced(reserved(std.bytes.empty()))?
     escaped = unplaced(escaped_bytes())?
-    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth, bounds.max_output))
+    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth.get(), bounds.max_output.get()))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
 # Does not flush. On failure only the bytes the writer did not accept stay

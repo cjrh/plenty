@@ -139,16 +139,16 @@ protocol-specific salt and context before using it as a symmetric key.
 ## HKDF-SHA256
 
 ```text
-hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64)
+hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: NonNegative[i64])
     -> Result[Bytes, AdvancedError]
 hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8],
                  target: &mut Bytes) -> Result[(), AdvancedError]
 ```
 
 These perform HKDF extract followed by expand. Salt and context (`info`) can
-be empty. Output length is 0 through 8160 bytes inclusive; the `_into` form
-uses the existing target length. Invalid lengths leave existing output
-unchanged. Use context to separate keys with different purposes. HKDF is
+be empty. Output length is 0 through 8160 bytes inclusive. `hkdf_sha256`
+traps for a larger `size`; the `_into` form uses the existing target length and
+returns `InvalidLength` for one over 8160, leaving the output unchanged. Use context to separate keys with different purposes. HKDF is
 **not password hashing** and does not make a weak password into a strong key.
 
 ## Errors, allocation, and key material

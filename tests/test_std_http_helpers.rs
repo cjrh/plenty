@@ -317,8 +317,6 @@ def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.
     app.form.max_fields = 2
     serve(&app, "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 5\r\nConnection: close\r\n\r\na&b&c", Nothing)?
     serve(&app, "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 6\r\nConnection: close\r\n\r\na&&&b&", Nothing)?
-    app.form.max_fields = -1
-    serve(&app, "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 1\r\nConnection: close\r\n\r\na", Nothing)?
     Ok(())
 "##,
         r"
@@ -326,7 +324,6 @@ HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 413 Content Too Large||Content Too Large
 HTTP/1.1 200 OK||[a=][b=]
-HTTP/1.1 500 Internal Server Error||Internal Server Error
 ",
     );
 }

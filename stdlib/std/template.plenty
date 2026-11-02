@@ -5,7 +5,6 @@ from std.bytes import Bytes, BytesError
 from std.json import Json
 
 pub enum TemplateError:
-    InvalidLimits
     LimitExceeded
     Syntax(i64)
     UnknownTemplate(str)
@@ -17,14 +16,14 @@ pub enum TemplateError:
     Bytes(BytesError)
 
 pub class Limits:
-    pub max_source: i64
-    pub max_tokens: i64
-    pub max_templates: i64
-    pub max_context_nodes: i64
-    pub max_context_bytes: i64
-    pub max_depth: i64
-    pub max_steps: i64
-    pub max_output: i64
+    pub max_source: NonNegative[i64]
+    pub max_tokens: NonNegative[i64]
+    pub max_templates: NonNegative[i64]
+    pub max_context_nodes: Positive[i64]
+    pub max_context_bytes: NonNegative[i64]
+    pub max_depth: Positive[i64]
+    pub max_steps: NonNegative[i64]
+    pub max_output: NonNegative[i64]
 
 pub def limits() -> Limits:
     Limits(1048576, 16384, 128, 65536, 16777216, 64, 1000000, 16777216)
@@ -212,7 +211,7 @@ def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64,
     Err(TemplateError.Syntax(start - 2))
 
 def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Result[(), TemplateError]:
-    if len(tokens) >= bounds.max_tokens:
+    if len(tokens) >= bounds.max_tokens.get():
         return Err(TemplateError.LimitExceeded)
     allocated(tokens.append(token))
 
@@ -305,7 +304,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         if parent != "" and len(stack) == 0 and kind != 7 and kind != 8:
             return Err(TemplateError.Syntax(at))
         if kind == 2 or kind == 5 or kind == 7:
-            if len(stack) >= bounds.max_depth:
+            if len(stack) >= bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(stack.append(len(tokens)))?
         push_token(&mut tokens, Token(kind, label, expr, -1, -1, at), bounds)?
@@ -343,19 +342,19 @@ class State:
     html: bool
 
 def step(state: &mut State, bounds: &Limits) -> Result[(), TemplateError]:
-    if state.steps >= bounds.max_steps:
+    if state.steps >= bounds.max_steps.get():
         return Err(TemplateError.LimitExceeded)
     state.steps += 1
     Ok(())
 
 def context_bytes(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
-    if text.byte_len() > bounds.max_context_bytes - state.bytes:
+    if text.byte_len() > bounds.max_context_bytes.get() - state.bytes:
         return Err(TemplateError.LimitExceeded)
     state.bytes += text.byte_len()
     Ok(())
 
 def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
-    if depth > bounds.max_depth or len(state.nodes) >= bounds.max_context_nodes:
+    if depth > bounds.max_depth.get() or len(state.nodes) >= bounds.max_context_nodes.get():
         return Err(TemplateError.LimitExceeded)
     step(state, bounds)?
     context_bytes(state, &key, bounds)?
@@ -521,18 +520,18 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
             elif filter == "trim":
                 value.text = allocated(value.text.strip())?
             elif filter == "escape":
-                value.text = escape(&value.text, bounds.max_output)?
+                value.text = escape(&value.text, bounds.max_output.get())?
                 value.safe = True
             elif filter == "safe":
                 value.safe = True
-            if value.text.byte_len() > bounds.max_output:
+            if value.text.byte_len() > bounds.max_output.get():
                 return Err(TemplateError.LimitExceeded)
     if expr.negate:
         value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, False)
     Ok(value)
 
 def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
-    if text.byte_len() > bounds.max_output - state.output.len():
+    if text.byte_len() > bounds.max_output.get() - state.output.len():
         return Err(TemplateError.LimitExceeded)
     encoded = allocated(std.bytes.from_text(text))?
     allocated(state.output.extend(&encoded))
@@ -550,7 +549,7 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
     elif value.kind != 0:
         return Err(TemplateError.TypeMismatch)
     if state.html and not value.safe:
-        text = escape(&text, bounds.max_output - state.output.len())?
+        text = escape(&text, bounds.max_output.get() - state.output.len())?
     append(state, &text, bounds)
 
 pub class Engine:
@@ -566,14 +565,14 @@ pub class Engine:
         for template in &self._templates:
             if template.name == name:
                 return Err(TemplateError.DuplicateTemplate(*name))
-        if len(self._templates) >= self._bounds.max_templates or name.byte_len() > self._bounds.max_source - self._source_bytes:
+        if len(self._templates) >= self._bounds.max_templates.get() or name.byte_len() > self._bounds.max_source.get() - self._source_bytes:
             return Err(TemplateError.LimitExceeded)
-        remaining = self._bounds.max_source - self._source_bytes - name.byte_len()
+        remaining = self._bounds.max_source.get() - self._source_bytes - name.byte_len()
         if source.byte_len() > remaining:
             return Err(TemplateError.LimitExceeded)
         template = parse(*name, source, &self._bounds)?
         count = len(template.tokens)
-        if count > self._bounds.max_tokens - self._token_count:
+        if count > self._bounds.max_tokens.get() - self._token_count:
             return Err(TemplateError.LimitExceeded)
         allocated(self._templates.append(template))?
         self._source_bytes += name.byte_len() + source.byte_len()
@@ -594,7 +593,7 @@ pub class Engine:
         while True:
             if current in visited:
                 return Err(TemplateError.InheritanceCycle)
-            if len(visited) >= self._bounds.max_depth:
+            if len(visited) >= self._bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(visited.append(current))?
             for token in range(len(self._templates[current].tokens)):
@@ -623,7 +622,7 @@ pub class Engine:
         Err(TemplateError.UnknownTemplate(*name))
 
     def run(self, template: i64, begin: i64, end: i64, state: &mut State, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
-        if depth > self._bounds.max_depth:
+        if depth > self._bounds.max_depth.get():
             return Err(TemplateError.LimitExceeded)
         mut index = begin
         while index < end:
@@ -671,7 +670,7 @@ pub class Engine:
         Ok(())
 
 pub def engine(bounds: &Limits) -> Result[Engine, TemplateError]:
-    if bounds.max_source < 0 or bounds.max_tokens < 0 or bounds.max_templates < 0 or bounds.max_context_nodes < 1 or bounds.max_context_bytes < 0 or bounds.max_depth < 1 or bounds.max_depth > 64 or bounds.max_steps < 0 or bounds.max_output < 0:
-        return Err(TemplateError.InvalidLimits)
+    if bounds.max_depth.get() > 64:
+        __trap("std.template.engine: max_depth is above 64")
     saved = Limits(bounds.max_source, bounds.max_tokens, bounds.max_templates, bounds.max_context_nodes, bounds.max_context_bytes, bounds.max_depth, bounds.max_steps, bounds.max_output)
     Ok(Engine(saved, allocated(list[Template]())?, 0, 0))

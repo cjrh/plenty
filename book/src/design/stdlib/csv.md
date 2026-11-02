@@ -98,7 +98,6 @@ program.
 | `EmptyRecord(record)` | A writer was asked to end a record with no fields |
 | `InvalidUtf8(record, field)` | `Record.text` found bytes that are not UTF-8 |
 | `InvalidDialect` | The dialect breaks the rules above |
-| `OutOfRange` | A reader buffer capacity is invalid |
 | `Stopped` | The reader already failed |
 | `Stream(StreamError)` | The inner stream failed |
 | `Allocation(AllocError)` | A record or buffer could not grow |
@@ -128,12 +127,12 @@ field indexes in the other variants use the same bases.
 
 | Function | Result |
 |---|---|
-| `reader(inner: R, dialect: &Dialect, capacity: i64)` | `Result[Reader[R], CsvError]` |
+| `reader(inner: R, dialect: &Dialect, capacity: Positive[i64])` | `Result[Reader[R], CsvError]` |
 | `record()` | `Result[Record, CsvError]` |
 
 `reader` takes ownership of `inner`, copies the dialect, and allocates one
-buffer of exactly `capacity` bytes, which never grows. A capacity below one is
-`OutOfRange`. `inner` needs the `Reader` method of `std.io`. The reader does
+buffer of exactly `capacity` bytes, which never grows. `capacity` is
+`Positive[i64]`, so `0` is a compile error. `inner` needs the `Reader` method of `std.io`. The reader does
 its own buffering, so `inner` needs no `BufReader`.
 
 | `Reader[R]` | Result | Contract |
@@ -212,7 +211,7 @@ it is not an empty line. `end_record` with no fields is `EmptyRecord`.
 
 Failures leave a defined state:
 
-- `Rejected`, `OutOfRange`, and `Allocation` from `field` or `text` add
+- `Rejected` and `Allocation` from `field` or `text` add
   nothing; the record in progress keeps its earlier fields.
 - `Width` from `end_record` discards the record in progress. Nothing of it
   was written. With `Width.First`, the first finished record sets the count.

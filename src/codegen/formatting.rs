@@ -103,12 +103,8 @@ pub(super) fn build_adapter(
     lower
         .stack
         .push((reference, Ty::Ref(Arc::new(hook.ty.clone()), false)));
-    // No byte budget, and the nesting depth f-string fields have
-    // (`frontend::fstrings::DEPTH`).
-    for limit in [i64::MAX, 32] {
-        let limit = lower.bcx.ins().iconst(types::I64, limit);
-        lower.stack.push((limit, Ty::I64));
-    }
+    // The hook builds its own formatter with the f-string limits
+    // (`frontend::fstrings::method_function`).
     lower.lower_call(&hook.function)?;
     let (result, ty) = lower
         .stack

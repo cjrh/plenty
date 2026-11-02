@@ -47,9 +47,13 @@ total:  1,234.50
 
 `formatter(writer, scratch, max_bytes, max_depth)` consumes a writer and a
 [`Bytes`](bytes.md) scratch buffer and returns `Result[Formatter[W], FormatError]`.
-Scratch must already have **length at least 32**, not just capacity. The byte
-budget must be nonnegative, and depth must be in `0..=64`; invalid arguments
-return `InvalidSpec`. Construction consumes both arguments even on failure.
+Scratch must already have **length at least 32**, not just capacity. Both
+limits are `NonNegative[i64]`, so a negative literal is a compile error. Depth
+is at most 64, since nested display calls recurse on the native stack. A shorter
+scratch or a larger depth traps with `std.fmt.formatter: scratch is shorter than
+32 bytes` or `std.fmt.formatter: max_depth is above 64`; `stderr_formatter` and
+`string_formatter` trap the same way for depth. Construction consumes both
+arguments even on failure.
 The formatter owns them; its public `writer` field lets the caller flush, close,
 or inspect the underlying stream. Formatting never flushes or closes it.
 
@@ -72,13 +76,14 @@ All formatting methods use an exclusive receiver and return
 | `ascii_text(&str)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
 | `substr(&substr)`, `debug_substr(&substr)` | `text` and `debug_text` for a [substring view](../language/04-expressions/slices.md#substring-views), without copying it |
 | `boolean(bool)` | `True` or `False` |
-| `integer(i64, width=0)` | Signed decimal, including `i64.MIN` |
-| `unsigned(u64, base, width=0)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
-| `floating(f64, width)` | Shortest round-trip scientific decimal, e.g. `1.25e0`, `-0e0`, `inf`, `-inf`, `NaN` |
+| `integer(i64, width: NonNegative[i64] = 0)` | Signed decimal, including `i64.MIN` |
+| `unsigned(u64, base, width: NonNegative[i64] = 0)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
+| `floating(f64, width: NonNegative[i64])` | Shortest round-trip scientific decimal, e.g. `1.25e0`, `-0e0`, `inf`, `-inf`, `NaN` |
 
-Smaller integer/float types can be explicitly converted. Width is a nonnegative
-minimum **byte** count, padded on the left with ASCII spaces, including any sign.
-It never truncates. Negative widths and unsupported bases fail before output.
+Smaller integer/float types can be explicitly converted. Width is a minimum
+**byte** count, padded on the left with ASCII spaces, including any sign.
+It never truncates. An unsupported base returns `InvalidSpec` before output;
+convert a computed width with `NonNegative.try_from(width)?`.
 These numeric spellings are ASCII, so byte and scalar widths coincide; no
 grapheme or terminal-cell width is promised. Text has no implicit padding.
 `floating` has no precision or locale controls; promoting `f32` to `f64`

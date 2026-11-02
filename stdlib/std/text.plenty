@@ -89,13 +89,15 @@ pub class Builder:
     pub def finish(self: Builder) -> Result[str, TextError]:
         self.to_text()
 
-pub def builder(max_bytes: i64) -> Result[Builder, TextError]:
-    if max_bytes < 0:
-        return Err(TextError.InvalidLimit)
+pub def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]:
+    bounded(max_bytes.get())
+
+# Internal callers pass a remaining budget computed from a checked limit.
+def bounded(max_bytes: i64) -> Result[Builder, TextError]:
     Ok(Builder(text_result(std.bytes.empty())?, max_bytes))
 
-pub def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]:
-    mut output = builder(max_bytes)?
+pub def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]:
+    mut output = bounded(max_bytes.get())?
     mut first = True
     for piece in pieces:
         if not first:
@@ -106,17 +108,16 @@ pub def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str,
 
 # Hard wrap by Unicode scalar count, preserving explicit LF and every input
 # scalar. This is deliberately not display-width or grapheme/word wrapping.
-pub def hard_wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]:
-    if width <= 0:
-        return Err(TextError.InvalidLimit)
-    mut output = builder(max_bytes)?
+pub def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]:
+    columns = width.get()
+    mut output = bounded(max_bytes.get())?
     mut column = 0
     for scalar in text:
         if scalar == "\n":
             output.append(scalar)?
             column = 0
         else:
-            if column == width:
+            if column == columns:
                 output.append("\n")?
                 column = 0
             output.append(scalar)?
@@ -128,8 +129,6 @@ def text_result[T](value: Result[T, AllocError]) -> Result[T, TextError]:
     value.map_error(TextError.Allocation)
 
 def check_input(text: &str, max_input_bytes: i64) -> Result[(), TextError]:
-    if max_input_bytes < 0:
-        return Err(TextError.InvalidLimit)
     if text.byte_len() > max_input_bytes:
         return Err(TextError.LimitExceeded)
     Ok(())
@@ -220,7 +219,7 @@ def sentence_ending(text: &str) -> bool:
     stop >= 2 and text[stop - 1] in ".!?" and text[stop - 2] >= "a" and text[stop - 2] <= "z"
 
 pub class TextWrapper:
-    pub width: i64
+    pub width: Positive[i64]
     pub initial_indent: str
     pub subsequent_indent: str
     pub expand_tabs: bool
@@ -229,28 +228,24 @@ pub class TextWrapper:
     pub break_long_words: bool
     pub drop_whitespace: bool
     pub break_on_hyphens: bool
-    pub tabsize: i64
-    pub max_lines: Option[i64]
+    pub tabsize: NonNegative[i64]
+    pub max_lines: Option[Positive[i64]]
     pub placeholder: str
-    pub max_bytes: i64
-    pub max_input_bytes: i64
+    pub max_bytes: NonNegative[i64]
+    pub max_input_bytes: NonNegative[i64]
 
     def validate(self) -> Result[(), TextError]:
-        if self.width <= 0 or self.tabsize < 0 or self.max_bytes < 0 or self.max_input_bytes < 0:
-            return Err(TextError.InvalidLimit)
-        check_input(&self.initial_indent, self.max_input_bytes)?
-        check_input(&self.subsequent_indent, self.max_input_bytes)?
+        check_input(&self.initial_indent, self.max_input_bytes.get())?
+        check_input(&self.subsequent_indent, self.max_input_bytes.get())?
         match self.max_lines:
             case Some(count):
-                check_input(&self.placeholder, self.max_input_bytes)?
-                if count <= 0:
-                    return Err(TextError.InvalidLimit)
-                indent = self.subsequent_indent if count > 1 else self.initial_indent
+                check_input(&self.placeholder, self.max_input_bytes.get())?
+                indent = self.subsequent_indent if count.get() > 1 else self.initial_indent
                 # Subtract after the bounds check to avoid overflow for i64.MAX.
-                if len(indent) > self.width:
+                if len(indent) > self.width.get():
                     return Err(TextError.InvalidLimit)
                 mark = text_result(self.placeholder.lstrip())?
-                if len(mark) > self.width - len(indent):
+                if len(mark) > self.width.get() - len(indent):
                     return Err(TextError.InvalidLimit)
             case Nothing:
                 pass
@@ -262,12 +257,12 @@ pub class TextWrapper:
                 return Ok(*text)
         elif find_in(text, b"\t\n\x0b\x0c\r").is_none():
             return Ok(*text)
-        mut output = builder(self.max_input_bytes)?
+        mut output = bounded(self.max_input_bytes.get())?
         mut column = 0
         for scalar in text:
             if scalar == "\t" and self.expand_tabs:
-                if self.tabsize > 0:
-                    count = self.tabsize - column % self.tabsize
+                if self.tabsize.get() > 0:
+                    count = self.tabsize.get() - column % self.tabsize.get()
                     # Check the cap before growing, even for i64.MAX tabsize.
                     output.append_spaces(count)?
                     # Only the remainder is needed to place the next tab.
@@ -279,13 +274,13 @@ pub class TextWrapper:
                     output.append(scalar)?
                 if scalar == "\n" or scalar == "\r":
                     column = 0
-                elif self.tabsize > 0:
-                    column = (column + 1) % self.tabsize
+                elif self.tabsize.get() > 0:
+                    column = (column + 1) % self.tabsize.get()
         output.finish()
 
     pub def wrap(self, text: &str) -> Result[list[str], TextError]:
         self.validate()?
-        check_input(text, self.max_input_bytes)?
+        check_input(text, self.max_input_bytes.get())?
         normalized = self.prepare(text)?
         mut chunks = split_chunks(&normalized, self.break_on_hyphens)?
         if self.fix_sentence_endings:
@@ -302,7 +297,7 @@ pub class TextWrapper:
         mut nonwhite_stop = 0
         while len(chunks) > 0:
             indent = self.initial_indent if len(lines) == 0 else self.subsequent_indent
-            available = self.width - len(indent)
+            available = self.width.get() - len(indent)
             mut current = text_result(list[str].new())?
             mut size = 0
             head_is_space = chunks[-1].isspace() if offset == 0 else byte_offset >= nonwhite_stop
@@ -373,7 +368,7 @@ pub class TextWrapper:
                     mut exhausted = len(chunks) == 0
                     if self.drop_whitespace and len(chunks) == 1:
                         exhausted = chunks[0].isspace() if offset == 0 else byte_offset >= nonwhite_stop
-                    truncate = len(lines) + 1 >= count and not (exhausted and size <= available)
+                    truncate = len(lines) + 1 >= count.get() and not (exhausted and size <= available)
                 case Nothing:
                     pass
             mut mark = ""
@@ -387,14 +382,14 @@ pub class TextWrapper:
                 if len(current) == 0:
                     if len(lines) > 0:
                         previous = text_result(lines[-1].rstrip())?
-                        if len(mark) <= self.width - len(previous):
-                            mut output = builder(self.max_bytes - used_bytes + lines[-1].byte_len())?
+                        if len(mark) <= self.width.get() - len(previous):
+                            mut output = bounded(self.max_bytes.get() - used_bytes + lines[-1].byte_len())?
                             output.append(&previous)?
                             output.append(&mark)?
                             lines[-1] = output.finish()?
                             break
                     mark = text_result(self.placeholder.lstrip())?
-            mut output = builder(self.max_bytes - used_bytes)?
+            mut output = bounded(self.max_bytes.get() - used_bytes)?
             output.append(&indent)?
             for piece in &current:
                 output.append(piece)?
@@ -412,13 +407,13 @@ pub class TextWrapper:
 
 # Mutable configuration is reusable; each operation observes it without
 # retaining the input or accumulating state between calls.
-pub def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper:
+pub def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper:
     TextWrapper(width, "", "", True, True, False, True, True, True, 8, Nothing, " [...]", max_bytes, max_input_bytes)
 
-pub def wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]:
+pub def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]:
     text_wrapper(width, max_bytes, max_input_bytes).wrap(text)
 
-pub def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]:
+pub def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     text_wrapper(width, max_bytes, max_input_bytes).fill(text)
 
 # Splitting and joining are native bulk text operations. The normalized byte
@@ -428,9 +423,9 @@ def collapse_whitespace(text: &str) -> Result[str, TextError]:
     words = text_result(text.split())?
     text_result(" ".join(&words))
 
-pub def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]:
-    check_input(text, max_input_bytes)?
-    check_input(placeholder, max_input_bytes)?
+pub def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]:
+    check_input(text, max_input_bytes.get())?
+    check_input(placeholder, max_input_bytes.get())?
     mut wrapper = text_wrapper(width, max_bytes, max_input_bytes)
     wrapper.max_lines = Some(1)
     wrapper.placeholder = *placeholder
@@ -443,9 +438,9 @@ pub def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes:
 
 # LF defines dedent lines; other whitespace-only line bodies are normalized,
 # while only literal spaces and tabs contribute to the common margin.
-pub def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]:
-    check_input(text, max_input_bytes)?
-    mut output = builder(max_bytes)?
+pub def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+    check_input(text, max_input_bytes.get())?
+    mut output = bounded(max_bytes.get())?
     lines = text_result(text.split("\n"))?
     mut margin = ""
     mut seen = False
@@ -480,13 +475,13 @@ pub def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048
 def nonblank_line(line: &str) -> bool:
     len(line) > 0 and not line.isspace()
 
-pub def indent(text: &str, prefix: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]:
+pub def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     indent_with(text, prefix, nonblank_line, max_bytes, max_input_bytes)
 
-pub def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]:
-    check_input(text, max_input_bytes)?
-    check_input(prefix, max_input_bytes)?
-    mut output = builder(max_bytes)?
+pub def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+    check_input(text, max_input_bytes.get())?
+    check_input(prefix, max_input_bytes.get())?
+    mut output = bounded(max_bytes.get())?
     lines = text_result(text.splitlines(True))?
     for line in &lines:
         if predicate(line):

@@ -169,7 +169,7 @@ mut valid = True
 for size in [0, 1, 2, 4, 10, 20, 30, 32, 50, 100, 254, 256, 510, 1000]?:
     keys = [u64(key) for key in range(size)]?
     for seed in range(8):
-        filter = xor.build(&keys, size, u64(seed))?
+        filter = xor.build(&keys, 1000, u64(seed))?
         for key in &keys:
             valid = valid and filter.contains(*key)
 print(valid)?
@@ -468,4 +468,39 @@ match result:
             "True",
         );
     }
+}
+
+/// B95: sizes are `Positive[i64]`/`NonNegative[i64]`; a size above the fixed
+/// ceiling is a caller bug, so it traps instead of returning `InvalidArgument`.
+#[test]
+fn sizes_above_the_ceiling_trap() {
+    for (call, message) in [
+        (
+            "drop(sketch.quantiles(1048577))",
+            "std.sketch.quantiles: capacity is above 1048576",
+        ),
+        (
+            "drop(sketch.frequent_items(65537))",
+            "std.sketch.frequent_items: capacity is above 65536",
+        ),
+        (
+            "keys = [1u64]?\ndrop(xor.build(&keys, 16777217))",
+            "std.sketch.xor.build: max_keys is above 16777216",
+        ),
+        (
+            "drop(cuckoo.cuckoo(1, 16777217))",
+            "std.sketch.cuckoo.cuckoo: max_buckets is above 16777216",
+        ),
+    ] {
+        let output = support::run_file(&program(call));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+        assert!(stderr.contains(message), "{call}\n{stderr}");
+    }
+}
+
+#[test]
+fn zero_capacity_literal_is_rejected() {
+    let error = support::check_file_error(&program("drop(sketch.quantiles(0))"));
+    assert!(error.contains("Positive"), "{error}");
 }

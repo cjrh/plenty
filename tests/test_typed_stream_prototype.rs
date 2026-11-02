@@ -843,8 +843,8 @@ fn chunked_body_checks_constructor_limits_and_eof_at_every_boundary() {
             r#"{CHUNK_SOURCE}
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingError[Transport] | CopyFailure[FramingError[Transport], Storage]]:
     mut buffer = scratch()?
-    for mode in range(4):
-        limits = Limits(1 if mode == 0 else 32, 1 if mode == 1 else 32, -1 if mode == 2 else 2, -1 if mode == 3 else 8)
+    for mode in range(2):
+        limits = Limits(1 if mode == 0 else 32, 1 if mode == 1 else 32, 2, 8)
         match chunked_body(wire("")?, &limits):
             case Err(FramingError.Protocol(HttpError.InvalidLimit)):
                 print("limit")?
@@ -867,7 +867,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FramingEr
         ),
         &format!(
             "{}{}{}0 True\n",
-            "limit\n".repeat(4),
+            "limit\n".repeat(2),
             "0\n".repeat(4),
             "1\n".repeat(12)
         ),
@@ -995,14 +995,9 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[W
             print("wrong")?
     print(source.calls)?
     print(sink.calls)?
-    match fixed_body[Transport, Source](Source(0, 0), -1):
-        case Err(FramingError.OutOfRange):
-            print("length")?
-        case _:
-            print("wrong")?
     Ok(())
 "#,
-        "True\nempty\n0\n0\nlength\n",
+        "True\nempty\n0\n0\n",
     );
 }
 

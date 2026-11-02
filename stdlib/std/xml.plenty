@@ -23,7 +23,6 @@ pub enum Fault:
     OutputTooLarge
     TokenTooLarge
     TooManyAttributes
-    InvalidLimits
     InvalidState
     Stopped
     Allocation(AllocError)
@@ -34,11 +33,11 @@ pub class XmlError:
     pub offset: i64
 
 pub class Limits:
-    pub max_depth: i64
-    pub max_input: i64
-    pub max_output: i64
-    pub max_token: i64
-    pub max_attributes: i64
+    pub max_depth: NonNegative[i64]
+    pub max_input: NonNegative[i64]
+    pub max_output: NonNegative[i64]
+    pub max_token: Positive[i64]
+    pub max_attributes: NonNegative[i64]
 
 pub def limits() -> Limits:
     Limits(64, 67108864, 67108864, 1048576, 4096)
@@ -58,8 +57,9 @@ pub enum Event:
     ProcessingInstruction(str, str)
     Eof
 
-def valid_limits(bounds: &Limits) -> bool:
-    bounds.max_depth >= 0 and bounds.max_depth <= 1024 and bounds.max_input >= 0 and bounds.max_output >= 0 and bounds.max_token >= 1 and bounds.max_attributes >= 0
+def check_depth(bounds: &Limits) -> ():
+    if bounds.max_depth.get() > 1024:
+        __trap("std.xml: max_depth is above 1024")
 
 def allocated[T](value: Result[T, AllocError]) -> Result[T, Fault]:
     match value:
@@ -78,8 +78,6 @@ def bytes_result[T](value: Result[T, BytesError]) -> Result[T, Fault]:
                     Err(Fault.Allocation(cause))
                 case BytesError.InvalidUtf8:
                     Err(Fault.InvalidUtf8)
-                case _:
-                    __trap("byte text conversion: unexpected range error")
 
 def placed[T](value: Result[T, Fault], offset: i64) -> Result[T, XmlError]:
     match value:
@@ -324,9 +322,9 @@ pub class Reader[R]:
     def raw(self: &mut Reader[R]) -> Result[Option[u8], Fault]:
         value = self.peek()?
         if value.is_some():
-            if self._offset == self._limits.max_input:
+            if self._offset == self._limits.max_input.get():
                 return Err(Fault.InputTooLarge)
-            if self._offset - self._token_start == self._limits.max_token:
+            if self._offset - self._token_start == self._limits.max_token.get():
                 return Err(Fault.TokenTooLarge)
             self._pos += 1
             self._offset += 1
@@ -449,7 +447,7 @@ pub class Reader[R]:
                 return Err(Fault.MismatchedEnd)
             drop(self._stack.pop())
             return Ok(Event.End(name))
-        attrs = token.attributes(self._limits.max_attributes)?
+        attrs = token.attributes(self._limits.max_attributes.get())?
         empty = token.peek() == Some(47u8)
         if empty:
             token.pos += 1
@@ -457,7 +455,7 @@ pub class Reader[R]:
             return Err(Fault.Syntax)
         if len(self._stack) == 0 and self._root:
             return Err(Fault.Syntax)
-        if len(self._stack) >= self._limits.max_depth:
+        if len(self._stack) >= self._limits.max_depth.get():
             return Err(Fault.DepthExceeded)
         self._root = True
         if empty:
@@ -476,8 +474,7 @@ pub class Reader[R]:
                 Err(XmlError(error, self._offset))
 
 pub def reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]:
-    if not valid_limits(bounds):
-        return Err(XmlError(Fault.InvalidLimits, 0))
+    check_depth(bounds)
     mut buffer = placed(allocated(std.bytes.empty()), 0)?
     placed(allocated(buffer.resize(4096, 0u8)), 0)?
     stack = placed(allocated(list[str]()), 0)?
@@ -550,7 +547,7 @@ pub class Writer[W]:
         self._offset
 
     def encode(self: &mut Writer[W], event: &Event) -> Result[Bytes, Fault]:
-        mut out = Output(allocated(std.bytes.empty())?, self._limits.max_token)
+        mut out = Output(allocated(std.bytes.empty())?, self._limits.max_token.get())
         match event:
             case Event.Declaration(standalone):
                 if not self._first:
@@ -565,18 +562,18 @@ pub class Writer[W]:
             case Event.Start(name, attrs):
                 if len(self._stack) == 0 and self._root:
                     return Err(Fault.InvalidState)
-                if len(self._stack) >= self._limits.max_depth:
+                if len(self._stack) >= self._limits.max_depth.get():
                     return Err(Fault.DepthExceeded)
-                out.tag(*name, attrs, self._limits.max_attributes)?
+                out.tag(*name, attrs, self._limits.max_attributes.get())?
                 out.add(">")?
                 allocated(self._stack.append(*name))?
                 self._root = True
             case Event.Empty(name, attrs):
                 if len(self._stack) == 0 and self._root:
                     return Err(Fault.InvalidState)
-                if len(self._stack) >= self._limits.max_depth:
+                if len(self._stack) >= self._limits.max_depth.get():
                     return Err(Fault.DepthExceeded)
-                out.tag(*name, attrs, self._limits.max_attributes)?
+                out.tag(*name, attrs, self._limits.max_attributes.get())?
                 out.add("/>")?
                 self._root = True
             case Event.End(name):
@@ -625,7 +622,7 @@ pub class Writer[W]:
 
     def emit(self: &mut Writer[W], event: &Event) -> Result[(), Fault]:
         bytes = self.encode(event)?
-        if bytes.len() > self._limits.max_output - self._offset:
+        if bytes.len() > self._limits.max_output.get() - self._offset:
             return Err(Fault.OutputTooLarge)
         match std.io.write_all(&mut self.inner, &bytes):
             case Ok(count):
@@ -669,8 +666,7 @@ pub class Writer[W]:
                 Err(XmlError(Fault.Stream(error), self._offset))
 
 pub def writer[W](inner: W, bounds: &Limits) -> Result[Writer[W], XmlError]:
-    if not valid_limits(bounds):
-        return Err(XmlError(Fault.InvalidLimits, 0))
+    check_depth(bounds)
     stack = placed(allocated(list[str]()), 0)?
     copied = Limits(bounds.max_depth, bounds.max_input, bounds.max_output, bounds.max_token, bounds.max_attributes)
     Ok(Writer(inner, copied, stack, False, True, 0, False, False))

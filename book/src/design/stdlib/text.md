@@ -7,19 +7,22 @@ paragraph tools. Import `std.text`; every allocating operation returns
 
 | Operation | Behavior |
 |---|---|
-| `builder(max_bytes: i64)` | New empty `Builder`; a negative limit is `InvalidLimit` |
+| `builder(max_bytes: NonNegative[i64])` | New empty `Builder` |
 | `Builder.byte_len()`, `Builder.limit()` | Current UTF-8 byte count and configured maximum |
 | `Builder.append(text: &str)` | Append a copy, or leave contents unchanged on failure |
 | `Builder.clear()` | Empty the builder, retaining its allocation |
 | `Builder.to_text()` | Independent UTF-8 string snapshot; builder remains reusable |
 | `Builder.finish()` | Final UTF-8 string; consumes the builder on success or failure |
-| `join(pieces: &list[str], separator: &str, max_bytes: i64)` | Separator between pieces, including empty pieces; empty list yields empty text |
-| `hard_wrap(text: &str, width: i64, max_bytes: i64)` | Hard wrap at `width` Unicode scalars, inserting LF; width must be positive |
+| `join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64])` | Separator between pieces, including empty pieces; empty list yields empty text |
+| `hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64])` | Hard wrap at `width` Unicode scalars, inserting LF |
 | `find_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
 | `find_not_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
 
 `TextError` has `InvalidLimit`, `LimitExceeded`, `Allocation(AllocError)`, and
-`Bytes(BytesError)` variants. Byte-buffer failures preserve their typed cause;
+`Bytes(BytesError)` variants. Limits and widths are domain types, so
+`InvalidLimit` only reports [wrapper](text-wrapping.md) indentation or a
+placeholder that cannot fit. A literal converts where a limit is expected; a
+computed value needs `NonNegative.try_from(value)?`. Byte-buffer failures preserve their typed cause;
 normalization uses the direct allocation variant. Limits apply to output bytes,
 not characters. Appending checks the complete input size without allocating,
 then appends atomically. Appends of at most four UTF-8 bytes reserve capacity

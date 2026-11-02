@@ -2,6 +2,7 @@
 //! errors, and writers, exercised through memory cursors, scripted short
 //! streams, and real files.
 
+mod support;
 use std::process::{Command, Stdio};
 
 const PRELUDE: &str = r#"import std.bytes
@@ -112,12 +113,12 @@ def dump[R: Reader](input: &mut std.csv.Reader[R]) -> Result[(), AllocError | Io
     print("end", input.records(), input.line(), input.offset(), record.len())?
     Ok(())
 
-def parse(text: &str, dialect: &Dialect, capacity: i64) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
+def parse(text: &str, dialect: &Dialect, capacity: Positive[i64]) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), dialect, capacity)?
     dump(&mut input)
 
 # A summary of everything a parse produced, for comparing chunkings.
-def summary(text: &str, dialect: &Dialect, capacity: i64, rest: i64) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
+def summary(text: &str, dialect: &Dialect, capacity: Positive[i64], rest: i64) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.csv.CsvError]:
     mut input = std.csv.reader(fake(text, []?, rest)?, dialect, capacity)?
     mut record = std.csv.record()?
     mut out = std.bytes.empty()?
@@ -147,7 +148,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.csv.CsvError | ParseError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.csv.CsvError | ParseError | RangeError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -386,11 +387,6 @@ match std.csv.writer(std.io.stdout(), &bad):
         print("accepted")?
     case Err(cause):
         print(str.repr(cause)?)?
-match std.csv.reader(std.io.stdin(), &loose(), 0):
-    case Ok(_):
-        print("accepted")?
-    case Err(cause):
-        print(str.repr(cause)?)?
 "#,
         r#"
 1 1 ["a,b", "c\td'e", "\"f\""]
@@ -401,7 +397,6 @@ False False
 False False
 False False
 std.csv.CsvError.InvalidDialect
-std.csv.CsvError.OutOfRange
 "#,
     );
 }
@@ -417,7 +412,7 @@ part = std.bytes.from_list(&[239u8, 187u8, 97u8, 44u8, 98u8]?)?
 only = std.bytes.from_list(&[239u8, 187u8, 191u8]?)?
 short = std.bytes.from_list(&[239u8, 187u8]?)?
 for capacity in range(1, 5):
-    mut input = std.csv.reader(std.io.cursor(full.copy()?), &marked, capacity)?
+    mut input = std.csv.reader(std.io.cursor(full.copy()?), &marked, Positive.try_from(capacity)?)?
     mut record = std.csv.record()?
     print(input.read(&mut record)?, record.len(), record.stop(0), record.text(1)?)?
 mut input = std.csv.reader(std.io.cursor(part.copy()?), &marked, 2)?
@@ -506,7 +501,7 @@ for index in range(len(inputs)):
     for capacity in range(1, 12):
         for rest in range(1, 8):
             runs += 1
-            if summary(&inputs[index], &marked, capacity, rest)? != whole:
+            if summary(&inputs[index], &marked, Positive.try_from(capacity)?, rest)? != whole:
                 mismatches += 1
 print(runs, mismatches)?
 "#,
@@ -533,7 +528,7 @@ mut lines = 0
 mut starts = 0
 mut mismatches = 0
 for capacity in range(1, 40):
-    mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &loose(), capacity)?
+    mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &loose(), Positive.try_from(capacity)?)?
     mut record = std.csv.record()?
     mut seen = 0
     while input.read(&mut record)?:
@@ -744,7 +739,7 @@ for round in range(24):
             out.field(&field)?
         out.end_record()?
     out.flush()?
-    mut input = std.csv.reader(fake("", []?, 1)?, &dialect, 1 + round % 9)?
+    mut input = std.csv.reader(fake("", []?, 1)?, &dialect, Positive.try_from(1 + round % 9)?)?
     input.inner.data = out.inner.data.copy()?
     input.inner.rest = 1 + round % 4
     mut record = std.csv.record()?
@@ -986,4 +981,15 @@ fn record_indices_trap_even_for_empty_records() {
             message,
         );
     }
+}
+
+#[test]
+fn a_zero_capacity_is_a_compile_error() {
+    // `capacity` is `Positive[i64]`; a reader with no buffer used to fail at run
+    // time with `OutOfRange`.
+    let source = format!(
+        "{PRELUDE}\ndef main() -> Result[(), CsvError]:\n    drop(std.csv.reader(std.io.stdin(), &loose(), 0)?)\n    Ok(())\n"
+    );
+    let error = support::check_file_error(&source);
+    assert!(error.contains("must be greater than zero"), "{error}");
 }

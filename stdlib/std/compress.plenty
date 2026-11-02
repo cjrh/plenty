@@ -152,16 +152,14 @@ pub class Inflater:
     pub def clear(self: &mut Inflater) -> ():
         self._state.clear()
 
-pub def inflater(format: Format, limit: i64) -> Result[Inflater, CompressError]:
-    if limit < 0:
-        return Err(CompressError.OutOfRange)
+pub def inflater(format: Format, limit: NonNegative[i64]) -> Result[Inflater, CompressError]:
     state = codec(kind(format, True), 0, window)?
     gzip = match format:
         case Format.Gzip:
             True
         case _:
             False
-    Ok(Inflater(state, gzip, limit, 0))
+    Ok(Inflater(state, gzip, limit.get(), 0))
 
 # Compresses all data: DEFLATE levels 0-9, Brotli qualities 0-11.
 pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, CompressError]:
@@ -190,7 +188,7 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
 # Decompresses all of `data`, which must hold exactly one stream (or, for
 # gzip, a sequence of members). More than `limit` output bytes is
 # LimitExceeded; nothing is returned on any error.
-pub def decompress(format: Format, data: &[u8], limit: i64) -> Result[Bytes, CompressError]:
+pub def decompress(format: Format, data: &[u8], limit: NonNegative[i64]) -> Result[Bytes, CompressError]:
     mut decoder = inflater(format, limit)?
     mut out = std.bytes.empty().map_error(CompressError.Allocation)?
     mut at = 0
@@ -372,7 +370,7 @@ pub class Decompressor[R]:
                         return self.fail(error)
         Ok(0)
 
-pub def decompressor[R](format: Format, inner: R, limit: i64) -> Result[Decompressor[R], CompressError]:
+pub def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result[Decompressor[R], CompressError]:
     decoder = inflater(format, limit)?
     mut input = std.bytes.with_capacity(window).map_error(CompressError.Allocation)?
     input.resize(window, 0u8).map_error(CompressError.Allocation)?

@@ -103,7 +103,7 @@ def main() -> Result[(), AllocError | IoError | MarkdownError]:
     );
 }
 
-/// Input, depth, and output limits, invalid UTF-8, `NUL`, and bad limits.
+/// Input, depth, and output limits, invalid UTF-8, and `NUL`.
 #[test]
 fn limits_and_errors_carry_positions() {
     assert_visible_stdout(
@@ -148,9 +148,6 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     print(outcome(std.markdown.to_html("*a*", &short))?)?
     short.max_output = 17
     print(outcome(std.markdown.to_html("*a*", &short))?)?
-    mut broken = std.markdown.limits()
-    broken.max_depth = -1
-    print(outcome(std.markdown.to_html("a", &broken))?)?
     Ok(())
 "##,
         r##"67108864 64 67108864
@@ -162,9 +159,23 @@ std.markdown.MarkdownFault.InputTooLarge 3 0
 std.markdown.MarkdownFault.DepthExceeded 5 3
 "<p><em>a</em></p>\n"
 std.markdown.MarkdownFault.OutputTooLarge 17 0
-std.markdown.MarkdownFault.InvalidLimits 0 0
 "##,
     );
+}
+
+/// The fields are `NonNegative[i64]`, so a negative limit is a compile error
+/// rather than the old `InvalidLimits` fault.
+#[test]
+fn negative_limits_are_compile_errors() {
+    let error = support::check_file_error(
+        r#"import std.markdown
+
+def main() -> ():
+    mut bounds = std.markdown.limits()
+    bounds.max_depth = -1
+"#,
+    );
+    assert!(error.contains("cannot be negative"), "{error}");
 }
 
 /// `write_html` to a writer, and `write_pending` after a writer refuses.

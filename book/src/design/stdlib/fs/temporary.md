@@ -53,9 +53,9 @@ bits and access/modification times before completing their copy operation.
 
 `temporary_dir_named(&root, &name)` exclusively creates a 0700 directory and
 returns `Result[TempDir, FsError]`. A collision is reported and never removed.
-`temporary_dir(&root, &prefix, attempts)` appends 32 lowercase hex digits from
-16 OS secret bytes, retrying only EEXIST up to `attempts` (1–1024). Prefixes
-are at most 200 bytes without slash/NUL; no UTF-8 conversion is imposed.
+`temporary_dir(&root, &prefix, attempts: Positive[i64])` appends 32 lowercase
+hex digits from 16 OS secret bytes, retrying only EEXIST up to `attempts`. An
+`attempts` above 1024 traps. Prefixes are at most 200 bytes without slash/NUL; no UTF-8 conversion is imposed.
 Entropy errors are reported without weakening the name source.
 
 `TempDir.name()` and `root()` lend its name and directory handle. Explicit
@@ -69,7 +69,7 @@ during drop, even an empty directory can remain. File/directory handles still
 close without allocation. Creation reserves names and owner storage before
 mkdir, so allocation failure during construction leaves no directory behind.
 
-`cleanup_tree(max_entries, max_depth, &cancel) -> Result[(), FsError]` is an
+`cleanup_tree(max_entries: Positive[i64], max_depth: Positive[i64], &cancel) -> Result[(), FsError]` is an
 explicit recursive alternative, using the [bounded deletion](operations.md)
 budgets. It checks identity before traversing the held directory and again
 before removing its entry. Successful cleanup disarms the owner. Failure can

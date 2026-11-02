@@ -291,13 +291,12 @@ pub class TextSink[W]:
             case Err(error):
                 Err(LogError.Output(error))
 
-pub def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], LogError]:
-    if max_line < 1:
-        return Err(LogError.InvalidSpec)
+pub def text_sink[W: Writer](writer: W, max_line: Positive[i64]) -> Result[TextSink[W], LogError]:
+    line_bytes = max_line.get()
     mut scratch = with_capacity(32).map_error(LogError.Allocation)?
     scratch.resize(32, 0u8).map_error(LogError.Allocation)?
-    line = LineBuffer(with_capacity(max_line).map_error(LogError.Allocation)?, max_line, False)
-    out = fields_of(formatter(line, scratch, i64.MAX, 0))?
+    line = LineBuffer(with_capacity(line_bytes).map_error(LogError.Allocation)?, line_bytes, False)
+    out = fields_of(formatter(line, scratch, 9223372036854775807, 0))?
     Ok(TextSink(writer, out))
 
 # Keeps at most `capacity` events in memory; later events are rejected as
@@ -315,12 +314,10 @@ pub class MemorySink:
             case Err(error):
                 Err(LogError.Allocation(error))
 
-pub def memory_sink(capacity: i64) -> Result[MemorySink, LogError]:
-    if capacity < 0:
-        return Err(LogError.InvalidSpec)
-    match list[Event].with_capacity(capacity):
+pub def memory_sink(capacity: NonNegative[i64]) -> Result[MemorySink, LogError]:
+    match list[Event].with_capacity(capacity.get()):
         case Ok(events):
-            Ok(MemorySink(events, capacity))
+            Ok(MemorySink(events, capacity.get()))
         case Err(error):
             Err(LogError.Allocation(error))
 

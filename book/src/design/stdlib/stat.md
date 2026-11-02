@@ -40,7 +40,7 @@ to `f64`; integers beyond 2^53 may lose precision during conversion.
 | `variance(values)`, `stdev(values)` | Sample variance/deviation, denominator `n-1`; needs two observations | None |
 | `median(values)` | Middle value, or midpoint of the middle pair | Copy and sort |
 | `quantile(values, p)` | Inclusive linear interpolation, `0 <= p <= 1` | Copy and sort |
-| `quantiles(values, n=4)` | The `n-1` cuts at `i/n`, `n >= 1` | Copy/sort plus output list |
+| `quantiles(values, n: Positive[i64] = 4)` | The `n-1` cuts at `i/n` | Copy/sort plus output list |
 
 Quantiles use Hyndman–Fan type 7: interpolate at sorted index `p*(length-1)`.
 This corresponds to Python's `statistics.quantiles(method="inclusive")`,
@@ -107,8 +107,8 @@ No sampling function reads the clock, OS entropy, or a global generator.
 ## Errors and scope
 
 `StatError` has `Empty`, `InsufficientData`, `NonFinite`, `Domain`, `Overflow`
-and `Allocation(AllocError)`. Invalid distribution parameters, probabilities
-and quantile counts are `Domain`; failures to allocate sorted/output lists
+and `Allocation(AllocError)`. Invalid distribution parameters and probabilities
+are `Domain`; failures to allocate sorted/output lists
 retain the original allocation cause. These operations have no hidden retry.
 
 This module does not provide hypothesis tests, regression, weighted statistics,

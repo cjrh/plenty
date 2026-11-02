@@ -162,15 +162,15 @@ pub class TempDir:
         self._active = False
 
     # Traverse the held directory, not a replacement opened through its name.
-    pub def cleanup_tree(self: &mut TempDir, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
+    pub def cleanup_tree(self: &mut TempDir, max_entries: Positive[i64], max_depth: Positive[i64], cancel: &CancellationToken) -> Result[(), FsError]:
+        if max_depth > 64:
+            __trap("TempDir.cleanup_tree: max_depth is above 64")
         if not self._active:
             return Ok(())
-        if max_entries < 1 or max_depth < 1 or max_depth > 64:
-            return Err(FsError.InvalidInput)
         if not fs_io(__fs_same_dir(self._root._handle, self._parent._handle, self._name.as_bytes()))?:
             return Err(FsError.Replaced)
-        mut budget = Budget(max_entries)
-        delete_open_directory(&self._parent, &self._name, &self._root, &mut budget, max_depth, cancel)?
+        mut budget = Budget(max_entries.get())
+        delete_open_directory(&self._parent, &self._name, &self._root, &mut budget, max_depth.get(), cancel)?
         self._active = False
         Ok(())
 
@@ -185,14 +185,16 @@ pub def temporary_dir_named(parent: &Root, name: &Path) -> Result[TempDir, FsErr
     child = Root(fs_io(__fs_make_temporary_dir(parent._handle, name.as_bytes()))?)
     Ok(TempDir(owner, child, saved, True))
 
-pub def temporary_dir(parent: &Root, prefix: &Path, attempts: i64) -> Result[TempDir, FsError]:
-    if attempts < 1 or attempts > 1024 or len(prefix.as_bytes()) > 200:
+pub def temporary_dir(parent: &Root, prefix: &Path, attempts: Positive[i64]) -> Result[TempDir, FsError]:
+    if attempts > 1024:
+        __trap("std.fs.temporary_dir: attempts is above 1024")
+    if len(prefix.as_bytes()) > 200:
         return Err(FsError.InvalidInput)
     for index in range(len(prefix.as_bytes())):
         byte = prefix.as_bytes()[index]
         if byte == 0u8 or byte == 47u8:
             return Err(FsError.InvalidInput)
-    for _ in range(attempts):
+    for _ in range(attempts.get()):
         token = fs_secret(std.secrets.token_hex(16))?
         mut bytes = fs_alloc(copy(prefix.as_bytes()))?
         suffix = fs_io(encode_utf8(&token))?
@@ -250,14 +252,12 @@ def copy_buffer() -> Result[Bytes, FsError]:
     Ok(scratch)
 
 # Reader has no source filesystem metadata. The unnamed target vanishes on failure.
-pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
-    if max_bytes < 0:
-        return Err(FsError.InvalidInput)
+pub def copy_from[R: Reader](source: &mut R, parent: &Root, destination: &Path, max_bytes: NonNegative[i64], cancel: &CancellationToken) -> Result[i64, FsError]:
     if cancel.is_cancelled():
         return Err(FsError.Cancelled)
     mut scratch = copy_buffer()?
     mut target = fs_io(temporary_file(parent))?
-    total = transfer(source, &mut target.stream, &mut scratch, max_bytes, cancel)?
+    total = transfer(source, &mut target.stream, &mut scratch, max_bytes.get(), cancel)?
     if cancel.is_cancelled():
         return Err(FsError.Cancelled)
     fs_io(target.publish(destination))?
@@ -286,14 +286,12 @@ def copy_open_file(input: &mut FileStream, parent: &Root, destination: &Path, sc
     fs_io(target.publish(destination))?
     Ok(total)
 
-pub def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: i64, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]:
-    if max_bytes < 0:
-        return Err(FsError.InvalidInput)
+pub def copy_file(parent: &Root, source: &Path, destination: &Path, max_bytes: NonNegative[i64], cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, FsError]:
     if cancel.is_cancelled():
         return Err(FsError.Cancelled)
     mut input = fs_io(parent.read_file(source))?
     mut scratch = copy_buffer()?
-    copy_open_file(&mut input, parent, destination, &mut scratch, max_bytes, cancel, preserve)
+    copy_open_file(&mut input, parent, destination, &mut scratch, max_bytes.get(), cancel, preserve)
 
 pub class CopyLimits:
     pub max_entries: i64
@@ -463,11 +461,11 @@ def delete_directory_contents(parent: &Root, name: &Path, child: &Root, budget: 
 
 # Explicit recursive removal only: a budget/cancellation/error leaves already
 # removed entries removed. Symlinks are unlinked, never traversed.
-pub def remove_tree(parent: &Root, name: &Path, max_entries: i64, max_depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
-    if max_entries < 1 or max_depth < 1 or max_depth > 64:
-        return Err(FsError.InvalidInput)
-    mut budget = Budget(max_entries)
-    delete_children(parent, name, &mut budget, max_depth, cancel)
+pub def remove_tree(parent: &Root, name: &Path, max_entries: Positive[i64], max_depth: Positive[i64], cancel: &CancellationToken) -> Result[(), FsError]:
+    if max_depth > 64:
+        __trap("std.fs.remove_tree: max_depth is above 64")
+    mut budget = Budget(max_entries.get())
+    delete_children(parent, name, &mut budget, max_depth.get(), cancel)
 
 # Byte matching (not Unicode): star matches any sequence and question-mark
 # exactly one byte. All other bytes are literal, including dot and brackets.
@@ -496,15 +494,15 @@ def matches_name(pattern: &list[u8], name: &list[u8], budget: &mut Budget) -> Re
         p += 1
     Ok(p == len(pattern))
 
-pub def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, max_steps: i64) -> Result[list[Path], FsError]:
-    if max_entries < 0 or max_matches < 0 or max_steps < 0 or len(pattern.as_bytes()) > 4096:
+pub def glob(parent: &Root, pattern: &Path, max_entries: NonNegative[i64], max_matches: NonNegative[i64], max_steps: NonNegative[i64]) -> Result[list[Path], FsError]:
+    if len(pattern.as_bytes()) > 4096:
         return Err(FsError.InvalidInput)
     for index in range(len(pattern.as_bytes())):
         byte = pattern.as_bytes()[index]
         if byte == 0u8 or byte == 47u8:
             return Err(FsError.InvalidInput)
-    mut scan_budget = Budget(max_entries)
-    mut match_budget = Budget(max_steps)
+    mut scan_budget = Budget(max_entries.get())
+    mut match_budget = Budget(max_steps.get())
     mut result = fs_alloc(list[Path].new())?
     mut names = fs_io(parent.names())?
     while True:
@@ -514,7 +512,7 @@ pub def glob(parent: &Root, pattern: &Path, max_entries: i64, max_matches: i64, 
             case Some(name):
                 scan_budget.step()?
                 if matches_name(pattern.as_bytes(), name.as_bytes(), &mut match_budget)?:
-                    if len(result) == max_matches:
+                    if len(result) == max_matches.get():
                         return Err(FsError.Limit)
                     fs_alloc(result.append(name))?
     Ok(result)

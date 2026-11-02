@@ -21,7 +21,6 @@ from std.json import Json, JsonError, JsonFault
 from std.url import Pair
 
 pub enum BodyError:
-    InvalidLimit
     UnsupportedMediaType
     TooLarge
     TooManyFields
@@ -63,8 +62,6 @@ pub def status(error: &BodyError) -> i64:
                     413
                 case JsonFault.Allocation(_):
                     500
-                case JsonFault.InvalidLimits:
-                    500
                 case JsonFault.Stream(_):
                     500
                 case _:
@@ -91,8 +88,6 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, BodyError]:
                 BodyError.Allocation(cause)
             case BytesError.InvalidUtf8:
                 BodyError.InvalidUtf8
-            case _:
-                BodyError.Malformed
     std.error.map_error(result, convert)
 
 def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:
@@ -325,16 +320,11 @@ def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Byte
 # URL-encoded forms
 
 pub class FormLimits:
-    pub max_bytes: i64
-    pub max_fields: i64
+    pub max_bytes: NonNegative[i64]
+    pub max_fields: NonNegative[i64]
 
 pub def form_limits() -> FormLimits:
     FormLimits(65536, 256)
-
-def checked_form(limits: &FormLimits) -> Result[(), BodyError]:
-    if limits.max_bytes < 0 or limits.max_fields < 0:
-        return Err(BodyError.InvalidLimit)
-    Ok(())
 
 # `+` is a space and `%hh` a byte; the result must be UTF-8.
 def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
@@ -363,9 +353,8 @@ def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]
 # order. Empty pieces between `&` are skipped; a piece without `=` has an
 # empty value. A `%` not followed by two hex digits is Malformed.
 pub def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]:
-    checked_form(limits)?
     count = len(source)
-    if count > limits.max_bytes:
+    if count > limits.max_bytes.get():
         return Err(BodyError.TooLarge)
     mut pairs = allocated(list[Pair].new())?
     mut at = 0
@@ -377,7 +366,7 @@ pub def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], Bod
             case Nothing:
                 pass
         if stop > at:
-            if len(pairs) >= limits.max_fields:
+            if len(pairs) >= limits.max_fields.get():
                 return Err(BodyError.TooManyFields)
             mut split = stop
             match located(source, 61u8, at, stop):
@@ -395,8 +384,7 @@ pub def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], Bod
 
 # `parse_form` over text, such as `exchange.query`.
 pub def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]:
-    checked_form(limits)?
-    if text.byte_len() > limits.max_bytes:
+    if text.byte_len() > limits.max_bytes.get():
         return Err(BodyError.TooLarge)
     source = allocated(std.bytes.from_text(text))?
     parse_form(&source, limits)
@@ -410,11 +398,10 @@ pub def find(pairs: &list[Pair], key: &str) -> Option[i64]:
 
 # Reads a request whose Content-Type is application/x-www-form-urlencoded.
 pub def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> Result[list[Pair], BodyError]:
-    checked_form(limits)?
     media = content_type(&exchange.request.headers)?
     if media.essence != "application/x-www-form-urlencoded":
         return Err(BodyError.UnsupportedMediaType)
-    body = collect(exchange, limits.max_bytes)?
+    body = collect(exchange, limits.max_bytes.get())?
     parse_form(&body, limits)
 
 # JSON
@@ -425,12 +412,10 @@ def is_json(essence: &str) -> bool:
 # Reads a request whose Content-Type is application/json or another
 # `application/...+json` type. `limits.max_input` bounds the body.
 pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]:
-    if limits.max_input < 0:
-        return Err(BodyError.InvalidLimit)
     media = content_type(&exchange.request.headers)?
     if not is_json(&media.essence):
         return Err(BodyError.UnsupportedMediaType)
-    body = collect(exchange, limits.max_input)?
+    body = collect(exchange, limits.max_input.get())?
     std.error.map_error(std.json.parse(&body, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
 
 # Encodes `value` and sends it as application/json.
@@ -445,11 +430,11 @@ pub def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: 
 # part with a filename, kept in a temporary file; `max_body` every byte read,
 # preamble and delimiters included.
 pub class MultipartLimits:
-    pub max_parts: i64
-    pub max_head: i64
-    pub max_field: i64
-    pub max_file: i64
-    pub max_body: i64
+    pub max_parts: NonNegative[i64]
+    pub max_head: NonNegative[i64]
+    pub max_field: NonNegative[i64]
+    pub max_file: NonNegative[i64]
+    pub max_body: NonNegative[i64]
 
 pub def multipart_limits() -> MultipartLimits:
     MultipartLimits(
@@ -587,7 +572,7 @@ def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: 
     total = size + (stop - start)
     match file:
         case Some(handle):
-            if total > limits.max_file:
+            if total > limits.max_file.get():
                 return Err(BodyError.TooLarge)
             match std.io.write_all(&mut handle.stream, &data[start:stop]):
                 case Ok(_):
@@ -595,22 +580,16 @@ def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: 
                 case Err(partial):
                     Err(storage_failure(partial.cause))
         case Nothing:
-            if total > limits.max_field:
+            if total > limits.max_field.get():
                 return Err(BodyError.TooLarge)
             allocated(text.extend(&data[start:stop]))?
             Ok(total)
-
-def checked_multipart(limits: &MultipartLimits) -> Result[(), BodyError]:
-    if limits.max_parts < 0 or limits.max_head < 0 or limits.max_field < 0 or limits.max_file < 0 or limits.max_body < 0:
-        return Err(BodyError.InvalidLimit)
-    Ok(())
 
 # Reads a multipart/form-data request into its parts, in order. A part with
 # a `filename` parameter is written to a new unnamed temporary file under
 # `storage` and returned rewound; other parts must be UTF-8 text. When this
 # fails, every temporary file it made is closed and the kernel frees it.
 pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &MultipartLimits, storage: &Root) -> Result[list[Part], BodyError]:
-    checked_multipart(limits)?
     media = content_type(&exchange.request.headers)?
     if media.essence != "multipart/form-data":
         return Err(BodyError.UnsupportedMediaType)
@@ -622,13 +601,13 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
     boundary = &media.pairs[boundary_index].value
     if not valid_boundary(boundary):
         return Err(BodyError.Malformed)
-    declared_within(&exchange.request.headers, limits.max_body)?
+    declared_within(&exchange.request.headers, limits.max_body.get())?
     delimiter = allocated(std.bytes.from_text(&allocated("\r\n--".concat(boundary))?))?
     width = delimiter.len()
     blank_line = allocated(std.bytes.from_text("\r\n\r\n"))?
     mut chunk = allocated(std.bytes.empty())?
     allocated(chunk.resize(16384, 0u8))?
-    mut window = Window(allocated(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body)
+    mut window = Window(allocated(std.bytes.from_text("\r\n"))?, 0, False, 0, chunk, limits.max_body.get())
     mut parts = allocated(list[Part].new())?
     # The preamble before the first delimiter is discarded.
     while True:
@@ -661,7 +640,7 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
             return Err(BodyError.Malformed)
         if code(&window.data, window.at) != 13 or code(&window.data, window.at + 1) != 10:
             return Err(BodyError.Malformed)
-        if len(parts) >= limits.max_parts:
+        if len(parts) >= limits.max_parts.get():
             return Err(BodyError.TooManyFields)
         # The header section follows the CRLF just seen, which begins its
         # terminator when the part has no fields. `fill` may compact the
@@ -674,14 +653,14 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
                 case Nothing:
                     # A legal section spans the opening CRLF, up to
                     # `max_head` header bytes and the 4-byte terminator.
-                    if window.data.len() - window.at > limits.max_head + 5:
+                    if window.data.len() - window.at > limits.max_head.get() + 5:
                         return Err(BodyError.TooLarge)
                     if not fill(exchange, &mut window)?:
                         return Err(BodyError.Malformed)
         head_start = window.at + 2
         if head_end < head_start:
             return Err(BodyError.Malformed)
-        if head_end - head_start > limits.max_head:
+        if head_end - head_start > limits.max_head.get():
             return Err(BodyError.TooLarge)
         head = part_head(&window.data, head_start, head_end)?
         window.at = head_end + 4

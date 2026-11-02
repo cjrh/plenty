@@ -64,8 +64,8 @@ pub enum WebSocketError:
 # message after reassembly. `subprotocol` is the one to offer as a
 # client, or to accept as a server when the client offers it.
 pub class Config:
-    pub max_frame: i64
-    pub max_message: i64
+    pub max_frame: Positive[i64]
+    pub max_message: Positive[i64]
     pub subprotocol: Option[str]
 
 pub def config() -> Config:
@@ -98,6 +98,10 @@ const state_failed: i64 = 3
 
 # Bytes read or copied at a time.
 const chunk: i64 = 4096
+
+# chunk as a buffer capacity; module constants cannot carry the type.
+def chunk_capacity() -> Positive[i64]:
+    4096
 
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, WebSocketError]:
@@ -172,11 +176,6 @@ def netted[T](result: Result[T, NetError]) -> Result[T, WebSocketError]:
 
 def ended() -> WebSocketError:
     WebSocketError.Net(NetError.Stream(StreamError.UnexpectedEof))
-
-def valid(config: &Config) -> Result[(), WebSocketError]:
-    if config.max_frame < 1 or config.max_message < 1:
-        return Err(WebSocketError.InvalidConfig)
-    Ok(())
 
 # Close codes a peer may send (RFC 6455 section 7.4 and the IANA registry).
 def valid_code(code: i64) -> bool:
@@ -638,7 +637,6 @@ def blank(size: i64) -> Result[Bytes, WebSocketError]:
     Ok(made)
 
 def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotocol: Option[str], waiting: CancellationToken, cancel: CancellationToken) -> Result[WebSocket[T], WebSocketError]:
-    valid(config)?
     mut buffer = input
     held = buffer.len()
     mut size = chunk
@@ -648,7 +646,7 @@ def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotoco
     mask = blank(4)?
     key = blank(4)?
     out = allocated(std.bytes.with_capacity(chunk + 14))?
-    Ok(WebSocket(subprotocol, Some(stream), client, config.max_frame, config.max_message, buffer, 0, held, mask, key, out, waiting, cancel, state_open))
+    Ok(WebSocket(subprotocol, Some(stream), client, config.max_frame.get(), config.max_message.get(), buffer, 0, held, mask, key, out, waiting, cancel, state_open))
 
 # Whether a comma-separated element of a field named `name` is `token`:
 # ignoring ASCII case when `folded`, else exactly.
@@ -737,7 +735,6 @@ def refuse[T: Transport](exchange: &mut Exchange[T], status: i64) -> Result[(), 
 # keeps the server's tokens: shutdown ends a wait for the next message
 # with Stopping, and the drain deadline cancels every other wait.
 pub def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]:
-    valid(config)?
     status = refusal(&exchange.request)?
     if status != 0:
         refuse(exchange, status)?
@@ -774,7 +771,8 @@ pub class Target:
     _authority: str
     _resource: str
 
-const max_url: i64 = 8192
+def max_url() -> NonNegative[i64]:
+    8192
 
 def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
     match result:
@@ -790,7 +788,7 @@ def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
 # Parses a `ws://` or `wss://` URL. URLs with credentials or a fragment are
 # rejected (RFC 6455 section 3).
 pub def target(url: &str) -> Result[Target, WebSocketError]:
-    parsed = url_of(std.url.parse(url, max_url))?
+    parsed = url_of(std.url.parse(url, max_url()))?
     scheme = allocated(parsed.scheme.lower())?
     if scheme != "ws" and scheme != "wss":
         return Err(WebSocketError.UnsupportedScheme)
@@ -872,7 +870,6 @@ pub class Wire[T]:
 # later wait. A server answering with another status is Rejected; its
 # body is not read.
 pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[T], WebSocketError]:
-    valid(config)?
     nonce = secret(std.secrets.token_bytes(16))?
     key = encoded(std.encoding.base64_text(&nonce))?
     mut head = http_of(std.http.request("GET", target._resource))?
@@ -895,7 +892,7 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
             return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
         at += written
     wire = Wire(Some(owned), until_of(deadline), cancel.share(), Nothing)
-    mut reader = match std.io.buffered_reader(wire, chunk):
+    mut reader = match std.io.buffered_reader(wire, chunk_capacity()):
         case Ok(made):
             made
         case Err(StreamError.Allocation(cause)):
@@ -952,7 +949,6 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
 
 # Connects to a `ws://` URL. `wss://` URLs need std.http.wss.
 pub def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]:
-    valid(config)?
     found = target(url)?
     if found.secure:
         return Err(WebSocketError.UnsupportedScheme)

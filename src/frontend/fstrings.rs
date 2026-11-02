@@ -933,8 +933,8 @@ fn method_function(symbol: &str, method_name: &str, write: bool, at: &Token) -> 
         ));
         name(at, OUT)
     } else {
-        inputs.push(("__plenty_bytes".into(), type_ref(at, "i64", vec![])));
-        inputs.push(("__plenty_depth".into(), type_ref(at, "i64", vec![])));
+        // The limits are literals so they convert to the `NonNegative[i64]`
+        // parameters; the formatting-hook adapter passes only the value.
         body.push(Stmt {
             at: at.clone(),
             kind: Statement::Assign {
@@ -944,7 +944,7 @@ fn method_function(symbol: &str, method_name: &str, write: bool, at: &Token) -> 
                 value: try_(call(
                     at,
                     &fmt("string_formatter"),
-                    vec![name(at, "__plenty_bytes"), name(at, "__plenty_depth")],
+                    vec![number(at, NO_BUDGET), number(at, DEPTH)],
                 )),
             },
         });
@@ -1494,15 +1494,13 @@ impl Lower<'_> {
         if ty == text_view() {
             return text_view_field(field, value, spec.as_ref(), &ty, &nested);
         }
-        let budget = || vec![number(at, NO_BUDGET), number(at, DEPTH)];
         if field.conversion == Conversion::Ascii {
             // Python's `ascii()`: the `!r` text with non-ASCII scalars escaped.
             let repr = match category {
                 Category::Text => temporary("debug_string", vec![value]),
                 Category::Method => {
                     let caller = self.method_caller("debug", false, at)?;
-                    let args = std::iter::once(value).chain(budget()).collect();
-                    unary(at, "&", try_(call(at, &caller, args)))
+                    unary(at, "&", try_(call(at, &caller, vec![value])))
                 }
                 _ if hooked => temporary("repr_result", vec![spelled()]),
                 _ => temporary(repr_string, vec![value]),
@@ -1626,8 +1624,7 @@ impl Lower<'_> {
             ),
             Category::Method => {
                 let caller = self.method_caller(wanted, false, at)?;
-                let args = std::iter::once(value).chain(budget()).collect();
-                padded(unary(at, "&", try_(call(at, &caller, args))), spec)
+                padded(unary(at, "&", try_(call(at, &caller, vec![value]))), spec)
             }
             Category::Repr if hooked => padded(temporary("repr_result", vec![spelled()]), spec),
             Category::Repr => padded(temporary(repr_string, vec![value]), spec),

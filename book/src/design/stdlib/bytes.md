@@ -227,14 +227,12 @@ remainder as `False`. The same rule applies to the range arguments of
 
 Caller buffer ranges in stream reads, encoding offsets, UUID writes, crypto
 output offsets, and CSV field positions also trap; see the [invalid-argument
-convention](conventions.md#invalid-arguments). `BytesError.OutOfRange` remains
-for actor networking connection limits, pending [integer domain types](../../proposals/domain-types.md).
+convention](conventions.md#invalid-arguments).
 
 ## Errors
 
 ```text
 pub enum BytesError:
-    OutOfRange
     InvalidUtf8
     Allocation(AllocError)
 ```
@@ -243,9 +241,7 @@ The constructors and the methods that can fail only to allocate (`push`,
 `extend`, `reserve`, `resize`, `copy`, `slice`, `to_list`) return
 `AllocError`; a negative `reserve` or `resize` count is `CapacityOverflow`.
 `to_text` and `to_text_range` return `BytesError` for `InvalidUtf8`. A range
-outside the buffer traps, so no `Bytes` method returns `OutOfRange`; it names
-a size or limit argument below its minimum elsewhere in `std`, such as
-[`std.actor.net`](actor-net.md) `connection` limits. The only other result shape is
+outside the buffer traps. The only other result shape is
 `pop`, whose `Option[u8]` reports an empty buffer.
 `Allocation` carries the storage `AllocError`: `OutOfMemory` when the allocator
 refuses, `CapacityOverflow` when the requested total cannot be a size. A failed

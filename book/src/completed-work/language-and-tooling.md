@@ -374,7 +374,7 @@ Plain integer dividends accept `NonZero[T]` and `Positive[T]` divisors for
 the zero guard (issue #664). A `NonZero` divisor retains signed division
 overflow handling; a `Positive` divisor also removes the impossible `-1`
 overflow/remainder guard. Checked blocks infer only the remaining failures.
-The [B95 backlog](../backlog.md) retains std migrations.
+The std migration is [B95: Std limit domains](#b95-std-limit-domains).
 
 ## B95: Positive concurrency counts
 
@@ -389,7 +389,32 @@ and allocation-failure contracts are preserved.
 See [channels](../design/facilities/03-concurrency/channels.md),
 [executors](../design/facilities/03-concurrency/executors.md) and
 [parallel chunks](../design/language/09-iteration/06-pipelines.md).
-Other domain-type API migrations remain [B95](../backlog.md).
+The remaining std APIs are [B95: Std limit domains](#b95-std-limit-domains).
+
+## B95: Std limit domains
+
+Std parameters and `Limits` fields with a fixed lower bound of 0 or 1 take
+`NonNegative[i64]` or `Positive[i64]`, completing migration groups A–C of the
+[domain types proposal](../proposals/completed/domain-types.md). This covers
+url, kv, markdown, json, toml, xml, regex, template, text, fmt, report, log,
+csv, io, process, fs, tempfile, system, archive, compress, image, stat, math,
+sketch, http (client, body, form, multipart, typed, websocket), jwt, crypto
+and the actor, actor networking, TLS and HTTP server entry points.
+
+The now-impossible `Err` cases are gone: `UrlError.InvalidLimit`,
+`BodyError.InvalidLimit`, `KvError.InvalidLimit`, xml `Fault.InvalidLimits`,
+`CsvError.OutOfRange`, `BytesError.OutOfRange`, `StartError.Limit` and
+`SystemError.InvalidInput` among them. Fixed ceilings (json and xml depth 1024,
+regex nesting 1000, template and fmt depth 64, hkdf size 8160, actor heap
+limit, image dimensions) trap with a message naming the operation and
+argument. `std.actor.net.connection` returns `AllocError`. The
+[conventions](../design/stdlib/conventions.md#invalid-arguments) state the rule
+for new APIs.
+
+`std.http.Limits.max_line`/`max_head` (`>= 2`) stay `i64` until `Bounded`
+(B96). Domain-typed module constants (issue #685) and compile-time rejection
+of literals above a ceiling (issue #686) remain open; std uses private getter
+functions for constant limits.
 
 ## Local dictionary views
 

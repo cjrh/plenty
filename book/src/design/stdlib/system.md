@@ -92,8 +92,8 @@ This API does not infer a container's effective CPU or memory quota.
 
 ## Limits, failures, and races
 
-`max_bytes` must be positive and less than `i64.MAX`; entry/device bounds may
-be zero but not negative. A byte-limited read probes one extra byte to distinguish
+`max_bytes` is a `Positive[i64]`; `i64.MAX` traps, as does `process` with pid
+`0`. Entry and device bounds are `NonNegative[i64]`. A byte-limited read probes one extra byte to distinguish
 exact-limit EOF from truncation, since proc files often report size zero.
 Exceeding any bound returns `Limit`, never a partial successful result.
 `process_ids` counts **all** visited directory entries toward its bound,
@@ -105,7 +105,6 @@ enum SystemError:
     Io(IoError)
     Stream(std.io.StreamError)
     Allocation(AllocError)
-    InvalidInput
     Limit
     Malformed(str)
 ```

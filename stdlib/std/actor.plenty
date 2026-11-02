@@ -190,8 +190,6 @@ pub enum StartError:
     Capacity
     # The process already has 1024 live heaps, or reserving one failed.
     Heaps
-    # The limit is not in 1..max_heap_limit.
-    Limit
     # The mailbox could not be allocated.
     Mailbox
 
@@ -386,11 +384,13 @@ pub class Context[M, E]:
     # context)` with the child's heap current to build the child; the hook
     # borrows the parent shared. The parent receives `Down` when the child
     # stops.
-    pub def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]:
+    pub def spawn(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]:
+        if limit.get() > max_heap_limit:
+            __trap("std.actor.Context.spawn: limit is above max_heap_limit")
         if self._building or self._spawn_count == max_spawns:
             return Err(StartError.Capacity)
         previous = __actor_heap(op_switch, system)
-        reserved = self.reserve(limit)
+        reserved = self.reserve(limit.get())
         __actor_heap(op_switch, previous)
         index = reserved?
         self._boxes[index].pending = True
@@ -405,7 +405,9 @@ pub class Context[M, E]:
     # Construction belongs to the child: a hook error, trap or Nothing
     # produces Down without ending the parent. Failed reconstruction ends
     # that child rather than recursively retrying its constructor.
-    pub def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]:
+    pub def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]:
+        if limit.get() > max_heap_limit:
+            __trap("std.actor.Context.spawn_isolated: limit is above max_heap_limit")
         child = self.spawn(tag, limit)?
         self._boxes[slot_of(child._key)].isolated_spawn = True
         Ok(child)
@@ -773,9 +775,8 @@ pub class Context[M, E]:
         self._run_count += 1
 
     # Takes a free slot with a new heap and mailbox. Runs with System current.
+    # The public callers have checked `limit` against 1..max_heap_limit.
     def reserve(self: &mut Context[M, E], limit: i64) -> Result[i64, StartError]:
-        if limit < 1 or limit > max_heap_limit:
-            return Err(StartError.Limit)
         if len(self._free) == 0:
             return Err(StartError.Capacity)
         heap = __actor_heap(op_create, limit)
@@ -855,8 +856,10 @@ pub class Stage[N, M, E]:
     # Starts a root actor with a heap of `limit` bytes. `node` was built
     # outside that heap: what it already owns stays outside, and a trap
     # leaks it. Build anything large in `started` instead.
-    pub def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]:
-        index = self._context.reserve(limit)?
+    pub def start(self: &mut Stage[N, M, E], node: N, limit: Positive[i64]) -> Result[Address, StartError]:
+        if limit.get() > max_heap_limit:
+            __trap("std.actor.Stage.start: limit is above max_heap_limit")
+        index = self._context.reserve(limit.get())?
         self._nodes[index] = Some(node)
         self._live += 1
         self._context._stats.started += 1
