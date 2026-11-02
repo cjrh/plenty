@@ -953,6 +953,7 @@ impl Lower<'_> {
             Expression::Slice(..) => self.slice(e, expected, ops).map(Some),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
             Expression::Checked(body) => self.checked_value(&e.at, body, expected, ops),
+            Expression::If(body) => self.if_value(&e.at, body, expected, ops),
 
             Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")

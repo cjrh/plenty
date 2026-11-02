@@ -120,8 +120,8 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
             }
             expression(body, &inner)?;
         }
-        Expression::Match(..) | Expression::Checked(_) => {
-            unreachable!("a match or checked block is a statement's whole value")
+        Expression::Match(..) | Expression::Checked(_) | Expression::If(_) => {
+            unreachable!("a block value is a statement's whole value")
         }
 
         Expression::ClassNew(_)

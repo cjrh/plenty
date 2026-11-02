@@ -281,8 +281,9 @@ reference](../05-ownership/04-returned-references.md).
 
 Augmented assignment, assignment to several targets, call arguments, operands,
 and every other expression position reject a `match` block; bind its value to a
-name first. `if` blocks are never values in these positions: use the inline
-conditional, or a `match` on the `bool`.
+name first. A [block `if`](branches.md#an-if-as-a-statements-value) supports the
+same whole-statement value positions and retains these expression-position
+restrictions.
 
 ## Ownership
 

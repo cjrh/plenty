@@ -257,6 +257,8 @@ even
 1 i
 ```
 
+Block `if` and `match` can also be the whole value of a binding, a single-place
+assignment, or `return`; see [conditional values](../language/04-expressions/branches.md#an-if-as-a-statements-value).
 A suite's final expression is its value, so `return` is only needed for early
 exits. Conditions must be `bool`; there is no truthiness. Chained comparisons
 and loop `else` are rejected. `match` works on enums, classes, integers, `str`,
@@ -565,7 +567,7 @@ def main() -> Result[(), IoError]:
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
 | Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
-| A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `mut name` before the block and assign inside, or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
+| A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `name = if condition:` (or `name = match value:`), or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
 | `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |
 | `"-" * 3` | `"-".repeat(3)?` |
 | `del xs[i]` | `xs.pop(i)`, which returns an `Option` |
