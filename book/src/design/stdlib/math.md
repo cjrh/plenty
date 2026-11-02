@@ -91,7 +91,7 @@ individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 
 | Function | Contract |
 |---|---|
-| `factorial(n: i64) -> Result[u64, MathError]` | Negative inputs are `Domain`; inputs above 20 overflow |
+| `factorial(n: NonNegative[i64]) -> Result[u64, MathError]` | Inputs above 20 overflow |
 | `gcd(a: u64, b: u64) -> u64` | Euclidean algorithm; `gcd(0, 0)` is zero |
 | `lcm(a: u64, b: u64) -> Result[u64, MathError]` | Either zero input gives zero; checked multiplication |
 | `isqrt(n: u64) -> u64` | Exact floor square root over the entire `u64` range |

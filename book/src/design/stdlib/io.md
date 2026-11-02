@@ -93,7 +93,7 @@ relies on the buffer's own use of `write` and `flush`.
 | `Interrupted` | The native call was interrupted (`EINTR`); retry |
 | `UnexpectedEof` | Input ended before `read_exact` filled its range |
 | `WriteZero` | A writer accepted no bytes of a nonempty range |
-| `OutOfRange` | A capacity, limit, or seek target is invalid |
+| `OutOfRange` | A seek target or other stream range is invalid |
 | `InvalidProgress` | A stream reported an impossible byte count |
 | `Io(IoError)` | Any other native failure, including `Closed`, `NotReadable`, `NotWritable`, and `System(code)` |
 | `Allocation(AllocError)` | A buffer could not be allocated or grown |
@@ -121,7 +121,7 @@ function whose error sum lists each of them.
 |---|---|---|
 | `read_exact(reader, buffer, start, stop)` | `Result[(), Partial]` | Fill the whole range. End of input first is `UnexpectedEof` |
 | `write_all(writer, source: &[u8])` | `Result[(), Partial]` | Deliver all of `source`. No progress is `WriteZero`. Does not flush |
-| `read_up_to(reader, out, limit)` | `Result[i64, Partial]` | Append at most `limit` bytes to `out`; fewer only at end of input |
+| `read_up_to(reader, out, limit: NonNegative[i64])` | `Result[i64, Partial]` | Append at most `limit` bytes to `out`; fewer only at end of input |
 | `copy_all(reader, writer, scratch)` | `Result[i64, CopyError]` | Move bytes until end of input through the whole of `scratch`. Does not flush |
 
 All four retry `Interrupted` and continue after short progress. They stop at
@@ -141,16 +141,17 @@ the input actually read, not `limit`.
 
 | Function | Result |
 |---|---|
-| `buffered_reader(inner: R, capacity: i64)` | `Result[BufReader[R], StreamError]` |
-| `buffered_writer(inner: W, capacity: i64)` | `Result[BufWriter[W], StreamError]` |
+| `buffered_reader(inner: R, capacity: Positive[i64])` | `Result[BufReader[R], StreamError]` |
+| `buffered_writer(inner: W, capacity: Positive[i64])` | `Result[BufWriter[W], StreamError]` |
 
 Each takes ownership of `inner` and allocates one buffer of exactly `capacity`
-bytes. The buffer never grows. A capacity below one is `OutOfRange`.
+bytes. The buffer never grows. The only failure is allocating it. A computed
+capacity converts with `Positive.try_from`.
 
 | `BufReader[R]` | Result | Contract |
 |---|---|---|
 | `read(buffer, start, stop)` | `Result[i64, StreamError]` | Serve held bytes, otherwise make one inner read |
-| `read_until(delimiter, out, limit)` | `Result[i64, StreamError]` | Append through the first `delimiter`, at most `limit` bytes |
+| `read_until(delimiter, out, limit: Positive[i64])` | `Result[i64, StreamError]` | Append through the first `delimiter`, at most `limit` bytes |
 | `buffered()` | `i64` | Bytes held and not yet consumed |
 | `capacity()` | `i64` | The fixed buffer size |
 
@@ -158,7 +159,7 @@ bytes. The buffer never grows. A capacity below one is `OutOfRange`.
 the capacity, made while the buffer is empty, goes straight to the inner
 stream. `read_until` returns the count appended: zero is end of input, and a
 count whose last byte is not the delimiter means the limit or end of input came
-first. It retries `Interrupted`. `limit` below one is `OutOfRange`. After an
+first. It retries `Interrupted`. After an
 error, bytes already appended stay in `out` and bytes not yet appended stay in
 the buffer.
 

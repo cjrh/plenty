@@ -641,13 +641,6 @@ match over.output(5):
     case Err(error):
         print(error)?
 show(&over.wait()?)?
-mut negative = sh("true")?.spawn()?
-match negative.output(-1):
-    case Ok(_):
-        print("accepted")?
-    case Err(error):
-        print(error)?
-show(&negative.wait()?)?
 
 # An endless writer: the limit bounds memory, then the caller decides.
 mut endless = piped("yes", &list[str].new()?)?.spawn()?
@@ -669,12 +662,25 @@ show(&endless.wait()?)?
 std.io.StreamError.OutOfRange
 True Option[i32].Some(0) Option[i32].Nothing
 std.io.StreamError.OutOfRange
-True Option[i32].Some(0) Option[i32].Nothing
-std.io.StreamError.OutOfRange
 running
 False Option[i32].Nothing Option[i32].Some(9)
 "#,
     );
+}
+
+/// B95: the output limit is `NonNegative[i64]`, so a negative literal is a
+/// compile error.
+#[test]
+fn negative_output_limit_literal_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(
+        &path,
+        program("mut child = sh(\"true\")?.spawn()?\ndrop(child.output(-1))\n"),
+    )
+    .unwrap();
+    let error = plenty::check_file(&path, None).unwrap_err().to_string();
+    assert!(error.contains("NonNegative"), "{error}");
 }
 
 #[test]

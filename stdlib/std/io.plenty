@@ -164,9 +164,10 @@ pub def write_all[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), Partia
 
 # Appends at most `limit` bytes to `out`, stopping early only at end of input.
 # `out` grows one bounded step at a time and never holds unread filler.
-pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]:
-    if limit < 0:
-        return Err(Partial(0, StreamError.OutOfRange))
+pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: NonNegative[i64]) -> Result[i64, Partial]:
+    up_to(reader, out, limit.get())
+
+def up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]:
     mut total = 0
     while total < limit:
         mut step = limit - total
@@ -265,11 +266,10 @@ pub class BufReader[R]:
     # Returns the count appended; zero is end of input. A nonzero count whose
     # last byte is not the delimiter means the limit or end of input came first.
     # After an error, `out` keeps the bytes already appended.
-    pub def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: i64) -> Result[i64, StreamError]:
-        if limit <= 0:
-            return Err(StreamError.OutOfRange)
+    pub def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: Positive[i64]) -> Result[i64, StreamError]:
+        most = limit.get()
         mut total = 0
-        while total < limit:
+        while total < most:
             if self._start == self._stop:
                 match self.fill():
                     case Ok(count):
@@ -280,8 +280,8 @@ pub class BufReader[R]:
                             return Err(cause)
             else:
                 mut stop = self._stop
-                if stop - self._start > limit - total:
-                    stop = self._start + (limit - total)
+                if stop - self._start > most - total:
+                    stop = self._start + (most - total)
                 mut found = False
                 match self._buffer.find(delimiter, self._start, stop):
                     case Some(index):
@@ -296,11 +296,10 @@ pub class BufReader[R]:
                     return Ok(total)
         Ok(total)
 
-pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], StreamError]:
-    if capacity <= 0:
-        return Err(StreamError.OutOfRange)
-    mut buffer = with_capacity(capacity).map_error(StreamError.Allocation)?
-    buffer.resize(capacity, 0u8).map_error(StreamError.Allocation)?
+pub def buffered_reader[R](inner: R, capacity: Positive[i64]) -> Result[BufReader[R], StreamError]:
+    size = capacity.get()
+    mut buffer = with_capacity(size).map_error(StreamError.Allocation)?
+    buffer.resize(size, 0u8).map_error(StreamError.Allocation)?
     Ok(BufReader(inner, buffer, 0, 0))
 
 # Repositions the inner stream and discards buffered input. A relative target
@@ -370,10 +369,9 @@ pub class BufWriter[W]:
         self.drain()?
         self.inner.flush()
 
-pub def buffered_writer[W](inner: W, capacity: i64) -> Result[BufWriter[W], StreamError]:
-    if capacity <= 0:
-        return Err(StreamError.OutOfRange)
-    Ok(BufWriter(inner, with_capacity(capacity).map_error(StreamError.Allocation)?, 0, capacity))
+pub def buffered_writer[W](inner: W, capacity: Positive[i64]) -> Result[BufWriter[W], StreamError]:
+    size = capacity.get()
+    Ok(BufWriter(inner, with_capacity(size).map_error(StreamError.Allocation)?, 0, size))
 
 # Delivers pending bytes, then repositions the inner stream.
 pub def seek_writer[W: Seeker](writer: &mut BufWriter[W], target: SeekFrom) -> Result[i64, StreamError]:

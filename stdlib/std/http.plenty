@@ -225,9 +225,12 @@ def text_of(data: &[u8], start: i64, stop: i64, invalid: HttpError) -> Result[st
 # Returns the length without the CRLF, or -1 when input ends before a byte.
 def read_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, limit: i64, overflow: HttpError) -> Result[i64, HttpError]:
     line.clear()
-    if limit <= 0:
-        return Err(overflow)
-    count = streamed(conn.read_until(line_feed, line, limit))?
+    most = match Positive.try_from(limit):
+        case Ok(value):
+            value
+        case Err(_):
+            return Err(overflow)
+    count = streamed(conn.read_until(line_feed, line, most))?
     if count == 0:
         return Ok(-1)
     if line[count - 1] != line_feed:

@@ -121,8 +121,8 @@ A `Child` is the single owner of one process. It is not copyable.
 | `signal(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 |
 | `terminate()` | `Result[(), IoError]` | `SIGTERM`: a request the child may ignore |
 | `kill()` | `Result[(), IoError]` | `SIGKILL`: cannot be caught |
-| `communicate(input: &[u8], limit: i64)` | `Result[Output, StreamError]` | Feed stdin, collect both outputs, wait |
-| `output(limit: i64)` | `Result[Output, StreamError]` | `communicate` with no input |
+| `communicate(input: &[u8], limit: NonNegative[i64])` | `Result[Output, StreamError]` | Feed stdin, collect both outputs, wait |
+| `output(limit: NonNegative[i64])` | `Result[Output, StreamError]` | `communicate` with no input |
 
 Methods that reap or move a pipe take `self: &mut Child`; `id` and the signal
 methods borrow.

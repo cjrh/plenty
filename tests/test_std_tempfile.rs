@@ -229,9 +229,6 @@ fn rejects_invalid_options_without_leaving_resources() {
 std.test.is_err(&std.tempfile.named_file(prefix="bad/name"))?
 std.test.is_err(&std.tempfile.named_file(suffix="bad/name"))?
 std.test.is_err(&std.tempfile.directory(prefix="bad/name"))?
-std.test.is_err(&std.tempfile.directory(max_depth=0))?
-std.test.is_err(&std.tempfile.directory(max_depth=65))?
-std.test.is_err(&std.tempfile.directory(max_entries=0))?
 missing = std.tempfile.default_dir()?.join(&std.path.from_text("missing")?)?
 std.test.is_err(&std.tempfile.file(parent=&missing))?
 std.test.is_err(&std.tempfile.named_file(parent=&missing))?
@@ -239,6 +236,46 @@ std.test.is_err(&std.tempfile.directory(parent=&missing))?
 "#,
         &[],
     );
+}
+
+/// B95: cleanup budgets are `Positive[i64]`; a depth above 64 is a caller bug,
+/// so it traps before creating anything.
+#[test]
+fn directory_depth_above_the_ceiling_traps() {
+    let build = tempfile::tempdir().unwrap();
+    let resources = tempfile::tempdir().unwrap();
+    let source = build.path().join("main.plenty");
+    let executable = build.path().join("program");
+    std::fs::write(
+        &source,
+        "import std.tempfile\nimport std.fs\ndef main() -> Result[(), AllocError | IoError | std.fs.FsError]:\n    drop(std.tempfile.directory(max_depth=65))\n    Ok(())\n",
+    )
+    .unwrap();
+    plenty::compile_file_to_executable(&source, &executable, None).unwrap();
+    let output = Command::new(executable)
+        .env("TMPDIR", resources.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("std.tempfile.directory: max_depth is above 64"),
+        "{stderr}"
+    );
+    assert_eq!(std::fs::read_dir(resources.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn zero_budget_literal_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(
+        &source,
+        "import std.tempfile\nimport std.fs\ndef main() -> Result[(), AllocError | IoError | std.fs.FsError]:\n    drop(std.tempfile.directory(max_entries=0))\n    Ok(())\n",
+    )
+    .unwrap();
+    let error = plenty::check_file(&source, None).unwrap_err().to_string();
+    assert!(error.contains("Positive"), "{error}");
 }
 
 #[test]

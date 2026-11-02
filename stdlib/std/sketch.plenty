@@ -224,13 +224,16 @@ def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError]:
         case Err(_):
             Err(SketchError.InvalidData)
 
-pub def quantiles(capacity: i64 = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]:
-    if capacity < 1 or capacity > 1048576:
-        return Err(SketchError.InvalidArgument)
+pub def quantiles(capacity: Positive[i64] = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]:
+    if capacity > 1048576:
+        __trap("std.sketch.quantiles: capacity is above 1048576")
+    sampled(capacity.get(), seed)
+
+def sampled(capacity: i64, seed: u64) -> Result[Quantiles, SketchError]:
     samples = list[f64].with_capacity(capacity).map_error(SketchError.Allocation)?
     Ok(Quantiles(samples, capacity, 0u64, 0.0, 0.0, std.random.seeded(seed)))
 
-pub def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result[Quantiles, SketchError]:
+pub def quantiles_from_bytes(data: &[u8], max_capacity: Positive[i64] = 1048576) -> Result[Quantiles, SketchError]:
     if len(data) < 116:
         return Err(SketchError.InvalidData)
     if not __bytes_matches_text(data, 0, "PSQ1"):
@@ -239,12 +242,12 @@ pub def quantiles_from_bytes(data: &[u8], max_capacity: i64 = 1048576) -> Result
     count = read_word(data, 12)
     if capacity < 1u64 or capacity > 1048576u64:
         return Err(SketchError.InvalidData)
-    if i64(capacity) > max_capacity:
+    if i64(capacity) > max_capacity.get():
         return Err(SketchError.Limit)
     retained = i64(std.math.min(capacity, count))
     if len(data) != 116 + 32 * retained:
         return Err(SketchError.InvalidData)
-    mut result = quantiles(i64(capacity))?
+    mut result = sampled(i64(capacity), 0u64)?
     match std.random.from_state(read_word(data, 20), read_word(data, 28), read_word(data, 36), read_word(data, 44)):
         case Ok(rng):
             result._rng = rng
@@ -335,9 +338,12 @@ pub class FrequentItems:
             word(&mut out, self._counts[index])?
         Ok(out)
 
-pub def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError]:
-    if capacity < 1 or capacity > 65536:
-        return Err(SketchError.InvalidArgument)
+pub def frequent_items(capacity: Positive[i64] = 128) -> Result[FrequentItems, SketchError]:
+    if capacity > 65536:
+        __trap("std.sketch.frequent_items: capacity is above 65536")
+    counted(capacity.get())
+
+def counted(capacity: i64) -> Result[FrequentItems, SketchError]:
     mut keys = list[u64].with_capacity(capacity).map_error(SketchError.Allocation)?
     mut counts = list[u64].with_capacity(capacity).map_error(SketchError.Allocation)?
     for _ in range(capacity):
@@ -345,7 +351,7 @@ pub def frequent_items(capacity: i64 = 128) -> Result[FrequentItems, SketchError
         counts.append(0u64).map_error(SketchError.Allocation)?
     Ok(FrequentItems(keys, counts, capacity, 0u64, 0u64))
 
-pub def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Result[FrequentItems, SketchError]:
+pub def frequent_items_from_bytes(data: &[u8], max_capacity: Positive[i64] = 65536) -> Result[FrequentItems, SketchError]:
     if len(data) < 28:
         return Err(SketchError.InvalidData)
     if data[0] != 80u8 or data[1] != 83u8 or data[2] != 70u8 or data[3] != 49u8:
@@ -355,11 +361,11 @@ pub def frequent_items_from_bytes(data: &[u8], max_capacity: i64 = 65536) -> Res
     decrements = read_word(data, 20)
     if capacity < 1u64 or capacity > 65536u64:
         return Err(SketchError.InvalidData)
-    if i64(capacity) > max_capacity:
+    if i64(capacity) > max_capacity.get():
         return Err(SketchError.Limit)
     if len(data) != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64):
         return Err(SketchError.InvalidData)
-    mut result = frequent_items(i64(capacity))?
+    mut result = counted(i64(capacity))?
     mut sum = decrements * (capacity + 1u64)
     mut seen = set[u64]().map_error(SketchError.Allocation)?
     for index in range(i64(capacity)):

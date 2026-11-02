@@ -163,8 +163,8 @@ pub class TemporaryDirectory:
     _owner: std.fs.TempDir
     _path: Path
     _cancel: CancellationToken
-    _max_entries: i64
-    _max_depth: i64
+    _max_entries: Positive[i64]
+    _max_depth: Positive[i64]
 
     pub def path(self) -> &Path:
         &self._path
@@ -190,9 +190,9 @@ pub class TemporaryDirectory:
     def __del__(self) -> ():
         drop(self.cleanup())
 
-pub def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: i64 = 100000, max_depth: i64 = 64) -> Result[TemporaryDirectory, FsError]:
-    if max_entries < 1 or max_depth < 1 or max_depth > 64:
-        return Err(FsError.InvalidInput)
+pub def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64) -> Result[TemporaryDirectory, FsError]:
+    if max_depth > 64:
+        __trap("std.tempfile.directory: max_depth is above 64")
     base = io_error(absolute(parent))?
     root = io_error(std.fs.root(&base))?
     if valid_part(prefix)? > 200:

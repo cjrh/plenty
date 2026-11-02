@@ -1,9 +1,9 @@
 # `std.sketch.xor`
 
-A static approximate-membership filter over u64 keys. `build(keys, max_keys,
-seed=0)` accepts duplicates, sorts/deduplicates a fallible copy, and returns an
+A static approximate-membership filter over u64 keys. `build(keys, max_keys:
+NonNegative[i64], seed=0)` accepts duplicates, sorts/deduplicates a fallible copy, and returns an
 `XorFilter`. The input is not mutated. `max_keys` bounds **input entries**, not
-just distinct keys, and must be between 0 and 16,777,216.
+just distinct keys; a `max_keys` above 16,777,216 traps.
 
 ```plenty
 from std.sketch import SketchError
@@ -39,7 +39,7 @@ tuned xor/fuse filter. It is immutable after construction. For changing data,
 see [cuckoo filters](sketch-cuckoo.md).
 
 `to_bytes()` returns `Result[Bytes, AllocError]`. `from_bytes(data,
-max_keys)` reads a `&[u8]` view and returns `SketchError`.
+max_keys: NonNegative[i64])` reads a `&[u8]` view and returns `SketchError`.
 The `PSX1` format stores seed, unique count, block size (little-endian u64), then
 fingerprint bytes. Readers validate the count/shape and exact length before
 allocation, and reject values beyond the caller's limit. It is a Plenty-specific

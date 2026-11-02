@@ -35,10 +35,10 @@ True
 | Function | Result | Contract |
 |---|---|---|
 | `compress(format: Format, data: &[u8], level: i64)` | `Result[Bytes, CompressError]` | All of `data`, compressed |
-| `decompress(format: Format, data: &[u8], limit: i64)` | `Result[Bytes, CompressError]` | The contents of `data`, at most `limit` bytes |
+| `decompress(format: Format, data: &[u8], limit: NonNegative[i64])` | `Result[Bytes, CompressError]` | The contents of `data`, at most `limit` bytes |
 | `compressor(format: Format, inner: W, level: i64)` | `Result[Compressor[W], CompressError]` | A writer that compresses into `inner` |
-| `decompressor(format: Format, inner: R, limit: i64)` | `Result[Decompressor[R], CompressError]` | A reader of the decompressed contents of `inner` |
-| `inflater(format: Format, limit: i64)` | `Result[Inflater, CompressError]` | A step-by-step decoder; see [Inflater](#inflater) |
+| `decompressor(format: Format, inner: R, limit: NonNegative[i64])` | `Result[Decompressor[R], CompressError]` | A reader of the decompressed contents of `inner` |
+| `inflater(format: Format, limit: NonNegative[i64])` | `Result[Inflater, CompressError]` | A step-by-step decoder; see [Inflater](#inflater) |
 | `crc32(seed: i64, data: &[u8])` | `Result[i64, CompressError]` | The CRC-32 of `data`, continuing from `seed` |
 | `stream_error(error: CompressError)` | `StreamError` | How a `Decompressor` reports `error` |
 
@@ -48,7 +48,7 @@ True
 uncompressed in blocks, to 9, which is smallest and slowest; 6 is a usual
 choice. Brotli takes qualities 0–11; 5 is a useful starting point, while 10–11
 spend substantially more time and memory. A level outside its format's range
-or a negative `limit` is `OutOfRange`.
+is `OutOfRange`.
 
 `crc32` is the gzip and zip checksum; start a fresh sum with seed 0. The
 check value of the nine bytes `123456789` is 3421780262. `seed` must lie in
@@ -169,7 +169,7 @@ pub enum CompressError:
 
 | Variant | Meaning |
 |---|---|
-| `OutOfRange` | A level, limit, or seed out of bounds |
+| `OutOfRange` | A level or seed out of bounds |
 | `Corrupt` | Malformed compressed data |
 | `Checksum` | Well-formed data whose checksum or length does not match |
 | `Truncated` | The input ended inside a stream |

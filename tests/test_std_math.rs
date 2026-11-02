@@ -473,13 +473,22 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
     );
 }
 
+/// B95: `factorial` takes `NonNegative[i64]`, so a negative literal is a
+/// compile error rather than `Domain`.
+#[test]
+fn negative_factorial_literal_is_rejected() {
+    let error = support::check_file_error(
+        "import std.math as math\ndef main() -> Result[(), AllocError | IoError | math.MathError]:\n    print(math.factorial(-1)?)?\n    Ok(())\n",
+    );
+    assert!(error.contains("NonNegative"), "{error}");
+}
+
 #[test]
 fn fixed_width_integer_algorithms_cover_the_range() {
     assert_eq!(
         run(r#"    print(math.factorial(0)?)?
     print(math.factorial(20)?)?
     print(math.factorial(21) == Integer.Err(math.MathError.Overflow))?
-    print(math.factorial(-1) == Integer.Err(math.MathError.Domain))?
     print(math.gcd(0, 0))?
     print(math.gcd(u64.MAX, u64.MAX))?
     print(math.gcd(48, 18))?
@@ -502,7 +511,7 @@ fn fixed_width_integer_algorithms_cover_the_range() {
     print(math.comb(67, 33)?)?
     print(math.comb(68, 34) == Integer.Err(math.MathError.Overflow))?
 "#),
-        "1\n2432902008176640000\nTrue\nTrue\n0\n18446744073709551615\n6\n0\n36\nTrue\n0\n1\n3\n4\n4294967295\n60\n0\n1\n18446744073709551615\nTrue\n10\n0\n18446744073709551615\n14226520737620288370\nTrue\n"
+        "1\n2432902008176640000\nTrue\n0\n18446744073709551615\n6\n0\n36\nTrue\n0\n1\n3\n4\n4294967295\n60\n0\n1\n18446744073709551615\nTrue\n10\n0\n18446744073709551615\n14226520737620288370\nTrue\n"
     );
 }
 

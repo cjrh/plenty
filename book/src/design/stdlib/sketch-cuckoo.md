@@ -1,9 +1,9 @@
 # `std.sketch.cuckoo`
 
-`cuckoo(initial_buckets=64, max_buckets=1048576, seed=0)` creates a scalable
+`cuckoo(initial_buckets=64, max_buckets: Positive[i64] = 1048576, seed=0)` creates a scalable
 approximate-membership filter for u64 keys. Initial buckets must be a power of
-two between 1 and 1,048,576. The total bucket limit is at least that large and
-at most 16,777,216. Each bucket has four two-byte fingerprints. Layers double
+two between 1 and 1,048,576. The total bucket limit is at least that large; a
+limit above 16,777,216 traps. Each bucket has four two-byte fingerprints. Layers double
 geometrically; the caller's limit counts buckets across **all** layers.
 
 `insert(key)` returns the **layer index** receiving that occurrence. Every call
@@ -67,7 +67,7 @@ may be slower than a successful insertion into an existing layer.
 
 `to_bytes()` writes `PSC1`, seed, total configured limit, initial bucket count,
 layer count, and occurrence count as little-endian u64, followed by little-endian
-u16 slots in layer order. `from_bytes(data, max_buckets)` reads a `&[u8]` view,
+u16 slots in layer order. `from_bytes(data, max_buckets: Positive[i64])` reads a `&[u8]` view,
 validates shape, counts, length and the caller limit before constructing storage,
 and returns `SketchError`. The caller limit bounds the serialized
 **configured maximum**, not only today's occupancy. Serialization fails only to

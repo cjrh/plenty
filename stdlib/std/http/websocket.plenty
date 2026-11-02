@@ -99,6 +99,10 @@ const state_failed: i64 = 3
 # Bytes read or copied at a time.
 const chunk: i64 = 4096
 
+# chunk as a buffer capacity; module constants cannot carry the type.
+def chunk_capacity() -> Positive[i64]:
+    4096
+
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, WebSocketError]:
     match result:
@@ -896,7 +900,7 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
             return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
         at += written
     wire = Wire(Some(owned), until_of(deadline), cancel.share(), Nothing)
-    mut reader = match std.io.buffered_reader(wire, chunk):
+    mut reader = match std.io.buffered_reader(wire, chunk_capacity()):
         case Ok(made):
             made
         case Err(StreamError.Allocation(cause)):
