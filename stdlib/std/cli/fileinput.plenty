@@ -7,13 +7,6 @@ from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.path import Path, from_bytes
 
-def io_error_allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(IoError.Data(DataError.Allocation(cause)))
-
 pub enum FileInputError:
     Open(Option[Path], StreamError)
     Read(Option[Path], StreamError)
@@ -99,11 +92,11 @@ pub def files(paths: list[Path]) -> Generator[Result[str, FileInputError]]:
 # Allocation failure is `IoError.Data(DataError.Allocation(...))`, as for
 # `print`.
 pub def lines() -> Result[Generator[Result[str, FileInputError]], IoError]:
-    mut paths = io_error_allocated(list[Path]())?
+    mut paths = list[Path]().map_error(DataError.Allocation).map_error(IoError.Data)?
     mut first = True
     for native in args_bytes()?:
         if first:
             first = False
         else:
-            io_error_allocated(paths.append(from_bytes(native)))?
+            paths.append(from_bytes(native)).map_error(DataError.Allocation).map_error(IoError.Data)?
     Ok(files(paths))

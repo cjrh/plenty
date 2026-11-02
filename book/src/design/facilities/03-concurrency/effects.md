@@ -39,8 +39,35 @@ signature or locals names that function and its path the same way. A generic fun
 its definition, and a method as `Class.method`:
 
 ```text
-error: worker `work` reaches the generic function at std/error.plenty:5:5 through `outer` -> `Parser.parse`: indirect callable effects are not certified for worker threads
+error: worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> the generic function at std/error.plenty:7:5 -> `wrap`: changing the working directory affects every thread's relative paths; change it on the main thread before starting workers
 ```
+
+## Thin callable targets
+
+A `Callable` stores a code address with a concrete signature. The compiler
+collects every address of that signature in the closed program and certifies
+**all** of their bodies, signature types, stored values and destructors. This
+allows named and capture-free function values, including payload variant
+constructors, in worker helpers such as `result.map_error(Domain.Allocation)`.
+Moving a callback through parameters, returned values, classes, lists or
+channels preserves this check. Recursive signatures and bodies are inspected
+once per identity.
+
+This is conservative certification by signature. Taking an unsafe address on
+the main thread can reject a worker's use of a different function with the
+same signature, even when that unsafe value never enters the worker. A
+conditional with one safe and one unsafe candidate is rejected too. An absent
+address set supplies no evidence and is rejected; a function signature alone
+is never an effect contract. A concrete captured closure has its own body and
+capture evidence and can avoid unrelated signatures, while retaining all
+checks on its actual effects.
+
+Foreign interfaces cannot produce or reinterpret a `Callable`: their scalar
+and opaque-pointer ABI is separate from Plenty function values. Erased
+`BoxedCallable` environments remain ineligible. The direct worker-entry APIs
+keep their existing requirements for statically named functions or concrete
+closures; certification of thin values used *inside* workers does not add a
+new `spawn` or parallel-worker entry form.
 
 ## Native handles
 

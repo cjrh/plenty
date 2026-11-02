@@ -286,7 +286,7 @@ fn an_invalid_graph_handle_names_the_actual_call_not_its_first_instantiation() {
         "from std.graph import DiGraph\ndef main() -> Result[(), AllocError | IoError]:\n    mut full = DiGraph[i64, i64]()?\n    node = full.add_node(1)?\n    print(*full.node(node))?\n    empty = DiGraph[i64, i64]()?\n    print(*empty.node(node))?\n    Ok(())\n",
     )]);
     assert!(
-        error.starts_with("error: std/graph.plenty:125:20: index out of bounds"),
+        error.starts_with("error: std/graph.plenty:118:20: index out of bounds"),
         "{error}"
     );
     assert!(
@@ -474,7 +474,7 @@ fn standard_library_code_makes_no_caller_context_calls() {
     );
     let error = trap(&[("main.plenty", source)]);
     assert!(
-        error.starts_with("error: std/graph.plenty:125:20: index out of bounds"),
+        error.starts_with("error: std/graph.plenty:118:20: index out of bounds"),
         "{error}"
     );
     assert!(

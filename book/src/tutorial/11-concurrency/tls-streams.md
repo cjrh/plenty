@@ -31,17 +31,14 @@ def leaf_key() -> str:
 
 # Answers one message on one connection.
 def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | TlsError | std.bytes.BytesError]:
-    match listener.accept(deadline, cancel):
-        case Ok(tcp):
-            mut stream = std.tls.accept(tcp, config, deadline, cancel)?
-            mut buffer = std.bytes.with_capacity(64)?
-            buffer.resize(64, 0u8)?
-            count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
-            stream.write_all_before(&buffer[:count], deadline, cancel)?
-            stream.close_before(deadline, cancel)?
-            Ok(count)
-        case Err(error):
-            Err(TlsError.Net(error))
+    tcp = listener.accept(deadline, cancel).map_error(TlsError.Net)?
+    mut stream = std.tls.accept(tcp, config, deadline, cancel)?
+    mut buffer = std.bytes.with_capacity(64)?
+    buffer.resize(64, 0u8)?
+    count = stream.read_before(&mut buffer, 0, 64, deadline, cancel)?
+    stream.write_all_before(&buffer[:count], deadline, cancel)?
+    stream.close_before(deadline, cancel)?
+    Ok(count)
 
 type TlsConnectionError = RangeError | TlsError | NetError | std.bytes.BytesError
 

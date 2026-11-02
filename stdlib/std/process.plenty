@@ -10,13 +10,6 @@ from std.io import StreamError, classify
 from std.path import Path
 from std.time import Deadline, Duration, Instant, deadline_after, milliseconds, monotonic_now, sleep
 
-def stream_error_allocated[T](result: Result[T, AllocError]) -> Result[T, StreamError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(StreamError.Allocation(cause))
-
 const chunk: i64 = 8192
 # A pipe that polls writable has a free page, so a write this size cannot block.
 const pipe_page: i64 = 4096
@@ -237,7 +230,7 @@ def failed[T](result: Result[T, IoError]) -> Result[T, StreamError]:
             Err(classify(error))
 
 def empty() -> Result[Bytes, StreamError]:
-    stream_error_allocated(with_capacity(0))
+    with_capacity(0).map_error(StreamError.Allocation)
 
 # A budget too long for the monotonic clock is InvalidInput.
 def ending(start: &Instant, budget: &Duration) -> Result[Deadline, IoError]:
@@ -269,7 +262,7 @@ def drained(file: &mut File, out: &mut Bytes, limit: i64) -> Result[bool, Stream
     mut wanted = chunk
     if limit - before < chunk:
         wanted = limit - before + 1
-    stream_error_allocated(out.resize(before + wanted, 0u8))?
+    out.resize(before + wanted, 0u8).map_error(StreamError.Allocation)?
     match out.read_file(file, before, before + wanted):
         case Ok(count):
             out.truncate(before + count)

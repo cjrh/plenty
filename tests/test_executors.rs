@@ -269,8 +269,8 @@ fn handles_are_affine_and_worker_dependencies_are_rejected() {
             "cannot enter worker",
         ),
         (
-            "def seven() -> i64:\n    7\ndef work() -> ():\n    f: Callable[[], i64] = seven\n    f()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n",
-            "indirect callable",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\ndef work() -> ():\n    f: Callable[[], i64] = seven\n    f()\n    pass\npool = ThreadPoolExecutor(1, 1).unwrap()\npool.submit(work).unwrap()\n",
+            "changing the working directory",
         ),
         (
             "def work(future: Future[i64]) -> i64:\n    future.result().unwrap()\ndef one() -> i64:\n    1\npool = ThreadPoolExecutor(1, 1).unwrap()\nf = pool.submit(one).unwrap()\npool.submit(work, f).unwrap()\n",
@@ -281,7 +281,8 @@ fn handles_are_affine_and_worker_dependencies_are_rejected() {
             "owned Future",
         ),
     ] {
-        let error = support::check_source(source).unwrap_err().to_string();
+        let source = format!("import std.env\n{}", support::program(source));
+        let error = plenty::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "expected {expected}: {error}");
     }
 }

@@ -103,12 +103,14 @@ take exactly the error type: a reference, a variant with several payloads, or
 a callable returning unit is rejected. `.map_err(...)` is not implemented.
 See [the lesson](../../tutorial/03-absence/error-details.md).
 
-Worker-reachable calls need an inspectable concrete closure, such as
-`def once (cause: ParseError) -> ConfigError: classify(cause)`. A thin named or
-anonymous function value, including a variant constructor value such as
-`ConfigError.Parse`, retains the existing worker-thread effect restriction when
-either form of `map_error` calls it. The `once` form keeps the
-callback body concrete without allocating; it does not bypass its effect check.
+Worker-reachable calls accept thin named or anonymous function values,
+including variant constructors such as `ConfigError.Parse`, when every function
+address of that callable signature in the program passes
+[worker-effect certification](../facilities/03-concurrency/effects.md#thin-callable-targets).
+The compiler checks every candidate body and its stored types; one safe target
+never excuses an unsafe one. A main-thread-only address with the same signature
+can conservatively prevent certification. A concrete closure retains its own
+body and capture evidence; it cannot bypass the checks either.
 
 ## Allocation failure
 

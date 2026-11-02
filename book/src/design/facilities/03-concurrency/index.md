@@ -23,7 +23,8 @@ bodies, captures, results, and destructors, including finite recursive type
 graphs. Scalars, strings, ranges, collections, classes, enums, and `Shared`
 handles are eligible when their contents and effects are eligible. A shared
 value's destructor is checked as if any holder's thread could run it. Stored concrete callbacks retain
-their eligibility evidence.
+their eligibility evidence. Thin `Callable` values are certified against every
+[matching function address](effects.md#thin-callable-targets) in the program.
 
 Each native operation has a declared [effect](effects.md). Files, directory
 streams and child pipes cross threads under the ordinary ownership and loan

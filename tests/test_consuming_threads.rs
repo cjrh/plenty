@@ -44,11 +44,12 @@ fn consuming_submission_rejects_moved_jobs_borrowed_environments_and_effects() {
             "wholly owned",
         ),
         (
-            "def seven() -> i64:\n    7\nn = 1\njob = def [n]() -> i64:\n    f: Callable[[], i64] = seven\n    n + f()\nwith spawn(job).unwrap():\n    pass\n",
-            "indirect callable",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\nn = 1\njob = def [n]() -> i64:\n    f: Callable[[], i64] = seven\n    n + f()\nwith spawn(job).unwrap():\n    pass\n",
+            "changing the working directory",
         ),
     ] {
-        let error = support::check_source(source).unwrap_err().to_string();
+        let source = format!("import std.env\n{}", support::program(source));
+        let error = plenty::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }
 }

@@ -3,13 +3,6 @@ import std.bytes
 from std.bytes import Bytes
 from std.sketch import SketchError, hash_u64
 
-def allocated[T](result: Result[T, AllocError]) -> Result[T, SketchError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(SketchError.Allocation(cause))
-
 # Offsets into sketch buffers are computed here, so only allocation can fail;
 # another byte error is a bug in this module and traps.
 const key_limit: i64 = 1 << 24
@@ -57,7 +50,7 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
         return Err(SketchError.InvalidArgument)
     if len(keys) > max_keys:
         return Err(SketchError.Limit)
-    mut sorted = allocated(copy(keys))?
+    mut sorted = copy(keys).map_error(SketchError.Allocation)?
     sorted.sort()
     mut unique = 0
     for index in range(len(sorted)):
@@ -70,16 +63,16 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
     # conservative. The persistent filter uses one byte per slot.
     block = 1 + unique // 2
     size = block * 3
-    mut degrees = allocated(list[i64].with_capacity(size))?
-    mut xors = allocated(list[u64].with_capacity(size))?
-    mut prints = allocated(std.bytes.with_capacity(size))?
-    allocated(prints.resize(size, 0u8))?
-    mut queue = allocated(list[i64].with_capacity(size))?
-    mut peeled = allocated(list[u64].with_capacity(unique))?
-    mut slots = allocated(list[i64].with_capacity(unique))?
+    mut degrees = list[i64].with_capacity(size).map_error(SketchError.Allocation)?
+    mut xors = list[u64].with_capacity(size).map_error(SketchError.Allocation)?
+    mut prints = std.bytes.with_capacity(size).map_error(SketchError.Allocation)?
+    prints.resize(size, 0u8).map_error(SketchError.Allocation)?
+    mut queue = list[i64].with_capacity(size).map_error(SketchError.Allocation)?
+    mut peeled = list[u64].with_capacity(unique).map_error(SketchError.Allocation)?
+    mut slots = list[i64].with_capacity(unique).map_error(SketchError.Allocation)?
     for _ in range(size):
-        allocated(degrees.append(0))?
-        allocated(xors.append(0u64))?
+        degrees.append(0).map_error(SketchError.Allocation)?
+        xors.append(0u64).map_error(SketchError.Allocation)?
     for attempt in range(32):
         attempt_seed = seed.wrapping_add(u64(attempt).wrapping_mul(11400714819323198485u64))
         for index in range(size):
@@ -99,7 +92,7 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
             xors[c] = xors[c] ^ hash
         for index in range(size):
             if degrees[index] == 1:
-                allocated(queue.append(index))?
+                queue.append(index).map_error(SketchError.Allocation)?
         mut cursor = 0
         while cursor < len(queue):
             slot = queue[cursor]
@@ -107,8 +100,8 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
             if degrees[slot] != 1:
                 continue
             hash = xors[slot]
-            allocated(peeled.append(hash))?
-            allocated(slots.append(slot))?
+            peeled.append(hash).map_error(SketchError.Allocation)?
+            slots.append(slot).map_error(SketchError.Allocation)?
             (a, b, c) = positions(hash, block)
             degrees[a] -= 1
             degrees[b] -= 1
@@ -117,11 +110,11 @@ pub def build(keys: &list[u64], max_keys: i64, seed: u64 = 0u64) -> Result[XorFi
             xors[b] = xors[b] ^ hash
             xors[c] = xors[c] ^ hash
             if degrees[a] == 1:
-                allocated(queue.append(a))?
+                queue.append(a).map_error(SketchError.Allocation)?
             if degrees[b] == 1:
-                allocated(queue.append(b))?
+                queue.append(b).map_error(SketchError.Allocation)?
             if degrees[c] == 1:
-                allocated(queue.append(c))?
+                queue.append(c).map_error(SketchError.Allocation)?
         if len(peeled) == unique:
             mut index = unique
             while index > 0:
@@ -161,6 +154,6 @@ pub def from_bytes(data: &[u8], max_keys: i64) -> Result[XorFilter, SketchError]
     size = i64(block) * 3
     if len(data) != 28 + size:
         return Err(SketchError.InvalidData)
-    mut prints = allocated(std.bytes.with_capacity(size))?
-    allocated(prints.extend(&data[28:]))?
+    mut prints = std.bytes.with_capacity(size).map_error(SketchError.Allocation)?
+    prints.extend(&data[28:]).map_error(SketchError.Allocation)?
     Ok(XorFilter(read_word(data, 4), i64(count), i64(block), prints))

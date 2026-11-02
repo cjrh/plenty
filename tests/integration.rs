@@ -678,3 +678,6 @@ mod test_str_match;
 
 #[path = "test_signal_host.rs"]
 mod test_signal_host;
+
+#[path = "test_worker_callables.rs"]
+mod test_worker_callables;

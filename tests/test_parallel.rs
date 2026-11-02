@@ -71,8 +71,8 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
             "must own their captures",
         ),
         (
-            "def seven() -> i64:\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n",
-            "indirect callable effects",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n",
+            "changing the working directory",
         ),
         (
             "def identity(n: i64) -> i64:\n    n\njob = identity\n",
@@ -86,7 +86,8 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
         let source = format!(
             "value = 2\n{worker}with ThreadPoolExecutor(2, 1).unwrap() as pool:\n    drop(pool.map(job, range(3)))\n"
         );
-        let error = support::check_source(&source).unwrap_err().to_string();
+        let source = format!("import std.env\n{}", support::program(&source));
+        let error = plenty::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{source}\n{error}");
     }
 }

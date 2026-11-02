@@ -11,13 +11,6 @@ from std.net import Connecting, Lookup, NetError, Shutdown, SocketAddress, TcpLi
 from std.ready import Interest, WaitError
 from std.time import Duration, instant_at, monotonic_now, nanoseconds
 
-def bytes_error_allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(cause):
-            Err(BytesError.Allocation(cause))
-
 # Writes attempted per message, so one fast connection cannot hold the
 # stage; level-triggered readiness brings the rest.
 const max_writes: i64 = 4
@@ -491,10 +484,10 @@ def invalid() -> NetError:
 pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]:
     if limits.input < 1 or limits.output < 1:
         return Err(BytesError.OutOfRange)
-    mut input = bytes_error_allocated(std.bytes.with_capacity(limits.input))?
-    bytes_error_allocated(input.resize(limits.input, 0u8))?
-    mut output = bytes_error_allocated(std.bytes.with_capacity(limits.output))?
-    bytes_error_allocated(output.resize(limits.output, 0u8))?
+    mut input = std.bytes.with_capacity(limits.input).map_error(BytesError.Allocation)?
+    input.resize(limits.input, 0u8).map_error(BytesError.Allocation)?
+    mut output = std.bytes.with_capacity(limits.output).map_error(BytesError.Allocation)?
+    output.resize(limits.output, 0u8).map_error(BytesError.Allocation)?
     Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64, Nothing))
 
 # What a listener does with a connection that arrives at capacity.
