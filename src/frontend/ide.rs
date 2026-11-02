@@ -191,7 +191,7 @@ struct Recorder {
     /// Functions whose bodies did not resolve: they keep their signatures,
     /// and lowering skips them.
     skipped: HashSet<String>,
-    diagnostics: Vec<String>,
+    diagnostics: Vec<crate::diagnostic::Diagnostic>,
 }
 
 pub(super) fn active() -> bool {
@@ -485,11 +485,11 @@ pub(super) fn skipped(name: &str) -> bool {
 
 /// During an editor check, record `error` and continue with the next
 /// function; otherwise the error ends the compilation.
-pub(super) fn recover(error: &dyn Error) -> bool {
+pub(super) fn recover(error: &(dyn Error + 'static)) -> bool {
     with(|r| {
-        let text = error.to_string();
-        if !r.diagnostics.contains(&text) {
-            r.diagnostics.push(text);
+        let found = crate::diagnostic::Diagnostic::of(error);
+        if !r.diagnostics.iter().any(|d| d.same(&found)) {
+            r.diagnostics.push(found);
         }
         true
     })
@@ -774,8 +774,8 @@ fn finish(recorder: Recorder) -> Analysis {
         Vec::new()
     };
     let diagnostics = diagnostics
-        .iter()
-        .map(|text| diagnostic(text, &texts))
+        .into_iter()
+        .map(|found| diagnostic(found, &texts))
         .collect();
     Analysis {
         diagnostics,
@@ -919,37 +919,31 @@ fn header(text: &str, offset: usize) -> String {
     out.trim().replace(",)", ")").replace(",]", "]")
 }
 
-/// A diagnostic from an error's text, which starts with `source:line:column: `
-/// when the error has a position.
-fn diagnostic(text: &str, texts: &HashMap<Arc<str>, (File, Arc<str>)>) -> Diagnostic {
-    let first = text.lines().next().unwrap_or_default();
-    let mut search = 0;
-    while let Some(i) = first[search..].find(": ").map(|i| i + search) {
-        let mut parts = first[..i].rsplitn(3, ':');
-        let column = parts.next().and_then(|c| c.parse::<u32>().ok());
-        let line = parts.next().and_then(|l| l.parse::<u32>().ok());
-        if let (Some(column), Some(line)) = (column, line) {
-            let source = parts.next().unwrap_or_default();
-            let file = (!source.is_empty()).then(|| {
-                texts
-                    .get(source)
-                    .map(|(file, _)| file.clone())
-                    .unwrap_or_else(|| File::Path(PathBuf::from(source)))
-            });
-            return Diagnostic {
-                file,
-                line,
-                column,
-                message: text[i + 2..].to_owned(),
-            };
-        }
-        search = i + 2;
-    }
+/// The public form of a recorded diagnostic. One without a position is
+/// placed at the start of the checked file.
+fn diagnostic(
+    found: crate::diagnostic::Diagnostic,
+    texts: &HashMap<Arc<str>, (File, Arc<str>)>,
+) -> Diagnostic {
+    let Some(position) = found.position else {
+        return Diagnostic {
+            file: None,
+            line: 1,
+            column: 1,
+            message: found.message,
+        };
+    };
+    let file = position.file.map(|source| {
+        texts
+            .get(&source)
+            .map(|(file, _)| file.clone())
+            .unwrap_or_else(|| File::Path(PathBuf::from(&*source)))
+    });
     Diagnostic {
-        file: None,
-        line: 1,
-        column: 1,
-        message: text.to_owned(),
+        file,
+        line: position.line,
+        column: position.column,
+        message: found.message,
     }
 }
 
@@ -968,15 +962,42 @@ mod tests {
 
     #[test]
     fn a_diagnostic_keeps_its_position() {
+        use crate::diagnostic::{Diagnostic as Found, Position};
+        let at = Position {
+            file: Some("/a b/c:d.plenty".into()),
+            line: 3,
+            column: 7,
+        };
+        // The message's own text is never read for a position.
         let found = diagnostic(
-            "/a/b.plenty:3:7: expected i64, got str",
+            Found::new(Some(at), "x.plenty:1:2: expected i64, got str"),
             &HashMap::default(),
         );
         assert_eq!((found.line, found.column), (3, 7));
-        assert_eq!(found.message, "expected i64, got str");
-        assert_eq!(found.file, Some(File::Path("/a/b.plenty".into())));
-        let found = diagnostic("reading x: missing", &HashMap::default());
-        assert_eq!((found.file, found.line), (None, 1));
+        assert_eq!(found.message, "x.plenty:1:2: expected i64, got str");
+        assert_eq!(found.file, Some(File::Path("/a b/c:d.plenty".into())));
+        let found = diagnostic(Found::new(None, "/a/b.plenty:3:7: x"), &HashMap::default());
+        assert_eq!((found.file, found.line, found.column), (None, 1, 1));
+        assert_eq!(found.message, "/a/b.plenty:3:7: x");
+    }
+
+    /// Recovery keeps one diagnostic per failure: the same wording at two
+    /// sites is two diagnostics.
+    #[test]
+    fn identical_errors_at_two_sites_are_both_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("m.plenty");
+        std::fs::write(
+            &path,
+            "def f() -> i64:\n    return \"a\"\n\ndef g() -> i64:\n    return \"a\"\n",
+        )
+        .unwrap();
+        let found = analyze(&path, None, HashMap::default()).diagnostics;
+        let sites: Vec<_> = found.iter().map(|d| (d.line, &*d.message)).collect();
+        assert_eq!(sites.len(), 2, "{found:?}");
+        assert_eq!(sites[0].1, sites[1].1);
+        assert_ne!(sites[0].0, sites[1].0);
+        assert!(found.iter().all(|d| d.file.is_some()), "{found:?}");
     }
 
     #[test]

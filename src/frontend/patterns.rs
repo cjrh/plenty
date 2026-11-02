@@ -168,11 +168,7 @@ impl Pat {
                     if !paths {
                         return Err(error);
                     }
-                    *unresolved = Some(
-                        error
-                            .downcast_ref::<Located>()
-                            .map_or_else(|| error.to_string(), |e| e.message.clone()),
-                    );
+                    *unresolved = Some(crate::diagnostic::Diagnostic::of(&*error).message);
                 }
                 for field in fields {
                     field.pattern.qualifiers_mut(paths, visit)?;

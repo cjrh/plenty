@@ -9,6 +9,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::diagnostic::{Diagnostic, Position};
+
 mod calls;
 mod cancel;
 mod futures;
@@ -56,8 +58,8 @@ pub struct Origins {
 /// code the reader never wrote. The body position becomes a note.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Instantiation {
-    /// `source:line:column` of the use in code that is not itself an instance.
-    pub at: Arc<str>,
+    /// The use in code that is not itself an instance.
+    pub at: Position,
     /// The instance that use asked for.
     pub requested: Arc<str>,
     /// The instance whose body is checked. It differs from `requested` when a
@@ -133,7 +135,12 @@ impl Instantiation {
     /// when the rejected type is not exactly one parameter's argument. The
     /// caller must establish the value's parameter provenance first; otherwise
     /// it uses `report` even if the concrete type happens to match.
-    pub fn explain(&self, body: &str, detail: &str, demand: &Demand) -> Option<String> {
+    pub fn explain(
+        &self,
+        body: Option<&Position>,
+        detail: &str,
+        demand: &Demand,
+    ) -> Option<Diagnostic> {
         if internal(&self.requested) || internal(&self.instance) {
             return None;
         }
@@ -163,50 +170,50 @@ impl Instantiation {
                 short(&self.requested)
             )
         };
-        Some(format!(
-            "{}: {subject}\n  {body}note: in instantiation `{instance}`: {detail}{}",
-            self.at,
+        Some(self.at(format!(
+            "{subject}\n  {}note: in instantiation `{instance}`: {detail}{}",
+            prefix(body),
+            self.unused_note()
+        )))
+    }
+
+    /// A body diagnostic at the requiring use. `body` is the body position,
+    /// when there is one.
+    pub fn report(&self, body: Option<&Position>, message: &str) -> Diagnostic {
+        // An f-string's generated functions are not code the reader wrote;
+        // their body positions are the fields themselves.
+        if internal(&self.requested) && internal(&self.instance) {
+            let mut diagnostic = Diagnostic::new(Some(body.unwrap_or(&self.at).clone()), message);
+            diagnostic.attributed = true;
+            return diagnostic;
+        }
+        let body = prefix(body);
+        let requested = if internal(&self.requested) {
+            &self.instance
+        } else {
+            &self.requested
+        };
+        let note = if internal(&self.instance) {
+            format!("{body}note: {message}")
+        } else {
+            format!(
+                "{body}note: in instantiation `{}`: {message}",
+                short(&self.instance)
+            )
+        };
+        self.at(format!(
+            "cannot instantiate `{}`: its definition is rejected\n  {note}{}",
+            short(requested),
             self.unused_note()
         ))
     }
 
-    /// Render a body diagnostic at the requiring use. `body` is the body
-    /// position including its `: ` separator, or empty when there is none.
-    pub fn report(&self, body: &str, message: &str) -> String {
-        // An f-string's generated functions are not code the reader wrote;
-        // their body positions are the fields themselves.
-        if internal(&self.requested) && internal(&self.instance) {
-            if body.is_empty() {
-                return format!("{}: {message}", self.at);
-            }
-            return format!("{body}{message}");
+    /// An attributed diagnostic at the requiring use.
+    fn at(&self, message: String) -> Diagnostic {
+        Diagnostic {
+            attributed: true,
+            ..Diagnostic::new(Some(self.at.clone()), message)
         }
-        if internal(&self.instance) {
-            return format!(
-                "{}: cannot instantiate `{}`: its definition is rejected\n  {body}note: {message}{}",
-                self.at,
-                short(&self.requested),
-                self.unused_note()
-            );
-        }
-        if internal(&self.requested) {
-            return format!(
-                "{}: cannot instantiate `{}`: its definition is rejected\n  \
-                 {body}note: in instantiation `{}`: {message}{}",
-                self.at,
-                short(&self.instance),
-                short(&self.instance),
-                self.unused_note()
-            );
-        }
-        format!(
-            "{}: cannot instantiate `{}`: its definition is rejected\n  \
-             {body}note: in instantiation `{}`: {message}{}",
-            self.at,
-            short(&self.requested),
-            short(&self.instance),
-            self.unused_note()
-        )
     }
 
     /// Why an error with no use site is reported at an instantiation.
@@ -220,6 +227,11 @@ impl Instantiation {
             None => String::new(),
         }
     }
+}
+
+/// A note's position prefix: `position: `, or empty without a position.
+fn prefix(position: Option<&Position>) -> String {
+    position.map(|p| format!("{p}: ")).unwrap_or_default()
 }
 
 /// Whether `name` is a function the compiler generated, such as an f-string's.
@@ -396,13 +408,12 @@ pub struct Error {
 }
 
 impl Error {
-    fn location(&self, site: Site) -> String {
-        let source = self
-            .source
-            .as_ref()
-            .map(|s| format!("{s}:"))
-            .unwrap_or_default();
-        format!("{source}{}:{}: ", site.line, site.column)
+    fn position(&self, site: Site) -> Position {
+        Position {
+            file: self.source.clone(),
+            line: site.line,
+            column: site.column,
+        }
     }
 
     /// What keeps the endpoint that a blocked wait reports alive.
@@ -419,12 +430,11 @@ impl Error {
     }
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let location = self
-            .primary
-            .map(|site| self.location(site))
-            .unwrap_or_default();
+impl Error {
+    /// The error as reported: at its primary site, or at the use that
+    /// required its generic instance.
+    pub(crate) fn diagnostic(&self) -> Diagnostic {
+        let position = self.primary.map(|site| self.position(site));
         let binding = match &self.place {
             Some(place) if place.contains('.') => format!("field `{place}`"),
             Some(place) => format!("binding `{place}`"),
@@ -565,17 +575,24 @@ impl fmt::Display for Error {
                 .as_ref()
                 .zip(self.copied.as_ref())
                 .and_then(|(required, ty)| {
-                    required.explain(&location, &message, &Demand::Copy(ty.clone(), ""))
+                    required.explain(position.as_ref(), &message, &Demand::Copy(ty.clone(), ""))
                 });
-        match (&self.required, explained) {
-            (_, Some(explained)) => f.write_str(&explained)?,
-            (Some(required), None) => f.write_str(&required.report(&location, &message))?,
-            (None, None) => write!(f, "{location}{message}")?,
-        }
+        let mut diagnostic = match (&self.required, explained) {
+            (_, Some(explained)) => explained,
+            (Some(required), None) => required.report(position.as_ref(), &message),
+            (None, None) => Diagnostic::new(position, message),
+        };
         for (site, note) in &self.notes {
-            write!(f, "\n  {}note: {note}", self.location(*site))?;
+            let at = self.position(*site);
+            diagnostic.message += &format!("\n  {at}: note: {note}");
         }
-        Ok(())
+        diagnostic
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.diagnostic().fmt(f)
     }
 }
 

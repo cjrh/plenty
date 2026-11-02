@@ -148,7 +148,11 @@ pub fn emit_file(path: &Path, options: &Options) -> Result<Emission> {
             current_group = Some(group);
         }
         let f = functions[name];
-        let location = f.location.as_deref().unwrap_or(name);
+        let location = f
+            .location
+            .as_ref()
+            .map_or_else(|| name.to_string(), ToString::to_string);
+        let location = location.as_str();
         if f.generator.is_some() {
             return Err(format!("{location}: Rust spike rejects generators").into());
         }
@@ -243,7 +247,10 @@ pub fn emit_file(path: &Path, options: &Options) -> Result<Emission> {
     for (name, alias) in &options.exports {
         out.line(
             &format!("pub use __plenty::{} as r#{alias};", ids[name]),
-            functions[name].location.as_deref().unwrap_or(name),
+            &functions[name]
+                .location
+                .as_ref()
+                .map_or_else(|| name.to_string(), ToString::to_string),
         );
     }
     Ok(Emission {

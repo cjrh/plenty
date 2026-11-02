@@ -165,7 +165,7 @@ impl Lower<'_> {
             self.generics.compiled.push(Op::DefineFn(
                 adapter.clone(),
                 Box::new(CompiledFn {
-                    location: Some(at.location().into()),
+                    location: Some(at.position()),
                     origins: Arc::default(),
                     generator: None,
                     sig: adapted,

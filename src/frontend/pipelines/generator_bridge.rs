@@ -163,11 +163,7 @@ impl Lower<'_> {
         self.generics.compiled.push(Op::DefineFn(
             name.clone(),
             Box::new(CompiledFn {
-                location: source
-                    .at
-                    .source()
-                    .as_ref()
-                    .map(|path| format!("{path}:{}:{}", source.at.line, source.at.column).into()),
+                location: source.at.file.map(|_| source.at.position()),
                 origins: Arc::new(crate::ownership::Origins {
                     parameter_values: order
                         .iter()

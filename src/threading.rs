@@ -222,7 +222,7 @@ fn describe(name: &str, functions: &HashMap<&str, &CompiledFn>) -> String {
     if !name.starts_with("__plenty_generic_") {
         return format!("`{}`", crate::record::method_display(name));
     }
-    match functions.get(name).and_then(|f| f.location.as_deref()) {
+    match functions.get(name).and_then(|f| f.location.as_ref()) {
         Some(location) => format!("the generic function at {location}"),
         None => "a generic function".into(),
     }

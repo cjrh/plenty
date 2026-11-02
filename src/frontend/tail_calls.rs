@@ -325,7 +325,7 @@ pub(super) fn validate(
                 );
                 return Err(match generics.requirement_of(sigs, name) {
                     Some(required) => required
-                        .report(&format!("{}: ", candidate.at.location()), &message)
+                        .report(Some(&candidate.at.position()), &message)
                         .into(),
                     None => candidate.at.error(message),
                 });
