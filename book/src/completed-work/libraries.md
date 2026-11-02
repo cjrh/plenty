@@ -215,6 +215,14 @@ the original comparison and adds a controlled before/after HTTP measurement. A
 after both fixes records 270,000 successful requests, 9,000 verified handshakes,
 current idle RSS and 400 contained traps with stable after-batch resources.
 
+A test-only [budget and retained-stack investigation](../proposals/actor-budget-scheduling.md)
+exercises the production heap router and trap boundary on two guarded stacks.
+Explicit checkpoints demonstrate peer progress, retained nested local borrows,
+trap recovery after resumption and cooperative cancellation with cleanup. It
+adds no production scheduling behavior; compiler insertion and the stage's
+shared-context ownership remain unimplemented. See the
+[probe evidence and limits](../proposals/actor-budget-scheduling/evidence.md).
+
 Remaining stages stay **B85** in the [backlog](../backlog.md).
 
 ## Standard-library argument and error contracts

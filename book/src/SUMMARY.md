@@ -645,6 +645,8 @@
         - [Blocking and actor protocol drivers](proposals/sans-io-protocols/drivers.md)
         - [WebSocket validation and acceptance](proposals/sans-io-protocols/websocket.md)
     - [An HTTP server on supervised actors](proposals/actor-http-server.md)
+    - [Actor budgets and retained stacks](proposals/actor-budget-scheduling.md)
+        - [Actor stack-switching probe evidence](proposals/actor-budget-scheduling/evidence.md)
     - [Blocking work for actors](proposals/actor-blocking-work.md)
         - [Ownership, cancellation and failure](proposals/actor-blocking-work/ownership.md)
         - [Runtime integration and qualification](proposals/actor-blocking-work/runtime.md)

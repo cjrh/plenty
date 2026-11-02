@@ -89,6 +89,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | --- | --- |
 | [Rust compiler boundaries and measured performance](compiler-refactoring.md) — structured diagnostics, explicit state ownership, measured identity/fact lookups and replayable module results; no compiler changes delivered | B17, B19 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
+| [Actor budgets and retained stacks](actor-budget-scheduling.md) — test-only heap/trap probe; compiler checkpoints and stage ownership integration remain unimplemented | B85 |
 | [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |
 | [Async/await exploration](async-await.md) — owned movable frames, fallible admission and synchronous cancellation; isolated spike only | Unscheduled exploration; async implementation remains out of scope pending an adoption decision |
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
