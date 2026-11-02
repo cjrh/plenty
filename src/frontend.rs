@@ -7042,11 +7042,20 @@ fn lower_body(
                 if sigs.complete(symbol, &sig) {
                     generics.retention.complete(symbol, &mut generics.templates);
                 }
+                let standard_library =
+                    f.at.source()
+                        .is_some_and(|source| generics.source_facts(&source).1);
                 generics.compiled.push(Op::DefineFn(
                     f.name.clone(),
                     Box::new(CompiledFn {
                         location: None,
-                        origins: Arc::default(),
+                        // Foreign wrappers need the same pruning eligibility as
+                        // ordinary std bodies; otherwise unused imports retain
+                        // their native symbols in COFF (issue #688).
+                        origins: Arc::new(crate::ownership::Origins {
+                            standard_library,
+                            ..Default::default()
+                        }),
                         generator: None,
                         sig,
                         doc: "".into(),

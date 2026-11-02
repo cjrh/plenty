@@ -1114,6 +1114,47 @@ mod tests {
     }
 
     #[test]
+    fn unused_standard_engine_imports_emit_no_foreign_symbols() {
+        use object::{Object, ObjectSymbol};
+        let root = tempfile::tempdir().unwrap();
+        for (module, prefix) in [("dataframe", "pldf_v1_"), ("linalg", "plla_v1_")] {
+            let source = root.path().join("main.plenty");
+            std::fs::write(
+                &source,
+                format!("import std.{module}\ndef main() -> ():\n    pass\n"),
+            )
+            .unwrap();
+            for optimize in [false, true] {
+                let path = root.path().join("program.o");
+                crate::compile_file_to_object_with_options(
+                    &source,
+                    &path,
+                    None,
+                    &CompileOptions {
+                        optimize,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                let bytes = std::fs::read(path).unwrap();
+                let object = object::File::parse(bytes.as_slice()).unwrap();
+                let imports: Vec<_> = object
+                    .symbols()
+                    .filter(|symbol| symbol.is_undefined())
+                    .filter_map(|symbol| symbol.name().ok())
+                    .filter(|name| name.trim_start_matches('_').starts_with(prefix))
+                    .collect();
+                // COFF resolves even unused undefined symbols. Linker garbage
+                // collection alone cannot satisfy the optional-engine contract.
+                assert!(
+                    imports.is_empty(),
+                    "{module}, optimize={optimize}: {imports:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn engine_reachability_follows_native_linker_atoms() {
         use cranelift_codegen::ir::{AbiParam, InstBuilder, types};
         use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};

@@ -53,8 +53,10 @@ when a retained body arms the class after construction (issue #506). Release run
 the hook only for an armed instance, so this covers values dropped through
 fields, containers, payloads, captures and queues; a descriptor of a class that
 no retained body arms has no hook. Standard-library provenance comes from
-the embedded-module loader, not a filename or symbol prefix. Retained definitions
-keep their declaration order. All frontend and ownership checks run before this
+the embedded-module loader, not a filename or symbol prefix. Generated foreign-call
+wrappers preserve that provenance too (issue #688): an unused standard-library
+engine import must not leave native references for the COFF linker to resolve.
+Retained definitions keep their declaration order. All frontend and ownership checks run before this
 step, including checks of bodies subsequently omitted. This saves native work
 and object space; it does not avoid parsing or lowering imported modules.
 See the [edit-build measurements](../../../development/module-edits-emission-results.md).
