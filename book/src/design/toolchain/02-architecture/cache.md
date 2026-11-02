@@ -191,7 +191,7 @@ cannot serve cache hits merely by forwarding `--help` or `--version`: its
 external configuration and delegated tools are not depfile inputs (issue #676).
 Clang, wrapper drivers and wrapper linkers bypass executable reuse and link
 normally because their implicit inputs are not tracked.
-Explicit drivers/link arguments, non-Linux hosts, legacy syntax, test-hook and
+Explicit drivers/link arguments, non-Linux hosts, test-hook and
 fuzz builds, and redirected/injected toolchains (`COMPILER_PATH`,
 `GCC_EXEC_PREFIX`, `LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`) retain ordinary
 linking. Explicit `--compile` outputs and project `plenty run` do not use this

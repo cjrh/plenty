@@ -58,7 +58,6 @@ pub(super) fn build_generator(
     body: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &StrData,
-    eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
@@ -134,7 +133,6 @@ pub(super) fn build_generator(
             runtime,
             user_fns: fns,
             str_data,
-            eof_empty_str,
             locals: &locals,
             stack: Vec::new(),
             terminated: false,

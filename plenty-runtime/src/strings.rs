@@ -1,5 +1,4 @@
 use crate::memory::{self, AllocError, Header};
-use std::io::BufRead;
 use std::{ptr, slice, str};
 
 #[repr(C)]
@@ -119,6 +118,7 @@ pub(crate) unsafe fn ascii_equal_folded(left: *const Text, right: *const Text) -
     let (one, other) = unsafe { (bytes(&left), bytes(&right)) };
     one.is_ascii() && one.eq_ignore_ascii_case(other)
 }
+#[cfg(test)]
 pub(crate) fn new(bytes: &[u8]) -> *mut Text {
     let text = str::from_utf8(bytes).unwrap_or_else(|_| crate::fail("invalid UTF-8 input"));
     try_new(text).unwrap_or_else(|_| crate::fail("string allocation failed"))
@@ -571,25 +571,6 @@ pub(crate) unsafe extern "C" fn plenty_text_ascii_equal_folded(
     // SAFETY: as for `plenty_text_len`, for both texts.
     unsafe { ascii_equal_folded(left, right) as u64 }
 }
-#[unsafe(no_mangle)]
-pub(crate) extern "C" fn plenty_readline() -> *mut Text {
-    let mut line = Vec::new();
-    match std::io::stdin().lock().read_until(b'\n', &mut line) {
-        Ok(0) => return ptr::null_mut(),
-        Ok(_) => {}
-        // Std already reports a closed stdin (EBADF) as EOF; any other error
-        // would otherwise truncate input silently.
-        Err(error) => crate::fail(&format!("stdin read failed: {error}")),
-    }
-    if line.last() == Some(&b'\n') {
-        line.pop();
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-    }
-    new(&line)
-}
-
 pub(crate) unsafe fn at(text: *const Text, index: i64, site: *const crate::Site) -> *mut Text {
     unsafe {
         scalar(text, index).unwrap_or_else(|| {

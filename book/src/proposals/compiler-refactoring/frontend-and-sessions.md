@@ -24,8 +24,9 @@ The table records the layout these steps started from, at `6477751e`.
 
 At `6477751e`, `src/frontend.rs` was about 7,650 lines. After the moves it is
 about 4,950, with `frontend/lexer.rs`, `syntax.rs` and `parser.rs` beside it;
-`src/op.rs` keeps the IR (about 1,500 lines), with `op/check.rs` and
-`op/legacy.rs` (which now holds the stack-syntax lexer). File length is evidence
+`src/op.rs` keeps the IR (about 1,500 lines), with `op/check.rs`. The legacy
+stack-syntax compiler, split into `op/legacy.rs`, was later removed with its
+`--legacy` flag (issue #698). File length is evidence
 of navigation cost, not a reason by itself to rewrite the frontend. A move is
 worthwhile where it turns an existing independence into one the compiler
 enforces; adding files without changing dependencies would not address the main
@@ -45,8 +46,8 @@ Split `src/op.rs` into the IR (`op.rs`), the checker (`op/check.rs`) and the
 legacy stack-syntax compiler (`op/legacy.rs`, with `src/lexer.rs`). The checker
 then depends on the IR's public surface only, which is the contract a second
 backend would also consume. Removing the legacy syntax entirely (the CLI's
-`--legacy` flag and the backend tests written in it) is a separate product
-decision, not part of this split.
+`--legacy` flag and the backend tests written in it) was a separate product
+decision, not part of this split; issue #698 made it.
 
 These are pure moves: no behavior change, and the diff should review as one.
 

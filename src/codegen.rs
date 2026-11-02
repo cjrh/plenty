@@ -40,8 +40,7 @@
 //! `Ty::Str` (CLIF `i64` for the host pointer width). `Op::Add` and
 //! `Op::Eq` now dispatch on operand types: integer pairs take the
 //! existing CLIF paths; `Str Str` calls `plenty_concat` / `plenty_str_eq`
-//! in the Rust runtime. `Display` prints strings via `plenty_print_str`,
-//! and `match` patterns of type `Str` become `plenty_str_eq` + `brif`, or
+//! in the Rust runtime. `match` patterns of type `Str` become `plenty_str_eq` + `brif`, or
 //! one `plenty_str_match` search and a `br_table` for 16 or more literals.
 //! A byte literal (`Op::PushBytes`) uses the same immortal layout and is
 //! tagged `Ty::ByteStr`; it is never released and never reaches a text helper.
@@ -288,37 +287,9 @@ pub(crate) fn compile_tests_to_executable(
     compile_sources_to_executable(&sources, output, options, true)
 }
 
-/// Historical stack syntax, retained for backend regression tests.
-///
-/// Only an unterminated string literal is reported with a `line:column`
-/// location. Legacy tokens carry no positions, so every other syntax or
-/// type error has none.
-pub fn compile_legacy_source_to_executable(source: &str, output: &Path) -> Result<()> {
-    compile_legacy_source_to_executable_with_options(
-        source,
-        output,
-        &crate::CompileOptions::default(),
-    )
-}
-
-/// Historical syntax with an explicitly configured linker driver.
-pub fn compile_legacy_source_to_executable_with_options(
-    source: &str,
-    output: &Path,
-    options: &crate::CompileOptions,
-) -> Result<()> {
-    crate::validate_target(options.target.as_deref())?;
-    let toks = op::legacy::lexer::lex(source)?;
-    let mut heap = Heap::default();
-    let ops = op::legacy::compile(&toks, &mut heap)?;
-    compile_ops_to_executable(ops, &heap, output, false, options, false)
-}
-
-/// With `test_hooks`, the executable is an instrumented build: it also links
-/// [`TEST_HOOKS`], which wraps the C library's allocation and file calls, and
-/// std's `__test_fault` reaches it. Every other executable is linked exactly
-/// as without the hooks.
-#[cfg_attr(feature = "profile", hotpath::measure)]
+/// Link an executable from already lowered operations, bypassing the program
+/// cache; tests use it for fixtures they edit after lowering.
+#[cfg(test)]
 fn compile_ops_to_executable(
     ops: Vec<Op>,
     heap: &Heap,
@@ -339,8 +310,11 @@ fn compile_ops_to_executable(
     link_object(&workspace, &obj_path, output, options, test_hooks)
 }
 
-/// [`compile_ops_to_executable`] for an application's sources, through the
-/// program cache.
+/// Link an executable for an application's sources, through the program
+/// cache. With `test_hooks`, the executable is an instrumented build: it also
+/// links [`TEST_HOOKS`], which wraps the C library's allocation and file
+/// calls, and std's `__test_fault` reaches it. Every other executable is
+/// linked exactly as without the hooks.
 fn compile_sources_to_executable(
     sources: &Sources,
     output: &Path,
@@ -658,7 +632,7 @@ fn dump_program(
 /// symbol per source-level string literal whose bytes come from `heap`.
 /// Link the object with the packaged `plenty-runtime` archive to produce an
 /// executable. With `returns_status`, the final `i32` operand is the process
-/// status; unit entrypoints and legacy programs return zero on completion.
+/// status; unit entrypoints return zero on completion.
 fn compile_to_object(
     ops: Vec<Op>,
     heap: &Heap,
@@ -833,9 +807,6 @@ fn object_module(
         )
     });
 
-    // An immortal empty string substitutes for the legacy input helper's EOF.
-    let eof_empty_str = declare_eof_empty_str(&mut out.module)?;
-
     // From here `bodies` alone holds the top-level functions' operations, so
     // each function's are released once its job is built, rather than held
     // until the last function is (issue #54). Top-level `DefineFn`s are
@@ -869,30 +840,23 @@ fn object_module(
         let runtime = &runtime;
         match job {
             Job::Thread(task, id) => {
-                threads::build_adapter(&task, id, fns, str_data, eof_empty_str, runtime, worker)
+                threads::build_adapter(&task, id, fns, str_data, runtime, worker)
             }
             Job::Executor(job, id) => {
-                executors::build_adapter(&job, id, fns, str_data, eof_empty_str, runtime, worker)
+                executors::build_adapter(&job, id, fns, str_data, runtime, worker)
             }
             Job::Sort(sort, id) => {
-                sorting::build_adapter(&sort, id, fns, str_data, eof_empty_str, runtime, worker)
+                sorting::build_adapter(&sort, id, fns, str_data, runtime, worker)
             }
             Job::Format(hook, id) => {
-                formatting::build_adapter(&hook, id, fns, str_data, eof_empty_str, runtime, worker)
+                formatting::build_adapter(&hook, id, fns, str_data, runtime, worker)
             }
             Job::Function(name, body) => {
-                build_user_function(&name, &body, fns, str_data, eof_empty_str, runtime, worker)
+                build_user_function(&name, &body, fns, str_data, runtime, worker)
             }
-            Job::Main(ops, returns_status, id) => build_main(
-                &ops,
-                returns_status,
-                id,
-                fns,
-                str_data,
-                eof_empty_str,
-                runtime,
-                worker,
-            ),
+            Job::Main(ops, returns_status, id) => {
+                build_main(&ops, returns_status, id, fns, str_data, runtime, worker)
+            }
         }
     })?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
@@ -1076,19 +1040,6 @@ struct Runtime {
     release: FuncId,
     generator_init: FuncId,
     generator_finish: FuncId,
-    print_i8: FuncId,
-    print_i16: FuncId,
-    print_i32: FuncId,
-    print_i64: FuncId,
-    print_u8: FuncId,
-    print_u16: FuncId,
-    print_u32: FuncId,
-    print_u64: FuncId,
-    print_bool: FuncId,
-    print_str: FuncId,
-    print_open_bracket: FuncId,
-    print_close_bracket: FuncId,
-    print_space: FuncId,
     /// `plenty_concat(*const u8, *const u8) -> *const u8` — c.4.
     concat: FuncId,
     /// `plenty_str_eq(*const u8, *const u8) -> i8` — c.4.
@@ -1125,10 +1076,6 @@ struct Runtime {
     /// `plenty_traps_register(table)` and the object's check table. `None`
     /// keeps the helper calls.
     signal_traps: Option<(FuncId, DataId)>,
-    /// `plenty_readline() -> *const u8` — read one newline-terminated
-    /// line from stdin, strip its newline, validate UTF-8, and return an owned
-    /// counted string. NULL is internal EOF, never a language string.
-    readline: FuncId,
     /// `plenty_contains(*const u8 haystack, *const u8 needle) -> i8` —
     /// returns 1 if `needle` is a byte-substring of `haystack`, 0
     /// otherwise. Both inputs are borrowed counted strings.
@@ -1142,11 +1089,6 @@ struct Runtime {
     test_fault: Option<FuncId>,
     /// `plenty_actor_heap(op, argument) -> i64`, behind std's `__actor_heap`.
     actor_heap: FuncId,
-    /// `plenty_println(*const u8) -> ()` — write the string raw to
-    /// stdout, followed by a single `\n`. The bare-text output
-    /// primitive; `plenty_print_str` (the `.` path) escapes and
-    /// quotes, `plenty_println` does not.
-    println: FuncId,
 }
 
 fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtime> {
@@ -1168,11 +1110,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         sig.params.push(AbiParam::new(a));
         sig.params.push(AbiParam::new(b));
         sig.returns.push(AbiParam::new(ret));
-        Ok(module.declare_function(name, Linkage::Import, &sig)?)
-    }
-    fn nullary(module: &mut ObjectModule, name: &str) -> Result<FuncId> {
-        let mut sig = module.make_signature();
-        sig.call_conv = crate::target::native_call_conv();
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     fn helper(
@@ -1422,19 +1359,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         )?,
         sort_adapters: Default::default(),
         format_hooks: Default::default(),
-        print_i8: one_arg(module, "plenty_print_i8", types::I8)?,
-        print_i16: one_arg(module, "plenty_print_i16", types::I16)?,
-        print_i32: one_arg(module, "plenty_print_i32", types::I32)?,
-        print_i64: one_arg(module, "plenty_print_i64", types::I64)?,
-        print_u8: one_arg(module, "plenty_print_u8", types::I8)?,
-        print_u16: one_arg(module, "plenty_print_u16", types::I16)?,
-        print_u32: one_arg(module, "plenty_print_u32", types::I32)?,
-        print_u64: one_arg(module, "plenty_print_u64", types::I64)?,
-        print_bool: one_arg(module, "plenty_print_bool", types::I8)?,
-        print_str: one_arg(module, "plenty_print_str", PTR_TY)?,
-        print_open_bracket: nullary(module, "plenty_print_open_bracket")?,
-        print_close_bracket: nullary(module, "plenty_print_close_bracket")?,
-        print_space: nullary(module, "plenty_print_space")?,
         concat: two_args_one_return(module, "plenty_concat", PTR_TY, PTR_TY, PTR_TY)?,
         str_eq: two_args_one_return(module, "plenty_str_eq", PTR_TY, PTR_TY, types::I8)?,
         str_match: helper(
@@ -1474,14 +1398,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             module.declare_function("plenty_trap_message", Linkage::Import, &sig)?
         },
         signal_traps: None,
-        readline: {
-            let mut sig = module.make_signature();
-            sig.call_conv = crate::target::native_call_conv();
-            sig.returns.push(AbiParam::new(PTR_TY));
-            module.declare_function("plenty_readline", Linkage::Import, &sig)?
-        },
         contains: two_args_one_return(module, "plenty_contains", PTR_TY, PTR_TY, types::I8)?,
-        println: one_arg(module, "plenty_println", PTR_TY)?,
         caller_location: {
             let mut sig = module.make_signature();
             sig.call_conv = crate::target::native_call_conv();
@@ -1567,16 +1484,6 @@ fn declare_str_data(ops: &[Op], heap: &Heap, module: &mut ObjectModule) -> Resul
 pub(super) struct StrData {
     literals: HashMap<StrId, DataId>,
     tables: matching::StrTables,
-}
-
-/// An aligned, immortal, counted empty string for the legacy EOF fallback.
-fn declare_eof_empty_str(module: &mut ObjectModule) -> Result<DataId> {
-    let id = module.declare_data("plenty_readline_eof_empty", Linkage::Local, false, false)?;
-    let mut desc = DataDescription::new();
-    desc.define(string_literal_bytes((b"", 0)).into_boxed_slice());
-    desc.set_align(8);
-    module.define_data(id, &desc)?;
-    Ok(id)
 }
 
 /// Recursive helper for [`declare_str_data`]: emits `StrId`s in
@@ -1892,13 +1799,12 @@ fn build_user_function(
     body: &[Op],
     fns: &HashMap<String, UserFn>,
     str_data: &StrData,
-    eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
     let decl = &fns[name];
     if decl.generator.is_some() {
-        return generators::build_generator(name, body, fns, str_data, eof_empty_str, runtime, out);
+        return generators::build_generator(name, body, fns, str_data, runtime, out);
     }
     let mut module = out.symbols();
     let cl_sig = user_fn_signature(&decl.sig);
@@ -1962,7 +1868,6 @@ fn build_user_function(
             runtime,
             user_fns: fns,
             str_data,
-            eof_empty_str,
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
@@ -2069,7 +1974,6 @@ fn build_main(
     main_id: FuncId,
     fns: &HashMap<String, UserFn>,
     str_data: &StrData,
-    eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
@@ -2090,7 +1994,6 @@ fn build_main(
             runtime,
             user_fns: fns,
             str_data,
-            eof_empty_str,
             locals: &[],
             stack: Vec::new(),
             terminated: false,
@@ -2255,8 +2158,6 @@ struct Lowerer<'a, 'b> {
     /// compares in `Op::Match` use the same map for the `Pattern::Str`
     /// case. Populated once per module by `declare_str_data`.
     str_data: &'a StrData,
-    /// Immortal counted empty string used for legacy input EOF.
-    eof_empty_str: DataId,
     /// The active function's input variables, indexed by the local
     /// slot `Op::LoadLocal` was emitted with. Empty when lowering
     /// `plenty_main` (top-level has no locals).
@@ -2732,8 +2633,6 @@ impl Lowerer<'_, '_> {
                 IntCC::SignedGreaterThanOrEqual,
                 IntCC::UnsignedGreaterThanOrEqual,
             )?,
-            Op::And => self.lower_bool_binop(true)?,
-            Op::Or => self.lower_bool_binop(false)?,
             Op::Drop => {
                 let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on `drop`")?;
                 self.release(value, &ty);
@@ -2767,8 +2666,6 @@ impl Lowerer<'_, '_> {
             Op::TryCast(target) => self.lower_try_cast(target)?,
             Op::RangeLength(element) => self.lower_range_length(element)?,
             Op::RangeParts(element) => self.lower_range_parts(element)?,
-            Op::Display => self.lower_display()?,
-            Op::Clear => self.release_stack(),
             Op::LoadLocal(i) => {
                 self.lower_load_local(*i)?;
                 if let Some(FreshLoad {
@@ -2845,10 +2742,7 @@ impl Lowerer<'_, '_> {
                 elifs,
                 otherwise,
             } => self.lower_if(then, elifs, otherwise)?,
-            Op::ReadLine => self.lower_readline()?,
             Op::Contains => self.lower_contains()?,
-            Op::PrintLn => self.lower_println()?,
-            Op::Print => self.lower_print()?,
         }
         // A nested body may end with a load; the copy stays fresh only for
         // the op right after its own load.
@@ -2861,34 +2755,6 @@ impl Lowerer<'_, '_> {
         } else if !keeps_slot_copies(op) {
             self.slot_copies.clear();
         }
-        Ok(())
-    }
-
-    /// Lower `Op::ReadLine`: call `plenty_readline`, which returns a
-    /// newly owned counted string or `NULL` on EOF. We turn `NULL`
-    /// into the address of `plenty_readline_eof_empty` (the `""` data
-    /// symbol) so the `Ty::Str` we push is always dereferenceable; the
-    /// "got a line?" Bool is `ptr != 0`. The user discriminates via
-    /// `match` on the Bool.
-    fn lower_readline(&mut self) -> Result<()> {
-        let readline = self
-            .module
-            .declare_func_in_func(self.runtime.readline, self.bcx.func);
-        let inst = self.bcx.ins().call(readline, &[]);
-        let ptr = self.bcx.inst_results(inst)[0];
-        let zero = self.bcx.ins().iconst(PTR_TY, 0);
-        // got_line = (ptr != 0). Cranelift's `icmp` over a non-Bool
-        // operand still produces an `i1`-widened-to-`i8`, which is
-        // Plenty's Bool ABI.
-        let got_line = self.bcx.ins().icmp(IntCC::NotEqual, ptr, zero);
-        // EOF still carries an ordinary empty string alongside a false flag.
-        let eof_gv = self
-            .module
-            .declare_data_in_func(self.eof_empty_str, self.bcx.func);
-        let eof_addr = self.bcx.ins().symbol_value(PTR_TY, eof_gv);
-        let safe_ptr = self.bcx.ins().select(got_line, ptr, eof_addr);
-        self.stack.push((safe_ptr, Ty::Str));
-        self.stack.push((got_line, Ty::Bool));
         Ok(())
     }
 
@@ -2920,31 +2786,6 @@ impl Lowerer<'_, '_> {
             self.release(needle.0, &needle.1);
         }
         self.stack.push((v, Ty::Bool));
-        Ok(())
-    }
-
-    /// Lower `Op::PrintLn`: pop one `Ty::Str` address and forward it
-    /// to `plenty_println`, which writes the bytes verbatim plus a
-    /// single `\n`.
-    fn lower_println(&mut self) -> Result<()> {
-        let (v, ty) = self.stack.pop().ok_or("AOT: stack underflow on :println")?;
-        debug_assert_eq!(ty, Ty::Str);
-        let println_fn = self
-            .module
-            .declare_func_in_func(self.runtime.println, self.bcx.func);
-        self.bcx.ins().call(println_fn, &[v]);
-        self.release(v, &ty);
-        Ok(())
-    }
-
-    /// Lower `Op::Print`: pop and render one value with the same helper `.`
-    /// uses, but do not add brackets or a newline.
-    fn lower_print(&mut self) -> Result<()> {
-        let (value, ty) = self.stack.pop().ok_or("AOT: stack underflow on :print")?;
-        let printer = self.printer_for(ty.clone());
-        let local = self.module.declare_func_in_func(printer, self.bcx.func);
-        self.bcx.ins().call(local, &[value]);
-        self.release(value, &ty);
         Ok(())
     }
 
@@ -3466,52 +3307,6 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    /// Render the legacy operand stack (`.`, `--legacy` syntax only).
-    /// Each print helper's `FuncId` is resolved to a local `FuncRef`
-    /// once at the top and reused.
-    fn lower_display(&mut self) -> Result<()> {
-        // Snapshot the stack so we don't iterate-and-mutate; printing
-        // leaves the stack untouched (`.` doesn't pop in Plenty).
-        let entries: Vec<StackEntry> = self.stack.clone();
-        let open = self
-            .module
-            .declare_func_in_func(self.runtime.print_open_bracket, self.bcx.func);
-        let close = self
-            .module
-            .declare_func_in_func(self.runtime.print_close_bracket, self.bcx.func);
-        let space = self
-            .module
-            .declare_func_in_func(self.runtime.print_space, self.bcx.func);
-        self.bcx.ins().call(open, &[]);
-        for (i, (v, ty)) in entries.iter().enumerate() {
-            if i > 0 {
-                self.bcx.ins().call(space, &[]);
-            }
-            let printer = self.printer_for(ty.clone());
-            let local = self.module.declare_func_in_func(printer, self.bcx.func);
-            self.bcx.ins().call(local, &[*v]);
-        }
-        self.bcx.ins().call(close, &[]);
-        Ok(())
-    }
-
-    /// The runtime-helper `FuncId` that prints one value of `ty`.
-    fn printer_for(&self, ty: Ty) -> FuncId {
-        match ty {
-            Ty::I8 => self.runtime.print_i8,
-            Ty::I16 => self.runtime.print_i16,
-            Ty::I32 => self.runtime.print_i32,
-            Ty::I64 => self.runtime.print_i64,
-            Ty::U8 => self.runtime.print_u8,
-            Ty::U16 => self.runtime.print_u16,
-            Ty::U32 => self.runtime.print_u32,
-            Ty::U64 => self.runtime.print_u64,
-            Ty::Bool => self.runtime.print_bool,
-            Ty::Str => self.runtime.print_str,
-            _ => unreachable!("collection printing uses its own runtime helper"),
-        }
-    }
-
     /// Lower `Op::PushStr` or `Op::PushBytes`: emit `global_value` for the
     /// data symbol that holds this literal's bytes, push the address (typed
     /// as `ty`) onto the compile-time stack.
@@ -3615,21 +3410,6 @@ impl Lowerer<'_, '_> {
             )
         } else {
             self.bcx.ins().icmp(cc, a, b)
-        };
-        self.stack.push((v, Ty::Bool));
-        Ok(())
-    }
-
-    /// Lower strict Boolean `and` / `or`. Both values have already been
-    /// evaluated by the stack language, so these are bit operations rather
-    /// than short-circuit control flow.
-    fn lower_bool_binop(&mut self, and: bool) -> Result<()> {
-        let (b, _) = self.pop_typed(Ty::Bool)?;
-        let (a, _) = self.pop_typed(Ty::Bool)?;
-        let v = if and {
-            self.bcx.ins().band(a, b)
-        } else {
-            self.bcx.ins().bor(a, b)
         };
         self.stack.push((v, Ty::Bool));
         Ok(())

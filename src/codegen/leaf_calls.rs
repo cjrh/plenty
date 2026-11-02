@@ -86,9 +86,7 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                     | Op::Le
                     | Op::Gt
                     | Op::Ge
-                    | Op::Not
-                    | Op::And
-                    | Op::Or => true,
+                    | Op::Not => true,
                     _ => false,
                 }
         });

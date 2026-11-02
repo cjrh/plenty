@@ -650,14 +650,6 @@ fn step(
         }
         Op::Le => cmp_int(stack, "<=")?,
         Op::Ge => cmp_int(stack, ">=")?,
-        Op::And | Op::Or => {
-            let label = if matches!(op, Op::And) { "and" } else { "or" };
-            let (a, b) = pop2(stack, label)?;
-            if a != Ty::Bool || b != Ty::Bool {
-                return Err(format!("`{label}` requires (Bool Bool), got ({a} {b})").into());
-            }
-            stack.push(Ty::Bool);
-        }
         Op::Drop => {
             stack.pop().ok_or("stack underflow on `drop`")?;
         }
@@ -676,8 +668,6 @@ fn step(
             let len = stack.len();
             stack.swap(len - 1, len - 2);
         }
-        Op::Display => {}
-        Op::Clear => stack.clear(),
         Op::LoadLocal(i) | Op::MoveLocal(i) => {
             let ty = locals.get(*i as usize).cloned().ok_or_else(|| {
                 format!("LoadLocal({i}) has no matching input in the enclosing function")
@@ -944,25 +934,12 @@ fn step(
                 crate::sum::range_error(),
             ));
         }
-        Op::ReadLine => {
-            stack.push(Ty::Str);
-            stack.push(Ty::Bool);
-        }
         Op::Contains => {
             let (a, b) = pop2(stack, ":contains")?;
             if a != Ty::Str || b != Ty::Str {
                 return Err(format!("`:contains` requires (Str Str), got ({a} {b})").into());
             }
             stack.push(Ty::Bool);
-        }
-        Op::PrintLn => {
-            let top = stack.pop().ok_or("stack underflow on `:println`")?;
-            if top != Ty::Str {
-                return Err(format!("`:println` requires Str, got {top}").into());
-            }
-        }
-        Op::Print => {
-            stack.pop().ok_or("stack underflow on `:print`")?;
         }
     }
     Ok(Flow::Continues)

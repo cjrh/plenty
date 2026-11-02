@@ -71,73 +71,13 @@ fn write_tempfile(source: &str, label: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn a_well_formed_program_runs_to_completion_and_prints_via_dot() {
-    let path = write_tempfile("1 2 + .\n", "happy");
-    let out = Command::new(plenty_bin())
-        .arg("--legacy")
-        .arg(&path)
-        .output()
-        .expect("spawn");
-    let _ = std::fs::remove_file(&path);
-
-    assert!(
-        out.status.success(),
-        "exit was {:?}; stderr was {:?}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[3i64]");
-}
-
-#[test]
-fn defining_and_calling_a_function_works_from_a_file() {
-    let path = write_tempfile(
-        r#"
-        : double { x i64 -> i64 } "Double an int." x 2 * ;
-        21 :double .
-        "#,
-        "fndef",
-    );
-    let out = Command::new(plenty_bin())
-        .arg("--legacy")
-        .arg(&path)
-        .output()
-        .expect("spawn");
-    let _ = std::fs::remove_file(&path);
-
-    assert!(
-        out.status.success(),
-        "stderr: {:?}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[42i64]");
-}
-
-#[test]
-fn print_consumes_and_renders_one_value_without_a_newline() {
-    let path = write_tempfile(r#"1 :print "x" :print true :print"#, "print");
-    let out = Command::new(plenty_bin())
-        .arg("--legacy")
-        .arg(&path)
-        .output()
-        .expect("spawn");
-    let _ = std::fs::remove_file(&path);
-
-    assert!(
-        out.status.success(),
-        "stderr: {:?}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "1i64\"x\"true");
-}
-
-#[test]
 fn a_type_error_exits_nonzero_with_a_diagnostic() {
-    // `+` on mixed Int and Str is rejected by the type checker before any
-    // op runs, so we expect no stdout output and an `error:` line.
-    let path = write_tempfile("1 hello + .\n", "type-error");
+    // The type checker rejects the program before anything runs.
+    let path = write_tempfile(
+        "def main() -> ():\n    x: i64 = \"text\"\n    pass\n",
+        "type-error",
+    );
     let out = Command::new(plenty_bin())
-        .arg("--legacy")
         .arg(&path)
         .output()
         .expect("spawn");
@@ -155,7 +95,6 @@ fn a_type_error_exits_nonzero_with_a_diagnostic() {
 #[test]
 fn a_missing_file_exits_nonzero_with_a_diagnostic() {
     let out = Command::new(plenty_bin())
-        .arg("--legacy")
         .arg("/nonexistent/plenty/path/that/should/not/exist.plenty")
         .output()
         .expect("spawn");
@@ -168,7 +107,6 @@ fn a_missing_file_exits_nonzero_with_a_diagnostic() {
 fn the_help_flag_prints_usage_and_exits_zero() {
     for flag in ["-h", "--help"] {
         let out = Command::new(plenty_bin())
-            .arg("--legacy")
             .arg(flag)
             .output()
             .expect("spawn");
@@ -184,7 +122,6 @@ fn the_help_flag_prints_usage_and_exits_zero() {
 #[test]
 fn unrecognised_arguments_exit_nonzero() {
     let out = Command::new(plenty_bin())
-        .arg("--legacy")
         .args(["foo.plenty", "bar.plenty"])
         .output()
         .expect("spawn");
@@ -214,12 +151,26 @@ fn expression_statements_are_discarded_unless_printed() {
     assert!(out.stderr.is_empty());
 }
 
+/// Copy stdin to stdout through `std.io`.
+const ECHO_STDIN: &str = "import std.bytes
+import std.io
+from std.bytes import BytesError
+from std.io import CopyError
+
+def main() -> Result[(), AllocError | BytesError | CopyError]:
+    mut input = std.io.stdin()
+    mut output = std.io.stdout()
+    mut scratch = std.bytes.with_capacity(64)?
+    scratch.resize(64, 0u8)?
+    std.io.copy_all(&mut input, &mut output, &mut scratch)?
+    Ok(())
+";
+
 #[test]
 fn run_command_inherits_stdin() {
     use std::process::Stdio;
-    let path = write_tempfile(":readline drop :println", "stdin");
+    let path = write_tempfile(ECHO_STDIN, "stdin");
     let mut child = Command::new(plenty_bin())
-        .arg("--legacy")
         .arg(&path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -245,11 +196,10 @@ fn run_command_inherits_stdin() {
 /// A directory as stdin makes `read` fail with EISDIR; that must not read as EOF.
 #[cfg(unix)]
 #[test]
-fn legacy_readline_fails_on_stdin_read_error() {
-    let path = write_tempfile(":readline drop :println", "stdin-error");
+fn stdin_read_error_is_not_eof() {
+    let path = write_tempfile(ECHO_STDIN, "stdin-error");
     let dir = tempfile::tempdir().unwrap();
     let out = Command::new(plenty_bin())
-        .arg("--legacy")
         .arg(&path)
         .stdin(std::fs::File::open(dir.path()).unwrap())
         .output()
@@ -258,7 +208,10 @@ fn legacy_readline_fails_on_stdin_read_error() {
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.starts_with("error: stdin read failed: "), "{stderr}");
+    assert!(
+        stderr.starts_with("error: main returned std.io.CopyError.Read(0, std.io.StreamError.Io("),
+        "{stderr}"
+    );
 }
 
 #[cfg(unix)]

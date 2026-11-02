@@ -57,7 +57,6 @@ pub(super) fn build_adapter(
     id: FuncId,
     functions: &HashMap<String, UserFn>,
     str_data: &StrData,
-    eof_empty_str: DataId,
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
@@ -76,7 +75,6 @@ pub(super) fn build_adapter(
         runtime,
         user_fns: functions,
         str_data,
-        eof_empty_str,
         locals: &[],
         stack: vec![],
         terminated: false,

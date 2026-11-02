@@ -2624,9 +2624,7 @@ impl Lower<'_> {
             )));
         }
         if sig.outputs.len() > 1 {
-            return Err(
-                at.error("legacy multi-result functions cannot be called from modern Plenty")
-            );
+            return Err(at.error("internal error: a function signature has several results"));
         }
         let start = ops.len();
         let argument_loans = if method && matches!(sig.inputs.first(), Some((_, Ty::Ref(_, true))))
