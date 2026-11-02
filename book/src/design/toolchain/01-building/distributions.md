@@ -8,8 +8,10 @@ plenty --compile analysis.plenty --dist dist/analysis
 ```
 
 `plentyc` accepts the same command. The executable is named after the source
-file's stem (`analysis.plenty` becomes `analysis`), not the destination directory.
-Paths may contain spaces. `--release`, `--no-strip`, `--module-root` and
+file's stem plus the native executable suffix (`analysis.plenty` becomes
+`analysis.exe` on Windows and `analysis` on Unix), not the destination directory.
+Dots in the stem are preserved: `analysis.v2.plenty` becomes `analysis.v2.exe`
+on Windows. Paths may contain spaces. `--release`, `--no-strip`, `--module-root` and
 `--package-graph` work as for ordinary executable compilation. `--dist` requires
 `--compile FILE` and rejects `-o`/`--output`, `--legacy`, extra `--link-arg`
 arguments and other output modes. A custom `--linker` must still produce the

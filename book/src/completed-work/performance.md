@@ -133,6 +133,13 @@ Issue #425 was closed as deferred to upstream changes, not as proof that every
 check/frame/spill cost disappeared. The [runtime reference](../design/toolchain/02-architecture/runtime.md)
 owns the contract; upstream revisit gates are in **B19** of the [backlog](../backlog.md).
 
+The Linux foreign-handler fixture repeats signal delivery until the tested read
+completes, instead of assuming a scheduling delay puts the reader in the syscall
+(issue #689). Restarting reads receive a pipe byte after repeated signals;
+non-restarting reads must report `EINTR`, with a bounded watchdog. Delayed-entry
+regressions retain the later checked-overflow report in debug and optimized builds.
+This changes test synchronization, not runtime handler behavior.
+
 ## B23: SIMD
 
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)

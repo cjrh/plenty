@@ -207,6 +207,19 @@ and prerelease versions, LF/CRLF manifests, unrelated version keys and a reposit
 path with spaces/Unicode. These local fixture checks do not substitute for a
 native Windows release build.
 
+Generated standard-library foreign wrappers retain their loader provenance for
+unused-definition pruning (issue #688). Bare unused `std.dataframe`/`std.linalg`
+imports emit no engine symbols in debug or optimized objects; required native
+calls retain ordinary engine discovery. This fixes the Windows release smoke
+failure after packaging; native Windows CI must still confirm the archive run.
+Retained unused user helpers are a separate COFF limitation (issue #690).
+
+Distribution output appends the native executable suffix to the source stem
+(issue #697), producing `analysis.exe` on Windows while preserving dotted stems
+and Unix names. Filename regression tests cover both suffix conventions; the
+existing native archive smoke test still checks dataframe distribution and
+relocation. Native Windows execution remains a CI qualification requirement.
+
 ## B21: Documentation authoring
 
 Executable Markdown checked by `tests/test_tutorial.rs` remains the lesson

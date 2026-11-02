@@ -2,6 +2,7 @@
 //! Included by path into both binaries so each keeps its own `main`.
 use plenty::project::exit_code;
 use std::error::Error;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
@@ -107,6 +108,13 @@ fn write_dump(dump: &plenty::Dump, output: &str) -> Result<(), Box<dyn Error>> {
         std::fs::write(directory.join(name), text)?;
     }
     Ok(())
+}
+
+fn distribution_filename(stem: &OsStr, suffix: &str) -> OsString {
+    let mut name = stem.to_os_string();
+    // Append rather than replace an extension: source stems can contain dots.
+    name.push(suffix);
+    name
 }
 
 /// Run the compiler interface on `args`, excluding the program name.
@@ -363,7 +371,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             .file_stem()
             .filter(|stem| !stem.is_empty())
             .ok_or("--dist requires a source filename with a nonempty stem")?;
-        let output = destination.join(stem);
+        let output = destination.join(distribution_filename(stem, std::env::consts::EXE_SUFFIX));
         options.distribution = true;
         if let Some(graph) = graph {
             let graph = plenty::project::SourceGraph::read(&graph)?;
@@ -604,4 +612,21 @@ fn compile(
 fn read_source(path: &Path) -> Result<String, Box<dyn Error>> {
     std::fs::read_to_string(path)
         .map_err(|error| format!("reading {}: {error}", path.display()).into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distribution_names_preserve_stems_and_append_platform_suffix() {
+        for stem in ["analysis", "analysis.v2", "analysis file λ", "analysis.exe"] {
+            for suffix in ["", ".exe"] {
+                assert_eq!(
+                    distribution_filename(OsStr::new(stem), suffix),
+                    OsString::from(format!("{stem}{suffix}"))
+                );
+            }
+        }
+    }
 }
