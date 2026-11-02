@@ -72,20 +72,20 @@ they retain neither results nor input and do not modify configuration.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `width: i64` | `70` | Line width in Unicode scalars, including indentation |
+| `width: Positive[i64]` | `70` | Line width in Unicode scalars, including indentation |
 | `initial_indent: str` | `""` | Prefix on the first produced line |
 | `subsequent_indent: str` | `""` | Prefix on other lines |
 | `expand_tabs: bool` | `True` | Expand tabs to tab stops before wrapping |
-| `tabsize: i64` | `8` | Tab stop interval; zero deletes tabs when expansion is enabled |
+| `tabsize: NonNegative[i64]` | `8` | Tab stop interval; zero deletes tabs when expansion is enabled |
 | `replace_whitespace: bool` | `True` | Replace ASCII tab/LF/VT/FF/CR with spaces after expansion |
 | `fix_sentence_endings: bool` | `False` | Change a single inter-chunk space after an ASCII lowercase sentence ending to two spaces |
 | `break_long_words: bool` | `True` | Split chunks that cannot fit on a line |
 | `drop_whitespace: bool` | `True` | Discard whitespace chunks at line ends and at the start of subsequent lines |
 | `break_on_hyphens: bool` | `True` | Prefer compound-hyphen and double-dash boundaries |
-| `max_lines: Option[i64]` | `Nothing` | Optional truncation limit, with a placeholder on the last line |
+| `max_lines: Option[Positive[i64]]` | `Nothing` | Optional truncation limit, with a placeholder on the last line |
 | `placeholder: str` | `" [...]"` | Truncation suffix; leading whitespace is removed when it must stand alone |
-| `max_bytes: i64` | `1048576` | Total UTF-8 output bytes |
-| `max_input_bytes: i64` | `1048576` | Input and expanded intermediate byte limit |
+| `max_bytes: NonNegative[i64]` | `1048576` | Total UTF-8 output bytes |
+| `max_input_bytes: NonNegative[i64]` | `1048576` | Input and expanded intermediate byte limit |
 
 ```plenty
 import std.text
@@ -129,9 +129,11 @@ closing quote.
 
 ## Errors, limits, and cost
 
-All operations return `Result[..., TextError]`. Negative byte limits,
-nonpositive widths or `max_lines`, negative `tabsize`, and a placeholder that
-cannot fit its target indentation are `InvalidLimit`. A valid cap exceeded by
+All operations return `Result[..., TextError]`. Widths and `max_lines` are
+`Positive[i64]`; byte limits and `tabsize` are `NonNegative[i64]`, so a literal
+outside those ranges does not compile and a computed value needs
+`Positive.try_from(value)?` or `NonNegative.try_from(value)?`. Indentation or a
+placeholder that cannot fit the width is `InvalidLimit`. A valid cap exceeded by
 input, expansion or output is `LimitExceeded`. Invalid configurations are
 checked when an operation is called; constructing or editing a wrapper is
 infallible. Indent strings and an active placeholder are each bounded by

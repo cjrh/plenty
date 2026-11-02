@@ -176,18 +176,35 @@ match short.add("ok", "xx"):
         print("source limit")?
     case _:
         print("wrong")?
-bounds.max_depth = 65
-match std.template.engine(&bounds):
-    case Err(TemplateError.InvalidLimits):
-        print("invalid limit")?
-    case _:
-        print("wrong")?
 "#,
     );
     assert_eq!(
         support::run_file_stdout(&source),
-        "éé\noutput limit\noutput limit\nwork limit\ncontext limit\nsource limit\ninvalid limit"
+        "éé\noutput limit\noutput limit\nwork limit\ncontext limit\nsource limit"
     );
+}
+
+#[test]
+fn a_depth_limit_above_the_ceiling_traps() {
+    support::assert_file_traps(
+        &program("mut bounds = std.template.limits()\nbounds.max_depth = 65\ndrop(std.template.engine(&bounds))"),
+        "std.template.engine: max_depth is above 64",
+    );
+}
+
+#[test]
+fn out_of_domain_limits_are_compile_errors() {
+    // `max_depth` and `max_context_nodes` are `Positive[i64]`; the other
+    // fields are `NonNegative[i64]`, replacing the old `InvalidLimits` cases.
+    for (assignment, message) in [
+        ("bounds.max_depth = 0", "must be greater than zero"),
+        ("bounds.max_context_nodes = 0", "must be greater than zero"),
+        ("bounds.max_steps = -1", "cannot be negative"),
+    ] {
+        let source = program(&format!("mut bounds = std.template.limits()\n{assignment}"));
+        let error = support::check_file_error(&source);
+        assert!(error.contains(message), "{error}");
+    }
 }
 
 #[cfg(feature = "runtime-checks")]

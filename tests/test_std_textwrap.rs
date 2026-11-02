@@ -71,6 +71,12 @@ fn cpython_textwrap_reference_cases() {
         let mut body = String::new();
         let mut expected = String::new();
         for (index, case) in cases.iter().enumerate() {
+            // Python accepts max_lines=0 as effectively one line. Plenty's
+            // `max_lines` is `Option[Positive[i64]]`, so `Some(0)` does not
+            // compile rather than silently changing meaning.
+            if case["options"]["max_lines"] == 0 {
+                continue;
+            }
             let text = value(&case["text"]);
             let expression = match case["operation"].as_str().unwrap() {
                 "wrap" => {
@@ -89,18 +95,10 @@ fn cpython_textwrap_reference_cases() {
                 "indent" => format!("std.text.indent({text}, {})?", value(&case["prefix"])),
                 other => panic!("unexpected operation: {other}"),
             };
-            // Python accepts max_lines=0 as effectively one line. Plenty
-            // rejects nonpositive limits rather than silently changing them.
-            if case["options"]["max_lines"] == 0 {
-                body.push_str(&format!(
-                    "print({index}, wrapper_{index}.wrap({text}).is_err())?\n"
-                ));
-            } else {
-                body.push_str(&format!(
-                    "print({index}, {expression} == {})?\n",
-                    value(&case["expected"])
-                ));
-            }
+            body.push_str(&format!(
+                "print({index}, {expression} == {})?\n",
+                value(&case["expected"])
+            ));
             expected.push_str(&format!("{index} True\n"));
         }
         assert_eq!(run(&body), expected, "CPython batch {batch}");
@@ -124,20 +122,15 @@ print(std.text.fill("é🙂x", 2, 8)? == "é🙂\nx")?
 print(std.text.fill("é🙂x", 2, 7).is_err())?
 print(std.text.wrap("a b", 1, 2)? == ["a", "b"]?)?
 print(std.text.fill("a b", 1, 2).is_err())?
-print(std.text.fill("a", 0).is_err(), std.text.dedent("x", -1).is_err())?
 print(std.text.fill("1234", 3, 100, 3).is_err())?
 print(std.text.indent("x", "abc", 3).is_err())?
 print(std.text.dedent("  é", 2)? == "é")?
 print(std.text.dedent("  é", 1).is_err())?
 mut wrapper = std.text.text_wrapper(4)
-wrapper.tabsize = i64.MAX
+wrapper.tabsize = 9223372036854775807
 print(wrapper.wrap("\t").is_err())?
-wrapper.tabsize = -1
-print(wrapper.wrap("").is_err())?
 wrapper.tabsize = 0
 print(wrapper.wrap("a\tb")? == ["ab"]?)?
-wrapper.max_lines = Some(0)
-print(wrapper.wrap("").is_err())?
 wrapper.max_lines = Some(1)
 wrapper.placeholder = "too long"
 print(wrapper.wrap("x").is_err())?
@@ -145,7 +138,7 @@ wrapper.max_lines = Nothing
 wrapper.initial_indent = "12345"
 print(wrapper.wrap("abc")? == ["12345a", "bc"]?)?
 wrapper.initial_indent = ""
-wrapper.width = i64.MAX
+wrapper.width = 9223372036854775807
 print(wrapper.wrap("one two")? == ["one two"]?)?
 print(std.text.fill("", 4, 0, 0)? == "")?
 print(std.text.wrap("ab\u{a0}\u{a0}", 2)? == ["ab"]?)?
@@ -160,6 +153,22 @@ indented = (margin + "text")?
 print(std.text.dedent(&indented)? == "text")?
 "#);
     assert!(!output.contains("False"), "{output}");
+}
+
+#[test]
+fn out_of_domain_wrapper_settings_are_compile_errors() {
+    // `width` and `max_lines` are `Positive[i64]`, the byte limits and
+    // `tabsize` `NonNegative[i64]`, replacing the old `InvalidLimit` cases.
+    for (statement, message) in [
+        ("drop(std.text.fill(\"a\", 0))", "must be greater than zero"),
+        ("drop(std.text.dedent(\"x\", -1))", "cannot be negative"),
+        ("mut wrapper = std.text.text_wrapper(4)\n    wrapper.tabsize = -1", "cannot be negative"),
+        ("mut wrapper = std.text.text_wrapper(4)\n    wrapper.max_lines = Some(0)", "must be greater than zero"),
+    ] {
+        let source = format!("import std.text\ndef main() -> ():\n    {statement}\n");
+        let error = support::check_file_error(&source);
+        assert!(error.contains(message), "{statement}: {error}");
+    }
 }
 
 #[cfg(feature = "runtime-checks")]

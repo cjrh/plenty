@@ -29,8 +29,8 @@ def allocated[T](value: Result[T, AllocError]) -> Result[T, TextError]:
 # A caller-selected scalar bound covers input, full decomposition and output.
 # Stable insertion ordering follows UAX #15 D109; zero classes are boundaries.
 def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Result[str, TextError]:
-    if limit < 0 or limit > i64.MAX // 4:
-        return Err(TextError.InvalidLimit)
+    if limit > i64.MAX // 4:
+        __trap("std.unicode: max_scalars is above i64.MAX // 4")
     if len(text) > limit:
         return Err(TextError.LimitExceeded)
     mut ordered = allocated(list[u32].new())?
@@ -68,20 +68,21 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
                 starter = len(result)
             allocated(result.append(code))?
             previous_class = class_value
-    mut output = std.text.builder(limit * 4)?
+    # The ceiling above keeps the UTF-8 byte bound nonnegative.
+    mut output = std.text.builder(NonNegative.try_from(limit * 4).unwrap())?
     for code in result:
         scalar = chr(code).unwrap()
         output.append(&scalar)?
     output.finish()
 
-pub def nfd(text: &str, max_scalars: i64) -> Result[str, TextError]:
-    normalized(text, max_scalars, False, False)
+pub def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+    normalized(text, max_scalars.get(), False, False)
 
-pub def nfc(text: &str, max_scalars: i64) -> Result[str, TextError]:
-    normalized(text, max_scalars, False, True)
+pub def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+    normalized(text, max_scalars.get(), False, True)
 
-pub def nfkd(text: &str, max_scalars: i64) -> Result[str, TextError]:
-    normalized(text, max_scalars, True, False)
+pub def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+    normalized(text, max_scalars.get(), True, False)
 
-pub def nfkc(text: &str, max_scalars: i64) -> Result[str, TextError]:
-    normalized(text, max_scalars, True, True)
+pub def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+    normalized(text, max_scalars.get(), True, True)
