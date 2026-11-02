@@ -589,6 +589,7 @@
     - [Typed ranges, generic calls, and expression-local inference](proposals/typed-ranges-and-expression-inference.md)
     - [Single-file scripts with embedded manifests](proposals/single-file-scripts.md)
     - [Package language editions](proposals/language-editions.md)
+    - [Plenty toolchain manager](proposals/plenty-manager.md)
     - [Faster linking](proposals/faster-linking.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
     - [Using Rust crates in Plenty](proposals/rust-crate-dependencies.md)
