@@ -510,3 +510,90 @@ print(len(value), borrow.value).unwrap()
     .to_string();
     assert!(error.contains("conflicting borrow"), "{error}");
 }
+
+#[test]
+fn len_observes_projected_builtin_values_without_moving_their_owners() {
+    let output = support::run(
+        r#"
+class Holder:
+    values: list[i64]
+    def __del__(self) -> ():
+        print("drop holder").unwrap()
+
+def make() -> Holder:
+    print("make").unwrap()
+    Holder([1, 2, 3].unwrap())
+
+def lend(value: &Holder) -> &Holder:
+    print("lend").unwrap()
+    value
+
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+print(len([[1, 2, 3].unwrap()].unwrap()[index()])).unwrap()
+print(len({1: [1, 2, 3].unwrap()}.unwrap()[1])).unwrap()
+print(len(make().values)).unwrap()
+holder = Holder([1, 2, 3, 4].unwrap())
+print(len(lend(&holder).values), len(holder.values)).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "index\n3\n3\nmake\n3\ndrop holder\nlend\n4 4\ndrop holder\n"
+    );
+}
+
+#[test]
+fn len_borrows_projected_class_receivers_and_drops_temporary_parents_once() {
+    let output = support::run(
+        r#"
+class Container:
+    value: i64
+    def len(self) -> i64:
+        self.value
+    def __del__(self) -> ():
+        print("drop", self.value).unwrap()
+
+class Holder:
+    item: Container
+    def __del__(self) -> ():
+        print("drop holder", self.item.value).unwrap()
+
+def make() -> Holder:
+    print("make").unwrap()
+    Holder(Container(3))
+
+def lend(value: &Holder) -> &Holder:
+    print("lend").unwrap()
+    value
+
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+print(len(make().item)).unwrap()
+print(len([Container(4)].unwrap()[index()])).unwrap()
+print(len({1: Container(5)}.unwrap()[1])).unwrap()
+print(len((Container(7),)[0])).unwrap()
+print(len([Holder(Container(8))].unwrap()[0].item)).unwrap()
+holder = Holder(Container(6))
+print(len(lend(&holder).item), holder.item.value).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "make\n3\ndrop holder 3\ndrop 3\nindex\n4\ndrop 4\n5\ndrop 5\n7\ndrop 7\n8\ndrop holder 8\ndrop 8\nlend\n6 6\ndrop holder 6\ndrop 6\n"
+    );
+}

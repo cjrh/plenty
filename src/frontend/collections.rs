@@ -4481,6 +4481,14 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
+            // A projection borrows its enclosing owner, including when that
+            // owner is a temporary or returned reference. Reuse method receiver
+            // lowering rather than asking a projected field/element to move.
+            if let Some((receiver, root)) = self.hold_receiver_root(&args[0], ops)? {
+                let result = self.builtin_collection(name, &[receiver], at, ops);
+                self.names.remove(&root);
+                return result;
+            }
             if let Some(ty @ Ty::Clist(_)) = self.place_type(&args[0]) {
                 let (_, loan) = self.borrow(&args[0], false, ops)?;
                 ops.push(Op::Collection(CollectionOp::Clist(
