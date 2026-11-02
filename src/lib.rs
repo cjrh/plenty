@@ -62,6 +62,7 @@ mod collection_operand_tests;
 mod compress;
 mod control;
 mod crypto;
+mod diagnostic;
 mod effects;
 mod executor;
 mod exports;

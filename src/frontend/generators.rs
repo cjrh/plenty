@@ -247,7 +247,7 @@ impl Lower<'_> {
             // entry, so its errors need the same attribution.
             let outer = self.generics.required.get(&self.symbol).cloned();
             self.generics
-                .demand_method(name, || at.location().into(), outer.as_ref());
+                .demand_method(name, || Some(at.position()), outer.as_ref());
             lower_function(
                 symbol,
                 f,

@@ -69,9 +69,8 @@ conversions.
 2. Make the worker boundary in `check_with` and `sendable` keep the value
    instead of flattening it. Preserve program-order error selection.
 3. Store structured diagnostics in the editor recorder and convert them to the
-   public `Diagnostic` directly. Keep text parsing only as the fallback for
-   errors that are not compiler diagnostics, and never guess a position from
-   such an error's text.
+   public `Diagnostic` directly. An error that is not a compiler diagnostic
+   has no position; never guess one from its text.
 
 Deduplication needs a deliberate key: position and message. Two different
 source sites with the same wording must not collapse; the same error recovered

@@ -592,10 +592,18 @@ fn parse_buffered(
     name: String,
     lookahead: usize,
 ) -> Result<Option<(Module, Token)>> {
+    // Lexical errors are positioned in the module without its path.
     let located = |e: Box<dyn Error>| -> Box<dyn Error> {
-        match path {
-            Some(p) => format!("{}:{e}", p.display()).into(),
-            None => e,
+        let Some(p) = path else {
+            return e;
+        };
+        let mut e = Diagnostic::from_boxed(e);
+        match &mut e.position {
+            Some(position) if position.file.is_none() => {
+                position.file = Some(p.to_string_lossy().as_ref().into());
+                e
+            }
+            _ => format!("{}:{e}", p.display()).into(),
         }
     };
     let mut lexer = Lexer::new(source);
@@ -1311,13 +1319,14 @@ impl Loader {
             ));
         }
         Ok((
-            ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| {
+            ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| -> Box<dyn Error> {
                 if self.packages.len() > 1 && !current.root.join(first).exists() {
-                    format!(
-                        "{e}\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
+                    let mut e = Diagnostic::from_boxed(e);
+                    e.message += &format!(
+                        "\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
                         if current.identity.is_empty() { "<entry>" } else { &current.identity }
-                    )
-                    .into()
+                    );
+                    e
                 } else {
                     e
                 }

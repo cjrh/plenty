@@ -2,6 +2,7 @@
 //!
 //! Signatures are collected before bodies. Inference is local, expressions
 //! have zero (unit) or one result, and no backend participates in inference.
+use crate::diagnostic::{Diagnostic, Position};
 use crate::hash::{HashMap, HashSet};
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -184,52 +185,22 @@ enum Kind {
     Eof,
 }
 
-/// A diagnostic that keeps its position apart from its text, so that an error
-/// in a generic instance's body can move to the use that required the
-/// instance. It displays as the plain `location: message` text.
-#[derive(Debug)]
-struct Located {
-    location: String,
-    message: String,
-    /// What the rejected operation needed from a value's type, which an
-    /// instance's caller may have supplied as a type argument (issue #518).
-    demand: Option<Box<crate::ownership::Demand>>,
-}
-
-impl std::fmt::Display for Located {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.location, self.message)
-    }
-}
-
-impl Error for Located {}
-
-/// A body diagnostic in its final form. Lowering one function can lower
-/// another on demand; the marker stops the outer function from attributing the
-/// inner one's error to its own instantiation.
-#[derive(Debug)]
-struct Attributed(String);
-
-impl std::fmt::Display for Attributed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Error for Attributed {}
-
-/// A diagnostic that can leave a worker thread. Located and Attributed keep
-/// their types, so callers that inspect a diagnostic see the same value as
-/// after a serial pass.
-fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
-    let error = match error.downcast::<Located>() {
-        Ok(located) => return located,
-        Err(error) => error,
+/// An error at a position in source that has no token there. The lexer does
+/// not know its module's path; the module loader adds it.
+fn lexical(line: u32, column: u32, message: &str) -> Box<dyn Error> {
+    let at = Position {
+        file: None,
+        line,
+        column,
     };
-    match error.downcast::<Attributed>() {
-        Ok(attributed) => attributed,
-        Err(error) => error.to_string().into(),
-    }
+    Box::new(Diagnostic::new(Some(at), message))
+}
+
+/// A diagnostic that can leave a worker thread. A compiler diagnostic keeps
+/// its value, so callers that inspect it see the same value as after a serial
+/// pass.
+fn sendable(error: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
+    Diagnostic::from_boxed(error)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -298,29 +269,32 @@ impl Token {
     }
 
     fn error(&self, message: impl std::fmt::Display) -> Box<dyn Error> {
-        Box::new(Located {
-            location: self.location(),
-            message: message.to_string(),
-            demand: None,
-        })
+        Box::new(Diagnostic::new(Some(self.position()), message.to_string()))
     }
 
-    /// An error whose cause is a requirement on a value's type; see `Located`.
+    /// An error whose cause is a requirement on a value's type; see
+    /// `Diagnostic::demand`.
     fn demand_error(
         &self,
         message: impl std::fmt::Display,
         demand: crate::ownership::Demand,
     ) -> Box<dyn Error> {
-        Box::new(Located {
-            location: self.location(),
-            message: message.to_string(),
+        Box::new(Diagnostic {
             demand: Some(Box::new(demand)),
+            ..Diagnostic::new(Some(self.position()), message.to_string())
         })
     }
 
+    fn position(&self) -> Position {
+        Position {
+            file: self.source(),
+            line: self.line,
+            column: self.column,
+        }
+    }
+
     fn location(&self) -> String {
-        let source = self.source().map(|s| format!("{s}:")).unwrap_or_default();
-        format!("{source}{}:{}", self.line, self.column)
+        self.position().to_string()
     }
 }
 
@@ -468,9 +442,11 @@ impl<'a> Lexer<'a> {
                 }
                 let (line, column) = (self.line, self.column);
                 if bytes.get(self.pos) == Some(&b'\t') {
-                    return Err(
-                        format!("{line}:{column}: use spaces, not tabs, for indentation").into(),
-                    );
+                    return Err(lexical(
+                        line,
+                        column,
+                        "use spaces, not tabs, for indentation",
+                    ));
                 }
                 let code = self.delimiters.is_empty()
                     && !matches!(bytes.get(self.pos), None | Some(b'\n' | b'\r' | b'#'));
@@ -485,10 +461,11 @@ impl<'a> Lexer<'a> {
                             self.push(out, Kind::Dedent, line, column);
                         }
                         if spaces != *self.indents.last().unwrap() {
-                            return Err(format!(
-                                "{line}:{column}: indentation does not match an outer block"
-                            )
-                            .into());
+                            return Err(lexical(
+                                line,
+                                column,
+                                "indentation does not match an outer block",
+                            ));
                         }
                     }
                 }
@@ -6982,26 +6959,28 @@ fn lower_function(
         .complete_instance(symbol, f, sigs)
         .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
     aliases.data.attribute(outer);
-    lowered.map_err(|error| {
-        if error.is::<Attributed>() {
+    lowered.map_err(|error| -> Box<dyn Error> {
+        let error = Diagnostic::from_boxed(error);
+        if error.attributed {
             return error;
         }
-        let text = match (&required, error.downcast_ref::<Located>()) {
-            (Some(required), Some(error)) => {
-                let body = format!("{}: ", error.location);
-                error
-                    .demand
-                    .as_ref()
-                    .and_then(|demand| {
-                        let detail = demand.detail().unwrap_or(&error.message);
-                        required.explain(&body, detail, demand)
-                    })
-                    .unwrap_or_else(|| required.report(&body, &error.message))
-            }
-            (Some(required), None) => required.report("", &error.to_string()),
-            (None, _) => error.to_string(),
+        let Some(required) = &required else {
+            return Box::new(Diagnostic {
+                attributed: true,
+                ..*error
+            });
         };
-        Box::new(Attributed(text)) as Box<dyn Error>
+        let body = error.position.as_ref();
+        let attributed = error
+            .demand
+            .as_ref()
+            .filter(|_| body.is_some())
+            .and_then(|demand| {
+                let detail = demand.detail().unwrap_or(&error.message);
+                required.explain(body, detail, demand)
+            })
+            .unwrap_or_else(|| required.report(body, &error.message));
+        Box::new(attributed)
     })
 }
 
@@ -7312,9 +7291,7 @@ fn lower_body(
             .map(|source| lower.generics.source_facts(source));
         let parameter_values = lower.parameter_values();
         let compiled = CompiledFn {
-            location: source
-                .as_ref()
-                .map(|source| format!("{source}:{}:{}", f.at.line, f.at.column).into()),
+            location: source.as_ref().map(|_| f.at.position()),
             origins: Arc::new(crate::ownership::Origins {
                 standard_library: facts.as_ref().is_some_and(|(_, standard)| *standard),
                 source,

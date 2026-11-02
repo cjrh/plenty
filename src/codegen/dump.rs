@@ -537,12 +537,7 @@ fn unique(seen: &mut HashMap<String, usize>, key: String) -> String {
 /// `file:line`, with the file relative to the source root so the dump does
 /// not depend on where the tree is checked out.
 fn source(f: &CompiledFn) -> String {
-    let line = f.location.as_deref().and_then(|location| {
-        let mut parts = location.rsplitn(3, ':');
-        let _column = parts.next()?;
-        let line = parts.next()?;
-        line.parse::<u32>().ok()
-    });
+    let line = f.location.as_ref().map(|position| position.line);
     match (&f.origins.trap_file, line) {
         (Some(file), Some(line)) => format!("{file}:{line}"),
         (Some(file), None) => file.to_string(),

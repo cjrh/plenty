@@ -1335,8 +1335,8 @@ pub enum Pattern {
 /// Shared fields avoid copying bodies and signatures during compiler passes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledFn {
-    /// Source location for diagnostics from the independent IR/ownership checker.
-    pub location: Option<Arc<str>>,
+    /// Source position for diagnostics from the independent IR/ownership checker.
+    pub location: Option<crate::diagnostic::Position>,
     /// Source file and binding names for ownership diagnostics.
     pub origins: Arc<crate::ownership::Origins>,
     pub generator: Option<Ty>,
@@ -2006,7 +2006,7 @@ fn check_with(ops: &[Op], workers: usize) -> Result<()> {
     let program = crate::ownership::Program::new(ops);
     let mut checked = crate::parallel::map(functions.len(), workers, |i| {
         let (name, f) = functions[i];
-        check_function(name, f, &sigs, &program).map_err(|e| e.to_string())
+        check_function(name, f, &sigs, &program).map_err(crate::diagnostic::Diagnostic::from_boxed)
     })
     .into_iter();
     // Top-level: locals are empty (the compiler will never have emitted a
@@ -2019,7 +2019,11 @@ fn check_with(ops: &[Op], workers: usize) -> Result<()> {
         }
         flow = match op {
             Op::DefineFn(..) => {
-                checked.next().expect("one result per function")?;
+                // Coerce rather than `?`, which would box the box.
+                checked
+                    .next()
+                    .expect("one result per function")
+                    .map_err(|e| e as Box<dyn Error>)?;
                 Flow::Continues
             }
             _ => step(op, &mut stack, &[], &sigs, None, None, None)?,
@@ -3165,7 +3169,10 @@ fn check_function(
             .downcast_ref::<crate::ownership::Error>()
             .is_some_and(|e| e.primary.is_some() || e.required.is_some());
         match &f.location {
-            Some(at) if !located => format!("{at}: {e}").into(),
+            Some(at) if !located => Box::new(crate::diagnostic::Diagnostic::new(
+                Some(at.clone()),
+                e.to_string(),
+            )),
             _ => e,
         }
     })
@@ -3329,9 +3336,11 @@ def main() -> ():
         corrupt(&mut program.ops, "unit9", vec![Op::PushBool(true)]);
         let first = check_with(&program.ops, 1).unwrap_err().to_string();
         assert_ne!(first, later);
-        for workers in [2, 8] {
-            let error = check_with(&program.ops, workers).unwrap_err().to_string();
-            assert_eq!(error, first);
+        for workers in [1, 2, 8] {
+            let error = check_with(&program.ops, workers).unwrap_err();
+            // The worker boundary keeps the diagnostic value.
+            assert!(error.is::<crate::diagnostic::Diagnostic>(), "{error}");
+            assert_eq!(error.to_string(), first);
         }
     }
 

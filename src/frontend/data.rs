@@ -536,14 +536,14 @@ impl TypeAliases {
                 ..(**outer).clone()
             },
             Some(Requiring::Use(at)) => Instantiation {
-                at: at.location().into(),
+                at: at.position(),
                 requested: instance.clone(),
                 instance,
                 parameters,
                 unused_method: None,
             },
             None => Instantiation {
-                at: application.at.location().into(),
+                at: application.at.position(),
                 requested: instance.clone(),
                 instance,
                 parameters,

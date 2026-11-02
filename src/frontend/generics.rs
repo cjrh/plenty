@@ -396,11 +396,12 @@ impl Engine {
 
     /// Queues `name` if it is an unused instance method. Errors in its body
     /// are reported at `at`, the use, or at the use that first required
-    /// `outer` when the use is itself in generic code.
+    /// `outer` when the use is itself in generic code. A use without a
+    /// source position is reported at the method's definition.
     pub(super) fn demand_method(
         &mut self,
         name: &str,
-        at: impl FnOnce() -> Arc<str>,
+        at: impl FnOnce() -> Option<Position>,
         outer: Option<&Arc<Instantiation>>,
     ) {
         let Some(UnusedMethod {
@@ -425,7 +426,7 @@ impl Engine {
                 ..(**outer).clone()
             },
             None => Instantiation {
-                at: at(),
+                at: at().unwrap_or_else(|| function.at.position()),
                 requested: Arc::clone(&display),
                 instance: display,
                 parameters,
@@ -478,7 +479,7 @@ impl Engine {
                     required
                 }
                 None => Instantiation {
-                    at: method.function.at.location().into(),
+                    at: method.function.at.position(),
                     requested: Arc::clone(&display),
                     instance: Arc::clone(&display),
                     parameters: Arc::default(),
@@ -502,14 +503,14 @@ impl Engine {
         }
         let mut uses = Vec::new();
         for op in &self.compiled[start..] {
-            let Op::DefineFn(caller, f) = op else {
+            let Op::DefineFn(_, f) = op else {
                 continue;
             };
             let first = uses.len();
             crate::threading::walk_sited(&f.body, &mut |op, site| {
                 crate::threading::function_references(op, &mut |name| {
                     if self.unused_methods.contains_key(name) {
-                        uses.push((site.map(|s| (s.line, s.column)), name.to_owned(), caller, f));
+                        uses.push((site.map(|s| (s.line, s.column)), name.to_owned(), f));
                     }
                 });
             });
@@ -518,13 +519,14 @@ impl Engine {
         }
         let uses: Vec<_> = uses
             .into_iter()
-            .map(|(site, name, caller, f)| {
-                let at: Arc<str> = match (site, &f.origins.source) {
-                    (Some((line, column)), Some(source)) => {
-                        format!("{source}:{line}:{column}").into()
-                    }
-                    (Some((line, column)), None) => format!("{line}:{column}").into(),
-                    (None, _) => f.location.clone().unwrap_or_else(|| caller.as_str().into()),
+            .map(|(site, name, f)| {
+                let at = match site {
+                    Some((line, column)) => Some(Position {
+                        file: f.origins.source.clone(),
+                        line,
+                        column,
+                    }),
+                    None => f.location.clone(),
                 };
                 (name, at, f.origins.required.clone())
             })
@@ -994,7 +996,7 @@ impl Lower<'_> {
                     ..(**outer).clone()
                 },
                 None => Instantiation {
-                    at: at.location().into(),
+                    at: at.position(),
                     requested: instance.clone(),
                     instance,
                     parameters,
@@ -1728,7 +1730,7 @@ impl Engine {
             let outer = self.required.get(&parent).cloned().unwrap_or_else(|| {
                 let requested: Arc<str> = crate::record::method_display(&instance.display).into();
                 Arc::new(Instantiation {
-                    at: at.location().into(),
+                    at: at.position(),
                     instance: Arc::clone(&requested),
                     requested,
                     parameters: Arc::clone(&instance.parameters),
