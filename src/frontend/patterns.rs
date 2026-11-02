@@ -31,6 +31,7 @@ pub(super) enum PatKind {
     /// and payload patterns (absent without parentheses).
     Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>),
     Or(Vec<Pat>),
+    Tuple(Vec<Pat>),
     Literal(Literal),
     /// A class and one pattern per field, as its generated constructor takes
     /// them: positionally in declaration order, then by field name. When
@@ -75,7 +76,7 @@ impl Pat {
                         walk(pattern, names);
                     }
                 }
-                PatKind::Or(alternatives) => {
+                PatKind::Or(alternatives) | PatKind::Tuple(alternatives) => {
                     for pattern in alternatives {
                         walk(pattern, names);
                     }
@@ -152,7 +153,7 @@ impl Pat {
                 }
                 Ok(())
             }
-            PatKind::Or(alternatives) => {
+            PatKind::Or(alternatives) | PatKind::Tuple(alternatives) => {
                 for pattern in alternatives {
                     pattern.qualifiers_mut(paths, visit)?;
                 }
@@ -261,10 +262,55 @@ impl Parser {
                 "payload bindings cannot be declared `mut`; bind the payload and move it into a mutable local in the arm, as in `mut local = payload`, or match `&mut value` to change it in place",
             ));
         }
-        if at.is("(") {
-            return Err(at.error(
-                "tuple patterns are not supported; bind the tuple and unpack it in the arm",
-            ));
+        if self.eat("(") {
+            if self.eat(")") {
+                return Err(
+                    at.error("unit patterns are not supported; use `_` for a unit component")
+                );
+            }
+            let mut nesting = 0usize;
+            let mut tuple = false;
+            let mut position = self.pos;
+            while let Some(token) = self.token(position) {
+                if token.is(")") && nesting == 0 {
+                    break;
+                }
+                if token.is(",") && nesting == 0 {
+                    tuple = true;
+                    break;
+                }
+                if token.is("(") || token.is("[") {
+                    nesting += 1;
+                }
+                if token.is(")") || token.is("]") {
+                    nesting = nesting.saturating_sub(1);
+                }
+                if matches!(token.kind, Kind::Newline | Kind::Eof) {
+                    break;
+                }
+                position += 1;
+            }
+            if !tuple {
+                // Grouping preserves root-only forms and the protection against
+                // an unqualified variant becoming a catch-all binding.
+                let grouped = self.nested(|parser| parser.pattern(depth))?;
+                self.expect(")")?;
+                return Ok(grouped);
+            }
+            let first = self.pattern(depth + 1)?;
+            self.expect(",")?;
+            let mut fields = vec![first];
+            while !self.eat(")") {
+                fields.push(self.pattern(depth + 1)?);
+                if self.eat(")") {
+                    break;
+                }
+                self.expect(",")?;
+            }
+            return Ok(Pat {
+                at,
+                kind: PatKind::Tuple(fields),
+            });
         }
         let mut path = vec![self.name()?];
         if depth == 0
@@ -1125,6 +1171,10 @@ fn variant_text(t: &Nominal<EnumType>, tag: usize, payload: &[String]) -> String
     {
         return member.clone();
     }
+    if t.tuple() {
+        let suffix = if payload.len() == 1 { "," } else { "" };
+        return format!("({}{suffix})", payload.join(", "));
+    }
     let name = &t.get().variants[tag].name;
     let owner = t.display_name().split('[').next().unwrap_or_default();
     let head = if t.propagatable() {
@@ -1279,6 +1329,58 @@ impl Lower<'_> {
                 root,
                 bound,
             ),
+            PatKind::Tuple(patterns) => {
+                if let Ty::Enum(sum) = content
+                    && sum.anonymous()
+                {
+                    let candidates = sum
+                        .get()
+                        .variants
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, member)| {
+                            matches!(&member.fields[0], Ty::Enum(t)
+                            if t.tuple() && t.get().variants[0].fields.len() == patterns.len())
+                        })
+                        .map(|(tag, member)| (tag, member.fields[0].clone()))
+                        .collect::<Vec<_>>();
+                    match candidates.as_slice() {
+                        [(tag, member)] => {
+                            let inner = self.check_pattern(pattern, member, root, bound)?;
+                            return Ok(Checked::Variant { boxes, t: sum.clone(), tag: *tag, fields: vec![inner] });
+                        }
+                        [] => {},
+                        _ => return Err(pattern.at.error(format!(
+                            "tuple pattern is ambiguous between members of {ty}; bind a whole member with `case value: MemberType:` first"
+                        ))),
+                    }
+                }
+                let Ty::Enum(t) = content else {
+                    return Err(pattern
+                        .at
+                        .error(format!("a tuple pattern cannot match a value of type {ty}")));
+                };
+                if !t.tuple() {
+                    return Err(pattern
+                        .at
+                        .error(format!("a tuple pattern cannot match a value of type {ty}")));
+                }
+                let fields = &t.get().variants[0].fields;
+                if fields.len() != patterns.len() {
+                    return Err(pattern.at.error("tuple pattern arity does not match tuple"));
+                }
+                let fields = patterns
+                    .iter()
+                    .zip(fields)
+                    .map(|(pattern, ty)| self.check_pattern(pattern, ty, false, bound))
+                    .collect::<Result<_>>()?;
+                Ok(Checked::Variant {
+                    boxes,
+                    t: t.clone(),
+                    tag: 0,
+                    fields,
+                })
+            }
             PatKind::Variant(qualifier, name, payload) => {
                 if let Ty::Enum(sum) = content
                     && sum.anonymous()

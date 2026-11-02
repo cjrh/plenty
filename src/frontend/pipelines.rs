@@ -1413,7 +1413,19 @@ impl Lower<'_> {
             self.pipeline_pack_pair(&mut plan, &e.at)?;
             self.bind(names[0].clone(), plan.item.clone());
         } else {
-            return Err(e.at.error("pipeline binding arity does not match item"));
+            self.pipeline_pack_pair(&mut plan, &e.at)?;
+            let source = format!("<pipeline unpack {} {}>", e.at.line, e.at.column);
+            self.bind(source.clone(), plan.item.clone());
+            self.unpack_iteration_bindings(
+                names,
+                None,
+                &Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Name(source.clone()),
+                },
+                &mut plan.iteration.body,
+            )?;
+            self.names.remove(&source);
         }
         // Consumers own every source/callback slot, including slots initialized
         // earlier by a local pipeline binding.

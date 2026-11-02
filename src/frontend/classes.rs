@@ -567,7 +567,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 } => {
                     for clause in clauses {
                         match clause {
-                            Clause::For(n, e) => {
+                            Clause::For(n, e) | Clause::Unpack(n, _, e) => {
                                 for name in n {
                                     self.binding(name, &e.at)?;
                                 }
@@ -588,6 +588,12 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             Ok(())
         }
         fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
+            if let Expression::Tuple(children) = &ungroup(target).kind {
+                for target in children {
+                    self.target(target, set)?;
+                }
+                return Ok(());
+            }
             if let Expression::Member(base, field, _) = &target.kind
                 && matches!(&ungroup(base).kind, Expression::Name(n) if n == "self")
             {

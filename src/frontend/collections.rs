@@ -147,13 +147,23 @@ impl Parser {
         loop {
             let keyword = self.pos;
             if self.eat("for") {
-                let mut names = vec![self.name()?];
-                while self.eat(",") {
-                    names.push(self.name()?);
-                }
+                let at = self.tokens[keyword].clone();
+                let (names, unpacking) = self.loop_bindings(&at)?;
                 self.expect("in")?;
                 let iterable = self.clause(keyword, clauses.len(), &mut element)?;
                 clauses.push(Clause::For(names, iterable));
+                for statement in unpacking {
+                    let Statement::Unpack {
+                        names,
+                        targets: Some(targets),
+                        value,
+                        ..
+                    } = statement.kind
+                    else {
+                        unreachable!()
+                    };
+                    clauses.push(Clause::Unpack(names, targets, value));
+                }
             } else if self.eat("if") {
                 let condition = self.clause(keyword, clauses.len(), &mut element)?;
                 clauses.push(Clause::If(condition));
@@ -639,6 +649,67 @@ impl Lower<'_> {
             expected
         }
     }
+    /// The iteration item has already been evaluated into an internal binding.
+    /// Removing target names now leaves source expressions in the outer scope,
+    /// then binds new locals rather than overwriting or destroying their owners.
+    /// The enclosing loop/comprehension restores its saved names on exit.
+    pub(super) fn unpack_iteration_bindings(
+        &mut self,
+        names: &[String],
+        targets: Option<&[Expr]>,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        for name in names {
+            self.names.remove(name);
+        }
+        if let Some(targets) = targets {
+            self.unpack_nested(targets, false, value, ops)
+        } else {
+            self.unpack_tuple(names, false, value, ops)
+        }
+    }
+
+    pub(super) fn unpack_nested(
+        &mut self,
+        targets: &[Expr],
+        mutable: bool,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        if self.borrowed_tuple(value).is_some() {
+            Parser::unpacking_names(targets)?;
+            let names = targets
+                .iter()
+                .enumerate()
+                .map(|(position, target)| match &ungroup(target).kind {
+                    Expression::Name(name) => name.clone(),
+                    _ => format!(
+                        "<borrowed unpack {} {} {position}>",
+                        value.at.line, value.at.column
+                    ),
+                })
+                .collect::<Vec<_>>();
+            self.unpack_tuple(&names, mutable, value, ops)?;
+            for (target, name) in targets.iter().zip(names) {
+                if let Expression::Tuple(children) = &ungroup(target).kind {
+                    self.unpack_nested(
+                        children,
+                        mutable,
+                        &Expr {
+                            at: target.at.clone(),
+                            kind: Expression::Name(name.clone()),
+                        },
+                        ops,
+                    )?;
+                    self.names.remove(&name);
+                }
+            }
+            return Ok(());
+        }
+        self.assign_targets_inner(targets, mutable, value, ops)
+    }
+
     /// Assign each component of `value` to its target, left to right, exactly
     /// as a single assignment to that target would. The right side is complete
     /// before the first write, so targets may exchange their values.
@@ -648,14 +719,33 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        fn names<'a>(targets: &'a [Expr], seen: &mut HashSet<&'a String>) -> Result<()> {
+            for target in targets {
+                match &ungroup(target).kind {
+                    Expression::Tuple(children) => names(children, seen)?,
+                    Expression::Name(name) if name != "_" && !seen.insert(name) => {
+                        return Err(target.at.error("duplicate unpacking binding"));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+        names(targets, &mut HashSet::default())?;
+        self.unpack_nested(targets, false, value, ops)
+    }
+
+    fn assign_targets_inner(
+        &mut self,
+        targets: &[Expr],
+        mutable: bool,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
         let mut seen = HashSet::default();
         for target in targets {
-            match &target.kind {
-                Expression::Tuple(_) => {
-                    return Err(target
-                        .at
-                        .error("nested assignment targets are not supported"));
-                }
+            match &ungroup(target).kind {
+                Expression::Tuple(_) => {}
                 Expression::Name(name) if name != "_" && !seen.insert(name) => {
                     return Err(target.at.error("duplicate unpacking binding"));
                 }
@@ -665,11 +755,11 @@ impl Lower<'_> {
                 _ => {}
             }
         }
-        Self::check_unpacked_arity(targets.len(), value)?;
+        Self::check_unpack_target_shapes(targets, value)?;
         // Known target types let literals on the right take those types.
         let expected = targets
             .iter()
-            .map(|target| self.place_type(target))
+            .map(|target| self.unpack_target_hint(target))
             .collect::<Option<Vec<_>>>()
             .map(crate::sum::tuple);
         let expected = self.unpack_hint(expected, value);
@@ -690,7 +780,7 @@ impl Lower<'_> {
         let mut slots = Vec::new();
         for (target, ty) in targets.iter().zip(&fields) {
             slots.push(
-                if matches!(&target.kind, Expression::Name(name) if name == "_") {
+                if matches!(&ungroup(target).kind, Expression::Name(name) if name == "_") {
                     None
                 } else if *ty == Ty::Unit {
                     return Err(target
@@ -701,7 +791,15 @@ impl Lower<'_> {
                 },
             );
         }
-        ops.push(Op::Split(t.clone(), 0));
+        if let [field] = fields.as_slice() {
+            ops.push(Op::Enum(if field.affine() {
+                crate::sum::EnumOp::Take(t.clone(), 0, 0)
+            } else {
+                crate::sum::EnumOp::Field(t.clone(), 0, 0)
+            }));
+        } else {
+            ops.push(Op::Split(t.clone(), 0));
+        }
         ops.extend(
             slots
                 .iter()
@@ -730,10 +828,16 @@ impl Lower<'_> {
                 at: values.map_or(&value.at, |values| &values[i].at).clone(),
                 kind: Expression::Name(component.clone()),
             };
-            let kind = match &target.kind {
+            if let Expression::Tuple(children) = &ungroup(target).kind {
+                self.unpack_nested(children, mutable, &source, ops)?;
+                self.names.remove(&component);
+                ops.push(Op::DropLocal(slot));
+                continue;
+            }
+            let kind = match &ungroup(target).kind {
                 Expression::Name(name) => Statement::Assign {
                     name: name.clone(),
-                    mutable: false,
+                    mutable,
                     annotation: None,
                     value: source,
                 },
@@ -752,6 +856,28 @@ impl Lower<'_> {
             ops.push(Op::DropLocal(slot));
         }
         Ok(())
+    }
+    fn check_unpack_target_shapes(targets: &[Expr], value: &Expr) -> Result<()> {
+        Self::check_unpacked_arity(targets.len(), ungroup(value))?;
+        if let Expression::Tuple(values) = &ungroup(value).kind {
+            for (target, value) in targets.iter().zip(values) {
+                if let Expression::Tuple(children) = &ungroup(target).kind {
+                    Self::check_unpack_target_shapes(children, value)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unpack_target_hint(&self, target: &Expr) -> Type {
+        match &ungroup(target).kind {
+            Expression::Tuple(targets) => targets
+                .iter()
+                .map(|target| self.unpack_target_hint(target))
+                .collect::<Option<Vec<_>>>()
+                .map(crate::sum::tuple),
+            _ => self.place_type(target),
+        }
     }
     pub(super) fn tuple(
         &mut self,
@@ -1252,6 +1378,10 @@ impl Lower<'_> {
                 self.cleanup(start, ops);
                 self.names = saved;
             }
+            Some((Clause::Unpack(names, targets, value), rest)) => {
+                self.unpack_iteration_bindings(names, Some(targets), value, ops)?;
+                self.comprehension(rest, entries, kind, result, ty, pending, ops)?;
+            }
             Some((Clause::If(condition), rest)) => {
                 let temporary_start = self.expression_temps.len();
                 let cond = self.expr(condition, ops)?;
@@ -1370,6 +1500,10 @@ impl Lower<'_> {
         let hint = comprehension_hint(names, entries, expected.as_ref());
         let mut iteration = self.iteration(names, iterable, hint, ops)?;
         for filter in filters {
+            if let Clause::Unpack(names, targets, value) = filter {
+                self.unpack_iteration_bindings(names, Some(targets), value, &mut iteration.body)?;
+                continue;
+            }
             let Clause::If(condition) = filter else {
                 unreachable!()
             };

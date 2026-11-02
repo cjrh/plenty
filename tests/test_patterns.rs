@@ -803,9 +803,9 @@ fn payload_positions_take_only_patterns() {
     assert_eq!(
         rejects(
             "Option[(i64, i64)]",
-            "case Some((a, b)):\n    0\ncase _:\n    1"
+            "case Some((a, b, c)):\n    0\ncase _:\n    1"
         ),
-        "13:19: tuple patterns are not supported; bind the tuple and unpack it in the arm"
+        "13:19: tuple pattern arity does not match tuple"
     );
 }
 
@@ -1807,4 +1807,140 @@ fn a_whole_value_binding_is_explicit_and_stands_alone() {
         ),
         "17:9: unreachable case"
     );
+}
+
+#[test]
+fn tuple_patterns_match_nested_products_and_prove_product_coverage() {
+    runs(
+        r#"
+def pair(left: Option[i64], right: Option[i64]) -> i64:
+    match (left, right):
+        case (Some(a), Some(b)):
+            a + b
+        case (Some(a), Nothing):
+            a
+        case (Nothing, Some(b)):
+            b
+        case (Nothing, Nothing):
+            0
+def nested(value: Option[((i64, bool),)]) -> i64:
+    match value:
+        case Some((((n), True),)):
+            n
+        case Some(((_, False),)):
+            0
+        case Nothing:
+            -1
+print(pair(Some(3), Some(4))).unwrap()
+print(pair(Nothing, Some(4))).unwrap()
+print(nested(Some(((8, True),)))).unwrap()
+"#,
+        "7\n4\n8\n",
+    );
+    let missing = rejects(
+        "(bool, bool)",
+        "case (True, _):\n    1\ncase (False, True):\n    2",
+    );
+    assert!(missing.contains("(False, False)"), "{missing}");
+    let unreachable = rejects(
+        "(bool, bool)",
+        "case (_, _):\n    1\ncase (True, True):\n    2",
+    );
+    assert!(unreachable.contains("unreachable"), "{unreachable}");
+}
+
+#[test]
+fn tuple_patterns_preserve_owned_and_borrowed_components() {
+    runs(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print(self.id).unwrap()
+def consume(value: (Resource, (Resource, Resource))) -> ():
+    match value:
+        case (a, (_, c)):
+            print(a.id + c.id).unwrap()
+consume((Resource(1), (Resource(2), Resource(3))))
+mut value = ((1, 2), 3)
+match &mut value:
+    case ((a, b), c):
+        *a = *a + 10
+        *b = *b + 20
+        *c = *c + 30
+print(value).unwrap()
+"#,
+        "2\n4\n3\n1\n((11, 22), 33)\n",
+    );
+}
+
+#[test]
+fn tuple_patterns_match_generic_class_sum_and_box_payloads() {
+    runs(
+        r#"
+class Wrapper[T]:
+    value: T
+def sum_pair[T](value: Wrapper[(T, T)]) -> T:
+    match value:
+        case Wrapper((first, _)):
+            first
+def boxed(value: Box[(i64,)]) -> i64:
+    match value:
+        case (n,):
+            n
+def select(value: (i64, bool) | str) -> i64:
+    match value:
+        case (n, True):
+            n
+        case (_, False):
+            0
+        case text: str:
+            1
+print(sum_pair(Wrapper((3, 4)))).unwrap()
+print(boxed(Box((8,)).unwrap())).unwrap()
+print(select((9, True))).unwrap()
+"#,
+        "3\n8\n9\n",
+    );
+}
+
+#[test]
+fn tuple_pattern_limits_bound_expansion_and_depth() {
+    let alternatives = std::iter::repeat_n("True | False", 9)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ty = std::iter::repeat_n("bool", 9)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let message = rejects(
+        &format!("({ty})"),
+        &format!("case ({alternatives}):\n    1"),
+    );
+    assert!(message.contains("256"), "{message}");
+    let pattern = format!("{}True{}", "(".repeat(66), ")".repeat(66));
+    let message = rejects("bool", &format!("case {pattern}:\n    1\ncase _:\n    0"));
+    assert!(message.contains("64"), "{message}");
+}
+
+#[test]
+fn grouped_patterns_keep_root_bindings_and_variant_protection() {
+    runs(
+        r#"
+def whole(value: bool) -> bool:
+    match value:
+        case ((_ as name)):
+            name
+def member(value: str | i64) -> i64:
+    match value:
+        case (number: i64):
+            number
+        case (_):
+            0
+print(whole(True)).unwrap()
+print(member(5)).unwrap()
+"#,
+        "True\n5\n",
+    );
+    let message = rejects("Shape", "case (Dot):\n    1\ncase _:\n    0");
+    assert!(message.contains("qualify a variant"), "{message}");
 }

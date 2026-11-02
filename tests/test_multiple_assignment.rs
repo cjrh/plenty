@@ -248,8 +248,8 @@ const SETUP: &str = "mut items = [1, 2, 3].unwrap()\nmut rows = [[1].unwrap(), [
 )]
 #[case("items[0], items[1] = 5", "unpacking requires a tuple")]
 #[case(
-    "items[0], (a, items[1]) = 1, (2, 3)",
-    "nested assignment targets are not supported"
+    "items[0], (a, items[1]) = 1, (2, 3, 4)",
+    "unpacking arity does not match tuple"
 )]
 #[case(
     "items[0], len(items) = 1, 2",

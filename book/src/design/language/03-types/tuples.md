@@ -28,7 +28,7 @@ number, text = (42, "cm")
 number, text = 42, "cm"
 ```
 
-Flat unpacking transfers each component; `_` destroys a discarded component.
+Recursive unpacking transfers each selected component; `_` destroys a discarded component.
 The parentheses are optional on the right of an unpacking statement, and targets
 may also be fields and collection elements: see
 [assignment to several targets](../04-expressions/assignment.md#several-targets).
@@ -64,11 +64,17 @@ selects components at compile time: `(1, "two", 3.0)[1:]` has type
 returns no `Result` and takes no `?`. Slices of affine components are rejected
 for now.
 
-Nested and starred unpacking are unsupported. Unit components can be discarded
+Nested tuple targets mirror the value's shape: `((x, y), label) = value`.
+Parentheses without a comma group a target; `(x,)` requires one component.
+The same shapes work for owned and borrowed loop elements, comprehension
+bindings and generator-expression bindings. Borrowing a nested
+tuple keeps component-precise loans, so sibling components remain independent.
+Starred unpacking is unsupported. Unit components can be discarded
 or used as unit expressions without enabling standalone unit storage.
 
-An owned list also supports flat unpacking with an exact runtime length check;
-see [collection rules](../../facilities/01-builtins/collections.md).
+An owned list also supports unpacking with an exact runtime length check at
+each list position in a nested target; tuple positions use their statically known
+arity. See [collection rules](../../facilities/01-builtins/collections.md).
 Tuples of integers, `bool`, strings, and nested tuples of those types are
 copyable dictionary keys and set members. Hashing and equality use their
 contents, with no formatting or string-key encoding.

@@ -253,3 +253,419 @@ fn tuple_index_errors_state_the_length() {
         assert!(error.contains(expected), "{source}\n{error}");
     }
 }
+
+#[test]
+fn nested_unpacking_binds_assigns_and_iterates_structural_components() {
+    support::assert_stdout(
+        r#"
+((x, y), z) = ((1, 2), 3)
+print(x + y + z).unwrap()
+mut (a, (b, c)) = (4, (5, 6))
+(a, (b, c)) = (b, (c, a))
+print((a, b, c)).unwrap()
+for (left, right), label in [((7, 8), 9)].unwrap():
+    print(left + right + label).unwrap()
+mut rows = [((1, 2), 3)].unwrap()
+for (left, right), label in &mut rows:
+    *left = *left + 10
+    *right = *right + 20
+    *label = *label + 30
+print(rows).unwrap()
+mut owner = ((10, 20), 30)
+(first, second), third = &mut owner
+*first = *first + 1
+*second = *second + 2
+*third = *third + 3
+print(owner).unwrap()
+"#,
+        "6\n(5, 6, 4)\n24\n[((11, 22), 33)]\n((11, 22), 33)\n",
+    );
+}
+
+#[test]
+fn nested_unpacking_rejects_duplicate_names_shapes_and_illegal_reference_rebinding() {
+    for source in [
+        "(a, (b, a)) = (1, (2, 3))",
+        "mut (a, (b, a)) = (1, (2, 3))",
+        "(a, (b, c)) = (1, 2)",
+        "(a, (b, c)) = (1, (2, 3, 4))",
+        "owner = ((1, 2), 3)\nmut ((a, b), c) = &owner",
+        "owner = ((1, 2), 3)\na = 1\n((a, b), c) = &owner",
+        "for (a, b), a in [((1, 2), 3)].unwrap():\n    pass",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn nested_unpacking_preserves_destination_order_and_owned_cleanup() {
+    support::assert_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print(self.id).unwrap()
+mut index = 0
+mut items = [0, 0, 0].unwrap()
+(index, (items[index], items[0])) = (2, (7, 8))
+print(items).unwrap()
+((a, _), b) = ((Resource(1), Resource(2)), Resource(3))
+print(a.id + b.id).unwrap()
+for (x, y), z in (((1, 2), 3) for _ in range(1)):
+    print(x + y + z).unwrap()
+"#,
+        "[8, 0, 7]\n2\n4\n6\n3\n1\n",
+    );
+}
+
+#[test]
+fn nested_borrowed_unpacking_keeps_precise_component_loans_and_ends_them_at_last_use() {
+    support::assert_stdout(
+        r#"
+mut owner = ((1, 2), 3)
+((first, second), _) = &mut owner
+print(owner[1]).unwrap()
+*first += 10
+print(owner[0][0]).unwrap()
+*second += 20
+print(owner).unwrap()
+"#,
+        "3\n11\n((11, 22), 3)\n",
+    );
+    for source in [
+        "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner[0][0]).unwrap()\n*first += 1\n*second += 1",
+        "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner).unwrap()\n*first += 1\n*second += 1",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn nested_comprehension_and_generator_targets_bind_before_filters_and_inner_sources() {
+    support::assert_stdout(
+        r#"
+rows = [((1, 2), 3), ((4, 5), 6)].unwrap()
+print([x + y + z for (x, y), z in &rows if *x > 1].unwrap()).unwrap()
+print([x + y + z + n for (x, y), z in &rows for n in range(*x) if n == 0].unwrap()).unwrap()
+mut owned = [((1, 2), 3)].unwrap()
+print([(*x, *y, *z) for (x, y), z in &mut owned].unwrap()).unwrap()
+mut values = (x + y + z for (x, y), z in rows if x > 1)
+print(next(&mut values)).unwrap()
+print(next(&mut values)).unwrap()
+"#,
+        "[15]\n[6, 15]\n[(1, 2, 3)]\nOption[i64].Some(15)\nOption[i64].Nothing\n",
+    );
+}
+
+#[test]
+fn nested_generator_targets_are_lazy_and_generic_comprehensions_move_fields() {
+    support::assert_stdout(
+        r#"
+def keep(n: i64) -> bool:
+    print(n).unwrap()
+    n > 1
+def firsts[T](rows: list[((T, T), i64)]) -> Result[list[T], AllocError]:
+    [first for (first, _), _ in rows]
+mut pending = (x + y for (x, y), _ in [((1, 2), 0), ((3, 4), 0)].unwrap() if keep(x))
+print("created").unwrap()
+print(next(pending)).unwrap()
+print(next(pending)).unwrap()
+print(firsts([(([1].unwrap(), [2].unwrap()), 0)].unwrap()).unwrap()).unwrap()
+"#,
+        "created\n1\n3\nOption[i64].Some(7)\nOption[i64].Nothing\n[[1]]\n",
+    );
+}
+
+#[test]
+fn nested_target_grouping_is_distinct_from_singleton_tuple_structure() {
+    support::assert_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print(self.id).unwrap()
+def unwrap_rows[T](rows: list[(T,)]) -> Result[list[T], AllocError]:
+    [x for (x,) in rows]
+(single,) = (8,)
+mut ((first, (second))) = (1, 2)
+((first, (second))) = (second, first)
+(grouped) = 3
+mut (mutable_grouped) = 4
+mutable_grouped += 1
+print((single, first, second, grouped, mutable_grouped)).unwrap()
+for (number,) in [(9,)].unwrap():
+    print(number).unwrap()
+for (number) in range(1):
+    print(number).unwrap()
+(head, (left, right)) = ([1].unwrap(), [2, 3].unwrap())
+print((head, left, right)).unwrap()
+mut pair = ((1,), 2)
+((exclusive,), _) = &mut pair
+*exclusive += 10
+((shared,), _) = &pair
+print(*shared).unwrap()
+(owned,) = (Resource(11),)
+((item,), _) = ((Resource(12),), 3)
+print((owned.id, item.id)).unwrap()
+(_,) = (Resource(13),)
+drop(item)
+drop(owned)
+for (_,) in [(Resource(14),)].unwrap():
+    pass
+print(unwrap_rows([([15].unwrap(),)].unwrap()).unwrap()).unwrap()
+"#,
+        "(8, 2, 1, 3, 5)\n9\n0\n([1], 2, 3)\n11\n(11, 12)\n13\n12\n11\n14\n[[15]]\n",
+    );
+}
+
+#[test]
+fn nested_loop_bindings_shadow_outer_names_for_each_source_kind() {
+    for declaration in ["a = 99", "mut a = 99"] {
+        for target in ["(a, b), c", "((a, b), c)"] {
+            for source in [
+                "[((1, 2), 3)].unwrap()",
+                "iter([((1, 2), 3)].unwrap())",
+                "&rows",
+                "iter(&rows)",
+                "&mut rows",
+                "iter(&mut rows)",
+            ] {
+                support::assert_stdout(
+                    &format!(
+                        r#"
+mut rows = [((1, 2), 3)].unwrap()
+{declaration}
+b = 88
+c = 77
+for {target} in {source}:
+    print(a, b, c).unwrap()
+print(a, b, c).unwrap()
+"#
+                    ),
+                    "1 2 3\n99 88 77\n",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flat_pipeline_unpacking_also_creates_fresh_loop_bindings() {
+    for declaration in ["a = 99", "mut a = 99"] {
+        for target in ["a, b, c", "(a, b, c)"] {
+            for source in ["iter([(1, 2, 3)].unwrap())", "iter(&rows)"] {
+                support::assert_stdout(
+                    &format!(
+                        r#"
+rows = [(1, 2, 3)].unwrap()
+{declaration}
+b = 88
+c = 77
+for {target} in {source}:
+    print(a, b, c).unwrap()
+print(a, b, c).unwrap()
+"#
+                    ),
+                    "1 2 3\n99 88 77\n",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn nested_comprehensions_and_generators_shadow_after_evaluating_their_sources() {
+    for declaration in ["a = 99", "mut a = 99"] {
+        support::assert_stdout(
+            &format!(
+                r#"
+def values() -> Generator[i64]:
+    mut a = 99
+    for (a, b), c in [((a + 1, 2), 3)].unwrap():
+        yield a
+    yield a
+{declaration}
+b = 88
+c = 77
+for (a, b), c in [((a + 1, 2), 3)].unwrap():
+    print(a, b, c).unwrap()
+print([a + b + c for (a, b), c in [((a + 1, 2), 3)].unwrap() if a > 0].unwrap()).unwrap()
+print([a for a in range(2) for (a, b), c in [((a + 7, 8), 9)].unwrap() for n in range(1)].unwrap()).unwrap()
+print(list(a for a in range(2) for (a, b), c in [((a + 7, 8), 9)].unwrap()).unwrap()).unwrap()
+print(list(values()).unwrap()).unwrap()
+print(a, b, c).unwrap()
+"#
+            ),
+            "100 2 3\n[105]\n[7, 8]\n[7, 8]\n[100, 99]\n99 88 77\n",
+        );
+    }
+    support::assert_stdout(
+        r#"
+mut a = 99
+(a, b), c = ((1, 2), 3)
+print(a, b, c).unwrap()
+"#,
+        "1 2 3\n",
+    );
+    assert!(support::check_source("a = 99\n((a, b), c) = &((1, 2), 3)").is_err());
+}
+
+#[test]
+fn nested_loop_shadowing_preserves_affine_outer_owners() {
+    for mutable in ["", "mut "] {
+        for source in [
+            "[((Resource(1), Resource(2)), 3)].unwrap()",
+            "iter([((Resource(1), Resource(2)), 3)].unwrap())",
+        ] {
+            support::assert_stdout(
+                &format!(
+                    r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print("drop", self.id).unwrap()
+{mutable}item = Resource(90)
+for (item, _), _ in {source}:
+    print("inner", item.id).unwrap()
+print("outer", item.id).unwrap()
+"#
+                ),
+                "drop 2\ninner 1\ndrop 1\nouter 90\ndrop 90\n",
+            );
+        }
+        support::assert_stdout(
+            &format!(
+                r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print("drop", self.id).unwrap()
+{mutable}item = Resource(90)
+rows = [((Resource(1), 2), 3)].unwrap()
+for (item, _), _ in &rows:
+    print("inner", item.id).unwrap()
+print("outer", item.id).unwrap()
+"#
+            ),
+            "inner 1\nouter 90\ndrop 1\ndrop 90\n",
+        );
+    }
+    assert!(
+        support::check_source(
+            "class Resource:\n    id: i64\nitem = Resource(1)\nfor (item, _), _ in [((item, 2), 3)].unwrap():\n    print(item.id).unwrap()\nprint(item.id).unwrap()"
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn mutable_nested_declarations_preserve_the_outer_comma_shape() {
+    support::assert_stdout(
+        r#"
+mut (a, b), c = ((1, 2), 3)
+a += 10
+b += 20
+c += 30
+print(a, b, c).unwrap()
+mut ((d, e), f) = ((4, 5), 6)
+print(d, e, f).unwrap()
+mut (g,), h = ((7,), 8)
+print(g + 1, h).unwrap()
+mut (((i, j), k)), l = (((9, 10), 11), 12)
+print(i, j, k, l).unwrap()
+mut (m), n = (13, 14)
+print(m, n).unwrap()
+"#,
+        "11 22 33\n4 5 6\n8 8\n9 10 11 12\n13 14\n",
+    );
+    for source in [
+        "mut (a, b), c = (1, 2, 3)",
+        "mut (a,), b = (1, 2)",
+        "mut ((a, b), c) = (1, 2, 3)",
+        "mut (((a, b), c)), d = ((1, 2, 3), 4)",
+        "mut (a, b), a = ((1, 2), 3)",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn parenthesized_pair_targets_bind_borrowed_adapter_components_directly() {
+    support::assert_stdout(
+        r#"
+x = 99
+y = 88
+z = 77
+mut rows = [(1, 2)].unwrap()
+mut labels = [3].unwrap()
+for (x, y), z in zip(&rows, &labels):
+    print(*x, *y, *z).unwrap()
+for ((x, y), z) in zip(&rows, &labels):
+    print(*x, *y, *z).unwrap()
+print([(*x, *y, *z) for ((x, y), z) in zip(&rows, &labels)].unwrap()).unwrap()
+print([(*x, *y, *z) for ((x, y), z) in zip(&rows, &labels) for n in range(1)].unwrap()).unwrap()
+for ((x, y), z) in zip(&mut rows, &mut labels):
+    *x += 10
+    *y += 20
+    *z += 30
+print(rows, labels).unwrap()
+mut d = {1: (2, 3)}.unwrap()
+for (k, (x, y)) in d.items():
+    print(*k, *x, *y).unwrap()
+print([(*k, *x, *y) for (k, (x, y)) in d.items()].unwrap()).unwrap()
+print([(*k, *x, *y) for (k, (x, y)) in d.items() for n in range(1)].unwrap()).unwrap()
+for (k, (x, y)) in (&mut d).items():
+    *x += 10
+    *y += 20
+print(d).unwrap()
+print(x, y, z).unwrap()
+"#,
+        "1 2 3\n1 2 3\n[(1, 2, 3)]\n[(1, 2, 3)]\n[(11, 22)] [33]\n1 2 3\n[(1, 2, 3)]\n[(1, 2, 3)]\n{1: (12, 23)}\n99 88 77\n",
+    );
+    support::assert_stdout(
+        r#"
+def values() -> Generator[i64]:
+    rows = [(1, 2)].unwrap()
+    labels = [3].unwrap()
+    mut total = 0
+    for ((x, y), z) in zip(&rows, &labels):
+        total += *x + *y + *z
+    yield total
+print(list(values()).unwrap()).unwrap()
+d = {1: 2}.unwrap()
+for (k, v) in d.items():
+    print(*k, *v).unwrap()
+print([(*k, *v) for (k, v) in d.items()].unwrap()).unwrap()
+"#,
+        "[6]\n1 2\n[(1, 2)]\n",
+    );
+    for target in ["(x, y), z", "((x, y), z)"] {
+        let diagnostic = support::check_diagnostic(&format!(
+            "def values() -> Generator[i64]:\n    rows = [(1, 2)].unwrap()\n    labels = [3].unwrap()\n    for {target} in zip(&rows, &labels):\n        yield *x + *y + *z\nprint(list(values()).unwrap()).unwrap()"
+        ));
+        assert!(
+            diagnostic.contains("cannot remain live across yield"),
+            "{diagnostic}"
+        );
+    }
+}
+
+#[test]
+fn nested_comprehension_and_generator_bindings_preserve_affine_outer_owners() {
+    support::assert_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print("drop", self.id).unwrap()
+item = Resource(90)
+print([item.id for (item, _), _ in [((Resource(1), Resource(2)), 3)].unwrap()].unwrap()).unwrap()
+print("outer", item.id).unwrap()
+mut pending = (item.id for (item, _), _ in [((Resource(3), Resource(4)), 5)].unwrap())
+print(next(pending)).unwrap()
+drop(pending)
+print("outer", item.id).unwrap()
+"#,
+        "drop 2\ndrop 1\n[1]\nouter 90\ndrop 4\nOption[i64].Some(3)\ndrop 3\nouter 90\ndrop 90\n",
+    );
+}

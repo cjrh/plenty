@@ -1909,7 +1909,9 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                 }
                 for clause in clauses {
                     match clause {
-                        Clause::For(_, value) | Clause::If(value) => expression(value)?,
+                        Clause::For(_, value) | Clause::Unpack(_, _, value) | Clause::If(value) => {
+                            expression(value)?
+                        }
                     }
                 }
             }
@@ -2141,7 +2143,9 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         } => {
             for clause in clauses {
                 match clause {
-                    Clause::For(_, e) | Clause::If(e) => substitute_expr(e, substitutions)?,
+                    Clause::For(_, e) | Clause::Unpack(_, _, e) | Clause::If(e) => {
+                        substitute_expr(e, substitutions)?
+                    }
                 }
             }
             for (k, v) in entries {
