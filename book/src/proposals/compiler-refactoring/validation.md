@@ -22,6 +22,7 @@ development but do not replace the full handoff checks.
 | Ownership worklists | `src/ownership/graph_tests.rs`, `test_borrowing.rs`, `test_call_borrowing.rs`, `test_borrowed_match.rs` |
 | Module replay | `test_modules.rs`, `test_compile_cache.rs`, module-edit harness and returned-projection dependency probe |
 | Session state | Repeated library checks, editor recovery, independent concurrent sessions and unwind/nesting policy |
+| File moves (syntax, IR, checker) | Full suite; no behavior change; review with `git diff --color-moved` so only visibility and `use` lines read as edits |
 
 Add regression tests for the actual new boundary rather than only testing
 through the CLI. Preserve error order across workers, object identity where
