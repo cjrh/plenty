@@ -58,20 +58,18 @@ pub enum Filter:
 # Bounds on a decoded image. max_bytes bounds the pixel buffer, which is
 # width * height * channels bytes.
 pub class Limits:
-    pub max_width: i64
-    pub max_height: i64
-    pub max_bytes: i64
+    pub max_width: NonNegative[i64]
+    pub max_height: NonNegative[i64]
+    pub max_bytes: NonNegative[i64]
 
-    # OutOfRange for a dimension outside 1..2147483647 or a negative limit;
-    # LimitExceeded for an image wider, taller or larger than allowed.
+    # OutOfRange for a dimension outside 1..2147483647; LimitExceeded for an
+    # image wider, taller or larger than allowed.
     pub def check(self, width: i64, height: i64, color: ColorType) -> Result[(), ImageError]:
-        if self.max_width < 0 or self.max_height < 0 or self.max_bytes < 0:
-            return Err(ImageError.OutOfRange)
         size(width, height, color)?
-        if width > self.max_width or height > self.max_height:
+        if width > self.max_width.get() or height > self.max_height.get():
             return Err(ImageError.LimitExceeded)
         # Division keeps the product from overflowing.
-        if width > self.max_bytes // color.channels() // height:
+        if width > self.max_bytes.get() // color.channels() // height:
             return Err(ImageError.LimitExceeded)
         Ok(())
 
@@ -207,19 +205,27 @@ def size(width: i64, height: i64, color: ColorType) -> Result[i64, ImageError]:
     Ok(width * height * channels)
 
 # A zeroed image: black, and transparent if it has alpha.
-pub def new(width: i64, height: i64, color: ColorType) -> Result[Image, ImageError]:
-    total = size(width, height, color)?
+pub def new(width: Positive[i64], height: Positive[i64], color: ColorType) -> Result[Image, ImageError]:
+    if width > 2147483647 or height > 2147483647:
+        __trap("std.image.new: width or height is above 2147483647")
+    columns = width.get()
+    rows = height.get()
+    total = size(columns, rows, color)?
     mut pixels = listed(std.bytes.with_capacity(total))?
     listed(pixels.resize(total, 0u8))?
-    Ok(Image(width, height, color, pixels))
+    Ok(Image(columns, rows, color, pixels))
 
 # Takes `pixels` as the image's buffer, without copying. Its length must be
 # width * height * channels.
-pub def from_pixels(width: i64, height: i64, color: ColorType, pixels: Bytes) -> Result[Image, ImageError]:
-    total = size(width, height, color)?
+pub def from_pixels(width: Positive[i64], height: Positive[i64], color: ColorType, pixels: Bytes) -> Result[Image, ImageError]:
+    if width > 2147483647 or height > 2147483647:
+        __trap("std.image.from_pixels: width or height is above 2147483647")
+    columns = width.get()
+    rows = height.get()
+    total = size(columns, rows, color)?
     if pixels.len() != total:
         return Err(ImageError.OutOfRange)
-    Ok(Image(width, height, color, pixels))
+    Ok(Image(columns, rows, color, pixels))
 
 def listed[T](result: Result[T, AllocError]) -> Result[T, ImageError]:
     match result:
@@ -776,7 +782,12 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
     scan = scanned(data)?
     color = scan.color()
     limits.check(scan.width, scan.height, color)?
-    raw = raw_size(&scan)?
+    # raw_size sums non-negative row sizes and reports overflow itself.
+    raw = match NonNegative.try_from(raw_size(&scan)?):
+        case Ok(value):
+            value
+        case Err(_):
+            return Err(ImageError.LimitExceeded)
     total = scan.width * scan.height * color.channels()
     mut out = listed(std.bytes.with_capacity(total))?
     if scan.interlaced:

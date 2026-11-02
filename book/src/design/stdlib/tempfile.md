@@ -31,7 +31,7 @@ True
 | `default_dir()` | `Result[Path, IoError]` | First nonempty `TMPDIR`, `TEMP`, `TMP`; otherwise `/tmp` |
 | `file(parent: &Path = default_dir()?)` | `Result[TemporaryFile, IoError]` | Unnamed file |
 | `named_file(parent, prefix="plenty-", suffix="")` | `Result[NamedTemporaryFile, FsError]` | Parent is `default_dir()` |
-| `directory(parent, prefix="plenty-", max_entries=100000, max_depth=64)` | `Result[TemporaryDirectory, FsError]` | Parent is `default_dir()` |
+| `directory(parent, prefix="plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64)` | `Result[TemporaryDirectory, FsError]` | Parent is `default_dir()` |
 
 `parent` is a borrowed `Path`; prefix and suffix are borrowed strings. Explicit
 parents bypass environment selection. Relative parents are resolved against the
@@ -73,8 +73,8 @@ owner. `cleanup()` returns `Result[(), FsError]` and recursively removes content
 and the directory. Successful cleanup is idempotent. `keep()` returns an owned
 path and disarms cleanup, allocating the path before changing ownership policy.
 
-Each cleanup attempt is bounded: `max_entries` must be positive and `max_depth` must be in
-`1..=64`. The root directory counts toward both budgets. A limit or I/O failure
+Each cleanup attempt is bounded by `max_entries` and `max_depth`, both
+`Positive[i64]`; `directory` traps on a `max_depth` above 64. The root directory counts toward both budgets. A limit or I/O failure
 can leave a partially removed tree; cleanup remains armed for a later attempt.
 Symlinks are removed without traversing their targets. Before traversal, the
 parent entry must still identify the owned directory; otherwise cleanup returns

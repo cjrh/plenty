@@ -248,7 +248,6 @@ print(str.repr(std.io.read_up_to(&mut reader, &mut out, 100))?)?
 print(out.to_text()?, out.len())?
 print(str.repr(std.io.read_up_to(&mut reader, &mut out, 100))?)?
 print(str.repr(std.io.read_up_to(&mut reader, &mut out, 0))?)?
-print(str.repr(std.io.read_up_to(&mut reader, &mut out, -1))?)?
 print(out.len())?
 "#,
         r#"
@@ -258,10 +257,36 @@ Result[i64, std.io.Partial].Ok(3)
 ->abcdefgh 10
 Result[i64, std.io.Partial].Ok(0)
 Result[i64, std.io.Partial].Ok(0)
-Result[i64, std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.OutOfRange))
 10
 "#,
     );
+}
+
+/// B95: capacities and `read_until` limits are `Positive[i64]` and the
+/// `read_up_to` limit is `NonNegative[i64]`, so out-of-domain literals are
+/// compile errors rather than `OutOfRange`.
+#[test]
+fn out_of_domain_limit_literals_are_rejected() {
+    for (call, domain) in [
+        (
+            "drop(std.io.buffered_reader(fake(\"\", []?)?, 0))",
+            "Positive",
+        ),
+        (
+            "drop(std.io.buffered_writer(fake(\"\", []?)?, 0))",
+            "Positive",
+        ),
+        (
+            "mut out = std.bytes.empty()?\nmut reader = fake(\"\", []?)?\ndrop(std.io.read_up_to(&mut reader, &mut out, -1))",
+            "NonNegative",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        std::fs::write(&path, program(call)).unwrap();
+        let error = plenty::check_file(&path, None).unwrap_err().to_string();
+        assert!(error.contains(domain), "{call}\n{error}");
+    }
 }
 
 #[test]
@@ -354,7 +379,6 @@ print(reader.read(&mut large, 0, 12)?, reader.inner.calls, reader.buffered())?
 print(reader.read(&mut large, 0, 12)?, reader.inner.calls, reader.buffered())?
 print(large.to_text()?)?
 print(reader.read(&mut large, 0, 12)?, reader.read(&mut large, 4, 4)?)?
-print(str.repr(std.io.buffered_reader(fake("", []?)?, 0))?)?
 "#,
         r#"
 3 5 1
@@ -366,7 +390,6 @@ abcdefghijk 8
 0 3 0
 lmnop.......
 0 0
-Result[std.io.BufReader[Fake], std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 "#,
     );
 }
@@ -412,7 +435,6 @@ for n in range(7):
     count = reader.read_until(10u8, &mut line, 6)?
     print(count, str.repr(line.to_text()?)?)?
 print(reader.capacity())?
-print(str.repr(reader.read_until(10u8, &mut line, 0))?)?
 mut failing = std.io.buffered_reader(fake("abcdef", [3, -2]?)?, 4)?
 print(str.repr(failing.read_until(10u8, &mut line, 100))?)?
 print(line.to_text()?)?
@@ -426,7 +448,6 @@ print(line.to_text()?)?
 0 ""
 0 ""
 4
-Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 Result[i64, std.io.StreamError].Err(std.io.StreamError.Io(IoError.Other))
 abc
 "#,
@@ -449,7 +470,6 @@ print(writer.write(&source[22:26])?, writer.pending(), writer.inner.flushes)?
 print(str.repr(writer.flush())?, writer.pending(), writer.inner.flushes)?
 print(writer.inner.data.to_text()?, writer.capacity())?
 print(writer.write(&source[5:5])?, str.repr(writer.write(&source[20:27]))?)?
-print(str.repr(std.io.buffered_writer(fake("", []?)?, 0))?)?
 "#,
         r#"
 3 3 0
@@ -462,7 +482,6 @@ abcdefghijklmnopqrstuv
 Result[(), std.io.StreamError].Ok(()) 0 1
 abcdefghijklmnopqrstuvwxyz 8
 0 Result[i64, std.io.StreamError].Ok(6)
-Result[std.io.BufWriter[Fake], std.io.StreamError].Err(std.io.StreamError.OutOfRange)
 "#,
     );
 }

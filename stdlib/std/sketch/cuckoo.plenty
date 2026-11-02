@@ -161,10 +161,15 @@ def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old:
         set_slot(current, path[step], old[step])
     False
 
-pub def cuckoo(initial_buckets: i64 = 64, max_buckets: i64 = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]:
+pub def cuckoo(initial_buckets: i64 = 64, max_buckets: Positive[i64] = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]:
+    if max_buckets.get() > bucket_limit:
+        __trap("std.sketch.cuckoo.cuckoo: max_buckets is above 16777216")
+    layered(initial_buckets, max_buckets.get(), seed)
+
+def layered(initial_buckets: i64, max_buckets: i64, seed: u64) -> Result[CuckooFilter, SketchError]:
     if initial_buckets < 1 or initial_buckets > initial_limit or initial_buckets & (initial_buckets - 1) != 0:
         return Err(SketchError.InvalidArgument)
-    if max_buckets < initial_buckets or max_buckets > bucket_limit:
+    if max_buckets < initial_buckets:
         return Err(SketchError.InvalidArgument)
     mut layers = list[Layer].with_capacity(layer_limit).map_error(SketchError.Allocation)?
     layers.append(layer(initial_buckets)?).map_error(SketchError.Allocation)?
@@ -186,9 +191,9 @@ def read_word(data: &[u8], offset: i64) -> u64:
         result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
-pub def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, SketchError]:
-    if max_buckets < 1 or max_buckets > bucket_limit:
-        return Err(SketchError.InvalidArgument)
+pub def from_bytes(data: &[u8], max_buckets: Positive[i64]) -> Result[CuckooFilter, SketchError]:
+    if max_buckets.get() > bucket_limit:
+        __trap("std.sketch.cuckoo.from_bytes: max_buckets is above 16777216")
     if len(data) < 44:
         return Err(SketchError.InvalidData)
     if data[0] != 80u8 or data[1] != 83u8 or data[2] != 67u8 or data[3] != 49u8:
@@ -204,7 +209,7 @@ pub def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, Sketch
     used = initial * ((1u64 << layers) - 1u64)
     if used > limit or len(data) != 44 + i64(used) * 8:
         return Err(SketchError.InvalidData)
-    if limit > u64(max_buckets):
+    if limit > u64(max_buckets.get()):
         return Err(SketchError.Limit)
     mut occupied = 0u64
     for offset in range(44, len(data), 2):
@@ -212,7 +217,7 @@ pub def from_bytes(data: &[u8], max_buckets: i64) -> Result[CuckooFilter, Sketch
             occupied += 1u64
     if occupied != count:
         return Err(SketchError.InvalidData)
-    mut result = cuckoo(i64(initial), i64(limit), read_word(data, 4))?
+    mut result = layered(i64(initial), i64(limit), read_word(data, 4))?
     mut offset = 44
     mut buckets = i64(initial)
     for index in range(i64(layers)):

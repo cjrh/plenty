@@ -50,11 +50,21 @@ empty: list[f64] = []?
 one = [1.0]?
 bad = [f64.NAN]?
 print(str.repr(stat.mean(&empty))?, str.repr(stat.variance(&one))?, str.repr(stat.mean(&bad))?)?
-print(str.repr(stat.quantile(&one, -0.1))?, str.repr(stat.quantile(&one, f64.NAN))?, str.repr(stat.quantiles(&one, 0))?)?
+print(str.repr(stat.quantile(&one, -0.1))?, str.repr(stat.quantile(&one, f64.NAN))?)?
 print(str.repr(stat.normal(0.0, 0.0))?, str.repr(stat.exponential(-1.0))?, str.repr(stat.uniform(2.0, 1.0))?)?
 "#,
-        "Result[f64, std.stat.StatError].Err(std.stat.StatError.Empty) Result[f64, std.stat.StatError].Err(std.stat.StatError.InsufficientData) Result[f64, std.stat.StatError].Err(std.stat.StatError.NonFinite)\nResult[f64, std.stat.StatError].Err(std.stat.StatError.Domain) Result[f64, std.stat.StatError].Err(std.stat.StatError.Domain) Result[list[f64], std.stat.StatError].Err(std.stat.StatError.Domain)\nResult[std.stat.Normal, std.stat.StatError].Err(std.stat.StatError.Domain) Result[std.stat.Exponential, std.stat.StatError].Err(std.stat.StatError.Domain) Result[std.stat.Uniform, std.stat.StatError].Err(std.stat.StatError.Domain)",
+        "Result[f64, std.stat.StatError].Err(std.stat.StatError.Empty) Result[f64, std.stat.StatError].Err(std.stat.StatError.InsufficientData) Result[f64, std.stat.StatError].Err(std.stat.StatError.NonFinite)\nResult[f64, std.stat.StatError].Err(std.stat.StatError.Domain) Result[f64, std.stat.StatError].Err(std.stat.StatError.Domain)\nResult[std.stat.Normal, std.stat.StatError].Err(std.stat.StatError.Domain) Result[std.stat.Exponential, std.stat.StatError].Err(std.stat.StatError.Domain) Result[std.stat.Uniform, std.stat.StatError].Err(std.stat.StatError.Domain)",
     );
+}
+
+/// B95: `quantiles` takes `n: Positive[i64]`, so zero is a compile error
+/// rather than `Domain`.
+#[test]
+fn zero_quantile_count_literal_is_rejected() {
+    let error = support::check_file_error(
+        "import std.stat as stat\ndef main() -> Result[(), AllocError | IoError | stat.StatError]:\n    one = [1.0]?\n    drop(stat.quantiles(&one, 0))\n    Ok(())\n",
+    );
+    assert!(error.contains("Positive"), "{error}");
 }
 
 #[test]

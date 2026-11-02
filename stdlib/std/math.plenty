@@ -205,14 +205,12 @@ pub def divmod_float(a: f64, b: f64) -> Result[(f64, f64), MathError]:
 
 # Fixed-width integer algorithms need no runtime implementation. Division before
 # multiplication guards overflow without trapping or losing integer precision.
-pub def factorial(n: i64) -> Result[u64, MathError]:
-    if n < 0:
-        return Err(MathError.Domain)
+pub def factorial(n: NonNegative[i64]) -> Result[u64, MathError]:
     if n > 20:
         return Err(MathError.Overflow)
     mut result = 1u64
     mut i = 2i64
-    while i <= n:
+    while i <= n.get():
         result *= u64(i)
         i += 1
     Ok(result)

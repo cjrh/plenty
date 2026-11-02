@@ -24,7 +24,9 @@ enum SearchError:
     Stale
 
 # Bounds on captured child output and on one SQLite text or blob value.
-const max_output_bytes: i64 = 16 * 1024 * 1024
+def max_output_bytes() -> NonNegative[i64]:
+    16777216
+
 const max_value_bytes: i64 = 16 * 1024 * 1024
 
 type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | BytesError | StreamError
@@ -160,7 +162,7 @@ def infer(texts: &list[str], model: &str, kind: &str, python: &str, script: &str
     command.stdout(Stdio.Piped)
     command.stderr(Stdio.Piped)
     mut child = command.spawn()?
-    output = child.communicate(&input.take()?, max_output_bytes)?
+    output = child.communicate(&input.take()?, max_output_bytes())?
     if not output.status.success():
         return Err(SearchError.Inference(output.stderr.to_text()?))
     mut vectors: list[str] = []?
@@ -203,7 +205,7 @@ def git_output(root: &str, arguments: &list[str]) -> Result[str, SearchFailure]:
     command.stdout(Stdio.Piped)
     command.stderr(Stdio.Piped)
     mut child = command.spawn()?
-    output = child.output(max_output_bytes)?
+    output = child.output(max_output_bytes())?
     if not output.status.success():
         return Err(SearchError.Corpus(output.stderr.to_text()?))
     Ok(output.stdout.to_text()?)

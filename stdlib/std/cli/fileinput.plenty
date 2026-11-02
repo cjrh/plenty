@@ -7,6 +7,10 @@ from std.bytes import Bytes, BytesError
 from std.io import StreamError
 from std.path import Path, from_bytes
 
+# Lines are unbounded; the caller's buffer grows to fit each one.
+def unbounded() -> Positive[i64]:
+    9223372036854775807
+
 pub enum FileInputError:
     Open(Option[Path], StreamError)
     Read(Option[Path], StreamError)
@@ -20,9 +24,9 @@ enum Source:
     def read_line(self: &mut Source, buffer: &mut Bytes) -> Result[i64, StreamError]:
         match self:
             case Source.File(stream):
-                stream.read_until(10u8, buffer, i64.MAX)
+                stream.read_until(10u8, buffer, unbounded())
             case Source.Stdin(stream):
-                stream.read_until(10u8, buffer, i64.MAX)
+                stream.read_until(10u8, buffer, unbounded())
 
     def close(self: &mut Source) -> Result[(), StreamError]:
         match self:

@@ -47,9 +47,9 @@ mapping cannot be undone by a sketch.
 
 ## Quantiles
 
-`quantiles(capacity=1024, seed=0)` creates `Quantiles`, a uniform sample without
+`quantiles(capacity: Positive[i64] = 1024, seed=0)` creates `Quantiles`, a uniform sample without
 replacement using [reservoir Algorithm R](https://www.cs.usfca.edu/~mmalensek/cs677/schedule/papers/vitter1985random.pdf).
-Capacity is 1–1,048,576 finite f64 values. `add(value)` rejects NaN/infinities;
+Capacity is up to 1,048,576 finite f64 values; a larger capacity traps. `add(value)` rejects NaN/infinities;
 `count()` is the number of accepted values and `retained()` is at most capacity.
 Construction reserves the sample buffer; updates allocate nothing, maintain it
 in sorted order, and cost O(capacity) when replacing a sample. Queries cost O(1).
@@ -68,8 +68,8 @@ The random generator's existing version-stability contract is unchanged.
 
 ## Frequent identities
 
-`frequent_items(capacity=128)` creates a `FrequentItems` Misra–Gries summary with
-1–65,536 counters. It accepts unit-weight u64 identities; there is no weighted
+`frequent_items(capacity: Positive[i64] = 128)` creates a `FrequentItems`
+Misra–Gries summary with up to 65,536 counters; a larger capacity traps. It accepts unit-weight u64 identities; there is no weighted
 update or merge in this API. Construction allocates two fixed arrays.
 `add(key)` and `frequency(key)` allocate nothing and cost O(capacity).
 
@@ -96,8 +96,8 @@ including signed zero, without host-endian assumptions. These are checkpoint
 formats, not interchange formats with third-party sketch libraries.
 
 `hyperloglog_from_bytes(data, max_precision=18)`,
-`quantiles_from_bytes(data, max_capacity=1048576)`, and
-`frequent_items_from_bytes(data, max_capacity=65536)` reject unknown versions,
+`quantiles_from_bytes(data, max_capacity: Positive[i64] = 1048576)`, and
+`frequent_items_from_bytes(data, max_capacity: Positive[i64] = 65536)` reject unknown versions,
 bad lengths, invalid state and trailing bytes. Pass a smaller caller limit when
 reading untrusted checkpoints. HLL and frequent-item readers take a
 `&[u8]` view; the quantile reader takes `Bytes` for validated float parsing.

@@ -76,11 +76,11 @@ def main() -> Result[(), IoError | SystemError]:
         case "bounds":
             show(source.uptime(max_bytes=12))?
             show(source.uptime(max_bytes=11))?
-            show(source.uptime(max_bytes=0))?
-            show(source.uptime(max_bytes=i64.MAX))?
             show(source.block_devices(max_devices=0))?
-            show(source.disk_io(max_devices=-1))?
             show(source.process_ids(max_entries=0))?
+        case "unbounded":
+            show(source.uptime(max_bytes=9223372036854775807))?
+        case "pid0":
             show(source.process(0u32))?
         case _:
             pass
@@ -268,17 +268,46 @@ fn byte_and_entry_limits_are_enforced_without_truncation() {
     fixture(dir.path());
     let output = run(&executable, dir.path(), "bounds");
     let lines: Vec<_> = output.lines().collect();
-    assert_eq!(lines.len(), 8, "{output}");
+    assert_eq!(lines.len(), 4, "{output}");
     assert!(lines[0].starts_with("ok "), "{output}");
-    for index in [1, 4, 6] {
+    for index in [1, 2, 3] {
         assert!(lines[index].contains("SystemError.Limit"), "{output}");
     }
-    for index in [2, 3, 5, 7] {
-        assert!(
-            lines[index].contains("SystemError.InvalidInput"),
-            "{output}"
-        );
+}
+
+/// B95: `max_bytes` is `Positive[i64]`; `i64.MAX` leaves no room for the probe
+/// byte and pid 0 names no process, so both are caller bugs.
+#[test]
+fn unprobeable_byte_limit_and_pid_zero_trap() {
+    let (dir, executable) = support::build_file(DRIVER);
+    fixture(dir.path());
+    for (case, message) in [
+        ("unbounded", "Procfs.uptime: max_bytes is i64.MAX"),
+        ("pid0", "Procfs.process: pid is 0"),
+    ] {
+        let output = Command::new(&executable)
+            .current_dir(dir.path())
+            .env("CASE", case)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{case}\n{stderr}");
+        assert!(stderr.contains(message), "{case}\n{stderr}");
     }
+}
+
+#[test]
+fn out_of_domain_limit_literal_is_rejected() {
+    let error = support::check_file_error(
+        r#"import std.system
+from std.system import SystemError
+def main() -> Result[(), SystemError | IoError]:
+    source = std.system.local()?
+    drop(source.uptime(max_bytes=0)?)
+    Ok(())
+"#,
+    );
+    assert!(error.contains("Positive"), "{error}");
 }
 
 #[test]

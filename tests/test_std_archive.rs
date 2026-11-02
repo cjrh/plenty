@@ -30,10 +30,14 @@ def untar(parent: &Root, name: &str, policy: &Policy) -> Result[(), AllocError |
     mut reader = archive.tar_reader(file)?
     report(archive.extract_tar(&mut reader, parent, &path.from_text("out")?, policy, &cancel))
 
+# Fixtures never set a negative entry budget.
+def entry_budget(policy: &Policy) -> NonNegative[i64]:
+    NonNegative.try_from(policy.max_entries).unwrap()
+
 def unzip(parent: &Root, name: &str, policy: &Policy) -> Result[(), AllocError | IoError]:
     file = parent.read_file(&path.from_text(name)?)?
     cancel = CancellationToken()?
-    match archive.zip_reader(file, policy.max_entries):
+    match archive.zip_reader(file, entry_budget(policy)):
         case Ok(opened):
             mut reader = opened
             report(archive.extract_zip(&mut reader, parent, &path.from_text("out")?, policy, &cancel))
@@ -52,7 +56,7 @@ def tar_into(parent: &Root, file: io.FileStream, target: &path.Path, policy: &Po
     archive.extract_tar(&mut reader, parent, target, policy, cancel)
 
 def zip_into(parent: &Root, file: io.FileStream, target: &path.Path, policy: &Policy, cancel: &CancellationToken) -> Result[Summary, ArchiveError]:
-    mut reader = archive.zip_reader(file, policy.max_entries)?
+    mut reader = archive.zip_reader(file, entry_budget(policy))?
     archive.extract_zip(&mut reader, parent, target, policy, cancel)
 
 def text(value: &str) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
@@ -1002,4 +1006,19 @@ ok
 ok
 2048"
     );
+}
+
+/// B95: `zip_reader` takes `max_entries: NonNegative[i64]`, so a negative
+/// literal is a compile error.
+#[test]
+fn negative_entry_limit_literal_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = dir.path().join("main.plenty");
+    std::fs::write(
+        &entry,
+        "import std.archive as archive\nimport std.io as io\nimport std.bytes\ndef main() -> Result[(), AllocError | IoError | archive.ArchiveError]:\n    drop(archive.zip_reader(io.cursor(std.bytes.empty()?), -1))\n    Ok(())\n",
+    )
+    .unwrap();
+    let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+    assert!(error.contains("NonNegative"), "{error}");
 }

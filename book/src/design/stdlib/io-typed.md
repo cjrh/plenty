@@ -59,9 +59,9 @@ have been consumed when writing fails: this API does not promise resumable
 copying or retain unwritten bytes. Empty scratch is an `OutOfRange` read
 failure. Helpers allocate nothing and require caller-provided storage.
 
-`buffered_reader(inner, capacity)` returns
-`Result[BufReader[E, R], StreamError]` for a `Reader[E]`. Capacity must be
-positive; construction allocates the buffer. Its `read` returns
+`buffered_reader(inner, capacity: Positive[i64])` returns
+`Result[BufReader[E, R], StreamError]` for a `Reader[E]`; construction
+allocates the buffer, which is its only failure. Its `read` returns
 `StepError[ReadFailure[E]]`, preserving a transport cause as
 `Source(ReadFailure.Source(E))` and forwarding `Interrupted`. Invalid ranges
 and empty reads do not call the transport. Invalid inner counts become

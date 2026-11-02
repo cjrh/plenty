@@ -119,11 +119,10 @@ pub class BufReader[E, R]:
         self.start += count
         Ok(count)
 
-pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: i64) -> Result[BufReader[E, R], StreamError]:
-    if capacity <= 0:
-        return Err(StreamError.OutOfRange)
-    mut buffer = std.bytes.with_capacity(capacity).map_error(StreamError.Allocation)?
-    buffer.resize(capacity, 0u8).map_error(StreamError.Allocation)?
+pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: Positive[i64]) -> Result[BufReader[E, R], StreamError]:
+    size = capacity.get()
+    mut buffer = std.bytes.with_capacity(size).map_error(StreamError.Allocation)?
+    buffer.resize(size, 0u8).map_error(StreamError.Allocation)?
     Ok(BufReader[E, R](inner, buffer, 0, 0))
 
 pub enum WriteFailure[E]:

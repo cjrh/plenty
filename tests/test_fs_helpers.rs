@@ -938,3 +938,43 @@ fn bind_mount_alias_of_source_descendant_reports_partial_overlap_without_recursi
         0
     );
 }
+
+/// B95: budgets are `Positive[i64]`/`NonNegative[i64]`; a value above a fixed
+/// ceiling is a caller bug, so it traps before touching the filesystem.
+#[test]
+fn budgets_above_the_ceiling_trap() {
+    for (body, message) in [
+        (
+            "    prefix = path.from_text(\"random-\")?\n    drop(fs.temporary_dir(&parent, &prefix, 1025))",
+            "std.fs.temporary_dir: attempts is above 1024",
+        ),
+        (
+            "    name = path.from_text(\"tree\")?\n    cancel = CancellationToken()?\n    drop(fs.remove_tree(&parent, &name, 10, 65, &cancel))",
+            "std.fs.remove_tree: max_depth is above 64",
+        ),
+        (
+            "    name = path.from_text(\"owned\")?\n    mut owned = fs.temporary_dir_named(&parent, &name)?\n    cancel = CancellationToken()?\n    drop(owned.cleanup_tree(10, 65, &cancel))",
+            "TempDir.cleanup_tree: max_depth is above 64",
+        ),
+    ] {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::create_dir(fixture.path().join("tree")).unwrap();
+        let program = Program::new("", body);
+        let output = Command::new(&program.executable)
+            .arg(fixture.path())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{body}\n{stderr}");
+        assert!(stderr.contains(message), "{body}\n{stderr}");
+        assert!(fixture.path().join("tree").exists());
+    }
+}
+
+#[test]
+fn negative_byte_limit_literal_is_rejected() {
+    let error = support::check_file_error(
+        "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef main() -> Result[(), AllocError | IoError | fs.FsError]:\n    parent = fs.root(&path.from_text(\".\")?)?\n    mut reader = io.cursor(std.bytes.empty()?)\n    cancel = CancellationToken()?\n    drop(fs.copy_from(&mut reader, &parent, &path.from_text(\"x\")?, -1, &cancel))\n    Ok(())\n",
+    );
+    assert!(error.contains("NonNegative"), "{error}");
+}

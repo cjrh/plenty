@@ -40,7 +40,7 @@ docs/README std.archive.EntryKind.File 13
 |---|---|---|
 | `tar_reader(inner: R)` | `Result[TarReader[R], ArchiveError]` | A streaming TAR reader over any `Reader` |
 | `tar_writer(inner: W)` | `Result[TarWriter[W], ArchiveError]` | A streaming TAR writer over any `Writer` |
-| `zip_reader(inner: R, max_entries: i64)` | `Result[ZipReader[R], ArchiveError]` | Reads the central directory of a seekable `inner` |
+| `zip_reader(inner: R, max_entries: NonNegative[i64])` | `Result[ZipReader[R], ArchiveError]` | Reads the central directory of a seekable `inner` |
 | `zip_writer(inner: W)` | `Result[ZipWriter[W], ArchiveError]` | A ZIP writer over any `Writer`; it never seeks |
 | `policy()` | `Policy` | The default extraction limits |
 | `extract_tar(archive: &mut TarReader[R], parent: &Root, destination: &Path, policy: &Policy, cancel: &CancellationToken)` | `Result[Summary, ArchiveError]` | Extract every remaining entry into the new directory `parent/destination` |

@@ -1072,7 +1072,12 @@ pub class ZipReader[R]:
             return Err(ArchiveError.Corrupt)
         self.at(start)?
         if method == 8:
-            self._decoder = coded(std.compress.inflater(Format.Deflate, size))?
+            limit = match NonNegative.try_from(size):
+                case Ok(value):
+                    value
+                case Err(_):
+                    return Err(ArchiveError.Corrupt)
+            self._decoder = coded(std.compress.inflater(Format.Deflate, limit))?
         self._stored = method == 0
         self._left = compressed
         self._size = size
@@ -1174,14 +1179,12 @@ pub class ZipReader[R]:
 
 # Reads the central directory of `inner`, which must support `seek` as
 # std.io.FileStream and Cursor do. More than `max_entries` entries is Limit.
-pub def zip_reader[R](inner: R, max_entries: i64) -> Result[ZipReader[R], ArchiveError]:
-    if max_entries < 0:
-        return Err(ArchiveError.InvalidInput)
+pub def zip_reader[R](inner: R, max_entries: NonNegative[i64]) -> Result[ZipReader[R], ArchiveError]:
     mut input = owned(std.bytes.with_capacity(chunk))?
     owned(input.resize(chunk, 0u8))?
     decoder = coded(std.compress.inflater(Format.Deflate, 0))?
     mut reader = ZipReader(inner, owned(list[Entry].new())?, owned(list[Record].new())?, owned(list[i64].new())?, input, 0, 0, decoder, 0, False, False, 0, 0, 0, 0, 0, Nothing)
-    reader.load(max_entries)?
+    reader.load(max_entries.get())?
     Ok(reader)
 
 # ZIP writing
@@ -1425,7 +1428,7 @@ def descend(job: &mut Job, parts: &list[Path], count: i64) -> Result[Root, Archi
         current = next
     Ok(current)
 
-def copied[S](source: &mut S, directory: &Root, leaf: &Path, size: i64, cancel: &CancellationToken) -> Result[i64, ArchiveError]:
+def copied[S](source: &mut S, directory: &Root, leaf: &Path, size: NonNegative[i64], cancel: &CancellationToken) -> Result[i64, ArchiveError]:
     match std.fs.copy_from(source, directory, leaf, size, cancel):
         case Ok(count):
             Ok(count)
@@ -1480,16 +1483,21 @@ def place[S](job: &mut Job, source: &mut S, name: &Path, kind: EntryKind, size: 
             pass
     if count == 0:
         return Err(ArchiveError.UnsafePath)
-    if size < 0 or size > policy.max_entry_size or size > policy.max_total_size - job.bytes:
+    bound = match NonNegative.try_from(size):
+        case Ok(value):
+            value
+        case Err(_):
+            return Err(ArchiveError.Limit)
+    if size > policy.max_entry_size or size > policy.max_total_size - job.bytes:
         return Err(ArchiveError.Limit)
     if exceeds_ratio(size, compressed, policy.max_ratio):
         return Err(ArchiveError.Limit)
     mut written = 0
     if count == 1:
-        written = copied(source, job.staging.root(), &parts[0], size, cancel)?
+        written = copied(source, job.staging.root(), &parts[0], bound, cancel)?
     else:
         directory = descend(job, &parts, count - 1)?
-        written = copied(source, &directory, &parts[count - 1], size, cancel)?
+        written = copied(source, &directory, &parts[count - 1], bound, cancel)?
     if written != size:
         return Err(ArchiveError.Truncated)
     job.created += 1
@@ -1515,7 +1523,17 @@ def conclude(job: &mut Job, outcome: Result[(), ArchiveError], parent: &Root, de
             failure = error
     # Best effort: a staging directory that cannot be removed keeps its
     # `.plenty-extract-` name for the caller to find.
-    drop(std.fs.remove_tree(parent, job.staging.name(), job.created + 2, policy.max_depth + 2, &job.cleanup))
+    # `created` counts up from zero and `max_depth` is checked to 1..=62, so
+    # both bounds are positive and the depth stays within remove_tree's 64.
+    match Positive.try_from(job.created + 2):
+        case Ok(entries):
+            match Positive.try_from(policy.max_depth + 2):
+                case Ok(depth):
+                    drop(std.fs.remove_tree(parent, job.staging.name(), entries, depth, &job.cleanup))
+                case Err(_):
+                    pass
+        case Err(_):
+            pass
     job.staging.keep()
     Err(failure)
 

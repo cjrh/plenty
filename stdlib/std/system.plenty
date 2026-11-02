@@ -14,7 +14,6 @@ pub enum SystemError:
     Io(IoError)
     Stream(StreamError)
     Allocation(AllocError)
-    InvalidInput
     Limit
     Malformed(str)
 
@@ -69,7 +68,9 @@ pub class Procfs:
 
     # Counts cpuN records, not the aggregate cpu record. This is the kernel's
     # online CPU count, not affinity/cgroup-constrained parallelism.
-    pub def cpu_count(self, max_bytes: i64 = 1048576) -> Result[i64, SystemError]:
+    pub def cpu_count(self, max_bytes: Positive[i64] = 1048576) -> Result[i64, SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.cpu_count: max_bytes is i64.MAX")
         text = read_proc(&self._root, "stat", max_bytes)?
         mut ids: set[u64] = allocated(set[u64]())?
         for line in allocated(text.split("\n"))?:
@@ -88,7 +89,9 @@ pub class Procfs:
             return Err(SystemError.Malformed("stat cpu"))
         Ok(len(ids))
 
-    pub def memory(self, max_bytes: i64 = 65536) -> Result[Memory, SystemError]:
+    pub def memory(self, max_bytes: Positive[i64] = 65536) -> Result[Memory, SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.memory: max_bytes is i64.MAX")
         text = read_proc(&self._root, "meminfo", max_bytes)?
         Ok(Memory(
             kibibytes(required(text, "MemTotal")?, "MemTotal")?,
@@ -98,7 +101,9 @@ pub class Procfs:
             kibibytes(required(text, "SwapFree")?, "SwapFree")?,
         ))
 
-    pub def load_average(self, max_bytes: i64 = 4096) -> Result[LoadAverage, SystemError]:
+    pub def load_average(self, max_bytes: Positive[i64] = 4096) -> Result[LoadAverage, SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.load_average: max_bytes is i64.MAX")
         text = read_proc(&self._root, "loadavg", max_bytes)?
         words = allocated(text.split())?
         if len(words) != 5:
@@ -115,7 +120,9 @@ pub class Procfs:
             small_decimal(words[4], "loadavg pid")?,
         ))
 
-    pub def uptime(self, max_bytes: i64 = 4096) -> Result[Uptime, SystemError]:
+    pub def uptime(self, max_bytes: Positive[i64] = 4096) -> Result[Uptime, SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.uptime: max_bytes is i64.MAX")
         text = read_proc(&self._root, "uptime", max_bytes)?
         words = allocated(text.split())?
         if len(words) != 2:
@@ -124,9 +131,9 @@ pub class Procfs:
 
     # Includes whole devices and partitions: summing sizes double-counts
     # storage. These are block capacities, not filesystem free space.
-    pub def block_devices(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[BlockDevice], SystemError]:
-        if max_devices < 0:
-            return Err(SystemError.InvalidInput)
+    pub def block_devices(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[BlockDevice], SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.block_devices: max_bytes is i64.MAX")
         text = read_proc(&self._root, "partitions", max_bytes)?
         mut result = allocated(list[BlockDevice]())?
         mut header = False
@@ -141,7 +148,7 @@ pub class Procfs:
                 continue
             if len(words) != 4:
                 return Err(SystemError.Malformed("partitions"))
-            if len(result) >= max_devices:
+            if len(result) >= max_devices.get():
                 return Err(SystemError.Limit)
             allocated(result.append(BlockDevice(
                 small_decimal(words[0], "partitions major")?,
@@ -154,9 +161,9 @@ pub class Procfs:
 
     # Linux's sectors here are always 512 bytes, not the device sector size.
     # New trailing kernel counters are deliberately ignored.
-    pub def disk_io(self, max_bytes: i64 = 1048576, max_devices: i64 = 4096) -> Result[list[DiskIo], SystemError]:
-        if max_devices < 0:
-            return Err(SystemError.InvalidInput)
+    pub def disk_io(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[DiskIo], SystemError]:
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.disk_io: max_bytes is i64.MAX")
         text = read_proc(&self._root, "diskstats", max_bytes)?
         mut result = allocated(list[DiskIo]())?
         for line in allocated(text.split("\n"))?:
@@ -167,7 +174,7 @@ pub class Procfs:
                 return Err(SystemError.Malformed("diskstats"))
             for index in range(3, 14):
                 drop(decimal(words[index], "diskstats counter")?)
-            if len(result) >= max_devices:
+            if len(result) >= max_devices.get():
                 return Err(SystemError.Limit)
             allocated(result.append(DiskIo(
                 small_decimal(words[0], "diskstats major")?,
@@ -183,9 +190,7 @@ pub class Procfs:
 
     # The bound counts all directory entries, including non-PID entries.
     # IDs are sorted; a process can exit or a PID can be reused afterwards.
-    pub def process_ids(self, max_entries: i64 = 65536) -> Result[list[u32], SystemError]:
-        if max_entries < 0:
-            return Err(SystemError.InvalidInput)
+    pub def process_ids(self, max_entries: NonNegative[i64] = 65536) -> Result[list[u32], SystemError]:
         mut names = io_result(self._root.names())?
         mut result = allocated(list[u32]())?
         mut seen = 0
@@ -195,7 +200,7 @@ pub class Procfs:
                     value
                 case Nothing:
                     break
-            if seen >= max_entries:
+            if seen >= max_entries.get():
                 return Err(SystemError.Limit)
             seen += 1
             bytes = name.as_bytes()
@@ -212,9 +217,11 @@ pub class Procfs:
         result.sort()
         Ok(result)
 
-    pub def process(self, pid: u32, max_bytes: i64 = 65536) -> Result[Process, SystemError]:
-        if pid == 0u32 or max_bytes < 1 or max_bytes == i64.MAX:
-            return Err(SystemError.InvalidInput)
+    pub def process(self, pid: u32, max_bytes: Positive[i64] = 65536) -> Result[Process, SystemError]:
+        if pid == 0u32:
+            __trap("Procfs.process: pid is 0")
+        if max_bytes.get() == i64.MAX:
+            __trap("Procfs.process: max_bytes is i64.MAX")
         name = io_result(std.path.from_text(allocated(str.from(pid))?))?
         # Hold the opened PID directory so separate path resolutions cannot
         # combine two processes after PID reuse. Exiting still makes reads fail.
@@ -261,16 +268,15 @@ def bytes_result[T](result: Result[T, BytesError], name: str) -> Result[T, Syste
         case Err(_):
             Err(SystemError.Malformed(name))
 
-def read_proc(root: &Root, name: str, max_bytes: i64) -> Result[str, SystemError]:
-    if max_bytes < 1 or max_bytes == i64.MAX:
-        return Err(SystemError.InvalidInput)
+# Callers trap on i64.MAX, so the extra byte below cannot overflow.
+def read_proc(root: &Root, name: str, max_bytes: Positive[i64]) -> Result[str, SystemError]:
     mut stream = io_result(root.read_file(&io_result(std.path.from_text(name))?))?
     mut data = allocated(std.bytes.empty())?
     # One extra byte distinguishes exact-limit EOF from truncation. procfs
     # commonly reports st_size=0, so metadata is never used for this limit.
-    match std.io.read_up_to(&mut stream, &mut data, max_bytes + 1):
+    match std.io.read_up_to(&mut stream, &mut data, NonNegative.from(max_bytes) + 1):
         case Ok(count):
-            if count > max_bytes:
+            if count > max_bytes.get():
                 return Err(SystemError.Limit)
         case Err(error):
             return Err(SystemError.Stream(error.cause))
