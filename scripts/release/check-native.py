@@ -39,13 +39,14 @@ MACOS_SYSTEM = ("/usr/lib/", "/System/Library/")
 PE_MACHINE_AMD64 = 0x8664
 PE32_PLUS = 0x20B
 SUBSYSTEM_CONSOLE = 3
+# pdh.dll and combase.dll ship with Windows 10; polars' sysinfo imports them.
 WINDOWS_SYSTEM = {
-    "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "crypt32.dll", "dbghelp.dll",
-    "dnsapi.dll", "iphlpapi.dll", "kernel32.dll", "kernelbase.dll", "mswsock.dll",
-    "ncrypt.dll", "netapi32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "powrprof.dll",
-    "psapi.dll", "rpcrt4.dll", "secur32.dll", "shell32.dll", "shlwapi.dll", "sspicli.dll",
-    "user32.dll", "userenv.dll", "version.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
-    "ucrtbase.dll",
+    "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "combase.dll", "crypt32.dll",
+    "dbghelp.dll", "dnsapi.dll", "iphlpapi.dll", "kernel32.dll", "kernelbase.dll",
+    "mswsock.dll", "ncrypt.dll", "netapi32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
+    "pdh.dll", "powrprof.dll", "psapi.dll", "rpcrt4.dll", "secur32.dll", "shell32.dll",
+    "shlwapi.dll", "sspicli.dll", "user32.dll", "userenv.dll", "version.dll", "winmm.dll",
+    "wintrust.dll", "ws2_32.dll", "ucrtbase.dll",
 }
 WINDOWS_PREFIXES = ("api-ms-win-", "ext-ms-win-", "vcruntime140", "msvcp140")
 
