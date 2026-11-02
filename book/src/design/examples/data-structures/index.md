@@ -19,6 +19,8 @@ that one representation wins. See [memory architecture](../../toolchain/02-archi
 - [Rotate a tree without allocating new boxes](tree-rotation.md).
 - [Build balanced search trees](balanced-trees.md): complete B-tree and
   left-leaning red-black sets, including deletion and invariant checks.
+- [Retrieve strings with a trie](trie.md): Unicode keys, prefix retrieval,
+  longest-prefix matching, and pruning deletion.
 - [Build parent links and an iterative worklist](../../../tutorial/09-generics/arena-trees.md).
 
 Boxes allow direct field access and transfer without explicit dereferences in

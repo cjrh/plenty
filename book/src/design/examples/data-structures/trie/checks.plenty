@@ -1,0 +1,189 @@
+import trie
+
+enum TestError:
+    Invariant
+    Order
+    Size
+    Membership(str)
+    Insert(str)
+    Remove(str)
+    Prefix(str)
+    Longest(str)
+    RetainedResult
+
+type CheckError = AllocError | TestError
+
+def verify(tree: &trie.Trie, expected: &list[str]) -> Result[(), CheckError]:
+    if not trie.valid(&tree)?:
+        return Err(TestError.Invariant)
+    if trie.length(&tree) != len(expected):
+        return Err(TestError.Size)
+    actual = trie.ordered(&tree)?
+    if actual != expected:
+        return Err(TestError.Order)
+    for word in expected:
+        if not trie.has(&tree, word):
+            return Err(TestError.Membership(*word))
+    Ok(())
+
+def query(tree: &trie.Trie, expected: &list[str], text: &str) -> Result[(), CheckError]:
+    mut matches: list[str] = []?
+    mut best: Option[str] = Nothing
+    mut longest = -1
+    for word in expected:
+        if word.startswith(text):
+            matches.append(*word)?
+        if text.startswith(word) and len(word) > longest:
+            best = Some(*word)
+            longest = len(word)
+    actual = trie.with_prefix(&tree, text)?
+    if actual != matches or trie.has_prefix(&tree, text) != (len(matches) > 0):
+        return Err(TestError.Prefix(*text))
+    if trie.longest_prefix(&tree, text) != best:
+        return Err(TestError.Longest(*text))
+    Ok(())
+
+def change(tree: &mut trie.Trie, expected: &mut list[str], key: &str, adding: bool) -> Result[(), CheckError]:
+    found = expected.find(*key)
+    present = found.is_some()
+    if trie.has(&tree, key) != present:
+        return Err(TestError.Membership(*key))
+    if adding:
+        if trie.insert(&mut tree, key)? != (not present):
+            return Err(TestError.Insert(*key))
+        if not present:
+            expected.append(*key)?
+            expected.sort()
+    else:
+        if trie.remove(&mut tree, key) != present:
+            return Err(TestError.Remove(*key))
+        match found:
+            case Some(index):
+                drop(expected.pop(index))
+            case Nothing:
+                pass
+    verify(&tree, &expected)?
+    query(&tree, &expected, key)?
+    query(&tree, &expected, (key + "!")?)?
+    Ok(())
+
+def scenario(insertions: &list[str], deletions: &list[str]) -> Result[(), CheckError]:
+    mut tree = trie.create()?
+    mut expected: list[str] = []?
+    verify(&tree, &expected)?
+    query(&tree, &expected, "")?
+    for key in insertions:
+        change(&mut tree, &mut expected, key, True)?
+        change(&mut tree, &mut expected, key, True)?
+    for key in deletions:
+        change(&mut tree, &mut expected, key, False)?
+        change(&mut tree, &mut expected, key, False)?
+    # Reuse the same owner after complete pruning.
+    for key in insertions:
+        change(&mut tree, &mut expected, key, True)?
+    for key in deletions:
+        change(&mut tree, &mut expected, key, False)?
+    Ok(())
+
+def deletion_permutations(insertions: &list[str], deletions: &mut list[str], depth: i64) -> Result[(), CheckError]:
+    if depth == len(deletions):
+        return scenario(&insertions, &deletions)
+    for i in range(depth, len(deletions)):
+        deletions.swap(depth, i)
+        deletion_permutations(&insertions, &mut deletions, depth + 1)?
+        deletions.swap(depth, i)
+    Ok(())
+
+def insertion_permutations(keys: &mut list[str], depth: i64) -> Result[(), CheckError]:
+    if depth == len(keys):
+        mut deletions = copy(keys)?
+        return deletion_permutations(&keys, &mut deletions, 0)
+    for i in range(depth, len(keys)):
+        keys.swap(depth, i)
+        insertion_permutations(&mut keys, depth + 1)?
+        keys.swap(depth, i)
+    Ok(())
+
+def high_fanout() -> Result[(), CheckError]:
+    mut tree = trie.create()?
+    mut expected: list[str] = []?
+    mut scalars: list[str] = []?
+    # U+0400..U+04FF are valid nonsurrogate scalars, so chr cannot fail here.
+    # Reverse insertion exercises head links at the root and below "prefix".
+    for code in range(0x4ff, 0x3ff, -1):
+        scalar = chr(u32(code)).unwrap()
+        scalars.append(scalar)?
+        change(&mut tree, &mut expected, scalar, True)?
+        change(&mut tree, &mut expected, ("prefix" + scalar)?, True)?
+    query(&tree, &expected, "prefix")?
+    query(&tree, &expected, "")?
+    for absent in ["\u{3ff}", "\u{500}", "prefix\u{3ff}", "prefix\u{500}"]?:
+        if trie.has(&tree, absent):
+            return Err(TestError.Membership(absent))
+        query(&tree, &expected, absent)?
+    scalars.sort()
+    mut turn = 0
+    while len(scalars) > 0:
+        n = len(scalars)
+        index = 0 if turn % 3 == 0 else (n // 2 if turn % 3 == 1 else n - 1)
+        scalar = scalars.pop(index).unwrap()
+        change(&mut tree, &mut expected, scalar, False)?
+        change(&mut tree, &mut expected, ("prefix" + scalar)?, False)?
+        query(&tree, &expected, "prefix")?
+        turn += 1
+    query(&tree, &expected, "")?
+    Ok(())
+
+def captured_results() -> Result[(Option[str], list[str]), CheckError]:
+    # No original key or query owner escapes this helper. Trie depth follows
+    # key length, not log(size), and all operations here are iterative.
+    original = "猫".repeat(10000)?
+    mut tree = trie.create()?
+    drop(trie.insert(&mut tree, original)?)
+    drop(original)
+    independent_query = "猫".repeat(10000)?
+    retained = trie.longest_prefix(&tree, independent_query)
+    owned = trie.ordered(&tree)?
+    if not trie.valid(&tree)? or not trie.remove(&mut tree, independent_query):
+        return Err(TestError.Invariant)
+    drop(independent_query)
+    drop(trie.insert(&mut tree, "replacement")?)
+    drop(tree)
+    Ok((retained, owned))
+
+def main() -> Result[(), AllocError | IoError | TestError]:
+    mut small = ["", "a", "ab", "b", "猫"]?
+    insertion_permutations(&mut small, 0)?
+    print("14400 permutation pairs passed")?
+
+    keys = ["", "a", "ab", "abc", "abcd", "abd", "b", "ba", "c", "ca", "car", "cart", "cat", "dog", "Cat", "café", "cafe\u{301}", "é", "e\u{301}", "猫", "猫咪", "🙂", "🙂a", "\0", "\0a", "\u{10ffff}"]?
+    probes = ["", "a", "ab", "ac", "ca", "car", "cartwheel", "café!", "cafe\u{301}!", "猫", "猫咪!", "🙂", "\0", "\u{10ffff}", "zzz"]?
+    for seed in [1, 7, 12345, 104729]?:
+        mut state = seed
+        mut tree = trie.create()?
+        mut expected: list[str] = []?
+        for step in range(2000):
+            state = (state * 48271) % 2147483647
+            index = state % len(keys)
+            state = (state * 48271) % 2147483647
+            change(&mut tree, &mut expected, keys[index], state % 2 == 0)?
+            for text in &probes:
+                query(&tree, &expected, text)?
+        for key in &keys:
+            change(&mut tree, &mut expected, key, False)?
+    print("8000 Unicode mixed operations and prefix queries passed")?
+
+    high_fanout()?
+    print("256-way root/interior fanout and sibling deletion passed")?
+
+    retained, owned = captured_results()?
+    # Keep same-sized allocations alive before building a fresh expected key:
+    # a stale result cannot be rescued by an original key/query owner or by
+    # allocator reuse placing identical expected text at the old address.
+    pressure = ["犬".repeat(10000)? for _ in range(32)]?
+    expected = "猫".repeat(10000)?
+    if retained != Some(expected) or len(owned) != 1 or owned[0] != expected:
+        return Err(TestError.RetainedResult)
+    drop(pressure)
+    print("10000-scalar results survive original key, query and trie owners")?
+    Ok(())

@@ -519,6 +519,8 @@
             - [Build balanced search trees](design/examples/data-structures/balanced-trees.md)
                 - [Split, borrow, and merge in a B-tree](design/examples/data-structures/b-tree.md)
                 - [Rotate and recolor a red-black tree](design/examples/data-structures/red-black-tree.md)
+            - [Retrieve strings with a trie](design/examples/data-structures/trie.md)
+                - [Trie storage, updates, and costs](design/examples/data-structures/trie-internals.md)
         - [Collection operation examples](design/examples/collections/index.md)
             - [Handle collection allocation failures](design/examples/collections/capacity.md)
             - [Empty a collection and reuse its storage](design/examples/collections/clear.md)
