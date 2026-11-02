@@ -76,10 +76,16 @@ the release push is a fast-forward. Before releasing, run the full checks on
 that commit:
 
 ```sh
-cargo test --locked --workspace --all-features
-cargo clippy --locked --workspace --all-targets -- -D warnings
-scripts/release/local-check.sh
+just release-check
 ```
+
+This runs every Linux CI step, both optional engines, the Docker reverse-proxy
+tests, license notices for every release target, the documentation checks, and
+`scripts/release/local-check.sh --test`. It continues past a failing step,
+writes each step's log to `target/local-ci/`, and prints a summary.
+`scripts/local_ci.sh --help` lists the steps; `just ci STEP...` reruns selected
+ones. The macOS and Windows release jobs, and the host's other Linux
+architecture, still run only in CI.
 
 ## Release
 

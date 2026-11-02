@@ -23,6 +23,16 @@ docs:
     python3 -B -m unittest discover -s scripts -p 'test_*.py'
     python3 -B scripts/build_docs_site.py
 
+# Steps and logs: see scripts/local_ci.sh --help. `just ci test clippy` runs two.
+# Every CI check this Linux host can run, continuing past failures.
+ci *steps:
+    scripts/local_ci.sh "$@"
+
+# macOS and Windows release jobs still run only in CI.
+# Before tagging: `just ci` plus the Docker release build, tests, and smoke tests.
+release-check:
+    scripts/local_ci.sh --release
+
 # Spends API credit; not run in CI. Arguments pass through, e.g.
 # `just skill-trial wordfreq --model sonnet`.
 # Trial the agent skill with fresh agents; report in target/skill-trial/.
