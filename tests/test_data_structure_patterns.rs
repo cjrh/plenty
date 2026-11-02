@@ -76,7 +76,7 @@ fn trie_demo_runs() {
 fn trie_matches_sorted_model_through_unicode_insert_delete_prefix_and_reuse() {
     runs(
         include_str!("../book/src/design/examples/data-structures/trie/checks.plenty"),
-        "14400 permutation pairs passed\n8000 Unicode mixed operations and prefix queries passed\n10000-scalar key and retained results passed",
+        "14400 permutation pairs passed\n8000 Unicode mixed operations and prefix queries passed\n256-way root/interior fanout and sibling deletion passed\n10000-scalar results survive original key, query and trie owners",
     );
 }
 

@@ -94,8 +94,11 @@ The [model driver](trie/checks.plenty) compares the trie with a sorted-list set
 and independent prefix/longest-prefix scans. It checks 14,400 pairs of five-key
 insertion/deletion permutations, duplicates, missing removals, complete pruning
 and refill, plus 8,000 mixed operations over Unicode, case-sensitive, empty,
-NUL-containing, and prefix-related keys. It also checks a 10,000-scalar key and
-returned strings surviving deletion and owner destruction.
+NUL-containing, and prefix-related keys. A high-fanout case inserts 256 distinct
+scalar edges at both root and interior levels in reverse order, then alternates
+first/middle/last sibling deletion. A 10,000-scalar key checks returned strings
+after the original key, query, and trie owners are destroyed, with same-sized
+allocation pressure before comparison against independently rebuilt text.
 
 The integration tests additionally sweep insertion and prefix-result allocation
 failures, retry failed insertion, disable allocation during lookup/pruning/reuse,

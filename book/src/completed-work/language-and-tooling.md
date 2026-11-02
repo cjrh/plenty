@@ -11,8 +11,10 @@ The [runnable trie](../design/examples/data-structures/trie.md) stores exact
 Unicode strings, including the empty key, with insertion, lookup, pruning
 deletion, sorted prefix enumeration, and longest-prefix matching. Private
 parent/sibling IDs support iterative operations and slot reuse. Model/invariant
-checks cover permutation pairs and Unicode mixed histories; allocation-failure
-sweeps cover insertion and prefix results, and a Linux small-stack test handles
+checks cover permutation pairs, Unicode mixed histories and 256-way sibling
+lists. Retained-result checks drop original key/query/trie owners before reuse
+pressure and comparison. Allocation-failure sweeps cover insertion and prefix
+results, and a Linux small-stack test handles
 a 100,000-scalar key. This is a teaching set, not a `std` API, compressed trie,
 or normalization policy. B73's general arena qualification remains outstanding.
 
