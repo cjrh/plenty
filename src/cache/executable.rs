@@ -513,6 +513,9 @@ mod tests {
         assert!(private_tools(dir.path()).is_some());
     }
 
+    // Same-length rewrites can share a Windows mtime; the executable cache
+    // runs only on Linux, which also compares inode and ctime.
+    #[cfg(unix)]
     #[test]
     fn identities_notice_replacement_and_missing_paths() {
         let dir = tempfile::tempdir().unwrap();
