@@ -83,29 +83,32 @@ impl Executable {
         if !gcc_driver(&driver) {
             return None;
         }
-        let selected = if let Some(linker) = linker {
-            find(&format!("ld.{linker}"))?
+        // Ask GCC, not just PATH: collect2 can select a private linker first.
+        let tool = linker.map_or_else(|| "ld".to_owned(), |name| format!("ld.{name}"));
+        let output = Command::new(&driver)
+            .arg(format!("-print-prog-name={tool}"))
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let name = std::str::from_utf8(&output.stdout).ok()?.trim();
+        let selected = if Path::new(name).is_absolute() {
+            PathBuf::from(name)
         } else {
-            let output = Command::new(&driver)
-                .arg("-print-prog-name=ld")
-                .output()
-                .ok()?;
-            if !output.status.success() {
-                return None;
-            }
-            let name = std::str::from_utf8(&output.stdout).ok()?.trim();
-            if Path::new(name).is_absolute() {
-                PathBuf::from(name)
-            } else {
-                find(name)?
-            }
+            find(name)?
         };
+        // Eligibility must precede load(), not only the depfile-capability
+        // probe on a miss. Wrapper configuration is not a linker dependency.
+        if !native_elf(&selected) {
+            return None;
+        }
         let mut hash = Sha256::new();
         let mut field = |bytes: &[u8]| {
             hash.update((bytes.len() as u64).to_le_bytes());
             hash.update(bytes);
         };
-        field(b"plenty executable cache 1");
+        field(b"plenty executable cache 2");
         field(compiler_identity().as_bytes()); // Includes the embedded runtime.
         field(&std::fs::read(object).ok()?);
         field(identity(&driver)?.as_bytes());
@@ -152,9 +155,9 @@ impl Executable {
                 for dir in std::env::split_paths(dirs) {
                     // GCC can find a linker in its private program directories
                     // before PATH; watching only PATH would miss those updates.
-                    for name in ["specs", "collect2", "ld", "ld.mold", "ld.lld"] {
-                        watched.push(dir.join(name));
-                    }
+                    let tools = private_tools(&dir)?;
+                    watched.extend(tools);
+                    watched.push(dir.join("specs"));
                     watched.push(dir);
                 }
             }
@@ -272,7 +275,6 @@ impl Executable {
 }
 
 fn gcc_driver(path: &Path) -> bool {
-    use std::io::Read;
     let Some(name) = path.canonicalize().ok().and_then(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
@@ -283,6 +285,35 @@ fn gcc_driver(path: &Path) -> bool {
     if !name.split('-').any(|part| part == "gcc") {
         return false;
     }
+    native_elf(path)
+}
+
+/// Private linker overrides and collect2 can themselves be wrappers. Check
+/// every candidate before cache lookup; retain absent paths to notice additions.
+fn private_tools(directory: &Path) -> Option<Vec<PathBuf>> {
+    let mut tools = Vec::new();
+    for name in [
+        "collect2",
+        "ld",
+        "ld.mold",
+        "ld.lld",
+        "ld.bfd",
+        "ld.gold",
+        "real-ld",
+        "collect-ld",
+    ] {
+        let file = directory.join(name);
+        match file.try_exists() {
+            Ok(true) if !native_elf(&file) => return None,
+            Err(_) => return None,
+            _ => tools.push(file),
+        }
+    }
+    Some(tools)
+}
+
+fn native_elf(path: &Path) -> bool {
+    use std::io::Read;
     let mut magic = [0; 4];
     std::fs::File::open(path)
         .and_then(|mut file| file.read_exact(&mut magic))
@@ -454,6 +485,32 @@ mod tests {
         assert!(!gcc_driver(&clang));
         std::fs::write(&gcc, b"\x7fELF").unwrap();
         assert!(gcc_driver(&gcc));
+    }
+
+    #[test]
+    fn private_linker_and_collect2_wrappers_are_ineligible_before_lookup() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(private_tools(dir.path()).is_some());
+        for name in [
+            "ld",
+            "ld.mold",
+            "ld.lld",
+            "real-ld",
+            "collect-ld",
+            "collect2",
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"#!/bin/sh\nexec /bin/ld \"$@\"\n").unwrap();
+            assert!(!native_elf(&path));
+            assert!(
+                private_tools(dir.path()).is_none(),
+                "accepted {name} wrapper"
+            );
+            std::fs::remove_file(&path).unwrap();
+        }
+        let path = dir.path().join("ld.mold");
+        std::fs::write(&path, b"\x7fELF").unwrap();
+        assert!(private_tools(dir.path()).is_some());
     }
 
     #[test]

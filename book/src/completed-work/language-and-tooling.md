@@ -102,8 +102,10 @@ option ordering is fixed (issue #590, local PR #732).
 Single-file compile-and-run now caches linked executables by default on
 supported Linux toolchains, including hashbang launches. Native dependency
 and toolchain identities invalidate reuse; entries share cache inspection,
-cleanup and eviction. Explicit build outputs, project runs, custom linkers,
-non-Linux hosts and instrumented builds still link normally. See the
+cleanup and eviction. Linker wrappers, including GCC-private overrides, are
+excluded before executable lookup (issue #676). Explicit build outputs, project
+runs, custom linkers, non-Linux hosts and instrumented builds still link normally.
+See the
 [executable cache contract](../design/toolchain/02-architecture/cache.md#single-file-executables).
 
 The [language server](../design/toolchain/01-building/language-server.md)

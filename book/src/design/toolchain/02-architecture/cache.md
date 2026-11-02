@@ -178,8 +178,14 @@ cached. Streams, working directory, environment and exit status are unchanged.
 
 Executable reuse currently supports Linux's default GCC-based `cc` driver
 (a native ELF binary whose resolved name identifies GCC) with mold, lld or
-GNU ld when the selected linker supports `--dependency-file`. Clang and wrapper
-drivers bypass reuse because their implicit configuration inputs are not tracked.
+GNU ld when the selected linker supports `--dependency-file`. Before looking
+up an executable, Plenty asks GCC to resolve the selected linker and requires
+it to be a native ELF binary. It also rejects non-native private linker
+candidates and `collect2` helpers in GCC's search directories. A shell wrapper
+cannot serve cache hits merely by forwarding `--help` or `--version`: its
+external configuration and delegated tools are not depfile inputs (issue #676).
+Clang, wrapper drivers and wrapper linkers bypass executable reuse and link
+normally because their implicit inputs are not tracked.
 Explicit drivers/link arguments, non-Linux hosts, legacy syntax, test-hook and
 fuzz builds, and redirected/injected toolchains (`COMPILER_PATH`,
 `GCC_EXEC_PREFIX`, `LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`) retain ordinary
