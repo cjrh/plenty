@@ -306,7 +306,7 @@ def worker(t: (Point, Point, i64)) -> (Point, Point, i64):
     a, b, n = t
     (b, a, n * 2)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()] | ChannelError | SendError[(Pair, Point)] | RecvError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair, Point)] | RecvError]:
     print(left_of(Event.Two(Guard("a"), Point(1, 2), Guard("b")))?)?
     print(left_of(Event.Nested(Pair(Guard("pl"), Guard("pr")), Guard("g")))?)?
     t = (Guard("t1"), Guard("t2"))

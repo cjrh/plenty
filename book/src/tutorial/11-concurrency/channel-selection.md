@@ -5,7 +5,7 @@ types may differ; match the returned `Selected` value to find which one arrived.
 Both receivers are borrowed implicitly; explicit `&` arguments also work.
 
 ```plenty
-type ChannelSelectionError = RecvError | SelectError | SendError[i64] | SendError[str] | ChannelError
+type ChannelSelectionError = RecvError | SelectError | SendError[i64] | SendError[str] | AllocError
 
 def main() -> Result[(), IoError | ChannelSelectionError]:
     commands, control = channel[str](1)?

@@ -290,6 +290,16 @@ impl Lower<'_> {
         result
     }
 
+    /// Check the public positive-count type, then pass its integer to primitive IR.
+    pub(super) fn positive_count(&mut self, value: &Expr, ops: &mut Vec<Op>) -> Result<()> {
+        let ty = self.domain_type(IntegerDomain::Positive, &Ty::I64, &value.at)?;
+        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+        self.same(actual, Some(ty.clone()), &value.at)?;
+        let Ty::Class(class) = ty else { unreachable!() };
+        ops.push(Op::Class(crate::record::ClassOp::Field(class, 0)));
+        Ok(())
+    }
+
     /// `value OP literal` or `literal OP value` for a `NonZero[T]` value: the
     /// literal is a `NonZero[T]` too, so `step * 2` and `step == 1` keep
     /// their nominal operands. A literal has no effects, so it is lowered

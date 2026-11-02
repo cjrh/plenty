@@ -81,7 +81,7 @@ call, and `finished(future)` below is rejected:
 def finished(future: Future[()]) -> bool:
     future.result().is_ok()
 
-def main() -> Result[(), ChannelError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+def main() -> Result[(), AllocError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender)?
@@ -111,7 +111,7 @@ def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[
 def start(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> Result[Future[()], str]:
     submitted(pool.submit(produce, sender))
 
-def main() -> Result[(), ChannelError | PoolError | str]:
+def main() -> Result[(), AllocError | PoolError | str]:
     with ThreadPoolExecutor(1, 1)? as pool:
         sender, receiver = channel[i64](1)?
         future = submitted(pool.submit(produce, sender))?

@@ -62,5 +62,7 @@ floating-point `sum` adds each chunk, then adds the chunk totals, so it can
 differ from a serial sum. `reduce` groups the same way: each chunk, then the
 chunk results in order. Pass `chunks=N` to fix the count, for example
 `.par(&pool, chunks=8)`, when the same answer is needed from pools of any
-size. The [reference](../../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
+size. `chunks` has type `Positive[i64]`; a computed count uses
+`Positive.try_from(count)?`, which rejects zero or negative values before
+the pipeline starts. The [reference](../../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
 lists the rules and error types.

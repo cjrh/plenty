@@ -28,16 +28,13 @@ pub enum ExecutorOp {
     CancelPending,
     /// The pool's worker count: a parallel pipeline's default chunk count.
     Workers,
-    /// A parallel pipeline's `chunks=` count, which traps unless positive.
-    /// Lowered inline; the dispatcher never sees it.
-    Chunks,
 }
 
 impl ExecutorOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         match self {
             Self::New => (
-                vec![Ty::U64, Ty::U64],
+                vec![Ty::I64, Ty::I64],
                 crate::sum::result(Ty::Executor, crate::sum::pool_error()),
             ),
             Self::Submit(job, _) => (
@@ -83,7 +80,6 @@ impl ExecutorOp {
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
             Self::CancelPending => (vec![Ty::Executor], Ty::Unit),
             Self::Workers => (vec![Ty::Executor], Ty::I64),
-            Self::Chunks => (vec![Ty::I64], Ty::I64),
         }
     }
     pub fn opcode(&self) -> i64 {
@@ -101,7 +97,6 @@ impl ExecutorOp {
             Self::WaitTimeout(_) => 10,
             Self::Workers => 11,
             Self::CancelPending => 12,
-            Self::Chunks => unreachable!("lowered inline"),
         }
     }
 

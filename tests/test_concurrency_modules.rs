@@ -56,7 +56,7 @@ def answer() -> str:
 def take(inbox: &Receiver[str]) -> str:
     inbox.recv().unwrap()
 
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | RecvError | SendError[i64] | SubmitError[OnceClosure[[], str]] | SpawnError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | RecvError | SendError[i64] | SubmitError[OnceClosure[[], str]] | SpawnError[()]]:
     sender, receiver = bounded[str](1)?
     with std.thread.spawn(publish, sender).drop_job()?, receiver as inbox:
         print(take(&inbox))?
@@ -94,7 +94,7 @@ from std.channel import channel, select_recv_nowait as select, select_recv_timeo
 from std.channel import SendError, RecvError, RecvTimeoutError, SelectError
 from std.time import deadline_at, instant_at
 
-def main() -> Result[(), ChannelError | IoError | SendError[i64]]:
+def main() -> Result[(), AllocError | IoError | SendError[i64]]:
     left, inbox = channel[i64](1)?
     other, second = channel[i64](1)?
     left.send(1)?
@@ -166,7 +166,7 @@ fn aliases_preserve_both_channel_join_hang_diagnostics() {
         ),
     ] {
         let source = format!(
-            "from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), ChannelError | SpawnError[()]]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint}).drop_job()? as task:\n        task.join()\n    Ok(())\n"
+            "from std.thread import spawn as start\nfrom std.channel import channel as bounded, Sender, Receiver\n{worker}\ndef main() -> Result[(), AllocError | SpawnError[()]]:\n    tx, rx = bounded[i64](1)?\n    with start(worker, {endpoint}).drop_job()? as task:\n        task.join()\n    Ok(())\n"
         );
         rejected(&source, expected);
     }
@@ -181,7 +181,7 @@ import std.channel as pipe
 def produce(sender: pipe.Sender[i64]) -> ():
     sender.send(1).unwrap()
     sender.send(2).unwrap()
-def main() -> Result[(), ChannelError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+def main() -> Result[(), AllocError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
     sender, receiver = pipe.channel[i64](1)?
     with work.ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender)?

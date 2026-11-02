@@ -1,10 +1,11 @@
 # Executors and shutdown
 
-`ThreadPoolExecutor(max_workers: u64, queue_capacity: u64)` returns
-`Result[ThreadPoolExecutor, PoolError]`. Both counts must be positive. Construction
+`ThreadPoolExecutor(max_workers: Positive[i64], queue_capacity: Positive[i64])` returns
+`Result[ThreadPoolExecutor, PoolError]`. Both counts are `Positive[i64]`; positive literals convert at compile time,
+and computed counts use `Positive.try_from(count)?`. Construction
 starts all fixed native workers before success and provides a bounded FIFO queue.
 Partial startup failure stops and joins workers already started. `PoolError`
-has `InvalidSize`, `Allocation(AllocError)`, and `Thread(ThreadError)`.
+has `Allocation(AllocError)` and `Thread(ThreadError)`.
 
 | Operation | Result | Behavior |
 | --- | --- | --- |

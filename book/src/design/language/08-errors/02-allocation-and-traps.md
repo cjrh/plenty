@@ -103,7 +103,6 @@ thread the report has no position.
 | Absent dictionary key in `d[k]` | `dictionary key not found` |
 | A range longer than `i64` | `range length exceeds i64` |
 | Empty `split` separator held in a variable; a literal `""` is a compile error | `string split requires a nonempty separator` |
-| `.par(&pool, chunks=n)` with `n < 1` | `par chunks must be positive, got chunks=N` |
 | A standard-library argument outside its domain, such as a `Bytes` range past the length | The operation and argument, such as `Bytes.get: index is outside 0..len()` |
 
 A bounds report prints the index as written, before a negative index counts

@@ -55,6 +55,10 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   with `RangeError.OutOfRange`. `.get()` reads `T`. `+` and `*` preserve the
   domain; subtraction and unary `-` return `T`. Widen a Positive explicitly
   with `NonZero.from(p)` or `NonNegative.from(p)`.
+- `channel[T](capacity)` and `ThreadPoolExecutor(workers, queue_capacity)`
+  take `Positive[i64]` counts, as does `.par(&pool, chunks=...)`. Positive
+  literals convert; computed counts use `Positive.try_from(count)?`. Channel
+  construction returns `AllocError`; `PoolError` has `Allocation` and `Thread`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
   tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of

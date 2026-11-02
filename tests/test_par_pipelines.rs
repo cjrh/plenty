@@ -105,8 +105,8 @@ def items() -> list[i64]:
 def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     pools = [ThreadPoolExecutor(2, 1)?]?
     limit = 10
-    print(enumerate(items(), note("start", 0)).par(&pools[note("pool", 0)], chunks=note("chunks", 2)).filter(def [limit](i: &i64, v: &i64) -> bool: *v < limit).count()?)?
-    print(iter(items()).par(&pools[note("pool", 0)], chunks=note("chunks", 3)).filter_value(note("value", 2)).map(def [limit](x: i64) -> i64: x + limit).any(def [limit](x: &i64) -> bool: *x > limit)?)?
+    print(enumerate(items(), note("start", 0)).par(&pools[note("pool", 0)], chunks=Positive.try_from(note("chunks", 2)).unwrap()).filter(def [limit](i: &i64, v: &i64) -> bool: *v < limit).count()?)?
+    print(iter(items()).par(&pools[note("pool", 0)], chunks=Positive.try_from(note("chunks", 3)).unwrap()).filter_value(note("value", 2)).map(def [limit](x: i64) -> i64: x + limit).any(def [limit](x: &i64) -> bool: *x > limit)?)?
     Ok(())
 "#,
         "source\nstart\npool\nchunks\n4\nsource\npool\nchunks\nvalue\nTrue\n",
@@ -145,7 +145,7 @@ def check(x: i64) -> Result[i64, i64]:
     Ok(x * 10)
 {MAIN}    with ThreadPoolExecutor(3, 1)? as pool:
         for chunks in [1, 2, 4, 8]?:
-            r = iter(range(0, 8)).par(&pool, chunks=chunks).map(check).try_collect()
+            r = iter(range(0, 8)).par(&pool, chunks=Positive.try_from(chunks).unwrap()).map(check).try_collect()
             print(str.repr(r)?)?
         ok = iter(range(0, 3)).par(&pool).map(check).try_collect()
         print(str.repr(ok)?)?
@@ -242,8 +242,8 @@ def reference(n: i64) -> Result[Option[i64], AllocError]:
     for n in [127, 128, 129, 1000, 1025]?:
         lengths.append(n)?
     mut checked = 0
-    for workers in [1u64, 2u64, 3u64, 8u64]?:
-        with ThreadPoolExecutor(workers, 2)? as pool:
+    for workers in [1, 2, 3, 8]?:
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 2)? as pool:
             for n in &lengths:
                 if pool.reduce_tree(mix, inputs(*n)?)? != reference(*n)?:
                     print("reduce_tree differs")?
@@ -318,8 +318,8 @@ def reference(n: i64, parts: i64, filtered: bool) -> Option[i64]:
     for n in [127, 128, 129, 1000, 1025]?:
         lengths.append(n)?
     mut checked = 0
-    for workers in [1u64, 2u64, 3u64, 8u64]?:
-        with ThreadPoolExecutor(workers, 2)? as pool:
+    for workers in [1, 2, 3, 8]?:
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 2)? as pool:
             w = i64(workers)
             for n in &lengths:
                 if iter(inputs(*n)?).par(&pool).reduce(mix)? != reference(*n, w, False):
@@ -494,7 +494,7 @@ fn chunk_count_defaults_to_pool_workers_and_clamps_to_input_length() {
             r#"
 def items() -> Result[list[f64], AllocError]:
     [1.0, 1e16, -1e16, 1.0]
-def total(pool: &ThreadPoolExecutor, chunks: i64) -> Result[f64, AllocError | PoolMapError]:
+def total(pool: &ThreadPoolExecutor, chunks: Positive[i64]) -> Result[f64, AllocError | PoolMapError]:
     Ok(iter(items()?).par(pool, chunks=chunks).sum()?)
 {MAIN}    print(iter(items()?).sum())?
     with ThreadPoolExecutor(2, 1)? as two:
@@ -517,15 +517,15 @@ def total(pool: &ThreadPoolExecutor, chunks: i64) -> Result[f64, AllocError | Po
 
 #[test]
 fn runtime_chunk_counts_must_be_positive() {
-    for chunks in ["0", "-3"] {
-        traps(
-            &format!(
-                "{MAIN}    with ThreadPoolExecutor(2, 1)? as pool:\n        n = {chunks}\n        print(\"start\")?\n        print(iter(range(0, 4)).par(&pool, chunks=n).count()?)?\n    Ok(())\n"
-            ),
-            "start\n",
-            &format!("par chunks must be positive, got chunks={chunks}"),
-        );
-    }
+    runs(
+        r#"
+print(Positive.try_from(0).is_err(), Positive.try_from(-3).is_err()).unwrap()
+with ThreadPoolExecutor(2, 1).unwrap() as pool:
+    n = Positive.try_from(3).unwrap()
+    print(iter(range(0, 4)).par(&pool, chunks=n).count().unwrap()).unwrap()
+"#,
+        "True True\n4\n",
+    );
 }
 
 #[test]
@@ -643,11 +643,11 @@ fn par_rejects_unsupported_shapes() {
         ),
         (
             "print(iter(xs).par(&pool, chunks=0).count()?)?",
-            "chunks must be a positive i64",
+            "a Positive value must be greater than zero",
         ),
         (
             "print(iter(xs).par(&pool, chunks=-2).count()?)?",
-            "chunks must be a positive i64",
+            "a Positive value must be greater than zero",
         ),
         (
             "print(iter(xs).par(&pool).reduce(def(a: i64, b: i64) -> i64: a + b)?)?",

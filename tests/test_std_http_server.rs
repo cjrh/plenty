@@ -333,8 +333,8 @@ fn head_responses_count_no_body_bytes() {
         r##"import std.log
 from std.log import Event
 
-def main() -> Result[(), std.bytes.BytesError | ChannelError | std.http.server.ServerError | AllocError | IoError]:
-    (sender, receiver) = channel[Event](16u64)?
+def main() -> Result[(), std.bytes.BytesError | AllocError | std.http.server.ServerError | IoError]:
+    (sender, receiver) = channel[Event](16)?
     mut config = std.http.server.config()
     config.events = Some(std.log.channel_sink(sender))
     scripted("HEAD / HTTP/1.1\r\nHost: x\r\n\r\nHEAD /sized HTTP/1.1\r\nHost: x\r\n\r\nGET /sized HTTP/1.1\r\nHost: x\r\n\r\n", 64, False, &config)?
@@ -617,13 +617,13 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(fetch(port, "GET /missing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").unwrap()).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), AllocError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | IoError]:
     table = routes()?
     app = gated()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
-    (sender, receiver) = channel[Event](16u64)?
+    (sender, receiver) = channel[Event](16)?
     mut config = std.http.server.config()
     config.idle_timeout = std.time.milliseconds(200u32)
     config.head_timeout = std.time.milliseconds(200u32)
@@ -1049,13 +1049,13 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut plain)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), AllocError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
-    (sender, receiver) = channel[Event](16u64)?
+    (sender, receiver) = channel[Event](16)?
     mut config = std.http.server.config()
     config.workers = 1
     config.handshake_timeout = std.time.milliseconds(300u32)
@@ -1167,13 +1167,13 @@ def client(port: u16, stop: CancellationToken) -> ():
     print(closes(&mut hello)).unwrap()
     stop.cancel()
 
-def main() -> Result[(), ChannelError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), AllocError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | IoError]:
     table = routes()?
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?).unwrap()
-    (sender, receiver) = channel[Event](16u64)?
+    (sender, receiver) = channel[Event](16)?
     mut config = std.http.server.config()
     config.workers = 1
     config.handshake_timeout = std.time.milliseconds(1000u32)

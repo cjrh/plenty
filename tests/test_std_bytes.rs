@@ -651,7 +651,7 @@ fn buffers_move_across_threads_channels_and_collections() {
 def work(data: Bytes) -> ():
     print(data.len(), data.get(3)).unwrap()
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | ChannelError | SendError[std.bytes.Bytes] | RecvError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | SendError[std.bytes.Bytes] | RecvError | SpawnError[()]]:
     mut buffer = std.bytes.from_text("abc")?
     buffer.push(200u8)?
     sender, receiver = channel[Bytes](1)?

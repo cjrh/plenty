@@ -183,7 +183,7 @@ fn channel_message_types_preserve_module_visibility_and_generic_inference() {
             ),
             (
                 "main.plenty",
-                "import messages\ndef main() -> Result[(), ChannelError | SendError[u8] | RecvError | IoError]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n",
+                "import messages\ndef main() -> Result[(), AllocError | SendError[u8] | RecvError | IoError]:\n    sender, receiver = channel[u8](1)?\n    messages.deliver(&sender, 7u8)?\n    print(receiver.recv()?)?\n    Ok(())\n",
             ),
         ],
         "main.plenty",

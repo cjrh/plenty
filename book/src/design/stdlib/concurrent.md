@@ -25,9 +25,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | FutureError | Submit
 49 64
 ```
 
-`ThreadPoolExecutor(workers: u64, queue_capacity: u64)` returns
-`Result[ThreadPoolExecutor, PoolError]`; both arguments must be positive.
-`PoolError` has `InvalidSize`, `Allocation(AllocError)`, and `Thread(ThreadError)`.
+`ThreadPoolExecutor(workers: Positive[i64], queue_capacity: Positive[i64])` returns
+`Result[ThreadPoolExecutor, PoolError]`; both arguments are positive domain values. Computed counts use
+`Positive.try_from(count)?`; invalid literals are compile errors.
+`PoolError` has `Allocation(AllocError)` and `Thread(ThreadError)`.
 The linked pages specify submission, mapping, reduction and shutdown signatures.
 Accepted jobs and results are wholly owned; borrowing belongs in scoped threads.
 Pools and futures cannot enter workers. All reachable code still passes worker

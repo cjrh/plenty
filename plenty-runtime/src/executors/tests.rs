@@ -55,15 +55,13 @@ fn partial_native_start_failure_joins_the_started_prefix() {
         threads::fail_after(Some(limit));
         assert_eq!(
             create(3, 2).unwrap_err(),
-            error_payload(2, aggregates::wrap(11, 0))
+            aggregates::wrap(aggregates::wrap(11, 0), 1)
         );
         threads::fail_after(None);
     }
-    assert_eq!(create(0, 1).unwrap_err(), 0);
-    assert_eq!(create(1, 0).unwrap_err(), 0);
     assert_eq!(
         create(usize::MAX, 1).unwrap_err(),
-        error_payload(1, aggregates::wrap(0, 1))
+        aggregates::wrap(aggregates::wrap(0, 1), 0)
     );
 }
 

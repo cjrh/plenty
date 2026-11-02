@@ -17,7 +17,7 @@ def stopped(stop: Stop) -> bool:
     stop.wait()
     stop.is_cancelled()
 
-type Errors = AllocError | ChannelError | IoError | SendError[str] | RecvError | SpawnError[()] | PoolError | FutureError | SubmitError[()]
+type Errors = AllocError | IoError | SendError[str] | RecvError | SpawnError[()] | PoolError | FutureError | SubmitError[()]
 
 def main() -> Result[(), Errors]:
     sender, receiver = bounded[str](1)?

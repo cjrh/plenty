@@ -582,9 +582,9 @@ def main() -> Result[(), PoolError]:
     },
     NativeModule {
         module: "std.channel",
-        program: r#"from std.channel import ChannelError, channel
+        program: r#"from std.channel import channel
 
-def main() -> Result[(), ChannelError]:
+def main() -> Result[(), AllocError]:
     _sender, _receiver = channel[i64](2)?
     Ok(())
 "#,

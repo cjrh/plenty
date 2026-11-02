@@ -344,20 +344,6 @@ pub fn spawn_error(job: Ty) -> Ty {
     structural(ty, format!("SpawnError[{}]", job.identity_name()))
 }
 
-pub fn channel_error() -> Ty {
-    let Ty::Enum(template) = result(Ty::Unit, alloc_error()) else {
-        unreachable!()
-    };
-    let mut ty = (*template.get()).clone();
-    ty.name = "ChannelError".into();
-    ty.variants[0] = Variant {
-        name: "InvalidCapacity".into(),
-        fields: vec![],
-    };
-    ty.variants[1].name = "Allocation".into();
-    Ty::Enum(crate::nominal::Nominal::new(ty))
-}
-
 pub fn send_error(value: Ty) -> Ty {
     let Ty::Enum(template) = spawn_error(value.clone()) else {
         unreachable!()
@@ -458,10 +444,6 @@ pub fn pool_error() -> Ty {
     let mut ty = (*template.get()).clone();
     ty.name = "PoolError".into();
     ty.variants = vec![
-        Variant {
-            name: "InvalidSize".into(),
-            fields: vec![],
-        },
         Variant {
             name: "Allocation".into(),
             fields: vec![alloc_error()],

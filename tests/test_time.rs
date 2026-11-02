@@ -277,7 +277,7 @@ def wait(stop: CancellationToken, deadline: Deadline, ready: Sender[i64]) -> boo
     # An hour-long budget: only cancellation can end this wait in time.
     stop.wait_timeout(deadline.remaining(&monotonic_now()).as_timeout_ms())
 
-def main() -> Result[(), AllocError | IoError | ChannelError | SendTimeoutError[i64] | RecvTimeoutError | RangeError | PoolError | FutureError | RecvError | SubmitError[OnceClosure[[], bool]]]:
+def main() -> Result[(), AllocError | IoError | SendTimeoutError[i64] | RecvTimeoutError | RangeError | PoolError | FutureError | RecvError | SubmitError[OnceClosure[[], bool]]]:
     stop = CancellationToken()?
     past = deadline_at(&instant_at(0))
     budget = past.remaining(&monotonic_now()).as_timeout_ms()

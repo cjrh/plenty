@@ -41,7 +41,7 @@ def forward(callback: Callable[[i64], i64]) -> Callable[[i64], i64]:
     callback
 def worker(handler: &Handler) -> i64:
     forward(handler.callback)(20)
-def main() -> Result[(), AllocError | IoError | ChannelError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     callbacks = [choose(True), choose(False)]?
     for callback in &callbacks:
         handler = Handler(*callback)
