@@ -102,7 +102,10 @@ match overflow(p):
 #[case("n: NonNegative[u32] = 0", "use `u32`")]
 #[case("p = Positive(3)", "Positive.try_from(value)?")]
 #[case("p: Positive[i64] = 3\nprint(p.value).unwrap()", "field is private")]
-#[case("p: Positive[i64] = 3\nx = 2\nprint(p + x).unwrap()", "only between two")]
+#[case(
+    "p: Positive[i64] = 3\nx = 2\nprint(p + x).unwrap()",
+    "only between two"
+)]
 #[case(
     "p: Positive[i64] = 3\nprint(p * 0).unwrap()",
     "must be greater than zero"
