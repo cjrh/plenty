@@ -478,3 +478,39 @@ fn linker_injected_fallback_is_rejected_before_publication() {
     assert!(!dest.exists());
     assert_no_stage(temp.path());
 }
+
+/// Programs embedded in the release smoke scripts run only in release CI, so a
+/// std API change could break them unnoticed (`hex_text` in Plenty 0.8.1).
+fn embedded_programs(script: &str, start: &str, end: &str) -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(script);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut programs = Vec::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find(start) {
+        let body = &rest[at + start.len()..];
+        let stop = body
+            .find(end)
+            .unwrap_or_else(|| panic!("{script}: unterminated program"));
+        programs.push(body[..stop].to_string());
+        rest = &body[stop + end.len()..];
+    }
+    programs
+}
+
+#[test]
+fn release_smoke_programs_type_check() {
+    let shell = ".plenty\" <<'EOF'\n";
+    for (script, start, end, count) in [
+        ("scripts/release/smoke-test.sh", shell, "\nEOF\n", 1),
+        ("scripts/release/smoke-engine.sh", shell, "\nEOF\n", 2),
+        ("scripts/release/smoke-native.py", "PROGRAM = '''", "'''", 1),
+    ] {
+        let programs = embedded_programs(script, start, end);
+        assert_eq!(programs.len(), count, "{script}: embedded program count");
+        for program in programs {
+            if let Err(error) = plenty::check_source(&format!("{program}\n")) {
+                panic!("{script}: {error}\n{program}");
+            }
+        }
+    }
+}

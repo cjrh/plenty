@@ -97,7 +97,7 @@ import std.encoding
 def main() -> Result[(), Failure]:
     data = std.bytes.from_text("abc")?
     digest = std.crypto.sha256(&data)?
-    print(std.encoding.hex_text(&digest, 0, digest.len())?)?
+    print(std.encoding.hex_text(&digest)?)?
     mut db = std.db.sqlite.memory(65536)?
     db.execute("CREATE TABLE t(name TEXT NOT NULL, n INTEGER)")?
     mut insert = db.prepare("INSERT INTO t VALUES (?, ?)")?
