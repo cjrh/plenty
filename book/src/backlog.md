@@ -121,6 +121,10 @@ These belong to B17 and are not scheduled implementation commitments:
 - [`plenty script`](proposals/single-file-scripts.md): embedded manifests,
   isolated dependencies and cached single-file builds. Settle headers and
   lock/storage rules before implementation.
+- [`plenty-manager`](proposals/plenty-manager.md): a Plenty-written tool in a
+  separate `plentylang/plenty-manager` repository for compiler installation,
+  explicit updates, side-by-side versions and project pins. Settle release
+  authentication and qualify manager hosts before delivery.
 - [Language editions](proposals/language-editions.md): wait for a concrete
   incompatible change; prove mixed-edition compilation with shared types/runtime
   before edition or migration tooling.
