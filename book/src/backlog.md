@@ -124,11 +124,11 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 
 These belong to B17 and are not scheduled implementation commitments:
 
-- [Compiler boundaries](proposals/compiler-refactoring.md): structured diagnostics
-  without render/reparse cycles, cohesive lowering state and scoped editor/source/
-  teardown policy. Preserve library reclamation, generic attribution and ordered
-  diagnostics; evaluate one bounded refactor at a time. Identity/fact lookup and
-  module replay experiments remain B19, not a wholesale frontend rewrite.
+- [Compiler boundaries](proposals/compiler-refactoring.md): structured
+  diagnostics, scoped recorder/teardown policy, the `op` and syntax-layer splits
+  and grouped pipeline state are delivered (issues #691–#695). A compilation
+  session and further lowering-state extraction wait for a consumer. Module
+  replay remains B19, not a wholesale frontend rewrite.
 
 - Single-file script manifests, isolated dependency resolution, durable locks and
   argument forwarding are [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging).
@@ -165,14 +165,16 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   managed fields, records over 192 bytes and tuple release plans. Measure inline
   copies beyond current runtime-copy paths; owned temporaries and nonscalar list
   rows still use runtime helpers. [Flat-layout rationale](proposals/completed/flat-class-layout.md).
-- **Serial frontend efficiency:** module-scope name hashing and `op::check`'s
-  signature map, builtin-sum interning and nominal-handle refcounts. Whole-program
+- **Serial frontend efficiency:** module-scope name hashing, builtin-sum
+  interning and `Ty`/nominal-handle clone traffic (about 10% of check samples with
+  allocation excluded; issue #696). The signature map and nominal fact/lock costs
+  measured below 2% and are not candidates. Whole-program
   table/cache misses still increase per-function cost at scale (issue #57);
   interned names or per-function batch processing need measurements. Further
   type-representation changes follow the completed issue #302 investigations.
-  [Identity and fact-cache options](proposals/compiler-refactoring/performance.md)
-  specify attribution, lifetime and invalidation gates; existing frontend function
-  symbols and type-fact caches are not missing features.
+  [Measured attribution](proposals/compiler-refactoring/performance.md#measured-attribution-issue-696)
+  records the profile; existing frontend function symbols and type-fact caches
+  are not missing features.
 - **Peak memory:** lower and emit one function at a time instead of retaining
   full syntax/operation sets at phase boundaries (issue #54). IR construction's
   measured 7% of emission CPU limits scaling only above about fourteen cores.

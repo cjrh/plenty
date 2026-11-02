@@ -76,6 +76,48 @@ graph checks. Use `src/nominal/clone_tests.rs`, nominal unit tests,
 `tests/test_recursive_data.rs`, `test_type_cycles.rs`,
 `test_generic_data_safety.rs` and concurrent compiler checks.
 
+## Measured attribution (issue #696)
+
+Sampled on 2026-11-02 at the head of the step 1–5 branches, with a release
+build using frame pointers, `perf record -e cpu-clock` on eight physical cores
+and the compiled-function cache off. Shares are of all samples, by self time.
+
+| Family | Generated check | Std-heavy check |
+| --- | --- | --- |
+| `collect_sigs` (building the name-keyed map) | 1.5% | 0.7% |
+| Lookups in that map | 0.1% | <0.1% |
+| `Nominal` handle clone, `get` and drop | 5.6% | 5.6% |
+| Type facts, including cached nominal facts | 0.1% | 0.2% |
+| Mutex/futex/`Once` | 0.2% | 0.1% |
+| `Ty` clone and drop | 4.1% | 4.3% |
+| mimalloc | 9.3% | 13.2% |
+
+The generated check is `compile_bench 1000 20 --workload check --no-warmup`
+(39,003 lines; median 138 ms per check with frame pointers). The std-heavy check
+is 40 `plenty --check` runs of a program importing `std.http.server`,
+`std.http.client`, `std.db.sqlite`, `std.json`, `std.csv`, `std.toml`,
+`std.markdown`, `std.xml`, `std.url`, `std.regex`, `std.time` and `std.text`
+(about 100 ms each).
+
+Conclusions:
+
+- **Function identity:** the signature map costs at most about 1.7% of a check, almost
+  all of it the walk that collects signatures rather than hashing or lookup.
+  Function IDs in the IR (options 2–4) would not pay for their migration.
+  Revisit only if a workload attributes a material share to `collect_sigs` or
+  call lookup.
+- **Nominal facts and locking:** fact computation and locks are below 0.3%.
+  Indexed fact storage, epochs and a frozen table are not justified by cost.
+- **Nominal handles:** clone/`get`/drop traffic is about 5.6%, spread across
+  many callers: `Ty::clone` in lowering, generator measurement and validation. Together with `Ty` clone/drop and allocation it
+  is a cost of the type representation, not of the table. A change here is the
+  broader type-ID or clone-reduction work this page already defers, and it needs
+  its own design and matched timings.
+
+The `memcmp`, `memmove` and allocator shares are larger than any family above.
+`memcmp` is mostly under `ownership::check` (1.7% of the std-heavy run); it was
+not investigated further here.
+
 ## Ownership dataflow: conditional follow-up only
 
 `Checker::loans` in `src/ownership.rs` skips loan-free bodies, borrows operations
