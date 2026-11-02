@@ -4,9 +4,8 @@ Use `std.dataframe` when your task is an analytical query over columns or
 Parquet files. Plenty describes the query; a separately compiled Polars
 engine optimizes and executes it. This exposes native columnar processing,
 parallelism and SIMD without asking you to manage vector instructions.
-Install the [optional engine](../../design/stdlib/dataframe-engine.md) once.
-Binary releases provide it as a separate download; no local Polars build is
-needed. When distributing a compiled application, follow
+Linux binary releases include the [engine](../../design/stdlib/dataframe-engine.md)
+beside the compiler; no local Polars build is needed. When distributing a compiled application, follow
 [shipping dataframe applications](../../design/stdlib/dataframe-deployment.md)
 to include its shared library and notices.
 These examples require it when compiled and run.

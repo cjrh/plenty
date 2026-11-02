@@ -60,7 +60,7 @@ the linker only when reached, was considered and rejected:
   which ordinary output records in `RUNPATH` (distribution output uses only
   `$ORIGIN`), and on the facade's symbols, but not on the
   engine's bytes. A static engine would make every executable depend on the
-  engine archive's bytes, which would then need the runtime's deterministic
+  engine library's bytes, which would then need the runtime's deterministic
   build too.
 
 Revisit static archives only for an engine with no Rust standard library or
@@ -94,9 +94,9 @@ install hint, and drives reachability, link arguments, the facade's
 is still a named field per engine.
 
 The shared build and packaging entry points are `scripts/build_native_engine.py`
-and `scripts/release/package-engine.py`, each taking an engine name. The old
-dataframe entry points remain compatible. Packaging checks facade exports and
-the engine SONAME, generates component-specific dependency notices, and includes
-an engine-specific deployment README. The native-engine CI matrix builds and
+and `scripts/release/package-engine.py`, each taking an engine name. `scripts/build_dataframe_engine.py`
+remains compatible. Packaging checks facade exports and the engine SONAME,
+generates component-specific dependency notices, and installs the library with
+its `NAME-notices/` directory, in the compiler archive's `bin/` for releases. The native-engine CI matrix builds and
 tests each engine separately; engine tests never make normal compiler builds
 depend on either engine workspace.

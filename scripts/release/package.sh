@@ -2,12 +2,15 @@
 # Package already-built Plenty executables as a release archive.
 #
 # Usage: package.sh --bin-dir DIR --out-dir DIR [--rust-sysroot DIR]
+#                   [--engine NAME=LIBRARY]...
 #
 # Writes OUT/plenty-VERSION-TARGET.tar.gz (.zip on Windows) and its .sha256
 # file, with this layout:
 #
 #   plenty-VERSION-TARGET/
 #     bin/plenty, bin/plentyc   (plenty.exe, plentyc.exe on Windows)
+#     bin/libplenty_NAME_v1.so  (Linux: each engine in release_engines)
+#     bin/NAME-notices/         (its engine.json, licenses and notices)
 #     README.md                 (README.dist.md, or README.dist-OS.md, filled in)
 #     LICENSE-MIT, LICENSE-APACHE  (Plenty is MIT OR Apache-2.0)
 #     THIRD-PARTY-NOTICES.md    (third_party_notices.py)
@@ -18,6 +21,10 @@
 # sorted, owned by 0:0, and dated SOURCE_DATE_EPOCH (default: the HEAD commit
 # time, else 0). Linux archives use GNU tar; macOS and Windows hosts lack it,
 # so archive.py writes theirs. PYTHON selects the interpreter (default python3).
+#
+# Linux archives require exactly the engines in target.sh's release_engines;
+# package-engine.py audits each against the release baseline. The compiler
+# finds engines beside its executable, and --dist finds their notices there.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,11 +32,13 @@ repo="$(cd "$here/../.." && pwd)"
 bin_dir=""
 out_dir=""
 sysroot=""
+engines=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin-dir) bin_dir="$2"; shift 2 ;;
         --out-dir) out_dir="$2"; shift 2 ;;
         --rust-sysroot) sysroot="$2"; shift 2 ;;
+        --engine) engines+=("$2"); shift 2 ;;
         *) echo "package.sh: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -54,6 +63,12 @@ PLENTY_RELEASE_TARGET="$target"
 # shellcheck source=target.sh
 . "$here/target.sh"
 [ "$exe" = "$release_exe" ] || { echo "package.sh: $target executables must end in '$release_exe'" >&2; exit 1; }
+given="$(for engine in ${engines[@]+"${engines[@]}"}; do echo "${engine%%=*}"; done | sort | xargs)"
+wanted="$(printf '%s\n' $release_engines | sort | xargs)"
+if [ "$given" != "$wanted" ]; then
+    echo "package.sh: $target archives need engines '${wanted}', given '${given}'" >&2
+    exit 1
+fi
 if [ "$release_os" = linux ]; then
     "$here/check-elf.sh" "$bin_dir/plenty" "$bin_dir/plentyc"
     readme="$here/README.dist.md"
@@ -72,6 +87,10 @@ root="$stage/$name"
 mkdir -p "$root/bin" "$root/licenses/rust"
 
 install -m 0755 "$bin_dir/plenty$exe" "$bin_dir/plentyc$exe" "$root/bin/"
+for engine in ${engines[@]+"${engines[@]}"}; do
+    "$python" -B "$here/package-engine.py" "${engine%%=*}" --engine "${engine#*=}" \
+        --out-dir "$root/bin" --target "$target" --rust-sysroot "$sysroot"
+done
 sed -e "s/@VERSION@/$version/g" -e "s/@TARGET@/$target/g" "$readme" > "$root/README.md"
 install -m 0644 "$repo/LICENSE-MIT" "$repo/LICENSE-APACHE" "$root/"
 "$python" -B "$here/third_party_notices.py" --repo "$repo" --target "$target" --out "$root/THIRD-PARTY-NOTICES.md"
@@ -83,6 +102,7 @@ fi
 install -m 0644 "$rust_docs/COPYRIGHT-library.html" "$rust_docs"/licenses/*.txt "$root/licenses/rust/"
 chmod 0644 "$root/README.md" "$root/THIRD-PARTY-NOTICES.md"
 find "$root" -type d -exec chmod 0755 {} +
+find "$root" -type f ! -path "$root/bin/plenty$exe" ! -path "$root/bin/plentyc$exe" -exec chmod 0644 {} +
 
 if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
     SOURCE_DATE_EPOCH="$(git -C "$repo" log -1 --format=%ct 2>/dev/null || echo 0)"

@@ -9,8 +9,8 @@
 # or scripts/release/local-check.sh). Installs RUST_VERSION with a verified
 # rustup-init when no matching toolchain is present, builds both executables
 # with the tracked lockfile, optionally runs the full test suite with the same
-# toolchain, builds the optional dataframe engine, rejects binaries above the
-# glibc baseline, and packages separate compiler and engine archives.
+# toolchain, builds the dataframe and linalg engines, rejects binaries above the
+# glibc baseline, and packages one archive with the engines beside the compiler.
 # Set CARGO_TARGET_DIR to keep these outputs apart from host builds.
 set -euo pipefail
 
@@ -87,20 +87,17 @@ if [ "$run_tests" = 1 ]; then
     # Keep the tests' compiled-function cache with this build's outputs.
     PLENTY_CACHE_DIR="$target_dir/plenty-cache" cargo test --locked --workspace --all-features
 fi
-"$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
-    --rust-sysroot "$(rustc --print sysroot)"
-
-# Keep the engine optional in normal compiler builds and in its own download.
-# This uses the same pinned toolchain, libc and source as the compiler archive.
+# The engines use the same pinned toolchain, libc and source as the compiler.
 engine_validation=()
 if [ "$run_tests" = 1 ]; then
     rustup component add rustfmt clippy
     engine_validation+=(--validate)
 fi
-for engine in dataframe linalg; do
+engine_args=()
+for engine in $release_engines; do
     python3 -B scripts/build_native_engine.py "$engine" --out "$target_dir/$engine-install" \
         --target-dir "$target_dir/$engine-engine" --jobs "${CARGO_BUILD_JOBS:-3}" "${engine_validation[@]}"
-    python3 -B "$here/package-engine.py" "$engine" \
-        --engine "$target_dir/$engine-install/libplenty_${engine}_v1.so" \
-        --out-dir "$out_dir" --rust-sysroot "$(rustc --print sysroot)"
+    engine_args+=(--engine "$engine=$target_dir/$engine-install/libplenty_${engine}_v1.so")
 done
+"$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
+    --rust-sysroot "$(rustc --print sysroot)" "${engine_args[@]}"

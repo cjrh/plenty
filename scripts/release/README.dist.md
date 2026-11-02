@@ -7,17 +7,16 @@ ahead of time to native code. This archive contains the compiler:
 |---|---|
 | `bin/plenty` | Compiler and project tool |
 | `bin/plentyc` | Single-file compiler, without project commands |
+| `bin/libplenty_dataframe_v1.so`, `bin/dataframe-notices/` | Polars engine for `std.dataframe`, with its licenses |
+| `bin/libplenty_linalg_v1.so`, `bin/linalg-notices/` | faer engine for `std.linalg`, with its licenses |
 | `LICENSE-MIT`, `LICENSE-APACHE` | Plenty's license: MIT or Apache-2.0, at your option |
 | `THIRD-PARTY-NOTICES.md`, `licenses/` | Licenses of software built into the compiler |
 
 The standard library and runtime are built into `bin/plenty`. You do not need
-Rust, Cargo, or the Plenty source code. `std.dataframe` uses a separate optional
-download from the same release:
-`plenty-dataframe-@VERSION@-@TARGET@.tar.gz` and its `.sha256` checksum.
-Its README explains installation and how to ship the shared engine with your
-applications. `std.linalg` similarly uses
-`plenty-linalg-@VERSION@-@TARGET@.tar.gz` and its checksum. Only programs reaching
-an engine's native operations need that engine; ordinary programs need neither.
+Rust, Cargo, or the Plenty source code. The compiler finds the `std.dataframe`
+and `std.linalg` engines beside itself; keep them in `bin/`. Only programs that
+reach an engine's native operations link it; other programs do not depend on
+either engine.
 
 ## Requirements
 
@@ -95,6 +94,9 @@ plenty hello.plenty
   packages above; on Debian and Ubuntu this is `libc6-dev`.
 - `GLIBC_2.xx not found` when starting `plenty`: the system is older than
   glibc 2.28 and cannot run this release.
+- `libplenty_dataframe_v1.so: cannot open shared object file` (or
+  `libplenty_linalg_v1.so`) when starting a program: the engine is missing from
+  the program's directory. Rebuild it with `--dist`, or restore the library.
 
 ## Programs you build
 
@@ -102,6 +104,27 @@ Programs are linked against the C library of the machine that compiles them.
 A program built on a new distribution can need a newer glibc than Plenty
 itself. To run programs on older systems, compile them on the oldest system
 you support, for example in a container.
+
+## Ship programs that use dataframes or linear algebra
+
+A program using `std.dataframe` or `std.linalg` loads its engine at run time.
+Compile it with `--dist` to collect the executable, the engines it uses, and
+their notices into a new directory:
+
+```sh
+plenty --compile analysis.plenty --dist my-app
+./my-app/analysis
+```
+
+`my-app` must not exist. Move or copy the whole directory, not only the
+executable: the program finds its engines in its own directory. End users need
+compatible host C libraries, but not Plenty, Rust, or a C compiler. An
+executable built with `-o` also searches this installation's `bin/`, which can
+hide a missing library on the build machine; prefer `--dist` when shipping.
+
+`PLENTY_DATAFRAME_ENGINE` and `PLENTY_LINALG_ENGINE` select another engine
+library at compile time. Use engines only from the same release as the
+compiler. `POLARS_MAX_THREADS` sets the dataframe engine's thread-pool size.
 
 ## Upgrade or switch versions
 

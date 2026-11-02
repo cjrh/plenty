@@ -16,8 +16,8 @@ run `cargo release --execute`, create release tags, or push.
 |---|---|
 | `plenty` | The language release version. `cargo release` bumps it in `Cargo.toml` and `Cargo.lock` |
 | `plenty-runtime` | Private and embedded in the compiler. Keeps its own version; `plenty-runtime/release.toml` excludes it, so it is never bumped or tagged |
-| `plenty-dataframe-engine` | Optional separately built workspace; its crate version is internal. Release archives use the Plenty version and carry the ABI generation in the shared-library filename |
-| `plenty-linalg-engine` | Optional faer workspace with the same release-version and ABI-generation policy |
+| `plenty-dataframe-engine` | Separately built workspace; its crate version is internal. Linux release archives bundle it under the Plenty version, with the ABI generation in the shared-library filename |
+| `plenty-linalg-engine` | Separately built faer workspace with the same release-version and ABI-generation policy |
 
 `plenty --version` reports the `plenty` package version. Tags are `vX.Y.Z`, or
 `vX.Y.Z-PRE` for a pre-release; asset names use the same version.
@@ -130,7 +130,7 @@ git push --atomic origin main vX.Y.Z
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
-| Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both optional engines and packages separate archives |
+| Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both engines and packages them in the compiler archive |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
 | Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the core archive (`build-native.sh`) |
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
@@ -159,31 +159,34 @@ turns the list into job matrices:
 
 | Target | Runner | Archives |
 |---|---|---|
-| `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | compiler, dataframe and linalg engines (`.tar.gz`) |
-| `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` | compiler, dataframe and linalg engines (`.tar.gz`) |
+| `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | compiler with dataframe and linalg engines (`.tar.gz`) |
+| `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` | compiler with dataframe and linalg engines (`.tar.gz`) |
 | `aarch64-apple-darwin` (experimental) | `macos-15` | compiler only (`.tar.gz`), macOS 11 or later |
 | `x86_64-pc-windows-msvc` (experimental) | `windows-2025` | compiler only (`.zip`), Windows 10 or later |
 
-Compiler assets are `plenty-VERSION-TRIPLE.EXT`; optional engine assets are
-`plenty-dataframe-VERSION-TRIPLE.tar.gz` and `plenty-linalg-VERSION-TRIPLE.tar.gz`.
-An engine must match the compiler's target. The engines are Linux ELF shared
-libraries, so macOS and Windows publish only the compiler. Their archives are
+Each target publishes one asset, `plenty-VERSION-TRIPLE.EXT`, and its checksum.
+`release_engines` in `target.sh` lists the engines bundled for a target. They are
+Linux ELF shared libraries, so macOS and Windows archives contain only the
+compiler. Their archives are
 not notarized or code-signed; macOS executables carry the linker's ad-hoc
 signature, and the Windows build links the dynamic MSVC runtime that the
 documented Build Tools prerequisite installs. `archive.py` writes those archives
 with sorted entries, fixed owners and modes, and `SOURCE_DATE_EPOCH` timestamps.
 The release notes mark them experimental. The [ARM harness](linux-aarch64.md)
 records the emulated evidence gathered before native ARM runners.
-Each engine archive contains `lib/libplenty_NAME_v1.so`, deployment instructions,
-notices and `engine.json` identifying the release/source, target and library
-checksum.
+A Linux archive contains `bin/libplenty_NAME_v1.so` beside the compiler and
+`bin/NAME-notices/` with licenses, dependency notices and `engine.json`
+identifying the release/source, target and library checksum. `build.sh` builds
+each engine and `package.sh --engine NAME=LIBRARY` installs it through
+`package-engine.py`; the archive README covers using and shipping the engines.
 `package-engine.py NAME` rejects an incorrect SONAME, embedded search paths,
 unsupported native dependencies/symbol versions, and missing symbols required
 by that checkout's stdlib facade. This catches stale engines with the same
 ABI-generation name. The workflow builds all components from the tagged
 source; it never substitutes an engine downloaded from another release.
 
-Normal compiler builds and the compiler download remain independent of Polars and faer.
+Normal compiler builds remain independent of Polars and faer, and the compiler
+links neither; programs load an engine only when they reach it.
 The release engine is built once for reuse when compiling and running many
 applications. The engine's native dependency graph supplies its own notices;
 it is not a copy of the compiler's dependency inventory.
@@ -262,11 +265,11 @@ cross-build alone does not validate engine execution. Options:
 | `--skip-smoke` | Only build, audit, and package |
 
 `scripts/release/smoke-test.sh ARCHIVE` runs the archive checks on the host.
-`bash scripts/release/smoke-dataframe.sh COMPILER_ARCHIVE ENGINE_ARCHIVE`
-checks matching assets, optional linkage, engine discovery, a Parquet query,
-relocation without the compiler, and the missing runtime library diagnostic.
-`bash scripts/release/smoke-engine.sh COMPILER_ARCHIVE ENGINE_ARCHIVE linalg`
-exercises the same installation/relocation checks with a linear solve.
+`bash scripts/release/smoke-engine.sh ARCHIVE dataframe` checks the bundled
+engine's files and modes, optional linkage, discovery beside the compiler, a
+Parquet query, `--dist` relocation without the compiler, and the missing runtime
+library diagnostic. `smoke-engine.sh ARCHIVE linalg` runs the same checks with
+a linear solve. `smoke-in-container.sh` runs both after `smoke-test.sh`.
 Containers are labelled `org.plenty.release-build` and
 `org.plenty.release-smoke` and removed when the check ends.
 

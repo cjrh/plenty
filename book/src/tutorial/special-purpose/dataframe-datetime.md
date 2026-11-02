@@ -5,8 +5,8 @@ query. The example below groups events by their UTC calendar date. This is
 different from splitting timestamp strings or assuming every input has an
 identical textual layout.
 
-Install the [optional engine](../../design/stdlib/dataframe-engine.md) before
-running these examples. `utc=True` declares that the input text already
+These examples need the [dataframe engine](../../design/stdlib/dataframe-engine.md),
+which Linux releases include. `utc=True` declares that the input text already
 represents UTC; it does not convert another timezone.
 
 ```plenty dataframe

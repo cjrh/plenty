@@ -1,12 +1,11 @@
 # Install and ship the linear algebra engine
 
 Native operations in [`std.linalg`](linalg.md) require
-`libplenty_linalg_v1.so`. The separate `plenty-linalg-VERSION-TARGET.tar.gz`
-release archive includes the prebuilt library, checksum, `engine.json`, and
-dependency notices. Use the engine and compiler from the same release.
-
-Install its `lib/libplenty_linalg_v1.so` beside the compiler, or set
-`PLENTY_LINALG_ENGINE` to its absolute path. An embedded compiler can set
+`libplenty_linalg_v1.so`. Linux [release archives](../toolchain/01-building/installing.md)
+include it in `bin/` beside the compiler, with `bin/linalg-notices/` holding
+`engine.json` and dependency notices. The compiler finds it there without
+configuration; set `PLENTY_LINALG_ENGINE` to an absolute path to select a
+different library from the same release. An embedded compiler can set
 `CompileOptions.linalg_engine`, which takes precedence. Type checking and
 unreachable native calls need no engine. Pure matrix construction/access does
 not link it either. Programs reaching a native operation link only this engine,
@@ -67,10 +66,9 @@ discarded on error, leaving caller inputs intact.
 ## Deployment
 
 Prefer explicit [distribution output](../toolchain/01-building/distributions.md).
-Select the library in its extracted engine archive, preserving the notices:
+With a release compiler, the bundled engine and notices need no configuration:
 
 ```sh
-export PLENTY_LINALG_ENGINE=/path/to/plenty-linalg-VERSION-TARGET/lib/libplenty_linalg_v1.so
 plenty --compile analysis.plenty --dist my-app
 ./my-app/analysis
 ```
@@ -100,7 +98,7 @@ Check relocation without the original installation and without stale
 `LD_LIBRARY_PATH` or `LD_PRELOAD`. Users need the host C libraries, not Rust,
 Cargo, Python, or Plenty. Missing `plla_v1_` symbols indicate an old engine.
 
-Prebuilt releases target x86-64 GNU/Linux with glibc 2.28 and `libgcc_s.so.1`.
+Prebuilt releases target x86-64 and ARM64 GNU/Linux with glibc 2.28 and `libgcc_s.so.1`.
 Compile and test your application on your oldest supported distribution: a
 compatible engine cannot lower the application's own glibc requirement.
 See the shared [native-engine contract](../toolchain/01-building/engines.md).

@@ -8,7 +8,7 @@
 # release_os               linux, macos or windows
 # release_exe              executable suffix
 # release_archive_ext      tar.gz, or zip on Windows
-# release_components       archives published for the target
+# release_engines          native engines bundled in the archive's bin/
 # release_experimental     1 for a preview target without the Linux release contract
 if [ -z "${PLENTY_RELEASE_TARGET:-}" ]; then
     case "$(uname -s)-$(uname -m)" in
@@ -22,7 +22,7 @@ fi
 release_os=linux
 release_exe=
 release_archive_ext=tar.gz
-release_components="plenty plenty-dataframe plenty-linalg"
+release_engines="dataframe linalg"
 release_experimental=0
 case "$PLENTY_RELEASE_TARGET" in
     x86_64-unknown-linux-gnu)
@@ -44,15 +44,15 @@ case "$PLENTY_RELEASE_TARGET" in
         MOLD_SHA256="${MOLD_SHA256_AARCH64:-}"
         ;;
     aarch64-apple-darwin)
-        # Optional engines are ELF shared libraries (SONAME, $ORIGIN RUNPATH);
-        # only the compiler archive ships until Mach-O engine loading exists.
+        # Engines are ELF shared libraries (SONAME, $ORIGIN RUNPATH); none
+        # ship until Mach-O engine loading exists.
         release_os=macos
         release_arch=aarch64
         release_cpu=apple-m1
         release_cflags=
         # Rust's minimum for this target; check-native.py enforces it.
         release_macos_min=11.0
-        release_components=plenty
+        release_engines=
         release_experimental=1
         ;;
     x86_64-pc-windows-msvc)
@@ -62,7 +62,7 @@ case "$PLENTY_RELEASE_TARGET" in
         release_cflags=
         release_exe=.exe
         release_archive_ext=zip
-        release_components=plenty
+        release_engines=
         release_experimental=1
         ;;
     *) echo "unsupported release target: $PLENTY_RELEASE_TARGET" >&2; exit 2 ;;

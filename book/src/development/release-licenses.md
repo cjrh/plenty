@@ -36,7 +36,7 @@ inventing a copyright notice. Both fallbacks identify their package version and
 source URL. Dependency upgrades require a fresh review if they still omit the license file;
 notice generation does not download fallback text during the release build.
 
-For each separate engine archive, `third_party_notices.py --component NAME`
+For each engine's `NAME-notices/`, `third_party_notices.py --component NAME`
 walks its own manifest/lockfile. The faer fork and its backend are Git dependencies
 pinned in the linalg lockfile, with their upstream notices; missing workspace-root
 licenses in the dependency family have version-pinned, reviewed fallbacks.

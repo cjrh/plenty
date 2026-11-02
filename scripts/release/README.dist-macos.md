@@ -15,7 +15,7 @@ Apple silicon:
 release platforms. On macOS, release checks compile and run small programs
 using the core language, collections, generators and printing. Parts of the
 standard library and runtime are incomplete here, including actor recovery and
-several OS services. The optional `std.dataframe` and `std.linalg` engines are
+several OS services. The `std.dataframe` and `std.linalg` engines are
 not available for macOS.
 
 The standard library and runtime are built into `bin/plenty`. You do not need
