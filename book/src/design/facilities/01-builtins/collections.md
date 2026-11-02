@@ -47,7 +47,10 @@ It borrows the receiver, including a temporary, and evaluates it once. A mutable
 or owned receiver, extra parameters, method type parameters, or another return
 type does not meet this contract; call such methods directly instead. The method
 body determines its cost and whether it allocates. Built-in collections retain
-their intrinsic length operations.
+their intrinsic length operations. Shared arguments follow the ordinary
+[call borrowing rules](../../language/05-ownership/02-borrowing.md):
+`len(&"ada")`, `len(&b"abc")`, and `len(&make_collection())` are valid.
+Borrowing itself does not allocate; producing the argument may allocate.
 
 `in` and `not in` do not dispatch to methods on classes or enums, even if they
 have an ordinary `contains` method. Use the container's explicit API; for

@@ -4548,41 +4548,41 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
-            // `len` borrows its operand as user calls do, so an explicit `&`
-            // lends the same operand, including a literal or temporary. `&` on
-            // a slice instead forms a view, which `len` observes directly.
-            if let Expression::Unary(op, inner) = &ungroup(&args[0]).kind
-                && op == "&"
-                && !matches!(ungroup(inner).kind, Expression::Slice(..))
-            {
-                return self.builtin_collection(name, std::slice::from_ref(&**inner), at, ops);
-            }
+            // Normalize explicit shared call borrowing before receiver dispatch.
+            // `&source[a:b]` constructs a view instead, so keep its `&` intact.
+            let arg = match &ungroup(&args[0]).kind {
+                Expression::Unary(op, inner)
+                    if op == "&" && !matches!(ungroup(inner).kind, Expression::Slice(..)) =>
+                {
+                    inner
+                }
+                _ => &args[0],
+            };
             // A projection borrows its enclosing owner, including when that
             // owner is a temporary or returned reference. Reuse method receiver
             // lowering rather than asking a projected field/element to move.
-            if let Some((receiver, root)) = self.hold_receiver_root(&args[0], ops)? {
+            if let Some((receiver, root)) = self.hold_receiver_root(arg, ops)? {
                 let result = self.builtin_collection(name, &[receiver], at, ops);
                 self.names.remove(&root);
                 return result;
             }
-            if let Some(ty @ Ty::Clist(_)) = self.place_type(&args[0]) {
-                let (_, loan) = self.borrow(&args[0], false, ops)?;
+            if let Some(ty @ Ty::Clist(_)) = self.place_type(arg) {
+                let (_, loan) = self.borrow(arg, false, ops)?;
                 ops.push(Op::Collection(CollectionOp::Clist(
                     crate::clist::ClistOp::Len(ty),
                 )));
                 Self::end_reads(vec![loan], ops);
                 return Ok(Ty::I64);
             }
-            if let Some(ty @ Ty::List(_)) = self.place_type(&args[0]) {
-                let (_, loan) = self.borrow(&args[0], false, ops)?;
+            if let Some(ty @ Ty::List(_)) = self.place_type(arg) {
+                let (_, loan) = self.borrow(arg, false, ops)?;
                 ops.push(Op::Collection(CollectionOp::ListLenRef(ty)));
                 Self::end_reads(vec![loan], ops);
                 return Ok(Ty::I64);
             }
-            if self.dictionary_projection_type(&args[0]).is_some()
-                || self.is_dictionary_projection(&args[0])
+            if self.dictionary_projection_type(arg).is_some() || self.is_dictionary_projection(arg)
             {
-                let (ty, loans) = self.observe(&args[0], ops)?;
+                let (ty, loans) = self.observe(arg, ops)?;
                 let Ty::DictView(owner, _) = ty else {
                     unreachable!("dictionary projection length")
                 };
@@ -4592,14 +4592,14 @@ impl Lower<'_> {
                 Self::end_reads(loans, ops);
                 return Ok(Ty::I64);
             }
-            if let Some(ty) = self.place_type(&args[0])
+            if let Some(ty) = self.place_type(arg)
                 && classes::method_owner(&ty).is_some()
             {
                 self.validate_length_method(&ty, at)?;
-                self.method(&args[0], "len", &[], ops)?;
+                self.method(arg, "len", &[], ops)?;
                 return Ok(Ty::I64);
             }
-            let (reference, loan) = self.shared_argument(&args[0], None, ops)?;
+            let (reference, loan) = self.shared_argument(arg, None, ops)?;
             let ty = match &reference {
                 Ty::Ref(inner, _) => (**inner).clone(),
                 Ty::View(..) => reference.clone(),
@@ -4622,7 +4622,7 @@ impl Lower<'_> {
                     },
                 );
                 let receiver = Expr {
-                    at: args[0].at.clone(),
+                    at: arg.at.clone(),
                     kind: Expression::Name(name.clone()),
                 };
                 self.method(&receiver, "len", &[], ops)?;
