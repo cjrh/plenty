@@ -1,6 +1,7 @@
 # Positive and NonNegative integer domain types
 
-**Status: Accepted design, not implemented.** No backlog item yet; it proposes B95,
+**Status: Language types implemented; API migrations remain B95.** The delivered
+language subset is recorded in [B95](../completed-work/language-and-tooling.md#b95-integer-domain-types),
 related to B92. The [numbers reference](../design/language/03-types/numbers.md#nonzero-integers)
 defines `NonZero[T]`, the model for this design, and the
 [std conventions](../design/stdlib/conventions.md#invalid-arguments) define the

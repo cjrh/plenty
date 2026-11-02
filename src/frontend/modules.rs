@@ -2216,6 +2216,22 @@ pub class NonZero[T: IntType]:
 
     pub def get(self) -> T:
         self.value
+
+@newtype
+@copy
+pub class Positive[T: IntType]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
+
+@newtype
+@copy
+pub class NonNegative[T: IntType]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
 ";
 
 /// The component after `outer` in `inner` when `outer` is a strict dotted
@@ -2744,11 +2760,11 @@ pub(super) fn check_member_at(
                 "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
             ));
         }
-        if class == super::nonzero::CLASS {
+        if crate::op::IntegerDomain::named(class).is_some() {
             return Err(diagnostic.error(if member == "__new__" {
-                "a `NonZero` comes from a nonzero integer literal where one is expected, or from `NonZero.try_from(value)?`"
+                format!("a `{class}` comes from {} integer literal where one is expected, or from `{class}.try_from(value)?`", if class == "NonZero" { "a nonzero" } else { "an in-domain" })
             } else {
-                "a `NonZero`'s field is private; read its integer with `.get()`"
+                format!("a `{class}`'s field is private; read its integer with `.get()`")
             }));
         }
         return Err(diagnostic.error(format!(

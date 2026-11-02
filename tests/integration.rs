@@ -683,3 +683,6 @@ mod test_signal_host;
 mod test_constructor_values;
 #[path = "test_worker_callables.rs"]
 mod test_worker_callables;
+
+#[path = "test_domain_types.rs"]
+mod test_domain_types;

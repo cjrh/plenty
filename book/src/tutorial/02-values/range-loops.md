@@ -58,3 +58,10 @@ Creating and iterating a range do not allocate a list.
 Ranges default to `i64`. Write `range[u8](8)` to choose another integer type.
 Start and stop must fit that type, even though stop is excluded.
 The step stays a signed `NonZero[i64]`, so an unsigned range can count down.
+
+A configured count that must be greater than zero can use
+[`Positive[i64]`](../../design/language/03-types/numbers.md#positive-and-non-negative-integers).
+Construct `positive_count = Positive.try_from(count)?` once;
+`NonZero.from(positive_count)` then
+uses that positive domain value as a range step without another check.
+`NonNegative[i64]` similarly states that a value may be zero but not negative.

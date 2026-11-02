@@ -277,3 +277,14 @@ or mutable callback arguments can borrow their code addresses. Fallible class
 initializers keep `Result[Class, AllocError]` as their callable result. See
 [function values](../design/language/06-functions/02-function-values.md) and
 [remaining B93 scope](../backlog.md).
+
+## B95: Integer domain types
+
+`Positive[T]` and `NonNegative[T]` for signed integers now provide literal
+conversion, fallible run-time conversion, private construction, `.get()`,
+domain-preserving arithmetic with checked overflow, ordinary comparisons,
+copying, scalar formatting and hashing. Explicit `NonZero.from(positive)` and
+`NonNegative.from(positive)` widen without failure or allocation.
+
+See [integer domains](../design/language/03-types/numbers.md#positive-and-non-negative-integers).
+The [B95 backlog](../backlog.md) retains std migrations and domain divisors.

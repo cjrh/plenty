@@ -1,11 +1,9 @@
-//! `NonZero[T]`, a builtin integer that cannot be zero. It is a private
-//! `@newtype @copy` class declared with the arithmetic errors, so its value
-//! has the integer's representation. Values come only from a nonzero literal
-//! where one is expected or from `NonZero.try_from`. See
-//! book/src/design/language/03-types/numbers.md#nonzero-integers.
+//! Builtin integer domains: NonZero, Positive and NonNegative. Private
+//! `@newtype @copy` classes share their integer's layout. Only checked
+//! literals, fallible conversion and explicit proven widening construct them.
+//! See book/src/design/language/03-types/numbers.md.
 use super::*;
-
-pub(super) const CLASS: &str = "NonZero";
+use crate::op::IntegerDomain;
 
 /// Operators a `NonZero` forwards: those that cannot produce zero from two
 /// nonzero operands, plus the comparisons. `+` and `-` forward but give `T`.
@@ -14,9 +12,13 @@ pub(super) fn forwards(op: &str) -> bool {
 }
 
 pub(super) fn unsupported(op: &str, ty: &Ty) -> String {
-    format!(
-        "operator `{op}` does not accept `{ty}`, since its result could be zero; read the integer with `.get()`"
-    )
+    if ty.nonzero_element().is_some() {
+        format!(
+            "operator `{op}` does not accept `{ty}`, since its result could be zero; read the integer with `.get()`"
+        )
+    } else {
+        format!("operator `{op}` does not preserve `{ty}`; read the integer with `.get()`")
+    }
 }
 
 /// An unsuffixed integer literal, possibly negated.
@@ -44,11 +46,20 @@ fn zero(value: &Value) -> bool {
 impl Lower<'_> {
     /// `NonZero[element]`.
     pub(super) fn nonzero_type(&self, element: &Ty, at: &Token) -> Result<Ty> {
+        self.domain_type(IntegerDomain::NonZero, element, at)
+    }
+
+    pub(super) fn domain_type(
+        &self,
+        domain: IntegerDomain,
+        element: &Ty,
+        at: &Token,
+    ) -> Result<Ty> {
         TypeRef {
             concrete: None,
             parameter: false,
             at: at.clone(),
-            name: Some(CLASS.into()),
+            name: Some(domain.name().into()),
             args: vec![TypeRef {
                 concrete: Some(Box::new(element.clone())),
                 parameter: false,
@@ -89,15 +100,37 @@ impl Lower<'_> {
     /// An integer literal, possibly negated, where `NonZero[T]` is expected:
     /// checked and converted at compile time.
     pub(super) fn nonzero_literal(&mut self, e: &Expr, ty: &Ty, ops: &mut Vec<Op>) -> Result<Type> {
-        let element = ty.nonzero_element().unwrap();
+        let (domain, element) = ty.integer_domain().unwrap();
         let mut literal = Vec::new();
         self.expr_expected(e, Some(element), &mut literal)?;
-        if let [Op::PushInt(value)] = literal.as_slice()
-            && zero(value)
-        {
-            return Err(e.at.error(format!(
-                "`0` is not a `{ty}`: a NonZero value cannot be zero"
-            )));
+        if let [Op::PushInt(value)] = literal.as_slice() {
+            let invalid = match domain {
+                IntegerDomain::NonZero => zero(value),
+                IntegerDomain::Positive => {
+                    !matches!(value, Value::I8(v) if *v > 0)
+                        && !matches!(value, Value::I16(v) if *v > 0)
+                        && !matches!(value, Value::I32(v) if *v > 0)
+                        && !matches!(value, Value::I64(v) if *v > 0)
+                }
+                IntegerDomain::NonNegative => {
+                    matches!(value, Value::I8(v) if *v < 0)
+                        || matches!(value, Value::I16(v) if *v < 0)
+                        || matches!(value, Value::I32(v) if *v < 0)
+                        || matches!(value, Value::I64(v) if *v < 0)
+                }
+            };
+            if invalid {
+                let reason = match domain {
+                    IntegerDomain::NonZero => "a NonZero value cannot be zero",
+                    IntegerDomain::Positive => "a Positive value must be greater than zero",
+                    IntegerDomain::NonNegative => "a NonNegative value cannot be negative",
+                };
+                return Err(e.at.error(if domain == IntegerDomain::NonZero {
+                    format!("`0` is not a `{ty}`: {reason}")
+                } else {
+                    format!("literal is not a `{ty}`: {reason}")
+                }));
+            }
         }
         let construct = self.nonzero_construct(ty, e.clone())?;
         self.expr(&construct, ops)
@@ -106,15 +139,17 @@ impl Lower<'_> {
     /// `NonZero.try_from(value)` or `NonZero[T].try_from(value)`:
     /// `Result[NonZero[T], RangeError]`, `Err(RangeError.OutOfRange)` for zero.
     /// The bare form takes `T` from the value.
-    pub(super) fn nonzero_try_from(
+    pub(super) fn domain_try_from(
         &mut self,
+        domain: IntegerDomain,
         element: Option<Ty>,
         args: &[Expr],
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let class = domain.name();
         let [value] = args else {
-            return Err(at.error("NonZero.try_from takes one integer"));
+            return Err(at.error(format!("{class}.try_from takes one integer")));
         };
         let actual = self.expr_expected(value, element.clone(), ops)?;
         let actual = match actual {
@@ -125,7 +160,7 @@ impl Lower<'_> {
             Some(ty) if ty.is_int() => ty,
             other => {
                 return Err(value.at.error(format!(
-                    "NonZero.try_from takes an integer, not {}",
+                    "{class}.try_from takes an integer, not {}",
                     type_name(other)
                 )));
             }
@@ -134,10 +169,10 @@ impl Lower<'_> {
             && *element != actual
         {
             return Err(value.at.error(format!(
-                "`NonZero[{element}].try_from` takes `{element}`, not `{actual}`; convert it first with `{element}.try_from(value)?`"
+                "`{class}[{element}].try_from` takes `{element}`, not `{actual}`; convert it first with `{element}.try_from(value)?`"
             )));
         }
-        let ty = self.nonzero_type(&actual, at)?;
+        let ty = self.domain_type(domain, &actual, at)?;
         let slot = self.slot(actual.clone(), at)?;
         ops.push(Op::StoreLocal(slot));
         let held = format!("$nonzero{slot}");
@@ -168,7 +203,12 @@ impl Lower<'_> {
         ));
         let conversion = expression(Expression::Conditional {
             condition: Box::new(expression(Expression::Binary(
-                "==".into(),
+                match domain {
+                    IntegerDomain::NonZero => "==",
+                    IntegerDomain::Positive => "<=",
+                    IntegerDomain::NonNegative => "<",
+                }
+                .into(),
                 Box::new(name()),
                 Box::new(expression(Expression::Number("0".into()))),
             ))),
@@ -180,6 +220,64 @@ impl Lower<'_> {
         self.names.remove(&held);
         out?;
         Ok(Some(result))
+    }
+
+    pub(super) fn domain_from_positive(
+        &mut self,
+        domain: IntegerDomain,
+        element: Option<Ty>,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let [value] = args else {
+            return Err(at.error(format!("{}.from takes one Positive value", domain.name())));
+        };
+        let source = self
+            .expr(value, ops)?
+            .ok_or_else(|| value.at.error("expected a Positive value"))?;
+        let source = if let Ty::Ref(inner, _) = source {
+            ops.push(Op::ReadRef((*inner).clone()));
+            (*inner).clone()
+        } else {
+            source
+        };
+        let Some(actual) = source.positive_element() else {
+            return Err(value
+                .at
+                .error(format!("{}.from takes a Positive value", domain.name())));
+        };
+        if let Some(expected) = element {
+            self.same(Some(actual.clone()), Some(expected), &value.at)?;
+        }
+        let ty = self.domain_type(domain, &actual, at)?;
+        let slot = self.slot(source.clone(), at)?;
+        ops.push(Op::StoreLocal(slot));
+        let held = format!("$domain{slot}");
+        self.bind(
+            held.clone(),
+            Local {
+                slot,
+                ty: source,
+                mutable: false,
+            },
+        );
+        let get = Expr {
+            at: at.clone(),
+            kind: Expression::Method(
+                Box::new(Expr {
+                    at: at.clone(),
+                    kind: Expression::Name(held.clone()),
+                }),
+                "get".into(),
+                Vec::new(),
+                Pos::default(),
+            ),
+        };
+        let construct = self.nonzero_construct(&ty, get)?;
+        let result = self.expr(&construct, ops);
+        self.names.remove(&held);
+        result
     }
 
     /// `value OP literal` or `literal OP value` for a `NonZero[T]` value: the
@@ -202,7 +300,7 @@ impl Lower<'_> {
                 Ty::Ref(inner, _) => (*inner).clone(),
                 other => other,
             })
-            .filter(|ty| ty.nonzero_element().is_some())
+            .filter(|ty| ty.domain_element().is_some())
         };
         let (ty, constant, left_literal) = if literal(right)
             && let Some(ty) = nonzero(self.operator_hint(left))
