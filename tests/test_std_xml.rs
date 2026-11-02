@@ -1,4 +1,5 @@
 //! Bounded XML events, stream progress, and XML 1.0 well-formedness.
+mod support;
 use std::process::Command;
 
 const PRELUDE: &str = r#"import std.xml
@@ -433,7 +434,7 @@ print(failures > 0, successes > 0)?
 }
 
 #[test]
-fn xml_character_ranges_and_invalid_limits_are_checked() {
+fn xml_character_ranges_are_checked() {
     let result = native(
         r#"
 for code in [65536u32, 983039u32, 983040u32]?:
@@ -443,20 +444,41 @@ for code in [65536u32, 983039u32, 983040u32]?:
 for code in [0u32, 1u32, 65534u32, 65535u32]?:
     document = ("<a>" + chr(code).unwrap())?
     print(fault((document + "</a>")?, &std.xml.limits()))?
-for bounds in [Limits(-1, 5, 5, 5, 0), Limits(1025, 5, 5, 5, 0), Limits(1, -1, 5, 5, 0), Limits(1, 5, -1, 5, 0), Limits(1, 5, 5, 0, 0), Limits(1, 5, 5, 5, -1)]?:
-    match std.xml.reader(std.io.cursor(std.bytes.empty()?), &bounds):
-        case Err(error):
-            print(error.fault)?
-        case Ok(_):
-            print("bad")?
 "#,
     );
     let expected = format!(
-        "True\nTrue\nFalse\n{}\n{}",
+        "True\nTrue\nFalse\n{}",
         ["std.xml.Fault.InvalidCharacter"; 4].join("\n"),
-        ["std.xml.Fault.InvalidLimits"; 6].join("\n")
     );
     assert_eq!(result, expected);
+}
+
+#[test]
+fn a_depth_limit_above_the_ceiling_traps() {
+    for call in [
+        "drop(std.xml.reader(std.io.cursor(std.bytes.empty()?), &bounds))",
+        "drop(std.xml.writer(std.io.cursor(std.bytes.empty()?), &bounds))",
+    ] {
+        let source = format!(
+            "{PRELUDE}\ndef main() -> Result[(), AllocError]:\n    bounds = Limits(1025, 5, 5, 5, 0)\n    {call}\n    Ok(())\n"
+        );
+        support::assert_file_traps(&source, "std.xml: max_depth is above 1024");
+    }
+}
+
+#[test]
+fn out_of_domain_limits_are_compile_errors() {
+    // `max_token` is `Positive[i64]` and the rest `NonNegative[i64]`, replacing
+    // the old `InvalidLimits` cases.
+    for (bounds, message) in [
+        ("Limits(1, 5, 5, 0, 0)", "must be greater than zero"),
+        ("Limits(-1, 5, 5, 5, 0)", "cannot be negative"),
+        ("Limits(1, 5, 5, 5, -1)", "cannot be negative"),
+    ] {
+        let source = format!("{PRELUDE}\ndef main() -> ():\n    drop({bounds})\n");
+        let error = support::check_file_error(&source);
+        assert!(error.contains(message), "{error}");
+    }
 }
 
 #[test]

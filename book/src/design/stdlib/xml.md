@@ -49,16 +49,17 @@ spellings, or declaration formatting.
 `limits()` returns a `Limits` with public fields. Constructors copy the limits;
 changing the original afterwards has no effect.
 
-| Field | Default | Meaning |
-|---|---:|---|
-| `max_depth` | 64 | Open nesting including an empty element; permitted range 0–1024 |
-| `max_input` | 67108864 | Total input bytes consumed, including BOM |
-| `max_output` | 67108864 | Total encoded bytes written |
-| `max_token` | 1048576 | Raw bytes per reader event, or encoded bytes per writer event, including markup |
-| `max_attributes` | 4096 | Attributes per element |
+| Field | Type | Default | Meaning |
+|---|---|---:|---|
+| `max_depth` | `NonNegative[i64]` | 64 | Open nesting including an empty element; at most 1024 |
+| `max_input` | `NonNegative[i64]` | 67108864 | Total input bytes consumed, including BOM |
+| `max_output` | `NonNegative[i64]` | 67108864 | Total encoded bytes written |
+| `max_token` | `Positive[i64]` | 1048576 | Raw bytes per reader event, or encoded bytes per writer event, including markup |
+| `max_attributes` | `NonNegative[i64]` | 4096 | Attributes per element |
 
-Byte and attribute totals must be nonnegative and `max_token` at least one.
-A zero depth permits no root and therefore no complete document. The input
+A literal converts where a field is expected; a computed value needs
+`NonNegative.try_from(value)?` or `Positive.try_from(value)?`. `reader` and
+`writer` trap when `max_depth` is above 1024. A zero depth permits no root and therefore no complete document. The input
 limit applies to readers and the output limit to writers. The XML declaration
 has its own fixed grammar of at most three fields. The BOM is checked against
 the token limit separately from the first event.
@@ -112,7 +113,7 @@ byte containing the original mistake.
 `Fault` distinguishes syntax, unexpected EOF, invalid names/characters/UTF-8,
 invalid references, unknown entities, duplicate attributes, mismatched ends,
 forbidden doctypes, unsupported declarations, each resource bound, invalid
-limits, invalid writer state, and `Stopped`. `Allocation(AllocError)` and
+writer state, and `Stopped`. `Allocation(AllocError)` and
 `Stream(StreamError)` retain their causes, including stream allocation errors.
 All allocation in the module is fallible. A malformed or oversized reader
 event, failed writer event, or failed finish permanently stops that wrapper;
