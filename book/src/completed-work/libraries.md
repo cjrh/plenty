@@ -267,3 +267,20 @@ Release and portability workflows exercise Parquet queries and app relocation;
 Windows execution still requires native runner validation. Linear algebra and
 macOS engine packaging remain outside this delivery. See the
 [engine installation reference](../design/stdlib/dataframe-engine.md#windows-application-linking).
+
+## macOS ARM64 dataframe packaging
+
+The experimental Apple silicon release builds the Polars dataframe engine for
+Apple M1 and macOS 11, and bundles `libplenty_dataframe_v1.dylib` with its
+metadata and licenses. The dylib has a versioned `@rpath` identity; applications
+find their sibling copy through `@loader_path`. Ordinary output copies the
+dylib; `--dist` adds validated notices and checks library identity and checksum.
+Packaging checks native dependencies, exports, deployment minimum and ad-hoc
+code signature. Native workflows exercise Parquet queries, moved installations
+and application-only relocation; native execution remains for CI to verify.
+
+The shared native archive writer now gives libraries and notices mode 0644,
+resolving issue #677 for both Windows and macOS bundles. Broader B18.7 library
+qualification, linear algebra on these platforms and signing/notarization
+remain outside this delivery. See
+[macOS engine installation](../design/stdlib/dataframe-engine.md#macos-application-linking).

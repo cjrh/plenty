@@ -8,6 +8,7 @@ Apple silicon:
 |---|---|
 | `bin/plenty` | Compiler and project tool |
 | `bin/plentyc` | Single-file compiler, without project commands |
+| `bin/libplenty_dataframe_v1.dylib`, `bin/dataframe-notices/` | Dataframe engine and its licenses |
 | `LICENSE-MIT`, `LICENSE-APACHE` | Plenty's license: MIT or Apache-2.0, at your option |
 | `THIRD-PARTY-NOTICES.md`, `licenses/` | Licenses of software built into the compiler |
 
@@ -15,8 +16,16 @@ Apple silicon:
 release platforms. On macOS, release checks compile and run small programs
 using the core language, collections, generators and printing. Parts of the
 standard library and runtime are incomplete here, including actor recovery and
-several OS services. The `std.dataframe` and `std.linalg` engines are
-not available for macOS.
+several OS services. The archive includes the `std.dataframe` engine for Apple silicon;
+`std.linalg` remains unavailable.
+
+The compiler finds the dataframe dylib beside itself and copies it beside
+programs using dataframe operations. For shipping an application, use
+`plenty --compile analysis.plenty --dist my-app`; this includes the executable,
+`libplenty_dataframe_v1.dylib` and `dataframe-notices/`. Keep these together
+when moving the application. End users need no Plenty, Rust or C compiler.
+The dylib's `@rpath` identity and the application's `@loader_path` search path
+let the application find its sibling library after relocation.
 
 The standard library and runtime are built into `bin/plenty`. You do not need
 Rust, Cargo, or the Plenty source code.

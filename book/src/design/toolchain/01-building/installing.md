@@ -89,13 +89,14 @@ and for 64-bit Windows:
 | `plenty-VERSION-x86_64-pc-windows-msvc.zip` | Windows 10, Windows Server 2016, or later on x86-64; Visual Studio Build Tools with the "Desktop development with C++" workload and the Windows SDK, which also supply the MSVC runtime the compiler uses |
 
 Both contain `bin/plenty`, `bin/plentyc` (`.exe` on Windows), the README,
-licenses and notices. Windows also includes `bin/plenty_dataframe_v1.dll` and
-`bin/dataframe-notices/` for dataframe applications. Linear algebra remains
-unavailable on Windows; macOS has neither optional engine. The release
+licenses and notices. Both include the dataframe engine and
+`bin/dataframe-notices/`: `bin/libplenty_dataframe_v1.dylib` on macOS,
+`bin/plenty_dataframe_v1.dll` on Windows. Linear algebra remains unavailable
+on these two platforms. The release
 workflow builds each archive natively, runs the compiler/runtime unit tests and
 platform-boundary checks, then extracts it on a macOS 15 or Windows Server 2025
 runner with Rust and Cargo removed from `PATH`, and compiles and runs a small
-program. Windows additionally exercises a dataframe Parquet query and relocatable
+program. Both additionally exercise a dataframe Parquet query and relocatable
 application distribution. Projects, most standard-library services such as SQLite and TLS, and
 the diagnostics for a missing linker are not yet tested there, and several OS
 services are incomplete; see [platform support](../02-architecture/support.md).

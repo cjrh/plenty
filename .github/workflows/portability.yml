@@ -66,16 +66,16 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --workspace --lib --no-fail-fast -- --nocapture --test-threads=1 2>&1 | tee artifacts/unit-tests.log
-      - name: Build and smoke-test Windows dataframe release
-        if: matrix.target == 'x86_64-pc-windows-msvc'
+      - name: Build and smoke-test native dataframe release
         env:
-          PLENTY_RELEASE_TARGET: x86_64-pc-windows-msvc
-          PYTHON: python
+          PLENTY_RELEASE_TARGET: ${{ matrix.target }}
+          PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
         run: |
           . scripts/release/toolchain.env
           rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
           scripts/release/build-native.sh --out-dir dist --test
-          python -B scripts/release/smoke-native.py dist/plenty-*-x86_64-pc-windows-msvc.zip
+          . scripts/release/target.sh
+          "$PYTHON" -B scripts/release/smoke-native.py dist/plenty-*-"$PLENTY_RELEASE_TARGET.$release_archive_ext"
       - name: Preserve diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

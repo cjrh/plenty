@@ -5,7 +5,7 @@ Usage: archive.py STAGE NAME OUT
 
 Archives STAGE/NAME as OUT, choosing the format from OUT's suffix. Entries are
 sorted, owned by 0:0 (tar), dated SOURCE_DATE_EPOCH (default 0), and given
-mode 0755 for directories and files under bin/, 0644 otherwise, so the result
+mode 0755 for directories and compiler executables, 0644 otherwise, so the result
 does not depend on the build host's tar, umask, or file system. Used for the
 macOS and Windows archives; Linux archives keep GNU tar in package.sh.
 """
@@ -26,11 +26,13 @@ def entries(stage, name):
         base = Path(directory)
         found.extend(base / d for d in dirs)
         found.extend(base / f for f in sorted(files))
+    executables = {f"{name}/bin/{tool}{suffix}"
+                   for tool in ("plenty", "plentyc") for suffix in ("", ".exe")}
     for path in sorted(found, key=lambda p: p.relative_to(stage).as_posix()):
         if path.is_symlink() or not (path.is_dir() or path.is_file()):
             raise SystemExit(f"archive.py: unsupported entry {path}")
         relative = path.relative_to(stage).as_posix()
-        executable = path.is_dir() or relative.startswith(f"{name}/bin/")
+        executable = path.is_dir() or relative in executables
         yield path, relative, 0o755 if executable else 0o644
 
 

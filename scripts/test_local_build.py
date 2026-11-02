@@ -60,7 +60,7 @@ class LocalPackaging(unittest.TestCase):
              patch.object(self.module, "check_exports") as exports, \
              patch.object(self.module.subprocess, "run", self.run_command):
             self.module.main()
-        exports.assert_called_once_with(engine.resolve(), name, False)
+        exports.assert_called_once_with(engine.resolve(), name, False, False)
         return engine
 
     def test_both_local_layouts_have_matching_hash_and_real_symbol_floor(self):

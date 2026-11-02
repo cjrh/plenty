@@ -28,8 +28,8 @@ Select the archive matching your CPU architecture. It includes the native
 engines for \`std.dataframe\` and \`std.linalg\`." ;;
         macos)
             summary="**Experimental:** macOS ${release_macos_min%.0} or later on Apple silicon, plus the Xcode
-Command Line Tools for linking. Not notarized; \`std.dataframe\` and
-\`std.linalg\` are not available for macOS." ;;
+Command Line Tools for linking. Not notarized; includes the \`std.dataframe\` dylib.
+\`std.linalg\` is not available for macOS." ;;
         windows)
             summary="**Experimental:** 64-bit Windows 10 or later on x86-64, plus Visual Studio
 Build Tools with the C++ workload for linking. Not signed; includes the \`std.dataframe\` DLL.

@@ -547,7 +547,7 @@ class TargetFacts(unittest.TestCase):
         expected = {
             "x86_64-unknown-linux-gnu": "linux|x86-64||tar.gz|dataframe linalg|0",
             "aarch64-unknown-linux-gnu": "linux|generic||tar.gz|dataframe linalg|0",
-            "aarch64-apple-darwin": "macos|apple-m1||tar.gz||1",
+            "aarch64-apple-darwin": "macos|apple-m1||tar.gz|dataframe|1",
             "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip|dataframe|1",
         }
         for target, facts in expected.items():
@@ -583,6 +583,10 @@ class Archive(unittest.TestCase):
         (stage / self.name / "README.md").write_text("# Plenty\n")
         (stage / self.name / "licenses" / "rust" / "COPYRIGHT.html").write_text("rust")
         (stage / self.name / "README.md").chmod(0o600)
+        (stage / self.name / "bin/dataframe-notices").mkdir()
+        (stage / self.name / "bin/dataframe-notices/engine.json").write_text("{}")
+        for library in ("plenty_dataframe_v1.dll", "libplenty_dataframe_v1.dylib"):
+            (stage / self.name / "bin" / library).write_text("engine")
         self.stage = stage
 
     def build(self, out, epoch="1700000000"):
@@ -612,6 +616,9 @@ class Archive(unittest.TestCase):
                 self.assertEqual(names, sorted(names))
                 self.assertEqual(modes[f"{self.name}/bin/plenty.exe"], 0o755)
                 self.assertEqual(modes[f"{self.name}/README.md"], 0o644)
+                for entry in ("bin/plenty_dataframe_v1.dll", "bin/libplenty_dataframe_v1.dylib",
+                              "bin/dataframe-notices/engine.json"):
+                    self.assertEqual(modes[f"{self.name}/{entry}"], 0o644)
                 self.assertEqual(modes[f"{self.name}/licenses/"], 0o755)
 
     def test_unknown_format_fails(self):
@@ -629,22 +636,27 @@ class CheckNative(unittest.TestCase):
 
     @staticmethod
     def macho(dylibs=("/usr/lib/libSystem.B.dylib",), minos=(11, 0), cpu=0x0100000C,
-              signed=True, rpath=False):
+              signed=True, rpath=False, identity=None):
         import struct
         commands = []
         for name in dylibs:
             raw = name.encode() + b"\0"
             raw += b"\0" * (-(24 + len(raw)) % 8)
             commands.append(struct.pack("<IIIIII", 0xC, 24 + len(raw), 24, 2, 0, 0) + raw)
+        if identity:
+            raw = identity.encode() + b"\0"
+            raw += b"\0" * (-(24 + len(raw)) % 8)
+            commands.append(struct.pack("<IIIIII", 0xD, 24 + len(raw), 24, 0, 0, 0) + raw)
         if minos:
             commands.append(struct.pack("<IIIIII", 0x32, 24, 1, (minos[0] << 16) | (minos[1] << 8), 0, 0))
         if rpath:
-            raw = b"@loader_path\0\0\0\0"
+            raw = ("@loader_path" if rpath is True else rpath).encode() + b"\0"
+            raw += b"\0" * (-(12 + len(raw)) % 8)
             commands.append(struct.pack("<III", 0x8000001C, 12 + len(raw), 12) + raw)
         if signed:
             commands.append(struct.pack("<IIII", 0x1D, 16, 0, 0))
         body = b"".join(commands)
-        return struct.pack("<IiIIIIII", 0xFEEDFACF, cpu, 0, 2, len(commands), len(body), 0, 0) + body
+        return struct.pack("<IiIIIIII", 0xFEEDFACF, cpu, 0, 6 if identity else 2, len(commands), len(body), 0, 0) + body
 
     @staticmethod
     def pe(dlls=("KERNEL32.dll", "VCRUNTIME140.dll", "api-ms-win-crt-runtime-l1-1-0.dll"),
@@ -688,6 +700,21 @@ class CheckNative(unittest.TestCase):
         self.assertIn("macOS 11.0.0+", summary)
         frameworks = ("/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/Security.framework/Versions/A/Security")
         self.assertEqual(self.check.check_macho(self.macho(dylibs=frameworks), "11.0")[0], [])
+
+    def test_macos_dylib_identity_and_application_lookup(self):
+        library = "libplenty_dataframe_v1.dylib"
+        identity = f"@rpath/{library}"
+        self.assertEqual(self.check.check_macho(self.macho(identity=identity), "11.0", library=library)[0], [])
+        for kwargs in ({"identity": "/build/engine.dylib"}, {"identity": identity, "rpath": True},
+                       {"identity": identity, "signed": False}, {"identity": identity, "minos": (15, 0)},
+                       {"identity": identity, "cpu": 0x01000007}, {}):
+            with self.subTest(kwargs=kwargs):
+                self.assertTrue(self.check.check_macho(self.macho(**kwargs), "11.0", library=library)[0])
+        app = self.macho(dylibs=(identity,), rpath=True)
+        self.assertEqual(self.check.check_macho(app, "11.0", engines=(library,))[0], [])
+        self.assertTrue(self.check.check_macho(app, "11.0")[0])
+        self.assertTrue(self.check.check_macho(self.macho(dylibs=(identity,)), "11.0", engines=(library,))[0])
+        self.assertTrue(self.check.check_macho(self.macho(dylibs=(identity,), rpath="/build/engine"), "11.0", engines=(library,))[0])
 
     def test_macos_runner_dependencies_are_rejected(self):
         for kwargs, message in [({"dylibs": ("/opt/homebrew/lib/libz.1.dylib",)}, "not a macOS system library"),
@@ -736,11 +763,28 @@ class SmokeNative(unittest.TestCase):
     """Run smoke-native.py on Linux against a macOS-named archive whose
     executables are shell stand-ins; the real run happens on macos-15."""
 
-    FAKE = """#!/bin/sh
+    FAKE = r"""#!/bin/sh
 case "$1" in
 --version) echo "$(basename "$0") 0.4.0 (aarch64-apple-darwin)" ;;
 --check) test -f "$2" ;;
---compile) printf '#!/bin/sh\\nexec "%s" run\\n' "$0" > "$4"; chmod +x "$4" ;;
+--compile)
+    if [ "$2" = analysis.plenty ]; then
+        library=libplenty_dataframe_v1.dylib
+        if [ "$3" = --dist ]; then
+            mkdir "$4"
+            out="$4/analysis"
+            cp -R "$(dirname "$0")/dataframe-notices" "$4/"
+        else
+            out="$4"
+        fi
+        cp "$(dirname "$0")/$library" "$(dirname "$out")/"
+        printf '#!/bin/sh\ntest -f "$(dirname "$0")/libplenty_dataframe_v1.dylib" || exit 1\nprintf "6\\n"\n' > "$out"
+    else
+        out="$4"
+        printf '#!/bin/sh\nprintf "%%s" "$SMOKE_EXPECTED"\n' > "$out"
+    fi
+    chmod +x "$out" ;;
+analysis.plenty) printf '6\n' ;;
 *) printf '%s' "$SMOKE_EXPECTED" ;;
 esac
 """
@@ -759,6 +803,12 @@ esac
             (top / entry).write_text(entry)
         for tool in ("plenty", "plentyc"):
             (top / "bin" / tool).write_text(self.FAKE)
+        notices = top / "bin/dataframe-notices"
+        (notices / "licenses/rust").mkdir(parents=True)
+        for filename in ("engine.json", "THIRD-PARTY-NOTICES.md", "LICENSE-MIT", "LICENSE-APACHE",
+                         "licenses/rust/COPYRIGHT-library.html"):
+            (notices / filename).write_text(filename)
+        (top / "bin/libplenty_dataframe_v1.dylib").write_text("fixture engine")
         self.stage = stage
         self.archive = self.root / "dist" / f"{self.name}.tar.gz"
         self.archive.parent.mkdir()

@@ -227,6 +227,8 @@ fn copy_engine_inner(engine: &Engine, selected: &Path, bundle: &Path) -> Result<
         "source_commit",
         if cfg!(windows) {
             "minimum_windows"
+        } else if cfg!(target_os = "macos") {
+            "minimum_macos"
         } else {
             "minimum_glibc"
         },
@@ -258,7 +260,12 @@ fn copy_engine_inner(engine: &Engine, selected: &Path, bundle: &Path) -> Result<
         }
         Ok(copied)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::macho::validate(&bytes, Some(engine.library), &[])?;
+        Ok(copied)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
         let dynamic = elf.elf_dynamic_table()?;
@@ -283,7 +290,16 @@ pub(super) fn validate_executable(path: &Path) -> Result<()> {
         }
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let engines: Vec<_> = ENGINES
+            .iter()
+            .filter(|engine| path.with_file_name(engine.library).is_file())
+            .map(|engine| engine.library)
+            .collect();
+        super::macho::validate(&bytes, None, &engines)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
         let dynamic = elf.elf_dynamic_table()?;

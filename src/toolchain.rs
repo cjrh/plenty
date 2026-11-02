@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod distribution;
+#[cfg(any(target_os = "macos", test))]
+mod macho;
 
 use crate::target::{native_target, target_description, validate_target};
 
@@ -483,6 +485,8 @@ pub(crate) const ENGINES: &[Engine] = &[
         module: "std.dataframe",
         library: if cfg!(windows) {
             "plenty_dataframe_v1.dll"
+        } else if cfg!(target_os = "macos") {
+            "libplenty_dataframe_v1.dylib"
         } else {
             "libplenty_dataframe_v1.so"
         },
@@ -491,7 +495,7 @@ pub(crate) const ENGINES: &[Engine] = &[
         environment: "PLENTY_DATAFRAME_ENGINE",
         option: |options| options.dataframe_engine.as_ref(),
         description: "the optional Polars engine",
-        install: "Linux and Windows release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
+        install: "Linux, macOS and Windows release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
     },
     Engine {
         module: "std.linalg",
@@ -617,22 +621,22 @@ fn reached_engines<'a>(
         .collect())
 }
 
-/// The reached engines' libraries, then a RUNPATH of the executable's own
-/// directory, followed by each engine's directory for ordinary output only.
+/// Link only reached engines. Linux uses ELF RUNPATH; macOS and Windows
+/// copy engines beside the application and use native local-library lookup.
 fn engine_link_args(
     object: &Path,
     options: &CompileOptions,
     bundle: Option<&Path>,
     output: &Path,
 ) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = output;
     let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
     if reached.is_empty() {
         return Ok(Vec::new());
     }
     let mut libraries = Vec::new();
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let mut directories: Vec<OsString> = vec!["$ORIGIN".into()];
     for engine in reached {
         let selected = engine.selected(options)?;
@@ -652,8 +656,10 @@ fn engine_link_args(
                 format!("{} engine is not a file: {}", engine.module, path.display()).into(),
             );
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
+            #[cfg(target_os = "macos")]
+            macho::validate(&std::fs::read(&path)?, Some(engine.library), &[])?;
             let selected = if let Some(bundle) = bundle {
                 distribution::copy_engine(engine, &path, bundle)?
             } else {
@@ -663,15 +669,18 @@ fn engine_link_args(
                 }
                 destination
             };
+            #[cfg(windows)]
             libraries.push(windows_import_library(object, &selected, engine)?.into_os_string());
+            #[cfg(target_os = "macos")]
+            libraries.push(selected.into_os_string());
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         if let Some(bundle) = bundle {
             let copied = distribution::copy_engine(engine, &path, bundle)?;
             libraries.push(copied.into_os_string());
             continue;
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let directory = path.parent().unwrap().as_os_str().to_owned();
             // ELF RUNPATH is colon-separated even when passed as one driver argument.
@@ -690,9 +699,9 @@ fn engine_link_args(
     }
     // Some distributions' default linkers (AlmaLinux 8) emit legacy DT_RPATH,
     // which distribution output rejects and LD_LIBRARY_PATH cannot override.
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     libraries.extend(["-Xlinker".into(), "--enable-new-dtags".into()]);
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     for directory in directories {
         libraries.extend([
             "-Xlinker".into(),
@@ -701,6 +710,13 @@ fn engine_link_args(
             directory,
         ]);
     }
+    #[cfg(target_os = "macos")]
+    libraries.extend([
+        "-Xlinker".into(),
+        "-rpath".into(),
+        "-Xlinker".into(),
+        "@loader_path".into(),
+    ]);
     Ok(libraries)
 }
 
@@ -1094,6 +1110,7 @@ mod tests {
             assert!(
                 a.library.starts_with("libplenty_") && a.library.ends_with(".so")
                     || a.library == "plenty_dataframe_v1.dll"
+                    || a.library == "libplenty_dataframe_v1.dylib"
             );
             for b in &ENGINES[i + 1..] {
                 assert!(!a.symbol_prefix.starts_with(b.symbol_prefix));
