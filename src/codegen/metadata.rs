@@ -322,6 +322,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::Enum(_) => b'B',
         Ty::Ref(..) => b'r',
         Ty::KeyView(_) => b'v',
+        Ty::DictView(..) => b'r',
         // A view owns nothing, as a reference does. Its key is the element,
         // so formatting can walk the rows. A `&[u8]` prints as a `bytes`
         // literal; a view of `NonZero[u8]`, which shares the rows' layout,

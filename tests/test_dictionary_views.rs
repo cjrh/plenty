@@ -61,7 +61,6 @@ print(keys.to_set().unwrap() == same).unwrap()
 #[case("keys == [1, 2].unwrap()", "KeyView equality requires")]
 #[case("keys.count(1)", "keys_snapshot")]
 #[case("keys.find(1)", "keys_snapshot")]
-#[case("{1}.unwrap().union(&keys).unwrap()", "expected set")]
 fn unsupported_view_operations_have_frontend_guidance(
     #[case] expression: &str,
     #[case] expected: &str,
@@ -224,22 +223,26 @@ empty_same = empty.keys() == empty.keys()
 empty_different = empty.keys() != keys
 empty_subset = empty.keys().issubset(&keys)
 empty_superset = empty.keys().issuperset(&empty.keys())
+values = data.values()
+items = data.items()
+view_size = len(values) + len(items)
+view_count = iter(items).count()
 size = len(keys)
 found = "a" in keys
 mut total = 0
 for key in keys:
     total += len(*key)
-for values in data.values():
-    total += len(values)
+for value in values:
+    total += len(value)
 failed = keys.union(&other)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(same, subset, superset, disjoint, size, found, total).unwrap()
+print(same, subset, superset, disjoint, size, found, total, view_size, view_count).unwrap()
 print(empty_same, empty_different, empty_subset, empty_superset).unwrap()
 print(str.repr(failed).unwrap()).unwrap()
 print(data).unwrap()
 "#,
-        "True True True True 2 True 4\nTrue True True True\nResult[set[str], AllocError].Err(AllocError.OutOfMemory)\n{\"a\": [1], \"b\": [2]}",
+        "True True True True 2 True 4 4 2\nTrue True True True\nResult[set[str], AllocError].Err(AllocError.OutOfMemory)\n{\"a\": [1], \"b\": [2]}",
     );
 }
 
@@ -274,7 +277,6 @@ fn bound_view_prevents_mutation_or_move(#[case] mutation: &str) {
     "keys = {1: 2}.unwrap().keys()\nprint(len(keys)).unwrap()",
     "temporary"
 )]
-#[case("data = {1: 2}.unwrap()\nvalues = data.values()", "values_snapshot")]
 #[case(
     "data = {1: 2}.unwrap()\nview = data.keys()\nreference = &view\ndrop(view)\nprint(len(reference)).unwrap()",
     "owned value"
@@ -431,4 +433,104 @@ print(len(keys.to_set().unwrap())).unwrap()
             );
         }
     }
+}
+
+#[test]
+fn values_and_items_are_reusable_measurable_local_views() {
+    native(
+        r#"
+data = {1: [10].unwrap(), 2: [20, 21].unwrap()}.unwrap()
+values = data.values()
+alias = values
+reference = &alias
+items = data.items()
+print(len(values), len(items), len(data.values()), len(data.items())).unwrap()
+for value in values:
+    print(value).unwrap()
+for key, value in &items:
+    print(*key, value).unwrap()
+print(iter(values).map(def(v: &list[i64]) -> i64: len(v)).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+print(iter(&items).map(def(k: &i64, v: &list[i64]) -> i64: *k + len(v)).count()).unwrap()
+for value in reference:
+    print(len(value)).unwrap()
+"#,
+        "2 2 2 2\n[10]\n[20, 21]\n1 [10]\n2 [20, 21]\n3\n2\n1\n2",
+    );
+}
+
+#[test]
+fn set_methods_accept_dictionary_key_views_in_both_orders() {
+    native(
+        r#"
+data = {1: 10, 2: 20}.unwrap()
+keys = data.keys()
+set = {2, 3}.unwrap()
+print(set.union(&keys).unwrap() == {1, 2, 3}.unwrap()).unwrap()
+print(set.intersection(&keys).unwrap() == {2}.unwrap()).unwrap()
+print(set.difference(&keys).unwrap() == {3}.unwrap()).unwrap()
+print(set.symmetric_difference(&keys).unwrap() == {1, 3}.unwrap()).unwrap()
+print(set.issubset(&keys), set.issuperset(&keys), set.isdisjoint(&keys)).unwrap()
+"#,
+        "True\nTrue\nTrue\nTrue\nFalse False False",
+    );
+}
+
+#[rstest]
+#[case("values")]
+#[case("items")]
+fn bound_dictionary_projection_protects_owner(#[case] projection: &str) {
+    let source = format!(
+        "mut data = {{1: 2}}.unwrap()\nview = data.{projection}()\ndata.insert(2, 3).unwrap()\nprint(len(view)).unwrap()"
+    );
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(error.contains("borrow"), "{error}");
+}
+
+#[rstest]
+#[case("values")]
+#[case("items")]
+#[case("keys")]
+fn dictionary_projections_are_local_borrows(#[case] projection: &str) {
+    for (body, expected) in [
+        (
+            format!("view = {{1: 2}}.unwrap().{projection}()\nprint(len(view)).unwrap()"),
+            "temporary",
+        ),
+        (
+            format!(
+                "data = {{1: 2}}.unwrap()\nview = data.{projection}()\nbox = Box(view).unwrap()"
+            ),
+            "cannot be stored",
+        ),
+        (
+            format!(
+                "data = {{1: 2}}.unwrap()\nview = data.{projection}()\nf = def [view]() -> i64:\n    len(view)"
+            ),
+            "cannot be captured",
+        ),
+        (
+            format!("data = {{1: 2}}.unwrap()\nview = data.{projection}()\ndrop(view)"),
+            "owned value",
+        ),
+    ] {
+        let error = support::check_source(&body).unwrap_err().to_string();
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+}
+
+#[test]
+fn set_filter_mutations_accept_dictionary_key_views() {
+    native(
+        r#"
+data = {1: [2].unwrap(), 2: [3].unwrap()}.unwrap()
+keys = data.keys()
+mut a = {2, 3}.unwrap()
+a.intersection_update(keys)
+print(a == {2}.unwrap()).unwrap()
+mut b = {2, 3}.unwrap()
+b.difference_update(&keys)
+print(b == {3}.unwrap()).unwrap()
+"#,
+        "True\nTrue",
+    );
 }

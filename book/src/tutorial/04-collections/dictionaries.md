@@ -87,3 +87,33 @@ list must outlive the borrow. For mutable payloads,
 See the [full view contract](../../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
 for restrictions and cost details. `{}` is an empty dictionary; select its types
 with an annotation or a constructor such as `dict[str, i64]()?`.
+
+## Reuse a borrowed view
+
+Bind a shared view when several observations use the same dictionary. The
+view keeps the dictionary borrowed until its last use; it creates no snapshot.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    scores = {"Ada": 10, "Grace": 20}?
+    values = scores.values()
+    entries = scores.items()
+    print(len(values), len(entries))?
+    for score in values:
+        print(*score)?
+    for name, score in entries:
+        print(*name, *score)?
+    print(iter(values).count())?
+    Ok(())
+```
+```output
+2 2
+10
+20
+Ada 10
+Grace 20
+2
+```
+
+Use `iter(view)` for transformations and terminals. Item-view callbacks take
+a key and a value parameter, just like direct `items()` pipelines.

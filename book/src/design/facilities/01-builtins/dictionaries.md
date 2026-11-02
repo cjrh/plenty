@@ -90,9 +90,9 @@ same operands and return `Result[set[K], AllocError]`. `to_set()` materialises
 the keys as that result type. Algebra reserves its result before inserting
 keys and leaves both sources unchanged on failure. Result order is unspecified.
 Operators such as `|`, `&`, and `<=` are not part of the view API.
-Mixed set/view operands belong to methods on a `KeyView` receiver. Existing
-`set` methods still require set operands: use `view.union(&set)` rather than
-`set.union(&view)`. Equality accepts either operand order. These builtin
+Set relationship and algebra methods accept mixed set/view operands in either
+receiver order. `set.intersection_update(view)` and
+`set.difference_update(view)` also accept key views. Equality accepts either operand order. These builtin
 methods observe their operands, so an explicit `&` may be omitted without
 moving a named set or view.
 
@@ -111,9 +111,14 @@ references; end the loan by finishing the view's last use.
 Conditional view bindings are not supported. General stored/returned views
 remain separate work.
 
-`dictionary.values()` is a borrowed loop/comprehension source, yielding `&V`
-without allocating or copying affine payloads. `(&mut dictionary).values()`
-yields `&mut V`. It cannot be bound as a value or used as a set-like operand.
+`dictionary.values()` creates a shared local view yielding `&V`, without
+allocating or copying affine payloads. Both `values = dictionary.values()`
+and `items = dictionary.items()` can be bound and reused in loops; `len(view)`
+is O(1). `iter(values)` and `iter(items)` start pipelines, with item callbacks
+taking separate key and value parameters. These views have the same local-only
+borrow restrictions as key views and do not provide set operations.
+`(&mut dictionary).values()` yields `&mut V` in immediate loops; mutable views
+cannot be bound.
 Automatic box dereferencing applies to `keys()`, `values()` and `items()`,
 including nested boxes and borrowed boxed dictionaries. Their loans protect
 the boxed owner throughout the observation or loop.
@@ -139,8 +144,8 @@ before any transfer; allocation failure drops the remaining source exactly once.
 Use `for value in dictionary.into_values()?:` when the dictionary is no longer
 needed. This is an owned snapshot, not a stored borrowed view.
 
-`dictionary.items()` is a borrowed loop/comprehension view rather than a stored
-iterator and creates no item tuples or snapshot buffers. Shared views load
+`dictionary.items()` creates a shared local borrowed view, with an independent
+cursor for each loop, and creates no item tuples or snapshot buffers. Shared views load
 shared references to both keys and values, including scalars and strings;
 mutable views lend mutable values while keys remain shared references. Its loop loans follow the
 [iteration rules](../../language/09-iteration/index.md).

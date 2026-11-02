@@ -142,6 +142,22 @@ impl Lower<'_> {
         }
     }
 
+    /// Bare projections bind as reusable views; an adapter chain still creates
+    /// a single-use pipeline plan.
+    pub(super) fn is_dictionary_projection(&self, e: &Expr) -> bool {
+        let Expression::Method(base, name, args, _) = &ungroup(e).kind else {
+            return false;
+        };
+        matches!(name.as_str(), "items" | "values")
+            && args.is_empty()
+            && matches!(
+                self.place_type(base)
+                    .or_else(|| self.expression_type_hint(base))
+                    .map(classes::unbox),
+                Some(Ty::Dict(..))
+            )
+    }
+
     pub(super) fn is_pipeline(&self, e: &Expr) -> bool {
         if self.is_clist_column(e) {
             return true;
@@ -397,27 +413,29 @@ impl Lower<'_> {
         let ops_start = ops.len();
         let name = format!("<pipeline item {}>", self.locals.len());
         // Dictionary item views cannot form a stored tuple of references.
-        let paired = super::collections::dictionary_items(source).is_some_and(|(base, _)| {
-            !self
-                .place_type(base)
-                .or_else(|| self.expression_type_hint(base))
-                .map(classes::unbox)
-                .as_ref()
-                .is_some_and(classes::inherent_receiver)
-        }) && {
-            let mut expression = ungroup(source);
-            if let Expression::Unary(_, inner) = &expression.kind {
-                expression = ungroup(inner);
-            }
-            matches!(&expression.kind, Expression::Method(_, n, _, _) if n == "items")
-        };
+        let paired = matches!(self.dictionary_projection_type(source), Some((_, false)))
+            || super::collections::dictionary_items(source).is_some_and(|(base, _)| {
+                !self
+                    .place_type(base)
+                    .or_else(|| self.expression_type_hint(base))
+                    .map(classes::unbox)
+                    .as_ref()
+                    .is_some_and(classes::inherent_receiver)
+            }) && {
+                let mut expression = ungroup(source);
+                if let Expression::Unary(_, inner) = &expression.kind {
+                    expression = ungroup(inner);
+                }
+                matches!(&expression.kind, Expression::Method(_, n, _, _) if n == "items")
+            };
         let names = if paired {
             vec![format!("{name} key"), format!("{name} value")]
         } else {
             vec![name]
         };
         let iteration = if paired {
-            let (base, mutable) = super::collections::dictionary_items(source).unwrap();
+            let (base, mutable) =
+                super::collections::dictionary_items(source).unwrap_or((source, false));
             self.dictionary_iteration(&names, base, mutable, false, ops)?
         } else {
             self.iteration(&names, source, None, ops)?

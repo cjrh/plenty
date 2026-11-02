@@ -44,7 +44,11 @@ impl Ty {
                 copyable: !resource
                     && !matches!(
                         self,
-                        Self::Ref(..) | Self::KeyView(_) | Self::View(..) | Self::Atomic(_)
+                        Self::Ref(..)
+                            | Self::KeyView(_)
+                            | Self::DictView(..)
+                            | Self::View(..)
+                            | Self::Atomic(_)
                     ),
                 destructor: resource,
                 complete: true,

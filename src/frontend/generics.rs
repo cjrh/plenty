@@ -1589,7 +1589,7 @@ impl Engine {
             .collect();
         let mut demanded = Vec::new();
         for ((_, bound), ty) in template.type_params.iter().zip(actual) {
-            if ty.key_view() {
+            if ty.dictionary_view() {
                 return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
             }
             let borrowed_callable =

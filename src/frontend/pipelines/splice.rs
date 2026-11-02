@@ -163,7 +163,11 @@ impl Lower<'_> {
                 at: at.clone(),
                 kind: Expression::Name(capture.name.clone()),
             };
-            if self.place_type(&source).as_ref().is_some_and(Ty::key_view) {
+            if self
+                .place_type(&source)
+                .as_ref()
+                .is_some_and(Ty::dictionary_view)
+            {
                 return Err(at.error("dictionary key views cannot be captured; materialise keys_snapshot() or to_set()"));
             }
             if self
