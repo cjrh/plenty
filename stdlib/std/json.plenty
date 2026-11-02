@@ -124,9 +124,6 @@ def bytes_fault(error: BytesError) -> JsonFault:
             JsonFault.Allocation(cause)
         case BytesError.InvalidUtf8:
             JsonFault.InvalidUtf8
-        # No call here passes a range, so this would be a decoder defect.
-        case _:
-            __trap("byte text conversion: unexpected range error")
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, JsonFault]:
     std.error.map_error(result, def once (cause: AllocError) -> JsonFault: JsonFault.Allocation(cause))

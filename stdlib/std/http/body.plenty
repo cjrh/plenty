@@ -88,8 +88,6 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, BodyError]:
                 BodyError.Allocation(cause)
             case BytesError.InvalidUtf8:
                 BodyError.InvalidUtf8
-            case _:
-                BodyError.Malformed
     std.error.map_error(result, convert)
 
 def http[T](result: Result[T, HttpError]) -> Result[T, BodyError]:

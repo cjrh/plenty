@@ -108,8 +108,6 @@ def faulted[T](result: Result[T, BytesError]) -> Result[T, TomlFault]:
                     Err(TomlFault.Allocation(cause))
                 case BytesError.InvalidUtf8:
                     Err(TomlFault.InvalidUtf8)
-                case _:
-                    __trap("byte text conversion: unexpected range error")
 
 def reserved[T](result: Result[T, AllocError]) -> Result[T, TomlFault]:
     match result:

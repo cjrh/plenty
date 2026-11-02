@@ -317,8 +317,6 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, UrlError]:
                     Err(UrlError.Allocation(cause))
                 case BytesError.InvalidUtf8:
                     Err(UrlError.InvalidUtf8)
-                case _:
-                    __trap("byte text conversion: unexpected range error")
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
     match result:

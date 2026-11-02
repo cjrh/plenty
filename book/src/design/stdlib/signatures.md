@@ -429,7 +429,7 @@ Compact owning byte buffers with checked ranges, explicit copies and validated t
 
 ```text
 enum BytesError
-    OutOfRange | InvalidUtf8 | Allocation(AllocError)
+    InvalidUtf8 | Allocation(AllocError)
 class Bytes
     def len(self) -> i64
     def is_empty(self) -> bool
