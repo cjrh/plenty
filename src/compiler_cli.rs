@@ -518,6 +518,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 root.as_deref(),
                 &plenty::CompileOptions {
                     executable_cache: !legacy,
+                    temporary_output: true,
                     ..options.clone()
                 },
             )?;
@@ -566,6 +567,7 @@ fn with_graph(
                 &executable,
                 &plenty::CompileOptions {
                     executable_cache: true,
+                    temporary_output: true,
                     ..options.clone()
                 },
             )?;
