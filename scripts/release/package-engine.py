@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 spec = importlib.util.spec_from_file_location("check_native", Path(__file__).with_name("check-native.py"))
 native = importlib.util.module_from_spec(spec)
@@ -108,7 +109,9 @@ def main(component=None):
     else:
         subprocess.run([str(HERE / "check-elf.sh"), audit_mode, library, str(engine)], check=True, env={**os.environ, "PLENTY_RELEASE_TARGET": target})
     check_exports(engine, component, windows, macos)
-    version = output("bash", str(HERE / "check-version.sh"), "--print")
+    # Stay in native Python: a nested Bash may resolve to WSL or misread a Windows path.
+    with (REPO / "Cargo.toml").open("rb") as manifest_file:
+        version = tomllib.load(manifest_file)["package"]["version"]
     sysroot = args.rust_sysroot or Path(output("rustc", "--print", "sysroot"))
     rust_docs = sysroot / "share/doc/rust"
     rust_licenses = sorted((rust_docs / "licenses").glob("*.txt"))
