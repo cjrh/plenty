@@ -18,6 +18,7 @@ const FIXTURE: &str = r#"
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <time.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -116,24 +117,42 @@ static void *raise_many(void *unused) {
     for (int i=0; i<100; i++) raise(SIGILL);
     return NULL;
 }
-struct interrupt_read { pthread_t target; int writer; };
+struct interrupt_read { pthread_t target; int writer; atomic_int ready, done; };
 static void *interrupt_read(void *raw) {
     struct interrupt_read *job = raw;
-    usleep(10000);
-    pthread_kill(job->target, SIGILL);
-    usleep(10000);
-    char byte='x';
-    if (write(job->writer, &byte, 1) != 1) _exit(94);
-    return NULL;
+    // A signal before read starts proves nothing about SA_RESTART. Keep
+    // delivering until the read completes; never manufacture EINTR by timing.
+    for (int attempt=0; attempt<10000; attempt++) {
+        if (atomic_load(&job->done)) return NULL;
+        if (atomic_load(&job->ready)) {
+            if (pthread_kill(job->target, SIGILL)) _exit(94);
+            if (mode == RESTART && atomic_load(&calls) >= 8) {
+                char byte='x';
+                if (write(job->writer, &byte, 1) != 1) _exit(94);
+                return NULL;
+            }
+        }
+        usleep(1000);
+    }
+    // A broken non-restarting handler must fail, not leave a blocked reader.
+    _exit(99);
 }
 int32_t exercise(void) {
     if (mode == RESTART || mode == INTERRUPT) {
         int descriptors[2]; pthread_t thread; char byte=0;
         if (pipe(descriptors)) _exit(95);
-        struct interrupt_read job={pthread_self(), descriptors[1]};
+        struct interrupt_read job={.target=pthread_self(), .writer=descriptors[1]};
         if (pthread_create(&thread, NULL, interrupt_read, &job)) _exit(96);
+        atomic_store(&job.ready, 1);
+        if (getenv("PLENTY_SIGNAL_DELAY_READ")) {
+            // Force signals to arrive before read too. Retrying nanosleep
+            // preserves this delay even when a signal interrupts the sleep.
+            struct timespec delay={.tv_nsec=50000000};
+            while (nanosleep(&delay, &delay) && errno == EINTR) {}
+        }
         ssize_t count=read(descriptors[0], &byte, 1);
         int read_errno=errno;
+        atomic_store(&job.done, 1);
         pthread_join(thread,NULL);
         close(descriptors[0]); close(descriptors[1]);
         return mode == RESTART ? count == 1 && byte == 'x' : count == -1 && read_errno == EINTR;
@@ -269,6 +288,31 @@ fn previous_handlers_keep_later_checked_traps_and_native_contexts() {
                 String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
                 "{mode}: {output:?}"
             );
+        }
+    }
+}
+
+#[test]
+fn restart_contract_survives_signals_before_read_entry() {
+    for optimize in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let program = build(root.path(), true, optimize);
+        for mode in ["interrupt", "restart"] {
+            for _ in 0..10 {
+                let output = support::output_within(
+                    Command::new(&program)
+                        .env("PLENTY_SIGNAL_MODE", mode)
+                        .env("PLENTY_SIGNAL_DELAY_READ", "1"),
+                    b"",
+                    Duration::from_secs(20),
+                );
+                assert_eq!(output.status.code(), Some(1), "{mode}: {output:?}");
+                assert_eq!(output.stdout, b"1\n", "{mode}: {output:?}");
+                assert!(
+                    String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
+                    "{mode}: {output:?}"
+                );
+            }
         }
     }
 }
