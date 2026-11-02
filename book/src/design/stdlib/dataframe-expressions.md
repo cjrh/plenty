@@ -35,8 +35,10 @@ def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
 `lit_str(value: &str)` copies a UTF-8 literal into the native plan;
 `lit_bool(value: bool)` creates a boolean literal. Alongside `lit(f64)`
 and `lit_i64(i64)`, these distinguish literal values from `col(name)`.
-`lit_binary(value: &std.bytes.Bytes)` copies an arbitrary byte payload into
-the native plan without decoding it as text.
+`lit_binary(value: &[u8])` copies an arbitrary byte payload into
+the native plan without decoding it as text. Pass a `b"..."` literal,
+`&buffer`, `&buffer[a:b]`, or `&list_of_u8`. The view reaches the native
+copy directly; the Plenty facade allocates no temporary payload.
 
 `when(predicate, then_value, otherwise)` accepts three expressions.
 For each row, a true boolean predicate selects `then_value`; false or null

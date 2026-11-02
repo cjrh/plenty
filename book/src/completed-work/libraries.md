@@ -245,3 +245,14 @@ partial-progress context retain that behavior. See
 [worker callable certification](../design/facilities/03-concurrency/effects.md#thin-callable-targets)
 for its signature-wide conservatism and remaining erased-callable limits.
 Static integer domains remain B95 in the [backlog](../backlog.md).
+
+### Dataframe byte-view inputs (issue #657)
+
+`std.dataframe.lit_binary` accepts `&[u8]` from literals, owned buffers, byte
+lists and subviews. Its C `strided` adapter passes address, length and stride
+1 directly, with no Plenty-side payload allocation. Binary-column constructors
+pass their packed `Bytes` through that adapter too, removing the additional
+`list[u8]` payload copy. Polars still owns a native copy; extraction still
+builds independent owned buffers. Mutable byte views remain unsupported by
+this adapter. See [binary payloads](../design/stdlib/dataframe-types.md#binary-payloads)
+and [C borrowing](../design/facilities/04-interop/borrowing-text.md#strided-numeric-lists-and-byte-views).

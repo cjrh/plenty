@@ -6,8 +6,9 @@ pub enum Argument {
     Utf8,
     /// Validate NULs and allocate a temporary terminated byte buffer.
     CString,
-    /// Borrow numeric list elements as (data, length, byte stride). A mutable
-    /// loan permits scalar writes only; neither form permits retention/resizing.
+    /// Borrow numeric list elements or a shared byte view as (data, length,
+    /// byte stride). Views have stride 1. A mutable list loan permits scalar
+    /// writes only; no form permits retention/resizing.
     Strided,
 }
 

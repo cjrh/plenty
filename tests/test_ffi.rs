@@ -118,6 +118,54 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn strided_byte_views_accept_literal_buffer_list_and_subviews() {
+    for shared in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let library = fixture(temp.path(), shared);
+        std::fs::write(
+            temp.path().join("native.plentyi"),
+            r#"pub extern def sum(value: &[u8] as strided) -> u64 = "fixture_strided_bytes"
+"#,
+        )
+        .unwrap();
+        let output = run(
+            temp.path(),
+            r#"
+import native
+import std.bytes
+
+def forwarded(value: &[u8]) -> u64:
+    native.sum(value)
+
+def main() -> Result[(), AllocError | IoError]:
+    buffer = std.bytes.from_bytes(b"a\0b")?
+    values = [97u8, 0u8, 98u8]?
+    print(native.sum(b"a\0b"), native.sum(&buffer), native.sum(&values))?
+    print(native.sum(&buffer[1:]), native.sum(&values[1:]), forwarded(&values[:2]))?
+    print(native.sum(b""), native.sum(&buffer[99:]), native.sum(&values[2:1]))?
+    print(native.sum(&std.bytes.from_bytes(b"hi")?))?
+    Ok(())
+"#,
+            library,
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "195 195 195\n98 98 97\n0 0 0\n209\n"
+        );
+    }
+    for ty in ["&mut [u8]", "&[i64]", "&[bool]"] {
+        rejected(
+            &format!(
+                r#"pub extern def call(values: {ty} as strided) -> () = "call"
+"#
+            ),
+            "import native\ndef main() -> ():\n    pass\n",
+            "no supported C ABI",
+        );
+    }
+}
+
+#[test]
 fn strided_adapters_reject_non_numeric_elements_and_overlapping_loans() {
     for ty in ["str", "bool", "list[i64]", "Option[i64]"] {
         rejected(

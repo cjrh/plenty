@@ -70,6 +70,12 @@ impl Lowerer<'_, '_> {
             };
             match mode {
                 Argument::Direct => native_arguments.push(argument),
+                Argument::Strided if matches!(sig.inputs[index].1, Ty::View(..)) => {
+                    // Byte views already carry their borrowed address and count.
+                    let (data, length) = self.bcx.ins().isplit(argument);
+                    let stride = self.bcx.ins().iconst(types::I64, 1);
+                    native_arguments.extend([data, length, stride]);
+                }
                 Argument::Strided => {
                     let owner = self
                         .bcx
