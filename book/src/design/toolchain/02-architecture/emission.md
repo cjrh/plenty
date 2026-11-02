@@ -56,6 +56,20 @@ no retained body arms has no hook. Standard-library provenance comes from
 the embedded-module loader, not a filename or symbol prefix. Generated foreign-call
 wrappers preserve that provenance too (issue #688): an unused standard-library
 engine import must not leave native references for the COFF linker to resolve.
+Windows executable builds use a narrower root set for their temporary COFF
+object (issue #690): entry operations and C exports, followed through the same
+function references and concrete generator types in live signatures and locals.
+Unreachable user helpers and generators are omitted together with the native
+imports only they need. COFF resolves undefined symbols even in sections its
+linker will discard, so section garbage collection alone cannot do this. A
+reached foreign call keeps its real import; no fallback definition is generated.
+All bodies still receive frontend and ownership checks. This applies in both
+debug and optimized executable builds, so an unreachable user function has no
+executable symbol or breakpoint location on Windows. Explicit `--emit-object`,
+library objects and `--dump` preserve their existing user-definition and generator
+roots for inspection and external linking. External COFF consumers of such an
+object must provide its native imports, including those in unused helpers.
+
 Retained definitions keep their declaration order. All frontend and ownership checks run before this
 step, including checks of bodies subsequently omitted. This saves native work
 and object space; it does not avoid parsing or lowering imported modules.

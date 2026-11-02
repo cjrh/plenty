@@ -1,9 +1,10 @@
-//! Omit unused standard-library functions from native emission.
+//! Omit unused definitions according to the native artifact contract.
 //!
-//! Checking has already visited every body. Generators remain roots: their
-//! implicit type-driven references do not have to be reconstructed here. User
-//! definitions remain roots too, preserving the existing object/debug
-//! contract. This is deliberately narrower than general dead-code elimination.
+//! Checking has already visited every body. Objects, libraries and dumps keep
+//! user definitions and generators as roots, preserving their inspection/debug
+//! contract without reconstructing implicit type-driven generator references. Temporary COFF executable objects instead
+//! start at the entry operations and C exports: COFF resolves undefined imports
+//! even in unused functions, unlike ELF/Mach-O linker garbage collection.
 //!
 //! A class's `__del__` is live when a live body arms it (`ClassOp::ArmDrop`,
 //! issue #506). Release runs the hook only for an instance whose state word
@@ -14,12 +15,23 @@
 use super::*;
 use crate::hash::HashSet;
 
-#[cfg_attr(feature = "profile", hotpath::measure)]
+#[cfg(test)]
 pub(super) fn prune(ops: &mut Vec<Op>, exports: &[crate::exports::Export]) {
+    prune_for_emission(ops, exports, false);
+}
+
+#[cfg_attr(feature = "profile", hotpath::measure)]
+pub(super) fn prune_for_emission(
+    ops: &mut Vec<Op>,
+    exports: &[crate::exports::Export],
+    executable: bool,
+) {
     let candidates: HashMap<&str, &crate::op::CompiledFn> = ops
         .iter()
         .filter_map(|op| match op {
-            Op::DefineFn(name, f) if f.origins.standard_library && f.generator.is_none() => {
+            Op::DefineFn(name, f)
+                if executable || f.origins.standard_library && f.generator.is_none() =>
+            {
                 Some((name.as_str(), f.as_ref()))
             }
             _ => None,
@@ -47,13 +59,18 @@ pub(super) fn prune(ops: &mut Vec<Op>, exports: &[crate::exports::Export]) {
         references(std::slice::from_ref(op), &mut require);
     }
     while let Some(name) = pending.pop() {
-        references(&candidates[name].body, &mut |name| {
+        let function = candidates[name];
+        let mut require = |name: &str| {
             if let Some((&name, _)) = candidates.get_key_value(name)
                 && live.insert(name)
             {
                 pending.push(name);
             }
-        });
+        };
+        references(&function.body, &mut require);
+        if executable {
+            generator_references(function, &mut require);
+        }
     }
     // Keep input order. Declaration order controls object symbol numbering.
     let dead: HashSet<String> = candidates
@@ -64,8 +81,39 @@ pub(super) fn prune(ops: &mut Vec<Op>, exports: &[crate::exports::Export]) {
     ops.retain(|op| !matches!(op, Op::DefineFn(name, _) if dead.contains(name)));
 }
 
+/// Concrete frames can be passed or dropped without an explicit resume call.
+/// Their constructor owns the resume callback and frame descriptors. Preserve
+/// those identities through nested stored types of every live function.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+fn generator_references(function: &crate::op::CompiledFn, require: &mut impl FnMut(&str)) {
+    let mut pending: Vec<_> = function
+        .sig
+        .inputs
+        .iter()
+        .map(|(_, ty)| ty.clone())
+        .chain(function.sig.outputs.iter().cloned())
+        .chain(function.locals.iter().cloned())
+        .collect();
+    let mut seen = HashSet::default();
+    while let Some(ty) = pending.pop() {
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        if let Ty::Generator(generator) = &ty
+            && let Some(name) = &generator.name
+        {
+            require(name);
+        }
+        crate::threading::contained(&ty, &mut pending);
+    }
+}
+
 fn references(ops: &[Op], require: &mut impl FnMut(&str)) {
-    // Type-driven calls target generators, which remain roots.
+    // Executable emission follows concrete generator identities separately;
+    // inspectable artifacts retain all generator definitions as roots.
     crate::threading::walk(ops, &mut |op| {
         crate::threading::function_references(op, require);
     });
@@ -254,11 +302,15 @@ mod tests {
         ] {
             ops.push(definition(name, true, vec![]));
         }
-        prune(&mut ops, &[]);
-        assert_eq!(
-            names(&ops),
-            ["main", "std.address", "std.boxed", "std.job", "std.worker"]
-        );
+        ops.push(Op::Call("main".into()));
+        for executable in [false, true] {
+            let mut pruned = ops.clone();
+            prune_for_emission(&mut pruned, &[], executable);
+            assert_eq!(
+                names(&pruned),
+                ["main", "std.address", "std.boxed", "std.job", "std.worker"]
+            );
+        }
     }
 
     #[test]
@@ -288,5 +340,322 @@ mod tests {
             super::super::object_bytes(ops, &heap, Some(true), &[], None, 8, Build::default())
                 .unwrap();
         assert_eq!(serial, parallel);
+    }
+
+    #[test]
+    fn executable_roots_keep_callbacks_droppers_and_concrete_generators() {
+        let signature = Arc::new(CallableSig {
+            inputs: vec![],
+            output: None,
+        });
+        let mut root = definition(
+            "main",
+            false,
+            vec![
+                Op::FunctionAddress("callback".into(), signature),
+                armed("Resource"),
+                Op::Call("generator".into()),
+            ],
+        );
+        let Op::DefineFn(_, function) = &mut root else {
+            unreachable!()
+        };
+        function.locals = vec![crate::generator::ty(
+            Ty::I64,
+            Some("stored_generator".into()),
+        )]
+        .into();
+        let mut ops = vec![
+            root,
+            definition("callback", false, vec![]),
+            definition(
+                &crate::record::method("Resource", "__del__"),
+                false,
+                vec![Op::Call("drop_helper".into())],
+            ),
+            definition("drop_helper", false, vec![]),
+            definition("generator", false, vec![Op::Call("resume_helper".into())]),
+            definition("stored_generator", false, vec![]),
+            definition("resume_helper", true, vec![]),
+            definition("unused", false, vec![Op::Call("std.optional".into())]),
+            definition("std.optional", true, vec![]),
+            Op::Call("main".into()),
+        ];
+        prune_for_emission(&mut ops, &[], true);
+        assert_eq!(
+            names(&ops),
+            [
+                "main",
+                "callback",
+                "__plenty_class_Resource.__del__",
+                "drop_helper",
+                "generator",
+                "stored_generator",
+                "resume_helper"
+            ]
+        );
+    }
+
+    fn coff_object(reached: bool, executable: bool, optimize: bool) -> Vec<u8> {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("native.plentyi"),
+            "pub extern def missing() -> () = \"pldf_v1_missing\"\n",
+        )
+        .unwrap();
+        let source = temp.path().join("main.plenty");
+        std::fs::write(&source, format!(
+            "import native\ndef unused() -> ():\n    native.missing()\ndef main() -> ():\n    {}\n",
+            if reached { "unused()" } else { "pass" })).unwrap();
+        let mut heap = Heap::default();
+        let program = Sources::file(&source, None)
+            .unwrap()
+            .compile(&mut heap)
+            .unwrap();
+        crate::op::check(&program.ops).unwrap();
+        let mut product = super::super::object_module(
+            program.ops,
+            &heap,
+            None,
+            &[],
+            None,
+            2,
+            Build {
+                prune_user: executable,
+                optimize,
+                target: Some("x86_64-pc-windows-msvc"),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .finish()
+        .unwrap();
+        // Expose only the fixture's no-runtime entry, without manufacturing
+        // definitions for any import. The bodies use the production pipeline.
+        let entry = product.object.symbol_id(b"__plenty_fn_main").unwrap();
+        product.object.symbol_mut(entry).scope = object::SymbolScope::Linkage;
+        product.emit().unwrap()
+    }
+
+    fn coff_link(bytes: &[u8]) -> std::process::Output {
+        use object::{Object, ObjectSection, ObjectSymbol};
+        let object = object::File::parse(bytes).unwrap();
+        let mut runtime = object::write::Object::new(
+            object::BinaryFormat::Coff,
+            object::Architecture::X86_64,
+            object::Endianness::Little,
+        );
+        let text = runtime.section_id(object::write::StandardSection::Text);
+        runtime.set_section_data(text, vec![0xc3], 1);
+        // The production pipeline declares the packaged runtime's symbols even
+        // when no body refers to them. Supply only those declarations for this
+        // non-executed cross-target link; a runtime operation would invalidate
+        // this fixture. Never define optional-engine or arbitrary native imports.
+        for symbol in object.symbols().filter(|symbol| symbol.is_undefined()) {
+            let name = symbol.name().unwrap();
+            if !name.starts_with("plenty_") {
+                continue;
+            }
+            assert!(
+                !object.sections().any(|section| section
+                    .relocations()
+                    .any(|(_, relocation)| relocation.target()
+                        == object::RelocationTarget::Symbol(symbol.index()))),
+                "COFF fixture unexpectedly calls runtime symbol {name}"
+            );
+            runtime.add_symbol(object::write::Symbol {
+                name: name.as_bytes().to_vec(),
+                value: 0,
+                size: 1,
+                kind: object::SymbolKind::Text,
+                scope: object::SymbolScope::Linkage,
+                weak: false,
+                section: object::write::SymbolSection::Section(text),
+                flags: object::SymbolFlags::None,
+            });
+        }
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let sysroot = std::process::Command::new(rustc)
+            .args(["--print", "sysroot"])
+            .output()
+            .unwrap();
+        assert!(sysroot.status.success());
+        let linker = std::path::Path::new(std::str::from_utf8(&sysroot.stdout).unwrap().trim())
+            .join("lib/rustlib")
+            .join(crate::target::compiler_host())
+            .join("bin")
+            .join(if cfg!(windows) {
+                "rust-lld.exe"
+            } else {
+                "rust-lld"
+            });
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("program.obj");
+        std::fs::write(&input, bytes).unwrap();
+        let runtime_path = temp.path().join("runtime-declarations.obj");
+        std::fs::write(&runtime_path, runtime.write().unwrap()).unwrap();
+        std::process::Command::new(linker)
+            .args([
+                "-flavor",
+                "link",
+                "/nodefaultlib",
+                "/entry:__plenty_fn_main",
+                "/subsystem:console",
+                "/opt:ref",
+            ])
+            .arg(format!(
+                "/out:{}",
+                temp.path().join("program.exe").display()
+            ))
+            .arg(input)
+            .arg(runtime_path)
+            .output()
+            .unwrap_or_else(|error| {
+                panic!(
+                    "COFF link regression requires the Rust toolchain's bundled rust-lld: {error}"
+                )
+            })
+    }
+
+    #[test]
+    fn coff_executable_omits_unreached_imports_but_keeps_reached_link_errors() {
+        use object::{Object, ObjectSymbol};
+        for optimize in [false, true] {
+            let inspectable = coff_object(false, false, optimize);
+            let output = coff_link(&inspectable);
+            assert!(
+                !output.status.success(),
+                "retained COFF helper must reproduce the original failure"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("pldf_v1_missing"),
+                "stderr: {} stdout: {}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            );
+            let bytes = coff_object(false, true, optimize);
+            let object = object::File::parse(bytes.as_slice()).unwrap();
+            assert!(!object.symbols().any(|symbol| {
+                symbol
+                    .name()
+                    .is_ok_and(|name| name == "pldf_v1_missing" || name == "__plenty_fn_unused")
+            }));
+            let output = coff_link(&bytes);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let output = coff_link(&coff_object(true, true, optimize));
+            assert!(
+                !output.status.success(),
+                "reached missing import must remain a linker error"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("pldf_v1_missing"),
+                "stderr: {} stdout: {}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            );
+        }
+    }
+
+    #[test]
+    fn program_cache_separates_executable_pruning_from_inspectable_objects() {
+        use object::{Object, ObjectSymbol};
+        let temp = tempfile::tempdir().unwrap();
+        let directory = crate::cache::CacheMode::Directory(temp.path().join("cache"));
+        let output = temp.path().join("program.o");
+        let sources = Sources::Text("def unused() -> i64:\n    42\ndef main() -> ():\n    pass\n");
+        for (executable, hit) in [
+            (false, false),
+            (false, false),
+            (false, true),
+            (true, false),
+            (true, false),
+            (true, true),
+            (false, true),
+            (true, true),
+        ] {
+            let cache = Cache::open(&directory).unwrap();
+            super::super::program_object(
+                &sources,
+                &output,
+                Build {
+                    prune_user: executable,
+                    cache: Some(cache.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(cache.stats().program, Some(hit));
+            let bytes = std::fs::read(&output).unwrap();
+            let object = object::File::parse(bytes.as_slice()).unwrap();
+            let retained = object.symbols().any(|symbol| {
+                symbol
+                    .name()
+                    .is_ok_and(|name| name.ends_with("__plenty_fn_unused"))
+            });
+            assert_eq!(retained, !executable);
+        }
+    }
+
+    #[test]
+    fn executable_pruning_preserves_running_generator_closure_and_destructor() {
+        let source = r#"
+class Resource:
+    value: i64
+    def __del__(self) -> ():
+        print(self.value).unwrap()
+def values() -> Generator[i64]:
+    yield 40
+    yield 2
+def unused() -> i64:
+    99
+def main() -> Result[(), IoError]:
+    owner = Resource(7)
+    mut total = 0
+    for value in values():
+        total += value
+    offset = 10
+    callback = def [offset](value: i64) -> i64:
+        value + offset
+    print(total, callback(1))?
+    Ok(())
+"#;
+        let temp = tempfile::tempdir().unwrap();
+        let object = temp.path().join("program.o");
+        let executable = temp.path().join(if cfg!(windows) {
+            "program.exe"
+        } else {
+            "program"
+        });
+        super::super::program_object(
+            &Sources::Text(source),
+            &object,
+            Build {
+                prune_user: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        super::super::link_object(
+            &temp,
+            &object,
+            &executable,
+            &crate::CompileOptions::default(),
+            false,
+        )
+        .unwrap();
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+            "42 11\n7\n"
+        );
     }
 }
