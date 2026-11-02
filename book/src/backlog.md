@@ -119,8 +119,10 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 These belong to B17 and are not scheduled implementation commitments:
 
 - [`plenty script`](proposals/single-file-scripts.md): embedded manifests,
-  isolated dependencies and cached single-file builds. Settle headers and
-  lock/storage rules before implementation.
+  isolated dependencies and script arguments. Plain single-file executable
+  reuse is [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging);
+  broader toolchain coverage remains. Settle headers and lock/storage rules
+  before implementing embedded dependency resolution.
 - [`plenty-manager`](proposals/plenty-manager.md): a Plenty-written tool in a
   separate `plentylang/plenty-manager` repository for compiler installation,
   explicit updates, side-by-side versions and project pins. Settle release

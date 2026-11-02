@@ -99,6 +99,15 @@ Rust panic/backtrace code (issue #503, local PR #576), executable size budgets
 (issue #506, local PR #581) reduce unused native linkage. Release/no-strip
 option ordering is fixed (issue #590, local PR #732).
 
+Single-file compile-and-run now caches linked executables by default on
+supported Linux toolchains, including hashbang launches. Native dependency
+and toolchain identities invalidate reuse; entries share cache inspection,
+cleanup and eviction. Linker wrappers, including GCC-private overrides, are
+excluded before executable lookup (issue #676). Explicit build outputs, project
+runs, custom linkers, non-Linux hosts and instrumented builds still link normally.
+See the
+[executable cache contract](../design/toolchain/02-architecture/cache.md#single-file-executables).
+
 The [language server](../design/toolchain/01-building/language-server.md)
 provides diagnostics, hover, definition, completion and simple-local inferred
 type hints, with Neovim integration (issues #155/#554, local PR #196).
