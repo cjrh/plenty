@@ -279,3 +279,58 @@ compile-time error. Operands must otherwise have the same type; mixing
 
 A [range](../../facilities/01-builtins/ranges.md) step is `NonZero[i64]`.
 `NonZero` is a builtin name and cannot be redefined.
+
+## Positive and non-negative integers
+
+`Positive[T]` holds an integer greater than zero; `NonNegative[T]` holds an
+integer greater than or equal to zero. `T` must be `i8`, `i16`, `i32` or
+`i64`. For unsigned integers use `NonZero[uN]` or plain `uN`, respectively.
+Both are builtin names and cannot be redefined.
+
+An unsuffixed integer literal converts where the domain type is expected,
+including parameters, defaults, fields, returns and collection elements.
+An out-of-domain literal is a compile-time error. A computed integer converts
+with `Positive.try_from(value)` or `NonNegative.try_from(value)`, returning
+`Result[Domain[T], RangeError]`; invalid values give `RangeError.OutOfRange`.
+The qualified forms `Positive[T].try_from` and `NonNegative[T].try_from`
+require exactly `T`. Constructors and fields are private; `.get()` reads `T`.
+There is no implicit conversion between a domain and its integer or another
+domain.
+
+```plenty
+def configured(value: i64) -> Result[Positive[i64], RangeError]:
+    Positive.try_from(value)
+
+def main() -> Result[(), IoError | RangeError]:
+    size: Positive[i64] = 3
+    limit: NonNegative[i64] = 0
+    print(size + 2, size * 2, size - size, -size, limit)?
+    stride = NonZero.from(size)
+    print(list(range(0, 8, stride)).unwrap())?
+    print(NonNegative.from(configured(4)?))?
+    print(configured(0).is_err())?
+    Ok(())
+```
+```output
+5 6 0 -3 0
+[0, 3, 6]
+4
+True
+```
+
+`+`, `*`, `+=` and `*=` preserve the domain; subtraction and unary `-`
+return `T`, and unary `+` preserves it. Overflow traps or returns `Err` in
+[checked blocks](#checked-blocks), so the domain cannot be violated by
+wrapping. Comparisons accept the same domain type or a literal in its domain.
+Other operators, including division, modulo, bitwise operations and shifts,
+require `.get()`.
+
+`NonZero.from(positive)` and `NonNegative.from(positive)` explicitly widen a
+`Positive[T]`; they cannot fail or allocate. Qualified forms name `T`.
+Conversion from a `NonNegative` to a `Positive` or `NonZero` uses
+`try_from(value.get())`, since it may be zero.
+
+Both domains have `T`'s representation, copy without allocation, print and
+format as the integer, and work as dictionary keys and set elements. `len()`
+continues to return `i64`; convert a computed length explicitly when a domain
+is needed.

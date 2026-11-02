@@ -50,6 +50,11 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`.
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
   and `float`. No implicit numeric widening; cast with `f64(n)`.
+- `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) are signed integer domains.
+  Literals convert where expected; computed values use `try_from(n)?`, failing
+  with `RangeError.OutOfRange`. `.get()` reads `T`. `+` and `*` preserve the
+  domain; subtraction and unary `-` return `T`. Widen a Positive explicitly
+  with `NonZero.from(p)` or `NonNegative.from(p)`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
   tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of

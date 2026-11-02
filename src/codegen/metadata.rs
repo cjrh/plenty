@@ -124,7 +124,7 @@ fn define_type(
     // names the field for formatting and the columnar-list schema.
     // `NonZero[T]` is described, and so formatted, as plain `T`.
     let integer;
-    let ty = match ty.nonzero_element() {
+    let ty = match ty.domain_element() {
         Some(element) => {
             integer = element;
             &integer
@@ -341,7 +341,7 @@ fn kind_code(ty: &Ty) -> u8 {
 /// address rows with this constant instead of asking the list.
 pub(super) fn list_row_bytes(element: &Ty) -> usize {
     let integer;
-    let ty = match element.nonzero_element() {
+    let ty = match element.domain_element() {
         Some(inner) => {
             integer = inner;
             &integer
