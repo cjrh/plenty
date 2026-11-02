@@ -3,7 +3,7 @@
 //! it: field encoding and line splitting, streams that outlive the
 //! response deadline, client disconnects seen by `wait` and by `send`,
 //! shutdown, HEAD requests and refused heads.
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -67,17 +67,71 @@ fn connect(port: u16) -> TcpStream {
     stream
 }
 
-/// Reads a response head, a byte at a time, with CRLFs shown as `|`.
-fn head(stream: &mut TcpStream) -> String {
+fn read_head(stream: &mut impl Read) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut one = [0u8];
     while !out.ends_with(b"\r\n\r\n") {
-        if stream.read(&mut one).unwrap() == 0 {
-            break;
-        }
+        // read_exact retries EINTR while preserving the socket's configured timeout.
+        stream.read_exact(&mut one)?;
         out.push(one[0]);
     }
-    String::from_utf8(out).unwrap().replace("\r\n", "|")
+    Ok(out)
+}
+
+/// Reads a complete response head, a byte at a time, with CRLFs shown as `|`.
+fn head(stream: &mut TcpStream) -> String {
+    String::from_utf8(read_head(stream).unwrap())
+        .unwrap()
+        .replace("\r\n", "|")
+}
+
+#[test]
+fn response_head_retries_interrupted_reads_without_consuming_the_body() {
+    struct InterruptedReads<'a> {
+        remaining: &'a [u8],
+        interrupt: bool,
+    }
+
+    impl Read for InterruptedReads<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.interrupt = !self.interrupt;
+            if self.interrupt {
+                Err(io::ErrorKind::Interrupted.into())
+            } else {
+                self.remaining.read(buf)
+            }
+        }
+    }
+
+    let expected = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n";
+    let response = [expected.as_slice(), b"data: one\n\n"].concat();
+    let mut stream = InterruptedReads {
+        remaining: &response,
+        interrupt: false,
+    };
+    assert_eq!(read_head(&mut stream).unwrap(), expected);
+    assert_eq!(stream.remaining, b"data: one\n\n");
+}
+
+#[test]
+fn response_head_rejects_truncation_and_preserves_timeout_errors() {
+    assert_eq!(
+        read_head(&mut b"HTTP/1.1 200 OK\r\n".as_slice())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+
+    struct Timeout;
+    impl Read for Timeout {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::TimedOut.into())
+        }
+    }
+    assert_eq!(
+        read_head(&mut Timeout).unwrap_err().kind(),
+        io::ErrorKind::TimedOut
+    );
 }
 
 fn rest(stream: &mut TcpStream) -> String {
