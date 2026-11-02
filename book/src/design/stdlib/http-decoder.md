@@ -7,7 +7,7 @@ Its stored state contains owned bytes rather than shared strings, so it can
 live inside an actor node.
 
 `decoder(&limits)` returns `Result[Decoder, HttpError]`. The limits are copied;
-invalid line/head sizes, header counts or body bounds return `InvalidLimit`.
+`max_line` or `max_head` below 2 returns `InvalidLimit`.
 Allocation failures are `HttpError.Allocation`. Header bytes and lines are
 bounded by those limits; body chunks are at most `feed_budget` (4096) bytes.
 

@@ -72,7 +72,7 @@ def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limi
         total += size + 2
         if size == 0:
             return Ok(())
-        if len(headers) >= limits.max_headers:
+        if len(headers) >= limits.max_headers.get():
             return Err(Partial(total, FramingError[E].Protocol(HttpError.TooManyHeaders)))
         field = head_step[E, Header](std.http.parse_field(&line[:size]), total)?
         match headers.append(field):
@@ -83,7 +83,7 @@ def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limi
     Ok(())
 
 def head_buffer[E](limits: &Limits) -> Result[Bytes, Partial[FramingError[E]]]:
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return Err(Partial(0, FramingError[E].Protocol(HttpError.InvalidLimit)))
     match std.bytes.empty():
         case Ok(value):
@@ -148,12 +148,18 @@ pub def write_chunk[E, W: Writer[E]](writer: &mut W, source: &[u8]) -> Result[()
     size = len(source)
     if size == 0:
         return Ok(())
-    line = head_step[E, Bytes](std.http.encode_chunk_size(size), 0)?
+    # `len` is never negative, so the conversion cannot fail.
+    line = head_step[E, Bytes](std.http.encode_chunk_size(NonNegative.try_from(size).unwrap()), 0)?
     deliver[E, W](writer, &line, 0)?
     deliver[E, W](writer, source, line.len())?
     deliver[E, W](writer, &line[line.len() - 2:], line.len() + size)
 
-pub def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
+pub def fixed_body[E, R: Reader[E]](inner: R, length: NonNegative[i64]) -> Result[FixedBody[E, R], FramingError[E]]:
+    Ok(FixedBody[E, R](Some(inner), length.get(), False))
+
+# `Framing.Length` holds a plain i64, so a framing built by the caller can
+# still carry a negative length.
+def framed_fixed[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]:
     if length < 0:
         return Err(FramingError[E].OutOfRange)
     Ok(FixedBody[E, R](Some(inner), length, False))
@@ -193,11 +199,11 @@ pub class FixedBody[E, R]:
 # Parsing state survives Interrupted, including a partially consumed CRLF.
 # Metadata is read one byte at a time so the next message is never prefetched.
 pub def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]:
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
     line = std.bytes.with_capacity(limits.max_line).map_error(HttpError.Allocation).map_error(FramingError[E].Protocol)?
     trailers = chunk_alloc[E, list[Header]](list[Header].new())?
-    Ok(ChunkedBody[E, R](Some(inner), trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body))
+    Ok(ChunkedBody[E, R](Some(inner), trailers, line, 0, 0, 0, 0, 0, limits.max_line, limits.max_head, limits.max_headers.get(), limits.max_body.get()))
 
 def chunk_alloc[E, T](result: Result[T, AllocError]) -> Result[T, FramingError[E]]:
     match result:
@@ -429,21 +435,21 @@ def head_result[E, T](result: Result[T, HttpError]) -> Result[T, FramingError[E]
             Err(FramingError[E].Protocol(cause))
 
 def framed_body[E, R: Reader[E]](inner: R, framing: &Framing, limits: &Limits, keep: bool) -> Result[Body[E, R], FramingError[E]]:
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return Err(FramingError[E].Protocol(HttpError.InvalidLimit))
     empty = chunk_alloc[E, list[Header]](list[Header].new())?
     kind: BodyKind[E, R] = match framing:
         case Framing.Empty:
             BodyKind[E, R].Fixed(fixed_body[E, R](inner, 0)?)
         case Framing.Length(length):
-            if *length > limits.max_body:
+            if *length > limits.max_body.get():
                 return Err(FramingError[E].Protocol(HttpError.BodyTooLarge))
-            BodyKind[E, R].Fixed(fixed_body[E, R](inner, *length)?)
+            BodyKind[E, R].Fixed(framed_fixed[E, R](inner, *length)?)
         case Framing.Chunked:
             BodyKind[E, R].Chunked(chunked_body[E, R](inner, limits)?)
         case Framing.UntilClose:
             BodyKind[E, R].Close(close_body[E, R](inner))
-    Ok(Body[E, R](kind, empty, keep, False, 0, limits.max_body))
+    Ok(Body[E, R](kind, empty, keep, False, 0, limits.max_body.get()))
 
 pub class Body[E, R]:
     kind: BodyKind[E, R]

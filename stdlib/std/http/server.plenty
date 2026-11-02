@@ -336,7 +336,7 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
                         return True
                 elif input.fields < 0:
                     input.fields = 0
-                elif input.fields >= limits.max_headers:
+                elif input.fields >= limits.max_headers.get():
                     return True
                 else:
                     input.fields += 1
@@ -1318,7 +1318,7 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
             Framing.Empty
     match &framing:
         case Framing.Length(size):
-            if *size > config.limits.max_body:
+            if *size > config.limits.max_body.get():
                 refusal = 413
         case _:
             pass
@@ -2122,7 +2122,7 @@ def launch[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](count: i64, li
 
 def valid(config: &Config) -> bool:
     limits = &config.limits
-    if limits.max_line <= 0 or limits.max_head <= 0 or limits.max_headers <= 0 or limits.max_body < 0:
+    if limits.max_line <= 0 or limits.max_head <= 0 or limits.max_headers == 0:
         return False
     if config.idle_connections < 0 or config.idle_connections > 1000000:
         return False

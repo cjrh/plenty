@@ -30,9 +30,4 @@ def main() -> Result[(), AllocError | IoError | std.test.TestError]:
             print("then admitted", heaps_live(), actors.live())?
         case Err(error):
             print(error)?
-    match actors.start(Node(3), 0):
-        case Err(error):
-            print(error)?
-        case Ok(_):
-            pass
     Ok(())

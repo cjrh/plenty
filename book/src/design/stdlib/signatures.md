@@ -138,7 +138,7 @@ enum Undelivered[M]
 enum StageError
     Allocation(AllocError) | Wait(WaitError)
 enum StartError
-    Unsupported | Capacity | Heaps | Limit | Mailbox
+    Unsupported | Capacity | Heaps | Mailbox
 class Stats
     started: i64
     stopped: i64
@@ -159,8 +159,8 @@ class Context[M, E]
     def heap_used(self) -> i64
     def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Context[M, E], to: Address) -> bool
-    def spawn(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
-    def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: i64) -> Result[Address, StartError]
+    def spawn(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]
+    def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]
     def restart(self: &mut Context[M, E], child: Address, limit: i64, window: &Duration) -> bool
     def after(self: &mut Context[M, E], delay: &Duration, tag: i64) -> Result[Timer, TimerError]
     def every(self: &mut Context[M, E], period: &Duration, tag: i64) -> Result[Timer, TimerError]
@@ -171,7 +171,7 @@ class Context[M, E]
     def unwatch[H: Watchable](self: &mut Context[M, E], handle: &H) -> Result[(), WaitError]
 class Stage[N, M, E]
     def shutdown(self: &mut Stage[N, M, E]) -> ()
-    def start(self: &mut Stage[N, M, E], node: N, limit: i64) -> Result[Address, StartError]
+    def start(self: &mut Stage[N, M, E], node: N, limit: Positive[i64]) -> Result[Address, StartError]
     def send(self: &mut Stage[N, M, E], to: Address, message: M) -> Result[(), Undelivered[M]]
     def stop_actor(self: &mut Stage[N, M, E], to: Address) -> bool
     def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]
@@ -189,8 +189,8 @@ TCP for actors: a listener that starts one actor per connection with admission l
 
 ```text
 class Limits
-    input: i64
-    output: i64
+    input: Positive[i64]
+    output: Positive[i64]
     idle: Duration
     stall: Duration
 enum Expired
@@ -213,7 +213,7 @@ class Connection
     def pending(self) -> i64
     def space(self) -> i64
     def write[M, E](self: &mut Connection, source: &[u8], context: &mut Context[M, E]) -> Result[i64, NetError | TimerError]
-    def reserve(self: &mut Connection, wanted: i64) -> Result[i64, NetError]
+    def reserve(self: &mut Connection, wanted: NonNegative[i64]) -> Result[i64, NetError]
     def output(self: &mut Connection) -> &mut Bytes
     def output_stop(self) -> i64
     def commit[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]
@@ -226,18 +226,18 @@ class Connection
     def reading(self) -> bool
     def closed(self) -> bool
     def stream(self) -> &TcpStream
-def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, BytesError]
+def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, AllocError]
 enum Admission
     Pause | Refuse
 class Listener
     def start[M, E](self: &mut Listener, context: &mut Context[M, E]) -> Result[(), NetError]
     def handle[M, E](self: &mut Listener, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[bool, NetError]
-    def accept(self) -> Result[Option[Connection], NetError | BytesError]
+    def accept(self) -> Result[Option[Connection], NetError | AllocError]
     def live(self) -> i64
     def refused(self) -> i64
     def tag(self) -> i64
     def local_address(self) -> Result[SocketAddress, NetError]
-def listener(socket: TcpListener, limits: Limits, capacity: i64, heap: i64, tag: i64, admission: Admission) -> Result[Listener, NetError]
+def listener(socket: TcpListener, limits: Limits, capacity: Positive[i64], heap: Positive[i64], tag: i64, admission: Admission) -> Result[Listener, NetError]
 class Dialing
     def handle[M, E](self: &mut Dialing, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[TcpStream], NetError]
     def abandon[M, E](self: &mut Dialing, context: &mut Context[M, E]) -> Result[(), NetError]
@@ -274,9 +274,9 @@ class TlsConnection
     def closed(self) -> bool
     def session(self) -> &Session
     def connection(self) -> &Connection
-def over(net: Connection, session: Session, input: i64) -> Result[TlsConnection, TlsError]
-def server(net: Connection, config: &ServerConfig, input: i64) -> Result[TlsConnection, TlsError]
-def client(net: Connection, config: &ClientConfig, server_name: &str, input: i64) -> Result[TlsConnection, TlsError]
+def over(net: Connection, session: Session, input: Positive[i64]) -> Result[TlsConnection, TlsError]
+def server(net: Connection, config: &ServerConfig, input: Positive[i64]) -> Result[TlsConnection, TlsError]
+def client(net: Connection, config: &ClientConfig, server_name: &str, input: Positive[i64]) -> Result[TlsConnection, TlsError]
 ```
 
 ## `std.actor.http.server`
@@ -304,7 +304,7 @@ class Config
     response_timeout: Duration
     handshake_timeout: Duration
     drain_timeout: Duration
-    max_requests: i64
+    max_requests: Positive[i64]
 class Report
     actors: Stats
     requests: u64
@@ -715,7 +715,7 @@ def ed25519_sign_into(seed: &[u8], message: &[u8], target: &mut Bytes) -> Result
 def ed25519_sign(seed: &[u8], message: &[u8]) -> Result[Bytes, AdvancedError]
 def ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result[bool, AdvancedError]
 def hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]
-def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: i64) -> Result[Bytes, AdvancedError]
+def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: NonNegative[i64]) -> Result[Bytes, AdvancedError]
 class X25519Key
     def public_key_into(self, target: &mut Bytes) -> Result[(), AdvancedError]
     def public_key(self) -> Result[Bytes, AdvancedError]
@@ -1583,8 +1583,8 @@ enum HttpError
 class Limits
     max_line: i64
     max_head: i64
-    max_headers: i64
-    max_body: i64
+    max_headers: NonNegative[i64]
+    max_body: NonNegative[i64]
 def limits() -> Limits
 class Header
     name: str
@@ -1639,7 +1639,7 @@ def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]
 def write_response[W: Writer](writer: &mut W, head: &ResponseHead) -> Result[(), HttpError]
 def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]
 def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]
-def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]
+def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]
@@ -1674,8 +1674,8 @@ enum BodyError
 def status(error: &BodyError) -> i64
 def reject[T: Transport](exchange: &mut Exchange[T], error: &BodyError) -> Result[(), HttpError]
 class FormLimits
-    max_bytes: i64
-    max_fields: i64
+    max_bytes: NonNegative[i64]
+    max_fields: NonNegative[i64]
 def form_limits() -> FormLimits
 def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]
 def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]
@@ -1684,11 +1684,11 @@ def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> 
 def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]
 def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]
 class MultipartLimits
-    max_parts: i64
-    max_head: i64
-    max_field: i64
-    max_file: i64
-    max_body: i64
+    max_parts: NonNegative[i64]
+    max_head: NonNegative[i64]
+    max_field: NonNegative[i64]
+    max_file: NonNegative[i64]
+    max_body: NonNegative[i64]
 def multipart_limits() -> MultipartLimits
 enum Content
     Text(str) | File(TempFile)
@@ -2041,7 +2041,7 @@ def write_request[E, W: Writer[E]](writer: &mut W, head: &RequestHead) -> Result
 def write_response[E, W: Writer[E]](writer: &mut W, head: &ResponseHead) -> Result[(), Partial[FramingError[E]]]
 def write_last_chunk[E, W: Writer[E]](writer: &mut W, trailers: &list[Header]) -> Result[(), Partial[FramingError[E]]]
 def write_chunk[E, W: Writer[E]](writer: &mut W, source: &[u8]) -> Result[(), Partial[FramingError[E]]]
-def fixed_body[E, R: Reader[E]](inner: R, length: i64) -> Result[FixedBody[E, R], FramingError[E]]
+def fixed_body[E, R: Reader[E]](inner: R, length: NonNegative[i64]) -> Result[FixedBody[E, R], FramingError[E]]
 class FixedBody[E, R]
     def read(self: &mut FixedBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
 def chunked_body[E, R: Reader[E]](inner: R, limits: &Limits) -> Result[ChunkedBody[E, R], FramingError[E]]
@@ -2071,8 +2071,8 @@ RFC 6455 WebSocket connections: the handshake as a server exchange or a `ws` cli
 enum WebSocketError
     Net(NetError) | Allocation(AllocError) | Http(HttpError) | Connect(ClientError) | Entropy(StreamError) | InvalidConfig | InvalidUrl | UnsupportedScheme | OutOfRange | Refused(i64) | Rejected(i64) | InvalidHandshake | Protocol | TooLarge | InvalidText | Closed | Stopping
 class Config
-    max_frame: i64
-    max_message: i64
+    max_frame: Positive[i64]
+    max_message: Positive[i64]
     subprotocol: Option[str]
 def config() -> Config
 enum Message
@@ -2405,7 +2405,7 @@ class Validation
     require_expiry: bool
     issuer: Option[str]
     audience: Option[str]
-    max_size: i64
+    max_size: Positive[i64]
 def validation(now: &Timestamp) -> Validation
 class Header
     algorithm: Algorithm
@@ -2414,7 +2414,7 @@ class Header
 class Token
     header: Header
     claims: list[Member]
-def decode_header(token: &str, max_size: i64 = default_max_size) -> Result[Header, JwtError]
+def decode_header(token: &str, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]
 def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]
 def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> Result[str, JwtError]
 ```
@@ -3727,7 +3727,7 @@ Strict RFC 3986 absolute URL parsing and formatting without normalization, compo
 
 ```text
 enum UrlError
-    InvalidLimit | LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
+    LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
 enum Component
     Userinfo | Segment | Path | Query | QueryPart | Fragment
 class Url
@@ -3742,7 +3742,7 @@ class Url
 class Pair
     key: str
     value: str
-def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]
+def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]
 def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]
 def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]
 def encode(text: &str, component: Component) -> Result[str, UrlError]

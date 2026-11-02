@@ -192,9 +192,23 @@ print(hex(&std.crypto.hkdf_sha256(&salt, &ikm, &info, 42)?)?)?
 empty = std.bytes.empty()?
 print(std.crypto.hkdf_sha256(&empty, &empty, &empty, 0)?.len())?
 print(std.crypto.hkdf_sha256(&empty, &empty, &empty, 8160)?.len())?
-print(str.repr(std.crypto.hkdf_sha256(&empty, &empty, &empty, 8161))?)?
 "#,
-        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865\n0\n8160\nResult[Bytes, E].Err(E.InvalidLength)",
+        "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865\n0\n8160",
+    );
+}
+
+/// The size has a type for its lower bound; the fixed RFC 5869 ceiling
+/// (255 * 32 bytes) traps.
+#[test]
+fn hkdf_size_above_its_ceiling_traps() {
+    let output = run(&program(
+        "empty = std.bytes.empty()?\nprint(std.crypto.hkdf_sha256(&empty, &empty, &empty, 8161)?.len())?",
+    ));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(": std.crypto.hkdf_sha256: size is above 8160\n"),
+        "{stderr}"
     );
 }
 

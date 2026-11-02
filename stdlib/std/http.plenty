@@ -44,8 +44,8 @@ pub enum HttpError:
 pub class Limits:
     pub max_line: i64
     pub max_head: i64
-    pub max_headers: i64
-    pub max_body: i64
+    pub max_headers: NonNegative[i64]
+    pub max_body: NonNegative[i64]
 
 pub def limits() -> Limits:
     Limits(8192, 65536, 100, 1048576)
@@ -129,7 +129,7 @@ def interrupted(cause: &StreamError) -> bool:
             False
 
 def checked(limits: &Limits) -> Result[(), HttpError]:
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return Err(HttpError.InvalidLimit)
     Ok(())
 
@@ -343,7 +343,7 @@ pub def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Res
             return Ok(Nothing)
         left -= size + 2
     mut head = parse_request_line(&line[:size])?
-    read_fields(conn, &mut line, limits.max_line, left, limits.max_headers, &mut head.headers)?
+    read_fields(conn, &mut line, limits.max_line, left, limits.max_headers.get(), &mut head.headers)?
     Ok(Some(head))
 
 # Reads the next response head, or Nothing when the input ends before its
@@ -357,7 +357,7 @@ pub def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Re
     if size < 0:
         return Ok(Nothing)
     mut head = parse_status_line(&line[:size])?
-    read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers, &mut head.headers)?
+    read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers.get(), &mut head.headers)?
     Ok(Some(head))
 
 def content_length(value: &str) -> Result[i64, HttpError]:
@@ -779,7 +779,7 @@ pub def body_reader[R: Reader](conn: BufReader[R], framing: &Framing, limits: &L
         case Framing.Length(size):
             if size < 0:
                 return Err(HttpError.InvalidContentLength)
-            if size > limits.max_body:
+            if size > limits.max_body.get():
                 return Err(HttpError.BodyTooLarge)
             if size > 0:
                 state = sized
@@ -790,7 +790,7 @@ pub def body_reader[R: Reader](conn: BufReader[R], framing: &Framing, limits: &L
             state = until_close
     trailers = listed(list[Header].new())?
     line = listed(std.bytes.empty())?
-    Ok(BodyReader(trailers, Some(conn), state, remaining, 0, limits.max_line, limits.max_head, limits.max_headers, limits.max_body, line, Nothing))
+    Ok(BodyReader(trailers, Some(conn), state, remaining, 0, limits.max_line, limits.max_head, limits.max_headers.get(), limits.max_body.get(), line, Nothing))
 
 # Appends the rest of the body to `out` and returns the count appended.
 pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Result[i64, HttpError]:
@@ -956,14 +956,15 @@ pub def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]:
 pub def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]:
     if len(source) == 0:
         return Ok(())
-    line = encode_chunk_size(len(source))?
+    line = chunk_size_line(len(source))?
     deliver(writer, &line)?
     deliver(writer, source)?
     deliver(writer, &line[line.len() - 2:])
 
-pub def encode_chunk_size(length: i64) -> Result[Bytes, HttpError]:
-    if length < 0:
-        return Err(HttpError.Stream(StreamError.OutOfRange))
+pub def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]:
+    chunk_size_line(length.get())
+
+def chunk_size_line(length: i64) -> Result[Bytes, HttpError]:
     mut line = listed(std.bytes.with_capacity(18))?
     put_hex(&mut line, length)?
     put_line_end(&mut line)?

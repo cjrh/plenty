@@ -98,7 +98,7 @@ def reference(input: &Bytes, limits: &std.http.Limits) -> Result[(i64, i64), Htt
                 # The HTTP server applies this bound before routing.
                 match &framing:
                     case std.http.Framing.Length(size):
-                        if *size > limits.max_body:
+                        if *size > limits.max_body.get():
                             return Err(HttpError.BodyTooLarge)
                     case _:
                         pass

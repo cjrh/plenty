@@ -143,12 +143,12 @@ pub class Decoder:
                     self._line.clear()
                     return Ok((at, Some(self.parsed_head()?)))
                 else:
-                    if self._fields >= self._limits.max_headers:
+                    if self._fields >= self._limits.max_headers.get():
                         return Err(HttpError.TooManyHeaders)
                     self._fields += 1
             elif self._state == chunk_size:
                 length = std.http.parse_chunk_size(&self._line[:size])?
-                if length > self._limits.max_body - self._total:
+                if length > self._limits.max_body.get() - self._total:
                     return Err(HttpError.BodyTooLarge)
                 self._remaining = length
                 self._state = trailers if length == 0 else chunk_data
@@ -165,7 +165,7 @@ pub class Decoder:
                     values = self.parsed_trailers()?
                     self._state = ending
                     return Ok((at, Some(Event.Trailers(values))))
-                if self._fields >= self._limits.max_headers:
+                if self._fields >= self._limits.max_headers.get():
                     return Err(HttpError.TooManyHeaders)
                 self._fields += 1
             self._line.clear()
@@ -224,7 +224,7 @@ pub class Decoder:
         framing = std.http.request_framing(&request)?
         match &framing:
             case Framing.Length(length):
-                if *length > self._limits.max_body:
+                if *length > self._limits.max_body.get():
                     return Err(HttpError.BodyTooLarge)
                 self._remaining = *length
                 self._state = ending if *length == 0 else sized
@@ -252,7 +252,7 @@ pub class Decoder:
         Ok(values)
 
 pub def decoder(limits: &Limits) -> Result[Decoder, HttpError]:
-    if limits.max_line < 2 or limits.max_head < 2 or limits.max_headers < 0 or limits.max_body < 0:
+    if limits.max_line < 2 or limits.max_head < 2:
         return Err(HttpError.InvalidLimit)
     owned = Limits(limits.max_line, limits.max_head, limits.max_headers, limits.max_body)
     Ok(Decoder(owned, head, allocated(std.bytes.empty())?, allocated(std.bytes.empty())?, False, False, 0, 0, 0))
