@@ -112,7 +112,10 @@ destroys its component. A name follows the single-assignment rule: it assigns an
 existing `mut` local or declares a new immutable one. `mut a, b = value`
 declares mutable locals and accepts names or nested tuples of names only.
 Tuple targets nest recursively: `(a, (b, c)) = value` requires the same tuple
-shape. Leaves are assigned left to right after the whole right side is evaluated;
+shape. `mut (a, b), c = ((1, 2), 3)` and `mut ((a, b), c) = ((1, 2), 3)`
+declare the same nested components; the first tuple remains one target when an
+outer comma follows it. A singleton `(a,)` still requires one tuple component.
+Leaves are assigned left to right after the whole right side is evaluated;
 field, index and dereference leaves follow the same rules as flat targets.
 Naming the same local twice, starred targets, and a closure capture as a name
 target are rejected. In a constructor, a `self.field` target initializes its field, and

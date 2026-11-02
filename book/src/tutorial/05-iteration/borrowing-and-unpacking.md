@@ -97,12 +97,18 @@ source is borrowed:
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
     mut rows = [((1, 2), "point")]?
+    x = 99
     for (x, y), _ in &mut rows:
         *x += 10
         *y += 20
     print(rows)?
+    print(x)?
     Ok(())
 ```
 ```output
 [((11, 22), "point")]
+99
 ```
+
+The loop's `x` is a new binding to the borrowed component. The outer `x`
+remains available after the loop.

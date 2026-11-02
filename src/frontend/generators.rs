@@ -93,6 +93,7 @@ impl Lower<'_> {
                             kind: Statement::Unpack {
                                 names,
                                 targets: Some(targets),
+                                fresh: true,
                                 mutable: false,
                                 value,
                             },

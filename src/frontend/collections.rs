@@ -649,6 +649,27 @@ impl Lower<'_> {
             expected
         }
     }
+    /// The iteration item has already been evaluated into an internal binding.
+    /// Removing target names now leaves source expressions in the outer scope,
+    /// then binds new locals rather than overwriting or destroying their owners.
+    /// The enclosing loop/comprehension restores its saved names on exit.
+    pub(super) fn unpack_iteration_bindings(
+        &mut self,
+        names: &[String],
+        targets: Option<&[Expr]>,
+        value: &Expr,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        for name in names {
+            self.names.remove(name);
+        }
+        if let Some(targets) = targets {
+            self.unpack_nested(targets, false, value, ops)
+        } else {
+            self.unpack_tuple(names, false, value, ops)
+        }
+    }
+
     pub(super) fn unpack_nested(
         &mut self,
         targets: &[Expr],
@@ -1356,8 +1377,8 @@ impl Lower<'_> {
                 self.cleanup(start, ops);
                 self.names = saved;
             }
-            Some((Clause::Unpack(_, targets, value), rest)) => {
-                self.unpack_nested(targets, false, value, ops)?;
+            Some((Clause::Unpack(names, targets, value), rest)) => {
+                self.unpack_iteration_bindings(names, Some(targets), value, ops)?;
                 self.comprehension(rest, entries, kind, result, ty, pending, ops)?;
             }
             Some((Clause::If(condition), rest)) => {
@@ -1478,8 +1499,8 @@ impl Lower<'_> {
         let hint = comprehension_hint(names, entries, expected.as_ref());
         let mut iteration = self.iteration(names, iterable, hint, ops)?;
         for filter in filters {
-            if let Clause::Unpack(_, targets, value) = filter {
-                self.unpack_nested(targets, false, value, &mut iteration.body)?;
+            if let Clause::Unpack(names, targets, value) = filter {
+                self.unpack_iteration_bindings(names, Some(targets), value, &mut iteration.body)?;
                 continue;
             }
             let Clause::If(condition) = filter else {

@@ -619,6 +619,7 @@ impl Lower<'_> {
                 at: at.clone(),
                 kind: Statement::Unpack {
                     targets: None,
+                    fresh: false,
                     names: unpack_names,
                     mutable: false,
                     value: name_expr(&at, "__plenty_par_chunk"),
@@ -676,6 +677,7 @@ impl Lower<'_> {
                             at: at.clone(),
                             kind: Statement::Unpack {
                                 targets: None,
+                                fresh: false,
                                 names: vec![left.into(), right.into()],
                                 mutable: false,
                                 value: name_expr(&at, "__plenty_par_sums"),

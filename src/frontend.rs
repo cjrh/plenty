@@ -1182,6 +1182,8 @@ enum Statement {
         /// Recursive declaration targets contain only names and tuples;
         /// executable place destinations use `SetIndex` instead.
         targets: Option<Vec<Expr>>,
+        /// Iteration bindings shadow outer locals; user assignments may reuse them.
+        fresh: bool,
         mutable: bool,
         value: Expr,
     },
@@ -2432,9 +2434,13 @@ impl Parser {
                         },
                     });
                 }
-                let mut targets = match first.kind {
-                    Expression::Tuple(targets) => targets,
-                    _ => vec![first],
+                let mut targets = if self.peek().is(",") {
+                    vec![first]
+                } else {
+                    match first.kind {
+                        Expression::Tuple(targets) => targets,
+                        _ => vec![first],
+                    }
                 };
                 while self.eat(",") {
                     targets.push(self.expr(0)?);
@@ -2452,6 +2458,7 @@ impl Parser {
                     kind: Statement::Unpack {
                         names,
                         targets,
+                        fresh: false,
                         mutable,
                         value,
                     },
@@ -2480,6 +2487,7 @@ impl Parser {
                         kind: Statement::Unpack {
                             names,
                             targets: None,
+                            fresh: false,
                             mutable,
                             value,
                         },
@@ -2523,6 +2531,7 @@ impl Parser {
                         Some(names) => Statement::Unpack {
                             names,
                             targets: None,
+                            fresh: false,
                             mutable: false,
                             value,
                         },
@@ -2609,7 +2618,15 @@ impl Parser {
         })
     }
     fn loop_bindings(&mut self, at: &Token) -> Result<(Vec<String>, Vec<Stmt>)> {
-        let targets = self.loop_targets()?;
+        let mut targets = self.loop_targets()?;
+        if targets.len() == 1
+            && matches!(&targets[0].kind, Expression::Tuple(fields) if fields.len() > 1)
+        {
+            let Expression::Tuple(fields) = targets.pop().unwrap().kind else {
+                unreachable!()
+            };
+            targets = fields;
+        }
         Self::unpacking_names(&targets)?;
         let mut names = Vec::new();
         let mut prefix = Vec::new();
@@ -2626,6 +2643,7 @@ impl Parser {
                     kind: Statement::Unpack {
                         names: Self::unpacking_names(&targets)?,
                         targets: Some(targets),
+                        fresh: true,
                         mutable: false,
                         value: Expr {
                             at: target.at,
@@ -6010,11 +6028,14 @@ impl Lower<'_> {
                 Statement::Unpack {
                     names,
                     targets,
+                    fresh,
                     mutable,
                     value,
                 } => {
                     let start = ops.len();
-                    if let Some(targets) = targets {
+                    if *fresh {
+                        self.unpack_iteration_bindings(names, targets.as_deref(), value, ops)?;
+                    } else if let Some(targets) = targets {
                         self.unpack_nested(targets, *mutable, value, ops)?;
                     } else {
                         self.unpack_tuple(names, *mutable, value, ops)?;

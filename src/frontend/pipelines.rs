@@ -1416,9 +1416,9 @@ impl Lower<'_> {
             self.pipeline_pack_pair(&mut plan, &e.at)?;
             let source = format!("<pipeline unpack {} {}>", e.at.line, e.at.column);
             self.bind(source.clone(), plan.item.clone());
-            self.unpack_tuple(
+            self.unpack_iteration_bindings(
                 names,
-                false,
+                None,
                 &Expr {
                     at: e.at.clone(),
                     kind: Expression::Name(source.clone()),
