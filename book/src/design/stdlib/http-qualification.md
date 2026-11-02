@@ -308,8 +308,13 @@ Differences between the proxies, none of them a server fault:
 - Caddy offers HTTP/2 to TLS clients and speaks HTTP/1.1 to the server.
 - After relaying an answer sent before a large body was read, Caddy closes
   the client's connection with the rest of the body unread, so a client
-  still sending may see a reset after the answer. The test accepts that
-  reset (curl exit 55) for Caddy only.
+  still sending may see a reset after the answer. Curl can stop on its
+  upload error before reading the final response. The Caddy refusal and
+  early-answer checks therefore receive concurrently with the upload and
+  require the final status, a single correct `Content-Length`, and the exact
+  complete body before accepting a reset. A lone `100 Continue`, a truncated
+  answer, or a timeout still fails. The nginx checks require curl to exit
+  successfully. The other curl interoperability checks remain strict.
 - nginx reuses connections to the server only with an `upstream` block
   with `keepalive`, `proxy_http_version 1.1` and an empty `Connection`
   header, as in the test configuration.

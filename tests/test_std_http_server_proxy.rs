@@ -424,6 +424,7 @@ impl Drop for Proxy {
 /// curl, which must succeed. Requests come from 127.0.0.2, so the server can
 /// tell the client from the proxy, which connects from 127.0.0.1.
 fn curl(args: &[&str]) -> Output {
+    let headers = tempfile::NamedTempFile::new().unwrap();
     let output = Command::new("curl")
         .args([
             "--silent",
@@ -434,14 +435,17 @@ fn curl(args: &[&str]) -> Output {
             "*",
         ])
         .args(["--interface", "127.0.0.2"])
+        .arg("--dump-header")
+        .arg(headers.path())
         .args(args)
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "curl {args:?}: {}; response: {:?}",
+        "curl {args:?}: {}; response: {:?}; headers: {:?}",
         String::from_utf8_lossy(&output.stderr),
-        String::from_utf8_lossy(&output.stdout)
+        String::from_utf8_lossy(&output.stdout),
+        std::fs::read_to_string(headers.path()).unwrap()
     );
     output
 }
@@ -455,33 +459,163 @@ fn fetch(args: &[&str]) -> (String, String) {
     (code.to_owned(), body.to_owned())
 }
 
-/// `fetch` for an answer Caddy relays before it has read the whole request
-/// body. Caddy then closes the client connection with the rest unread, so
-/// curl, still sending, may fail with a reset (exit 55) after receiving
-/// the answer. That is between the client and the proxy; the status shows
-/// whether the server's answer reached the proxy.
-fn relayed(args: &[&str]) -> (String, String) {
-    let output = Command::new("curl")
-        .args([
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "30",
-            "--noproxy",
-            "*",
-        ])
-        .args(["--interface", "127.0.0.2", "-w", "\n%{http_code}"])
-        .args(args)
-        .output()
+/// Receives while uploading: curl can abandon a final response when a send
+/// fails after Caddy closes an unread request body. Only a complete, correctly
+/// framed response permits an upload-side reset; no request is retried.
+/// The body starts without waiting for `100 Continue`, as HTTP permits;
+/// `bodies_and_continue` separately qualifies clients that wait for it.
+fn relayed_upload(port: u16, path: &str, body: Vec<u8>, chunked: bool, expected: (&str, &str)) {
+    use std::io::ErrorKind;
+    use std::net::Shutdown;
+
+    let mut stream = TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    let until = Instant::now() + Duration::from_secs(30);
+    let mut sender = stream.try_clone().unwrap();
+    sender
+        .set_write_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    assert!(
-        matches!(output.status.code(), Some(0 | 55)),
-        "curl {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
+    let upload_path = path.to_owned();
+    let upload = std::thread::spawn(move || -> std::io::Result<()> {
+        let framing = if chunked {
+            "Transfer-Encoding: chunked".to_owned()
+        } else {
+            format!("Content-Length: {}", body.len())
+        };
+        let expect = if body.len() > 1 << 20 {
+            "Expect: 100-continue\r\n"
+        } else {
+            ""
+        };
+        write!(
+            sender,
+            "POST {upload_path} HTTP/1.1\r\nHost: localhost\r\n{framing}\r\n{expect}Connection: close\r\n\r\n"
+        )?;
+        for piece in body.chunks(16 * 1024) {
+            if Instant::now() >= until {
+                return Err(ErrorKind::TimedOut.into());
+            }
+            if chunked {
+                write!(sender, "{:x}\r\n", piece.len())?;
+            }
+            sender.write_all(piece)?;
+            if chunked {
+                sender.write_all(b"\r\n")?;
+            }
+        }
+        if chunked {
+            sender.write_all(b"0\r\n\r\n")?;
+        }
+        Ok(())
+    });
+    let mut received = Vec::new();
+    let mut buffer = [0; 4096];
+    let reading = loop {
+        let remaining = until.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break Err(std::io::Error::from(ErrorKind::TimedOut));
+        }
+        if let Err(error) = stream.set_read_timeout(Some(remaining)) {
+            break Err(error);
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => break Ok(()),
+            Ok(count) => {
+                received.extend_from_slice(&buffer[..count]);
+                if received.len() > 64 * 1024 {
+                    break Err(std::io::Error::other("oversized qualification response"));
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => break Err(error),
+        }
+    };
+    // Always stop and join the sender before inspecting the response, even on
+    // a read failure. shutdown affects both cloned socket handles.
+    let _ = stream.shutdown(Shutdown::Both);
+    let uploaded = upload.join().unwrap();
+    let text = String::from_utf8(received).unwrap_or_else(|error| {
+        panic!(
+            "relay {path} chunked={chunked}: response is not UTF-8: {}; bytes={:?}",
+            error.utf8_error(),
+            error.as_bytes()
+        )
+    });
+    if uploaded.is_err() || reading.is_err() {
+        eprintln!("relay {path} chunked={chunked}: upload={uploaded:?} read={reading:?}");
+    }
+    assert_complete_relay(&text, expected);
+    for result in [reading, uploaded] {
+        if let Err(error) = result {
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::NotConnected
+                ),
+                "{path}: {error}; response={text:?}"
+            );
+        }
+    }
+}
+
+fn assert_complete_relay(mut response: &str, expected: (&str, &str)) {
+    let original = response;
+    while response.starts_with("HTTP/1.1 100 ") {
+        response = response
+            .split_once("\r\n\r\n")
+            .unwrap_or_else(|| panic!("incomplete interim head: {original:?}"))
+            .1;
+    }
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .unwrap_or_else(|| panic!("incomplete final head: {original:?}"));
+    let mut lines = head.split("\r\n");
+    let status = lines.next().unwrap();
+    assert_eq!(
+        status.split_whitespace().take(2).collect::<Vec<_>>(),
+        ["HTTP/1.1", expected.0],
+        "{response:?}"
     );
-    let text = String::from_utf8(output.stdout).unwrap();
-    let (body, code) = text.rsplit_once('\n').unwrap();
-    (code.to_owned(), body.to_owned())
+    let mut lengths = Vec::new();
+    for line in lines {
+        let (name, value) = line.split_once(':').expect("response header field");
+        assert!(
+            !name.eq_ignore_ascii_case("Transfer-Encoding"),
+            "unexpected framing: {response:?}"
+        );
+        if name.eq_ignore_ascii_case("Content-Length") {
+            lengths.push(value.trim().parse::<usize>().unwrap());
+        }
+    }
+    assert_eq!(lengths, [expected.1.len()], "{response:?}");
+    assert_eq!(body, expected.1, "{response:?}");
+}
+
+#[test]
+fn relayed_response_requires_a_complete_final_answer() {
+    let complete = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\n\r\nContent Too Large\n";
+    assert_complete_relay(complete, ("413", "Content Too Large\n"));
+    for response in [
+        "HTTP/1.1 100 Continue\r\n\r\n",
+        "HTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\n\r\nContent Too",
+        "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 18\r\n\r\nContent Too Large\n",
+        "HTTP/1.1 413 Content Too Large\r\nContent-Length: 19\r\n\r\nContent Too Large\n",
+        "HTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\nContent-Length: 18\r\n\r\nContent Too Large\n",
+        "HTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\n\r\nContent Too Large\nextra",
+        "HTTP/1.1 413 Content Too Large\r\nTransfer-Encoding: chunked\r\nContent-Length: 18\r\n\r\nContent Too Large\n",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| assert_complete_relay(
+                response,
+                ("413", "Content Too Large\n")
+            ))
+            .is_err(),
+            "accepted {response:?}"
+        );
+    }
 }
 
 fn connect(port: u16) -> TcpStream {
@@ -774,16 +908,22 @@ fn slow_clients_timeouts_and_refusals(kind: Kind) {
                     let mut args = vec!["--data-binary", upload.as_str()];
                     args.extend(&extra);
                     args.push(&url);
-                    let (code, body) = if proxy.kind == Kind::Caddy && path == "early" {
-                        relayed(&args)
+                    if proxy.kind == Kind::Caddy {
+                        relayed_upload(
+                            proxy.http,
+                            &format!("{prefix}/{path}"),
+                            std::fs::read(&upload[1..]).unwrap(),
+                            !extra.is_empty(),
+                            expected,
+                        );
                     } else {
-                        fetch(&args)
-                    };
-                    assert_eq!(
-                        (code.as_str(), body.as_str()),
-                        expected,
-                        "round {round}: {prefix}/{path} {extra:?}"
-                    );
+                        let (code, body) = fetch(&args);
+                        assert_eq!(
+                            (code.as_str(), body.as_str()),
+                            expected,
+                            "round {round}: {prefix}/{path} {extra:?}"
+                        );
+                    }
                 }
             }
         }
