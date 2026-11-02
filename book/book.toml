@@ -11,7 +11,7 @@ preferred-dark-theme = "ayu"
 site-url = "/plenty/"
 # highlight.js grammars for Plenty fences, compiler diagnostics and output.
 additional-js = ["theme/plenty-highlight.js"]
-additional-css = ["theme/plenty-highlight.css"]
+additional-css = ["theme/plenty-highlight.css", "theme/typography.css"]
 
 [output.html.fold]
 enable = true
