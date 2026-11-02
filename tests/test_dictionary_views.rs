@@ -598,7 +598,7 @@ fn explicit_mutable_values_cannot_bind_as_a_reusable_view() {
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("iterator pipelines cannot be passed as values"),
+        error.contains("an iterator pipeline can only be lent"),
         "{error}"
     );
 }

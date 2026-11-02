@@ -7,7 +7,7 @@ not change list indexing or `list.pop(0)` costs.
 | Operation | Result | Contract |
 |---|---|---|
 | `Deque[T]()` | `Result[Deque[T], AllocError]` | Construct an empty deque |
-| `queue.len()` | `i64` | Observe the live element count |
+| `len(queue)` or `queue.len()` | `i64` | Observe the live element count |
 | `queue.is_empty()` | `bool` | Observe whether the count is zero |
 | `queue.append(value)` | `Result[(), AllocError]` | Consume a value and append on the right |
 | `queue.appendleft(value)` | `Result[(), AllocError]` | Consume a value and append on the left |
@@ -23,7 +23,7 @@ def main() -> Result[(), AllocError | IoError]:
     queue.append("b")?
     queue.append("c")?
     queue.appendleft("a")?
-    print(queue.len(), queue.pop())?
+    print(len(queue), queue.pop())?
     while True:
         match queue.popleft():
             case Some(item):
@@ -50,7 +50,7 @@ preserves existing contents and drops the incoming value. Appending within
 capacity, removing, and clearing allocate no runtime storage.
 
 The deque moves and requires explicit `copy` for independent duplication. It
-has no indexed access, iteration protocol, bounded capacity, rotation, or bulk
+has no indexed access, membership operator, iteration protocol, bounded capacity, rotation, or bulk
 extension API. To consume it, repeatedly pop an end. See the runnable
 [queue lesson](../../tutorial/04-collections/deque.md).
 

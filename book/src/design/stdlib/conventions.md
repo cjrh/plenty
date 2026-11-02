@@ -103,7 +103,9 @@ the JSON encoder; `complete()` on the inflater; `cancelled()` in
 `count()` without an argument also reports a size in `std.fs.watch` (events in
 the batch), `std.simd` masks (set lanes) and `std.sketch` (values observed).
 New code uses `len()` for held elements and a descriptive noun for totals.
-`len()` and `in` do not reach std containers yet (issue #623).
+`len(container)` calls its accessible shared `len(self) -> i64` method.
+`in` does not dispatch to container methods; use explicit search operations
+(issue #623; remaining protocol scope is B49).
 
 ### Ending work
 
@@ -326,7 +328,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Area | Deviation | Tracking |
 |---|---|---|
 | Invalid arguments | Builtin policies differ | Issue #629 |
-| Containers | `len()` and `in` reject std containers | Issue #623 |
+| Containers | `in` does not dispatch to std container methods | B49; issue #623 records the length/diagnostic fix |
 | Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |

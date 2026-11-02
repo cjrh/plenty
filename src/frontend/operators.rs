@@ -74,8 +74,8 @@ fn known_hook(name: &str) -> bool {
 /// Every other `__name__` method is rejected: Plenty would never call it, and
 /// reserving the pattern keeps the names free for later hooks. Python's
 /// comparison and hashing hooks get their own message; B37 (`__cmp__`), B74
-/// (user-defined keys) and B49 (`len`/`in`) replace this for the hooks they
-/// admit. See book/src/design/language/04-expressions/operators.md#reserved-method-names.
+/// (user-defined keys) replace this for the hooks they admit.
+/// See book/src/design/language/04-expressions/operators.md#reserved-method-names.
 pub(super) fn reject_unsupported_hook(f: &Function) -> Result<()> {
     let name = f.name.as_str();
     if name.len() <= 4 || !name.starts_with("__") || !name.ends_with("__") || known_hook(name) {
@@ -105,7 +105,7 @@ pub(super) fn reject_unsupported_hook(f: &Function) -> Result<()> {
             "`for` never calls user methods; write a generator method that yields the elements and iterate over its result"
         }
         "__len__" | "__contains__" => {
-            "`len()` and `in` never call user methods; define a `len` or `contains` method and call it directly (`len()` and `in` on user types are planned under B49, issue #623)"
+            "`len()` calls an ordinary shared `len` method returning i64; define `len` instead of `__len__`. `in` does not call user methods; call a named search method directly"
         }
         "__bool__" => {
             "conditions require a `bool`; define a predicate method such as `is_empty` and call it"

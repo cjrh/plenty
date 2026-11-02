@@ -167,13 +167,15 @@ Plenty has its own form, the diagnostic names it:
 | `__str__`, `__repr__`, `__format__` | [`display` and `debug`](../../stdlib/fmt.md#static-user-contracts-and-aggregates) methods |
 | `__pow__` | a `pow` method, called as `base.pow(exponent)` |
 | `__iter__`, `__next__` | a [generator](../09-iteration/03-generators.md) method |
-| `__len__`, `__contains__` | `len` and `contains` methods, called directly |
+| `__len__`, `__contains__` | an ordinary shared `len` method for `len(value)`; explicit search methods for membership |
 | `__bool__` | a predicate method such as `is_empty` |
 | `__getitem__`, `__setitem__` | named methods such as `get` and `set` |
 
-`len()` and `in` on user types are planned under [B49](../../../backlog.md)
-(issue #623). A name with underscores on one side only, such as `__size`, is
-an ordinary method.
+[`len(value)`](../../facilities/01-builtins/collections.md) calls an ordinary
+shared `len(self) -> i64` method on classes and enums. Membership through `in`
+and `not in` still uses only intrinsic operations; user-container membership
+remains under [B49](../../../backlog.md). A name with underscores on one side
+only, such as `__size`, is an ordinary method.
 
 ## Boundaries
 

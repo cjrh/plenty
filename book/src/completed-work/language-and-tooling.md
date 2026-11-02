@@ -67,6 +67,17 @@ See [borrowing](../design/language/05-ownership/02-borrowing.md),
 and [slices/views](../design/language/04-expressions/slices.md).
 Outstanding relationships remain **B11** in the [backlog](../backlog.md).
 
+## B49: Length method dispatch
+
+`len(value)` calls an accessible ordinary shared `len(self) -> i64` method on
+classes and enums, including standard `Deque`, `Bytes`, and heap containers
+(issue #623). Owners, references, and temporaries follow ordinary method
+borrowing and cleanup. Unsupported length and membership diagnostics name the
+actual operand type rather than claiming every iterable supports the operation.
+See the [collection contracts](../design/facilities/01-builtins/collections.md).
+User-container membership and iterator protocols remain **B49** in the
+[backlog](../backlog.md); Python `__len__` and `__contains__` names remain reserved.
+
 ## B12: I/O and iteration
 
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
