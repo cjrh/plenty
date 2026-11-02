@@ -146,7 +146,9 @@ access and scalar fallback. [Bounded lowering/local promotion](../proposals/std-
 avoid repeated materialization in supported kernels. Direct integer wrapping
 reductions avoid the spill reproduced in issue #444. These are delivered
 subsets, not automatic packed generic arrays or a backend switch. Remaining
-extensions stay **B23/B76** in the [backlog](../backlog.md).
+extensions stay **B23/B76** in the [backlog](../backlog.md). This delivers the
+initial SIMD stage of the [memory and parallelism assessment](../proposals/memory-parallelism-and-simd.md),
+which remains partly implemented for its public allocator design.
 
 ## B74: Collection hashing
 
