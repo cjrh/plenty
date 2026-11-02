@@ -905,23 +905,8 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 }
 
 struct Lower<'a> {
-    pipelines: Vec<pipelines::Pipeline>,
-    /// Flags that keep a stopped `take_while` or `zip` stopped. Only `next(p)`
-    /// can leave one set before a consumer starts, so consumers of pipelines
-    /// not in `resumed_ends` fold the flag checks away.
-    pipeline_ends: std::collections::BTreeSet<u8>,
-    resumed_ends: std::collections::BTreeSet<u8>,
-    /// Set while a pipeline binding is being built: its plan may be resumed
-    /// later, so its end checks must stay.
-    binding_pipeline: bool,
-    /// `&mut Iter[T]` parameters by slot, with their plans.
-    lent_parameters: HashMap<u8, pipelines::LentParameter>,
-    /// Where each closure value a pipeline holds as a callback came from, and
-    /// the binding it was read from, for lending diagnostics.
-    pipeline_callbacks: HashMap<u8, (Token, Option<String>)>,
-    /// Loans of the reference items of lent pipelines this borrower received.
-    lent_item_loans: HashSet<usize>,
-    pipeline_generators: usize,
+    /// Pipeline lowering's state for the current function.
+    pipeline: pipelines::State,
     function_name: String,
     /// `function_name` in the function table.
     symbol: functions::Symbol,
@@ -956,8 +941,6 @@ struct Lower<'a> {
     checked_value_tail: bool,
     indexed_lists: Vec<collections::IndexedLists>,
     yield_type: Type,
-    /// Set while a terminal consumes a pipeline; see `consume_in_place`.
-    consuming_pipeline: bool,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
     expression_temps: Vec<u8>,
@@ -4415,14 +4398,7 @@ fn lower_body(
                 aliases,
                 access,
                 names: HashMap::default(),
-                pipelines: Vec::new(),
-                pipeline_ends: Default::default(),
-                resumed_ends: Default::default(),
-                binding_pipeline: false,
-                lent_parameters: HashMap::default(),
-                pipeline_callbacks: HashMap::default(),
-                lent_item_loans: HashSet::default(),
-                pipeline_generators: 0,
+                pipeline: pipelines::State::default(),
                 function_places: HashMap::default(),
                 function_initializers: Vec::new(),
                 locals: Vec::new(),
@@ -4437,7 +4413,6 @@ fn lower_body(
                 checked: Vec::new(),
                 checked_value_tail: false,
                 yield_type: yield_type.clone(),
-                consuming_pipeline: false,
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
                 indexed_lists: Vec::new(),

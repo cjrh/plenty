@@ -376,7 +376,7 @@ impl Lower<'_> {
             Some(Local {
                 ty: Ty::Iter(..), ..
             }) => true,
-            Some(local) => self.lent_parameters.contains_key(&local.slot),
+            Some(local) => self.pipeline.lent_parameters.contains_key(&local.slot),
             None => false,
         }
     }
@@ -439,20 +439,21 @@ impl Lower<'_> {
                 (*id, None)
             }
             _ => {
-                let parameter = self.lent_parameters[&local.slot].clone();
+                let parameter = self.pipeline.lent_parameters[&local.slot].clone();
                 (parameter.plan, Some(parameter))
             }
         };
         let plan = self
-            .pipelines
+            .pipeline
+            .plans
             .get(index)
             .cloned()
             .ok_or_else(|| arg.at.error("iterator pipeline has no local source plan"))?;
         self.lent_item_references(&plan, &arg.at)?;
-        self.resumed_ends.extend(
+        self.pipeline.resumed_ends.extend(
             plan.resources
                 .iter()
-                .filter(|slot| self.pipeline_ends.contains(slot)),
+                .filter(|slot| self.pipeline.ends.contains(slot)),
         );
         self.mark(&arg.at, ops);
         // A pipeline that a loop or terminal consumed has no initialized
@@ -623,7 +624,7 @@ impl Lower<'_> {
     /// its pipeline from being lent. A closure value is reported where the
     /// adapter received it, with the literal form that can be lent.
     fn borrowing_state_error(&self, slot: u8, ty: &Ty, at: &Token) -> Box<dyn Error> {
-        match self.pipeline_callbacks.get(&slot) {
+        match self.pipeline.callbacks.get(&slot) {
             Some((site, source)) if matches!(ty, Ty::Closure(_)) => {
                 let what = match source {
                     Some(name) => format!(
@@ -775,7 +776,7 @@ impl Lower<'_> {
                         loan
                     }
                 };
-                self.lent_item_loans.insert(loan);
+                self.pipeline.lent_item_loans.insert(loan);
                 item_loans.push((relocation.slot(slot)?, loan));
             }
             let mut iteration = Iteration {
@@ -837,12 +838,12 @@ impl Lower<'_> {
                 shared: shared.clone(),
                 resume,
             };
-            self.pipelines.push(relocated);
+            self.pipeline.plans.push(relocated);
             self.reference_locals.extend(item_loans);
-            self.lent_parameters.insert(
+            self.pipeline.lent_parameters.insert(
                 parameter as u8,
                 LentParameter {
-                    plan: self.pipelines.len() - 1,
+                    plan: self.pipeline.plans.len() - 1,
                     id,
                     owned: copies,
                     shared,
@@ -875,10 +876,10 @@ impl Lower<'_> {
             unreachable!()
         };
         let slot = self.names[name].slot;
-        let index = self.lent_parameters[&slot].plan;
+        let index = self.pipeline.lent_parameters[&slot].plan;
         self.mark(&e.at, ops);
         self.borrow_with_indices(e, true, &mut None, ops)?;
         ops.push(Op::Drop);
-        Ok(self.pipelines[index].clone())
+        Ok(self.pipeline.plans[index].clone())
     }
 }
