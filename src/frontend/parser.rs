@@ -32,6 +32,7 @@ pub(super) struct Parser {
     /// Stands in for a token past the buffered items.
     pub(super) end: Token,
     pub(super) type_depth: usize,
+    pub(super) standard: bool,
     /// Blocks and expressions open around the one being parsed.
     pub(super) depth: usize,
     /// Level of the deepest node in the expression being parsed. An operator
@@ -74,6 +75,7 @@ impl Parser {
                 file: origin,
             },
             type_depth: 0,
+            standard: false,
             depth: 0,
             deepest: 0,
             formats: false,
@@ -274,7 +276,7 @@ impl Parser {
         }
         Ok(TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at,
             name: Some("|".into()),
             args,
@@ -304,7 +306,7 @@ impl Parser {
             self.type_depth -= 1;
             return Ok(TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at,
                 name: Some(name.into()),
                 args: vec![inner?],
@@ -326,7 +328,7 @@ impl Parser {
             }
             return Ok(TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at,
                 name: if args.is_empty() {
                     None
@@ -368,7 +370,7 @@ impl Parser {
                 self.expect("]")?;
                 return Ok(TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at,
                     name: Some(name),
                     args,
@@ -376,7 +378,7 @@ impl Parser {
             }
             return Ok(TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at,
                 name: Some(name),
                 args: self.type_arguments()?,
@@ -718,7 +720,7 @@ impl Parser {
             {
                 TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     // Preserve the shorthand's provenance for receiver diagnostics.
                     at: param_at.clone(),
                     name: Some(
@@ -731,7 +733,7 @@ impl Parser {
                     ),
                     args: vec![TypeRef {
                         concrete: None,
-                        parameter: false,
+                        metadata: None,
                         at: at.clone(),
                         name: Some(class.into()),
                         args: vec![],
@@ -739,7 +741,7 @@ impl Parser {
                 }
             } else {
                 self.expect(":")?;
-                self.ty()?
+                self.limited_type()?
             };
             let adapter = if foreign && self.eat("as") {
                 let token = self.take();

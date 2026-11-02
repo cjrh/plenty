@@ -181,7 +181,15 @@ A limit, size or count whose fixed lower bound is `0` or `1` is a
 `NonNegative[i64]` or `Positive[i64]` parameter or field, so the caller checks
 it once with `try_from` and a literal is checked at compile time
 ([integer domains](../language/03-types/numbers.md#positive-and-non-negative-integers)).
-A fixed ceiling on such a value traps, naming the operation and the argument.
+A fixed ceiling on such a value is checked at a direct std call, constructor,
+or field update when its input is a literal or a module constant (including
+constant arithmetic the compiler can evaluate). A value above it is a compile
+error. Dynamic values still trap when the operation uses them, naming the
+operation and the argument. Ceilings are declaration metadata: they do not
+change `Positive[i64]` or `NonNegative[i64]`, so passing a value through an
+ordinary local, function, reference, or erased callable does not prove a ceiling.
+Runtime guards remain necessary. See [std ceiling checking](../toolchain/02-architecture/frontend.md#std-ceiling-checking)
+for the internal declaration mechanism and its scope.
 Another run-time value the caller supplies (a limit or configuration) that the
 operation cannot accept is an `Err` with a named variant: `OutOfRange`,
 `InvalidLimits`, `InvalidConfig`. It is never clamped or ignored. Buffer
@@ -245,7 +253,8 @@ Every input-driven allocation has a cap.
   parameter. A module with several such classes qualifies both names
   (`FormLimits`, `form_limits()`).
 - Fields with a lower bound of `0` or `1` use `NonNegative[i64]` or
-  `Positive[i64]`; a field above a fixed ceiling traps when the operation
+  `Positive[i64]`; direct construction or field updates reject a statically
+  known value above a fixed ceiling, and dynamic values trap when the operation
   starts. A relation between fields that no type states remains
   `InvalidLimits`. An input that exceeds a limit is `LimitExceeded` or a
   specific variant (`TooLarge`).

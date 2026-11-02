@@ -75,14 +75,14 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
         output.append(&scalar)?
     output.finish()
 
-pub def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+pub def nfd(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), False, False)
 
-pub def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+pub def nfc(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), False, True)
 
-pub def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+pub def nfkd(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), True, False)
 
-pub def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]:
+pub def nfkc(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), True, True)

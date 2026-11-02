@@ -65,3 +65,18 @@ Construct `positive_count = Positive.try_from(count)?` once;
 `NonZero.from(positive_count)` then
 uses that positive domain value as a range step without another check.
 `NonNegative[i64]` similarly states that a value may be zero but not negative.
+
+Some standard-library parameters also have a documented ceiling. A direct call
+with a literal above that ceiling is a compile error; computed values still
+need to satisfy it when the operation runs. A positive domain checks the lower
+bound, not every operation's ceiling. See [invalid std arguments](../../design/stdlib/conventions.md#invalid-arguments).
+
+```plenty-error
+import std.sketch
+
+def main() -> ():
+    drop(std.sketch.quantiles(1048577))
+```
+```error
+above its fixed ceiling of 1048576
+```

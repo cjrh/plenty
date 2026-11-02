@@ -67,12 +67,12 @@ impl Lower<'_> {
     ) -> Result<Ty> {
         TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: Some(domain.name().into()),
             args: vec![TypeRef {
                 concrete: Some(Box::new(element.clone())),
-                parameter: false,
+                metadata: None,
                 at: at.clone(),
                 name: None,
                 args: Vec::new(),
@@ -97,7 +97,7 @@ impl Lower<'_> {
             kind: Expression::Constructor(
                 Box::new(TypeRef {
                     concrete: Some(Box::new(ty.clone())),
-                    parameter: false,
+                    metadata: None,
                     at,
                     name: None,
                     args: vec![],

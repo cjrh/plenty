@@ -29,7 +29,7 @@ pub enum RegexError:
 
 pub class Limits:
     pub max_pattern_bytes: NonNegative[i64]
-    pub max_nesting: NonNegative[i64]
+    pub max_nesting: NonNegative[i64] __max(1000)
     pub max_repeat: NonNegative[i64]
     pub max_instructions: NonNegative[i64]
     pub max_memory: NonNegative[i64]

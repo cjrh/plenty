@@ -79,7 +79,7 @@ def main() -> Result[(), IoError | SystemError]:
             show(source.block_devices(max_devices=0))?
             show(source.process_ids(max_entries=0))?
         case "unbounded":
-            show(source.uptime(max_bytes=9223372036854775807))?
+            show(source.uptime(max_bytes=Positive.try_from(9223372036854775807).unwrap()))?
         case "pid0":
             show(source.process(0u32))?
         case _:

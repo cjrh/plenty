@@ -482,7 +482,7 @@ impl Parser {
             name: None,
             args: vec![],
             concrete: Some(Box::new(Ty::Bool)),
-            parameter: false,
+            metadata: None,
         };
         Ok(self.constant_getter(
             at,
@@ -609,6 +609,7 @@ fn parse_buffered(
     let mut lexer = Lexer::new(source);
     let mut parser =
         Parser::new(path.map(|p| FileId::intern(&p.to_string_lossy().as_ref().into())));
+    parser.standard = name.starts_with("std.");
     let parsed = parse_items(&mut parser, &mut lexer, path, name, lookahead, &located);
     if parser.starved.get() {
         return Ok(None);
@@ -740,7 +741,7 @@ impl Items<'_, '_> {
                         concrete: Some(Box::new(Ty::ForeignPtr(
                             qualified(&module.name, &name).into(),
                         ))),
-                        parameter: false,
+                        metadata: None,
                     },
                 });
                 name
@@ -2220,7 +2221,7 @@ fn canonical_facility_expression(e: &mut Expr) {
             Box::new(TypeRef {
                 at: e.at.clone(),
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 name: Some(name.clone()),
                 args: std::mem::take(types),
             }),
@@ -2245,7 +2246,7 @@ fn canonical_facility_expression(e: &mut Expr) {
         e.kind = Expression::Type(Box::new(TypeRef {
             at: e.at.clone(),
             concrete: None,
-            parameter: false,
+            metadata: None,
             name: Some(name.clone()),
             args: std::mem::take(types),
         }));

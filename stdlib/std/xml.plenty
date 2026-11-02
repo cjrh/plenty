@@ -33,7 +33,7 @@ pub class XmlError:
     pub offset: i64
 
 pub class Limits:
-    pub max_depth: NonNegative[i64]
+    pub max_depth: NonNegative[i64] __max(1024)
     pub max_input: NonNegative[i64]
     pub max_output: NonNegative[i64]
     pub max_token: Positive[i64]

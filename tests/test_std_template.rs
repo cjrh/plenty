@@ -188,7 +188,7 @@ match short.add("ok", "xx"):
 fn a_depth_limit_above_the_ceiling_traps() {
     support::assert_file_traps(
         &program(
-            "mut bounds = std.template.limits()\nbounds.max_depth = 65\ndrop(std.template.engine(&bounds))",
+            "mut bounds = std.template.limits()\nbounds.max_depth = Positive.try_from(65).unwrap()\ndrop(std.template.engine(&bounds))",
         ),
         "std.template.engine: max_depth is above 64",
     );

@@ -6,7 +6,7 @@ pub def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Resul
     output.leave()
     result
 
-pub def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]:
+pub def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64] __max(64)) -> Result[str, FormatError]:
     mut output = string_formatter(max_bytes, max_depth)?
     render(value, &mut output)?
     finish(&output)

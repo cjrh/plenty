@@ -216,7 +216,7 @@ impl Lower<'_> {
     fn bytes_class(&self, at: &Token) -> Result<Ty> {
         TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: Some(byte_buffers::BYTES_CLASS.into()),
             args: Vec::new(),

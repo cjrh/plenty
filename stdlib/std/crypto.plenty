@@ -358,7 +358,7 @@ pub def ed25519_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> R
 pub def hkdf_sha256_into(salt: &[u8], key_material: &[u8], info: &[u8], target: &mut Bytes) -> Result[(), AdvancedError]:
     advanced_status(__crypto_hkdf(salt, key_material, info, target))
 
-pub def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: NonNegative[i64]) -> Result[Bytes, AdvancedError]:
+pub def hkdf_sha256(salt: &[u8], key_material: &[u8], info: &[u8], size: NonNegative[i64] __max(8160)) -> Result[Bytes, AdvancedError]:
     if size.get() > 8160:
         __trap("std.crypto.hkdf_sha256: size is above 8160")
     mut target = advanced_output(size.get())?

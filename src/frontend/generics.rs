@@ -188,6 +188,8 @@ pub(super) fn prepare(
         methods,
         templates: HashMap::default(),
         defaults: HashMap::default(),
+        ceilings: HashMap::default(),
+        constants: HashMap::default(),
         call_wrappers: HashMap::default(),
         deferred_reporting: HashMap::default(),
         unused_methods: HashMap::default(),
@@ -265,6 +267,8 @@ pub(super) struct Engine {
     pub(super) templates: HashMap<String, Arc<Function>>,
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
+    pub(super) ceilings: HashMap<String, Vec<(String, Option<i64>)>>,
+    pub(super) constants: HashMap<String, Arc<Function>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
@@ -542,6 +546,18 @@ impl Engine {
             .filter(|protocol| protocols::reporting(protocol, &self.standard_sources))
     }
     fn record_defaults(&mut self, f: &Function) {
+        if f.name.starts_with("$const.") {
+            self.constants.insert(f.name.clone(), Arc::new(f.clone()));
+        }
+        if f.inputs.iter().any(|(_, ty)| ty.ceiling().is_some()) {
+            self.ceilings.insert(
+                f.name.clone(),
+                f.inputs
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.ceiling()))
+                    .collect(),
+            );
+        }
         if f.defaults.iter().any(Option::is_some) {
             self.retention.keep_defaults(&f.defaults);
             self.defaults.insert(f.name.clone(), f.defaults.clone());
@@ -636,7 +652,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
             return TypeRef {
                 at: at.clone(),
                 concrete: Some(Box::new(ty.clone())),
-                parameter: false,
+                metadata: None,
                 name: None,
                 args: vec![],
             };
@@ -687,7 +703,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         // Unit has no expression operand: resolving its type reference must
         // produce None, just like a source-level `()` annotation.
         concrete: (*ty != Ty::Unit).then(|| Box::new(ty.clone())),
-        parameter: false,
+        metadata: None,
         at: at.clone(),
         name,
         args: children.into_iter().map(|t| type_ref(t, at)).collect(),
@@ -1298,7 +1314,7 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
             return Err(t.at.error("a type parameter cannot take type arguments"));
         }
         *t = replacement.clone();
-        t.parameter = true;
+        t.metadata.get_or_insert_with(Default::default).parameter = true;
     } else {
         for arg in &mut t.args {
             substitute(arg, replacements)?;

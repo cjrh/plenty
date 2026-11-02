@@ -68,7 +68,7 @@ pub class Procfs:
 
     # Counts cpuN records, not the aggregate cpu record. This is the kernel's
     # online CPU count, not affinity/cgroup-constrained parallelism.
-    pub def cpu_count(self, max_bytes: Positive[i64] = 1048576) -> Result[i64, SystemError]:
+    pub def cpu_count(self, max_bytes: Positive[i64] __max(9223372036854775806) = 1048576) -> Result[i64, SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.cpu_count: max_bytes is i64.MAX")
         text = read_proc(&self._root, "stat", max_bytes)?
@@ -89,7 +89,7 @@ pub class Procfs:
             return Err(SystemError.Malformed("stat cpu"))
         Ok(len(ids))
 
-    pub def memory(self, max_bytes: Positive[i64] = 65536) -> Result[Memory, SystemError]:
+    pub def memory(self, max_bytes: Positive[i64] __max(9223372036854775806) = 65536) -> Result[Memory, SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.memory: max_bytes is i64.MAX")
         text = read_proc(&self._root, "meminfo", max_bytes)?
@@ -101,7 +101,7 @@ pub class Procfs:
             kibibytes(required(text, "SwapFree")?, "SwapFree")?,
         ))
 
-    pub def load_average(self, max_bytes: Positive[i64] = 4096) -> Result[LoadAverage, SystemError]:
+    pub def load_average(self, max_bytes: Positive[i64] __max(9223372036854775806) = 4096) -> Result[LoadAverage, SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.load_average: max_bytes is i64.MAX")
         text = read_proc(&self._root, "loadavg", max_bytes)?
@@ -120,7 +120,7 @@ pub class Procfs:
             small_decimal(words[4], "loadavg pid")?,
         ))
 
-    pub def uptime(self, max_bytes: Positive[i64] = 4096) -> Result[Uptime, SystemError]:
+    pub def uptime(self, max_bytes: Positive[i64] __max(9223372036854775806) = 4096) -> Result[Uptime, SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.uptime: max_bytes is i64.MAX")
         text = read_proc(&self._root, "uptime", max_bytes)?
@@ -131,7 +131,7 @@ pub class Procfs:
 
     # Includes whole devices and partitions: summing sizes double-counts
     # storage. These are block capacities, not filesystem free space.
-    pub def block_devices(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[BlockDevice], SystemError]:
+    pub def block_devices(self, max_bytes: Positive[i64] __max(9223372036854775806) = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[BlockDevice], SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.block_devices: max_bytes is i64.MAX")
         text = read_proc(&self._root, "partitions", max_bytes)?
@@ -161,7 +161,7 @@ pub class Procfs:
 
     # Linux's sectors here are always 512 bytes, not the device sector size.
     # New trailing kernel counters are deliberately ignored.
-    pub def disk_io(self, max_bytes: Positive[i64] = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[DiskIo], SystemError]:
+    pub def disk_io(self, max_bytes: Positive[i64] __max(9223372036854775806) = 1048576, max_devices: NonNegative[i64] = 4096) -> Result[list[DiskIo], SystemError]:
         if max_bytes.get() == i64.MAX:
             __trap("Procfs.disk_io: max_bytes is i64.MAX")
         text = read_proc(&self._root, "diskstats", max_bytes)?
@@ -217,7 +217,7 @@ pub class Procfs:
         result.sort()
         Ok(result)
 
-    pub def process(self, pid: u32, max_bytes: Positive[i64] = 65536) -> Result[Process, SystemError]:
+    pub def process(self, pid: u32, max_bytes: Positive[i64] __max(9223372036854775806) = 65536) -> Result[Process, SystemError]:
         if pid == 0u32:
             __trap("Procfs.process: pid is 0")
         if max_bytes.get() == i64.MAX:

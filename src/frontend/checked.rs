@@ -295,7 +295,7 @@ impl Lower<'_> {
         let args = operand
             .map(|ty| TypeRef {
                 concrete: Some(Box::new(ty.clone())),
-                parameter: false,
+                metadata: None,
                 at: at.clone(),
                 name: None,
                 args: Vec::new(),
@@ -304,7 +304,7 @@ impl Lower<'_> {
             .collect();
         TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: Some(name.into()),
             args,

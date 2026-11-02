@@ -34,13 +34,27 @@ pub(super) struct TypeRef {
     /// Internal substitutions preserve inferred frame identities directly.
     /// Boxing keeps parsed type references and statement nodes compact.
     pub(super) concrete: Option<Box<Ty>>,
-    /// This node substitutes a source type parameter, rather than a concrete
-    /// type written by the definition or supplied by compiler-generated code.
-    pub(super) parameter: bool,
+    /// Rare declaration/provenance facts stay boxed so adding a std ceiling
+    /// does not enlarge every syntax node or statement annotation.
+    pub(super) metadata: Option<Box<TypeMetadata>>,
     pub(super) at: Token,
     /// None denotes unit, spelled `()`.
     pub(super) name: Option<String>,
     pub(super) args: Vec<TypeRef>,
+}
+
+#[derive(Clone, Default)]
+pub(super) struct TypeMetadata {
+    /// Substitutes a source type parameter, rather than a written concrete type.
+    pub(super) parameter: bool,
+    /// Std-only fixed upper bound; resolved types and layout are unchanged.
+    pub(super) ceiling: Option<i64>,
+}
+
+impl TypeRef {
+    pub(super) fn ceiling(&self) -> Option<i64> {
+        self.metadata.as_ref().and_then(|m| m.ceiling)
+    }
 }
 
 pub(super) struct TypeAlias {

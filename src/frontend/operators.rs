@@ -621,7 +621,7 @@ impl Lower<'_> {
             expression(Expression::Constructor(
                 Box::new(TypeRef {
                     concrete: Some(Box::new(wrapped.clone())),
-                    parameter: false,
+                    metadata: None,
                     at: at.clone(),
                     name: None,
                     args: vec![],

@@ -476,19 +476,19 @@ match result:
 fn sizes_above_the_ceiling_trap() {
     for (call, message) in [
         (
-            "drop(sketch.quantiles(1048577))",
+            "drop(sketch.quantiles(Positive.try_from(1048577).unwrap()))",
             "std.sketch.quantiles: capacity is above 1048576",
         ),
         (
-            "drop(sketch.frequent_items(65537))",
+            "drop(sketch.frequent_items(Positive.try_from(65537).unwrap()))",
             "std.sketch.frequent_items: capacity is above 65536",
         ),
         (
-            "keys = [1u64]?\ndrop(xor.build(&keys, 16777217))",
+            "keys = [1u64]?\ndrop(xor.build(&keys, NonNegative.try_from(16777217).unwrap()))",
             "std.sketch.xor.build: max_keys is above 16777216",
         ),
         (
-            "drop(cuckoo.cuckoo(1, 16777217))",
+            "drop(cuckoo.cuckoo(1, Positive.try_from(16777217).unwrap()))",
             "std.sketch.cuckoo.cuckoo: max_buckets is above 16777216",
         ),
     ] {

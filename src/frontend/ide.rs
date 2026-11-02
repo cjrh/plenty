@@ -758,7 +758,7 @@ fn finish(recorder: Recorder) -> Analysis {
                 let starts = &lines[&a.source];
                 let line = location.line as usize;
                 let end = starts.get(line).copied().unwrap_or(text.len());
-                text[starts[line - 1]..end].trim().to_owned()
+                public_declaration(text[starts[line - 1]..end].trim())
             }
             _ => d.name.clone(),
         };
@@ -945,7 +945,44 @@ fn header(text: &str, offset: usize) -> String {
             out.push(c);
         }
     }
-    out.trim().replace(",)", ")").replace(",]", "]")
+    public_declaration(&out.trim().replace(",)", ")").replace(",]", "]"))
+}
+
+/// Keep std-only ceiling markers out of public headers and field declarations,
+/// without touching the same text inside a default's string literal.
+fn public_declaration(text: &str) -> String {
+    if !text.contains("__max(") {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut chars = text.chars();
+    let mut quote = None;
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            out.push(c);
+            if c == '\\' {
+                out.extend(chars.next());
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '_' && chars.as_str().starts_with("_max(") && out.trim_end().ends_with(']') {
+            for _ in 0..5 {
+                chars.next();
+            }
+            chars.by_ref().find(|&c| c == ')');
+            if out.ends_with(' ') {
+                out.pop();
+            }
+            continue;
+        }
+        if matches!(c, '\'' | '"') {
+            quote = Some(c);
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// The public form of a recorded diagnostic. One without a position is
@@ -986,6 +1023,20 @@ mod tests {
         assert_eq!(
             header(text, 4),
             "def f[T: Show](a: dict[str, i64] = {\"k\": 1}, b: &mut T) -> i64"
+        );
+    }
+
+    #[test]
+    fn public_headers_hide_std_ceiling_metadata_but_preserve_string_defaults() {
+        let text =
+            "def f(n: Positive[i64] __max(64), label: str = \"__max(10)\") -> ():\n    pass\n";
+        assert_eq!(
+            header(text, 0),
+            "def f(n: Positive[i64], label: str = \"__max(10)\") -> ()"
+        );
+        assert_eq!(
+            public_declaration("pub depth: NonNegative[i64] __max(1024)"),
+            "pub depth: NonNegative[i64]"
         );
     }
 

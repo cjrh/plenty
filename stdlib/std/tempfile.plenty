@@ -190,7 +190,7 @@ pub class TemporaryDirectory:
     def __del__(self) -> ():
         drop(self.cleanup())
 
-pub def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64) -> Result[TemporaryDirectory, FsError]:
+pub def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] __max(64) = 64) -> Result[TemporaryDirectory, FsError]:
     if max_depth > 64:
         __trap("std.tempfile.directory: max_depth is above 64")
     base = io_error(absolute(parent))?

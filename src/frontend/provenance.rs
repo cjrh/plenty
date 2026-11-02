@@ -13,7 +13,7 @@ pub(super) enum Origin {
 
 impl Origin {
     pub(super) fn written(ty: &TypeRef) -> Self {
-        if ty.parameter {
+        if ty.metadata.as_ref().is_some_and(|m| m.parameter) {
             return ty
                 .concrete
                 .as_deref()

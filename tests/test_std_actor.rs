@@ -267,9 +267,17 @@ fn heap_limits_reject_zero_and_trap_above_the_ceiling() {
         error.contains("literal is not a `Positive[i64]`"),
         "{error}"
     );
-    let (_dir, executable) = build_with_hooks(
+    let error = support::check_file_error(
         &ADMISSION.replace(start, "    refused = actors.start(Node(1), 67108865)\n"),
     );
+    assert!(
+        error.contains("constant argument `limit` is 67108865"),
+        "{error}"
+    );
+    let (_dir, executable) = build_with_hooks(&ADMISSION.replace(
+        start,
+        "    refused = actors.start(Node(1), Positive.try_from(67108865).unwrap())\n",
+    ));
     let output = Command::new(executable).output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{stderr}");

@@ -10,6 +10,9 @@ impl Lower<'_> {
         let signature = self.sigs[&function.name].clone();
         for (index, default) in function.defaults.iter().enumerate() {
             let Some(default) = default else { continue };
+            if let Some(ceiling) = function.inputs[index].1.ceiling() {
+                self.check_ceiling(default, &function.name, &function.inputs[index].0, ceiling)?;
+            }
             let ty = &signature.inputs[index].1;
             let ty = if let Ty::Ref(inner, _) = ty {
                 inner
@@ -69,6 +72,7 @@ impl Lower<'_> {
         at: &Token,
         method: bool,
     ) -> Result<Option<(String, Vec<Expr>)>> {
+        self.check_call_ceilings(name, args)?;
         let named = args
             .iter()
             .any(|arg| matches!(arg.kind, Expression::NamedArgument(..)));
@@ -232,7 +236,7 @@ impl Lower<'_> {
                     .map(|(parameter, _)| TypeRef {
                         at: at.clone(),
                         concrete: None,
-                        parameter: false,
+                        metadata: None,
                         name: Some(parameter.clone()),
                         args: vec![],
                     })

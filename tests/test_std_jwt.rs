@@ -452,11 +452,11 @@ InvalidValidation
 fn size_above_the_token_ceiling_traps() {
     for (call, message) in [
         (
-            "rules = std.jwt.Validation(std.time.Timestamp(0, 0u32), std.time.seconds(0u32), True, Nothing, Nothing, 1048577)\ndrop(std.jwt.verify(\"a.b.c\", &signer.verifying_key()?, &rules))",
+            "rules = std.jwt.Validation(std.time.Timestamp(0, 0u32), std.time.seconds(0u32), True, Nothing, Nothing, Positive.try_from(1048577).unwrap())\ndrop(std.jwt.verify(\"a.b.c\", &signer.verifying_key()?, &rules))",
             "std.jwt.verify: max_size is above max_token_size",
         ),
         (
-            "drop(std.jwt.decode_header(\"a.b.c\", 1048577))",
+            "drop(std.jwt.decode_header(\"a.b.c\", Positive.try_from(1048577).unwrap()))",
             "std.jwt.decode_header: max_size is above max_token_size",
         ),
     ] {

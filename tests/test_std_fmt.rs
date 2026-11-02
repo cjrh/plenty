@@ -414,11 +414,11 @@ fn limits_above_the_ceiling_trap() {
     // spelling needs 32 scratch bytes; neither has a type, so both trap.
     for (call, message) in [
         (
-            "std.fmt.string_formatter(8, 65)",
+            "std.fmt.string_formatter(8, NonNegative.try_from(65).unwrap())",
             "std.fmt.string_formatter: max_depth is above 64",
         ),
         (
-            "std.fmt.stderr_formatter(8, 65)",
+            "std.fmt.stderr_formatter(8, NonNegative.try_from(65).unwrap())",
             "std.fmt.stderr_formatter: max_depth is above 64",
         ),
         (

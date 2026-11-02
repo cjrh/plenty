@@ -598,7 +598,7 @@ pub class Listener:
 
 # A listener over `listener`. `capacity` bounds live connections and
 # `heap` is each connection actor's heap limit in bytes.
-pub def listener(socket: TcpListener, limits: Limits, capacity: Positive[i64], heap: Positive[i64], tag: i64, admission: Admission) -> Result[Listener, NetError]:
+pub def listener(socket: TcpListener, limits: Limits, capacity: Positive[i64], heap: Positive[i64] __max(67108864), tag: i64, admission: Admission) -> Result[Listener, NetError]:
     # Checked here so a bad heap fails where it is configured, not in the
     # actor that later spawns a connection.
     if heap.get() > std.actor.max_heap_limit:

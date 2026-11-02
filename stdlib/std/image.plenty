@@ -205,7 +205,7 @@ def size(width: i64, height: i64, color: ColorType) -> Result[i64, ImageError]:
     Ok(width * height * channels)
 
 # A zeroed image: black, and transparent if it has alpha.
-pub def new(width: Positive[i64], height: Positive[i64], color: ColorType) -> Result[Image, ImageError]:
+pub def new(width: Positive[i64] __max(2147483647), height: Positive[i64] __max(2147483647), color: ColorType) -> Result[Image, ImageError]:
     if width > 2147483647 or height > 2147483647:
         __trap("std.image.new: width or height is above 2147483647")
     columns = width.get()
@@ -217,7 +217,7 @@ pub def new(width: Positive[i64], height: Positive[i64], color: ColorType) -> Re
 
 # Takes `pixels` as the image's buffer, without copying. Its length must be
 # width * height * channels.
-pub def from_pixels(width: Positive[i64], height: Positive[i64], color: ColorType, pixels: Bytes) -> Result[Image, ImageError]:
+pub def from_pixels(width: Positive[i64] __max(2147483647), height: Positive[i64] __max(2147483647), color: ColorType, pixels: Bytes) -> Result[Image, ImageError]:
     if width > 2147483647 or height > 2147483647:
         __trap("std.image.from_pixels: width or height is above 2147483647")
     columns = width.get()

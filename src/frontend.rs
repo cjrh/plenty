@@ -24,6 +24,7 @@ mod byte_buffers;
 mod callables;
 mod calls;
 mod casts;
+mod ceilings;
 mod channels;
 mod checked;
 mod classes;
@@ -1489,7 +1490,7 @@ impl Lower<'_> {
                 if self.aliases.data.is_class(name) {
                     let ty = TypeRef {
                         concrete: None,
-                        parameter: false,
+                        metadata: None,
                         at: e.at.clone(),
                         name: Some(name.clone()),
                         args: types.clone(),
@@ -1515,7 +1516,7 @@ impl Lower<'_> {
                 if self.aliases.data.contains(name) {
                     let ty = TypeRef {
                         concrete: None,
-                        parameter: false,
+                        metadata: None,
                         at: e.at.clone(),
                         name: Some(name.clone()),
                         args: types.clone(),

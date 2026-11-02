@@ -588,7 +588,9 @@ LimitExceeded(Nesting)
 #[test]
 fn a_nesting_limit_above_the_ceiling_traps() {
     support::assert_file_traps(
-        &program("drop(std.regex.compile(\"a\", &Limits(100, 1001, 1000, 100, 1000, 100000000)))"),
+        &program(
+            "drop(std.regex.compile(\"a\", &Limits(100, NonNegative.try_from(1001).unwrap(), 1000, 100, 1000, 100000000)))",
+        ),
         "std.regex.compile: max_nesting is above 1000",
     );
 }

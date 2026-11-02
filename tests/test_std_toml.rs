@@ -732,7 +732,9 @@ fn a_depth_limit_above_the_ceiling_traps() {
         "drop(std.toml.parse_text(\"a = 1\", &bounds))",
         "drop(std.toml.encode(&Toml.Table(list[Entry]()?), &bounds))",
     ] {
-        let body = format!("mut bounds = std.toml.limits()\nbounds.max_depth = 1025\n{call}");
+        let body = format!(
+            "mut bounds = std.toml.limits()\nbounds.max_depth = NonNegative.try_from(1025).unwrap()\n{call}"
+        );
         support::assert_file_traps(&program(&body), "std.toml: max_depth is above 1024");
     }
 }

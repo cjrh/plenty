@@ -760,7 +760,9 @@ fn a_depth_limit_above_the_ceiling_traps() {
             "std.json.encoder: max_depth is above 1024",
         ),
     ] {
-        let body = format!("mut bounds = std.json.limits()\nbounds.max_depth = 1025\n{call}");
+        let body = format!(
+            "mut bounds = std.json.limits()\nbounds.max_depth = NonNegative.try_from(1025).unwrap()\n{call}"
+        );
         support::assert_file_traps(&program(&body), message);
     }
 }
