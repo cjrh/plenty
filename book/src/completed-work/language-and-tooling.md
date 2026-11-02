@@ -5,6 +5,12 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Documentation interpolation colours
+
+The default Ayu documentation theme colours f-string interpolation expressions
+and their braces cyan, distinct from surrounding string text. Nested tokens
+retain their syntax colours; other themes are unchanged.
+
 ## B11: Borrowing
 
 Borrowed enum matching/payload loans, reference rebinding within the original

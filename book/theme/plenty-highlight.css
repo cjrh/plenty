@@ -30,6 +30,10 @@ html:not(.js) .hljs-type {
     color: #de935f;
 }
 
+/* Keep interpolation expressions distinct from their surrounding string. */
+.ayu .hljs-subst {
+    color: #73d0ff;
+}
 .ayu .hljs-operator {
     color: #95e6cb;
 }
