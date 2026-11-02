@@ -25,8 +25,12 @@ fn sequences<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a [Op])) {
     visit(ops);
     for op in ops {
         match op {
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => sequences(cleanup, visit),
-            Op::CheckedBlock { body, .. } => sequences(body, visit),
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => sequences(cleanup, visit),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                sequences(body, visit)
+            }
             Op::Match(arms) => arms.iter().for_each(|arm| sequences(&arm.body, visit)),
             Op::Loop { condition, body } => {
                 sequences(condition, visit);
@@ -280,10 +284,12 @@ fn number<'a>(
         *counter += 1;
         visit(op, ops, index, site, *counter);
         match op {
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
-                number(cleanup, site, counter, visit)
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => number(cleanup, site, counter, visit),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                number(body, site, counter, visit)
             }
-            Op::CheckedBlock { body, .. } => number(body, site, counter, visit),
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     number(&arm.body, site, counter, visit)
@@ -584,7 +590,7 @@ impl Walk<'_, '_, '_> {
                     }
                     add(&mut path.pending, accepted.drain(..));
                 }
-                Op::CheckedArith { cleanup, .. } => {
+                Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
                     let mut failed = path.clone();
                     if let Some(end) =
                         self.sequence(cleanup, &mut failed, &mut Vec::new(), site, None)?
@@ -593,7 +599,7 @@ impl Walk<'_, '_, '_> {
                         escapes.push(end);
                     }
                 }
-                Op::CheckedBlock { body, .. } => {
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     self.escapes.push(Vec::new());
                     let end = self.sequence(body, path, loops, site, None);
                     let mut continuing = self.escapes.pop().unwrap_or_default();

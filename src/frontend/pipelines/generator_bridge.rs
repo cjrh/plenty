@@ -113,6 +113,9 @@ impl Lower<'_> {
             .iter()
             .map(|slot| self.locals[*slot as usize - self.parameters].clone())
             .collect();
+        if types[..captures.len()].iter().any(Ty::checked_closure) {
+            return Err(source.at.error("a closure defined in `checked:` cannot be stored in a generator; consume its pipeline inside the block"));
+        }
         if types[..captures.len()].iter().any(Ty::contains_reference) {
             return Err(source
                 .at
@@ -129,7 +132,7 @@ impl Lower<'_> {
                 ops.push(Op::MoveLocal(slot));
             }
             self.record_direct_call(&name, &source.at, &[], ops);
-            self.push_call(Op::Call(name), &sig.inputs, &[], ops);
+            self.push_call(Op::Call(name), &sig.inputs, &[], &source.at, ops)?;
             return Ok(sig.outputs[0].clone());
         }
         let ty = crate::generator::ty(plan.item.ty.clone(), Some(name.clone()));
@@ -190,7 +193,7 @@ impl Lower<'_> {
             ops.push(Op::MoveLocal(slot));
         }
         self.record_direct_call(&name, &source.at, &[], ops);
-        self.push_call(Op::Call(name), &sig.inputs, &[], ops);
+        self.push_call(Op::Call(name), &sig.inputs, &[], &source.at, ops)?;
         Ok(ty)
     }
 }
@@ -211,7 +214,10 @@ fn inspect(ops: &[Op], read: &mut BTreeSet<u8>, loans: &mut BTreeSet<usize>) {
                 inspect(condition, read, loans);
                 inspect(body, read, loans);
             }
-            Op::CheckedBlock { body, .. } | Op::CheckedArith { cleanup: body, .. } => {
+            Op::CheckedBlock { body, .. }
+            | Op::CheckedFunction { body, .. }
+            | Op::CheckedArith { cleanup: body, .. }
+            | Op::CheckedUnwrap { cleanup: body, .. } => {
                 inspect(body, read, loans);
             }
             Op::Match(arms) => {
@@ -324,6 +330,14 @@ fn relocate(
             Op::CheckedBlock { body, result } => Op::CheckedBlock {
                 body: relocate(body, slots, loans, at)?.into(),
                 result: result.clone(),
+            },
+            Op::CheckedFunction { body, result } => Op::CheckedFunction {
+                body: relocate(body, slots, loans, at)?.into(),
+                result: result.clone(),
+            },
+            Op::CheckedUnwrap { result, cleanup } => Op::CheckedUnwrap {
+                result: result.clone(),
+                cleanup: relocate(cleanup, slots, loans, at)?.into(),
             },
             Op::CheckedArith {
                 operation,

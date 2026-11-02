@@ -175,7 +175,7 @@ fn collect<'a>(ops: &'a [Op], sigs: &mut HashMap<&'a str, &'a Arc<FnSig>>) {
                 collect(condition, sigs);
                 collect(body, sigs);
             }
-            Op::CheckedBlock { body, .. } => collect(body, sigs),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => collect(body, sigs),
             Op::If {
                 then,
                 elifs,

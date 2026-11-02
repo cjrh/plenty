@@ -540,7 +540,10 @@ impl Lowerer<'_, '_> {
         let tags = self.high_word(value);
         self.bcx.ins().band_imm_s(tags, 1)
     }
-    fn sum_payload(&mut self, value: cranelift_codegen::ir::Value) -> cranelift_codegen::ir::Value {
+    pub(super) fn sum_payload(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
         self.tagged_payload(value, 1)
     }
     fn tagged_payload(
@@ -612,7 +615,14 @@ impl Lowerer<'_, '_> {
         // Earlier operands and locals still need normal early-return cleanup.
         let pending = self.stack.clone();
         self.release_stack();
-        self.leave(vec![(residual, Ty::Enum(target.clone()))], cleanup)?;
+        let values = if self.checked_function.is_some() {
+            self.stack.push((residual, Ty::Enum(target.clone())));
+            self.wrap_checked_return()?;
+            vec![self.stack.pop().expect("wrapped return")]
+        } else {
+            vec![(residual, Ty::Enum(target.clone()))]
+        };
+        self.leave(values, cleanup)?;
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);

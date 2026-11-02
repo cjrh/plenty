@@ -26,10 +26,69 @@ pub(super) struct Target {
 }
 
 impl Lowerer<'_, '_> {
+    pub(super) fn wrap_checked_return(&mut self) -> Result<()> {
+        if let Some(Ty::Enum(result)) = self.checked_function.clone() {
+            if result.get().variants[0].fields[0] == Ty::Unit {
+                self.lower(&Op::PushUnit)?;
+            }
+            self.lower_enum(&EnumOp::New(result, 0))?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn lower_checked_unwrap(&mut self, result: &Ty, cleanup: &[Op]) -> Result<()> {
+        let Ty::Enum(source) = result else {
+            return Err("AOT: checked call must return Result".into());
+        };
+        let (value, _) = self.pop_typed(result.clone())?;
+        let tag = self.sum_tag(value);
+        let payload = self.sum_payload(value);
+        let ready = self.bcx.ins().icmp_imm_s(IntCC::Equal, tag, 0);
+        let failure = self.bcx.create_block();
+        let success = self.bcx.create_block();
+        self.bcx.set_cold_block(failure);
+        self.bcx.ins().brif(ready, success, &[], failure, &[]);
+        self.bcx.switch_to_block(failure);
+        self.bcx.seal_block(failure);
+        let target = self
+            .checked_targets
+            .last()
+            .ok_or("checked call outside checked block")?;
+        let (exit, base, result) = (target.exit, target.base, target.result.clone());
+        let Ty::Enum(target) = result else {
+            unreachable!()
+        };
+        let error = self.widen_sum(
+            payload,
+            &source.get().variants[1].fields[0],
+            &target.get().variants[1].fields[0],
+        );
+        let residual = self.wrap_sum(error, 1);
+        let pending = self.stack.clone();
+        while self.stack.len() > base {
+            let (value, ty) = self.stack.pop().unwrap();
+            self.release(value, &ty);
+        }
+        for op in cleanup {
+            self.lower(op)?;
+        }
+        self.bcx.ins().jump(exit, &[BlockArg::Value(residual)]);
+        self.stack = pending;
+        self.bcx.switch_to_block(success);
+        self.bcx.seal_block(success);
+        let output = source.get().variants[0].fields[0].clone();
+        if output != Ty::Unit {
+            let value = self.unpack(payload, &output);
+            self.stack.push((value, output));
+        }
+        Ok(())
+    }
+
     pub(super) fn lower_checked_block(&mut self, body: &[Op], result: &Ty) -> Result<()> {
         let Ty::Enum(sum) = result else {
             return Err("AOT: a checked block must produce a Result".into());
         };
+        let base = self.stack.len();
         let exit = self.bcx.create_block();
         self.bcx.append_block_param(exit, clif_type(result.clone()));
         self.checked_targets.push(Target {
@@ -45,6 +104,9 @@ impl Lowerer<'_, '_> {
         }
         self.checked_targets.pop();
         if !self.terminated {
+            if sum.get().variants[0].fields[0] == Ty::Unit {
+                self.lower(&Op::PushUnit)?;
+            }
             self.lower_enum(&EnumOp::New(sum.clone(), 0))?;
             let (ok, _) = self.stack.pop().ok_or("AOT: missing checked block value")?;
             self.bcx.ins().jump(exit, &[BlockArg::Value(ok)]);
@@ -52,6 +114,9 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(exit);
         self.bcx.seal_block(exit);
         let value = self.bcx.block_params(exit)[0];
+        // An explicit return terminates its path with return values still on
+        // the lowering stack. Only the block's entry operands dominate this join.
+        self.stack.truncate(base);
         self.stack.push((value, result.clone()));
         self.terminated = false;
         Ok(())

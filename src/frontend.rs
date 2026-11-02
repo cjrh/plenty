@@ -3977,7 +3977,7 @@ impl Lower<'_> {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
             Expression::Anonymous(function) => {
-                if function.once || !function.captures.is_empty() {
+                if function.once || !function.captures.is_empty() || self.lexical_checked() {
                     return self.closure_value(function, &e.at, ops).map(Some);
                 }
                 let mut function = (**function).clone();
@@ -5118,7 +5118,13 @@ impl Lower<'_> {
         };
         self.record_direct_call(name, at, &argument_loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(name.to_owned()), &sig.inputs, &argument_loans, ops);
+        self.push_call(
+            Op::Call(name.to_owned()),
+            &sig.inputs,
+            &argument_loans,
+            at,
+            ops,
+        )?;
         self.call_reference_result(name, &sig, &argument_loans, ops);
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
@@ -5330,7 +5336,14 @@ impl Lower<'_> {
     /// payload, or alias of a reference parameter is rooted at that
     /// parameter's slot, while a borrow of a local, an owned parameter, or a
     /// temporary is rooted at the borrowed slot.
-    fn push_call(&self, call: Op, inputs: &[(String, Ty)], loans: &[usize], ops: &mut Vec<Op>) {
+    fn push_call(
+        &mut self,
+        call: Op,
+        inputs: &[(String, Ty)],
+        loans: &[usize],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
         let parameters = self
             .sigs
             .get(&self.function_name)
@@ -5349,7 +5362,23 @@ impl Lower<'_> {
         {
             ops.push(Op::ForwardsReferences);
         }
+        // Most programs have no lexical callback failure channel. Preserve
+        // the ordinary call path without a name copy or extra signature walk.
+        if self.generics.checked_errors.is_empty() {
+            ops.push(call);
+            return Ok(());
+        }
+        let direct = if let Op::Call(name) = &call {
+            Some(name.clone())
+        } else {
+            None
+        };
         ops.push(call);
+        if let Some(name) = direct {
+            let sig = self.sigs[&name].clone();
+            self.checked_named_call(&name, &sig, at, ops)?;
+        }
+        Ok(())
     }
     /// Lowers `return` with its value, the function's cleanup, and the exit.
     fn return_statement(
@@ -5393,7 +5422,11 @@ impl Lower<'_> {
         {
             returned.extend(returned_loan.map(Op::UseLoan));
             self.finish_tail_temporaries(temporary_start, &mut returned);
-            finish_return(&mut returned);
+            if self.checked.first().is_some_and(|scope| scope.start == 0) {
+                returned.push(Op::Return);
+            } else {
+                finish_return(&mut returned);
+            }
         } else {
             self.finish_temporaries(temporary_start, &mut returned);
             self.leaving(0, &mut returned);
@@ -5442,7 +5475,9 @@ impl Lower<'_> {
                         moves(condition, out);
                         moves(body, out);
                     }
-                    Op::CheckedBlock { body, .. } => moves(body, out),
+                    Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                        moves(body, out)
+                    }
                     _ => {}
                 }
             }
@@ -5529,7 +5564,7 @@ impl Lower<'_> {
                     || self.waits(otherwise)
             }
             Op::Loop { condition, body } => self.waits(condition) || self.waits(body),
-            Op::CheckedBlock { body, .. } => self.waits(body),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => self.waits(body),
             _ => false,
         })
     }
@@ -5654,6 +5689,12 @@ impl Lower<'_> {
                         ops,
                         last && self.yield_type.is_none(),
                     )?;
+                    if self.checked_value_tail
+                        && matches!(tail, Tail::Value(_))
+                        && ty.as_ref().is_some_and(Ty::checked_closure)
+                    {
+                        return Err(e.at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
+                    }
                     if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {
@@ -5839,6 +5880,13 @@ impl Lower<'_> {
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name) {
+                        if ty.checked_closure()
+                            && self.checked.last().is_some_and(|scope| {
+                                usize::from(local.slot) < self.parameters + scope.start
+                            })
+                        {
+                            return Err(stmt.at.error("a closure defined in `checked:` cannot be assigned outside its block; define it outside the block instead"));
+                        }
                         if *mutable || annotation.is_some() {
                             return Err(stmt.at.error(format!("duplicate binding `{name}`")));
                         }
@@ -6178,7 +6226,7 @@ fn holds(ops: &[Op]) -> bool {
                 || holds(otherwise)
         }
         Op::Loop { condition, body } => holds(condition) || holds(body),
-        Op::CheckedBlock { body, .. } => holds(body),
+        Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => holds(body),
         _ => false,
     })
 }
@@ -6838,6 +6886,16 @@ fn lower_body(
             (sig, yield_type, lower, body, lent_exit)
         }
     );
+    let lexical = lower.generics.checked_closures.contains(&f.name);
+    let failures = checked::input_errors(&sig.inputs);
+    let effectful = lexical || !failures.is_empty();
+    if effectful {
+        lower.checked.push(checked::Scope {
+            start: 0,
+            arithmetic: lexical,
+            failures,
+        });
+    }
     let lowered = crate::profile_block!(
         "frontend::lower_function_body",
         lower.block(
@@ -6924,7 +6982,26 @@ fn lower_body(
             )
             .map_err(|message| f.at.error(message))?;
         }
-        if yield_type.is_none() {
+        if effectful {
+            let scope = lower.checked.pop().expect("function effect scope");
+            if !scope.failures.is_empty() {
+                let error = crate::sum::anonymous(scope.failures);
+                lower
+                    .generics
+                    .checked_errors
+                    .insert(f.name.clone(), error.clone());
+                let result =
+                    crate::sum::result(sig.outputs.first().cloned().unwrap_or(Ty::Unit), error);
+                sig = Arc::new(FnSig {
+                    inputs: sig.inputs.clone(),
+                    outputs: vec![result.clone()],
+                });
+                body = vec![Op::CheckedFunction {
+                    body: body.into(),
+                    result,
+                }];
+            }
+        } else if yield_type.is_none() {
             mark_tail_calls(&mut body);
         }
         // A declaration's borrowed address has one immutable slot per function.

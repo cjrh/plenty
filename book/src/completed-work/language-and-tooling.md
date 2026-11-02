@@ -58,7 +58,10 @@ One-field `@newtype` forwarding preserves nominal typing and explicit-hook
 precedence (issue #555). [`checked:` blocks](../design/language/03-types/numbers.md#checked-blocks)
 return typed integer overflow/zero-division errors for arithmetic written in the
 block; float `div_checked` and nontrapping `MIN % -1` accompanied them
-(issue #557). Class match patterns shipped with issue #558.
+(issue #557). Lexical checked closures now preserve errors through stored
+callbacks and generic helpers, with scope-bound closure lifetimes and ordinary
+behavior for named functions and `sum` (issue #614, B93). Class match patterns
+shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 
 ## B16: Values and syntax

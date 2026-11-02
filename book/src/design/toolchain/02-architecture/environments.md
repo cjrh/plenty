@@ -40,3 +40,30 @@ Nesting is limited to 64 levels and storage must fit the native stack-layout lim
 The [callable contract](../../language/06-functions/index.md) defines permitted
 captures, storage, and invocation; the [generator contract](../../language/09-iteration/index.md)
 defines suspension and lifetime restrictions.
+
+## Lexical checked callbacks
+
+A closure created in `checked:` has its source-level callable signature and a
+private native `Result` return channel for its arithmetic failures. Concrete
+callback specializations propagate that channel without checking their own
+arithmetic. `CheckedFunction` wraps their logical return value in success;
+`CheckedUnwrap` forwards a private error to the nearest active block, using the
+same operand and local cleanup paths as checked arithmetic. A declared
+`Result` returned by a callback remains the success payload, so explicit
+errors and `?` keep their source-level meaning. Ordinary calls retain their ABI.
+
+Checked closures stay scoped; erasure and asynchronous storage are rejected.
+Pipeline literal substitution is disabled for them, so expression shape does
+not decide failure semantics. Ordinary substituted callbacks and builtin sum
+accumulation suppress the consumer's arithmetic-checking context. A plan defers
+its callback failure cleanup until consumption, so locals created after an
+adapter and terminal accumulators are included. Lending relocates the plan's
+state and binds failures to the borrower's scope; its exit guard restores lent
+state before an error returns to the lender.
+
+Runtime key sorting uses one caller-owned first-error cell per invocation.
+A failed key evaluation saves its error, releases earlier keys, and returns an
+equal comparison. Later comparisons skip user callbacks. The sorter finishes
+its ownership-safe row moves, then its caller forwards the saved error. This
+preserves its bounded sorting complexity and allocation behavior without
+unwinding across Rust frames; a failure does not roll back row order.

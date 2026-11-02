@@ -12,6 +12,10 @@ pub struct ClosureType {
     /// Diagnostic origin only; nominal identity and linking still use `name`.
     pub location: Option<Arc<str>>,
     pub signature: CallableSig,
+    /// Lexically checked closures cannot escape their defining block.
+    pub checked: bool,
+    /// Arithmetic errors carried by the private native Result ABI.
+    pub checked_error: Option<Ty>,
     pub captures: Vec<(String, Ty)>,
     pub writable: Vec<bool>,
     pub mutable: bool,
@@ -77,6 +81,8 @@ impl ClosureType {
             name,
             location,
             signature,
+            checked: false,
+            checked_error: None,
             captures,
             writable,
             mutable,
@@ -86,6 +92,18 @@ impl ClosureType {
             layout,
         })
     }
+    pub fn native_output(&self) -> Option<Ty> {
+        self.checked_error.as_ref().map_or_else(
+            || self.signature.output.clone(),
+            |error| {
+                Some(crate::sum::result(
+                    self.signature.output.clone().unwrap_or(Ty::Unit),
+                    error.clone(),
+                ))
+            },
+        )
+    }
+
     pub fn parameter(&self, index: usize) -> Ty {
         let ty = &self.captures[index].1;
         if self.once || matches!(ty, Ty::Ref(..)) {

@@ -325,6 +325,14 @@ impl<'a> Caller<'a> {
                 body: self.shared(body, &mut changed),
                 result: result.clone(),
             },
+            Op::CheckedFunction { body, result } => Op::CheckedFunction {
+                body: self.shared(body, &mut changed),
+                result: result.clone(),
+            },
+            Op::CheckedUnwrap { result, cleanup } => Op::CheckedUnwrap {
+                result: result.clone(),
+                cleanup: self.shared(cleanup, &mut changed),
+            },
             Op::CheckedArith {
                 operation,
                 ty,

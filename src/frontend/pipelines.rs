@@ -1189,7 +1189,9 @@ impl Lower<'_> {
             return Ok(Callback::Value(callback.clone()));
         }
         let ty = if let Expression::Anonymous(function) = &ungroup(callback).kind {
-            if let Some(body) = splice::spliceable(function, &self.names) {
+            if !self.lexical_checked()
+                && let Some(body) = splice::spliceable(function, &self.names)
+            {
                 return self.splice_callback(function, body, &callback.at, ops);
             }
             self.closure_value(function, &callback.at, ops)?
@@ -1227,6 +1229,24 @@ impl Lower<'_> {
     }
 
     fn pipeline_call(
+        &mut self,
+        callback: &Callback,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let start = ops.len();
+        let result = self.pipeline_call_inner(callback, args, ops);
+        // A plan is reusable and may be lent. Its failure cleanup belongs to
+        // the eventual consumer, including locals created after this adapter.
+        for op in &mut ops[start..] {
+            if let Op::CheckedUnwrap { cleanup, .. } = op {
+                *cleanup = Arc::from([]);
+            }
+        }
+        result
+    }
+
+    fn pipeline_call_inner(
         &mut self,
         callback: &Callback,
         args: &[Expr],
@@ -1334,8 +1354,11 @@ impl Lower<'_> {
         // The step runs before leaving, so the next pull starts after this item.
         body.extend(plan.iteration.step.iter().cloned());
         body.push(Op::Break);
+        let mut condition = plan.iteration.condition.clone();
+        self.rebase_checked(&mut condition, at)?;
+        self.rebase_checked(&mut body, at)?;
         ops.push(Op::Loop {
-            condition: plan.iteration.condition.clone().into(),
+            condition: condition.into(),
             body: body.into(),
         });
         ops.extend(plan.loans.iter().chain(&loans).copied().map(Op::UseLoan));
@@ -1382,6 +1405,9 @@ impl Lower<'_> {
         self.finish_pipeline(&plan, &mut cleanup);
         let mut iteration = plan.iteration;
         iteration.cleanup = cleanup;
+        self.rebase_checked(&mut iteration.condition, &e.at)?;
+        self.rebase_checked(&mut iteration.body, &e.at)?;
+        self.rebase_checked(&mut iteration.step, &e.at)?;
         Ok(iteration)
     }
 
@@ -1411,6 +1437,20 @@ impl Lower<'_> {
         let result = consume(self);
         self.consuming_pipeline = outer;
         result
+    }
+
+    fn checked_pipeline_loop(
+        &mut self,
+        plan: &Pipeline,
+        mut body: Vec<Op>,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let mut condition = plan.iteration.condition.clone();
+        self.rebase_checked(&mut condition, at)?;
+        self.rebase_checked(&mut body, at)?;
+        pipeline_loop(condition, plan.split, body, ops);
+        Ok(())
     }
 
     fn pipeline_consume(
@@ -1715,7 +1755,7 @@ impl Lower<'_> {
             }
         };
         body.extend(plan.iteration.step.clone());
-        pipeline_loop(&plan, body, ops);
+        self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
         if let Some((ty, slot)) = &output {
             ops.push(if ty.affine() {
                 Op::MoveLocal(*slot)
@@ -1826,11 +1866,14 @@ impl Lower<'_> {
                     Box::new(value),
                 ),
             };
-            let actual = self.expr(&sum, &mut body)?;
+            let checked = std::mem::take(&mut self.checked);
+            let actual = self.expr(&sum, &mut body);
+            self.checked = checked;
+            let actual = actual?;
             self.same(actual, Some(ty.clone()), &base.at)?;
             body.push(Op::StoreLocal(total));
             body.extend(plan.iteration.step.clone());
-            pipeline_loop(&plan, body, ops);
+            self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
             ops.push(Op::LoadLocal(total));
             ty.clone()
         } else {
@@ -1870,7 +1913,7 @@ impl Lower<'_> {
                 ),
             ]);
             body.extend(plan.iteration.step.clone());
-            pipeline_loop(&plan, body, ops);
+            self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
             let option = crate::sum::option(ty.clone());
             let Ty::Enum(sum) = &option else {
                 unreachable!()
@@ -1954,17 +1997,16 @@ fn guard_end(plan: &mut Pipeline, ended: u8) {
 /// tests the flag per item. The first loop ends with the flag set when its side
 /// is exhausted; a consumer `break` leaves it clear and skips the second loop.
 /// After `next(p)` the flag may already be set, so the first loop is guarded.
-fn pipeline_loop(plan: &Pipeline, body: Vec<Op>, ops: &mut Vec<Op>) {
-    let condition = &plan.iteration.condition;
-    let Some(flag) = plan.split else {
+fn pipeline_loop(condition: Vec<Op>, split: Option<u8>, body: Vec<Op>, ops: &mut Vec<Op>) {
+    let Some(flag) = split else {
         ops.push(Op::Loop {
-            condition: condition.clone().into(),
+            condition: condition.into(),
             body: body.into(),
         });
         return;
     };
     let side = |value| Op::Loop {
-        condition: specialize(condition, flag, value).into(),
+        condition: specialize(&condition, flag, value).into(),
         body: specialize(&body, flag, value).into(),
     };
     ops.extend([Op::LoadLocal(flag), branch(vec![], vec![side(false)])]);
@@ -2017,6 +2059,10 @@ fn specialize(ops: &[Op], flag: u8, value: bool) -> Vec<Op> {
                 body: nested(body),
                 result: result.clone(),
             },
+            Op::CheckedFunction { body, result } => Op::CheckedFunction {
+                body: nested(body),
+                result: result.clone(),
+            },
             op => op.clone(),
         });
         i += 1;
@@ -2057,6 +2103,10 @@ fn redirect_breaks(ops: Vec<Op>, replacement: &[Op]) -> Vec<Op> {
             }),
             // A `break` in a checked block leaves the loop around the block.
             Op::CheckedBlock { body, result } => out.push(Op::CheckedBlock {
+                body: nested(&body),
+                result,
+            }),
+            Op::CheckedFunction { body, result } => out.push(Op::CheckedFunction {
                 body: nested(&body),
                 result,
             }),

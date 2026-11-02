@@ -432,8 +432,12 @@ fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                         pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
                     }
                 }
-                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => pending.push(cleanup),
-                Op::CheckedBlock { body, .. } => pending.push(body),
+                Op::Try { cleanup, .. }
+                | Op::CheckedArith { cleanup, .. }
+                | Op::CheckedUnwrap { cleanup, .. } => pending.push(cleanup),
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                    pending.push(body)
+                }
 
                 _ => {}
             }

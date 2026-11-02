@@ -79,7 +79,9 @@ def main() -> Result[(), IoError]:
 3500 True True
 ```
 
-- Only arithmetic written in the block is checked; calls keep trapping.
+- Arithmetic written in the block and in closures defined there is checked.
+  Such closures must stay in the block; named functions, outside closures and
+  builtin `sum()` keep their own behavior.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
 - Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
 

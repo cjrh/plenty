@@ -375,14 +375,11 @@ def main() -> Result[(), IoError]:
         "inner 9\nouter 4\ninner overflow 1\nouter overflow -9223372036854775808\n"
     );
     // A function or closure called from a block is not lexically inside it.
-    for callee in [
-        "square(i64.MAX)",
-        "apply(&(def(v: i64) -> i64: v * 2), i64.MAX)",
-    ] {
+    for callee in ["square(i64.MAX)", "apply(&outside, i64.MAX)"] {
         let output = support::run_file(&format!(
             "def square(a: i64) -> i64:\n    a * a\n\
              def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:\n    f(value)\n\
-             def main() -> ():\n    r = checked:\n        {callee} + 1\n    drop(r)\n"
+             def main() -> ():\n    outside = (def(v: i64) -> i64: v * 2)\n    r = checked:\n        {callee} + 1\n    drop(r)\n"
         ));
         assert_eq!(output.status.code(), Some(1), "{callee}");
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -543,4 +540,396 @@ def main() -> ():
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.lines().last(), Some("1"), "{stdout}");
+}
+
+#[test]
+fn lexical_checked_callbacks_cross_real_calls_and_generic_wrappers() {
+    let output = run_stdout(
+        r#"
+def apply[F: Callable[[i64], i64]](f: &F, x: i64) -> i64:
+    f(x)
+def twice[F: Callable[[i64], i64]](f: &F, x: i64) -> i64:
+    apply(f, x)
+def main() -> Result[(), IoError]:
+    literal = checked:
+        twice(&(def(x: i64) -> i64: x + 1), i64.MAX)
+    stored = checked:
+        f = def(x: i64) -> i64:
+            match x:
+                case 0:
+                    1
+                case _:
+                    x + 1
+        twice(&f, i64.MAX)
+    print(literal.is_err(), stored.is_err())?
+    success = checked:
+        f = (def(x: i64) -> i64: x + 1)
+        twice(&f, 40)
+    print(success.unwrap())?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "True True\n41\n");
+}
+
+#[test]
+fn checked_callbacks_preserve_declared_results_early_returns_and_mutation() {
+    let output = run_stdout(
+        r#"
+def call[F: Callable[[i64], Result[i64, str]]](f: &F, x: i64) -> Result[i64, str]:
+    f(x)
+def forward[F: Callable[[i64], Result[i64, str]]](f: &F, x: i64) -> Result[i64, str]:
+    value = call(f, x)?
+    Ok(value)
+def mutable_call[F: Callable[[i64], i64]](f: &mut F, x: i64) -> i64:
+    f(x)
+def main() -> Result[(), IoError]:
+    for x in [0, 1, i64.MAX].unwrap():
+        outcome = checked:
+            f = def(x: i64) -> Result[i64, str]:
+                if x == 0:
+                    return Err("explicit")
+                value = x + 1
+                Ok(value)
+            forward(&f, x)
+        match outcome:
+            case Ok(inner):
+                match inner:
+                    case Ok(value):
+                        print(value)?
+                    case Err(error):
+                        print(error)?
+            case Err(error):
+                print("overflow", error.wrapped)?
+    mut count = 0
+    failure = checked:
+        mut f = def [&mut count](x: i64) -> i64:
+            count += 1
+            x + 1
+        mutable_call(&mut f, i64.MAX)
+    print(failure.is_err(), count)?
+    Ok(())
+"#,
+    );
+    assert_eq!(
+        output,
+        "explicit\n2\noverflow -9223372036854775808\nTrue 1\n"
+    );
+}
+
+#[test]
+fn checked_pipeline_callbacks_and_sum_have_lexical_behavior() {
+    let output = run_stdout(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    values = [i64.MAX, 1]?
+    literal = checked:
+        iter(&values).fold(0, def(a: i64, x: &i64) -> i64: a + *x)
+    stored = checked:
+        add = def(a: i64, x: &i64) -> i64:
+            match *x:
+                case 0:
+                    a
+                case _:
+                    a + *x
+        iter(&values).fold(0, add)
+    print(literal.is_err(), stored.is_err())?
+    inner_caught = checked:
+        add = (def(x: i64) -> i64: x + 1)
+        inner = checked:
+            add(i64.MAX)
+        inner.is_err() and 1 + 1 == 2
+    print(inner_caught.unwrap())?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "True True\nTrue\n");
+    let output = support::run_file(
+        "def main() -> Result[(), AllocError]:\n    values = [i64.MAX, 1]?\n    result = checked:\n        iter(&values).sum() + 0\n    drop(result)\n    Ok(())\n",
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("integer overflow"));
+}
+
+#[test]
+fn checked_closures_cannot_escape_through_values_erasure_or_workers() {
+    for source in [
+        "value = checked:\n    f = (def(x: i64) -> i64: x + 1)\n    f\ndrop(value)",
+        "value = checked:\n    f = (def(x: i64) -> i64: x + 1)\n    boxed = BoxedCallable(f)\n    1 + 1\ndrop(value)",
+        "value = checked:\n    f = (def(x: i64) -> i64: x + 1)\n    xs = [f].unwrap()\n    1 + 1\ndrop(value)",
+    ] {
+        let error = check_diagnostic(source);
+        assert!(error.contains("checked:"), "{source}: {error}");
+    }
+}
+
+#[test]
+fn checked_sort_stops_key_calls_and_preserves_affine_rows() {
+    let output = run_stdout(
+        r#"
+class Row:
+    id: i64
+    name: str
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    mut rows = [Row(0, "a".repeat(1000)?), Row(1, "b".repeat(1000)?), Row(2, "c".repeat(1000)?)]?
+    outcome = checked:
+        key = def(row: &Row) -> (str, i64):
+            print("key", row.id).unwrap()
+            (row.name, i64.MAX + row.id)
+        rows.sort_by_key(key)
+        1
+    print(outcome.is_err(), len(rows))?
+    drop(rows)
+    mut numbers = [3, 1, 2]?
+    good = checked:
+        numbers.sort_by_key(def(value: &i64) -> i64: *value + 1)
+        1
+    print(good.unwrap(), numbers)?
+    Ok(())
+"#,
+    );
+    assert!(output.starts_with("key 0\nkey 1\nTrue 3\n"), "{output}");
+    for id in 0..3 {
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| *line == format!("drop {id}"))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+    assert!(output.ends_with("1 [1, 2, 3]\n"), "{output}");
+}
+
+#[test]
+fn checked_callback_failure_drops_owned_captures_and_pending_call_values_once() {
+    let output = run_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def add(a: Resource, b: i64) -> i64:
+    a.id + b
+def apply[F: Callable[[i64], i64]](f: &F, x: i64) -> i64:
+    local = Resource(20)
+    add(Resource(30), f(x))
+def main() -> Result[(), IoError]:
+    result = checked:
+        resource = Resource(10)
+        f = def [resource](x: i64) -> i64:
+            local = Resource(40)
+            resource.id + x
+        apply(&f, i64.MAX)
+    print(result.is_err())?
+    Ok(())
+"#,
+    );
+    for id in [10, 20, 30, 40] {
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| *line == format!("drop {id}"))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+    assert!(output.ends_with("True\n"), "{output}");
+}
+
+#[test]
+fn checked_callback_error_unions_keep_payload_types_and_wrapped_values() {
+    let output = run_stdout(
+        r#"
+def apply[F: Callable[[i64], i64]](f: &F, x: i64) -> i64:
+    f(x)
+def main() -> Result[(), IoError]:
+    for x in [127, 1, 2].unwrap():
+        result = checked:
+            f = def(x: i64) -> i64:
+                mut small = i8(x)
+                small += 1i8
+                x // (x - 1)
+            apply(&f, x)
+        match result:
+            case Ok(value):
+                print("ok", value)?
+            case Err(error):
+                match error:
+                    case small: OverflowError[i8]:
+                        print("i8", small.wrapped)?
+                    case large: OverflowError[i64]:
+                        print("i64", large.wrapped)?
+                    case ZeroDivisionError():
+                        print("zero")?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "i8 -128\nzero\nok 2\n");
+}
+
+#[test]
+fn checked_private_results_survive_constant_substitution_and_managed_last_use() {
+    let output = run_stdout(
+        r#"
+const STEP: i64 = 1
+def apply[F: Callable[[i64], Result[str, str]]](f: &F, x: i64) -> Result[str, str]:
+    return f(x)
+def main() -> Result[(), AllocError | IoError]:
+    for x in [-1, 0, i64.MAX]?:
+        result = checked:
+            text = "x".repeat(1000)?
+            f = def [text](x: i64) -> Result[str, str]:
+                if x < 0:
+                    return Err("explicit")
+                n = x + STEP
+                if n > 0:
+                    return Ok(text)
+                Err("unused")
+            apply(&f, x)
+        match result:
+            case Ok(value):
+                match value:
+                    case Ok(text):
+                        print(len(text))?
+                    case Err(text):
+                        print(text)?
+            case Err(error):
+                print("overflow", error.wrapped)?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "explicit\n1000\noverflow -9223372036854775808\n");
+}
+
+#[test]
+fn checked_pipeline_failure_uses_consumer_cleanup_including_later_locals_and_lent_state() {
+    let output = run_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def borrow(p: &mut Iter[i64]) -> i64:
+    local = Resource(20)
+    p.sum()
+def main() -> Result[(), IoError]:
+    result = checked:
+        first = Resource(10)
+        mut p = iter(range(3)).map(def(x: i64) -> i64: i64.MAX + x)
+        later = Resource(30)
+        borrow(&mut p)
+    print("lent", result.is_err())?
+    outer = checked:
+        mut p = iter(range(3)).map(def(x: i64) -> i64: i64.MAX + x)
+        later = Resource(50)
+        inner = checked:
+            local = Resource(60)
+            p.sum()
+        print("inner", inner.is_err())?
+        1 + 1
+    print("outer", outer.unwrap())?
+    Ok(())
+"#,
+    );
+    for id in [10, 20, 30, 50, 60] {
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| *line == format!("drop {id}"))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+    assert!(output.contains("lent True\n"), "{output}");
+    assert!(
+        output.contains("drop 60\ninner True\ndrop 50\nouter 2\n"),
+        "{output}"
+    );
+}
+
+#[test]
+fn checked_capture_free_bindings_diagnose_thin_callable_erasure() {
+    let error = check_diagnostic(
+        "result = checked:\n    f: Callable[[i64], i64] = (def(x: i64) -> i64: x + 1)\n    f(1)\ndrop(result)",
+    );
+    assert!(
+        error.contains("checked:") && error.contains("remove the Callable annotation"),
+        "{error}"
+    );
+}
+
+#[test]
+fn checked_closures_cannot_escape_directly_or_as_bound_worker_arguments() {
+    for call in [
+        "with spawn(f).unwrap():\n    pass",
+        "with spawn(&f).unwrap():\n    pass",
+        "with spawn(apply, f).unwrap():\n    pass",
+        "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.submit(f))",
+        "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.submit(apply, f))",
+    ] {
+        let call = call
+            .lines()
+            .map(|line| format!("        {line}\n"))
+            .collect::<String>();
+        let source = format!(
+            "def apply[F: Callable[[], i64]](f: F) -> i64:\n    f()\ndef main() -> ():\n    result = checked:\n        f = (def() -> i64: 1 + 1)\n{call}        1 + 1\n    drop(result)\n"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("checked:"), "{source}\n{error}");
+    }
+}
+
+#[test]
+fn checked_callbacks_kept_in_local_options_retain_their_failure_channel() {
+    let output = run_stdout(
+        r#"
+def maybe[F: Callable[[i64], i64]](callback: Option[F], x: i64) -> i64:
+    match callback:
+        case Some(f):
+            f(x)
+        case Nothing:
+            0
+def main() -> Result[(), IoError]:
+    result = checked:
+        f = (def(x: i64) -> i64: x + 1)
+        maybe(Some(f), i64.MAX)
+    print(result.is_err())?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "True\n");
+}
+
+#[test]
+fn checked_callback_helpers_preserve_borrowed_return_provenance() {
+    let output = run_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def run[F: Callable[[i64], i64]](value: &Resource, f: &F) -> &Resource:
+    computed = f(value.id)
+    value
+def main() -> Result[(), IoError]:
+    for id in [1, i64.MAX].unwrap():
+        resource = Resource(id)
+        result = checked:
+            f = (def(x: i64) -> i64: x + 1)
+            borrowed = run(&resource, &f)
+            borrowed.id
+        print(result.is_err(), resource.id)?
+    Ok(())
+"#,
+    );
+    assert_eq!(
+        output,
+        "False 1\ndrop 1\nTrue 9223372036854775807\ndrop 9223372036854775807\n"
+    );
 }

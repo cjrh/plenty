@@ -85,6 +85,12 @@ impl Lower<'_> {
             }
             None => worker,
         };
+        if self
+            .expression_type_hint(worker)
+            .is_some_and(|ty| ty.checked_closure())
+        {
+            return Err(worker.at.error("a closure defined in `checked:` cannot be sent to spawn; define it outside the block instead"));
+        }
         let saved = self.names.clone();
         let start = self.locals.len();
         let manager_start = ops.len();
@@ -99,6 +105,9 @@ impl Lower<'_> {
                         .error("spawn requires a statically selected function")
                 })?;
                 let captures = self.sigs[&symbol].inputs.clone();
+                if captures.iter().any(|(_, ty)| ty.checked_closure()) {
+                    return Err(worker.at.error("a closure defined in `checked:` cannot be sent to spawn; define it outside the block instead"));
+                }
                 // Owned arguments bind a one-shot job, as `pool.submit` does,
                 // so a failed start returns them in `SpawnError[F]` (issue
                 // #630). A borrowed argument cannot be returned in an error,
@@ -142,6 +151,9 @@ impl Lower<'_> {
                         .at
                         .error("spawn requires a borrowed reusable closure"));
                 };
+                if closure.checked {
+                    return Err(worker.at.error("a closure defined in `checked:` cannot be sent to spawn; define it outside the block instead"));
+                }
                 if closure.once || !closure.signature.inputs.is_empty() {
                     return Err(worker.at.error("spawn requires a reusable zero-argument closure; capture task inputs explicitly"));
                 }
@@ -170,6 +182,9 @@ impl Lower<'_> {
                         .at
                         .error("spawn requires a named function or a concrete closure"));
                 };
+                if ty.checked_closure() {
+                    return Err(worker.at.error("a closure defined in `checked:` cannot be sent to spawn; define it outside the block instead"));
+                }
                 if !ty.heap_storable() || !closure.signature.inputs.is_empty() {
                     return Err(worker.at.error("an owned worker must be a concrete zero-argument closure with wholly owned captures and no generator frames"));
                 }

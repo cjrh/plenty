@@ -182,6 +182,8 @@ pub(super) fn prepare(
         signatures.push(signature);
     }
     let mut engine = Engine {
+        checked_closures: HashSet::default(),
+        checked_errors: HashMap::default(),
         protocols: declarations,
         methods,
         templates: HashMap::default(),
@@ -254,6 +256,10 @@ pub(super) fn prepare(
 }
 
 pub(super) struct Engine {
+    /// Hidden closure bodies whose own arithmetic is lexically checked.
+    pub(super) checked_closures: HashSet<String>,
+    /// Private native failure channels; Functions retains logical signatures.
+    pub(super) checked_errors: HashMap<String, Ty>,
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
@@ -1190,7 +1196,7 @@ impl Lower<'_> {
         }
         self.record_direct_call(&callee, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
+        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, at, ops)?;
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

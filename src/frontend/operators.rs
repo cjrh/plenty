@@ -694,7 +694,7 @@ impl Lower<'_> {
         }
         self.record_direct_call(&name, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(name), &sig.inputs, &loans, ops);
+        self.push_call(Op::Call(name), &sig.inputs, &loans, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
     }
