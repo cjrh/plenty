@@ -339,6 +339,11 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
             "def q_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n // d\n\ndef r_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n % d\n\n"
         );
     }
+    for ty in ["i8", "i16", "i32", "i64"] {
+        source += &format!(
+            "def pq_{ty}(n: {ty}, d: Positive[{ty}]) -> {ty}:\n    n // d\n\ndef pr_{ty}(n: {ty}, d: Positive[{ty}]) -> {ty}:\n    n % d\n\ndef pn_{ty}(d: Positive[{ty}]) -> {ty}:\n    7 // d\n\n"
+        );
+    }
     source += "def main() -> ():\n    pass\n";
     std::fs::write(dir.path().join("domain.plenty"), source).unwrap();
     for mode in [&[][..], &["--release"][..]] {
@@ -346,6 +351,24 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
         args.extend(["--dump", "clif,clif-opt", "domain.plenty", "-o", "out"]);
         stdout(plenty(dir.path(), &args));
         for stage in ["clif.txt", "clif-opt.txt"] {
+            for ty in ["i8", "i16", "i32", "i64"] {
+                for op in ["pq", "pr", "pn"] {
+                    let name = format!("{op}_{ty}");
+                    let body = section(dir.path(), stage, &name);
+                    assert!(
+                        !body.contains("plenty_trap"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    if op == "pn" {
+                        assert!(
+                            body.contains("udiv")
+                                && !body.contains("sdiv")
+                                && !body.contains("srem"),
+                            "{mode:?} {stage} {name}:\n{body}"
+                        );
+                    }
+                }
+            }
             for (ty, _, signed) in TYPES {
                 for op in ["q", "r"] {
                     let name = format!("{op}_{ty}");

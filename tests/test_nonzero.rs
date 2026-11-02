@@ -234,3 +234,85 @@ fn nonzero_division_still_traps_signed_overflow() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("integer overflow"), "{stderr}");
 }
+
+#[test]
+fn positive_divisors_need_no_division_failure() {
+    for ty in ["i8", "i16", "i32", "i64"] {
+        let source = format!(
+            r#"def q(n: {ty}, d: Positive[{ty}]) -> {ty}:
+    n // d
+
+def r(n: {ty}, d: Positive[{ty}]) -> {ty}:
+    n % d
+
+def recover(n: {ty}, d: Positive[{ty}]) -> Result[{ty}, OverflowError[{ty}]]:
+    checked:
+        (n // d) + 0{ty}
+
+p = Positive.try_from(3{ty}).unwrap()
+print(q(-7{ty}, p), r(-7{ty}, p), recover(-7{ty}, p).unwrap()).unwrap()
+print(q({ty}.MIN, 1), r({ty}.MIN, 1)).unwrap()
+mut n = -7{ty}
+n //= p
+print(n).unwrap()
+n %= p
+print(n).unwrap()
+"#
+        );
+        let min = match ty {
+            "i8" => i128::from(i8::MIN),
+            "i16" => i128::from(i16::MIN),
+            "i32" => i128::from(i32::MIN),
+            _ => i128::from(i64::MIN),
+        };
+        runs(&source, &format!("-3 2 -3\n{min} 0\n-3\n0\n"));
+    }
+    for expression in ["n // p", "n % p"] {
+        let error = check_error(&format!(
+            "n = 7\np: Positive[i64] = 3\nr = checked:\n    {expression}"
+        ));
+        assert!(
+            error.contains("contains no arithmetic that can fail"),
+            "{error}"
+        );
+    }
+    for expression in ["p // p", "p % p", "p // 3", "p % 3"] {
+        assert!(
+            check_error(&format!("p: Positive[i64] = 3\ndrop({expression})")).contains("operator")
+        );
+    }
+}
+
+#[test]
+fn domain_division_preserves_effects_and_special_augmented_targets() {
+    runs(
+        r#"import std.bytes
+class Row:
+    n: i64
+
+def first(xs: &mut list[i64]) -> &mut i64:
+    &mut xs[0]
+
+def divisor() -> NonZero[i64]:
+    print("divisor").unwrap()
+    3
+
+def main() -> ():
+    mut xs = [14].unwrap()
+    *first(&mut xs) //= divisor()
+    print(xs[0]).unwrap()
+    mut rows = clist[Row]()
+    rows.append(Row(-14)).unwrap()
+    p: Positive[i64] = 3
+    rows[0].n %= p
+    print(rows[0].n).unwrap()
+    mut data = std.bytes.from_bytes(b"N").unwrap()
+    d: NonZero[u8] = 3
+    data[0] //= d
+    data[0] %= d
+    print(data[0]).unwrap()
+    print(14 // &p, 14 % &p).unwrap()
+"#,
+        "divisor\n4\n1\n2\n4 2\n",
+    );
+}

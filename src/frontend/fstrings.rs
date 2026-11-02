@@ -1096,7 +1096,7 @@ impl Lower<'_> {
                 return Ok(true);
             }
             let ty = referent(ty);
-            let ty = ty.nonzero_element().unwrap_or_else(|| ty.clone());
+            let ty = ty.domain_element().unwrap_or_else(|| ty.clone());
             let top_display = matches!(field.conversion, Conversion::None | Conversion::Str);
             if !self.hooked_types(&ty, top_display, at)?.is_empty() {
                 return Ok(true);
@@ -1444,8 +1444,8 @@ impl Lower<'_> {
             return Err(at.error("atomics cannot be formatted; format a value read with load()"));
         }
         // `NonZero[T]` formats as its integer.
-        let nonzero = ty.nonzero_element().is_some();
-        let ty = ty.nonzero_element().unwrap_or(ty);
+        let nonzero = ty.domain_element().is_some();
+        let ty = ty.domain_element().unwrap_or(ty);
         // A generic type's instance methods exist once its data is expanded.
         self.sync_data()?;
         // A type without `display` formats with its `debug`.

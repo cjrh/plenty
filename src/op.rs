@@ -13,6 +13,33 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 /// A Plenty type, as it appears in a function's type header (§11.2).
 ///
+/// Builtin integer domains, represented by a private single-field newtype.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerDomain {
+    NonZero,
+    Positive,
+    NonNegative,
+}
+
+impl IntegerDomain {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::NonZero => "NonZero",
+            Self::Positive => "Positive",
+            Self::NonNegative => "NonNegative",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "NonZero" => Some(Self::NonZero),
+            "Positive" => Some(Self::Positive),
+            "NonNegative" => Some(Self::NonNegative),
+            _ => None,
+        }
+    }
+}
+
 /// Sized integers (§11.2): the user picks an exact bit width, signed or
 /// unsigned, so the program's memory footprint and overflow semantics are
 /// declared on the surface rather than hidden behind a polymorphic "Int".
@@ -189,6 +216,19 @@ impl Ty {
             Self::Class(t) if t.name.starts_with("NonZero[") => Some(t.get().fields[0].1.clone()),
             _ => None,
         }
+    }
+    /// The domain and underlying integer of a builtin integer domain type.
+    pub fn integer_domain(&self) -> Option<(IntegerDomain, Ty)> {
+        let Self::Class(t) = self else { return None };
+        let (name, _) = t.name.split_once('[')?;
+        Some((IntegerDomain::named(name)?, t.get().fields[0].1.clone()))
+    }
+    pub fn domain_element(&self) -> Option<Ty> {
+        self.integer_domain().map(|(_, element)| element)
+    }
+    pub fn positive_element(&self) -> Option<Ty> {
+        self.integer_domain()
+            .and_then(|(domain, element)| (domain == IntegerDomain::Positive).then_some(element))
     }
     /// `self` with every newtype class layer removed: the type whose layout
     /// the value actually has.

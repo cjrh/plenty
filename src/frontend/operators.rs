@@ -544,7 +544,10 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        let nonzero = Ty::Class(class.clone()).nonzero_element().is_some();
+        let domain = Ty::Class(class.clone())
+            .integer_domain()
+            .map(|(domain, _)| domain);
+        let nonzero = domain.is_some();
         if nonzero && !nonzero::forwards(op) {
             return Err(at.error(nonzero::unsupported(op, &Ty::Class(class.clone()))));
         }
@@ -562,7 +565,11 @@ impl Lower<'_> {
         self.release_operator_operand(&held_right, r, ops);
         self.release_operator_operand(&held_left, l, ops);
         // A sum or difference of nonzero values can be zero.
-        if ordering(op) || (nonzero && op != "*") {
+        if ordering(op)
+            || (nonzero
+                && op != "*"
+                && (op != "+" || domain == Some(crate::op::IntegerDomain::NonZero)))
+        {
             return Ok(result);
         }
         self.rewrap(class, declared, result, ops)
@@ -753,7 +760,7 @@ impl Lower<'_> {
             let Some((class, declared)) = self.forwarding(&ty) else {
                 return Ok(None);
             };
-            if op == "~" && ty.nonzero_element().is_some() {
+            if op == "~" && unreferenced(&ty).domain_element().is_some() {
                 return Err(value.at.error(nonzero::unsupported(op, unreferenced(&ty))));
             }
             let (held, loan) = self.hold_operator_operand(value, ops)?;
@@ -766,6 +773,13 @@ impl Lower<'_> {
             };
             let result = self.expr(&inner, ops)?;
             self.release_operator_operand(&held, loan, ops);
+            if op == "-"
+                && unreferenced(&ty)
+                    .integer_domain()
+                    .is_some_and(|(domain, _)| domain != crate::op::IntegerDomain::NonZero)
+            {
+                return Ok(Some(result));
+            }
             return self.rewrap(&class, &declared, result, ops).map(Some);
         };
         self.call_named(&name, std::slice::from_ref(value), &value.at, ops)
@@ -789,8 +803,8 @@ impl Lower<'_> {
             return Ok(false);
         };
         if self.operator_symbol(&ty, hook, &target.at)?.is_none() {
-            if unreferenced(&ty).nonzero_element().is_some() {
-                if op != "*" {
+            if let Some((domain, _)) = unreferenced(&ty).integer_domain() {
+                if op != "*" && !(op == "+" && domain != crate::op::IntegerDomain::NonZero) {
                     return Err(target
                         .at
                         .error(nonzero::unsupported(&format!("{op}="), unreferenced(&ty))));

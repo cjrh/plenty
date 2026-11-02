@@ -3119,6 +3119,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "OverflowError"
                 | "ZeroDivisionError"
                 | "NonZero"
+                | "Positive"
+                | "NonNegative"
                 | "set"
                 | "len"
                 | "sorted"

@@ -14,6 +14,10 @@ impl Lower<'_> {
         };
         ty.nonzero_element()
             .map(|element| (element, Divisor::NonZero))
+            .or_else(|| {
+                ty.positive_element()
+                    .map(|element| (element, Divisor::Positive))
+            })
     }
 
     pub(super) fn domain_division(

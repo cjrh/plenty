@@ -18,8 +18,16 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
             return mismatch_hint(expected, actual);
         }
         (Ty::Callable(expected), Ty::Closure(actual)) => (expected, actual),
-        (nonzero, integer) if nonzero.nonzero_element().as_ref() == Some(integer) => {
-            return Some("; convert it with `NonZero.try_from(value)?`, which rejects zero".into());
+        (domain, integer) if domain.domain_element().as_ref() == Some(integer) => {
+            return Some(format!(
+                "; convert it with `{}.try_from(value)?`{}",
+                domain.integer_domain().unwrap().0.name(),
+                if domain.nonzero_element().is_some() {
+                    ", which rejects zero"
+                } else {
+                    ""
+                }
+            ));
         }
         _ => return None,
     };
