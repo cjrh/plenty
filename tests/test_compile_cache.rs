@@ -744,7 +744,10 @@ fn executable_shebang_uses_the_cache_and_runs_again_each_time() {
     let root = dir.path();
     let cache = root.join("cache");
     let script = root.join("hello.plenty");
-    std::fs::write(&script, "#!/usr/bin/env plenty\ndef main() -> Result[(), AllocError | IoError]:\n    print(read_text(\"state.txt\")?)?\n    Ok(())\n").unwrap();
+    support::write_script(
+        &script,
+        "#!/usr/bin/env plenty\ndef main() -> Result[(), AllocError | IoError]:\n    print(read_text(\"state.txt\")?)?\n    Ok(())\n",
+    );
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let compiler = Path::new(env!("CARGO_BIN_EXE_plenty")).parent().unwrap();
     let path = std::env::join_paths(
