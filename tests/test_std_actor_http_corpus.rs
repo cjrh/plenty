@@ -94,6 +94,7 @@ impl Server {
                     output.extend_from_slice(&buffer[..count]);
                     assert!(output.len() <= 2 * 1024 * 1024, "unbounded response");
                 }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) if closed_error(&error) => break,
                 Err(error) => panic!("response read failed: {error}; server: {}", self.errors()),
             }
