@@ -5,7 +5,7 @@ description: For work inside the Plenty compiler repository. Find related Plenty
 
 # Plenty semantic search
 
-Run commands from a Plenty checkout, following its RTK command-prefix convention.
+Run commands directly from a Plenty checkout.
 The wrapper uses the primary worktree's `.search/` and indexes the primary
 checkout by default, even when invoked from a task worktree.
 
@@ -15,9 +15,9 @@ Check freshness once at the start of a related search session, and again after
 source/register changes that matter to the task:
 
 ```sh
-rtk proxy bash scripts/search.sh check
-rtk proxy bash scripts/search.sh find 'How do borrowed values interact with worker threads?'
-rtk proxy bash scripts/search.sh show repo:doc:book/src/design/stdlib/sqlite.md
+bash scripts/search.sh check
+bash scripts/search.sh find 'How do borrowed values interact with worker threads?'
+bash scripts/search.sh show repo:doc:book/src/design/stdlib/sqlite.md
 ```
 
 `check` compares stored SHA-256 hashes with current extracted source text. It
@@ -27,8 +27,8 @@ added/changed/deleted IDs. When those changes affect the task or a refresh was
 requested, run `sync`, then `check` again. Run only one sync at a time.
 
 ```sh
-rtk proxy bash scripts/search.sh sync
-rtk proxy bash scripts/search.sh status
+bash scripts/search.sh sync
+bash scripts/search.sh status
 ```
 
 Search with a short concept/question. If results are weak, try the domain terms
