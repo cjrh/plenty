@@ -46,6 +46,41 @@ print(s).unwrap()
 }
 
 #[test]
+fn len_accepts_explicit_shared_temporaries_and_keeps_owners_through_the_expression() {
+    run(
+        r#"
+class Sized:
+    def len(self) -> i64:
+        7
+    def __del__(self) -> ():
+        print("drop").unwrap()
+def make() -> Sized:
+    print("make").unwrap()
+    Sized()
+def later() -> i64:
+    print("later").unwrap()
+    1
+def fail() -> Result[i64, str]:
+    print("fail").unwrap()
+    Err("stop")
+def attempt() -> Result[i64, str]:
+    Ok(len(&make()) + fail()?)
+print(len(&"é🦀"), len(&("a" + "b").unwrap()), len(&b"abc")).unwrap()
+print(len(&[1, 2].unwrap())).unwrap()
+print(len(&make()) + later()).unwrap()
+drop(attempt())
+print("done").unwrap()
+"#,
+        "2 2 3\n2\nmake\nlater\n8\ndrop\nmake\nfail\ndrop\ndone\n",
+    );
+    reject(
+        "print(len(&mut \"ada\")).unwrap()",
+        "borrowing requires a named binding",
+    );
+    reject("reference = &\"ada\"", "borrowing requires a named binding");
+}
+
+#[test]
 fn owned_temporary_is_evaluated_once_and_lives_through_the_full_expression() {
     run(
         r#"
@@ -166,12 +201,16 @@ print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 a = size("short")
 b = first(xs)
+c = len(&"é🦀")
+d = len(&b"abc")
+e = len(&xs)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(a).unwrap()
 print(b).unwrap()
+print(c, d, e).unwrap()
 "#,
-        "5\n42\n",
+        "5\n42\n2 3 1\n",
     );
 }
 

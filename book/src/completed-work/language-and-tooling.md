@@ -59,7 +59,9 @@ loans (issue #593) and scalar-indexed `&substr` substring views (issue #595)
 are implemented. Methods on owned temporaries can lend within the statement
 (issue #597), calls returning mutable references can be assigned through
 (issue #598), and method receivers projected from temporaries borrow in place
-(issue #599).
+(issue #599). `len` also normalizes explicit shared borrows of literals and
+owned temporaries, preserving full-expression cleanup without allocating for
+the borrow itself (issue #683).
 
 See [borrowing](../design/language/05-ownership/02-borrowing.md),
 [returned references](../design/language/05-ownership/04-returned-references.md),
