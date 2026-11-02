@@ -143,7 +143,8 @@ diagnostics. Per-script private cache state and resolution locks keep generated 
 out of source directories; warm runs reuse objects and eligible Linux executables.
 Check/compile modes, editor header handling and cache inspection/cleanup accompany
 the runner. A script test command and broader executable-cache platforms remain
-outside this delivery.
+outside this delivery. The [completed proposal](../proposals/completed/single-file-scripts.md)
+records the rationale (local PR #851).
 
 File imports/visibility, reserved embedded `std`, the `plentyc`/`plenty` split,
 strict manifests, pinned Git/path dependencies, locks/offline mode, workspaces,

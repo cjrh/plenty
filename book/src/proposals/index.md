@@ -42,8 +42,8 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | --- | --- | --- |
 | Rust compiler architecture and performance | [Compiler boundaries](compiler-refactoring.md) | [Diagnostics](compiler-refactoring/diagnostics.md), [frontend/session state](compiler-refactoring/frontend-and-sessions.md), [identity and facts](compiler-refactoring/performance.md), [module replay](compiler-refactoring/module-results.md) |
 | Runtime-independent networking protocols | [Codec, session and driver architecture](sans-io-protocols.md) | [Session contract](sans-io-protocols/contract.md), [runtime integration](sans-io-protocols/drivers.md), [WebSocket acceptance](sans-io-protocols/websocket.md) |
-| Executable scripts and embedded metadata | [Single-file scripts](single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
-| Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](single-file-scripts.md) |
+| Executable scripts and embedded metadata | [Single-file scripts](completed/single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
+| Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](completed/single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](completed/library-owned-operations.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
@@ -69,8 +69,6 @@ Companion examples and evidence do not imply additional implementation commitmen
 
 See [Completed proposals](completed/index.md) for shipped designs and their
 reference pages. Further extensions remain tracked in the backlog.
-[Single-file scripts](single-file-scripts.md) are also implemented; see the
-[script reference](../design/toolchain/01-building/scripts.md).
 
 ## Partly implemented
 

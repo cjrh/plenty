@@ -1,18 +1,18 @@
 # Single-file scripts with embedded manifests
 
 > **Status: Implemented.** Delivered under
-> [B17](../completed-work/language-and-tooling.md#b17-tooling-and-packaging):
+> [B17](../../completed-work/language-and-tooling.md#b17-tooling-and-packaging):
 > `plenty script`, optional embedded manifests, and reusable script builds.
-> The [script reference](../design/toolchain/01-building/scripts.md) describes
+> The [script reference](../../design/toolchain/01-building/scripts.md) describes
 > current contracts and platform limits; this page records the design rationale.
-> Ordinary [single-file compilation](../design/toolchain/01-building/commands.md)
-> and [package resolution](../design/toolchain/01-building/packages.md) already
+> Ordinary [single-file compilation](../../design/toolchain/01-building/commands.md)
+> and [package resolution](../../design/toolchain/01-building/packages.md) already
 > exist. This proposal preserves native compilation and explicit `main`.
 > Examples involving external dependencies are illustrative rather than standalone lessons.
 
 ## Motivation and precedent
 
-The separate [language editions proposal](language-editions.md) considers an
+The separate [language editions proposal](../language-editions.md) considers an
 optional package edition that could also appear in this header. Neither
 proposal depends on implementing the other.
 
@@ -96,7 +96,7 @@ Runner options precede `FILE`. Everything after it goes unchanged to the
 program, including `--help`, `--release`, and a literal `--`. The optional `--`
 before `FILE` permits filenames beginning with `-`. Thus `./tool.plenty --help`
 asks the program for help; `plenty script --help` asks the runner. Preserve
-native argument bytes, matching [`args_bytes`](../design/facilities/02-io/streams-args.md).
+native argument bytes, matching [`args_bytes`](../../design/facilities/02-io/streams-args.md).
 
 Default compile-and-run, `--check`, and `--compile -o OUT` share resolution and
 diagnostics. Check and compile modes reject program arguments and never run
@@ -165,7 +165,7 @@ remain live trees. Durable locks must not be removed by cache cleanup.
 Executable reuse validates script/import contents, dependency graph,
 compiler/runtime identity, target, profile and linker inputs. Object/function
 caches help but do not themselves remove repeated linking. Plain
-`plenty FILE` already has [executable reuse](../design/toolchain/02-architecture/cache.md#single-file-executables)
+`plenty FILE` already has [executable reuse](../../design/toolchain/02-architecture/cache.md#single-file-executables)
 on supported Linux toolchains; embedded-dependency scripts must extend that
 contract. Concurrent launches
 need per-entry locking and atomic publication: never execute partial or failed
@@ -190,7 +190,7 @@ beside scripts improves discoverability but breaks read-only directories.
 To grow into a package, move the body to `src/main.plenty` and the header to
 `plenty.toml`, filling required fields and adjusting relative dependency paths.
 No language rewrite is needed. Existing module and entry-point rationale is
-recorded in [Explicit applications and modules](completed/entrypoints-modules-and-tutorials.md).
+recorded in [Explicit applications and modules](entrypoints-modules-and-tutorials.md).
 
 ## Original implementation assessment and acceptance
 
