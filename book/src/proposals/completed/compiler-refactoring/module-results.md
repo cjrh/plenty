@@ -2,7 +2,7 @@
 
 [Parent proposal](../compiler-refactoring.md). No lowered-module cache is
 implemented by this design. The
-[module-cache investigation](../../development/module-cache-investigation.md)
+[module-cache investigation](../../../development/module-cache-investigation.md)
 is the evidence baseline; this page describes the boundary it requires.
 
 ## Evidence and limits

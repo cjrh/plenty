@@ -1,11 +1,12 @@
 # Rust compiler boundaries and measured performance
 
-> **Status: Steps 1–6 implemented** (issues #691–#696). Replayable module
-> lowering remains a design. No speedup is claimed. The
-> [frontend reference](../design/toolchain/02-architecture/frontend.md) and
-> [cache reference](../design/toolchain/02-architecture/cache.md) describe current
+> **Status: Completed.** Steps 1–6 are implemented (issues #691–#696), and
+> the legacy stack syntax is removed (issue #698). Replayable module lowering
+> remains a design. No speedup is claimed. The
+> [frontend reference](../../design/toolchain/02-architecture/frontend.md) and
+> [cache reference](../../design/toolchain/02-architecture/cache.md) describe current
 > behavior. Remaining scope and priority belong to B17/B19 in the
-> [backlog](../backlog.md).
+> [backlog](../../backlog.md).
 
 ## Assessment and scope
 
@@ -89,15 +90,15 @@ Several unimplemented plans meet these boundaries:
   recorder whose lifetime is explicit.
 - B19 module caching needs the replay contract in
   [replayable module results](compiler-refactoring/module-results.md).
-- B20's [GCC](codegen-gcc.md) and [Rust-source](rust-source-backend.md)
+- B20's [GCC](../codegen-gcc.md) and [Rust-source](../rust-source-backend.md)
   backends consume checked operations; a separate checker module and, later,
   function IDs in the IR affect what a second backend must reimplement.
-- [Language editions](language-editions.md) would need per-module options to
+- [Language editions](../language-editions.md) would need per-module options to
   flow through lowering, which explicit lowering state makes easier.
 
 ## Existing work not to redo
 
-The [performance delivery record](../completed-work/performance.md) documents:
+The [performance delivery record](../../completed-work/performance.md) documents:
 
 - issue #302: shared token/type children, callable signatures and FxHash tables;
 - issue #303: borrowed loan-graph operations and reusable liveness buffers;

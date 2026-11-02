@@ -11,7 +11,7 @@ function IDs, type storage and module persistence in one refactor.
 
 For Rust changes, run formatting, strict workspace/all-target Clippy and the
 full workspace/all-feature suite following
-[the development workflow](../../development/workflow.md). Targeted tests help
+[the development workflow](../../../development/workflow.md). Targeted tests help
 development but do not replace the full handoff checks.
 
 | Boundary | Existing coverage to retain / extend |
@@ -31,8 +31,8 @@ generic limits and invalid-program rejection.
 
 ## Measurement matrix
 
-Follow [profiling](../../development/profiling.md) and
-[module-edit measurements](../../development/module-edits.md). Use an isolated
+Follow [profiling](../../../development/profiling.md) and
+[module-edit measurements](../../../development/module-edits.md). Use an isolated
 target directory/cache directory so profiling builds do not replace another
 worker's compiler or contaminate warm-cache comparisons.
 
