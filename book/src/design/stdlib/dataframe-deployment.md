@@ -8,12 +8,10 @@ Programs without reachable dataframe operations need no engine.
 
 ## Bundle the executable and engine
 
-After [installing the engine](dataframe-engine.md), keep its extracted archive
-intact and select its library explicitly:
+With a release compiler, the [engine](dataframe-engine.md) and its notices are
+already in `bin/`:
 
 ```sh
-ENGINE=/path/to/plenty-dataframe-VERSION-x86_64-unknown-linux-gnu
-export PLENTY_DATAFRAME_ENGINE="$ENGINE/lib/libplenty_dataframe_v1.so"
 plenty --compile analysis.plenty --dist my-app
 ./my-app/analysis
 ```
@@ -40,13 +38,13 @@ my-app/
 ```
 
 Keep the engine notices with distributions of the library, alongside any
-notices your own application needs. The engine archive's README contains the
+notices your own application needs. The release archive's README contains the
 same distribution command for users who have no source checkout.
 
 ## Test on the oldest supported system
 
-The prebuilt engine targets x86-64 Linux, glibc 2.28 or later and
-`libgcc_s.so.1`. It does not support musl/Alpine, macOS, Windows or ARM.
+The prebuilt engine targets x86-64 and ARM64 Linux, glibc 2.28 or later and
+`libgcc_s.so.1`. It does not support musl/Alpine, macOS or Windows.
 Your executable links against the build machine's C libraries and can require
 a **newer** glibc. Compile and test the application on the oldest distribution
 you support; a baseline-compatible engine alone does not make your executable

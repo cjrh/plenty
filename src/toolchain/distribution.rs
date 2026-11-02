@@ -178,7 +178,8 @@ fn copy_licenses(source: &Path, destination: &Path) -> Result<()> {
 
 pub(super) fn copy_engine(engine: &Engine, selected: &Path, bundle: &Path) -> Result<PathBuf> {
     copy_engine_inner(engine, selected, bundle).map_err(|error| {
-        format!("cannot bundle {} engine {}: {error}. Use an extracted matching engine release, or package a local build with python3 scripts/release/package-engine.py {} --engine LIBRARY --out-dir PACKAGES and extract the archive; see the native-engine distribution documentation", engine.module, selected.display(), engine.module.trim_start_matches("std.")).into()
+        let name = engine.module.trim_start_matches("std.");
+        format!("cannot bundle {} engine {}: {error}. Use the engine from a matching Plenty release, or install a local build with its notices using python3 scripts/release/package-engine.py {name} --engine LIBRARY --out-dir DIR and select DIR/{}; see the native-engine distribution documentation", engine.module, selected.display(), engine.library).into()
     })
 }
 

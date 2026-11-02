@@ -487,7 +487,7 @@ pub(crate) const ENGINES: &[Engine] = &[
         environment: "PLENTY_DATAFRAME_ENGINE",
         option: |options| options.dataframe_engine.as_ref(),
         description: "the optional Polars engine",
-        install: "Build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
+        install: "Linux release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
     },
     Engine {
         module: "std.linalg",
@@ -497,7 +497,7 @@ pub(crate) const ENGINES: &[Engine] = &[
         environment: "PLENTY_LINALG_ENGINE",
         option: |options| options.linalg_engine.as_ref(),
         description: "the optional faer linear algebra engine",
-        install: "Build it with python3 scripts/build_native_engine.py linalg --out COMPILER_DIRECTORY",
+        install: "Linux release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_native_engine.py linalg --out COMPILER_DIRECTORY",
     },
 ];
 

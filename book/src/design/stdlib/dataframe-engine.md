@@ -6,28 +6,18 @@ engine only when retained native code reaches a dataframe operation,
 including calls through dependencies. An unused import or unused local
 helper does not add a Polars dynamic dependency.
 
-## Install a prebuilt release engine
+## Use the release engine
 
-Download `plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz` and its
-`.sha256` file from the **same Plenty release** as your compiler. This is a
-separate optional release asset; the compiler archive stays independent.
-Verify and extract it, then copy the library beside `plenty` and `plentyc`:
-
-```sh
-sha256sum -c plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz.sha256
-tar -xzf plenty-dataframe-VERSION-x86_64-unknown-linux-gnu.tar.gz
-cp plenty-dataframe-VERSION-x86_64-unknown-linux-gnu/lib/libplenty_dataframe_v1.so \
-   /path/to/plenty-VERSION-x86_64-unknown-linux-gnu/bin/
-```
-
-Replace `VERSION` and the destination path with your installed release.
-Alternatively, point `PLENTY_DATAFRAME_ENGINE` at the extracted library.
-Keep the archive's `engine.json`, license files and notices for redistribution.
-The manifest records the Plenty version, source commit, target, ABI generation,
+Linux [release archives](../toolchain/01-building/installing.md) include
+`bin/libplenty_dataframe_v1.so` and its `bin/dataframe-notices/`. The compiler
+finds the library beside itself, so no separate installation is needed. Set
+`PLENTY_DATAFRAME_ENGINE` only to select a different library. The notices
+directory holds `engine.json`, license files and dependency notices for
+redistribution. The manifest records the Plenty version, source commit, target, ABI generation,
 library checksum and minimum glibc. It is descriptive metadata, not a loader
 configuration or a compiler-enforced version check.
 
-The prebuilt engine supports x86-64 GNU/Linux with glibc **2.28 or later**
+The prebuilt engine supports x86-64 and ARM64 GNU/Linux with glibc **2.28 or later**
 and `libgcc_s.so.1`, with no AVX2 requirement. Rust, Cargo and a source checkout
 are unnecessary. musl/Alpine and other OS/architecture targets are unsupported.
 The compiler still needs its [linking prerequisites](../toolchain/01-building/installing.md).

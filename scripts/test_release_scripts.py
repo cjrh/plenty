@@ -263,21 +263,6 @@ class Publish(unittest.TestCase):
         subprocess.run(["tar", "-czf", self.dist / archive, "-C", stage.parent, stage.name], check=True)
         subprocess.run(f"sha256sum {archive} > {archive}.sha256", shell=True, cwd=self.dist, check=True)
         self.checksum = self.dist / f"{archive}.sha256"
-        engine = stage.parent / "plenty-dataframe-0.4.0-x86_64-unknown-linux-gnu"
-        engine.mkdir()
-        (engine / "README.md").write_text("# Dataframe engine\n")
-        engine_archive = f"{engine.name}.tar.gz"
-        subprocess.run(["tar", "-czf", self.dist / engine_archive, "-C", engine.parent, engine.name], check=True)
-        subprocess.run(f"sha256sum {engine_archive} > {engine_archive}.sha256", shell=True, cwd=self.dist, check=True)
-        self.engine_checksum = self.dist / f"{engine_archive}.sha256"
-        linalg = stage.parent / "plenty-linalg-0.4.0-x86_64-unknown-linux-gnu"
-        linalg.mkdir()
-        (linalg / "README.md").write_text("# Linear algebra engine\n")
-        linalg_archive = f"{linalg.name}.tar.gz"
-        subprocess.run(["tar", "-czf", self.dist / linalg_archive, "-C", linalg.parent, linalg.name], check=True)
-        digest = hashlib.sha256((self.dist / linalg_archive).read_bytes()).hexdigest()
-        self.linalg_checksum = self.dist / f"{linalg_archive}.sha256"
-        self.linalg_checksum.write_text(f"{digest}  {linalg_archive}\n")
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(FAKE_GH)
@@ -325,74 +310,46 @@ class Publish(unittest.TestCase):
         published = self.root / "published"
         published.mkdir()
         other.rename(published / self.checksum.name)
-        shutil.copy(self.engine_checksum, published)
-        shutil.copy(self.linalg_checksum, published)
         result, calls = self.publish("published", published=published)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
-
-    def test_published_engine_must_also_match(self):
-        published = self.root / "published"
-        published.mkdir()
-        shutil.copy(self.checksum, published)
-        shutil.copy(self.linalg_checksum, published)
-        for contents in [None, "different engine checksum\n"]:
-            if contents:
-                (published / self.engine_checksum.name).write_text(contents)
-            result, calls = self.publish("published", published=published)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
-
-    def test_published_linalg_must_also_match(self):
-        published = self.root / "published"
-        published.mkdir()
-        shutil.copy(self.checksum, published)
-        shutil.copy(self.engine_checksum, published)
-        for contents in [None, "different linalg checksum\n"]:
-            if contents:
-                (published / self.linalg_checksum.name).write_text(contents)
-            result, calls = self.publish("published", published=published)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual([c.split(" ")[2] for c in calls], ["view", "download"])
 
     def test_incomplete_or_mismatched_assets_never_publish(self):
         result, calls = self.publish("missing", tag="v0.4.1")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
-        self.engine_checksum.unlink()
+        self.checksum.unlink()
         result, calls = self.publish("missing")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
 
     def test_all_target_archives_are_required_and_published_together(self):
         import io
-        for component in ("plenty", "plenty-dataframe", "plenty-linalg"):
-            name = f"{component}-0.4.0-aarch64-unknown-linux-gnu"
-            archive = self.dist / f"{name}.tar.gz"
-            with tarfile.open(archive, "w:gz") as package:
-                text = b"# ARM release fixture\n"
-                entry = tarfile.TarInfo(f"{name}/README.md")
-                entry.size = len(text)
-                package.addfile(entry, io.BytesIO(text))
-            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-            archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
+        name = "plenty-0.4.0-aarch64-unknown-linux-gnu"
+        archive = self.dist / f"{name}.tar.gz"
+        with tarfile.open(archive, "w:gz") as package:
+            text = b"# ARM release fixture\n"
+            entry = tarfile.TarInfo(f"{name}/README.md")
+            entry.size = len(text)
+            package.addfile(entry, io.BytesIO(text))
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
         self.env["PLENTY_RELEASE_TARGETS"] = "x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu"
         result, calls = self.publish("missing")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("plenty-0.4.0-aarch64-unknown-linux-gnu.tar.gz", calls[1])
         self.assertIn("plenty-0.4.0-x86_64-unknown-linux-gnu.tar.gz", calls[1])
-        (self.dist / "plenty-linalg-0.4.0-aarch64-unknown-linux-gnu.tar.gz").unlink()
+        (self.dist / "plenty-0.4.0-aarch64-unknown-linux-gnu.tar.gz.sha256").unlink()
         result, calls = self.publish("missing")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
 
-    def test_notes_include_optional_engine_and_both_checksums(self):
+    def test_notes_give_the_checksum_and_bundled_engines(self):
         result = run([RELEASE / "release-notes.sh", self.dist])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(self.checksum.read_text().strip(), result.stdout)
-        self.assertIn(self.engine_checksum.read_text().strip(), result.stdout)
-        self.assertIn(self.linalg_checksum.read_text().strip(), result.stdout)
-        self.assertIn("optional shared library", result.stdout)
+        self.assertIn("includes the native\nengines", result.stdout)
+        self.assertNotIn("plenty-dataframe-", result.stdout)
 
     def native_archives(self, version="0.4.0"):
         import io
@@ -412,14 +369,13 @@ class Publish(unittest.TestCase):
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
 
-    def test_native_os_targets_publish_only_the_core_archive(self):
+    def test_native_os_targets_publish_their_archives(self):
         self.native_archives()
         self.env["PLENTY_RELEASE_TARGETS"] = "x86_64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-msvc"
         result, calls = self.publish("missing")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("plenty-0.4.0-x86_64-pc-windows-msvc.zip.sha256", calls[1])
         self.assertIn("plenty-0.4.0-aarch64-apple-darwin.tar.gz", calls[1])
-        self.assertNotIn("plenty-dataframe-0.4.0-aarch64-apple-darwin", calls[1])
         (self.dist / "plenty-0.4.0-x86_64-pc-windows-msvc.zip").unlink()
         result, calls = self.publish("missing")
         self.assertNotEqual(result.returncode, 0)
@@ -547,9 +503,9 @@ class ReleaseMatrices(unittest.TestCase):
         result = run(["python3", "-B", RELEASE / "matrix.py"])
         values = dict(line.split("=", 1) for line in result.stdout.splitlines())
         native = json.loads(values["native_matrix"])["include"]
-        self.assertEqual([(r["target"], r["runner"], r["ext"], r["components"]) for r in native],
-                         [("aarch64-apple-darwin", "macos-15", "tar.gz", "plenty"),
-                          ("x86_64-pc-windows-msvc", "windows-2025", "zip", "plenty")])
+        self.assertEqual([(r["target"], r["runner"], r["ext"]) for r in native],
+                         [("aarch64-apple-darwin", "macos-15", "tar.gz"),
+                          ("x86_64-pc-windows-msvc", "windows-2025", "zip")])
         self.assertEqual(values["targets"].split(), [
             "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
             "aarch64-apple-darwin", "x86_64-pc-windows-msvc"])
@@ -583,16 +539,16 @@ class ReleaseMatrices(unittest.TestCase):
 class TargetFacts(unittest.TestCase):
     def facts(self, target):
         script = ('. "$1"; printf "%s|%s|%s|%s|%s|%s" "$release_os" "$release_cpu" "$release_exe" '
-                  '"$release_archive_ext" "$release_components" "$release_experimental"')
+                  '"$release_archive_ext" "$release_engines" "$release_experimental"')
         return run(["bash", "-c", script, "facts", RELEASE / "target.sh"],
                    env={**os.environ, "PLENTY_RELEASE_TARGET": target})
 
     def test_native_os_targets(self):
         expected = {
-            "x86_64-unknown-linux-gnu": "linux|x86-64||tar.gz|plenty plenty-dataframe plenty-linalg|0",
-            "aarch64-unknown-linux-gnu": "linux|generic||tar.gz|plenty plenty-dataframe plenty-linalg|0",
-            "aarch64-apple-darwin": "macos|apple-m1||tar.gz|plenty|1",
-            "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip|plenty|1",
+            "x86_64-unknown-linux-gnu": "linux|x86-64||tar.gz|dataframe linalg|0",
+            "aarch64-unknown-linux-gnu": "linux|generic||tar.gz|dataframe linalg|0",
+            "aarch64-apple-darwin": "macos|apple-m1||tar.gz||1",
+            "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip||1",
         }
         for target, facts in expected.items():
             with self.subTest(target=target):

@@ -15,7 +15,7 @@ Windows on x86-64:
 release platforms. On Windows, release checks compile and run small programs
 using the core language, collections, generators and printing. Parts of the
 standard library and runtime are incomplete here, including actor recovery and
-several OS services. The optional `std.dataframe` and `std.linalg` engines are
+several OS services. The `std.dataframe` and `std.linalg` engines are
 not available for Windows.
 
 The standard library and runtime are built into `plenty.exe`. You do not need

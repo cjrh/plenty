@@ -26,11 +26,11 @@ SELECTIONS = {"all": LINUX + NATIVE, "linux": LINUX, "native": NATIVE}
 def facts(target):
     """The target.sh (and, for Linux, toolchain.env image) facts for target."""
     script = ('. "$1/toolchain.env"; . "$1/target.sh"; '
-              'printf "%s\\n%s\\n%s\\n%s" "$release_archive_ext" "$release_components" "$BUILD_IMAGE" "$SMOKE_IMAGES"')
+              'printf "%s\\n%s\\n%s" "$release_archive_ext" "$BUILD_IMAGE" "$SMOKE_IMAGES"')
     result = subprocess.check_output(["bash", "-c", script, "release-matrix", str(HERE)],
                                      env={**os.environ, "PLENTY_RELEASE_TARGET": target}, text=True)
-    ext, components, image, smoke = result.split("\n", 3)
-    return ext, components.split(), image, smoke.split()
+    ext, image, smoke = result.split("\n", 2)
+    return ext, image, smoke.split()
 
 
 def matrices(select="all"):
@@ -39,14 +39,14 @@ def matrices(select="all"):
     for target, runner in LINUX:
         if target not in chosen:
             continue
-        _, _, image, smoke = facts(target)
+        _, image, smoke = facts(target)
         builds.append({"target": target, "runner": runner, "image": image})
         smokes.extend({"target": target, "runner": runner, "image": item} for item in smoke)
     for target, runner in NATIVE:
         if target not in chosen:
             continue
-        ext, components, _, _ = facts(target)
-        native.append({"target": target, "runner": runner, "ext": ext, "components": " ".join(components)})
+        ext, _, _ = facts(target)
+        native.append({"target": target, "runner": runner, "ext": ext})
     targets = [target for target, _ in LINUX + NATIVE if target in chosen]
     return {
         "build_matrix": {"include": builds},

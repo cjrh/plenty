@@ -5,8 +5,8 @@ data. A direct Parquet sink writes the query's output without first returning
 a complete dataframe to Plenty.
 
 This example creates a small input file so it can run by itself. With real
-data, begin at `scan_csv`. Install the
-[optional engine](../../design/stdlib/dataframe-engine.md), and run in an
+data, begin at `scan_csv`. The examples need the
+[dataframe engine](../../design/stdlib/dataframe-engine.md); run them in an
 empty directory: the new output methods refuse to overwrite existing files.
 
 ```plenty dataframe

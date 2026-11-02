@@ -8,11 +8,10 @@ Extract it anywhere and put its `bin/` directory on `PATH`. No installer, root
 access, fixed location, Rust, Cargo, or source checkout is needed. The README
 in the archive repeats these instructions.
 
-For `std.dataframe`, also download the optional
-`plenty-dataframe-VERSION-TRIPLE.tar.gz` for the same target and its checksum
-from the same release. Follow [engine installation](../../stdlib/dataframe-engine.md)
-and [application deployment](../../stdlib/dataframe-deployment.md). Ordinary
-programs do not need this additional asset.
+The Linux archive includes the native engines for `std.dataframe` and
+`std.linalg` in `bin/`, where the compiler finds them. Programs that do not reach
+an engine's native operations do not depend on it. To ship a program that does,
+follow [application deployment](../../stdlib/dataframe-deployment.md).
 
 For a step-by-step download guide and persistent PATH examples for Bash, Zsh,
 and Fish, start with [Setting up](../../../tutorial/00-setting-up.md).
@@ -21,6 +20,11 @@ and Fish, start with [Setting up](../../../tutorial/00-setting-up.md).
 plenty-VERSION-x86_64-unknown-linux-gnu/
   bin/plenty                  compiler and project tool
   bin/plentyc                 single-file compiler
+  bin/libplenty_dataframe_v1.so
+                              Polars engine for std.dataframe
+  bin/dataframe-notices/      its manifest and licenses
+  bin/libplenty_linalg_v1.so  faer engine for std.linalg
+  bin/linalg-notices/         its manifest and licenses
   README.md                   requirements and installation
   LICENSE-MIT                 Plenty's license: MIT or Apache-2.0,
   LICENSE-APACHE                at your option
@@ -29,8 +33,9 @@ plenty-VERSION-x86_64-unknown-linux-gnu/
 ```
 
 The standard-library sources and ordinary runtime are built into the
-executables, so the compiler works from any directory. Dataframe execution
-uses the separately installed shared engine.
+executables, so the compiler works from any directory. Dataframe and linear
+algebra operations use the shared engines in `bin/`; keep them beside the
+compiler.
 
 ## Requirements
 

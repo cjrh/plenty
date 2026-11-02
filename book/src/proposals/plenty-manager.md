@@ -16,7 +16,7 @@ own versions.
 Today, [release archives](../design/toolchain/01-building/installing.md) are
 relocatable and can coexist in versioned directories. The first compiler on
 `PATH` runs. The compiler embeds ordinary standard-library sources and runtime
-code; optional native engines are separate downloads. These properties make a
+code; Linux archives also carry the native engines in `bin/`. These properties make a
 manager possible without changing how compilation works.
 
 The package manifest's

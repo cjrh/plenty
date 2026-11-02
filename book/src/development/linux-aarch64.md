@@ -1,8 +1,8 @@
 # Linux AArch64 development
 
 The source tree implements native `aarch64-unknown-linux-gnu` alongside
-`x86_64-unknown-linux-gnu`, and releases publish its compiler and both optional
-engine archives, built and tested on native ARM runners as described in
+`x86_64-unknown-linux-gnu`, and releases publish its compiler archive, with both
+engines, built and tested on native ARM runners as described in
 [releasing](releasing.md). This page describes the emulation harness used to
 develop the port and the evidence it recorded. That evidence does not establish
 minimum kernel versions, page sizes other than 4 KiB, or weak-memory behavior on

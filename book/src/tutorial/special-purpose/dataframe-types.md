@@ -6,8 +6,8 @@ string and boolean columns.
 
 This example keeps enabled sensors and reads their nullable values back.
 The expressions run in Polars; ordinary Plenty code handles the results.
-As in the previous lesson, install the
-[optional engine](../../design/stdlib/dataframe-engine.md) before running it.
+It needs the [dataframe engine](../../design/stdlib/dataframe-engine.md),
+which Linux releases include.
 
 ```plenty dataframe
 import std.dataframe as df

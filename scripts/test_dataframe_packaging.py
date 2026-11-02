@@ -1,4 +1,4 @@
-"""Exercise release auditing and archive contents without compiling Polars."""
+"""Exercise release auditing and the bundled engine layout without compiling Polars."""
 
 import hashlib
 import json
@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import unittest
 
@@ -47,33 +46,30 @@ class EnginePackage(unittest.TestCase):
         subprocess.run(command, check=True, capture_output=True)
 
     def package(self, directory="dist"):
-        return subprocess.run(["python3", "-B", str(RELEASE / "package-dataframe.py"),
+        return subprocess.run(["python3", "-B", str(RELEASE / "package-engine.py"), "dataframe",
                                "--engine", str(self.engine), "--out-dir", str(self.root / directory),
                                "--rust-sysroot", str(self.root / "rust")],
                               env=self.env, capture_output=True, text=True)
 
-    def test_reproducible_archive_metadata_notices_and_permissions(self):
+    def test_installs_library_and_release_notices(self):
         first = self.package()
         self.assertEqual(first.returncode, 0, first.stderr)
         second = self.package("second")
         self.assertEqual(second.returncode, 0, second.stderr)
-        archive = next((self.root / "dist").glob("*.tar.gz"))
-        other = next((self.root / "second").glob("*.tar.gz"))
-        self.assertEqual(archive.read_bytes(), other.read_bytes())
-        self.assertEqual(archive.with_name(archive.name + ".sha256").read_text(),
-                         f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
-        name = archive.name.removesuffix(".tar.gz")
-        with tarfile.open(archive) as tar:
-            metadata = json.load(tar.extractfile(f"{name}/engine.json"))
-            self.assertEqual(metadata["target"], f"{os.uname().machine}-unknown-linux-gnu")
-            self.assertEqual(metadata["minimum_glibc"], "2.28")
-            self.assertEqual(metadata["library_sha256"], hashlib.sha256(self.engine.read_bytes()).hexdigest())
-            for path in ["lib/" + LIBRARY, "engine.json", "THIRD-PARTY-NOTICES.md", "licenses/rust/LICENSE.txt"]:
-                entry = tar.getmember(f"{name}/{path}")
-                self.assertEqual((entry.mode, entry.uid, entry.gid, entry.mtime), (0o644, 0, 0, 1234567890))
-            readme = tar.extractfile(f"{name}/README.md").read().decode()
-            self.assertNotIn("@VERSION@", readme)
-            self.assertIn("same Plenty release", readme)
+        out = self.root / "dist"
+        self.assertEqual((out / LIBRARY).read_bytes(), self.engine.read_bytes())
+        self.assertEqual((out / LIBRARY).stat().st_mode & 0o777, 0o644)
+        notices = out / "dataframe-notices"
+        metadata = json.loads((notices / "engine.json").read_text())
+        self.assertEqual(metadata["target"], f"{os.uname().machine}-unknown-linux-gnu")
+        self.assertEqual(metadata["minimum_glibc"], "2.28")
+        self.assertNotIn("build_kind", metadata)
+        self.assertEqual(metadata["library_sha256"], hashlib.sha256(self.engine.read_bytes()).hexdigest())
+        for path in ["engine.json", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.md",
+                     "licenses/rust/LICENSE.txt", "licenses/rust/COPYRIGHT-library.html"]:
+            self.assertEqual((notices / path).read_bytes(),
+                             (self.root / "second/dataframe-notices" / path).read_bytes(), path)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), sorted([LIBRARY, "dataframe-notices"]))
 
     def test_missing_export_is_rejected_before_packaging(self):
         self.compile(self.exports[1:])

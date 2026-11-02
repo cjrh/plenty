@@ -50,11 +50,11 @@ Add your own required files before distributing the directory.
 
 The selected engine needs its packaged notices. Supported input layouts are:
 
-- An extracted engine archive: `lib/libplenty_NAME_v1.so`, with `engine.json`,
-  license files and `licenses/` at the archive root. Set `PLENTY_NAME_ENGINE`
-  to the library's absolute path.
-- A library beside `NAME-notices/`, whose contents match the layout above.
-  This also works when installing beside the compiler.
+- A library beside `NAME-notices/`, which holds `engine.json`, license files
+  and `licenses/`. Linux release archives install both engines this way in
+  `bin/`, and the compiler selects them without configuration.
+- `lib/libplenty_NAME_v1.so` with the same files in the parent of `lib/`. Set
+  `PLENTY_NAME_ENGINE` to the library's absolute path.
 
 Plenty checks manifest format 1, compiler release version, native target, ABI
 generation and library name; requires source-commit and minimum-glibc provenance;
@@ -84,16 +84,15 @@ python3 -B scripts/release/package-engine.py linalg \
   --engine target/release/libplenty_linalg_v1.so --out-dir target/release --local-install
 ```
 
-For a **portable archive**, package a baseline-compatible build from the same
-checkout with the release packager (substitute
-`dataframe` and its library for the Polars engine):
+For a **portable engine**, package a baseline-compatible build from the same
+checkout with the release packager, which the release build also uses to
+install engines in the archive's `bin/` (substitute `dataframe` and its library
+for the Polars engine):
 
 ```sh
 python3 -B scripts/release/package-engine.py linalg \
-  --engine /path/to/libplenty_linalg_v1.so --out-dir target/engine-packages
-tar -xzf target/engine-packages/plenty-linalg-VERSION-x86_64-unknown-linux-gnu.tar.gz \
-  -C target/engine-packages
-export PLENTY_LINALG_ENGINE="$PWD/target/engine-packages/plenty-linalg-VERSION-x86_64-unknown-linux-gnu/lib/libplenty_linalg_v1.so"
+  --engine /path/to/libplenty_linalg_v1.so --out-dir target/engine-bundle
+export PLENTY_LINALG_ENGINE="$PWD/target/engine-bundle/libplenty_linalg_v1.so"
 plenty --compile analysis.plenty --dist dist/analysis
 ```
 

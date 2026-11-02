@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Audit an engine for a portable release archive or explicit local installation."""
+"""Audit an engine and install it with its NAME-notices directory.
+
+The release build installs both engines into the compiler archive's bin/,
+where the compiler finds them and --dist finds their notices.
+"""
 
 import argparse
-import gzip
 import hashlib
 import json
 import os
@@ -10,7 +13,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 
 HERE = Path(__file__).resolve().parent
@@ -63,10 +65,11 @@ def main(component=None):
         parser.add_argument("name", choices=("dataframe", "linalg"))
     parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"), default=os.environ.get("PLENTY_RELEASE_TARGET", TARGET))
     parser.add_argument("--engine", type=Path, required=True)
-    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--out-dir", type=Path, required=True,
+                        help="directory receiving the library and NAME-notices, such as a compiler's bin/")
     parser.add_argument("--rust-sysroot", type=Path)
     parser.add_argument("--local-install", action="store_true",
-                        help="install NAME-notices beside an engine in --out-dir; no portable archive")
+                        help="audit for this host, not the release baseline; --engine must already be in --out-dir")
     args = parser.parse_args()
     component = component or args.name
     target = args.target
@@ -80,26 +83,20 @@ def main(component=None):
     subprocess.run([str(HERE / "check-elf.sh"), audit_mode, library, str(engine)], check=True, env={**os.environ, "PLENTY_RELEASE_TARGET": target})
     check_exports(engine, component)
     version = output(str(HERE / "check-version.sh"), "--print")
-    name = f"plenty-{component}-{version}-{target}"
     sysroot = args.rust_sysroot or Path(output("rustc", "--print", "sysroot"))
     rust_docs = sysroot / "share/doc/rust"
     rust_licenses = sorted((rust_docs / "licenses").glob("*.txt"))
     if not rust_licenses:
         raise SystemExit(f"no Rust standard-library license texts in {rust_docs / 'licenses'}")
-    epoch = int(os.environ.get("SOURCE_DATE_EPOCH") or output("git", "-C", str(REPO), "log", "-1", "--format=%ct"))
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    archive = args.out_dir / f"{name}.tar.gz"
-    with tempfile.TemporaryDirectory(prefix=f".plenty-{component}-package-", dir=args.out_dir) as directory:
-        root = Path(directory) / name
-        (root / "lib").mkdir(parents=True)
+    out_dir = args.out_dir.resolve()
+    with tempfile.TemporaryDirectory(prefix=f".plenty-{component}-package-", dir=out_dir) as directory:
+        root = Path(directory) / f"{component}-notices"
         (root / "licenses/rust").mkdir(parents=True)
-        shutil.copyfile(engine, root / "lib" / library)
         for filename in ("LICENSE-MIT", "LICENSE-APACHE"):
             shutil.copyfile(REPO / filename, root / filename)
         for source in [rust_docs / "COPYRIGHT-library.html", *rust_licenses]:
             shutil.copyfile(source, root / "licenses/rust" / source.name)
-        readme = (HERE / f"README.{component}.md").read_text().replace("@VERSION@", version).replace("@TARGET@", target)
-        (root / "README.md").write_text(readme)
         subprocess.run(["python3", "-B", str(HERE / "third_party_notices.py"), "--repo", str(REPO),
                         "--target", target, "--component", component, "--out", str(root / "THIRD-PARTY-NOTICES.md")], check=True)
         manifest = {
@@ -117,28 +114,15 @@ def main(component=None):
                 "Keep this notices directory beside the matching library for Plenty --dist.\n"
                 "Rebuild after changing engine sources; source_commit is not an attestation.\n")
         (root / "engine.json").write_text(json.dumps(manifest, indent=2) + "\n")
-        if args.local_install:
-            shutil.rmtree(root / "lib")
-            destination = args.out_dir.resolve() / f"{component}-notices"
-            install_notices(root, destination)
-            print(f"Installed local engine notices: {destination}")
-            return
-        with archive.open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped:
-            with tarfile.open(fileobj=zipped, mode="w", format=tarfile.GNU_FORMAT) as tar:
-                for path in [root, *sorted(root.rglob("*"))]:
-                    info = tar.gettarinfo(str(path), arcname=str(path.relative_to(root.parent)))
-                    info.uid = info.gid = 0
-                    info.uname = info.gname = ""
-                    info.mtime = epoch
-                    info.mode = 0o755 if path.is_dir() else 0o644
-                    if path.is_file():
-                        with path.open("rb") as data:
-                            tar.addfile(info, data)
-                    else:
-                        tar.addfile(info)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
-    print(archive)
+        installed = out_dir / library
+        if engine != installed.resolve():
+            # Stage beside the destination so the final rename cannot cross filesystems.
+            staged = Path(directory) / library
+            shutil.copyfile(engine, staged)
+            staged.chmod(0o644)
+            staged.replace(installed)
+        install_notices(root, out_dir / f"{component}-notices")
+    print(f"Installed {component} engine and notices: {out_dir}")
 
 
 if __name__ == "__main__":

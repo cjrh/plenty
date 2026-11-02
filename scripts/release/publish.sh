@@ -26,16 +26,14 @@ repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must name the repository}"
 assets=()
 checksums=()
 for target in ${PLENTY_RELEASE_TARGETS:-x86_64-unknown-linux-gnu}; do
-    # Each target's components and archive format come from target.sh, which
-    # rejects unknown targets.
+    # Each target's archive format comes from target.sh, which rejects
+    # unknown targets.
     PLENTY_RELEASE_TARGET="$target"
     # shellcheck source=target.sh
     . "$here/target.sh"
-    for component in $release_components; do
-        archive="$component-${tag#v}-$target.$release_archive_ext"
-        assets+=("$dist/$archive" "$dist/$archive.sha256")
-        checksums+=("$archive.sha256")
-    done
+    archive="plenty-${tag#v}-$target.$release_archive_ext"
+    assets+=("$dist/$archive" "$dist/$archive.sha256")
+    checksums+=("$archive.sha256")
 done
 mapfile -t assets < <(printf '%s\n' "${assets[@]}" | sort)
 for asset in "${assets[@]}"; do

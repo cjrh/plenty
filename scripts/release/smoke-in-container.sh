@@ -1,28 +1,20 @@
 #!/usr/bin/env bash
 # Run smoke-test.sh against ARCHIVE in a clean container of IMAGE.
 #
-# Usage: smoke-in-container.sh IMAGE ARCHIVE [--dataframe-archive ENGINE] [smoke-test options]
+# Usage: smoke-in-container.sh IMAGE ARCHIVE [smoke-test options]
 #
 # Starts IMAGE, installs only the prerequisites the archive README documents
 # for that distribution, disconnects the container from the network, copies
-# in the archive, its checksum, and the smoke test (no source checkout or
-# Rust toolchain), and runs the test with --clean-environment. The container
-# is labelled org.plenty.release-smoke and removed afterwards.
+# in the archive, its checksum, and the smoke tests (no source checkout or
+# Rust toolchain), and runs smoke-test.sh with --clean-environment, then
+# smoke-engine.sh for each bundled engine. The container is labelled
+# org.plenty.release-smoke and removed afterwards.
 set -euo pipefail
 
 image="$1"
 archive="$2"
 shift 2
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-engine=""
-linalg=""
-while [ "${1:-}" = --dataframe-archive ] || [ "${1:-}" = --linalg-archive ]; do
-    case "$1" in
-        --dataframe-archive) engine="$2" ;;
-        --linalg-archive) linalg="$2" ;;
-    esac
-    shift 2
-done
 
 # Keep in step with the commands in README.dist.md and the installation page.
 case "${image%%[:@]*}" in
@@ -44,16 +36,10 @@ docker exec "$container" mkdir -p /opt/check
 docker cp "$archive" "$container:/opt/check/"
 docker cp "$archive.sha256" "$container:/opt/check/"
 docker cp "$here/smoke-test.sh" "$container:/opt/check/"
+docker cp "$here/smoke-engine.sh" "$container:/opt/check/"
 docker exec -w / "$container" bash /opt/check/smoke-test.sh \
     "/opt/check/$(basename "$archive")" --clean-environment "$@"
 for name in dataframe linalg; do
-    selected="$engine"
-    if [ "$name" = linalg ]; then selected="$linalg"; fi
-    if [ -n "$selected" ]; then
-        docker cp "$selected" "$container:/opt/check/"
-        docker cp "$selected.sha256" "$container:/opt/check/"
-        docker cp "$here/smoke-engine.sh" "$container:/opt/check/"
-        docker exec -w / "$container" bash /opt/check/smoke-engine.sh \
-            "/opt/check/$(basename "$archive")" "/opt/check/$(basename "$selected")" "$name"
-    fi
+    docker exec -w / "$container" bash /opt/check/smoke-engine.sh \
+        "/opt/check/$(basename "$archive")" "$name"
 done

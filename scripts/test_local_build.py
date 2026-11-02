@@ -121,12 +121,14 @@ class LocalPackaging(unittest.TestCase):
                 self.module.main()
         self.assertEqual((self.out / "linalg-notices/engine.json").read_bytes(), before)
 
-    def test_release_default_keeps_baseline_audit_and_archive(self):
+    def test_release_default_keeps_baseline_audit_and_claims_baseline(self):
         self.invoke(local=False)
         self.assertIn("--engine", self.calls[0])
         self.assertNotIn("--local-engine", self.calls[0])
-        self.assertTrue(list(self.out.glob("*.tar.gz")))
-        self.assertFalse((self.out / "linalg-notices").exists())
+        manifest = json.loads((self.out / "linalg-notices/engine.json").read_text())
+        self.assertEqual(manifest["minimum_glibc"], "2.28")
+        self.assertNotIn("build_kind", manifest)
+        self.assertFalse((self.out / "linalg-notices/README.md").exists())
 
     def test_install_refuses_symlink_and_rolls_back_failed_publish(self):
         root = self.root / "staged"
