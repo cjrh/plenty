@@ -510,6 +510,19 @@ pub(crate) const ENGINES: &[Engine] = &[
 ];
 
 impl Engine {
+    #[cfg(any(target_os = "macos", test))]
+    fn validate_macho(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        macho::validate(&std::fs::read(path)?, Some(self.library), &[]).map_err(|error| {
+            format!(
+                "invalid {} engine {}: {error}. {}",
+                self.module,
+                path.display(),
+                self.install
+            )
+            .into()
+        })
+    }
+
     /// The explicit option, then the environment, then beside the compiler.
     pub(crate) fn selected(&self, options: &CompileOptions) -> std::io::Result<PathBuf> {
         if let Some(path) = (self.option)(options)
@@ -659,13 +672,16 @@ fn engine_link_args(
         #[cfg(any(windows, target_os = "macos"))]
         {
             #[cfg(target_os = "macos")]
-            macho::validate(&std::fs::read(&path)?, Some(engine.library), &[])?;
+            engine.validate_macho(&path)?;
             let selected = if let Some(bundle) = bundle {
                 distribution::copy_engine(engine, &path, bundle)?
             } else {
                 let destination = output.with_file_name(engine.library);
                 if destination.canonicalize().ok().as_ref() != Some(&path) {
+                    #[cfg(windows)]
                     std::fs::copy(&path, &destination)?;
+                    #[cfg(target_os = "macos")]
+                    macho::install_engine(&path, &destination)?;
                 }
                 destination
             };
@@ -1119,5 +1135,19 @@ mod tests {
                 assert_ne!(a.environment, b.environment);
             }
         }
+    }
+
+    #[test]
+    fn invalid_macos_engine_explains_how_to_rebuild_it() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("custom-engine.dylib");
+        std::fs::write(&path, b"invalid Mach-O").unwrap();
+        let error = ENGINES[0].validate_macho(&path).unwrap_err().to_string();
+        assert!(error.contains("invalid std.dataframe engine"), "{error}");
+        assert!(error.contains("custom-engine.dylib"), "{error}");
+        assert!(
+            error.contains("python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY"),
+            "{error}"
+        );
     }
 }

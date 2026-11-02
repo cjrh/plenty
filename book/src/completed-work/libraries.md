@@ -274,7 +274,10 @@ The experimental Apple silicon release builds the Polars dataframe engine for
 Apple M1 and macOS 11, and bundles `libplenty_dataframe_v1.dylib` with its
 metadata and licenses. The dylib has a versioned `@rpath` identity; applications
 find their sibling copy through `@loader_path`. Ordinary output copies the
-dylib; `--dist` adds validated notices and checks library identity and checksum.
+dylib through a temporary sibling and atomic rename, preserving already-open
+engine files when rebuilding (issue #678); `--dist` adds validated notices and
+checks library identity and checksum. Selected-engine validation errors include
+the supported rebuild command.
 Packaging checks native dependencies, exports, deployment minimum and ad-hoc
 code signature. Native workflows exercise Parquet queries, moved installations
 and application-only relocation; native execution remains for CI to verify.

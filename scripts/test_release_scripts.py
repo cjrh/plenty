@@ -825,6 +825,43 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS plenty-0.4.0-aarch64-apple-darwin", result.stdout)
 
+    def test_signed_engine_rebuild_smoke_accepts_replacement_and_rejects_in_place_copy(self):
+        from unittest.mock import patch
+        for atomic in (True, False):
+            with self.subTest(atomic=atomic), tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                root = Path(temporary)
+                source = root / "libplenty_dataframe_v1.dylib"
+                source.write_bytes(b"original signed bytes")
+                app = root / "app"
+                app.mkdir()
+                output = app / "analysis"
+                installed = app / source.name
+                installed.write_bytes(source.read_bytes())
+                selected_engines = []
+                def run(args, env, cwd):
+                    if "--force" in args:
+                        with Path(args[-1]).open("ab") as signed:
+                            signed.write(b"alternate signature")
+                    elif "--compile" in args:
+                        selected = Path(env["PLENTY_DATAFRAME_ENGINE"])
+                        selected_engines.append(selected.name)
+                        if atomic:
+                            staged = installed.with_suffix(".staged")
+                            shutil.copyfile(selected, staged)
+                            staged.replace(installed)
+                        else:
+                            shutil.copyfile(selected, installed)
+                    return "6\n" if args == [output] else ""
+                with patch.object(self.smoke, "run", run):
+                    if atomic:
+                        self.smoke.exercise_macos_engine_replacement(root / "plenty", output, root, {}, source)
+                        self.assertEqual(len(selected_engines), 2)
+                        self.assertEqual(installed.read_bytes(), source.read_bytes())
+                    else:
+                        with self.assertRaisesRegex(SystemExit, "overwritten in place"):
+                            self.smoke.exercise_macos_engine_replacement(root / "plenty", output, root, {}, source)
+
+
     def test_binary_mode_checksum_passes(self):
         result = self.pack(marker="*")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

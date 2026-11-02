@@ -113,7 +113,10 @@ Already-linked executables still need their dynamic dependencies at run time.
 
 The macOS compiler uses the same option/environment/beside-compiler discovery
 precedence and links the selected ARM64 dylib directly. Ordinary compilation
-copies it beside the executable. `--dist` adds the validated manifest, licenses
+copies it beside the executable. Rebuilding ordinary output stages the dylib in
+a fresh sibling file and replaces the destination by rename, preserving old
+file mappings and cached signatures. Invalid selected engines report the build
+script needed to produce a compatible dylib. `--dist` adds the validated manifest, licenses
 and notices, and checks the copied dylib identity and checksum. The application
 uses `@loader_path` to resolve the library's `@rpath` identity from its own
 directory, without a fallback to the original build directory.

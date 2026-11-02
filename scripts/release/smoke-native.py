@@ -174,6 +174,37 @@ def exercise(root, label, version, target, exe, work):
     exercise_dataframe(root, label, work, target, exe)
 
 
+
+def exercise_macos_engine_replacement(plenty, output, project, env, source):
+    """Change signed bytes and rebuild into one directory without mutating a
+    previously loaded dylib's vnode. Re-sign only a fresh copy of the engine."""
+    step("macOS: rebuild ordinary output with alternate and original signed engines")
+    installed = output.with_name(source.name)
+    with tempfile.TemporaryDirectory(prefix="signed-engine.", dir=project) as directory:
+        alternate = Path(directory) / source.name
+        shutil.copy2(source, alternate)
+        run(["/usr/bin/codesign", "--force", "--sign", "-", "--identifier",
+             "plenty-smoke-dataframe-alternate", alternate], env, project)
+        run(["/usr/bin/codesign", "--verify", "--strict", alternate], env, project)
+        if alternate.read_bytes() == source.read_bytes():
+            fail("alternate engine re-signing did not change its bytes")
+        for selected in (alternate, source):
+            with installed.open("rb") as previous:
+                old_inode = os.fstat(previous.fileno()).st_ino
+                old_digest = hashlib.sha256(previous.read()).digest()
+                selected_env = {**env, "PLENTY_DATAFRAME_ENGINE": str(selected), "PLENTY_CACHE": "off"}
+                run([plenty, "--compile", "analysis.plenty", "-o", output], selected_env, project)
+                if installed.stat().st_ino == old_inode:
+                    fail("signed engine was overwritten in place instead of replaced")
+                previous.seek(0)
+                if hashlib.sha256(previous.read()).digest() != old_digest:
+                    fail("rebuilding changed a previously opened engine file")
+                if installed.read_bytes() != selected.read_bytes():
+                    fail("rebuild did not install the selected engine")
+            run(["/usr/bin/codesign", "--verify", "--strict", installed], env, project)
+            if run([output], env, project) != "6\n":
+                fail("rebuilt dataframe application failed after changing signed engines")
+
 def exercise_dataframe(root, label, work, target, exe):
     step(f"{label}: dataframe engine discovery, Parquet query and --dist relocation")
     library = dataframe_library(target)
@@ -200,6 +231,8 @@ def exercise_dataframe(root, label, work, target, exe):
     run([plenty, "--compile", "analysis.plenty", "-o", output], env, project)
     if not (ordinary / library).is_file() or run([output], env, project) != "6\n":
         fail("ordinary dataframe output lacks a working sibling engine")
+    if target == "aarch64-apple-darwin" and sys.platform == "darwin":
+        exercise_macos_engine_replacement(plenty, output, project, env, root / "bin" / library)
     destination = project / "distribution"
     run([plenty, "--compile", "analysis.plenty", "--dist", destination], env, project)
     for entry in (f"analysis{exe}", library, "dataframe-notices/engine.json"):
@@ -216,7 +249,7 @@ def exercise_dataframe(root, label, work, target, exe):
         run(["/usr/bin/codesign", "--verify", "--strict", destination / library], env, project)
     moved = project / "moved dataframe app"
     destination.rename(moved)
-    # Remove the compiler's bin directory from PATH: only the bundled DLL may
+    # Remove the compiler's bin directory from PATH: only the bundled engine may
     # satisfy the executable, including after the application directory moves.
     env["PATH"] = os.pathsep.join(system_path())
     if run([moved / f"analysis{exe}"], env, project) != "6\n":

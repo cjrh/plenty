@@ -503,7 +503,7 @@ fn release_smoke_programs_type_check() {
     for (script, start, end, count) in [
         ("scripts/release/smoke-test.sh", shell, "\nEOF\n", 1),
         ("scripts/release/smoke-engine.sh", shell, "\nEOF\n", 2),
-        ("scripts/release/smoke-native.py", "PROGRAM = '''", "'''", 1),
+        ("scripts/release/smoke-native.py", "PROGRAM = '''", "'''", 2),
     ] {
         let programs = embedded_programs(script, start, end);
         assert_eq!(programs.len(), count, "{script}: embedded program count");
