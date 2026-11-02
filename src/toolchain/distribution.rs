@@ -223,7 +223,14 @@ fn copy_engine_inner(engine: &Engine, selected: &Path, bundle: &Path) -> Result<
             return Err(format!("engine.json {field} must be {expected}").into());
         }
     }
-    for field in ["source_commit", "minimum_glibc"] {
+    for field in [
+        "source_commit",
+        if cfg!(windows) {
+            "minimum_windows"
+        } else {
+            "minimum_glibc"
+        },
+    ] {
         if !manifest
             .get(field)
             .and_then(|v| v.as_str())
@@ -240,38 +247,66 @@ fn copy_engine_inner(engine: &Engine, selected: &Path, bundle: &Path) -> Result<
     if manifest.get("library_sha256").and_then(|v| v.as_str()) != Some(&digest) {
         return Err("engine.json library_sha256 does not match the selected library".into());
     }
-    let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
-    let dynamic = elf.elf_dynamic_table()?;
-    let soname = dynamic.iter().find(|d| d.tag == object::elf::DT_SONAME);
-    if soname.map(|d| dynamic.string(d)).transpose()? != Some(engine.library.as_bytes()) {
-        return Err(format!("engine SONAME must be {}", engine.library).into());
+    #[cfg(windows)]
+    {
+        use object::Object;
+        let image = object::File::parse(bytes.as_slice())?;
+        if image.format() != object::BinaryFormat::Pe
+            || image.architecture() != object::Architecture::X86_64
+        {
+            return Err("distribution requires x86-64 PE images".into());
+        }
+        Ok(copied)
     }
-    Ok(copied)
+    #[cfg(not(windows))]
+    {
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
+        let dynamic = elf.elf_dynamic_table()?;
+        let soname = dynamic.iter().find(|d| d.tag == object::elf::DT_SONAME);
+        if soname.map(|d| dynamic.string(d)).transpose()? != Some(engine.library.as_bytes()) {
+            return Err(format!("engine SONAME must be {}", engine.library).into());
+        }
+        Ok(copied)
+    }
 }
 
 pub(super) fn validate_executable(path: &Path) -> Result<()> {
     let bytes = std::fs::read(path)?;
-    let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
-    let dynamic = elf.elf_dynamic_table()?;
-    let mut origin = false;
-    for entry in dynamic.iter() {
-        if entry.tag == object::elf::DT_RPATH
-            || (entry.tag == object::elf::DT_RUNPATH && dynamic.string(entry)? != b"$ORIGIN")
-        {
-            return Err(
-                "distribution linker produced a non-$ORIGIN RUNPATH or legacy RPATH".into(),
-            );
-        }
-        origin |= entry.tag == object::elf::DT_RUNPATH;
-    }
-    if !origin
-        && ENGINES
-            .iter()
-            .any(|e| path.with_file_name(e.library).exists())
+    #[cfg(windows)]
     {
-        return Err("distribution linker omitted the required $ORIGIN RUNPATH".into());
+        use object::Object;
+        let image = object::File::parse(bytes.as_slice())?;
+        if image.format() != object::BinaryFormat::Pe
+            || image.architecture() != object::Architecture::X86_64
+        {
+            return Err("distribution requires x86-64 PE images".into());
+        }
+        Ok(())
     }
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        let elf = object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice())?;
+        let dynamic = elf.elf_dynamic_table()?;
+        let mut origin = false;
+        for entry in dynamic.iter() {
+            if entry.tag == object::elf::DT_RPATH
+                || (entry.tag == object::elf::DT_RUNPATH && dynamic.string(entry)? != b"$ORIGIN")
+            {
+                return Err(
+                    "distribution linker produced a non-$ORIGIN RUNPATH or legacy RPATH".into(),
+                );
+            }
+            origin |= entry.tag == object::elf::DT_RUNPATH;
+        }
+        if !origin
+            && ENGINES
+                .iter()
+                .any(|e| path.with_file_name(e.library).exists())
+        {
+            return Err("distribution linker omitted the required $ORIGIN RUNPATH".into());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

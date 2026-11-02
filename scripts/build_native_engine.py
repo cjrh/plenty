@@ -15,31 +15,36 @@ def main(engine=None):
         parser.add_argument("name", choices=("dataframe", "linalg"))
     parser.add_argument("--out", type=Path, required=True, help="installation directory (e.g. target/release beside plenty)")
     parser.add_argument("--target-dir", type=Path)
-    parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"))
+    parser.add_argument("--target", choices=("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"))
     parser.add_argument("--validate", action="store_true", help="also format-check, test, and lint the engine with the selected baseline")
     parser.add_argument("--jobs", type=int, default=3)
     args = parser.parse_args()
     name = engine or args.name
-    library = f"libplenty_{name}_v1.so"
     args.target_dir = args.target_dir or ROOT / "target" / f"{name}-engine"
     if args.jobs < 1:
         parser.error("--jobs must be positive")
     version = subprocess.check_output(["rustc", "-vV"], text=True)
     host = next(line.removeprefix("host: ") for line in version.splitlines() if line.startswith("host: "))
     target = args.target or host
-    if target not in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"):
+    windows = target == "x86_64-pc-windows-msvc"
+    library = f"plenty_{name}_v1.dll" if windows else f"libplenty_{name}_v1.so"
+    if windows and (name != "dataframe" or host != target):
+        parser.error("Windows supports native dataframe engine builds only")
+    if target not in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"):
         parser.error(f"unsupported engine target: {target}")
     cpu, cflags = (("x86-64", "-march=x86-64 -mtune=generic") if target.startswith("x86_64")
                    else ("generic", "-march=armv8-a -mtune=generic"))
+    if windows:
+        cflags = ""
     linker_key = "CARGO_TARGET_" + target.upper().replace("-", "_") + "_LINKER"
-    default_linker = "cc" if target == host else target.replace("-unknown", "") + "-gcc"
+    default_linker = "link.exe" if windows else "cc" if target == host else target.replace("-unknown", "") + "-gcc"
     linker = os.environ.get(linker_key, default_linker)
     env = {key: value for key, value in os.environ.items()
            if not (key.startswith(("CFLAGS", "CXXFLAGS", "TARGET_CFLAGS", "TARGET_CXXFLAGS")))}
     env.pop("CARGO_ENCODED_RUSTFLAGS", None)
     env.update(CARGO_TARGET_DIR=str(args.target_dir.resolve()),
                **{linker_key: linker},
-               RUSTFLAGS=f"-C target-cpu={cpu} -C link-arg=-Wl,-soname,{library}",
+               RUSTFLAGS=f"-C target-cpu={cpu}" + ("" if windows else f" -C link-arg=-Wl,-soname,{library}"),
                CFLAGS=cflags,
                CXXFLAGS=cflags)
     subprocess.run(["cargo", "build", "--manifest-path", str(ROOT / f"plenty-{name}" / "Cargo.toml"),

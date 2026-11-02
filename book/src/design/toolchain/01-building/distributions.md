@@ -13,7 +13,7 @@ Paths may contain spaces. `--release`, `--no-strip`, `--module-root` and
 `--package-graph` work as for ordinary executable compilation. `--dist` requires
 `--compile FILE` and rejects `-o`/`--output`, `--legacy`, extra `--link-arg`
 arguments and other output modes. A custom `--linker` must still produce the
-required ELF lookup policy.
+required lookup policy for the native platform.
 
 The destination must not exist, even as an empty directory, file or dangling
 symlink. Choose a new name for each build. Plenty stages the output beside the
@@ -68,6 +68,16 @@ engine was built from the compiler's source revision. Use trusted, matching
 release artifacts or build and package from the same checkout. Ordinary
 `--compile FILE -o OUT` does not require or validate engine metadata.
 
+## Windows dataframe distributions
+
+On Windows x86-64, the same command produces `analysis.exe`,
+`plenty_dataframe_v1.dll` and `dataframe-notices/`. The DLL uses Windows loader
+lookup from the application directory. The compiler derives an import library
+with MSVC `lib.exe`; that build artifact is not needed by end users. Metadata
+requires `minimum_windows` instead of `minimum_glibc`; the copied library must
+be x86-64 PE and match its SHA-256. There is no ELF SONAME or RUNPATH on Windows.
+The Windows archive bundles only the dataframe engine.
+
 ## Package a local engine
 
 For local development, use `just build` for the compiler and both engines, or
@@ -116,7 +126,6 @@ Move the whole bundle, run it from another working directory without loader
 overrides, and test that removing an engine makes loading fail even on the
 build machine. End users need no Plenty, Rust or C compiler, but still need
 compatible host C libraries. This is **not static linking or OS-independent
-packaging**: native emission uses the installed compiler's x86-64 or AArch64
-GNU/Linux target. Building on a
+packaging**: native emission uses the installed compiler's native target. Building on a
 newer system can raise the executable's glibc requirement. Build and test on the
 oldest system you support; engine metadata alone cannot establish portability.

@@ -38,7 +38,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   where it is used.
 --compile: emit a native executable with Cranelift.
 --dist DIR: publish a new application directory containing FILE's stem executable,
-  reached native engines and their packaged notices. Uses only $ORIGIN RUNPATH.
+  reached native engines and their packaged notices. Uses application-local engine lookup.
   Requires --compile; excludes -o, --legacy and --link-arg. Not a static build.
 --emit-object: emit an application object without linking (requires main).
 --dump: write each function's compiler output as text to DIR (`-o -` prints

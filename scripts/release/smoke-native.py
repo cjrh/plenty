@@ -49,6 +49,7 @@ def main() -> Result[(), AllocError | IoError | ParseError]:
     Ok(())
 '''
 EXPECTED = "[9223372036854775806, 42, -7]\nResult[i64, ParseError].Err(ParseError.Invalid)\n0\n1\n2\n"
+DATAFRAME_PROGRAM = 'import std.dataframe as df\n\ndef main() -> Result[(), Failure]:\n    columns = [df.column_i64("value", [1, 2, 3]?)?]?\n    data = df.frame(columns)?\n    data.write_parquet("smoke.parquet")?\n    totals = [df.col("value")?.sum()?.alias("total")?]?\n    result = df.scan_parquet("smoke.parquet")?.select(totals)?.collect_streaming()?\n    print(result.get_i64("total", 0)?.unwrap())?\n    Ok(())\n'
 RUST_TOOLS = ("cargo", "rustc", "rustup")
 
 
@@ -151,6 +152,48 @@ def exercise(root, label, version, target, exe, work):
     printed = run([plenty, "smoke.plenty"], env, project)
     if printed != EXPECTED:
         fail(f"plenty FILE printed {printed!r}")
+    if target == "x86_64-pc-windows-msvc":
+        exercise_dataframe(root, label, work)
+
+
+def exercise_dataframe(root, label, work):
+    step(f"{label}: dataframe DLL discovery, Parquet query and --dist relocation")
+    project = work / "elsewhere" / "a project"
+    (project / "analysis.plenty").write_text(DATAFRAME_PROGRAM)
+    env = user_env(root, work)
+    env["POLARS_MAX_THREADS"] = "2"
+    plenty = root / "bin/plenty.exe"
+    (project / "unused.plenty").write_text("import std.dataframe\n\n" + PROGRAM)
+    plain = project / "plain app"
+    plain.mkdir(exist_ok=True)
+    env["PLENTY_DATAFRAME_ENGINE"] = str(project / "missing engine.dll")
+    run([plenty, "--compile", "unused.plenty", "-o", plain / "unused.exe"], env, project)
+    if (plain / "plenty_dataframe_v1.dll").exists():
+        fail("unused dataframe import copies the engine")
+    if run([plain / "unused.exe"], env, project) != EXPECTED:
+        fail("unused dataframe import requires the engine")
+    del env["PLENTY_DATAFRAME_ENGINE"]
+    if run([plenty, "analysis.plenty"], env, project) != "6\n":
+        fail("dataframe Parquet query result")
+    destination = project / "distribution"
+    run([plenty, "--compile", "analysis.plenty", "--dist", destination], env, project)
+    for entry in ("analysis.exe", "plenty_dataframe_v1.dll", "dataframe-notices/engine.json"):
+        if not (destination / entry).is_file():
+            fail(f"dataframe distribution lacks {entry}")
+    moved = project / "moved dataframe app"
+    destination.rename(moved)
+    # Remove the compiler's bin directory from PATH: only the bundled DLL may
+    # satisfy the executable, including after the application directory moves.
+    env["PATH"] = os.pathsep.join(system_path())
+    if run([moved / "analysis.exe"], env, project) != "6\n":
+        fail("relocated dataframe distribution result")
+    dll = moved / "plenty_dataframe_v1.dll"
+    dll.rename(dll.with_suffix(".hidden"))
+    result = subprocess.run([moved / "analysis.exe"], env=env, cwd=project,
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        fail("dataframe application ran without its DLL")
+    shutil.rmtree(moved)
 
 
 def main(argv):
@@ -172,7 +215,13 @@ def main(argv):
         fail("archive has entries outside its top-level directory")
     paths = {path: (mode, is_dir, owner) for path, mode, is_dir, owner in entries}
     executables = [f"{name}/bin/{tool}{exe}" for tool in ("plenty", "plentyc")]
-    for required in [f"{name}/{entry}" for entry in REQUIRED] + executables:
+    required_files = list(REQUIRED)
+    if target == "x86_64-pc-windows-msvc":
+        required_files += ["bin/plenty_dataframe_v1.dll", "bin/dataframe-notices/engine.json",
+                           "bin/dataframe-notices/THIRD-PARTY-NOTICES.md",
+                           "bin/dataframe-notices/LICENSE-MIT", "bin/dataframe-notices/LICENSE-APACHE",
+                           "bin/dataframe-notices/licenses/rust/COPYRIGHT-library.html"]
+    for required in [f"{name}/{entry}" for entry in required_files] + executables:
         if required not in paths:
             fail(f"missing {required}")
     for path, (mode, is_dir, owner) in paths.items():

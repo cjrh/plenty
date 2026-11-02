@@ -126,7 +126,7 @@ def pe_text(data, sections, rva):
     return data[start:data.index(b"\0", start)].decode("ascii", "replace")
 
 
-def check_pe(data):
+def check_pe(data, dll=False):
     """Return (problems, summary) for a PE image."""
     if len(data) < 0x40 or data[:2] != b"MZ":
         return ["not a PE image"], ""
@@ -142,7 +142,10 @@ def check_pe(data):
     if struct.unpack_from("<H", data, optional)[0] != PE32_PLUS:
         return problems + ["expected PE32+"], ""
     subsystem = struct.unpack_from("<H", data, optional + 68)[0]
-    if subsystem != SUBSYSTEM_CONSOLE:
+    is_dll = bool(struct.unpack_from("<H", data, header + 22)[0] & 0x2000)
+    if is_dll != dll:
+        problems.append("expected a DLL" if dll else "expected an executable")
+    if not dll and subsystem != SUBSYSTEM_CONSOLE:
         problems.append(f"subsystem {subsystem}, expected console")
     directories = struct.unpack_from("<I", data, optional + 108)[0]
     sections = pe_sections(data, optional + optional_size, count)
@@ -165,6 +168,23 @@ def check_pe(data):
         if lower not in WINDOWS_SYSTEM and not lower.startswith(WINDOWS_PREFIXES):
             problems.append(f"imports {dll}, outside Windows and the MSVC runtime")
     return problems, f"imports [{' '.join(dlls)}]"
+
+
+def pe_exports(data):
+    """Read named exports directly; release audits need no Visual Studio tools."""
+    header = struct.unpack_from("<I", data, 0x3C)[0]
+    count = struct.unpack_from("<H", data, header + 6)[0]
+    size = struct.unpack_from("<H", data, header + 20)[0]
+    optional = header + 24
+    sections = pe_sections(data, optional + size, count)
+    rva = struct.unpack_from("<I", data, optional + 112)[0]
+    if not rva:
+        return set()
+    table = pe_offset(sections, rva)
+    names = struct.unpack_from("<I", data, table + 24)[0]
+    address = pe_offset(sections, struct.unpack_from("<I", data, table + 32)[0])
+    return {pe_text(data, sections, struct.unpack_from("<I", data, address + 4 * i)[0])
+            for i in range(names)}
 
 
 def main(argv=None):

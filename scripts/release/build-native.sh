@@ -5,11 +5,12 @@
 #
 # Run with bash on a macos-15 (aarch64-apple-darwin) or windows-2025
 # (x86_64-pc-windows-msvc, Git Bash) runner with RUST_VERSION from
-# toolchain.env installed through rustup. The host must match the target: there
+# toolchain.env installed through rustup, with rustfmt and clippy for Windows
+# engine validation. The host must match the target: there
 # is no cross build. --test runs the checks that native CI qualifies on these
 # platforms (portability.yml): platform-boundary tests and the compiler and
 # runtime unit tests, not the full integration suite. Only the core `plenty`
-# archive is packaged; the optional engines are Linux ELF libraries.
+# archive is packaged, with the dataframe DLL on Windows.
 # PYTHON selects the interpreter (default python3; Windows runners use python).
 set -euo pipefail
 
@@ -63,5 +64,10 @@ if [ "$run_tests" = 1 ]; then
     PLENTY_CACHE_DIR="$target_dir/plenty-cache" \
         cargo test --locked --workspace --lib --no-fail-fast -- --test-threads=1
 fi
-"$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
+engines=()
+for name in $release_engines; do
+    "${PYTHON:-python3}" -B scripts/build_native_engine.py "$name" --out "$target_dir/release" --validate
+    engines+=(--engine "$name=$target_dir/release/plenty_${name}_v1.dll")
+done
+"$here/package.sh" "${engines[@]}" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
     --rust-sysroot "$(rustc --print sysroot)"

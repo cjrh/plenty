@@ -256,3 +256,14 @@ pass their packed `Bytes` through that adapter too, removing the additional
 builds independent owned buffers. Mutable byte views remain unsupported by
 this adapter. See [binary payloads](../design/stdlib/dataframe-types.md#binary-payloads)
 and [C borrowing](../design/facilities/04-interop/borrowing-text.md#strided-numeric-lists-and-byte-views).
+
+## Windows x86-64 dataframe packaging
+
+The experimental Windows release builds the Polars dataframe engine natively
+and bundles `plenty_dataframe_v1.dll` with its licenses. The compiler generates
+an MSVC import library from the selected DLL, copies the DLL beside ordinary
+applications, and includes validated metadata and notices in `--dist` output.
+Release and portability workflows exercise Parquet queries and app relocation;
+Windows execution still requires native runner validation. Linear algebra and
+macOS engine packaging remain outside this delivery. See the
+[engine installation reference](../design/stdlib/dataframe-engine.md#windows-application-linking).

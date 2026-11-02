@@ -1,7 +1,7 @@
 # Ship a dataframe application
 
 A compiled program that uses `std.dataframe` needs
-`libplenty_dataframe_v1.so` at run time. Ship the **same engine you compiled
+`libplenty_dataframe_v1.so` on Linux or `plenty_dataframe_v1.dll` on Windows at run time. Ship the **same engine you compiled
 against**, from the matching Plenty release, beside your executable. End
 users need the host C libraries, but no Plenty compiler, Rust, Cargo or `cc`.
 Programs without reachable dataframe operations need no engine.
@@ -44,7 +44,8 @@ same distribution command for users who have no source checkout.
 ## Test on the oldest supported system
 
 The prebuilt engine targets x86-64 and ARM64 Linux, glibc 2.28 or later and
-`libgcc_s.so.1`. It does not support musl/Alpine, macOS or Windows.
+`libgcc_s.so.1`. The experimental Windows x86-64 engine requires Windows 10 or Windows Server
+2016 or later and the MSVC runtime. musl/Alpine and macOS remain unsupported.
 Your executable links against the build machine's C libraries and can require
 a **newer** glibc. Compile and test the application on the oldest distribution
 you support; a baseline-compatible engine alone does not make your executable
@@ -59,7 +60,12 @@ test distribution after removing the compiler and original engine location.
 ## How library lookup works
 
 This applies to every [native engine](../toolchain/01-building/engines.md).
-Distribution output embeds an ELF `RUNPATH` of only the executable's own
+On Windows, `--dist` produces `analysis.exe`, `plenty_dataframe_v1.dll` and
+`dataframe-notices/`. Ordinary compilation also copies the DLL beside its
+executable. Windows loader search rules apply; the application directory
+supplies the bundled DLL. Test with the compiler directory removed from `PATH`.
+
+On Linux, distribution output embeds an ELF `RUNPATH` of only the executable's own
 directory (`$ORIGIN`), so a missing bundled library cannot fall back to the
 original engine directory. A sibling `lib/` is not searched automatically.
 
