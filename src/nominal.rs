@@ -333,6 +333,7 @@ impl Clone for Ty {
             Self::Clist(t) => Self::Clist(Self::clone_child(t)),
             Self::Set(t) => Self::Set(Self::clone_child(t)),
             Self::KeyView(t) => Self::KeyView(Self::clone_child(t)),
+            Self::DictView(t, values) => Self::DictView(Self::clone_child(t), *values),
             Self::View(t, mutable) => Self::View(Self::clone_child(t), *mutable),
             Self::Dict(k, v) => Self::Dict(Self::clone_child(k), Self::clone_child(v)),
             Self::Box(t) => Self::Box(Self::clone_child(t)),

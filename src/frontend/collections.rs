@@ -1414,6 +1414,22 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    pub(super) fn dictionary_projection_type(&self, expression: &Expr) -> Option<(Arc<Ty>, bool)> {
+        let expression = match &ungroup(expression).kind {
+            Expression::Unary(op, base) if op == "&" => base,
+            _ => expression,
+        };
+        let mut ty = self.place_type(expression)?;
+        while let Ty::Ref(inner, _) = ty {
+            ty = (*inner).clone();
+        }
+        if let Ty::DictView(owner, values) = ty {
+            Some((owner, values))
+        } else {
+            None
+        }
+    }
+
     pub(super) fn dictionary_iteration(
         &mut self,
         names: &[String],
@@ -1438,7 +1454,18 @@ impl Lower<'_> {
                 .error("dictionary items loops require two distinct bindings"));
         }
         let temporary_start = self.expression_temps.len();
-        let (reference, loan) = if mutable {
+        let (reference, loan) = if let Some((owner, _)) = self.dictionary_projection_type(base) {
+            if mutable {
+                return Err(base.at.error("dictionary views are shared borrows"));
+            }
+            let (view, loans) = self.observe(base, ops)?;
+            let Ty::DictView(..) = view else {
+                unreachable!()
+            };
+            let reference = Ty::Ref(owner, false);
+            ops.push(Op::Reborrow(reference.clone()));
+            (reference, loans[0])
+        } else if mutable {
             self.borrow(base, true, ops)?
         } else {
             self.shared_argument(base, None, ops)?
@@ -1628,6 +1655,14 @@ impl Lower<'_> {
                 },
             );
             return Ok(plan);
+        }
+        if let Some((_, values)) = self.dictionary_projection_type(iterable) {
+            if reverse {
+                return Err(iterable
+                    .at
+                    .error("reversed requires a list, str, range, or Bytes"));
+            }
+            return self.dictionary_iteration(names, iterable, false, values, ops);
         }
         if let Some((base, mutable)) = dictionary_items(iterable)
             && !self
@@ -2782,7 +2817,7 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let context = expected.map(|t| crate::sum::result(t, crate::sum::alloc_error()));
         let actual = self.expr_expected(base, context, ops)?;
-        if actual.as_ref().is_some_and(Ty::key_view) {
+        if actual.as_ref().is_some_and(Ty::dictionary_view) {
             return Err(base.at.error("keys() returns a borrowed KeyView, not a Result; use keys_snapshot(), into_keys(), or to_set() for owned results"));
         }
         if let Some(actual) = &actual {
@@ -3210,7 +3245,7 @@ impl Lower<'_> {
                     return Err(base.at.error("str.repr takes one value"));
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
-                if source.key_view() {
+                if source.dictionary_view() {
                     return Err(args[0].at.error("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()"));
                 }
                 // A view formats as its rows do, like the reference it is.
@@ -3405,7 +3440,14 @@ impl Lower<'_> {
         {
             return self.set_filter_mutation(base, name, args, ops);
         }
-        if name == "keys" {
+        if name == "keys"
+            || matches!(name, "values" | "items")
+                && !self
+                    .expression_type_hint(base)
+                    .map(classes::unbox)
+                    .as_ref()
+                    .is_some_and(classes::inherent_receiver)
+        {
             let (reference, loan) = self.shared_argument(base, None, ops)?;
             let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(owner, _) = reference else {
@@ -3423,11 +3465,16 @@ impl Lower<'_> {
                 );
             }
             if !args.is_empty() {
-                return Err(base.at.error("keys takes no arguments"));
+                return Err(base.at.error(format!("{name} takes no arguments")));
             }
             let Ty::Dict(key, _) = &*owner else {
-                return Err(base.at.error("keys requires a dictionary"));
+                return Err(base.at.error(format!("{name} requires a dictionary")));
             };
+            if matches!(name, "values" | "items")
+                && matches!(&ungroup(base).kind, Expression::Unary(op, _) if op == "&mut")
+            {
+                return Err(base.at.error("mutable dictionary projections are immediate iteration sources; use a shared receiver for a reusable view"));
+            }
             let key = key.clone();
             self.loans[loan].precise = false;
             for op in ops.iter_mut() {
@@ -3437,9 +3484,17 @@ impl Lower<'_> {
                     fact.precise = false;
                 }
             }
-            ops.push(Op::Collection(CollectionOp::KeyView((*owner).clone())));
+            let (operation, result) = if name == "keys" {
+                (CollectionOp::KeyView((*owner).clone()), Ty::KeyView(key))
+            } else {
+                (
+                    CollectionOp::DictView((*owner).clone(), name == "values"),
+                    Ty::DictView(owner, name == "values"),
+                )
+            };
+            ops.push(Op::Collection(operation));
             ops.push(Op::UseLoan(loan));
-            return Ok(Some(Ty::KeyView(key)));
+            return Ok(Some(result));
         }
         if let Some((receiver, root)) = self.hold_receiver_root(base, ops)? {
             let result = self.method(&receiver, name, args, ops);
@@ -3456,6 +3511,11 @@ impl Lower<'_> {
         } else {
             self.observe_method_receiver(base, ops)?
         };
+        if matches!(ty, Ty::DictView(..)) {
+            return Err(base.at.error(format!(
+                "dictionary views do not support `{name}`; use iter(view) for pipeline methods"
+            )));
+        }
         if matches!(ty, Ty::KeyView(_))
             && !matches!(
                 name,
@@ -3833,7 +3893,7 @@ impl Lower<'_> {
                 ty.clone()
             };
             let (actual, reads) = self.observe_expected(argument, Some(expected), ops)?;
-            if matches!(ty, Ty::KeyView(_)) {
+            if matches!(ty, Ty::KeyView(_)) || matches!(actual, Ty::KeyView(_)) {
                 if !matches!(actual, Ty::Set(_) | Ty::KeyView(_))
                     || actual.element() != ty.element()
                 {
@@ -3952,12 +4012,6 @@ impl Lower<'_> {
                 true,
             ));
         };
-        if name == "values" {
-            if !args.is_empty() {
-                return Err(base.at.error("values takes no arguments"));
-            }
-            return Err(base.at.error("values() is a borrowed loop/comprehension source; use values_snapshot() or into_values() for an owned list"));
-        }
         if matches!(name, "keys_snapshot" | "values_snapshot") {
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
@@ -4076,12 +4130,25 @@ impl Lower<'_> {
         let ty = classes::unbox(self.place_type(base).expect("set place"));
         let argument = &args[0];
         let (actual, reads) = self.observe_expected(argument, Some(ty.clone()), ops)?;
-        self.same(Some(actual), Some(ty.clone()), &argument.at)?;
-        let slot = self.slot(ty.clone(), &argument.at)?;
+        let key_view = matches!(actual, Ty::KeyView(_)) && actual.element() == ty.element();
+        if !key_view {
+            self.same(Some(actual.clone()), Some(ty.clone()), &argument.at)?;
+        }
+        let slot = self.slot(actual.clone(), &argument.at)?;
         ops.push(Op::StoreLocal(slot));
         let loan = self.mutation_place(base, ops)?;
         ops.push(Op::MoveLocal(slot));
-        ops.push(Op::Collection(if name == "intersection_update" {
+        ops.push(Op::Collection(if key_view {
+            CollectionOp::KeySetFilter(Arc::new(crate::collection::KeySetOperation {
+                left: ty,
+                right: actual,
+                opcode: if name == "intersection_update" {
+                    69
+                } else {
+                    70
+                },
+            }))
+        } else if name == "intersection_update" {
             CollectionOp::SetIntersectionUpdate(ty)
         } else {
             CollectionOp::SetDifferenceUpdate(ty)
@@ -4479,6 +4546,13 @@ impl Lower<'_> {
                 return Ok(Ty::I64);
             }
             let (ty, loans) = self.observe(&args[0], ops)?;
+            if let Ty::DictView(owner, _) = ty {
+                ops.push(Op::Reborrow(Ty::Ref(owner.clone(), false)));
+                ops.push(Op::ReadRef((*owner).clone()));
+                Self::push_query(CollectionOp::Len((*owner).clone()), ops);
+                Self::end_reads(loans, ops);
+                return Ok(Ty::I64);
+            }
             if let Ty::View(..) = ty {
                 ops.push(Op::Collection(if ty == text_view() {
                     // Scalars, as for `str`; `v.byte_len()` is the stored count.
@@ -4502,7 +4576,7 @@ impl Lower<'_> {
             )));
         }
         let ty = self.value(&args[0], ops)?;
-        if ty.key_view() {
+        if ty.dictionary_view() {
             return Err(at.error(KEY_VIEW_COLLECTION));
         }
         let element = ty
@@ -4584,7 +4658,7 @@ impl Lower<'_> {
             return Err(at.error("collection constructor takes at most one iterable"));
         }
         let source = self.value(&args[0], ops)?;
-        if source.key_view() {
+        if source.dictionary_view() {
             return Err(at.error(KEY_VIEW_COLLECTION));
         }
         if matches!(ty, Ty::Dict(..)) {

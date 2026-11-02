@@ -236,6 +236,7 @@ pub enum CollectionOp {
     KeySetRelation(Arc<KeySetOperation>),
     KeySetAlgebra(Arc<KeySetOperation>),
     KeyView(Ty),
+    DictView(Ty, bool),
     KeyViewToSet(Ty),
     SetIsSuperset(Ty),
     SetIsDisjoint(Ty),
@@ -244,6 +245,7 @@ pub enum CollectionOp {
     SetTryDifference(Ty),
     SetTrySymmetricDifference(Ty),
     SetIntersectionUpdate(Ty),
+    KeySetFilter(Arc<KeySetOperation>),
     SetDifferenceUpdate(Ty),
     Get(Ty),
     ListGet(Ty), // observed list/index -> Option[non-affine element]
@@ -421,6 +423,10 @@ impl CollectionOp {
                 let (inputs, output) = formatted.operation.signature();
                 (inputs, formatted.widen(&output))
             }
+            DictView(t, values) => (
+                vec![Ty::Ref(Arc::new(t.clone()), false)],
+                Ty::DictView(Arc::new(t.clone()), *values),
+            ),
             KeyView(t) => {
                 let Ty::Dict(key, _) = t else { unreachable!() };
                 (
@@ -743,6 +749,7 @@ impl CollectionOp {
                 vec![t.clone(), t.element().unwrap()],
                 crate::sum::option(Ty::I64),
             ),
+            KeySetFilter(op) => (vec![op.left.clone(), op.right.clone()], op.left.clone()),
             SetIntersectionUpdate(t) | SetDifferenceUpdate(t) => {
                 (vec![t.clone(), t.clone()], t.clone())
             }
@@ -960,7 +967,7 @@ impl CollectionOp {
             Self::SetTryUpdate(_) => 61,
             Self::SetIsSubset(_) => opcode::SET_IS_SUBSET,
             Self::KeySetRelation(op) | Self::KeySetAlgebra(op) => op.opcode,
-            Self::KeyView(_) => unreachable!("key views lower inline"),
+            Self::KeyView(_) | Self::DictView(..) => unreachable!("dictionary views lower inline"),
             Self::KeyViewToSet(_) => opcode::KEY_VIEW_TO_SET,
             Self::SetIsSuperset(_) => opcode::SET_IS_SUPERSET,
             Self::SetIsDisjoint(_) => opcode::SET_IS_DISJOINT,
@@ -968,6 +975,7 @@ impl CollectionOp {
             Self::SetTryIntersection(_) => opcode::SET_INTERSECTION,
             Self::SetTryDifference(_) => opcode::SET_DIFFERENCE,
             Self::SetTrySymmetricDifference(_) => opcode::SET_SYMMETRIC_DIFFERENCE,
+            Self::KeySetFilter(op) => op.opcode,
             Self::SetIntersectionUpdate(_) => 69,
             Self::SetDifferenceUpdate(_) => 70,
             Self::Get(_) => 4,

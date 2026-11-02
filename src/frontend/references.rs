@@ -189,7 +189,7 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
-        if self.is_pipeline(value) {
+        if self.is_pipeline(value) && !self.is_dictionary_projection(value) {
             let outer = std::mem::replace(&mut self.binding_pipeline, true);
             let plan = self.pipeline(value, ops);
             self.binding_pipeline = outer;
@@ -224,7 +224,7 @@ impl Lower<'_> {
         let ty = self
             .expr_expected(value, expected, ops)?
             .ok_or_else(|| value.at.error("expected a value, got ()"))?;
-        if let Ty::KeyView(_) = ty {
+        if let Ty::KeyView(_) | Ty::DictView(..) = ty {
             let parent = self.reference_origin(value, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
             return Ok((ty, Some(loan)));
@@ -556,7 +556,7 @@ impl Lower<'_> {
         if self.clist_projection(e)?.is_some() {
             return Err(e.at.error("packed clist fields cannot be borrowed; read the scalar value or use column iteration"));
         }
-        if self.is_pipeline(e) {
+        if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error(
                 "an iterator pipeline can only be lent, as `&mut p` to a `&mut Iter[T]` parameter",
             ));
@@ -858,9 +858,9 @@ impl Lower<'_> {
             ops.extend([Op::LoadLocal(local.slot), Op::Reborrow(view.clone())]);
             return Ok((view, loan));
         }
-        if matches!(local.ty, Ty::KeyView(_)) {
+        if matches!(local.ty, Ty::KeyView(_) | Ty::DictView(..)) {
             if mutable {
-                return Err(e.at.error("dictionary key views are shared borrows"));
+                return Err(e.at.error("dictionary views are shared borrows"));
             }
             let parent = self.reference_locals[&local.slot];
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
@@ -977,7 +977,7 @@ impl Lower<'_> {
         unbox_owned: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
-        if self.is_pipeline(e) {
+        if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot be passed as values; consume them with a loop or terminal"));
         }
         let mut result = self.observe_inner(e, expected, ops)?;
@@ -1058,7 +1058,7 @@ impl Lower<'_> {
                 let local = self.named_place(e)?;
                 self.mark(&e.at, ops);
                 self.use_carried(&local, ops);
-                if matches!(local.ty, Ty::KeyView(_) | Ty::View(..)) {
+                if matches!(local.ty, Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)) {
                     let loan = self.reference_locals[&local.slot];
                     ops.push(Op::LoadLocal(local.slot));
                     return Ok((local.ty, vec![loan]));
@@ -1072,7 +1072,7 @@ impl Lower<'_> {
                         ops.push(Op::UseLoan(parent));
                         return Ok((
                             (**ty).clone(),
-                            if matches!(**ty, Ty::KeyView(_)) {
+                            if matches!(**ty, Ty::KeyView(_) | Ty::DictView(..)) {
                                 vec![parent]
                             } else {
                                 vec![]
@@ -1188,7 +1188,7 @@ impl Lower<'_> {
                 let ty = self
                     .expr_expected(e, expected, ops)?
                     .ok_or_else(|| e.at.error("expected a value, got ()"))?;
-                if matches!(ty, Ty::KeyView(_)) {
+                if matches!(ty, Ty::KeyView(_) | Ty::DictView(..)) {
                     let loan = self.reference_origin(e, ops)?;
                     Ok((ty, vec![loan]))
                 } else if let Ty::Ref(inner, _) = ty {
@@ -1215,7 +1215,10 @@ impl Lower<'_> {
         if name == "drop" {
             if let Expression::Name(_) = &arg.kind {
                 let local = self.named_place(arg)?;
-                if matches!(local.ty, Ty::Ref(..) | Ty::KeyView(_) | Ty::View(..)) {
+                if matches!(
+                    local.ty,
+                    Ty::Ref(..) | Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)
+                ) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }
                 self.mark(&arg.at, ops);
@@ -1223,7 +1226,7 @@ impl Lower<'_> {
             } else {
                 if matches!(
                     self.value(arg, ops)?,
-                    Ty::Ref(..) | Ty::KeyView(_) | Ty::View(..)
+                    Ty::Ref(..) | Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)
                 ) {
                     return Err(at.error("drop requires an owned value, not a reference"));
                 }

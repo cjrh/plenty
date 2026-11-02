@@ -3845,7 +3845,7 @@ impl Lower<'_> {
             }
         });
         let operand = self.expr_expected(value, operand_context, ops)?;
-        if operand.as_ref().is_some_and(Ty::key_view) {
+        if operand.as_ref().is_some_and(Ty::dictionary_view) {
             return Err(value.at.error("keys() returns a borrowed KeyView without AllocError; remove `?`, or use keys_snapshot(), into_keys(), or to_set() for an owned result"));
         }
         if matches!(ungroup(value).kind, Expression::Slice(..))
@@ -3971,7 +3971,7 @@ impl Lower<'_> {
         Ok(target)
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
-        if self.is_pipeline(e) {
+        if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
         let ty = match &e.kind {
@@ -4767,7 +4767,7 @@ impl Lower<'_> {
                     let mut reads = Vec::new();
                     for argument in args {
                         let (ty, loans) = self.observe(argument, ops)?;
-                        if ty.key_view() {
+                        if ty.dictionary_view() {
                             return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
                         }
                         if ty.prints_generator_frame() {
@@ -6624,7 +6624,7 @@ fn register_with_body(
     if matches!(output, Some(Ty::View(..))) {
         return Err(f.at.error(views::RETURN));
     }
-    if types.iter().any(Ty::key_view) || output.as_ref().is_some_and(Ty::key_view) {
+    if types.iter().any(Ty::dictionary_view) || output.as_ref().is_some_and(Ty::dictionary_view) {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }
     let pipeline = |ty: &Ty| {

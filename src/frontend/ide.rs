@@ -345,6 +345,7 @@ fn hint_type(ty: &Ty) -> bool {
     match ty {
         Ty::Iter(..)
         | Ty::KeyView(_)
+        | Ty::DictView(..)
         | Ty::View(..)
         | Ty::Task(_)
         | Ty::Closure(_)

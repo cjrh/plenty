@@ -325,3 +325,12 @@ See [channels](../design/facilities/03-concurrency/channels.md),
 [executors](../design/facilities/03-concurrency/executors.md) and
 [parallel chunks](../design/language/09-iteration/06-pipelines.md).
 Other domain-type API migrations remain [B95](../backlog.md).
+
+## Local dictionary views
+
+B91's dictionary-view consistency slice (issue #624) makes `values()` and
+`items()` reusable shared local views with constant-time `len` and pipeline
+sources. Set observations, algebra, and filter mutations accept dictionary
+key views. Views keep their dictionary borrowed and remain local-only; mutable
+value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
+and the [remaining B91 scope](../backlog.md).

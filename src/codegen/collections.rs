@@ -494,6 +494,11 @@ impl Lowerer<'_, '_> {
         if self.lower_view(operation)? {
             return Ok(());
         }
+        if let CollectionOp::DictView(owner, _) = operation {
+            let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
+            self.stack.push((reference, operation.signature().1));
+            return Ok(());
+        }
         if let CollectionOp::KeyView(owner) = operation {
             let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
             let value = self.reference_word(reference);

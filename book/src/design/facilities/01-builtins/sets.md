@@ -27,14 +27,16 @@ multiple iterables are unsupported.
 
 `set.intersection_update(other) -> ()` keeps common members;
 `set.difference_update(other) -> ()` removes members found in other.
-Both require exclusive destination access and observe a same-typed source before
+Both accept a same-key-type dictionary `KeyView` as well as a set. They
+require exclusive destination access and observe the source before
 borrowing the destination. The source remains borrowed during mutation; aliases
 into the destination are rejected. Removed members drop, capacity remains, and
 the operations allocate nothing. Use `clear()` to empty a set directly.
 
 ## Set algebra
 
-Each method takes exactly one same-typed set or reference, observes both inputs,
+Each method takes exactly one same-key-type set or dictionary `KeyView`
+(with an optional explicit borrow), observes both inputs,
 and returns `Result[set[T], AllocError]`:
 
 | Operation | Members selected |
@@ -53,7 +55,8 @@ are not implied.
 ## Relationships
 
 `issubset(other)`, `issuperset(other)`, and `isdisjoint(other)` return `bool`.
-They take one same-typed set, accept references, observe both operands once
+They take one same-key-type set or dictionary `KeyView`, accept references,
+observe both operands once
 left to right, and allocate nothing. Empty sets are subsets of every set and
 disjoint from every set. Heterogeneous coercion and comparison operators are
 unsupported.

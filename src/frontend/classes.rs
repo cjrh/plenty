@@ -911,7 +911,7 @@ impl Lower<'_> {
         let (local, mut steps, class) = match &ungroup(base).kind {
             Expression::Name(root) if !self.captures.contains(root) => match self.names.get(root) {
                 Some(Local {
-                    ty: Ty::Ref(..) | Ty::KeyView(_),
+                    ty: Ty::Ref(..) | Ty::KeyView(_) | Ty::DictView(..),
                     ..
                 }) => return Ok(FieldOwner::Reference),
                 Some(
