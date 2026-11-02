@@ -40,7 +40,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 
 | Topic | Start here | Related decisions |
 | --- | --- | --- |
-| Rust compiler architecture and performance | [Compiler boundaries](compiler-refactoring.md) | [Diagnostics](compiler-refactoring/diagnostics.md), [frontend/session state](compiler-refactoring/frontend-and-sessions.md), [identity and facts](compiler-refactoring/performance.md), [module replay](compiler-refactoring/module-results.md) |
+| Rust compiler architecture and performance | [Compiler boundaries](completed/compiler-refactoring.md) | [Diagnostics](completed/compiler-refactoring/diagnostics.md), [frontend/session state](completed/compiler-refactoring/frontend-and-sessions.md), [identity and facts](completed/compiler-refactoring/performance.md), [module replay](completed/compiler-refactoring/module-results.md) |
 | Runtime-independent networking protocols | [Codec, session and driver architecture](sans-io-protocols.md) | [Session contract](sans-io-protocols/contract.md), [runtime integration](sans-io-protocols/drivers.md), [WebSocket acceptance](sans-io-protocols/websocket.md) |
 | Executable scripts and embedded metadata | [Single-file scripts](completed/single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](completed/single-file-scripts.md) |
@@ -86,7 +86,6 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Proposal | Backlog |
 | --- | --- |
-| [Rust compiler boundaries and measured performance](compiler-refactoring.md) — structured diagnostics, explicit state ownership, measured identity/fact lookups and replayable module results; no compiler changes delivered | B17, B19 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
 | [Actor budgets and retained stacks](actor-budget-scheduling.md) — test-only heap/trap probe; compiler checkpoints and stage ownership integration remain unimplemented | B85 |
 | [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |

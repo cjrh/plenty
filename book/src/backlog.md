@@ -124,7 +124,7 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 
 These belong to B17 and are not scheduled implementation commitments:
 
-- [Compiler boundaries](proposals/compiler-refactoring.md): structured
+- [Compiler boundaries](proposals/completed/compiler-refactoring.md): structured
   diagnostics, scoped recorder/teardown policy, the `op` and syntax-layer splits
   and grouped pipeline state are delivered (issues #691–#695). A compilation
   session and further lowering-state extraction wait for a consumer. Module
@@ -172,7 +172,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   table/cache misses still increase per-function cost at scale (issue #57);
   interned names or per-function batch processing need measurements. Further
   type-representation changes follow the completed issue #302 investigations.
-  [Measured attribution](proposals/compiler-refactoring/performance.md#measured-attribution-issue-696)
+  [Measured attribution](proposals/completed/compiler-refactoring/performance.md#measured-attribution-issue-696)
   records the profile; existing frontend function symbols and type-fact caches
   are not missing features.
 - **Peak memory:** lower and emit one function at a time instead of retaining
@@ -183,7 +183,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   granularity for one-module programs (issue #317). Separately evaluate lowering
   only reachable `std` functions. A trusted opt-in remote cache follows a local
   per-module contract, not before it. Prove fresh-environment replay using
-  [explicit module outputs](proposals/compiler-refactoring/module-results.md)
+  [explicit module outputs](proposals/completed/compiler-refactoring/module-results.md)
   before persistence. See [deferrals](#deliberate-deferrals).
 - **Upstream gates:** regalloc2's quadratic block-parameter handling needs an
   upstream report/fix before removing the 2,048-argument fallback. Reopen issue

@@ -87,11 +87,13 @@ only to the [backlog](../backlog.md).
 
 ## Compiler architecture assessment
 
-A source-based [refactoring proposal](../proposals/compiler-refactoring.md)
-records the compiler boundary assessment at `1c8e4113`, file/symbol maps,
-alternatives and validation gates. This delivers design documentation only:
-no compiler refactor or new performance measurement is claimed. Existing B19
-measurements below remain historical; remaining scope stays in the backlog.
+A source-based [refactoring proposal](../proposals/completed/compiler-refactoring.md)
+records the compiler boundary assessment, file/symbol maps, alternatives and
+validation gates. Its six steps are delivered: structured diagnostics (issue
+#691), scoped recorder and teardown state (#692), the `op` and syntax-layer
+splits (#693, #694), grouped pipeline state (#695) and a frontend lookup
+profile that changed no representation (#696). The legacy stack syntax is
+removed (#698). No speedup is claimed; remaining scope stays in the backlog.
 
 ## B19: Profiling and concluded investigations
 

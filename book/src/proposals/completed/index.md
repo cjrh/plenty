@@ -37,3 +37,4 @@ designs and the policy for moving completed proposals.
 | [Plenty's next language phase](next-language-phase.md), a design review | Per topic in its outcome table | B13, B23, and the extensions it lists |
 | [Python slice syntax](slice-syntax.md), with its [implementation plan](slice-syntax/plan.md) | [Slices](../../design/language/04-expressions/slices.md) | B39: borrowed views `&xs[a:b]` (issue #581); issue #583 |
 | [Checked arithmetic blocks](checked-arithmetic.md) | [Numbers](../../design/language/03-types/numbers.md#checked-blocks) | Checked shifts and casts unscheduled; class patterns landed with issue #558 |
+| [Rust compiler boundaries and measured performance](compiler-refactoring.md) — steps 1–6 and legacy-syntax removal | [Frontend](../../design/toolchain/02-architecture/frontend.md), [cache](../../design/toolchain/02-architecture/cache.md) | B17 compilation session; B19 module replay and frontend candidates |
