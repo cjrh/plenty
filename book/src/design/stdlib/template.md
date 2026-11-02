@@ -92,25 +92,26 @@ is currently a proposal, not an implemented conversion.
 
 `limits()` returns:
 
-| Field | Default | Bounds |
-| --- | ---: | --- |
-| `max_source` | 1,048,576 | Total UTF-8 bytes of registered names and sources |
-| `max_tokens` | 16,384 | Total compiled tokens across templates |
-| `max_templates` | 128 | Registered template count |
-| `max_context_nodes` | 65,536 | Values in a render context, including its root |
-| `max_context_bytes` | 16,777,216 | UTF-8 bytes of context keys and text values |
-| `max_depth` | 64 | Syntax/context/render nesting and inheritance chain; allowed 1–64 |
-| `max_steps` | 1,000,000 | Render operations, including context construction, lookup and loop visits |
-| `max_output` | 16,777,216 | UTF-8 output bytes and transformed text values |
+| Field | Type | Default | Bounds |
+| --- | --- | ---: | --- |
+| `max_source` | `NonNegative[i64]` | 1,048,576 | Total UTF-8 bytes of registered names and sources |
+| `max_tokens` | `NonNegative[i64]` | 16,384 | Total compiled tokens across templates |
+| `max_templates` | `NonNegative[i64]` | 128 | Registered template count |
+| `max_context_nodes` | `Positive[i64]` | 65,536 | Values in a render context, including its root |
+| `max_context_bytes` | `NonNegative[i64]` | 16,777,216 | UTF-8 bytes of context keys and text values |
+| `max_depth` | `Positive[i64]` | 64 | Syntax/context/render nesting and inheritance chain; at most 64 |
+| `max_steps` | `NonNegative[i64]` | 1,000,000 | Render operations, including context construction, lookup and loop visits |
+| `max_output` | `NonNegative[i64]` | 16,777,216 | UTF-8 output bytes and transformed text values |
 
-Other limits must be nonnegative; the context-node limit must be positive.
-`engine(&bounds)` copies the settings. `add` compiles and validates before
+A literal converts where a field is expected; a computed value needs
+`Positive.try_from(value)?` or `NonNegative.try_from(value)?`.
+`engine(&bounds)` traps when `max_depth` is above 64 and copies the settings. `add` compiles and validates before
 registering; a failure leaves the engine unchanged. Names cannot be empty or
 registered twice. A render failure returns no partial output and leaves the
 engine reusable. Limits bound sizes and work counts, not an exact heap-byte
 quota or wall-clock deadline. Text filters may allocate intermediate text.
 
-`TemplateError` distinguishes invalid limits, exceeded limits, syntax with a
+`TemplateError` distinguishes exceeded limits, syntax with a
 zero-based source location, missing/duplicate template names, missing values,
 type mismatches, cycles, allocation failures and byte-buffer errors. Syntax
 locations are UTF-8 byte offsets at the containing template construct, rather

@@ -36,14 +36,15 @@ which may use any scheme, including `javascript:`.
 
 ```text
 pub class Limits:
-    pub max_input: i64
-    pub max_depth: i64
-    pub max_output: i64
+    pub max_input: NonNegative[i64]
+    pub max_depth: NonNegative[i64]
+    pub max_output: NonNegative[i64]
 ```
 
 `limits()` returns `Limits(67108864, 64, 67108864)`. The fields are public;
-adjust a copy. Every constructor and whole-document function takes `&Limits`
-and returns `InvalidLimits` when a field is negative.
+adjust a copy. Every constructor and whole-document function takes `&Limits`.
+A literal converts on assignment; a computed value needs
+`NonNegative.try_from(value)?`.
 
 | Field | Bounds | When exceeded |
 |---|---|---|
@@ -65,7 +66,6 @@ pub enum MarkdownFault:
     InputTooLarge
     OutputTooLarge
     DepthExceeded
-    InvalidLimits
     InvalidState
     Stream(StreamError)
     Allocation(AllocError)

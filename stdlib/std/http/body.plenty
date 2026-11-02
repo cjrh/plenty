@@ -63,8 +63,6 @@ pub def status(error: &BodyError) -> i64:
                     413
                 case JsonFault.Allocation(_):
                     500
-                case JsonFault.InvalidLimits:
-                    500
                 case JsonFault.Stream(_):
                     500
                 case _:
@@ -422,7 +420,7 @@ pub def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Li
     media = content_type(&exchange.request.headers)?
     if not is_json(&media.essence):
         return Err(BodyError.UnsupportedMediaType)
-    body = collect(exchange, limits.max_input)?
+    body = collect(exchange, limits.max_input.get())?
     std.error.map_error(std.json.parse(&body, limits), def once (cause: JsonError) -> BodyError: BodyError.Json(cause))
 
 # Encodes `value` and sends it as application/json.

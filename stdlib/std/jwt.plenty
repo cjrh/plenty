@@ -401,8 +401,11 @@ pub class Token:
     pub claims: list[Member]
 
 # Header nesting has no use beyond a few levels; claims may nest.
-const header_depth: i64 = 4
-const claims_depth: i64 = 32
+def header_depth() -> NonNegative[i64]:
+    4
+
+def claims_depth() -> NonNegative[i64]:
+    32
 
 # A token as bytes with the offsets of its two dots.
 class Parts:
@@ -427,8 +430,9 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
     # A third dot is rejected by the strict base64url decoder.
     Ok(Parts(source, first, second))
 
-def object(source: &[u8], depth: i64) -> Result[list[Member], JwtError]:
-    bounds = Limits(depth, len(source), 0, DuplicateKeys.Reject)
+def object(source: &[u8], depth: NonNegative[i64]) -> Result[list[Member], JwtError]:
+    # A length is never negative, so the conversion cannot fail.
+    bounds = Limits(depth, NonNegative.try_from(len(source)).unwrap(), 0, DuplicateKeys.Reject)
     match from_json(std.json.parse(source, &bounds))?:
         case Json.Object(members):
             Ok(members)
@@ -446,7 +450,7 @@ def header_text(value: Json) -> Result[str, JwtError]:
 # never supply a key: the caller chooses it.
 def read_header(parts: &Parts) -> Result[Header, JwtError]:
     raw = from_encoding(std.encoding.base64url_decode(&parts.source[:parts.first]))?
-    members = object(&raw, header_depth)?
+    members = object(&raw, header_depth())?
     mut name: Option[str] = Nothing
     mut key_id: Option[str] = Nothing
     mut token_type: Option[str] = Nothing
@@ -625,7 +629,7 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
     parts.source.truncate(parts.second)
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)
-    claims = object(&payload, claims_depth)?
+    claims = object(&payload, claims_depth())?
     check_claims(&claims, rules)?
     Ok(Token(header, claims))
 

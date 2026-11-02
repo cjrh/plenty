@@ -300,15 +300,19 @@ match store.put("", &key, &key):
         print(error)?
     case Ok(_):
         print("unexpected success")?
-match store.scan_all("t", -1):
-    case Err(error):
-        print(error)?
-    case Ok(_):
-        print("unexpected success")?
 print(store.len("t")?)?
 "#,
-        "std.db.kv.KvError.Database(std.db.sqlite.DbError.TooLarge)\nstd.db.kv.KvError.InvalidName\nstd.db.kv.KvError.InvalidLimit\n0",
+        "std.db.kv.KvError.Database(std.db.sqlite.DbError.TooLarge)\nstd.db.kv.KvError.InvalidName\n0",
     );
+}
+
+#[test]
+fn a_negative_row_limit_is_a_compile_error() {
+    // `max_rows` is `NonNegative[i64]`, replacing the old `InvalidLimit` error.
+    let error = support::check_file_error(&format!(
+        "{HEADER}def main() -> Result[(), kv.KvError]:\n    mut store = kv.memory()?\n    drop(store.scan_all(\"t\", -1))\n    Ok(())\n"
+    ));
+    assert!(error.contains("cannot be negative"), "{error}");
 }
 
 /// B90: keys and values are `&[u8]` views, so literals and subviews need no

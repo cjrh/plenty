@@ -6,10 +6,10 @@ string `"17.0.0"`.
 
 | Function | Result |
 |---|---|
-| `nfd(text: &str, max_scalars: i64)` | Canonical decomposition |
-| `nfc(text: &str, max_scalars: i64)` | Canonical decomposition and composition |
-| `nfkd(text: &str, max_scalars: i64)` | Compatibility decomposition |
-| `nfkc(text: &str, max_scalars: i64)` | Compatibility decomposition and canonical composition |
+| `nfd(text: &str, max_scalars: NonNegative[i64])` | Canonical decomposition |
+| `nfc(text: &str, max_scalars: NonNegative[i64])` | Canonical decomposition and composition |
+| `nfkd(text: &str, max_scalars: NonNegative[i64])` | Compatibility decomposition |
+| `nfkc(text: &str, max_scalars: NonNegative[i64])` | Compatibility decomposition and canonical composition |
 | `combining_class(scalar: &str)` | `Option[u32]`: canonical combining class of exactly one scalar |
 | `is_mark(scalar: &str)` | `Option[bool]`: General_Category is Mark for exactly one scalar |
 
@@ -33,8 +33,8 @@ file 1
 
 Normalization returns `Result[str, std.text.TextError]`. It borrows input and
 returns independent text. The explicit scalar limit bounds the input, fully
-decomposed intermediate, and result. Exceeding any gives `LimitExceeded`; a
-negative limit or one above `i64.MAX // 4` gives `InvalidLimit`. An empty string
+decomposed intermediate, and result. Exceeding any gives `LimitExceeded`. The
+limit is `NonNegative[i64]`, and a limit above `i64.MAX // 4` traps. An empty string
 fits a zero limit. Output UTF-8 is consequently at most four times the limit.
 The limit counts Unicode scalars, not bytes or grapheme clusters, and canonical
 composition does not let an oversized decomposition bypass it.

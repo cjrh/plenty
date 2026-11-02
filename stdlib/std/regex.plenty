@@ -24,27 +24,24 @@ pub class SyntaxError:
 pub enum RegexError:
     Syntax(SyntaxError)
     LimitExceeded(Limit)
-    InvalidLimits
     OutOfRange
     Allocation(AllocError)
 
 pub class Limits:
-    pub max_pattern_bytes: i64
-    pub max_nesting: i64
-    pub max_repeat: i64
-    pub max_instructions: i64
-    pub max_memory: i64
-    pub max_work: i64
+    pub max_pattern_bytes: NonNegative[i64]
+    pub max_nesting: NonNegative[i64]
+    pub max_repeat: NonNegative[i64]
+    pub max_instructions: NonNegative[i64]
+    pub max_memory: NonNegative[i64]
+    pub max_work: NonNegative[i64]
 
 # Parsing recurses once per group, so nesting is capped to keep that
-# recursion within the native stack.
+# recursion within the native stack; a larger `max_nesting` traps.
 const nesting_ceiling: i64 = 1000
 
 pub def limits() -> Limits:
     Limits(65536, 128, 1000, 100000, 67108864, 100000000)
 
-def valid(bounds: &Limits) -> bool:
-    bounds.max_pattern_bytes >= 0 and bounds.max_nesting >= 0 and bounds.max_nesting <= nesting_ceiling and bounds.max_repeat >= 0 and bounds.max_instructions >= 0 and bounds.max_memory >= 0 and bounds.max_work >= 0
 
 # Consuming instructions come first: `op <= op_any` tests for one.
 const op_char: i64 = 0
@@ -1311,13 +1308,13 @@ pub class Regex:
 # Compiles `pattern`, or reports the first problem: a syntax error with its
 # byte offset, or the first limit the pattern would exceed.
 pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
-    if not valid(bounds):
-        return Err(RegexError.InvalidLimits)
-    if pattern.byte_len() > bounds.max_pattern_bytes:
+    if bounds.max_nesting.get() > nesting_ceiling:
+        __trap("std.regex.compile: max_nesting is above 1000")
+    if pattern.byte_len() > bounds.max_pattern_bytes.get():
         return Err(RegexError.LimitExceeded(Limit.PatternBytes))
     mut groups = held(list[str].new())?
     held(groups.append(""))?
-    mut compiler = Compiler(integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, groups, 0, 0, 0, 0, bounds.max_nesting, bounds.max_repeat, bounds.max_instructions)
+    mut compiler = Compiler(integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, integers()?, groups, 0, 0, 0, 0, bounds.max_nesting.get(), bounds.max_repeat.get(), bounds.max_instructions.get())
     compiler.emit(op_save, 0, 0)?
     compiler.alternation(pattern)?
     if compiler._at < pattern.byte_len():
@@ -1329,11 +1326,11 @@ pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
     # Matcher words with every capture slot: sparse sets, thread slots,
     # closure stack, and working slots.
     words = 7 * n + 2 * n * slots + 2 * slots + 8
-    if words > bounds.max_memory // 8:
+    if words > bounds.max_memory.get() // 8:
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    Ok(Regex(replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, bounds.max_work, no_bytes()?))
+    Ok(Regex(replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, bounds.max_work.get(), no_bytes()?))
 
 # The case-sensitive literals that directly follow the opening SAVE: every
 # match starts with them, so a search skips ahead to them.

@@ -75,12 +75,11 @@ no `//` authority. An address literal keeps its brackets: `[::1]`.
 
 | Function | Result | Contract |
 |---|---|---|
-| `std.url.parse(text: &str, max_bytes)` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
+| `std.url.parse(text: &str, max_bytes: NonNegative[i64])` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
 | `url.to_string()` | `Result[str, UrlError]` | Validate every component and join them |
 
-`parse` checks the length first: `InvalidLimit` for a negative `max_bytes`,
-`LimitExceeded` for a longer text. It then reports the first violation from
-left to right.
+`parse` checks the length first: `LimitExceeded` for a longer text. It then
+reports the first violation from left to right.
 
 `to_string` exists so that a `Url` built or edited by a program cannot produce
 text that parses differently. It applies the rules of `parse` to each field,
@@ -155,7 +154,6 @@ same; `query_text` always writes the `=`. The empty query has no pairs.
 
 ```text
 pub enum UrlError:
-    InvalidLimit
     LimitExceeded
     MissingScheme
     MissingHost
@@ -169,7 +167,6 @@ pub enum UrlError:
 
 | Variant | Meaning |
 |---|---|
-| `InvalidLimit` | `max_bytes` is negative |
 | `LimitExceeded` | The text is longer than `max_bytes` |
 | `MissingScheme` | No scheme and `:` before the first `/`, `?`, or `#` |
 | `MissingHost` | `to_string` was given userinfo or a port without a host |

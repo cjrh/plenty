@@ -46,13 +46,12 @@ print(std.text.join(&pieces, ":", 8)?)?
 print(failed(std.text.join(&pieces, ":", 7)))?
 print(str.repr(std.text.hard_wrap("é🙂ab\nc\n", 2, 32)?)?)?
 print(str.repr(std.text.hard_wrap("éx", 1, 32)?)?)?
-print(failed(std.text.hard_wrap("x", 0, 4)), failed(std.text.builder(-1)))?
 empty = std.text.builder(0)?
 print(empty.finish()? == "", std.text.join(&list[str].new()?, "", 0)? == "")?
 bad = std.bytes.from_list(&[255u8]?)?
 print(failed(bad.to_text()))?
 "#),
-        "6 7 é🙂\nTrue True\n7 3\nagain\né::🙂\nTrue\n\"é🙂\\nab\\nc\\n\"\n\"e\\ń\\nx\"\nTrue True\nTrue True\nTrue"
+        "6 7 é🙂\nTrue True\n7 3\nagain\né::🙂\nTrue\n\"é🙂\\nab\\nc\\n\"\n\"e\\ń\\nx\"\nTrue True\nTrue"
     );
 }
 
@@ -67,11 +66,39 @@ print(std.unicode.nfc("각", 3)? == "각")?
 print(std.unicode.combining_class("́").unwrap(), std.unicode.is_mark("́").unwrap())?
 print(absent(std.unicode.combining_class("ab")), absent(std.unicode.is_mark("")))?
 print(failed(std.unicode.nfd("é", 1)), failed(std.unicode.nfc("é", 1)))?
-print(std.unicode.nfc("", 0)? == "", failed(std.unicode.nfc("", -1)))?
-print(std.unicode.nfc("a\0é", 4)? == "a\0é", failed(std.unicode.nfd("", i64.MAX)))?
+print(std.unicode.nfc("", 0)? == "")?
+print(std.unicode.nfc("a\0é", 4)? == "a\0é")?
 "#),
-        "17.0.0\nTrue True\nTrue True\nTrue\n230 True\nTrue True\nTrue True\nTrue True\nTrue True"
+        "17.0.0\nTrue True\nTrue True\nTrue\n230 True\nTrue True\nTrue True\nTrue\nTrue"
     );
+}
+
+#[test]
+fn a_scalar_limit_above_the_ceiling_traps() {
+    // `max_scalars * 4` bounds the UTF-8 output, so larger limits would overflow.
+    support::assert_file_traps(
+        "import std.unicode\ndef main() -> ():\n    drop(std.unicode.nfd(\"\", 2305843009213693952))\n",
+        "std.unicode: max_scalars is above i64.MAX // 4",
+    );
+}
+
+#[test]
+fn out_of_domain_limits_are_compile_errors() {
+    // Width is `Positive[i64]` and byte and scalar limits `NonNegative[i64]`,
+    // replacing the old `InvalidLimit` cases.
+    for (call, message) in [
+        ("std.text.builder(-1)", "cannot be negative"),
+        (
+            "std.text.hard_wrap(\"x\", 0, 4)",
+            "must be greater than zero",
+        ),
+        ("std.unicode.nfc(\"\", -1)", "cannot be negative"),
+    ] {
+        let source =
+            format!("import std.text\nimport std.unicode\ndef main() -> ():\n    drop({call})\n");
+        let error = support::check_file_error(&source);
+        assert!(error.contains(message), "{call}: {error}");
+    }
 }
 
 #[test]

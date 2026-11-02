@@ -281,6 +281,15 @@ pub fn run_file(source: &str) -> Output {
     std::process::Command::new(executable).output().unwrap()
 }
 
+/// Compile and run a complete program that must stop at a trap whose report
+/// contains `message`.
+pub fn assert_file_traps(source: &str, message: &str) {
+    let output = run_file(source);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+    assert!(stderr.contains(message), "{source}\n{stderr}");
+}
+
 /// Compile and run a complete program that must succeed, returning stdout
 /// without `__test_` lines.
 pub fn run_file_stdout(source: &str) -> String {
