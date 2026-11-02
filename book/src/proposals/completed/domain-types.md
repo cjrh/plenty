@@ -1,13 +1,15 @@
 # Positive and NonNegative integer domain types
 
-**Status: Language types implemented; API migrations remain B95.** The delivered
-language subset is recorded in [B95](../completed-work/language-and-tooling.md#b95-integer-domain-types),
-related to B92. The [numbers reference](../design/language/03-types/numbers.md#nonzero-integers)
-defines `NonZero[T]`, the model for this design, and the
-[std conventions](../design/stdlib/conventions.md#invalid-arguments) define the
-current invalid-argument rule. Surveyed against local `main` at `9c3cb76e` on
-2026-11-01. Local PR #804 (open) changes several of the error types named
-below; parameter types here are independent of it.
+**Status: Implemented.** The language types are recorded in
+[B95](../../completed-work/language-and-tooling.md#b95-integer-domain-types)
+and the std migration in
+[B95 std limits](../../completed-work/language-and-tooling.md#b95-std-limit-domains).
+The [numbers reference](../../design/language/03-types/numbers.md#positive-and-non-negative-integers)
+defines the types and the
+[std conventions](../../design/stdlib/conventions.md#invalid-arguments) the
+parameter rule. What shipped differs from the tables below as listed in
+[As shipped](#as-shipped); `Bounded` is B96 and a compile-time check of fixed
+ceilings is issue #686.
 
 ## Problem
 
@@ -23,7 +25,7 @@ pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], Stre
 The failure is a caller bug that the caller could rule out, but every call
 pays for it: a `?`, an error variant to match, and a check on each call. Almost
 every call passes a literal or a default, so the check can never fail at those
-sites. The [consistency rules](consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail)
+sites. The [consistency rules](../consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail)
 (rule 5.3) already say "where a type can state the domain, the parameter uses
 it", and `NonZero[i64]` does this for range and slice steps. No type states
 "at least zero" or "at least one".
@@ -45,7 +47,7 @@ today.
 | Relation to `NonZero` | Separate nominal types; `NonZero.from(p)` and `NonNegative.from(p)` widen a `Positive` |
 | Copy, format, hash | As `NonZero`: copies, prints as its integer, valid dictionary key |
 | `len()` | Unchanged, returns `i64`; no implicit conversion |
-| Sizes | Stay `i64` ([integer types](../design/stdlib/conventions.md#integer-types)); only the wrapper is new |
+| Sizes | Stay `i64` ([integer types](../../design/stdlib/conventions.md#integer-types)); only the wrapper is new |
 
 ## The types
 
@@ -103,7 +105,7 @@ def main() -> Result[(), IoError | RangeError]:
   two conversions.
 
 `RangeError` is the error every integer narrowing already uses
-([checked conversion](../design/facilities/01-builtins/numbers.md#checked-conversion)),
+([checked conversion](../../design/facilities/01-builtins/numbers.md#checked-conversion)),
 so one error type covers `i32.try_from`, `NonZero.try_from`,
 `Positive.try_from` and `NonNegative.try_from`, and a function that does
 several returns `Result[_, RangeError]` without a union. It has one variant,
@@ -134,7 +136,7 @@ is a compile error for a `Positive`.
 | `==`, `!=`, `<`, `<=`, `>`, `>=` | `bool` | `bool` | Same-type operands or a literal |
 
 Overflow in `+` and `*` traps, or is an `Err` in a
-[`checked:` block](../design/language/03-types/numbers.md#checked-blocks), so a
+[`checked:` block](../../design/language/03-types/numbers.md#checked-blocks), so a
 sum cannot wrap to a negative value. A comparison with a literal outside the
 domain, such as `size > 0` for a `Positive`, is a compile error, as
 `step == 0` is for `NonZero`: the literal is not a `Positive`. `n >= 0` for a
@@ -231,7 +233,7 @@ are unchanged except where noted, and follow PR #804 where it changes them.
 
 The two builtins move from `u64` to `Positive[i64]` rather than to
 `NonZero[u64]`, which removes their listed deviation from the
-[integer-type convention](../design/stdlib/conventions.md#integer-types) in
+[integer-type convention](../../design/stdlib/conventions.md#integer-types) in
 the same break ([decision 2](#decisions), issue #665).
 
 ### Group B: the call loses this failure; the error type keeps the variant for other causes
@@ -314,6 +316,38 @@ ceiling is a compile error.
 | `std.http` `max_line`, `max_head` (>= 2), `std.sketch.hyperloglog` precision (4..18), `encode_png` level (0..9), actor server `capacity`, `heap_limit`, buffer minimums | Lower bound other than 0 or 1; needs `Bounded` |
 | `std.compress.crc32` seed (0..u32 max), archive modes (0..4095) | The parameter should be a narrower type (`u32`, `u16`); separate fix |
 | `std.regex.find_all`/`split` `max_matches`/`max_pieces`, `std.http.cookie.cookies` `limit`, `std.db` `max_length` | Not checked today; their negative behaviour needs its own review first |
+
+## As shipped
+
+Differences from the [migration list](#migration-list), recorded after the
+migration (2026-11-02):
+
+- **Shared HTTP limits.** `std.http.Limits` serves the client, decoder and both
+  servers, and allows `max_headers = 0`. Its `max_headers` and `max_body` are
+  `NonNegative[i64]`; `max_line` and `max_head` (`>= 2`) stay `i64` with their
+  `InvalidLimit` check, so the server rows' `P` typing waits for `Bounded`
+  (B96).
+- **Removed beyond the tables.** `std.actor.StartError.Limit`,
+  `SystemError.InvalidInput`, `CsvError.OutOfRange` (field indexes already
+  trapped after PR #804) and `BytesError.OutOfRange` (its last cause was the
+  actor networking limits).
+- **Narrowed results.** `std.actor.net.connection` returns `AllocError`, so
+  `Listener.accept` adds `AllocError` to `NetError`. `listener` keeps
+  `Result[Listener, NetError]`.
+- **Also migrated.** `std.actor.tls` `server` and `client` input sizes (they
+  forward to `over`), `std.system` `block_devices`/`disk_io` `max_bytes`,
+  `std.compress.decompressor(limit)`, `std.fmt.to_string`/`to_debug` and
+  `std.report.to_string` limits.
+- **Ceilings that trap.** As decision 1, plus `std.actor.net.listener` heap
+  above `max_heap_limit`. `quantiles_from_bytes` and
+  `frequent_items_from_bytes` had no ceiling and gained none. The compile-time
+  rejection of a literal above a ceiling is not implemented (issue #686).
+- **Constants.** A module constant cannot have a domain type (issue #685), so
+  std passes constant limits through private getters such as
+  `def max_url() -> NonNegative[i64]:`.
+- **Internal lengths.** Two std callers of `encode_chunk_size` convert a
+  `len()` result with `NonNegative.try_from(n).unwrap()`, which cannot fail
+  (decision 5).
 
 ## Example
 
@@ -411,7 +445,7 @@ def configured(settings: &Settings) -> Result[Positive[i64], AppError]:
    each module changes once.
 5. Delivered in issue #664: `//` and `%` with a plain integer dividend and a
    `NonZero` or `Positive` divisor, without the zero check. See
-   [nonzero arithmetic](../design/language/03-types/numbers.md#nonzero-integers).
+   [nonzero arithmetic](../../design/language/03-types/numbers.md#nonzero-integers).
 
 PR #804 merges first; this work changes the same std error types.
 
