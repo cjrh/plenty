@@ -122,6 +122,12 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 
 These belong to B17 and are not scheduled implementation commitments:
 
+- [Compiler boundaries](proposals/compiler-refactoring.md): structured diagnostics
+  without render/reparse cycles, cohesive lowering state and scoped editor/source/
+  teardown policy. Preserve library reclamation, generic attribution and ordered
+  diagnostics; evaluate one bounded refactor at a time. Identity/fact lookup and
+  module replay experiments remain B19, not a wholesale frontend rewrite.
+
 - [`plenty script`](proposals/single-file-scripts.md): embedded manifests,
   isolated dependencies and script arguments. Plain single-file executable
   reuse is [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging);
@@ -163,6 +169,9 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   table/cache misses still increase per-function cost at scale (issue #57);
   interned names or per-function batch processing need measurements. Further
   type-representation changes follow the completed issue #302 investigations.
+  [Identity and fact-cache options](proposals/compiler-refactoring/performance.md)
+  specify attribution, lifetime and invalidation gates; existing frontend function
+  symbols and type-fact caches are not missing features.
 - **Peak memory:** lower and emit one function at a time instead of retaining
   full syntax/operation sets at phase boundaries (issue #54). IR construction's
   measured 7% of emission CPU limits scaling only above about fourteen cores.
@@ -170,7 +179,9 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   serialized operations/types; body-derived invalidation and per-function
   granularity for one-module programs (issue #317). Separately evaluate lowering
   only reachable `std` functions. A trusted opt-in remote cache follows a local
-  per-module contract, not before it. See [deferrals](#deliberate-deferrals).
+  per-module contract, not before it. Prove fresh-environment replay using
+  [explicit module outputs](proposals/compiler-refactoring/module-results.md)
+  before persistence. See [deferrals](#deliberate-deferrals).
 - **Upstream gates:** regalloc2's quadratic block-parameter handling needs an
   upstream report/fix before removing the 2,048-argument fallback. Reopen issue
   #425's deferred arithmetic-check work only when Cranelift changes unfused
