@@ -113,5 +113,9 @@ match overflow(p):
 #[case("p = NonZero.from(3)", "takes a Positive")]
 #[case("class Positive:\n    value: i64", "Positive")]
 fn invalid_domains_are_rejected(#[case] source: &str, #[case] message: &str) {
-    check_error(source, message);
+    let error = check_error(source);
+    assert!(
+        error.contains(message),
+        "expected {message:?}, got {error:?}"
+    );
 }
