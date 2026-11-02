@@ -281,7 +281,7 @@ fn names_in_expr(e: &Expr, each: &mut impl FnMut(&str)) {
             }
         }
         Expression::Match(value, cases) => names_in_match(value, cases, each),
-        Expression::Checked(body) => names_in_block(body, each),
+        Expression::Checked(body) | Expression::If(body) => names_in_block(body, each),
 
         Expression::Anonymous(function) => {
             names_in_block(&function.body, each);

@@ -1306,6 +1306,9 @@ enum Expression {
     /// `Ok` of its final expression, or `Err` of the first arithmetic error
     /// written inside it.
     Checked(Vec<Stmt>),
+    /// One conditional statement used as a whole statement value; retaining
+    /// its suites shares branch joins, lazy tests, and cleanup with tail `if`.
+    If(Vec<Stmt>),
 }
 
 /// The bounds of a slice, each optional as in Python.
@@ -2510,7 +2513,7 @@ impl Parser {
         Ok(Stmt { at, kind })
     }
     /// The value that ends a binding, an assignment, or a `return`: an
-    /// expression, or a `match` block whose selected case supplies it.
+    /// expression, or a value-producing `if`/`match`/`checked` block.
     /// `checked:` followed by a newline starts a `checked:` block; `checked`
     /// is otherwise an ordinary name, so `checked: i64 = 0` still declares
     /// one.
@@ -2523,6 +2526,16 @@ impl Parser {
                 .is_some_and(|t| t.kind == Kind::Newline)
     }
     fn statement_value(&mut self) -> Result<Expr> {
+        if self.peek().is("if") {
+            if let Some(at) = self.token(self.pos + 1).filter(|at| at.is("const")) {
+                return Err(at.error("`if const` selects statements at compile time and cannot be used as a block value; put the binding or return in its selected arm"));
+            }
+            let statement = self.conditional_statement()?;
+            return Ok(Expr {
+                at: statement.at.clone(),
+                kind: Expression::If(vec![statement]),
+            });
+        }
         if self.checked_block() {
             let at = self.take();
             let body = self.suite()?;
@@ -2678,6 +2691,7 @@ impl Parser {
                 }
             }
             _ if at.is("match") => return Err(at.error(MATCH_VALUE_POSITION)),
+            _ if at.is("if") => return Err(at.error(IF_VALUE_POSITION)),
             _ if at.is("None") => return Err(at.error(NONE_VALUE)),
             Kind::Word(s) if unused_keyword(s).is_some() => {
                 return Err(at.error(unused_keyword(s).unwrap_or_default()));
@@ -3334,6 +3348,7 @@ const NONE_VALUE: &str =
     "Plenty has no `None`; an absent value is `Nothing`, the empty variant of `Option[T]`";
 const NONE_TYPE: &str =
     "Plenty has no `None` type; write `()` for no result, or `Option[T]` for an optional value";
+const IF_VALUE_POSITION: &str = "an `if` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 const MATCH_VALUE_POSITION: &str = "a `match` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 
 /// What becomes of the value of a suite's final expression.
@@ -3343,11 +3358,11 @@ enum Tail {
     Discard,
     /// It is the function's result, and the function's cleanup follows.
     Function,
-    /// It is the value of a `match` block, with the type the block's context
+    /// It is a block value, with the type the block's context
     /// expects. The suite's own locals are cleaned up beneath it.
     Value(Type),
-    /// It is returned from the function, as the value of a case of
-    /// `return match`. A suite that ends without one returns unit.
+    /// It is returned from the function by `return if` or `return match`.
+    /// A suite that ends without a value returns unit.
     Return,
 }
 
@@ -4040,6 +4055,7 @@ impl Lower<'_> {
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
             Expression::Checked(body) => self.checked_value(&e.at, body, None, ops)?,
+            Expression::If(body) => self.if_value(&e.at, body, None, ops)?,
             Expression::Type(ty) => {
                 if let Some(ty @ Ty::Class(_)) = ty.resolve(self.aliases)? {
                     return self.class_constructor_value(ty, &e.at, ops).map(Some);
@@ -5606,6 +5622,23 @@ impl Lower<'_> {
             _ => false,
         })
     }
+    fn if_value(
+        &mut self,
+        at: &Token,
+        body: &[Stmt],
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let outer = std::mem::replace(&mut self.checked_value_tail, false);
+        let result = self.block(body, ops, &Tail::Value(expected));
+        self.checked_value_tail = outer;
+        match result? {
+            BlockResult::Continues(ty) => Ok(ty),
+            BlockResult::Exits => Err(at.error(
+                "every branch of this `if` exits, so it has no value; write it as a statement",
+            )),
+        }
+    }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
         let result = self.block_inner(body, ops, tail)?;
@@ -5616,8 +5649,8 @@ impl Lower<'_> {
         }
         Ok(result)
     }
-    /// A suite of `return match` that ends without returning a value returns
-    /// unit, so no case continues past the statement.
+    /// A suite of `return if` or `return match` without a value returns unit,
+    /// so no selected arm continues past the statement.
     fn returning_block(
         &mut self,
         body: &[Stmt],
@@ -5741,7 +5774,7 @@ impl Lower<'_> {
                         return Err(e.at.error(if self.checked_value_tail {
                             "a `checked:` block cannot produce a reference or a closure with borrowed captures; produce an owned value"
                         } else {
-                            "a `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each case"
+                            "an `if` or `match` block used as a value cannot produce a reference or a closure with borrowed captures; produce an owned value, or assign in each arm"
                         }));
                     }
                     if last
@@ -5780,6 +5813,19 @@ impl Lower<'_> {
                         return Err(stmt.at.error("return outside a function"));
                     }
                     self.match_cases(value, cases, &Tail::Return, ops)?;
+                    return exited_block(body, i);
+                }
+                Statement::Return(Some(Expr {
+                    kind: Expression::If(suite),
+                    ..
+                })) => {
+                    if self.yield_type.is_some() {
+                        return Err(stmt.at.error("a generator may only use bare return"));
+                    }
+                    if self.return_type.is_none() {
+                        return Err(stmt.at.error("return outside a function"));
+                    }
+                    self.returning_block(suite, &stmt.at, ops, &Tail::Return)?;
                     return exited_block(body, i);
                 }
                 Statement::Return(e) => {
@@ -5860,7 +5906,7 @@ impl Lower<'_> {
                 } => {
                     let start = ops.len();
                     self.unpack_tuple(names, *mutable, value, ops)?;
-                    self.building(&value.at, start, ops, block_value(value));
+                    self.building(&value.at, start, ops, false);
                     None
                 }
                 Statement::Assign {
@@ -6239,15 +6285,15 @@ fn type_name(ty: Type) -> String {
         Some(t) => t.to_string(),
     }
 }
-/// `e` is a `match` block whose selected case's final expression is its value.
+/// `e` is a block whose selected suite supplies a statement's value.
 fn block_value(e: &Expr) -> bool {
     matches!(
         ungroup(e).kind,
-        Expression::Match(..) | Expression::Checked(_)
+        Expression::Match(..) | Expression::Checked(_) | Expression::If(_)
     )
 }
 
-/// `ops` contains a `match` case value's `Building::Hold`.
+/// `ops` contains a suite value's `Building::Hold`.
 fn holds(ops: &[Op]) -> bool {
     ops.iter().any(|op| match op {
         Op::Building(Building::Hold(..)) => true,

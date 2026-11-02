@@ -74,8 +74,10 @@ See [workflow and packages](references/workflow.md).
   yields `&T`; dereference with `*value`. `for x in owner` moves `owner`;
   write `for x in &self.items` to borrow.
 - A binding made inside an `if`, loop, or `match` arm ends with that block.
-  Declare `mut name = default` before it and assign inside, or use
-  `a if cond else b`. Only `if const` arms open no scope.
+  Select an immutable result with `name = if condition:` or `name = match value:`;
+  their selected suite's final expression is the value. Use `a if cond else b`
+  for two single expressions, or declare `mut name = default` before the block
+  when updating an existing value is the intent. Only `if const` arms open no scope.
 - Methods that mutate declare `self: &mut ClassName`; bare `self` is a shared
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or

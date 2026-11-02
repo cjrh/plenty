@@ -24,7 +24,8 @@ def clamp_low(value: i64, minimum: i64) -> i64:
 ```
 
 `return value` exits the enclosing function from any suite. Bare `return`
-returns unit. `return match value:` returns the final expression of the
+returns unit. `return if condition:` returns its selected suite's value.
+`return match value:` returns the final expression of the
 [selected case](matching.md#a-match-as-a-statements-value). Every explicit return must match the declared result, including
 returns in non-final or statically unchosen branches.
 
@@ -36,3 +37,56 @@ conditional whose branches all return are unreachable errors.
 
 `break` and `continue` likewise contribute no branch value when they exit a suite
 inside a loop. Ordinary exits perform [cleanup](../05-ownership/index.md).
+
+## An if as a statement's value
+
+A block `if` can be the whole right-hand side of a binding or single-place
+assignment, or follow `return`. Its selected suite's final expression supplies
+the value:
+
+```plenty
+def classify(flag: bool) -> i64:
+    result = if flag:
+        base = 10
+        base + 1
+    else:
+        2
+    result * 2
+
+def main() -> Result[(), IoError]:
+    print(classify(True), classify(False))?
+    Ok(())
+```
+```output
+22 4
+```
+
+`mut` and annotations work as for ordinary bindings. An annotation or the
+assigned destination's type supplies the expected type to every continuing arm,
+including every `elif` and `else`; this allows contextual `Nothing` and empty
+collection literals. Continuing arms must agree. Arms ending in `return`,
+`break`, or `continue` contribute no value. If every arm exits, write an ordinary
+`if` statement instead of binding its nonexistent value. An absent `else`
+produces unit on its unselected path; unit cannot be stored in a binding.
+
+Conditions are evaluated in order; only the selected suite runs. Its locals
+are cleaned up before the binding or assignment, including before evaluating
+[destination indices](assignment.md). `?`, `return`, `break`, and `continue`
+keep their enclosing function or loop. A binding or assignment cannot receive a
+reference or a closure with borrowed captures from the block; produce an owned
+value instead. These are the same lifetime and evaluation rules as a
+[match used as a value](matching.md#a-match-as-a-statements-value).
+
+`return if condition:` returns each selected suite's final expression as though
+it ended with `return expression`. Returned references follow ordinary
+[returned-reference rules](../05-ownership/04-returned-references.md), and calls
+in these final positions remain [source-tail calls](../06-functions/06-tail-calls.md).
+A suite without a value returns unit. Every path leaves the enclosing suite,
+so a statement directly after the whole block is unreachable. An arm that
+executes `break` or `continue` still exits to its enclosing loop rather than
+returning from the function; code after that loop can run.
+
+The block ends the statement. Block `if` and `match` remain unsupported inside
+call arguments, operands, augmented assignments, or assignments to several
+targets. Bind the selected value first, or use an inline conditional for two
+single expressions.
