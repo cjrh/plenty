@@ -15,6 +15,7 @@ Store values in collections and choose when to transfer, copy, or borrow them.
 10. [Group different types in tuples](tuples.md)
 11. [Sort and reorder a list](reordering.md)
 12. [Clean up owned values](cleanup.md)
+13. [Build singly and doubly linked lists](linked-lists.md)
 
 The [collection examples](../../design/examples/collections/index.md) provide
 additional operations.

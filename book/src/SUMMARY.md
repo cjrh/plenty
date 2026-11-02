@@ -51,6 +51,7 @@
         - [Sort and reorder a list](tutorial/04-collections/reordering.md)
         - [Sort by a key or create a sorted copy](tutorial/04-collections/key-sorting.md)
         - [Clean up owned values](tutorial/04-collections/cleanup.md)
+        - [Build singly and doubly linked lists](tutorial/04-collections/linked-lists.md)
     - [5. Iteration and transformation](tutorial/05-iteration/index.md)
         - [Iterate over collections and text](tutorial/05-iteration/01-collections-and-text.md)
         - [Dictionary key/value loops](tutorial/05-iteration/02-unpack-items.md)
