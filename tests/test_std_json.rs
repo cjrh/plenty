@@ -749,39 +749,25 @@ fn nesting_is_bounded_by_the_depth_limit() {
 }
 
 #[test]
-fn invalid_limits_are_rejected_before_any_work() {
-    native(
-        r#"
-value = Json.Null
-for which in range(4):
-    mut bounds = std.json.limits()
-    if which == 0:
-        bounds.max_depth = 1025
-    elif which == 1:
-        bounds.max_depth = -1
-    elif which == 2:
-        bounds.max_input = -1
-    else:
-        bounds.max_output = -1
-    print(described(std.json.parse_text("1", &bounds))?)?
-    match std.json.decoder(&bounds):
-        case Ok(_):
-            print("decoder")?
-        case Err(error):
-            print(placed(&error)?)?
-    match std.json.encoder(&bounds):
-        case Ok(_):
-            print("encoder")?
-        case Err(error):
-            print(placed(&error)?)?
-    match std.json.encode(&value, &bounds):
-        case Ok(_):
-            print("encode")?
-        case Err(error):
-            print(placed(&error)?)?
-"#,
-        &"InvalidLimits 0 0 0\n".repeat(16),
-    );
+fn a_depth_limit_above_the_ceiling_traps() {
+    for (call, message) in [
+        ("drop(std.json.decoder(&bounds))", "std.json.decoder: max_depth is above 1024"),
+        ("drop(std.json.encoder(&bounds))", "std.json.encoder: max_depth is above 1024"),
+    ] {
+        let body = format!("mut bounds = std.json.limits()\nbounds.max_depth = 1025\n{call}");
+        support::assert_file_traps(&program(&body), message);
+    }
+}
+
+#[test]
+fn negative_limits_are_compile_errors() {
+    // The fields are `NonNegative[i64]`, so the old `InvalidLimits` cases cannot be written.
+    for field in ["max_depth", "max_input", "max_output"] {
+        let error = support::check_file_error(&program(&format!(
+            "mut bounds = std.json.limits()\nbounds.{field} = -1"
+        )));
+        assert!(error.contains("cannot be negative"), "{error}");
+    }
 }
 
 #[test]

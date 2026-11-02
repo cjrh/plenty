@@ -71,16 +71,17 @@ written as UTF-8.
 
 ```text
 pub class Limits:
-    pub max_depth: i64
-    pub max_input: i64
-    pub max_output: i64
+    pub max_depth: NonNegative[i64]
+    pub max_input: NonNegative[i64]
+    pub max_output: NonNegative[i64]
     pub duplicate_keys: DuplicateKeys   # Reject or Keep
 ```
 
 `limits()` returns `Limits(64, 67108864, 67108864, DuplicateKeys.Reject)`. The
-fields are public; adjust a copy. Every constructor and whole-document function
-takes `&Limits` and returns `InvalidLimits` unless
-`0 <= max_depth <= 1024`, `max_input >= 0`, and `max_output >= 0`.
+fields are public; adjust a copy. A literal converts on assignment; a computed
+value needs `NonNegative.try_from(value)?`. Every constructor and whole-document
+function takes `&Limits`; `decoder` and `encoder` trap when `max_depth` is above
+1024, so the whole-document functions built on them do too.
 
 | Field | Bounds | When exceeded |
 |---|---|---|
@@ -109,8 +110,7 @@ syntax fault points at the offending byte; a fault found after a token was read
 `UnexpectedEnd` points one past the last byte.
 
 For encoding, `offset` is the number of bytes produced when the call failed and
-`line` and `column` are 0. `InvalidLimits` and a failed constructor report
-0, 0, 0.
+`line` and `column` are 0. A failed constructor reports 0, 0, 0.
 
 | `JsonFault` | Meaning |
 |---|---|
@@ -129,7 +129,6 @@ For encoding, `offset` is the number of bytes produced when the call failed and
 | `InputTooLarge`, `OutputTooLarge` | A size limit was reached |
 | `NonFiniteNumber` | A NaN or infinite `f64` given to the encoder |
 | `InvalidState` | A call that the decoder's or encoder's state does not allow |
-| `InvalidLimits` | `Limits` outside the valid ranges |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |
 | `Allocation(AllocError)` | Memory was refused |
 

@@ -19,7 +19,7 @@ def opt(value: &Option[str]) -> Result[str, AllocError]:
         case Nothing:
             Ok("-")
 
-def show(text: &str, limit: i64) -> Result[(), std.url.UrlError | AllocError | IoError]:
+def show(text: &str, limit: NonNegative[i64]) -> Result[(), std.url.UrlError | AllocError | IoError]:
     match std.url.parse(text, limit):
         case Ok(url):
             mut port = -1
@@ -816,7 +816,6 @@ fn the_length_limit_is_checked_before_parsing() {
 show("s://h/abc", 9)?
 show("s://h/abc", 8)?
 show("s://h/abc", 0)?
-show("s://h/abc", -1)?
 show("", 0)?
 show("s:", 2)?
 show("s:", 1)?
@@ -829,7 +828,6 @@ show("not a url at all", 3)?
 ok True s - +h -1 /abc - -
 err E.LimitExceeded
 err E.LimitExceeded
-err E.InvalidLimit
 err E.MissingScheme
 ok True s - - -1  - -
 err E.LimitExceeded
@@ -1044,6 +1042,21 @@ while start < blob.len():
 "#
     );
     native(&body, &expected);
+}
+
+#[test]
+fn a_negative_length_limit_is_a_compile_error() {
+    // `max_bytes` is `NonNegative[i64]`, so the old `InvalidLimit` case cannot be written.
+    let error = rejected(
+        r#"
+import std.url
+
+def main() -> Result[(), std.url.UrlError]:
+    drop(std.url.parse("s://h/p", -1))
+    Ok(())
+"#,
+    );
+    assert!(error.contains("cannot be negative"), "{error}");
 }
 
 #[test]

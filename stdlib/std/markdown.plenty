@@ -41,7 +41,6 @@ pub enum MarkdownFault:
     InputTooLarge
     OutputTooLarge
     DepthExceeded
-    InvalidLimits
     InvalidState
     Stream(StreamError)
     Allocation(AllocError)
@@ -57,9 +56,9 @@ pub class MarkdownError:
 
 # `max_depth` bounds block quotes and list items open at once.
 pub class Limits:
-    pub max_input: i64
-    pub max_depth: i64
-    pub max_output: i64
+    pub max_input: NonNegative[i64]
+    pub max_depth: NonNegative[i64]
+    pub max_output: NonNegative[i64]
 
 pub enum Tag:
     Paragraph
@@ -89,7 +88,6 @@ pub enum Event:
     Rule
     Done
 
-const default_size: i64 = 64 * 1024 * 1024
 const flush_size: i64 = 65536
 
 const k_document: i64 = 0
@@ -113,11 +111,9 @@ const i_strong: i64 = 7
 const i_link: i64 = 8
 const i_image: i64 = 9
 
+# 64 MiB of input and of output.
 pub def limits() -> Limits:
-    Limits(default_size, 64, default_size)
-
-def valid(bounds: &Limits) -> bool:
-    bounds.max_input >= 0 and bounds.max_depth >= 0 and bounds.max_output >= 0
+    Limits(67108864, 64, 67108864)
 
 def faulted[T](result: Result[T, BytesError]) -> Result[T, MarkdownFault]:
     std.error.map_error(result, def once (cause: BytesError) -> MarkdownFault: bytes_fault(cause))
@@ -2070,11 +2066,10 @@ def normalized(source: &[u8]) -> Result[Bytes, MarkdownFault]:
 
 # Validates `source` as UTF-8 and parses its block structure.
 pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
-    if not valid(bounds):
-        return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
     size = len(source)
-    if size > bounds.max_input:
-        return Err(MarkdownError(MarkdownFault.InputTooLarge, bounds.max_input, 0))
+    max_input = bounds.max_input.get()
+    if size > max_input:
+        return Err(MarkdownError(MarkdownFault.InputTooLarge, max_input, 0))
     run = __bytes_run(source, 1u8)
     if run < size:
         return Err(MarkdownError(MarkdownFault.InvalidUtf8, run, 0))
@@ -2099,7 +2094,7 @@ pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
     for _ in range(4):
         unplaced(reserved(missing.append(i64.MAX)))?
     queue = unplaced(reserved(list[Event]()))?
-    mut result = Parser(text, blocks, refs, scratch, bounds.max_depth, 0, 0, 0, 0, 0, 0, 0, False, False, False, True, 0, 0, 0, subject, pool, inlines, delimiters, brackets, -1, -1, 0, 0, 0, False, tick_last, missing, queue, 0, 0, True, False, False, "", "")
+    mut result = Parser(text, blocks, refs, scratch, bounds.max_depth.get(), 0, 0, 0, 0, 0, 0, 0, False, False, False, True, 0, 0, 0, subject, pool, inlines, delimiters, brackets, -1, -1, 0, 0, 0, False, tick_last, missing, queue, 0, 0, True, False, False, "", "")
     outcome = result.parse_blocks()
     match outcome:
         case Ok(_):
@@ -2399,10 +2394,8 @@ def hex_digit(value: i64) -> i64:
     55 + value
 
 pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
-    if not valid(bounds):
-        return Err(MarkdownError(MarkdownFault.InvalidLimits, 0, 0))
     out = unplaced(reserved(std.bytes.empty()))?
-    Ok(HtmlRenderer(out, 0, bounds.max_output, 10, 0, False))
+    Ok(HtmlRenderer(out, 0, bounds.max_output.get(), 10, 0, False))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
 # Does not flush. On failure only the bytes the writer did not accept stay

@@ -23,7 +23,6 @@ pub enum TomlFault:
     InputTooLarge
     OutputTooLarge
     NotATable
-    InvalidLimits
     Stream(StreamError)
     Allocation(AllocError)
 
@@ -37,9 +36,9 @@ pub class TomlError:
     pub column: i64
 
 pub class Limits:
-    pub max_depth: i64
-    pub max_input: i64
-    pub max_output: i64
+    pub max_depth: NonNegative[i64]
+    pub max_input: NonNegative[i64]
+    pub max_output: NonNegative[i64]
 
 pub enum DateTimeKind:
     OffsetDateTime
@@ -74,10 +73,10 @@ pub class Entry:
     pub value: Toml
 
 # Writer recursion over a tree is bounded by the depth limit, so the limit
-# itself is capped to keep that recursion within the native stack.
+# itself is capped to keep that recursion within the native stack; a larger
+# `max_depth` traps.
 const depth_ceiling: i64 = 1024
 const read_chunk: i64 = 4096
-const default_size: i64 = 67108864
 
 const kind_value: i64 = 0
 const kind_table: i64 = 1
@@ -91,11 +90,13 @@ const origin_header: i64 = 2
 const origin_dotted: i64 = 3
 const origin_inline: i64 = 4
 
+# 64 MiB of input and of output.
 pub def limits() -> Limits:
-    Limits(64, default_size, default_size)
+    Limits(64, 67108864, 67108864)
 
-def valid(bounds: &Limits) -> bool:
-    bounds.max_depth >= 0 and bounds.max_depth <= depth_ceiling and bounds.max_input >= 0 and bounds.max_output >= 0
+def check_depth(bounds: &Limits) -> ():
+    if bounds.max_depth.get() > depth_ceiling:
+        __trap("std.toml: max_depth is above 1024")
 
 def faulted[T](result: Result[T, BytesError]) -> Result[T, TomlFault]:
     match result:
@@ -924,13 +925,13 @@ def parser(source: Bytes, bounds: &Limits) -> Result[Parser, TomlFault]:
     comment_stop = control_bytes(-1, -1)?
     numeric = numeric_bytes()?
     statements = reserved(list[Statement]())?
-    Ok(Parser(source, 0, nodes, index, 0, bounds.max_depth, scratch, bare, basic_stop, literal_stop, comment_stop, numeric, False, statements, 0))
+    Ok(Parser(source, 0, nodes, index, 0, bounds.max_depth.get(), scratch, bare, basic_stop, literal_stop, comment_stop, numeric, False, statements, 0))
 
 # Parses one document held in `source`, which the parser owns.
 def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
     count = source.len()
-    if count > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    if count > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     mut state = started(parser(source, bounds))?
     valid_end = state.src.utf8_run(0, count)
     if valid_end != count:
@@ -950,28 +951,25 @@ def run(source: Bytes, bounds: &Limits) -> Result[Toml, TomlError]:
             Err(state.located(fault))
 
 pub def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if len(source) > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    check_depth(bounds)
+    if len(source) > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     run(started(reserved(std.bytes.from_bytes(source)))?, bounds)
 
 pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if text.byte_len() > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    check_depth(bounds)
+    if text.byte_len() > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     run(started(reserved(std.bytes.from_text(text)))?, bounds)
 
 # Reads `reader` to end of input, then parses. One byte past `max_input` is
 # enough to tell a full document from an oversized one.
 pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
+    check_depth(bounds)
     mut data = unplaced(reserved(std.bytes.empty()))?
     while True:
         have = data.len()
-        mut room = bounds.max_input - have
+        mut room = bounds.max_input.get() - have
         if room < read_chunk:
             room += 1
         else:
@@ -989,8 +987,8 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
                 data.truncate(have + count)
                 if count == 0:
                     break
-                if data.len() > bounds.max_input:
-                    return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+                if data.len() > bounds.max_input.get():
+                    return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
             case Err(cause):
                 data.truncate(have)
                 match cause:
@@ -1363,12 +1361,11 @@ def emitter(bounds: &Limits) -> Result[Emitter, TomlFault]:
     # Longer than any i64 spelling.
     mut spelling = reserved(std.bytes.with_capacity(32))?
     reserved(spelling.resize(32, 0u8))?
-    Ok(Emitter(out, path, bare, escaped, spelling, bounds.max_depth, bounds.max_output))
+    Ok(Emitter(out, path, bare, escaped, spelling, bounds.max_depth.get(), bounds.max_output.get()))
 
 # The root must be a table. Errors carry the bytes produced so far.
 pub def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
+    check_depth(bounds)
     match value:
         case Toml.Table(entries):
             mut target = unplaced(emitter(bounds))?
@@ -1607,10 +1604,9 @@ def document_without(state: &Parser, node: i64, bounds: &Limits) -> Result[Bytes
     target.take()
 
 def document_state(source: Bytes, bounds: &Limits) -> Result[Parser, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if source.len() > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    check_depth(bounds)
+    if source.len() > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     mut state = started(parser(source, bounds))?
     state.tracking = True
     count = state.src.len()
@@ -1625,17 +1621,15 @@ def document_state(source: Bytes, bounds: &Limits) -> Result[Parser, TomlError]:
             Err(state.located(fault))
 
 pub def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if len(source) > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    check_depth(bounds)
+    if len(source) > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     state = document_state(started(reserved(std.bytes.from_bytes(source)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
 
 pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:
-    if not valid(bounds):
-        return Err(TomlError(TomlFault.InvalidLimits, 0, 0, 0))
-    if text.byte_len() > bounds.max_input:
-        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input, 0, 0))
+    check_depth(bounds)
+    if text.byte_len() > bounds.max_input.get():
+        return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     state = document_state(started(reserved(std.bytes.from_text(text)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))

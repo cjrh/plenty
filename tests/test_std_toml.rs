@@ -727,31 +727,25 @@ fn nesting_and_input_size_are_bounded() {
 }
 
 #[test]
-fn invalid_limits_are_rejected_before_any_work() {
-    native(
-        r#"
-value = std.toml.parse_text("a = 1", &std.toml.limits())?
-for which in range(4):
-    mut bounds = std.toml.limits()
-    if which == 0:
-        bounds.max_depth = -1
-    elif which == 1:
-        bounds.max_depth = 1025
-    elif which == 2:
-        bounds.max_input = -1
-    else:
-        bounds.max_output = -1
-    source = std.bytes.from_text("a = 1")?
-    mut reader = Trickle(source.copy()?, 0, 2)
-    print(described(std.toml.parse(&source, &bounds))?, described(std.toml.parse_text("a = 1", &bounds))?, described(std.toml.read_value(&mut reader, &bounds))?, encoded(&value, &bounds)?)?
-"#,
-        r#"
-InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0
-InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0
-InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0
-InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0 InvalidLimits 0 0 0
-"#,
-    );
+fn a_depth_limit_above_the_ceiling_traps() {
+    for call in [
+        "drop(std.toml.parse_text(\"a = 1\", &bounds))",
+        "drop(std.toml.encode(&Toml.Table(list[Entry]()?), &bounds))",
+    ] {
+        let body = format!("mut bounds = std.toml.limits()\nbounds.max_depth = 1025\n{call}");
+        support::assert_file_traps(&program(&body), "std.toml: max_depth is above 1024");
+    }
+}
+
+#[test]
+fn negative_limits_are_compile_errors() {
+    // The fields are `NonNegative[i64]`, so the old `InvalidLimits` cases cannot be written.
+    for field in ["max_depth", "max_input", "max_output"] {
+        let error = support::check_file_error(&program(&format!(
+            "mut bounds = std.toml.limits()\nbounds.{field} = -1"
+        )));
+        assert!(error.contains("cannot be negative"), "{error}");
+    }
 }
 
 #[test]
@@ -836,10 +830,12 @@ mut outer = list[Entry]()?
 outer.append(Entry("t", Toml.Table(twice)))?
 print(encoded(&Toml.Table(outer), &bounds)?)?
 source = std.toml.parse_text("a = 'abcdefgh'\n[b]\nc = [[1]]", &bounds)?
-for limit in [0, 5, 29, 30]?:
+sizes: list[NonNegative[i64]] = [0, 5, 29, 30]?
+for limit in sizes:
     bounds.max_output = limit
     print(encoded(&source, &bounds)?)?
-for depth in [3, 2, 1, 0]?:
+depths: list[NonNegative[i64]] = [3, 2, 1, 0]?
+for depth in depths:
     bounds.max_depth = depth
     print(encoded(&source, &bounds)?)?
 "#,
