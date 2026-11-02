@@ -503,14 +503,14 @@ impl Function<'_> {
                     stack.push(b);
                     stack.push(a);
                 }
-                Op::Add | Op::Sub | Op::Mul | Op::FloorDiv | Op::Modulo => {
+                Op::Add | Op::Sub | Op::Mul | Op::FloorDiv(_) | Op::Modulo(_) => {
                     let b = self.pop(stack)?;
                     let a = self.pop(stack)?;
                     let method = match op {
                         Op::Add => "add",
                         Op::Sub => "sub",
                         Op::Mul => "mul",
-                        Op::FloorDiv => "floor_div",
+                        Op::FloorDiv(_) => "floor_div",
                         _ => "modulo",
                     };
                     let expr = if self.options.helpers {

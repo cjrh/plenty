@@ -430,6 +430,20 @@ impl TypeAliases {
                 Ok(ty)
             })
             .collect::<Result<Vec<_>>>()?;
+        if let Some(domain) = crate::op::IntegerDomain::named(name)
+            && domain != crate::op::IntegerDomain::NonZero
+            && let [element] = actual.as_slice()
+            && !matches!(element, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
+        {
+            let suggestion = if domain == crate::op::IntegerDomain::Positive {
+                format!("NonZero[{element}]")
+            } else {
+                element.to_string()
+            };
+            return Err(application.at.error(format!(
+                "`{name}` requires a signed integer type; for `{element}`, use `{suggestion}`"
+            )));
+        }
         let key = (name.clone(), actual.clone());
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());

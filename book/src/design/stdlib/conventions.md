@@ -261,8 +261,7 @@ clamp. [Slice views](../language/04-expressions/slices.md#slice-views)
 describe the conversion.
 
 `std.path`, `std.env`, `std.process` and `std.cli` carry operating-system
-strings as `list[u8]` (B39). `std.dataframe.lit_binary` still takes `&Bytes`
-because its C adapter accepts only lists (issue #657).
+strings as `list[u8]` (B39).
 
 ### Streams
 
@@ -296,8 +295,10 @@ operation that offers a mode by a separate method instead, such as
 | Value fixed by a format or the OS (file size, inode, wire integer) | Its own width |
 | Running statistics counter | `u64` |
 
-`CuckooFilter.len()` returns `u64`. Builtin `channel(capacity)`,
-`ThreadPoolExecutor(max_workers, queue_capacity)` and timed waits take `u64`.
+Fixed positive builtin capacities and worker/chunk counts use `Positive[i64]`:
+`channel(capacity)`, `ThreadPoolExecutor(max_workers, queue_capacity)` and
+`.par(pool, chunks=...)`. `CuckooFilter.len()` returns `u64`; low-level timed
+waits still take `u64` milliseconds.
 
 ## Formatting
 
@@ -326,7 +327,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 |---|---|---|
 | Invalid arguments | Builtin policies differ | Issue #629 |
 | Containers | `len()` and `in` reject std containers | Issue #623 |
-| Bytes | `list[u8]` OS strings; `dataframe.lit_binary(&Bytes)` | B39 |
+| Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |
 | Names | Predicates without `is_`; `count()` as size; `watch` shapes; `new` | Not yet tracked |

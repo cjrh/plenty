@@ -420,3 +420,41 @@ fn dates_and_datetimes_with_real_engine() {
         "dataframe datetime ok\n"
     );
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn binary_literal_has_no_plenty_side_allocation_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("binary literal allocation test requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        r#"
+import std.dataframe as df
+import std.bytes
+
+def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
+    buffer = std.bytes.from_bytes(b"xabcy")?
+    values = [97u8, 98u8, 99u8]?
+    print("__test_begin_no_allocations__")?
+    a = df.lit_binary(b"abc")?
+    b = df.lit_binary(&buffer[1:4])?
+    c = df.lit_binary(&values)?
+    d = df.lit_binary(b"")?
+    print("__test_end_no_allocations__")?
+    Ok(())
+"#,
+        Some(engine.clone()),
+    )
+    .unwrap();
+    assert_success(
+        Command::new(binary)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+}

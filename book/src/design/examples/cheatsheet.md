@@ -79,6 +79,11 @@ def main() -> Result[(), IoError]:
 3500 True True
 ```
 
+- `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) accept signed integer `T`.
+  Literals convert where expected; computed values use `Positive.try_from(n)?`
+  or `NonNegative.try_from(n)?`. Read with `.get()`; widen a Positive with
+  `NonZero.from(p)` or `NonNegative.from(p)`. See [integer domains](../language/03-types/numbers.md#positive-and-non-negative-integers).
+
 - Arithmetic written in the block and in closures defined there is checked.
   Such closures must stay in the block; named functions, outside closures and
   builtin `sum()` keep their own behavior.

@@ -50,6 +50,15 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`.
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
   and `float`. No implicit numeric widening; cast with `f64(n)`.
+- `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) are signed integer domains.
+  Literals convert where expected; computed values use `try_from(n)?`, failing
+  with `RangeError.OutOfRange`. `.get()` reads `T`. `+` and `*` preserve the
+  domain; subtraction and unary `-` return `T`. Widen a Positive explicitly
+  with `NonZero.from(p)` or `NonNegative.from(p)`.
+- `channel[T](capacity)` and `ThreadPoolExecutor(workers, queue_capacity)`
+  take `Positive[i64]` counts, as does `.par(&pool, chunks=...)`. Positive
+  literals convert; computed counts use `Positive.try_from(count)?`. Channel
+  construction returns `AllocError`; `PoolError` has `Allocation` and `Thread`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
   tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
@@ -82,6 +91,11 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
+- A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
+  `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
+  remains. Signed `MIN // -1` still overflows, or produces `OverflowError[T]`
+  inside `checked:` for a `NonZero` divisor; a `Positive` divisor cannot
+  cause either division failure. A domain dividend still needs `.get()`.
 - No `**`, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an

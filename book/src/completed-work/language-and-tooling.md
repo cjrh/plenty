@@ -277,3 +277,34 @@ or mutable callback arguments can borrow their code addresses. Fallible class
 initializers keep `Result[Class, AllocError]` as their callable result. See
 [function values](../design/language/06-functions/02-function-values.md) and
 [remaining B93 scope](../backlog.md).
+
+## B95: Integer domain types
+
+`Positive[T]` and `NonNegative[T]` for signed integers now provide literal
+conversion, fallible run-time conversion, private construction, `.get()`,
+domain-preserving arithmetic with checked overflow, ordinary comparisons,
+copying, scalar formatting and hashing. Explicit `NonZero.from(positive)` and
+`NonNegative.from(positive)` widen without failure or allocation.
+
+See [integer domains](../design/language/03-types/numbers.md#positive-and-non-negative-integers).
+Plain integer dividends accept `NonZero[T]` and `Positive[T]` divisors for
+`//`, `%` and augmented assignment, preserving floor semantics while omitting
+the zero guard (issue #664). A `NonZero` divisor retains signed division
+overflow handling; a `Positive` divisor also removes the impossible `-1`
+overflow/remainder guard. Checked blocks infer only the remaining failures.
+The [B95 backlog](../backlog.md) retains std migrations.
+
+## B95: Positive concurrency counts
+
+Builtin `channel` capacity, `ThreadPoolExecutor` worker/queue counts and
+parallel pipeline `chunks` now take `Positive[i64]` (issue #665). Literals
+are checked at compile time; computed counts use `Positive.try_from` once.
+Channel construction returns `AllocError`; `PoolError` retains only
+`Allocation(AllocError)` and `Thread(ThreadError)`. Parallel chunks need no
+run-time positivity trap. Existing queue ownership, startup rollback, bounds
+and allocation-failure contracts are preserved.
+
+See [channels](../design/facilities/03-concurrency/channels.md),
+[executors](../design/facilities/03-concurrency/executors.md) and
+[parallel chunks](../design/language/09-iteration/06-pipelines.md).
+Other domain-type API migrations remain [B95](../backlog.md).

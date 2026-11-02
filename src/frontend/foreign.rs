@@ -88,6 +88,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             Argument::Utf8 | Argument::CString => matches!(ty, Ty::Ref(t, false) if **t == Ty::Str),
             Argument::Strided => {
                 matches!(ty, Ty::Ref(t, _) if matches!(t.as_ref(), Ty::List(element) if element.is_numeric()))
+                    || matches!(ty, Ty::View(element, false) if **element == Ty::U8)
             }
         };
         if !valid {

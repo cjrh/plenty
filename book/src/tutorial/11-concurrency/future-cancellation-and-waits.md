@@ -33,7 +33,7 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ChannelError | IoError | PoolError | SubmitError[()]]:
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
         pool.submit(produce, sender).drop_job()?
@@ -64,7 +64,7 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ChannelError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
         future = pool.submit(produce, sender).drop_job()?
@@ -95,7 +95,7 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), ChannelError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender).drop_job()?

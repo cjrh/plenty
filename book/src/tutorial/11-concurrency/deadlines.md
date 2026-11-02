@@ -20,7 +20,7 @@ def collect(inbox: &Receiver[i64], deadline: &Deadline, cancel: &CancellationTok
                 break
     total
 
-def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | ChannelError]:
+def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64]]:
     sender, receiver = channel[i64](4)?
     sender.send(1)?
     sender.send(2)?

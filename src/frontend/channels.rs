@@ -17,8 +17,7 @@ impl Lower<'_> {
         if !message.heap_storable() {
             return Err(ty.at.error("channel messages require a concrete wholly owned type without references or generator frames"));
         }
-        let actual = self.expr_expected(&args[0], Some(Ty::U64), ops)?;
-        self.same(actual, Some(Ty::U64), &args[0].at)?;
+        self.positive_count(&args[0], ops)?;
         let op = ChannelOp::New(message);
         let output = op.signature().1;
         ops.push(Op::Channel(op));

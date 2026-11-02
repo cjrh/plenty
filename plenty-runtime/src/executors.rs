@@ -80,13 +80,11 @@ fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, 
         .unwrap_or_else(|_| crate::fail("poisoned executor mutex"))
 }
 
-/// Tags are PoolError.InvalidSize / Allocation(AllocError) / Thread(ThreadError).
+/// PoolError has Allocation(AllocError) / Thread(ThreadError), one tag bit.
 pub(crate) fn create(count: usize, capacity: usize) -> Result<*mut Pool, u128> {
-    if count == 0 || capacity == 0 {
-        return Err(0);
-    }
+    debug_assert!(count > 0 && capacity > 0);
     let pointer = allocate_pool(count, capacity)
-        .map_err(|e| error_payload(1, aggregates::wrap(0, e as u64)))?;
+        .map_err(|e| aggregates::wrap(aggregates::wrap(0, e as u64), 0))?;
     unsafe {
         for index in 0..count {
             let worker = (*pointer).workers.add(index);
@@ -99,7 +97,7 @@ pub(crate) fn create(count: usize, capacity: usize) -> Result<*mut Pool, u128> {
             if status != 0 {
                 stop(pointer, index, false);
                 plenty_release(pointer.cast());
-                return Err(error_payload(2, aggregates::wrap(status as u128, 0)));
+                return Err(aggregates::wrap(aggregates::wrap(status as u128, 0), 1));
             }
         }
         Ok(pointer)
@@ -513,15 +511,6 @@ unsafe extern "C" fn destroy_job(header: *mut Header) {
         std::ptr::drop_in_place(job);
         memory::free::<Job, u128>(job, words);
     }
-}
-
-/// A parallel pipeline's `chunks=` count below 1.
-#[unsafe(no_mangle)]
-extern "C" fn plenty_trap_par_chunks(count: i64, site: *const crate::Site) -> ! {
-    crate::fail_at(
-        site,
-        format_args!("par chunks must be positive, got chunks={count}"),
-    )
 }
 
 #[unsafe(no_mangle)]

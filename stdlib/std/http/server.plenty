@@ -2148,9 +2148,9 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
     if not valid(config):
         return Err(ServerError.InvalidConfig)
     cancel = allocated(CancellationToken())?
-    (outbox, inbox) = channeled(channel[Job[T]](u64(config.queue)))?
-    (done, reports) = channeled(channel[Report](u64(config.workers)))?
-    (back, returns) = channeled(channel[Job[T]](u64(config.workers + 64)))?
+    (outbox, inbox) = channeled(channel[Job[T]](Positive.try_from(config.queue).unwrap()))?
+    (done, reports) = channeled(channel[Report](Positive.try_from(config.workers).unwrap()))?
+    (back, returns) = channeled(channel[Job[T]](Positive.try_from(config.workers + 64).unwrap()))?
     mut selector = selected(std.ready.selector(64))?
     netted(listener.watch(&mut selector, listener_key))?
     mut wake = netted(std.net.bind_udp(&std.net.loopback_v4(0u16)))?
@@ -2180,11 +2180,5 @@ pub def serve[R, E, H: Handler[TcpStream, R, E]](listener: TcpListener, router: 
 pub def serve_with[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpListener, opener: &O, router: &Router[R], handler: &H, config: &Config, stop: &CancellationToken) -> Result[Report, ServerError]:
     run(listener, opener, router, handler, config, stop)
 
-def channeled[T](result: Result[T, ChannelError]) -> Result[T, ServerError]:
-    match result:
-        case Ok(value):
-            Ok(value)
-        case Err(ChannelError.Allocation(cause)):
-            Err(ServerError.Allocation(cause))
-        case Err(_):
-            Err(ServerError.InvalidConfig)
+def channeled[T](result: Result[T, AllocError]) -> Result[T, ServerError]:
+    result.map_error(ServerError.Allocation)

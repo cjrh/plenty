@@ -83,3 +83,10 @@ int64_t fixture_strided_i8(uint8_t *data, size_t count, size_t stride) {
     }
     return total;
 }
+
+uint64_t fixture_strided_bytes(const uint8_t *data, size_t count, size_t stride) {
+    if (stride != 1) return UINT64_MAX;
+    uint64_t sum = 0;
+    for (size_t i = 0; i < count; ++i) sum += data[i * stride];
+    return sum;
+}

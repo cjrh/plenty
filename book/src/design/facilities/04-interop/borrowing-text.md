@@ -39,7 +39,7 @@ Returned native strings are not implicitly decoded. Returned pointers need an
 independent lifetime. Retained/returned buffer loans and copying arbitrary C
 bytes directly into str are unsupported.
 
-## Strided numeric lists
+## Strided numeric lists and byte views
 
 `&list[T] as strided` and `&mut list[T] as strided`, for primitive numeric
 `T`, pass three C arguments: a data pointer, `size_t len`, and
@@ -58,3 +58,10 @@ sized elements; generated and runtime reads sign-extend narrow signed values
 directly, so mutable views need no post-call normalization pass.
 The optional [dataframe engine](../../stdlib/dataframe.md) uses this adapter
 for bulk transfer.
+
+`&[u8] as strided` uses the same three C arguments with a byte stride of 1.
+It borrows a literal, a `Bytes` buffer, a `list[u8]`, or a subview without
+allocation or copying. The native call may read exactly `len` bytes and must
+not retain the pointer. Empty views must not be dereferenced. Mutable byte
+views and views of other element types are not admitted by this adapter;
+mutable numeric lists retain the contract above.

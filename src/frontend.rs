@@ -34,6 +34,7 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod divisors;
 mod enums;
 mod executors;
 mod files;
@@ -3007,7 +3008,6 @@ fn named_type(name: &str) -> Type {
         "CStrError" => crate::sum::c_str_error(),
         "LoadError" => crate::sum::load_error(),
         "ThreadError" => crate::sum::thread_error(),
-        "ChannelError" => crate::sum::channel_error(),
         "RecvError" => crate::sum::recv_error(),
         "RecvTimeoutError" => crate::sum::recv_timeout_error(),
         "SelectError" => crate::sum::select_error(),
@@ -3118,6 +3118,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "OverflowError"
                 | "ZeroDivisionError"
                 | "NonZero"
+                | "Positive"
+                | "NonNegative"
                 | "set"
                 | "len"
                 | "sorted"
@@ -3651,8 +3653,8 @@ impl Lower<'_> {
             "-" => Op::Sub,
             "*" => Op::Mul,
             "/" => Op::Div,
-            "//" => Op::FloorDiv,
-            "%" => Op::Modulo,
+            "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
+            "%" => Op::Modulo(crate::numeric::Divisor::Any),
             "==" => Op::Eq,
             "!=" => Op::Ne,
             "<" => Op::Lt,
@@ -4627,8 +4629,8 @@ impl Lower<'_> {
                         "-" => Op::Sub,
                         "*" => Op::Mul,
                         "/" => Op::Div,
-                        "//" => Op::FloorDiv,
-                        "%" => Op::Modulo,
+                        "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
+                        "%" => Op::Modulo(crate::numeric::Divisor::Any),
                         "==" => Op::Eq,
                         "!=" => Op::Ne,
                         "<" => Op::Lt,

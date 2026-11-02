@@ -76,8 +76,8 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                     | Op::Sub
                     | Op::Mul
                     | Op::Div
-                    | Op::FloorDiv
-                    | Op::Modulo
+                    | Op::FloorDiv(_)
+                    | Op::Modulo(_)
                     | Op::FloatNeg
                     | Op::Integer(_)
                     | Op::Eq

@@ -500,7 +500,7 @@ class LruCache[K, V]
 
 Bounded channels, endpoints and selection. Errors: Channel/send/receive/selection errors. [Reference](channel.md).
 
-Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
+Compiler-provided: `channel`, `Sender`, `Receiver`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
 
 ## `std.cli`
 
@@ -1000,7 +1000,7 @@ def lit(value: f64) -> Result[Expr, DataFrameError]
 def lit_i64(value: i64) -> Result[Expr, DataFrameError]
 def lit_str(value: &str) -> Result[Expr, DataFrameError]
 def lit_bool(value: bool) -> Result[Expr, DataFrameError]
-def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]
+def lit_binary(value: &[u8]) -> Result[Expr, DataFrameError]
 def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]
 def null_f64() -> Result[Expr, DataFrameError]
 def scan_parquet(path: &str) -> Result[Query, DataFrameError]

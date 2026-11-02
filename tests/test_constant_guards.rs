@@ -329,3 +329,71 @@ fn constant_false_guards_emit_no_branch() {
         }
     }
 }
+
+#[test]
+fn nonzero_divisors_remove_only_the_zero_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = String::new();
+    for (ty, _, _) in TYPES {
+        source += &format!(
+            "def q_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n // d\n\ndef r_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n % d\n\n"
+        );
+    }
+    for ty in ["i8", "i16", "i32", "i64"] {
+        source += &format!(
+            "def pq_{ty}(n: {ty}, d: Positive[{ty}]) -> {ty}:\n    n // d\n\ndef pr_{ty}(n: {ty}, d: Positive[{ty}]) -> {ty}:\n    n % d\n\ndef pn_{ty}(d: Positive[{ty}]) -> {ty}:\n    7 // d\n\n"
+        );
+    }
+    source += "def main() -> ():\n    pass\n";
+    std::fs::write(dir.path().join("domain.plenty"), source).unwrap();
+    for mode in [&[][..], &["--release"][..]] {
+        let mut args = mode.to_vec();
+        // The asm listing decodes emitted object bytes and resolves relocation
+        // targets, so it also protects guard removal in final native code.
+        args.extend(["--dump", "clif,clif-opt,asm", "domain.plenty", "-o", "out"]);
+        stdout(plenty(dir.path(), &args));
+        for stage in ["clif.txt", "clif-opt.txt", "asm.txt"] {
+            for ty in ["i8", "i16", "i32", "i64"] {
+                for op in ["pq", "pr", "pn"] {
+                    let name = format!("{op}_{ty}");
+                    let body = section(dir.path(), stage, &name);
+                    assert!(
+                        !body.contains("plenty_trap"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    assert!(
+                        !body.contains(".get") && !body.contains("plenty_caller_enter"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    if op == "pn" && stage != "asm.txt" {
+                        assert!(
+                            body.contains("udiv")
+                                && !body.contains("sdiv")
+                                && !body.contains("srem"),
+                            "{mode:?} {stage} {name}:\n{body}"
+                        );
+                    }
+                }
+            }
+            for (ty, _, signed) in TYPES {
+                for op in ["q", "r"] {
+                    let name = format!("{op}_{ty}");
+                    let body = section(dir.path(), stage, &name);
+                    assert!(
+                        !body.contains(".get") && !body.contains("plenty_caller_enter"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    assert!(
+                        !body.contains("plenty_trap_div_zero"),
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                    assert_eq!(
+                        body.contains("plenty_trap_overflow"),
+                        signed && op == "q",
+                        "{mode:?} {stage} {name}:\n{body}"
+                    );
+                }
+            }
+        }
+    }
+}

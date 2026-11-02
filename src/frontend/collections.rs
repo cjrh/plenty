@@ -272,10 +272,7 @@ impl Lower<'_> {
         }
         // Keep the shared loan through RHS evaluation: it permits observation
         // but prevents replacing or resizing the owner behind the saved path.
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         let result = self.slot(ty.clone(), &target.at)?;
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));
@@ -317,10 +314,7 @@ impl Lower<'_> {
         }
         ops.push(Op::Dup);
         ops.push(Op::ReadRef(ty.clone()));
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
         ops.push(Op::Swap);
         ops.push(Op::WriteRef(ty));
@@ -369,10 +363,7 @@ impl Lower<'_> {
         let read = self.new_loan(slot, false, None, ops);
         let current = self.expr(target, ops)?;
         self.same(current, Some(ty.clone()), &target.at)?;
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty, &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         ops.push(Op::UseLoan(read));
         self.mark(&target.at, ops);
         ops.push(Op::StoreLocal(slot));
@@ -1001,7 +992,7 @@ impl Lower<'_> {
             Expression::Number(n)
                 if expected
                     .as_ref()
-                    .is_some_and(|ty| ty.nonzero_element().is_some())
+                    .is_some_and(|ty| ty.domain_element().is_some())
                     && !numeric_suffix(n)
                     && !n.contains(['.', 'e', 'E']) =>
             {
@@ -1011,7 +1002,7 @@ impl Lower<'_> {
                 if op == "-"
                     && expected
                         .as_ref()
-                        .is_some_and(|ty| ty.nonzero_element().is_some())
+                        .is_some_and(|ty| ty.domain_element().is_some())
                     && matches!(&ungroup(inner).kind, Expression::Number(n)
                         if !numeric_suffix(n) && !n.contains(['.', 'e', 'E'])) =>
             {
@@ -3156,16 +3147,25 @@ impl Lower<'_> {
                 return Ok(result);
             }
         }
-        if name == "try_from"
-            && matches!(&base.kind, Expression::Name(n) if n == nonzero::CLASS && !self.names.contains_key(n))
+        if let Expression::Name(n) = &base.kind
+            && !self.names.contains_key(n)
+            && let Some(domain) = crate::op::IntegerDomain::named(n)
         {
-            return self.nonzero_try_from(None, args, &base.at, ops);
+            if name == "try_from" {
+                return self.domain_try_from(domain, None, args, &base.at, ops);
+            }
+            if name == "from" && domain != crate::op::IntegerDomain::Positive {
+                return self.domain_from_positive(domain, None, args, &base.at, ops);
+            }
         }
         if let Some(ty) = self.qualified_type(base)? {
-            if let Some(element) = ty.nonzero_element()
-                && name == "try_from"
-            {
-                return self.nonzero_try_from(Some(element), args, &base.at, ops);
+            if let Some((domain, element)) = ty.integer_domain() {
+                if name == "try_from" {
+                    return self.domain_try_from(domain, Some(element), args, &base.at, ops);
+                }
+                if name == "from" && domain != crate::op::IntegerDomain::Positive {
+                    return self.domain_from_positive(domain, Some(element), args, &base.at, ops);
+                }
             }
             if matches!(ty, Ty::Clist(_)) {
                 self.check_clist_access(&ty, &base.at)?;
@@ -3252,13 +3252,13 @@ impl Lower<'_> {
                 }
                 let (mut source, loans) = self.observe(&args[0], ops)?;
                 if let Ty::Ref(inner, _) = &source
-                    && inner.nonzero_element().is_some()
+                    && inner.domain_element().is_some()
                 {
                     let inner = (**inner).clone();
                     ops.push(Op::ReadRef(inner.clone()));
                     source = inner;
                 }
-                if let (Some(element), Ty::Class(class)) = (source.nonzero_element(), &source) {
+                if let (Some(element), Ty::Class(class)) = (source.domain_element(), &source) {
                     ops.push(Op::Class(crate::record::ClassOp::Field(class.clone(), 0)));
                     source = element;
                 }

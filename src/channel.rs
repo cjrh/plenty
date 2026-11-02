@@ -23,13 +23,13 @@ impl ChannelOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         match self {
             Self::New(t) => (
-                vec![Ty::U64],
+                vec![Ty::I64],
                 crate::sum::result(
                     crate::sum::tuple(vec![
                         Ty::Channel(Arc::new(t.clone()), true),
                         Ty::Channel(Arc::new(t.clone()), false),
                     ]),
-                    crate::sum::channel_error(),
+                    crate::sum::alloc_error(),
                 ),
             ),
             Self::Send(t, _) => (

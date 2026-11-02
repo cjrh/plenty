@@ -1,6 +1,7 @@
 # Positive and NonNegative integer domain types
 
-**Status: Accepted design, not implemented.** No backlog item yet; it proposes B95,
+**Status: Language types implemented; API migrations remain B95.** The delivered
+language subset is recorded in [B95](../completed-work/language-and-tooling.md#b95-integer-domain-types),
 related to B92. The [numbers reference](../design/language/03-types/numbers.md#nonzero-integers)
 defines `NonZero[T]`, the model for this design, and the
 [std conventions](../design/stdlib/conventions.md#invalid-arguments) define the
@@ -408,8 +409,9 @@ def configured(settings: &Settings) -> Result[Positive[i64], AppError]:
 3. Group B, module by module; each module's page and tests change together.
 4. Group C, whose ceilings change from `Err` to traps in the same step, so
    each module changes once.
-5. Later: `//` and `%` by a `NonZero` or `Positive` divisor without the
-   zero check (issue #664).
+5. Delivered in issue #664: `//` and `%` with a plain integer dividend and a
+   `NonZero` or `Positive` divisor, without the zero check. See
+   [nonzero arithmetic](../design/language/03-types/numbers.md#nonzero-integers).
 
 PR #804 merges first; this work changes the same std error types.
 
@@ -425,10 +427,11 @@ Decided 2026-11-01, on review of local PR #812.
    convention. Tracked as issue #665, in phase 2.
 3. **Widening is explicit**: `NonZero.from(p)` and `NonNegative.from(p)`.
    There is no implicit widening.
-4. **Division by a domain value is a later addition.** For now `//` and `%`
-   reject `Positive` and `NonZero` operands, as `NonZero` does today, and the
-   caller writes `.get()`. Accepting `T // NonZero[T]` and `T // Positive[T]`
-   with result `T`, and omitting the zero check, is tracked as issue #664.
+4. **Division by a domain divisor is delivered** (issue #664).
+   `T // NonZero[T]`, `T % NonZero[T]`, `T // Positive[T]` and
+   `T % Positive[T]` return `T` without a zero check, including augmented
+   assignment. A domain dividend still requires `.get()`; `Positive` also
+   rules out the signed `MIN // -1` overflow case.
 5. **`len()` does not convert.** It stays `i64`, and a length becomes a
    limit through `NonNegative.try_from`. This can be reopened if call sites
    show friction.

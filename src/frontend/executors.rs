@@ -50,8 +50,7 @@ impl Lower<'_> {
             );
         }
         for arg in args {
-            let actual = self.expr_expected(arg, Some(Ty::U64), ops)?;
-            self.same(actual, Some(Ty::U64), &arg.at)?;
+            self.positive_count(arg, ops)?;
         }
         ops.push(Op::Executor(ExecutorOp::New));
         Ok(Some(ExecutorOp::New.signature().1))

@@ -4,7 +4,7 @@ Use `send_nowait` when a full queue should return control to the caller. Its
 `Full` error retains your message, so you can retry it after making space.
 
 ```plenty
-type MessageError = RecvError | SendError[list[i64]] | ChannelError
+type MessageError = RecvError | SendError[list[i64]] | AllocError
 
 def main() -> Result[(), AllocError | IoError | MessageError]:
     sender, receiver = channel[list[i64]](1)?
@@ -40,12 +40,12 @@ def produce(sender: Sender[i64]) -> Result[(), AllocError | IoError | SendError[
         sender.send(n * n)?
     Ok(())
 
-def first_square() -> Result[i64, SpawnError[()] | ChannelError | RecvError]:
+def first_square() -> Result[i64, SpawnError[()] | AllocError | RecvError]:
     sender, receiver = channel[i64](1)?
     with spawn(produce, sender).drop_job()?, receiver as inbox:
         return Ok(inbox.recv()?)
 
-def main() -> Result[(), SpawnError[()] | ChannelError | RecvError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | RecvError | IoError]:
     print(first_square()?)?
     Ok(())
 ```
@@ -57,3 +57,8 @@ def main() -> Result[(), SpawnError[()] | ChannelError | RecvError | IoError]:
 Returning drops the receiver first. The producer's next send reports
 disconnection; its `?` ends the worker. The task scope then joins it and discards
 its unclaimed result.
+
+Channel capacity has type `Positive[i64]`. A positive literal converts at
+compile time; for configuration read at run time, pass
+`Positive.try_from(capacity)?`. Construction then reports only allocation
+failure. See [integer domains](../../design/language/03-types/numbers.md#positive-and-non-negative-integers).
