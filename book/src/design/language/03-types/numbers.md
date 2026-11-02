@@ -297,7 +297,9 @@ Both are builtin names and cannot be redefined.
 
 An unsuffixed integer literal converts where the domain type is expected,
 including parameters, defaults, fields, returns and collection elements.
-An out-of-domain literal is a compile-time error. A computed integer converts
+An out-of-domain literal is a compile-time error. A
+[module constant](../02-source/modules.md#constants) may have a domain type;
+its value is checked the same way. A computed integer converts
 with `Positive.try_from(value)` or `NonNegative.try_from(value)`, returning
 `Result[Domain[T], RangeError]`; invalid values give `RangeError.OutOfRange`.
 The qualified forms `Positive[T].try_from` and `NonNegative[T].try_from`

@@ -74,8 +74,9 @@ symbol. Item and module aliases retain the same types and compiler safety checks
 ## Constants
 
 `const name: T = value` declares an immutable value at module scope;
-`pub const` exports it. `T` must be a concrete integer or float type, `bool`,
-`str`, or `bytes`. The compiler evaluates the initializer, a constant
+`pub const` exports it. `T` must be a concrete integer or float type, an
+[integer domain](../03-types/numbers.md#positive-and-non-negative-integers)
+such as `Positive[i64]`, `bool`, `str`, or `bytes`. The compiler evaluates the initializer, a constant
 expression, and each read uses the result:
 
 ```plenty
@@ -121,6 +122,29 @@ selected branch, and `and` and `or` evaluate their right operand only when it
 decides the result; the other operand is still type-checked, so
 `1 if D == 0 else 100 // D` is valid when `D` is zero. A cycle
 is reported with its path, for example `constant A depends on itself: A -> B -> A`.
+
+An integer domain constant (`NonZero[T]`, `Positive[T]` or `NonNegative[T]`)
+evaluates its initializer as `T`, and a value outside the domain is a compile
+error. Each read is the domain value, as if the literal were written there.
+Another initializer reads its integer with `.get()`, or names it alone as the
+whole initializer of a constant of the same type:
+
+```plenty
+const MAX_URL: NonNegative[i64] = 8192
+const PAGE: Positive[i64] = MAX_URL.get() // 64
+const FIRST: Positive[i64] = PAGE
+assert PAGE.get() <= 1024
+
+def pages(size: Positive[i64] = PAGE) -> i64:
+    MAX_URL.get() // size.get()
+
+def main() -> Result[(), IoError]:
+    print(pages(), pages(FIRST), MAX_URL)?
+    Ok(())
+```
+```output
+64 64 8192
+```
 
 ### Static assertions
 
@@ -179,7 +203,7 @@ Constant names share the declaration namespace with functions and types.
 
 Constants require no module initialization or allocation. Each read of a
 numeric or `bool` constant compiles to an immediate of the constant's declared
-type, and each read of a `str` or `bytes` constant to a reference to read-only
+type (an integer domain constant's immediate is converted as a literal is), and each read of a `str` or `bytes` constant to a reference to read-only
 data, in debug and release builds; there is no getter function, global
 storage, or code run at import time. See
 [call-site substitution](../../toolchain/02-architecture/emission.md#call-site-substitution).

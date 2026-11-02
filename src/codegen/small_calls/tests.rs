@@ -99,6 +99,39 @@ fn constants_become_typed_literals_and_their_getters_are_removed() {
     }
 }
 
+#[test]
+fn domain_constants_become_their_literal_and_constructor() {
+    // Issue #685: a read lowers as a literal argument does.
+    let source = "\
+const page: Positive[i64] = 7
+def take(n: Positive[i64]) -> i64:
+    n.get()
+def main() -> ():
+    take(5)
+    take(page)
+    ()
+";
+    for optimize in [false, true] {
+        let ops = substituted(source, optimize);
+        let main = function(&ops, "main").unwrap();
+        assert!(
+            calls(&main.body).iter().all(|c| !c.starts_with("$const.")),
+            "{:?}",
+            main.body
+        );
+        let body: Vec<_> = main.body.iter().filter(|op| !marker(op)).collect();
+        let new = crate::record::method("Positive[i64]", "new");
+        assert!(
+            body.windows(2).any(|pair| matches!(
+                pair,
+                [Op::PushInt(Value::I64(7)), Op::Call(name)] if *name == new
+            )),
+            "{body:?}"
+        );
+        assert!(function(&ops, "$const.page").is_none(), "getter remains");
+    }
+}
+
 const PREDICATES: &str = "\
 const space: u8 = 32
 const tab: u8 = 9

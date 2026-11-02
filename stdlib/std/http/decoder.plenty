@@ -12,9 +12,7 @@ from std.io import StreamError
 # the number of calls made per event-loop turn.
 pub const feed_budget: i64 = 4096
 
-# feed_budget as a buffer capacity; module constants cannot carry the type.
-def feed_capacity() -> Positive[i64]:
-    4096
+const feed_capacity: Positive[i64] = feed_budget
 
 pub enum Event:
     Head(RequestHead, RequestTarget, Framing)
@@ -88,7 +86,7 @@ pub class Decoder:
             # line is followed by EOF before the final empty line.
             mut raw = allocated(self._section.copy())?
             allocated(raw.extend(&self._line))?
-            mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_capacity()))?
+            mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_capacity))?
             drop(std.http.read_request(&mut reader, &self._limits)?)
         elif prior == trailers:
             drop(self.parsed_trailers()?)
@@ -223,7 +221,7 @@ pub class Decoder:
 
     def parsed_head(self: &mut Decoder) -> Result[Event, HttpError]:
         raw = replace(self._section, allocated(std.bytes.empty())?)
-        mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_capacity()))?
+        mut reader = streamed(std.io.buffered_reader(std.io.cursor(raw), feed_capacity))?
         request = std.http.read_request(&mut reader, &self._limits)?.ok_or(HttpError.Truncated)?
         framing = std.http.request_framing(&request)?
         match &framing:

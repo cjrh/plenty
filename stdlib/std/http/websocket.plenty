@@ -99,9 +99,7 @@ const state_failed: i64 = 3
 # Bytes read or copied at a time.
 const chunk: i64 = 4096
 
-# chunk as a buffer capacity; module constants cannot carry the type.
-def chunk_capacity() -> Positive[i64]:
-    4096
+const chunk_capacity: Positive[i64] = chunk
 
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, WebSocketError]:
@@ -771,8 +769,7 @@ pub class Target:
     _authority: str
     _resource: str
 
-def max_url() -> NonNegative[i64]:
-    8192
+const max_url: NonNegative[i64] = 8192
 
 def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
     match result:
@@ -788,7 +785,7 @@ def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
 # Parses a `ws://` or `wss://` URL. URLs with credentials or a fragment are
 # rejected (RFC 6455 section 3).
 pub def target(url: &str) -> Result[Target, WebSocketError]:
-    parsed = url_of(std.url.parse(url, max_url()))?
+    parsed = url_of(std.url.parse(url, max_url))?
     scheme = allocated(parsed.scheme.lower())?
     if scheme != "ws" and scheme != "wss":
         return Err(WebSocketError.UnsupportedScheme)
@@ -892,7 +889,7 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
             return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
         at += written
     wire = Wire(Some(owned), until_of(deadline), cancel.share(), Nothing)
-    mut reader = match std.io.buffered_reader(wire, chunk_capacity()):
+    mut reader = match std.io.buffered_reader(wire, chunk_capacity):
         case Ok(made):
             made
         case Err(StreamError.Allocation(cause)):

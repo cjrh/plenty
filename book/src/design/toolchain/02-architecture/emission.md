@@ -235,8 +235,10 @@ call with the callee's operations (issue #363):
 
 - **Constants.** A read of a module `const` becomes a literal of the
   constant's declared type, so width, sign and float bits are those of the
-  declaration. This happens in every build, and the constant has no function
-  in the object.
+  declaration. An integer domain constant such as `Positive[i64]` becomes
+  its literal and the domain's constructor call, as a literal argument
+  lowers. This happens in every build, and the constant has no function in
+  the object.
 - **Leaf predicates**, in release builds only. A function whose parameters
   and result are numbers or `bool`, with no locals, and whose body is at most
   12 operations drawn from parameter reads, literals, constants, comparisons,

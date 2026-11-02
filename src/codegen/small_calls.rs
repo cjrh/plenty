@@ -4,7 +4,10 @@
 //!   `str`, or `bytes` literal. Every module `const` lowers to one (`$const.NAME`), and each
 //!   read of the constant to a call of it. Calls to a constant become its
 //!   literal, with the literal's own type, so the width, sign and float bits
-//!   are those of the declaration. Constant getters are then unreferenced
+//!   are those of the declaration. An integer domain constant such as
+//!   `Positive[i64]` returns its checked literal through the domain's
+//!   constructor; a read becomes that literal and constructor call, as a
+//!   literal argument lowers. Constant getters are then unreferenced
 //!   (the resolver lets a constant be used only as a value) and are removed.
 //! - A *leaf predicate* takes scalar parameters, returns one scalar and
 //!   computes it with comparisons, boolean operators and literal matches only:
@@ -85,14 +88,39 @@ fn definitions<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a str, &'a CompiledFn
 
 fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
     definitions(ops, &mut |name, f| {
+        let domain = match f.sig.outputs.as_slice() {
+            [ty @ Ty::Class(class)] if ty.integer_domain().is_some() => {
+                Some(crate::record::method(&class.name, "new"))
+            }
+            _ => None,
+        };
         if !f.sig.inputs.is_empty()
             || f.generator.is_some()
             || !f.locals.is_empty()
-            || !matches!(f.sig.outputs.as_slice(), [ty] if scalar(ty) || matches!(ty, Ty::Str | Ty::ByteStr))
+            || !(domain.is_some()
+                || matches!(f.sig.outputs.as_slice(), [ty] if scalar(ty) || matches!(ty, Ty::Str | Ty::ByteStr)))
         {
             return;
         }
         let body: Vec<&Op> = f.body.iter().filter(|op| !marker(op)).collect();
+        if let Some(new) = domain {
+            // Domain constructors cannot trap; the frontend checked the literal.
+            if let [
+                value @ Op::PushInt(_),
+                Op::Call(called) | Op::TailCall(called),
+            ] = body.as_slice()
+                && *called == new
+            {
+                callees.insert(
+                    name.to_string(),
+                    Callee {
+                        params: vec![],
+                        body: vec![(*value).clone(), Op::Call(new)],
+                    },
+                );
+            }
+            return;
+        }
         let value = match body.as_slice() {
             [value] if literal(value) => (*value).clone(),
             // String and byte literals are immortal read-only data, so a read
@@ -166,7 +194,10 @@ fn pure(
         }
         body.push(match op {
             Op::LoadLocal(i) if (*i as usize) < params => op.clone(),
-            Op::Call(name) => constants.get(name)?.body[0].clone(),
+            Op::Call(name) => match constants.get(name)?.body.as_slice() {
+                [value] => value.clone(),
+                _ => return None,
+            },
             Op::Match(arms) => {
                 let mut rebuilt = Vec::with_capacity(arms.len());
                 for arm in arms.iter() {

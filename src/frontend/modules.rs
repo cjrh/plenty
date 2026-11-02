@@ -415,11 +415,19 @@ impl Parser {
         self.expect(":")?;
         let output = self.ty()?;
         let type_name = output.name.as_deref().unwrap_or_default();
-        if !output.args.is_empty()
-            || !(numeric_type_name(type_name) || matches!(type_name, "bool" | "str" | "bytes"))
+        // `NonZero[T]`, `Positive[T]` and `NonNegative[T]` fold as `T`;
+        // resolution rejects an element type the domain does not admit.
+        let domain = crate::op::IntegerDomain::named(type_name).is_some()
+            && matches!(output.args.as_slice(), [element]
+                if element.args.is_empty()
+                    && element.name.as_deref().is_some_and(numeric_type_name)
+                    && !element.name.as_deref().is_some_and(|n| n.starts_with('f')));
+        if !domain
+            && (!output.args.is_empty()
+                || !(numeric_type_name(type_name) || matches!(type_name, "bool" | "str" | "bytes")))
         {
             return Err(output.at.error(
-                "module constants require a concrete numeric type, `bool`, `str`, or `bytes`",
+                "module constants require a concrete numeric type, an integer domain such as `Positive[i64]`, `bool`, `str`, or `bytes`",
             ));
         }
         self.expect("=")?;

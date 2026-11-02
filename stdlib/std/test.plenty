@@ -26,11 +26,8 @@ pub enum TestError:
 
 # Removal budgets for a scratch directory: beyond them cleanup reports
 # FsError.Limit and leaves the remaining entries in place.
-def max_scratch_entries() -> Positive[i64]:
-    100000
-
-def max_scratch_depth() -> Positive[i64]:
-    64
+const max_scratch_entries: Positive[i64] = 100000
+const max_scratch_depth: Positive[i64] = 64
 
 # Standard error is the report channel; a write that fails cannot be reported
 # anywhere, so it is dropped. Several small writes need no allocation.
@@ -199,7 +196,7 @@ pub class Scratch:
         if not self._active:
             return Ok(())
         token = allocated(CancellationToken())?
-        fixture(std.fs.remove_tree(&self._parent, self._directory.name(), max_scratch_entries(), max_scratch_depth(), &token))?
+        fixture(std.fs.remove_tree(&self._parent, self._directory.name(), max_scratch_entries, max_scratch_depth, &token))?
         self._directory.keep()
         self._active = False
         Ok(())

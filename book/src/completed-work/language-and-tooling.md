@@ -420,9 +420,9 @@ argument. `std.actor.net.connection` returns `AllocError`. The
 for new APIs.
 
 `std.http.Limits.max_line`/`max_head` (`>= 2`) stay `i64` until `Bounded`
-(B96). Domain-typed module constants (issue #685) and compile-time rejection
-of literals above a ceiling (issue #686) remain open; std uses private getter
-functions for constant limits.
+(B96). Compile-time rejection of literals above a ceiling (issue #686)
+remains open. Std first used private getter functions for constant limits;
+domain-typed module constants (issue #685) replaced them.
 
 ## Local dictionary views
 
