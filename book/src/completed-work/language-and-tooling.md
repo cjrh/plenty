@@ -132,6 +132,14 @@ through automatic paths, including std secret-bearing types (issue #586).
 See [numbers](../design/language/03-types/numbers.md),
 [text escapes](../design/facilities/01-builtins/text.md#escapes) and
 [redacted types](../design/language/03-types/classes.md#redacted-types).
+Recursive tuple match patterns and nested tuple unpacking in declarations,
+assignments, loops, comprehensions and generator-expression targets shipped
+(issue #675). Product coverage,
+affine cleanup and borrowed component loans use the existing pattern and tuple
+machinery. Guards, general aliases and starred targets remain unsupported; see
+[matching](../design/language/04-expressions/matching.md#tuple-patterns) and
+[tuples](../design/language/03-types/tuples.md).
+
 Remaining inference/value candidates stay **B16** in the [backlog](../backlog.md).
 
 ## B17: Tooling and packaging

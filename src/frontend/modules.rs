@@ -1761,10 +1761,20 @@ impl Scope {
                     self.expr(target, locals)?;
                     self.expr(value, locals)?;
                 }
-                Statement::SetIndex { target, value } => match &mut target.kind {
+                Statement::SetIndex { target, value } => match &mut ungroup_mut(target).kind {
                     Expression::Tuple(targets) => {
                         self.expr(value, locals)?;
-                        for target in targets {
+                        let mut pending = targets.iter_mut().collect::<Vec<_>>();
+                        pending.reverse();
+                        while let Some(target) = pending.pop() {
+                            let target = ungroup_mut(target);
+                            if matches!(target.kind, Expression::Tuple(_)) {
+                                let Expression::Tuple(children) = &mut target.kind else {
+                                    unreachable!()
+                                };
+                                pending.extend(children.iter_mut().rev());
+                                continue;
+                            }
                             // A name target binds as unpacking does, so it must
                             // not resolve to a declaration of the same name.
                             if let Expression::Name(name) = &target.kind {
@@ -2141,7 +2151,7 @@ impl Scope {
                 let mut inner = locals.clone();
                 for clause in clauses {
                     match clause {
-                        Clause::For(n, e) => {
+                        Clause::For(n, e) | Clause::Unpack(n, _, e) => {
                             self.fresh_capture_binding(n.iter(), &e.at)?;
                             self.expr(e, &inner)?;
                             for name in n.iter() {

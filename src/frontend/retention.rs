@@ -333,7 +333,9 @@ fn names_in_expr(e: &Expr, each: &mut impl FnMut(&str)) {
         } => {
             for clause in clauses {
                 match clause {
-                    Clause::For(_, e) | Clause::If(e) => names_in_expr(e, each),
+                    Clause::For(_, e) | Clause::Unpack(_, _, e) | Clause::If(e) => {
+                        names_in_expr(e, each)
+                    }
                 }
             }
             for (k, v) in entries {

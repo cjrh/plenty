@@ -213,7 +213,9 @@ def main() -> Result[(), AllocError | IoError]:
 Tuples allocate nothing. Indices are integer literals; negative ones count from
 the end, so `pair[-1]` is `pair[1]`. There is no `pair[0] = value`, so assign
 through `&mut pair[0]`. Moving an owned component out needs whole-tuple
-unpacking, which is flat only: no nested or starred targets. `match` has no tuple patterns. See
+unpacking, including nested targets such as `(x, y), label = value`.
+Starred targets are unsupported. `match` accepts tuple patterns such as
+`case (Some(a), Some(b)):`. See
 [tuples](../language/03-types/tuples.md) and
 [assignment to several targets](../language/04-expressions/assignment.md#several-targets).
 
@@ -259,8 +261,9 @@ even
 
 A suite's final expression is its value, so `return` is only needed for early
 exits. Conditions must be `bool`; there is no truthiness. Chained comparisons
-and loop `else` are rejected. `match` works on enums, classes, integers, `str`,
-and `bool`, must be exhaustive, and has no guards or tuple patterns. See
+and loop `else` are rejected. `match` works on enums, classes, tuples, integers, `str`,
+and `bool`, must be exhaustive, and has no guards. Tuple patterns nest within
+enum/class payloads and each other. See
 [matching](../language/04-expressions/matching.md) and
 [loops](../language/04-expressions/loops.md).
 

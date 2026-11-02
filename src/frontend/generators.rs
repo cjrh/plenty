@@ -46,7 +46,7 @@ impl Lower<'_> {
         let mut free = Vec::new();
         for clause in &clauses[1..] {
             match clause {
-                Clause::For(names, source) => {
+                Clause::For(names, source) | Clause::Unpack(names, _, source) => {
                     free_names(source, &bound, &mut free);
                     bound.extend(names.iter().cloned());
                 }
@@ -85,6 +85,21 @@ impl Lower<'_> {
                         body,
                     },
                 ),
+                Clause::Unpack(names, targets, value) => {
+                    body.insert(
+                        0,
+                        Stmt {
+                            at: value.at.clone(),
+                            kind: Statement::Unpack {
+                                names,
+                                targets: Some(targets),
+                                mutable: false,
+                                value,
+                            },
+                        },
+                    );
+                    continue;
+                }
                 Clause::If(condition) => (
                     condition.at.clone(),
                     Statement::If {
@@ -572,7 +587,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             let mut inner = bound.clone();
             for clause in clauses {
                 match clause {
-                    Clause::For(bindings, iterable) => {
+                    Clause::For(bindings, iterable) | Clause::Unpack(bindings, _, iterable) => {
                         free_names(iterable, &inner, names);
                         inner.extend(bindings.iter().cloned());
                     }

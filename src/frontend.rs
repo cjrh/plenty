@@ -1177,7 +1177,11 @@ struct Stmt {
 #[derive(Clone)]
 enum Statement {
     Unpack {
+        /// Leaf bindings, also used by scope and capture visitors.
         names: Vec<String>,
+        /// Recursive declaration targets contain only names and tuples;
+        /// executable place destinations use `SetIndex` instead.
+        targets: Option<Vec<Expr>>,
         mutable: bool,
         value: Expr,
     },
@@ -1348,6 +1352,8 @@ impl Pos {
 #[derive(Clone)]
 enum Clause {
     For(Vec<String>, Expr),
+    /// Irrefutable nested targets, bound immediately after their for source.
+    Unpack(Vec<String>, Vec<Expr>, Expr),
     If(Expr),
 }
 
@@ -2363,13 +2369,12 @@ impl Parser {
         }
         if self.peek().is("for") {
             let at = self.take();
-            let mut names = vec![self.name()?];
-            while self.eat(",") {
-                names.push(self.name()?);
-            }
+            let (names, mut prefix) = self.loop_bindings(&at)?;
             self.expect("in")?;
             let iterable = self.expr(0)?;
-            let body = self.suite()?;
+            let mut body = self.suite()?;
+            prefix.append(&mut body);
+            let body = prefix;
             if self.peek().is("else") {
                 return Err(self.peek().error("loop else is not supported"));
             }
@@ -2399,6 +2404,59 @@ impl Parser {
             Statement::Pass
         } else {
             let mutable = self.eat("mut");
+            if mutable
+                && (self.peek().is("(") || self.token(self.pos + 1).is_some_and(|t| t.is(",")))
+            {
+                let mut first = self.expr(0)?;
+                while matches!(first.kind, Expression::Group(_)) {
+                    let Expression::Group(inner) = first.kind else {
+                        unreachable!()
+                    };
+                    first = *inner;
+                }
+                if let Expression::Name(name) = &first.kind
+                    && !self.peek().is(",")
+                {
+                    self.expect("=")?;
+                    let value = self.statement_value()?;
+                    if !matches!(self.tokens[self.pos - 1].kind, Kind::Dedent) {
+                        self.kind(Kind::Newline, "the end of the statement")?;
+                    }
+                    return Ok(Stmt {
+                        at,
+                        kind: Statement::Assign {
+                            name: name.clone(),
+                            mutable,
+                            annotation: None,
+                            value,
+                        },
+                    });
+                }
+                let mut targets = match first.kind {
+                    Expression::Tuple(targets) => targets,
+                    _ => vec![first],
+                };
+                while self.eat(",") {
+                    targets.push(self.expr(0)?);
+                }
+                let names = Self::unpacking_names(&targets)?;
+                let targets = (!targets
+                    .iter()
+                    .all(|target| matches!(&target.kind, Expression::Name(_))))
+                .then_some(targets);
+                self.expect("=")?;
+                let value = self.unpacked_value()?;
+                self.kind(Kind::Newline, "the end of the statement")?;
+                return Ok(Stmt {
+                    at,
+                    kind: Statement::Unpack {
+                        names,
+                        targets,
+                        mutable,
+                        value,
+                    },
+                });
+            }
             let assignment = mutable
                 || matches!(&self.peek().kind, Kind::Word(_))
                     && self
@@ -2421,6 +2479,7 @@ impl Parser {
                         at,
                         kind: Statement::Unpack {
                             names,
+                            targets: None,
                             mutable,
                             value,
                         },
@@ -2463,6 +2522,7 @@ impl Parser {
                     match names {
                         Some(names) => Statement::Unpack {
                             names,
+                            targets: None,
                             mutable: false,
                             value,
                         },
@@ -2480,9 +2540,16 @@ impl Parser {
                     if matches!(&ungroup(&target).kind, Expression::Slice(..)) {
                         return Err(target.at.error(SLICE_ASSIGNMENT));
                     }
-                    Statement::SetIndex {
-                        target,
-                        value: self.statement_value()?,
+                    let value = self.statement_value()?;
+                    if let Expression::Name(name) = &ungroup(&target).kind {
+                        Statement::Assign {
+                            name: name.clone(),
+                            mutable: false,
+                            annotation: None,
+                            value,
+                        }
+                    } else {
+                        Statement::SetIndex { target, value }
                     }
                 } else if matches!(&self.peek().kind, Kind::Symbol(s)
                     if matches!(&**s, "+=" | "-=" | "*=" | "/=" | "//=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="))
@@ -2540,6 +2607,93 @@ impl Parser {
             at,
             kind: Expression::Match(Box::new(value), cases),
         })
+    }
+    fn loop_bindings(&mut self, at: &Token) -> Result<(Vec<String>, Vec<Stmt>)> {
+        let targets = self.loop_targets()?;
+        Self::unpacking_names(&targets)?;
+        let mut names = Vec::new();
+        let mut prefix = Vec::new();
+        for (position, target) in targets.into_iter().enumerate() {
+            if let Expression::Name(name) = target.kind {
+                names.push(name);
+            } else {
+                let name = format!("<loop {} {} {position}>", at.line, at.column);
+                let Expression::Tuple(targets) = target.kind else {
+                    unreachable!()
+                };
+                prefix.push(Stmt {
+                    at: target.at.clone(),
+                    kind: Statement::Unpack {
+                        names: Self::unpacking_names(&targets)?,
+                        targets: Some(targets),
+                        mutable: false,
+                        value: Expr {
+                            at: target.at,
+                            kind: Expression::Name(name.clone()),
+                        },
+                    },
+                });
+                names.push(name);
+            }
+        }
+        Ok((names, prefix))
+    }
+    fn unpacking_names(targets: &[Expr]) -> Result<Vec<String>> {
+        fn walk(target: &Expr, names: &mut Vec<String>, seen: &mut HashSet<String>) -> Result<()> {
+            match &ungroup(target).kind {
+                Expression::Tuple(targets) => {
+                    for target in targets {
+                        walk(target, names, seen)?;
+                    }
+                }
+                Expression::Name(name) => {
+                    if name != "_" && !seen.insert(name.clone()) {
+                        return Err(target.at.error("duplicate unpacking binding"));
+                    }
+                    names.push(name.clone());
+                }
+                _ => {
+                    return Err(target
+                        .at
+                        .error("unpacking declarations and loop targets require names or tuples"));
+                }
+            }
+            Ok(())
+        }
+        let mut names = Vec::new();
+        let mut seen = HashSet::default();
+        for target in targets {
+            walk(target, &mut names, &mut seen)?;
+        }
+        Ok(names)
+    }
+    fn loop_targets(&mut self) -> Result<Vec<Expr>> {
+        fn target(parser: &mut Parser) -> Result<Expr> {
+            parser.nested(|parser| {
+                let at = parser.peek().clone();
+                let kind = if parser.eat("(") {
+                    let mut targets = parser.loop_targets()?;
+                    let singleton = parser.token(parser.pos - 1).is_some_and(|t| t.is(","));
+                    parser.expect(")")?;
+                    if targets.len() == 1 && !singleton {
+                        targets.remove(0).kind
+                    } else {
+                        Expression::Tuple(targets)
+                    }
+                } else {
+                    Expression::Name(parser.name()?)
+                };
+                Ok(Expr { at, kind })
+            })
+        }
+        let mut targets = vec![target(self)?];
+        while self.eat(",") {
+            if self.peek().is(")") {
+                break;
+            }
+            targets.push(target(self)?);
+        }
+        Ok(targets)
     }
     /// The right side of an assignment to several targets: one expression, or
     /// a tuple written without its parentheses.
@@ -5835,7 +5989,7 @@ impl Lower<'_> {
                 }
                 Statement::SetIndex { target, value } => {
                     let start = ops.len();
-                    if let Expression::Tuple(targets) = &target.kind {
+                    if let Expression::Tuple(targets) = &ungroup(target).kind {
                         self.assign_targets(targets, value, ops)?;
                     } else if matches!(&target.kind, Expression::Unary(op, _) if op == "*") {
                         self.write_reference(target, value, ops)?;
@@ -5855,11 +6009,16 @@ impl Lower<'_> {
                 }
                 Statement::Unpack {
                     names,
+                    targets,
                     mutable,
                     value,
                 } => {
                     let start = ops.len();
-                    self.unpack_tuple(names, *mutable, value, ops)?;
+                    if let Some(targets) = targets {
+                        self.unpack_nested(targets, *mutable, value, ops)?;
+                    } else {
+                        self.unpack_tuple(names, *mutable, value, ops)?;
+                    }
                     self.building(&value.at, start, ops, block_value(value));
                     None
                 }
@@ -6204,6 +6363,16 @@ const TUPLE_SLICE_TRY: &str =
 
 const SLICE_ASSIGNMENT: &str =
     "slice assignment is not supported; assign elements by index, or build a new list";
+
+fn ungroup_mut(mut e: &mut Expr) -> &mut Expr {
+    while matches!(e.kind, Expression::Group(_)) {
+        let Expression::Group(inner) = &mut e.kind else {
+            unreachable!()
+        };
+        e = inner;
+    }
+    e
+}
 
 fn ungroup(mut e: &Expr) -> &Expr {
     while let Expression::Group(inner) = &e.kind {

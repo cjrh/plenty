@@ -75,7 +75,9 @@ use `keys_snapshot()` / `values_snapshot()` for owned lists and `into_keys()` /
 `into_values()` to consume the owner. See [dictionary views](../../facilities/01-builtins/dictionaries.md#snapshots-and-views)
 for the key view's set operations and storage restrictions.
 
-Loop targets permit flat tuple unpacking. Over borrowed elements, each name
+Loop targets permit recursive tuple unpacking, such as `for (x, y), label in rows`.
+Comprehensions and generator expressions accept the same targets; each iteration
+binds its components before evaluating filters or subsequent sources. Over borrowed elements, each name
 borrows its component in place: `for n, s in &pairs` binds `n` as `&item[0]`
 and `s` as `&item[1]`, and `for n, _ in &mut pairs` makes `n` a `&mut`
 reference, so `*n += 1` changes the list. The names borrow distinct fields of

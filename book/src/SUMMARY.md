@@ -76,6 +76,7 @@
         - [Borrow distinct fields](tutorial/06-data/04-borrow-fields.md)
         - [Borrowing a field through a getter](tutorial/06-data/05-field-getters.md)
         - [Describe alternatives with enums](tutorial/06-data/06-enums.md)
+        - [Match combinations with tuple patterns](tutorial/06-data/tuple-patterns.md)
         - [Match literal values](tutorial/06-data/literal-patterns.md)
         - [Bind the value a match leaves over](tutorial/06-data/bind-the-rest.md)
         - [Bind the value a match selects](tutorial/06-data/match-values.md)

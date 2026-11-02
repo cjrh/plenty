@@ -597,7 +597,7 @@ impl Lower<'_> {
     }
 }
 
-const NOT_MATCHABLE: &str = "match requires an enum, class, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
+const NOT_MATCHABLE: &str = "match requires an enum, class, tuple, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
 
 /// The types a literal pattern can match.
 fn literal_matchable(ty: &Ty) -> bool {

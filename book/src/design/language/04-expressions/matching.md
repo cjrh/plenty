@@ -1,7 +1,7 @@
 # Pattern matching
 
 `match` evaluates its scrutinee once and selects a `case`. The scrutinee is an
-enum, an [anonymous sum](../03-types/anonymous-sums.md), a class, an integer, a
+enum, an [anonymous sum](../03-types/anonymous-sums.md), a class, a tuple, an integer, a
 `str`, or a `bool`, or a reference to one:
 
 ```plenty fragment
@@ -27,6 +27,7 @@ A case holds one pattern. A pattern is one of:
 | `name: MemberType` | a whole member of an anonymous sum; see [member patterns](../03-types/anonymous-sums.md) |
 | `Enum.Variant` or `Enum.Variant(p, ...)` | that variant, with one pattern per payload position |
 | `Some(p)`, `Nothing`, `Ok(p)`, `Err(p)` | that standard variant |
+| `(p, q)` or `(p,)` | a tuple with one pattern per component |
 | `Class(p, ..., field=p, ...)` | a class value, with one pattern per field; see [class patterns](#class-patterns) |
 | `1`, `-1`, `0u8` | an integer equal to the literal |
 | `"text"` | a `str` equal to the literal |
@@ -47,7 +48,7 @@ names several members is ambiguous; select one with a typed member pattern
 before matching its variants. See [anonymous sums](../03-types/anonymous-sums.md).
 
 A bare name binds only at a payload or field position; the case's own pattern
-is a variant, a class pattern, a literal, `_`, alternatives of those,
+is a variant, a class or tuple pattern, a literal, `_`, alternatives of those,
 `_ as name`, or a typed member pattern. A bare name as the case's own pattern is an error, and a payload name equal to a variant of
 that payload's enum is rejected, so a forgotten qualifier cannot silently bind
 everything. A variant pattern at a `Box[T]` payload matches the box's contents.
@@ -71,6 +72,43 @@ A literal pattern matches an integer, `str`, or `bool` position: the scrutinee
 itself, a payload, or the contents of a `Box`. An unsuffixed integer literal
 takes the position's type and must fit it; a suffixed one must name that type
 exactly. Float literals are not patterns.
+
+## Tuple patterns
+
+Tuple patterns are recursive fixed-arity products. `(p,)` matches a singleton;
+`(p)` groups a pattern. Empty `()` is unit, not an empty tuple pattern; use `_`
+for a unit component. A tuple pattern can appear at the root or inside enum,
+class, tuple, or boxed payloads. Every component must have a pattern.
+At an anonymous-sum position, it selects a unique tuple member with that arity.
+If several members have the same arity, bind one with a typed member pattern
+before matching its components.
+
+```plenty
+def combine(left: Option[i64], right: Option[i64]) -> i64:
+    match (left, right):
+        case (Some(a), Some(b)):
+            a + b
+        case (Some(a), Nothing):
+            a
+        case (Nothing, Some(b)):
+            b
+        case (Nothing, Nothing):
+            0
+
+def main() -> Result[(), IoError]:
+    print(combine(Some(2), Some(3)))?
+    Ok(())
+```
+```output
+5
+```
+
+Coverage considers combinations of component patterns, so omitting
+`(Nothing, Nothing)` above is an error. Alternatives retain the existing
+256-combination expansion limit and decision-tree work limit. Matching owns and
+moves each bound affine component once and destroys ignored components once.
+Matching a reference instead binds component references, preserving disjoint
+component loans.
 
 ## Class patterns
 
@@ -202,7 +240,7 @@ logarithm of the case count and does not depend on arm order; see the
 [string match measurements](../../../development/profiling-match-results.md#string-match-dispatch). Keep using `match` for clear
 exhaustive branching; dispatch selection does not change its behavior.
 
-Guards, tuple patterns, float patterns, range patterns, and `pattern as name`
+Guards, float patterns, range patterns, and `pattern as name`
 for any pattern other than the case's own `_` are unsupported. A scrutinee of any other type, such as a float or a
 collection, is rejected with advice to use an `if`/`elif` chain.
 

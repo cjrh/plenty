@@ -116,7 +116,7 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
             let mut inner = bound.clone();
             for clause in clauses {
                 match clause {
-                    Clause::For(bindings, iterable) => {
+                    Clause::For(bindings, iterable) | Clause::Unpack(bindings, _, iterable) => {
                         if !plain(iterable, &inner, enclosing) {
                             return false;
                         }

@@ -253,3 +253,167 @@ fn tuple_index_errors_state_the_length() {
         assert!(error.contains(expected), "{source}\n{error}");
     }
 }
+
+#[test]
+fn nested_unpacking_binds_assigns_and_iterates_structural_components() {
+    support::assert_stdout(
+        r#"
+((x, y), z) = ((1, 2), 3)
+print(x + y + z).unwrap()
+mut (a, (b, c)) = (4, (5, 6))
+(a, (b, c)) = (b, (c, a))
+print((a, b, c)).unwrap()
+for (left, right), label in [((7, 8), 9)].unwrap():
+    print(left + right + label).unwrap()
+mut rows = [((1, 2), 3)].unwrap()
+for (left, right), label in &mut rows:
+    *left = *left + 10
+    *right = *right + 20
+    *label = *label + 30
+print(rows).unwrap()
+mut owner = ((10, 20), 30)
+(first, second), third = &mut owner
+*first = *first + 1
+*second = *second + 2
+*third = *third + 3
+print(owner).unwrap()
+"#,
+        "6\n(5, 6, 4)\n24\n[((11, 22), 33)]\n((11, 22), 33)\n",
+    );
+}
+
+#[test]
+fn nested_unpacking_rejects_duplicate_names_shapes_and_illegal_reference_rebinding() {
+    for source in [
+        "(a, (b, a)) = (1, (2, 3))",
+        "mut (a, (b, a)) = (1, (2, 3))",
+        "(a, (b, c)) = (1, 2)",
+        "(a, (b, c)) = (1, (2, 3, 4))",
+        "owner = ((1, 2), 3)\nmut ((a, b), c) = &owner",
+        "owner = ((1, 2), 3)\na = 1\n((a, b), c) = &owner",
+        "for (a, b), a in [((1, 2), 3)].unwrap():\n    pass",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn nested_unpacking_preserves_destination_order_and_owned_cleanup() {
+    support::assert_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print(self.id).unwrap()
+mut index = 0
+mut items = [0, 0, 0].unwrap()
+(index, (items[index], items[0])) = (2, (7, 8))
+print(items).unwrap()
+((a, _), b) = ((Resource(1), Resource(2)), Resource(3))
+print(a.id + b.id).unwrap()
+for (x, y), z in (((1, 2), 3) for _ in range(1)):
+    print(x + y + z).unwrap()
+"#,
+        "[8, 0, 7]\n2\n4\n6\n3\n1\n",
+    );
+}
+
+#[test]
+fn nested_borrowed_unpacking_keeps_precise_component_loans_and_ends_them_at_last_use() {
+    support::assert_stdout(
+        r#"
+mut owner = ((1, 2), 3)
+((first, second), _) = &mut owner
+print(owner[1]).unwrap()
+*first += 10
+print(owner[0][0]).unwrap()
+*second += 20
+print(owner).unwrap()
+"#,
+        "3\n11\n((11, 22), 3)\n",
+    );
+    for source in [
+        "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner[0][0]).unwrap()\n*first += 1\n*second += 1",
+        "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner).unwrap()\n*first += 1\n*second += 1",
+    ] {
+        assert!(support::check_source(source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn nested_comprehension_and_generator_targets_bind_before_filters_and_inner_sources() {
+    support::assert_stdout(
+        r#"
+rows = [((1, 2), 3), ((4, 5), 6)].unwrap()
+print([x + y + z for (x, y), z in &rows if *x > 1].unwrap()).unwrap()
+print([x + y + z + n for (x, y), z in &rows for n in range(*x) if n == 0].unwrap()).unwrap()
+mut owned = [((1, 2), 3)].unwrap()
+print([(*x, *y, *z) for (x, y), z in &mut owned].unwrap()).unwrap()
+mut values = (x + y + z for (x, y), z in rows if x > 1)
+print(next(&mut values)).unwrap()
+print(next(&mut values)).unwrap()
+"#,
+        "[15]\n[6, 15]\n[(1, 2, 3)]\nOption[i64].Some(15)\nOption[i64].Nothing\n",
+    );
+}
+
+#[test]
+fn nested_generator_targets_are_lazy_and_generic_comprehensions_move_fields() {
+    support::assert_stdout(
+        r#"
+def keep(n: i64) -> bool:
+    print(n).unwrap()
+    n > 1
+def firsts[T](rows: list[((T, T), i64)]) -> Result[list[T], AllocError]:
+    [first for (first, _), _ in rows]
+mut pending = (x + y for (x, y), _ in [((1, 2), 0), ((3, 4), 0)].unwrap() if keep(x))
+print("created").unwrap()
+print(next(pending)).unwrap()
+print(next(pending)).unwrap()
+print(firsts([(([1].unwrap(), [2].unwrap()), 0)].unwrap()).unwrap()).unwrap()
+"#,
+        "created\n1\n3\nOption[i64].Some(7)\nOption[i64].Nothing\n[[1]]\n",
+    );
+}
+
+#[test]
+fn nested_target_grouping_is_distinct_from_singleton_tuple_structure() {
+    support::assert_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self: &mut Resource) -> ():
+        print(self.id).unwrap()
+def unwrap_rows[T](rows: list[(T,)]) -> Result[list[T], AllocError]:
+    [x for (x,) in rows]
+(single,) = (8,)
+mut ((first, (second))) = (1, 2)
+((first, (second))) = (second, first)
+(grouped) = 3
+mut (mutable_grouped) = 4
+mutable_grouped += 1
+print((single, first, second, grouped, mutable_grouped)).unwrap()
+for (number,) in [(9,)].unwrap():
+    print(number).unwrap()
+for (number) in range(1):
+    print(number).unwrap()
+(head, (left, right)) = ([1].unwrap(), [2, 3].unwrap())
+print((head, left, right)).unwrap()
+mut pair = ((1,), 2)
+((exclusive,), _) = &mut pair
+*exclusive += 10
+((shared,), _) = &pair
+print(*shared).unwrap()
+(owned,) = (Resource(11),)
+((item,), _) = ((Resource(12),), 3)
+print((owned.id, item.id)).unwrap()
+(_,) = (Resource(13),)
+drop(item)
+drop(owned)
+for (_,) in [(Resource(14),)].unwrap():
+    pass
+print(unwrap_rows([([15].unwrap(),)].unwrap()).unwrap()).unwrap()
+"#,
+        "(8, 2, 1, 3, 5)\n9\n0\n([1], 2, 3)\n11\n(11, 12)\n13\n12\n11\n14\n[[15]]\n",
+    );
+}
