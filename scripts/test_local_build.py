@@ -40,8 +40,6 @@ class LocalPackaging(unittest.TestCase):
             if "status" in args:
                 return " M plenty-linalg/src/lib.rs"
             return "1234567890" if "log" in args else "a" * 40
-        if args[-1] == "--print":
-            return "0.6.0"
         raise AssertionError(args)
 
     def run_command(self, args, **kwargs):

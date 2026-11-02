@@ -186,6 +186,13 @@ queries in Plenty; a pinned Python/FastEmbed subprocess performs inference.
 [linking](../design/toolchain/01-building/linking.md) own current contracts.
 Outstanding tooling/investigation scope stays **B17** in the [backlog](../backlog.md).
 
+Engine-notices packaging reads the Plenty version directly from the root
+`Cargo.toml` with Python's TOML parser, avoiding the nested Bash version lookup
+that failed in Windows release CI (issue #687). Regression fixtures cover release
+and prerelease versions, LF/CRLF manifests, unrelated version keys and a repository
+path with spaces/Unicode. These local fixture checks do not substitute for a
+native Windows release build.
+
 ## B21: Documentation authoring
 
 Executable Markdown checked by `tests/test_tutorial.rs` remains the lesson
