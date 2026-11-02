@@ -201,13 +201,14 @@ stream does not need to cross a function boundary.
 
 Predicates receive `&T` for owned `T`, borrowed `&T`, and mutable `&mut T`
 items. Mapping receives the item itself. Callback parameters and results require
-explicit types. Every reusable callable is accepted by value: a named
-function, an anonymous function, a capturing closure with owned or borrowed
-captures, a stored `Callable` value or parameter, a `BoxedCallable`, or a
+explicit types. In serial pipelines, every reusable callable is accepted by
+value: a named function, an anonymous function, a capturing closure with owned
+or borrowed captures, a stored `Callable` value or parameter, a `BoxedCallable`, or a
 [class or payload-variant constructor](../06-functions/02-function-values.md).
 Generic constructors need explicit instances here, for example
 `map(Option[i64].Some)`, because a pipeline does not supply an expected callback
-result type.
+result type. [Parallel pipelines](#parallel-pipelines) accept a narrower set of
+callback forms.
 One-shot closures are rejected because the pipeline calls the callback once per
 item, and a reference such as `&f` is rejected: pass the function or closure
 itself. `map` cannot currently return references.
@@ -340,7 +341,7 @@ with ThreadPoolExecutor(8, 64)? as pool:
 |---|---|
 | Source | an owned `list[T]`, a borrowed `&list[T]`, or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
 | Steps after `par` | `map`, `filter`, and `filter_value` |
-| Callbacks | named functions, or reusable immutable closures that own their captures |
+| Callbacks | named functions, or reusable immutable closures that own their captures; constructor values (class or variant), stored capture-free closures and `Callable` values are not yet accepted |
 | Terminals | `collect`, `try_collect`, `count`, `any`, `all`, `sum`, `min`, `max`, `reduce` |
 
 `enumerate` must come before `par`. Other steps (`take`, `skip`, `take_while`,
