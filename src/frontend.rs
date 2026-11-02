@@ -5422,7 +5422,7 @@ impl Lower<'_> {
         {
             returned.extend(returned_loan.map(Op::UseLoan));
             self.finish_tail_temporaries(temporary_start, &mut returned);
-            if self.checked.first().is_some_and(|scope| scope.start == 0) {
+            if self.checked.first().is_some_and(|scope| scope.function) {
                 returned.push(Op::Return);
             } else {
                 finish_return(&mut returned);
@@ -6892,6 +6892,7 @@ fn lower_body(
     if effectful {
         lower.checked.push(checked::Scope {
             start: 0,
+            function: true,
             arithmetic: lexical,
             failures,
         });

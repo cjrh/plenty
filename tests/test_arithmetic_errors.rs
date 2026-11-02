@@ -933,3 +933,79 @@ def main() -> Result[(), IoError]:
         "False 1\ndrop 1\nTrue 9223372036854775807\ndrop 9223372036854775807\n"
     );
 }
+
+#[test]
+fn ordinary_checked_blocks_preserve_recursive_and_nonrecursive_tail_returns() {
+    for prefix in ["", "    base = 0\n"] {
+        let source = format!(
+            r#"
+def leaf(n: i64) -> i64:
+    n
+def countdown(n: i64) -> i64:
+{prefix}    r = checked:
+        if n == 0:
+            return leaf(n)
+        if n > 0:
+            return countdown(n - 1)
+        n * 2
+    match r:
+        case Ok(value):
+            value
+        case Err(error):
+            -1
+def main() -> Result[(), IoError]:
+    print(countdown(200000), countdown(-3), countdown(i64.MIN))?
+    Ok(())
+"#
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("main.plenty");
+        std::fs::write(&file, &source).unwrap();
+        let dump = plenty::dump_file(
+            &file,
+            None,
+            &plenty::CompileOptions::default(),
+            &plenty::DumpOptions {
+                stages: vec![plenty::DumpStage::Ops, plenty::DumpStage::Clif],
+                filter: Some("countdown".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let stage = |name| &dump.files.iter().find(|(path, _)| path == name).unwrap().1;
+        let ops = stage("ops.txt");
+        assert!(ops.contains("TailCall(\"countdown\")"), "{ops}");
+        assert!(ops.contains("TailCall(\"leaf\")"), "{ops}");
+        assert!(stage("clif.txt").contains("return_call"));
+        assert_eq!(run_stdout(&source), "0 -6 -1\n");
+    }
+}
+
+#[test]
+fn checked_function_effect_scopes_still_wrap_explicit_tail_returns() {
+    let output = run_stdout(
+        r#"
+def leaf(n: i64) -> i64:
+    n
+def apply[F: Callable[[i64], i64]](f: &F, x: i64) -> i64:
+    if x == 0:
+        return leaf(x)
+    return f(x)
+def main() -> Result[(), IoError]:
+    for x in [0, 41, i64.MAX].unwrap():
+        result = checked:
+            f = def(x: i64) -> i64:
+                if x == 41:
+                    return leaf(x)
+                x + 1
+            apply(&f, x)
+        match result:
+            case Ok(value):
+                print(value)?
+            case Err(error):
+                print(-1)?
+    Ok(())
+"#,
+    );
+    assert_eq!(output, "0\n41\n-1\n");
+}

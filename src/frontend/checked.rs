@@ -12,6 +12,8 @@ pub(super) struct Scope {
     /// The first local the block declares; a failure drops it and every
     /// later local.
     pub(super) start: usize,
+    /// Source returns must pass through this function's private Result ABI.
+    pub(super) function: bool,
     /// A borrower forwards failures but must not check its own arithmetic.
     pub(super) arithmetic: bool,
     /// The errors the block's arithmetic can produce, in source order.
@@ -204,6 +206,7 @@ impl Lower<'_> {
         let saved = self.names.clone();
         self.checked.push(Scope {
             start: self.locals.len(),
+            function: false,
             arithmetic: true,
             failures: Vec::new(),
         });
