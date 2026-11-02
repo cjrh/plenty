@@ -16,7 +16,7 @@ run `cargo release --execute`, create release tags, or push.
 |---|---|
 | `plenty` | The language release version. `cargo release` bumps it in `Cargo.toml` and `Cargo.lock` |
 | `plenty-runtime` | Private and embedded in the compiler. Keeps its own version; `plenty-runtime/release.toml` excludes it, so it is never bumped or tagged |
-| `plenty-dataframe-engine` | Separately built workspace; its crate version is internal. Linux release archives bundle it under the Plenty version, with the ABI generation in the shared-library filename |
+| `plenty-dataframe-engine` | Separately built workspace; its crate version is internal. Release archives bundle it under the Plenty version on Linux, macOS ARM64 and Windows x86-64, with the ABI generation in the shared-library filename |
 | `plenty-linalg-engine` | Separately built faer workspace with the same release-version and ABI-generation policy |
 
 `plenty --version` reports the `plenty` package version. Tags are `vX.Y.Z`, or
@@ -132,7 +132,7 @@ git push --atomic origin main vX.Y.Z
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
 | Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both engines and packages them in the compiler archive |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
-| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the archive (`build-native.sh`), including the validated dataframe DLL on Windows |
+| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the archive (`build-native.sh`), including the validated dataframe dylib on macOS or DLL on Windows |
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
 | Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
 
@@ -161,17 +161,21 @@ turns the list into job matrices:
 |---|---|---|
 | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | compiler with dataframe and linalg engines (`.tar.gz`) |
 | `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` | compiler with dataframe and linalg engines (`.tar.gz`) |
-| `aarch64-apple-darwin` (experimental) | `macos-15` | compiler only (`.tar.gz`), macOS 11 or later |
+| `aarch64-apple-darwin` (experimental) | `macos-15` | compiler with dataframe dylib (`.tar.gz`), macOS 11 or later |
 | `x86_64-pc-windows-msvc` (experimental) | `windows-2025` | compiler with dataframe DLL (`.zip`), Windows 10 or later |
 
 Each target publishes one asset, `plenty-VERSION-TRIPLE.EXT`, and its checksum.
 `release_engines` in `target.sh` lists the engines bundled for a target. Linux bundles both ELF engines; Windows bundles the dataframe DLL, built and
-validated natively by `build-native.sh`. macOS contains only the compiler.
+validated natively by `build-native.sh`. macOS bundles the dataframe dylib,
+also built and validated natively, with a macOS 11 deployment minimum,
+`@rpath/libplenty_dataframe_v1.dylib` identity, system-only dependencies and
+verified ad-hoc signature. Native archive modes distinguish the two compiler
+executables (0755) from engine libraries and notices (0644).
 Windows packaging audits x86-64 PE headers, Windows/MSVC dependencies and all
-facade exports. Its clean smoke test checks a Parquet query, compiler relocation,
-`--dist` application relocation and failure without the DLL. Native archives are
-not notarized or code-signed; macOS executables carry the linker's ad-hoc
-signature, and the Windows build links the dynamic MSVC runtime that the
+facade exports. The native clean smoke tests check a Parquet query, compiler relocation,
+`--dist` application relocation and failure without the engine. Native archives are
+not notarized or signed with a distribution identity; macOS executables and
+the dataframe dylib carry linker-generated ad-hoc signatures, and the Windows build links the dynamic MSVC runtime that the
 documented Build Tools prerequisite installs. `archive.py` writes those archives
 with sorted entries, fixed owners and modes, and `SOURCE_DATE_EPOCH` timestamps.
 The release notes mark them experimental. The [ARM harness](linux-aarch64.md)

@@ -24,6 +24,8 @@ MACHO_MAGIC = 0xFEEDFACF
 FAT_MAGICS = {0xCAFEBABE, 0xBEBAFECA, 0xCAFEBABF, 0xBFBAFECA}
 CPU_ARM64 = 0x0100000C
 MH_EXECUTE = 2
+MH_DYLIB = 6
+LC_ID_DYLIB = 0xD
 LC_DYLIBS = {0xC: "LC_LOAD_DYLIB", 0x80000018: "LC_LOAD_WEAK_DYLIB",
              0x8000001F: "LC_REEXPORT_DYLIB", 0x20: "LC_LAZY_LOAD_DYLIB",
              0x80000023: "LC_LOAD_UPWARD_DYLIB"}
@@ -57,7 +59,7 @@ def version_number(text):
     return (parts[0] << 16) | (parts[1] << 8) | parts[2]
 
 
-def check_macho(data, macos_min):
+def check_macho(data, macos_min, library=None, engines=()):
     """Return (problems, summary) for a Mach-O image."""
     if len(data) < 32:
         return ["truncated Mach-O header"], ""
@@ -70,9 +72,10 @@ def check_macho(data, macos_min):
     problems = []
     if cputype != CPU_ARM64:
         problems.append(f"CPU type {cputype:#x}, expected arm64")
-    if filetype != MH_EXECUTE:
-        problems.append(f"file type {filetype}, expected an executable")
-    dylibs, minimum, signed = [], None, False
+    expected_type = MH_DYLIB if library else MH_EXECUTE
+    if filetype != expected_type:
+        problems.append(f"file type {filetype}, expected {'a dylib' if library else 'an executable'}")
+    dylibs, minimum, signed, identity, rpaths = [], None, False, None, []
     offset = 32
     for _ in range(ncmds):
         if offset + 8 > len(data):
@@ -82,14 +85,23 @@ def check_macho(data, macos_min):
         if size < 8 or offset + size > len(data):
             problems.append("malformed load command")
             break
-        if cmd in LC_DYLIBS:
+        if cmd in LC_DYLIBS or cmd == LC_ID_DYLIB:
             start = offset + struct.unpack_from("<I", data, offset + 8)[0]
             name = data[start:offset + size].split(b"\0", 1)[0].decode("utf-8", "replace")
-            dylibs.append(name)
-            if not name.startswith(MACOS_SYSTEM):
+            if cmd == LC_ID_DYLIB:
+                if identity is not None:
+                    problems.append("duplicate LC_ID_DYLIB")
+                identity = name
+            else:
+                dylibs.append(name)
+            if cmd != LC_ID_DYLIB and not name.startswith(MACOS_SYSTEM) and name not in {f"@rpath/{e}" for e in engines}:
                 problems.append(f"{LC_DYLIBS[cmd]} {name} is not a macOS system library")
         elif cmd == LC_RPATH:
-            problems.append("has LC_RPATH")
+            start = offset + struct.unpack_from("<I", data, offset + 8)[0]
+            path = data[start:offset + size].split(b"\0", 1)[0].decode("utf-8", "replace")
+            rpaths.append(path)
+            if library or not engines or path != "@loader_path":
+                problems.append(f"has unsupported LC_RPATH {path}")
         elif cmd == LC_CODE_SIGNATURE:
             signed = True
         elif cmd == LC_BUILD_VERSION:
@@ -100,6 +112,10 @@ def check_macho(data, macos_min):
         elif cmd == LC_VERSION_MIN_MACOSX:
             minimum = struct.unpack_from("<I", data, offset + 8)[0]
         offset += size
+    if library and identity != f"@rpath/{library}":
+        problems.append(f"LC_ID_DYLIB must be @rpath/{library}")
+    if engines and "@loader_path" not in rpaths:
+        problems.append("missing @loader_path LC_RPATH")
     if not signed:
         problems.append("no code signature; arm64 macOS refuses unsigned executables")
     if minimum is None:

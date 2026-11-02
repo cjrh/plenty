@@ -134,5 +134,57 @@ class WindowsEnginePackage(unittest.TestCase):
                     module.main()
 
 
+class MacosEnginePackage(unittest.TestCase):
+    def test_dylib_audit_notices_and_missing_exports(self):
+        import importlib.util
+        import test_release_scripts as fixtures
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("macos_packager", RELEASE / "package-engine.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix="macOS engine ") as temporary:
+            root = Path(temporary)
+            engine = root / "libplenty_dataframe_v1.dylib"
+            identity = f"@rpath/{engine.name}"
+            engine.write_bytes(fixtures.CheckNative.macho(identity=identity))
+            exports = re.findall(r'= "(pldf_v1_\w+)"', (REPO / "stdlib/std/dataframe.plentyi").read_text())
+            rust = root / "rust/share/doc/rust"
+            (rust / "licenses").mkdir(parents=True)
+            (rust / "licenses/LICENSE.txt").write_text("Rust license")
+            (rust / "COPYRIGHT-library.html").write_text("Rust notices")
+            destination = root / "out"
+            argv = ["package-engine.py", "dataframe", "--target", "aarch64-apple-darwin",
+                    "--engine", str(engine), "--out-dir", str(destination),
+                    "--rust-sysroot", str(root / "rust")]
+            verified = []
+            def command(args, **kwargs):
+                if args[0] == "codesign":
+                    verified.append(args)
+                else:
+                    Path(args[args.index("--out") + 1]).write_text("Dependency notices")
+            def output(*args):
+                if args[0] == "nm":
+                    self.assertEqual(args[1], "-gU")
+                    return "\n".join(f"000000 T _{name}" for name in exports)
+                return "0.8.3" if args[-1] == "--print" else "a" * 40
+            with patch("sys.argv", argv), patch.object(module.subprocess, "run", command), patch.object(module, "output", output):
+                module.main()
+                self.assertEqual(verified, [["codesign", "--verify", "--strict", str(engine)]])
+                manifest = json.loads((destination / "dataframe-notices/engine.json").read_text())
+                self.assertEqual(manifest["target"], "aarch64-apple-darwin")
+                self.assertEqual(manifest["minimum_macos"], "11.0")
+                self.assertNotIn("minimum_glibc", manifest)
+                self.assertNotIn("minimum_windows", manifest)
+                self.assertEqual((destination / engine.name).read_bytes(), engine.read_bytes())
+                self.assertEqual(manifest["library_sha256"], hashlib.sha256(engine.read_bytes()).hexdigest())
+                exports = exports[1:]
+                with self.assertRaisesRegex(SystemExit, "missing exports"):
+                    module.main()
+                exports = []
+                engine.write_bytes(fixtures.CheckNative.macho(identity="/build/engine.dylib"))
+                with self.assertRaisesRegex(SystemExit, "LC_ID_DYLIB"):
+                    module.main()
+
+
 if __name__ == "__main__":
     unittest.main()

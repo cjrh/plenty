@@ -85,6 +85,18 @@ A second engine follows `std.dataframe` in each of these.
 | Release | The matching compiler archive bundles the target's engines in `bin/` beside `NAME-notices/`, with `engine.json` (Plenty version, source commit, target, ABI generation, library checksum and platform minimum), Plenty and dependency licenses, and Rust standard-library notices. `--dist` validates metadata and the copied-library checksum and includes the notices; ordinary compilation does not read `engine.json`. |
 | Tests | The ordinary suite checks that unreached uses link no engine and that a reached use without one reports the missing engine. A separate CI job builds the engine and runs the real-engine tests, gated by `PLENTY_NAME_TESTS=1`. |
 
+## macOS dataframe engine
+
+The experimental macOS ARM64 archive bundles `libplenty_dataframe_v1.dylib`
+and `dataframe-notices/`. Discovery uses the same option/environment precedence,
+then the dylib beside the compiler. The dylib has versioned identity
+`@rpath/libplenty_dataframe_v1.dylib`; applications use `@loader_path` to find
+their sibling copy. Ordinary compilation copies the dylib beside its output;
+[distribution output](distributions.md#macos-dataframe-distributions) includes
+validated metadata and notices. Engine builds target Apple M1 and macOS 11.
+Packaging audits the deployment minimum, dependencies, exports and ad-hoc
+signature. The linear algebra engine remains Linux-only.
+
 ## Windows dataframe engine
 
 The experimental Windows x86-64 archive bundles `plenty_dataframe_v1.dll` and

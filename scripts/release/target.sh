@@ -44,15 +44,13 @@ case "$PLENTY_RELEASE_TARGET" in
         MOLD_SHA256="${MOLD_SHA256_AARCH64:-}"
         ;;
     aarch64-apple-darwin)
-        # Engines are ELF shared libraries (SONAME, $ORIGIN RUNPATH); none
-        # ship until Mach-O engine loading exists.
         release_os=macos
         release_arch=aarch64
         release_cpu=apple-m1
         release_cflags=
         # Rust's minimum for this target; check-native.py enforces it.
         release_macos_min=11.0
-        release_engines=
+        release_engines=dataframe
         release_experimental=1
         ;;
     x86_64-pc-windows-msvc)

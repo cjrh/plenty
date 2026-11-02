@@ -5,12 +5,12 @@
 #
 # Run with bash on a macos-15 (aarch64-apple-darwin) or windows-2025
 # (x86_64-pc-windows-msvc, Git Bash) runner with RUST_VERSION from
-# toolchain.env installed through rustup, with rustfmt and clippy for Windows
+# toolchain.env installed through rustup, with rustfmt and clippy for native
 # engine validation. The host must match the target: there
 # is no cross build. --test runs the checks that native CI qualifies on these
 # platforms (portability.yml): platform-boundary tests and the compiler and
 # runtime unit tests, not the full integration suite. Only the core `plenty`
-# archive is packaged, with the dataframe DLL on Windows.
+# archive includes the dataframe dylib on macOS or DLL on Windows.
 # PYTHON selects the interpreter (default python3; Windows runners use python).
 set -euo pipefail
 
@@ -67,7 +67,8 @@ fi
 engines=()
 for name in $release_engines; do
     "${PYTHON:-python3}" -B scripts/build_native_engine.py "$name" --out "$target_dir/release" --validate
-    engines+=(--engine "$name=$target_dir/release/plenty_${name}_v1.dll")
+    if [ "$release_os" = macos ]; then library="libplenty_${name}_v1.dylib"; else library="plenty_${name}_v1.dll"; fi
+    engines+=(--engine "$name=$target_dir/release/$library")
 done
 "$here/package.sh" "${engines[@]}" --bin-dir "$target_dir/release" --out-dir "$out_dir" \
     --rust-sysroot "$(rustc --print sysroot)"

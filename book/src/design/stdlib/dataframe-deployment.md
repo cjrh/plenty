@@ -1,7 +1,8 @@
 # Ship a dataframe application
 
 A compiled program that uses `std.dataframe` needs
-`libplenty_dataframe_v1.so` on Linux or `plenty_dataframe_v1.dll` on Windows at run time. Ship the **same engine you compiled
+`libplenty_dataframe_v1.so` on Linux, `libplenty_dataframe_v1.dylib` on macOS,
+or `plenty_dataframe_v1.dll` on Windows at run time. Ship the **same engine you compiled
 against**, from the matching Plenty release, beside your executable. End
 users need the host C libraries, but no Plenty compiler, Rust, Cargo or `cc`.
 Programs without reachable dataframe operations need no engine.
@@ -21,7 +22,7 @@ engine used for linking, and its packaged notices together. No reachable engine
 calls means no engine files; reachable linear algebra calls also add the linalg
 engine and its notices. See [application distributions](../toolchain/01-building/distributions.md)
 for metadata checks, supported input layouts, local-build packaging and CLI
-restrictions. A bare installed `.so` without notices is not enough for `--dist`.
+restrictions. A bare installed library without notices is not enough for `--dist`.
 
 The resulting directory can be archived, installed elsewhere and renamed:
 
@@ -45,7 +46,8 @@ same distribution command for users who have no source checkout.
 
 The prebuilt engine targets x86-64 and ARM64 Linux, glibc 2.28 or later and
 `libgcc_s.so.1`. The experimental Windows x86-64 engine requires Windows 10 or Windows Server
-2016 or later and the MSVC runtime. musl/Alpine and macOS remain unsupported.
+2016 or later and the MSVC runtime. The experimental macOS ARM64 engine
+requires macOS 11 or later. musl/Alpine remains unsupported.
 Your executable links against the build machine's C libraries and can require
 a **newer** glibc. Compile and test the application on the oldest distribution
 you support; a baseline-compatible engine alone does not make your executable
@@ -60,6 +62,14 @@ test distribution after removing the compiler and original engine location.
 ## How library lookup works
 
 This applies to every [native engine](../toolchain/01-building/engines.md).
+On macOS ARM64, `--dist` produces `analysis`,
+`libplenty_dataframe_v1.dylib` and `dataframe-notices/`. Ordinary compilation
+also copies the dylib beside the executable. The dylib identifies itself as
+`@rpath/libplenty_dataframe_v1.dylib`; the executable searches `@loader_path`
+(its own directory). No original build directory is retained. Keep the
+linker-signed dylib unmodified. Loader environment variables such as
+`DYLD_LIBRARY_PATH` can affect lookup; remove them when testing relocation.
+
 On Windows, `--dist` produces `analysis.exe`, `plenty_dataframe_v1.dll` and
 `dataframe-notices/`. Ordinary compilation also copies the DLL beside its
 executable. Windows loader search rules apply; the application directory

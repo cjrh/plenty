@@ -68,6 +68,22 @@ engine was built from the compiler's source revision. Use trusted, matching
 release artifacts or build and package from the same checkout. Ordinary
 `--compile FILE -o OUT` does not require or validate engine metadata.
 
+## macOS dataframe distributions
+
+On macOS ARM64, the same command produces `analysis`,
+`libplenty_dataframe_v1.dylib` and `dataframe-notices/`. The executable links the
+dylib's versioned `@rpath` identity and searches only `@loader_path` for the
+bundled engine. Ordinary compilation also copies the dylib beside its output,
+using the same lookup policy. Neither form retains the original engine path.
+
+The manifest requires `minimum_macos` instead of `minimum_glibc`. The compiler
+checks the copied library's SHA-256, ARM64 Mach-O kind, versioned dylib identity,
+signature presence and absence of build-machine dependencies/search paths.
+Release packaging additionally verifies signatures with `codesign`, deployment
+minimums and facade exports. Applications can require a newer OS than the
+engine: compile and test on the oldest system you intend to support.
+macOS archives bundle the dataframe engine only and remain unnotarized.
+
 ## Windows dataframe distributions
 
 On Windows x86-64, the same command produces `analysis.exe`,
@@ -116,7 +132,7 @@ Do not relabel another release's metadata to bypass checks.
 
 ## Relocation and platform limits
 
-Bundled executables use only `$ORIGIN` (the executable's own directory) for
+On Linux, bundled executables use only `$ORIGIN` (the executable's own directory) for
 engine `RUNPATH`, **never the original engine directory**. A sibling `lib/` is
 not searched. Ordinary builds retain `$ORIGIN` followed by the build-time engine
 directory. `PLENTY_NAME_ENGINE` affects compilation only; loader configuration,

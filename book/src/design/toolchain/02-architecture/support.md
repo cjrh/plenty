@@ -34,8 +34,10 @@ compiler into a cross-compiler.
 
 Native emission for `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` is
 experimental. It includes target ABI, Mach-O/COFF objects and native linker
-invocation. Releases publish an experimental core compiler archive for each,
-without the optional engines, which are Linux ELF libraries. Native CI and the
+invocation. Release packaging includes the dataframe dylib on macOS ARM64 and
+the dataframe DLL on Windows x86-64, with their metadata and notices. The linear
+algebra engine remains Linux-only. Native release/portability workflows check
+Parquet queries and application distributions after relocation. Native CI and the
 release workflow pass compiler/runtime builds and unit tests, platform-boundary
 checks, and compilation and execution of a generated callback/result program on
 both operating systems. Runtime and standard-library capabilities remain

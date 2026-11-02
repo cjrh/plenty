@@ -20,7 +20,7 @@ class EngineBuildTarget(unittest.TestCase):
         argv = ["build_native_engine.py", name, "--out", str(output), "--target-dir", str(builds)]
         if target:
             argv += ["--target", target]
-        library_name = f"plenty_{name}_v1.dll" if (target or host).endswith("windows-msvc") else f"libplenty_{name}_v1.so"
+        library_name = f"plenty_{name}_v1.dll" if (target or host).endswith("windows-msvc") else f"libplenty_{name}_v1.dylib" if (target or host).endswith("apple-darwin") else f"libplenty_{name}_v1.so"
         calls = []
 
         def invoke(command, **kwargs):
@@ -64,3 +64,17 @@ class EngineBuildTarget(unittest.TestCase):
             self.build("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", name="dataframe")
         with self.assertRaises(SystemExit):
             self.build("x86_64-pc-windows-msvc")
+
+    def test_native_macos_dataframe_sets_baseline_and_relocatable_identity(self):
+        with patch.dict(os.environ, {"MACOSX_DEPLOYMENT_TARGET": "15.0"}):
+            _, env = self.build("aarch64-apple-darwin", name="dataframe")
+        self.assertEqual(env["CFLAGS"], "")
+        self.assertEqual(env["MACOSX_DEPLOYMENT_TARGET"], "11.0")
+        self.assertEqual(env["RUSTFLAGS"], "-C target-cpu=apple-m1 -C link-arg=-Wl,-install_name,@rpath/libplenty_dataframe_v1.dylib")
+        self.assertEqual(env["CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER"], "cc")
+
+    def test_macos_cross_build_and_linalg_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.build("x86_64-unknown-linux-gnu", "aarch64-apple-darwin", name="dataframe")
+        with self.assertRaises(SystemExit):
+            self.build("aarch64-apple-darwin")

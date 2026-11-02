@@ -11,6 +11,7 @@
 #     bin/plenty, bin/plentyc   (plenty.exe, plentyc.exe on Windows)
 #     bin/libplenty_NAME_v1.so  (Linux: each engine in release_engines)
 #     bin/plenty_dataframe_v1.dll (Windows dataframe engine)
+#     bin/libplenty_dataframe_v1.dylib (macOS dataframe engine)
 #     bin/NAME-notices/         (its engine.json, licenses and notices)
 #     README.md                 (README.dist.md, or README.dist-OS.md, filled in)
 #     LICENSE-MIT, LICENSE-APACHE  (Plenty is MIT OR Apache-2.0)

@@ -22,7 +22,10 @@ and `libgcc_s.so.1`, with no AVX2 requirement. Rust, Cargo and a source checkout
 are unnecessary. The experimental Windows x86-64 release also includes
 `bin/plenty_dataframe_v1.dll` and `bin/dataframe-notices/`, requiring Windows 10
 or Windows Server 2016 or later and the MSVC runtime. Its manifest records
-`minimum_windows` instead of `minimum_glibc`. musl/Alpine and macOS are unsupported.
+`minimum_windows` instead of `minimum_glibc`. The experimental macOS ARM64
+release includes `bin/libplenty_dataframe_v1.dylib` and the same notices layout,
+requiring macOS 11 or later. Its manifest records `minimum_macos`.
+musl/Alpine and other native targets remain unsupported.
 The compiler still needs its [linking prerequisites](../toolchain/01-building/installing.md).
 See [shipping dataframe applications](dataframe-deployment.md) for runtime
 library placement, notices and compatibility checks.
@@ -49,8 +52,11 @@ uses three Cargo jobs by default, and installs
 control build concurrency. It forces baseline `x86-64` code generation
 and the system C linker, overriding ambient CPU flags; AVX2 is not required.
 The script supports native x86-64/ARM64 GNU/Linux builds, Linux cross targets,
-and native `x86_64-pc-windows-msvc` builds. On Windows it uses MSVC, installs
-`plenty_dataframe_v1.dll`, and avoids ELF linker flags.
+and native `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` builds. On Windows it uses MSVC, installs
+`plenty_dataframe_v1.dll`, and avoids ELF linker flags. On macOS it builds for
+Apple M1 with `MACOSX_DEPLOYMENT_TARGET=11.0`, installs
+`libplenty_dataframe_v1.dylib` with identity
+`@rpath/libplenty_dataframe_v1.dylib`, and uses the native C linker.
 Build on a system with a compatible glibc version for the deployment host.
 This source-build command does not impose the release's glibc 2.28 baseline;
 the release workflow builds and audits the engine inside its pinned container.
@@ -102,6 +108,25 @@ Normal programs need neither this library nor Rust. They do not gain a
 `DT_NEEDED` entry for Polars. A project fingerprint includes the selected
 engine path and metadata, so replacing or relocating it triggers relinking.
 Already-linked executables still need their dynamic dependencies at run time.
+
+## macOS application linking
+
+The macOS compiler uses the same option/environment/beside-compiler discovery
+precedence and links the selected ARM64 dylib directly. Ordinary compilation
+copies it beside the executable. Rebuilding ordinary output stages the dylib in
+a fresh sibling file and replaces the destination by rename, preserving old
+file mappings and cached signatures. Invalid selected engines report the build
+script needed to produce a compatible dylib. `--dist` adds the validated manifest, licenses
+and notices, and checks the copied dylib identity and checksum. The application
+uses `@loader_path` to resolve the library's `@rpath` identity from its own
+directory, without a fallback to the original build directory.
+
+Release packaging checks ARM64 Mach-O headers, a minimum macOS version no newer
+than 11, system-only dependencies, the versioned dylib identity, facade exports
+and the code signature. Apple tools verify the linker-generated ad-hoc
+signature; the release remains unnotarized. Keep the dylib unmodified and
+beside the executable when moving the application. Native CI tests Parquet
+queries and application-only relocation.
 
 ## Windows application linking
 
