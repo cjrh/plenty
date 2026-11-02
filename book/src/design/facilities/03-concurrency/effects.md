@@ -55,8 +55,10 @@ once per identity.
 
 This is conservative certification by signature. Taking an unsafe address on
 the main thread can reject a worker's use of a different function with the
-same signature, even when that unsafe value never enters the worker. A
-conditional with one safe and one unsafe candidate is rejected too. An absent
+same signature, even when that unsafe value never enters the worker. Standard
+library callbacks share this candidate set: an unsafe user callback with the
+same signature as a std error mapper can prevent a std worker from certifying.
+A conditional with one safe and one unsafe candidate is rejected too. An absent
 address set supplies no evidence and is rejected; a function signature alone
 is never an effect contract. A concrete captured closure has its own body and
 capture evidence and can avoid unrelated signatures, while retaining all
