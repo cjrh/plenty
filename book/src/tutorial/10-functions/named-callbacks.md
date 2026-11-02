@@ -58,3 +58,25 @@ def main() -> Result[(), IoError]:
 ```output
 42
 ```
+
+Class constructors and payload-bearing enum variants can be passed the same
+way. Use the constructor directly when a callback only wraps a value:
+
+```plenty
+class Reading:
+    value: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    readings: list[Reading] = iter(range(3)).map(Reading).collect()?
+    wrap: Callable[[i64], Option[i64]] = Some
+    print(readings, wrap(7))?
+    Ok(())
+```
+```output
+[Reading(value=0), Reading(value=1), Reading(value=2)] Option[i64].Some(7)
+```
+
+For a generic constructor, an annotation supplies the instance, as for `wrap`
+above. Without that context, name it explicitly: `Option[i64].Some`.
+Constructor values take every positional argument and retain any initializer
+failure in their result. See [constructor rules](../../design/language/03-types/classes.md).

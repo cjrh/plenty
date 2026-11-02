@@ -203,7 +203,11 @@ Predicates receive `&T` for owned `T`, borrowed `&T`, and mutable `&mut T`
 items. Mapping receives the item itself. Callback parameters and results require
 explicit types. Every reusable callable is accepted by value: a named
 function, an anonymous function, a capturing closure with owned or borrowed
-captures, a stored `Callable` value or parameter, and a `BoxedCallable`.
+captures, a stored `Callable` value or parameter, a `BoxedCallable`, or a
+[class or payload-variant constructor](../06-functions/02-function-values.md).
+Generic constructors need explicit instances here, for example
+`map(Option[i64].Some)`, because a pipeline does not supply an expected callback
+result type.
 One-shot closures are rejected because the pipeline calls the callback once per
 item, and a reference such as `&f` is rejected: pass the function or closure
 itself. `map` cannot currently return references.

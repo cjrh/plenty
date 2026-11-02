@@ -17,8 +17,13 @@ function. A capturing closure also needs an inline environment, so a concrete
 [boxed callable](05-boxed-callables.md) for storage. Function values are
 copyable, display as `<function>`, and compare native code addresses rather
 than behavior. They cannot be dictionary keys or set elements. A payload enum
-variant written without arguments, such as `AppError.Io`, is also a function
-value; see [enums](../03-types/enums.md).
+variant written without arguments, such as `AppError.Io`, and a class
+constructor, such as `Point`, are also function values; see
+[enums](../03-types/enums.md) and [classes](../03-types/classes.md).
+Generic constructor values specialize from an explicit data instance or an
+expected `Callable`, including prelude `Some`, `Ok`, and `Err`. Like named
+functions, constructor values can be borrowed as `&Point` or `&Reading.Value`;
+`&mut` borrows a fresh copy of the code address.
 
 An arbitrary callee expression is allowed: `choose()(n)`, `(f)(n)`,
 `handlers[index](n)`, and `record.callback(n)`. The callee evaluates before its

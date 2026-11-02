@@ -1095,18 +1095,47 @@ impl Lower<'_> {
         // Generic positions get no contextual type: literals use their defaults.
         let mut reservation = None;
         for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
+            let callback_pattern = if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
+                &pattern.args[0]
+            } else {
+                pattern
+            };
             let callback_bound = template.type_params.iter().find_map(|(name, bound)| {
-                (pattern.name.as_ref() == Some(name))
+                (callback_pattern.name.as_ref() == Some(name))
                     .then_some(bound.as_ref())
                     .flatten()
                     .filter(|bound| callable_bound(bound) && !mentions_parameter(bound, &template))
             });
-            let generic_function = matches!(&ungroup(arg).kind, Expression::Name(name)
-                if !self.names.contains_key(name) && self.generics.templates.contains_key(name));
-            let ty = if let Some(bound) = callback_bound.filter(|_| generic_function) {
+            let callable_expression = match &ungroup(arg).kind {
+                Expression::Unary(op, base) if matches!(op.as_str(), "&" | "&mut") => ungroup(base),
+                _ => ungroup(arg),
+            };
+            let needs_context = match &callable_expression.kind {
+                Expression::Name(name) => {
+                    !self.names.contains_key(name)
+                        && (self.generics.templates.contains_key(name)
+                            || enums::prelude_variant(name)
+                            || self.aliases.data.contains(name))
+                }
+                Expression::Member(base, _, _) => matches!(&ungroup(base).kind,
+                    Expression::Name(owner) if !self.names.contains_key(owner) && self.aliases.data.is_enum(owner)),
+                _ => false,
+            };
+            let ty = if let Some(bound) = callback_bound.filter(|_| needs_context) {
                 let expected = callable_pattern(bound).resolve(self.aliases)?;
-                self.expr_expected(arg, expected, ops)?
-                    .ok_or_else(|| arg.at.error("expected a callable value"))?
+                if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
+                    let (ty, loan) = self.call_borrow(
+                        arg,
+                        pattern.name.as_deref() == Some("&mut"),
+                        expected,
+                        ops,
+                    )?;
+                    loans.push(loan);
+                    ty
+                } else {
+                    self.expr_expected(arg, expected, ops)?
+                        .ok_or_else(|| arg.at.error("expected a callable value"))?
+                }
             } else if !mentions_parameter(pattern, &template)
                 && !pattern
                     .resolve(self.aliases)?

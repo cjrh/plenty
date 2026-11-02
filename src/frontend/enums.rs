@@ -357,6 +357,14 @@ impl Lower<'_> {
         if name == "Nothing" && args.is_some() {
             return Err(at.error("nullary variants do not take parentheses"));
         }
+        if name != "Nothing" && args.is_none() {
+            let instance = if name == "Some" {
+                "Option[i64].Some".into()
+            } else {
+                format!("Result[i64, str].{name}")
+            };
+            return Err(at.error(format!("generic constructor `{name}` requires an expected Callable type or an explicit instance, such as `{instance}`")));
+        }
         if name != "Nothing" && !args.is_some_and(|a| a.len() == 1) {
             return Err(at.error(format!("variant `{name}` requires 1 payload argument")));
         }
