@@ -84,10 +84,10 @@ extern def error_drop(raw: RawError) -> () = "pldf_v1_error_drop"
 extern def binary_values_drop(raw: RawBinaryValues) -> () = "pldf_v1_binary_values_drop"
 extern def binary_values_meta(raw: RawBinaryValues, rows: &mut i64, bytes: &mut i64) -> RawError = "pldf_v1_binary_values_meta"
 extern def binary_values_copy(raw: RawBinaryValues, bytes: &mut list[u8] as strided, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_binary_values_copy"
-extern def native_binary(name: &str as utf8, bytes: &list[u8] as strided, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_binary_column"
+extern def native_binary(name: &str as utf8, bytes: &[u8] as strided, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_binary_column"
 extern def get_binary_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut RawBinaryValues) -> RawError = "pldf_v1_get_binary"
 extern def values_binary_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut RawBinaryValues) -> RawError = "pldf_v1_values_binary"
-extern def lit_binary_raw(bytes: &list[u8] as strided, out: &mut RawExpr) -> RawError = "pldf_v1_lit_binary"
+extern def lit_binary_raw(bytes: &[u8] as strided, out: &mut RawExpr) -> RawError = "pldf_v1_lit_binary"
 extern def column_drop(raw: RawColumn) -> () = "pldf_v1_column_drop"
 extern def frame_drop(raw: RawFrame) -> () = "pldf_v1_frame_drop"
 extern def expr_drop(raw: RawExpr) -> () = "pldf_v1_expr_drop"
@@ -1292,10 +1292,9 @@ pub def lit_bool(value: bool) -> Result[Expr, DataFrameError]:
     checked(lit_bool_raw(1u8 if value else 0u8, &mut out.raw))?
     Ok(out)
 
-pub def lit_binary(value: &Bytes) -> Result[Expr, DataFrameError]:
-    data = allocated(value.to_list())?
+pub def lit_binary(value: &[u8]) -> Result[Expr, DataFrameError]:
     mut out = Expr()
-    checked(lit_binary_raw(data, &mut out.raw))?
+    checked(lit_binary_raw(value, &mut out.raw))?
     Ok(out)
 
 pub def when(predicate: &Expr, then_value: &Expr, otherwise: &Expr) -> Result[Expr, DataFrameError]:
@@ -1338,10 +1337,9 @@ pub def column_binary(name: &str, values: &list[Bytes]) -> Result[Column, DataFr
     for value in values:
         allocated(packed.extend(value))?
         allocated(offsets.append(packed.len()))?
-    data = allocated(packed.to_list())?
     valid = allocated([1u8 for _ in range(len(values))])?
     mut out = Column()
-    checked(native_binary(name, data, offsets, valid, &mut out.raw))?
+    checked(native_binary(name, &packed, offsets, valid, &mut out.raw))?
     Ok(out)
 
 pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Result[Column, DataFrameError]:
@@ -1356,9 +1354,8 @@ pub def column_binary_nullable(name: &str, values: &list[Option[Bytes]]) -> Resu
             case Nothing:
                 allocated(valid.append(0u8))?
         allocated(offsets.append(packed.len()))?
-    data = allocated(packed.to_list())?
     mut out = Column()
-    checked(native_binary(name, data, offsets, valid, &mut out.raw))?
+    checked(native_binary(name, &packed, offsets, valid, &mut out.raw))?
     Ok(out)
 
 pub def column_str(name: &str, values: &list[str]) -> Result[Column, DataFrameError]:

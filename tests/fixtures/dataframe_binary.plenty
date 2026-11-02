@@ -26,7 +26,7 @@ def roundtrip() -> Result[(), df.DataFrameError | AllocError | BytesError | test
     scanned = df.scan_parquet("binary.parquet")?
     test.equal(scanned.schema()?, schema)?
     test.equal(scanned.collect()?.values_binary("payload")?, expected)?
-    predicate = df.col("payload")?.eq(df.lit_binary(expected[0])?)?
+    predicate = df.col("payload")?.eq(df.lit_binary(&expected[0])?)?
     filtered = query.filter(predicate)?.collect()?
     test.equal(filtered.height()?, 1)?
     test.equal(filtered.get_binary("payload", 0)?.unwrap(), expected[0])?
@@ -77,6 +77,31 @@ def roundtrip() -> Result[(), df.DataFrameError | AllocError | BytesError | test
             test.fail("binary CSV override accepted")?
     Ok(())
 
+def literal_views() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
+    values = [buffers.from_bytes(b"\xff\0\x80")?, buffers.empty()?]?
+    data = df.frame([df.column_binary("payload", values)?]?)?
+    query = data.lazy()?
+    mut framed = buffers.from_bytes(b"x\xff\0\x80y")?
+    mut numbers = [255u8, 0u8, 128u8]?
+    literal = df.lit_binary(b"\xff\0\x80")?
+    owned = df.lit_binary(&values[0])?
+    subview = df.lit_binary(&framed[1:4])?
+    listed = df.lit_binary(&numbers)?
+    empty = df.lit_binary(b"")?
+    clamped = df.lit_binary(&framed[99:])?
+    framed.set(1, 0u8)
+    for byte in &mut numbers:
+        *byte = 0u8
+    for expression in [literal, owned, subview, listed]?:
+        found = query.filter(df.col("payload")?.eq(expression)?)?.collect()?
+        test.equal(found.height()?, 1)?
+        test.equal(found.get_binary("payload", 0)?.unwrap(), values[0])?
+    for expression in [empty, clamped]?:
+        found = query.filter(df.col("payload")?.eq(expression)?)?.collect()?
+        test.equal(found.height()?, 1)?
+        test.equal(found.get_binary("payload", 0)?.unwrap().len(), 0)?
+    Ok(())
+
 def nullable() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError]:
     values: list[Option[Bytes]] = [Some(buffers.empty()?), Nothing, Some(buffers.from_bytes(b"\xff\0")?)]?
     data = df.frame([df.column_binary_nullable("payload", values)?]?)?
@@ -92,7 +117,7 @@ def nullable() -> Result[(), df.DataFrameError | AllocError | BytesError | test.
     restored = df.scan_parquet("nullable-binary.parquet")?.collect()?
     test.equal(restored.values_binary_nullable("payload")?, values)?
     replacement = buffers.from_bytes(b"fallback")?
-    filled = data.lazy()?.select([df.col("payload")?.fill_null(df.lit_binary(replacement)?)?]?)?.collect()?
+    filled = data.lazy()?.select([df.col("payload")?.fill_null(df.lit_binary(&replacement)?)?]?)?.collect()?
     test.equal(filled.get_binary("payload", 1)?.unwrap(), replacement)?
     nulls: list[Option[Bytes]] = [Nothing, Nothing]?
     all_null = df.frame([df.column_binary_nullable("payload", nulls)?]?)?
@@ -114,5 +139,6 @@ def nullable() -> Result[(), df.DataFrameError | AllocError | BytesError | test.
 def main() -> Result[(), df.DataFrameError | AllocError | BytesError | test.TestError | IoError]:
     roundtrip()?
     nullable()?
+    literal_views()?
     print("dataframe binary ok")?
     Ok(())

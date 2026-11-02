@@ -101,16 +101,19 @@ buffers. `Some(empty_buffer)` is a present zero-byte payload; `Nothing` is
 missing data. Constructors borrow buffers and copy their contents. Extraction
 returns independent mutable buffers; changing them cannot change the frame.
 
-`lit_binary(value: &Bytes)` copies a constant payload into a native expression.
-Use it with equality, filtering, or `fill_null`. `cast(DType.Binary)` explicitly
+`lit_binary(value: &[u8])` copies a constant payload into a native expression.
+It accepts literals, buffers, byte lists and subviews without a Plenty-side
+allocation; the native expression owns its copy after the call. Use it with
+equality, filtering, or `fill_null`. `cast(DType.Binary)` explicitly
 converts strings to UTF-8 bytes. Binary-to-string casts require valid UTF-8;
 the pinned engine rejects invalid sequences even with `strict=False`.
 Binary columns round-trip
 through Parquet, but are not supported by the CSV interface.
 
 Transfers pack bytes, offsets, and validity into whole-column native calls.
-The current foreign interface stages payload bytes in packed `list[u8]` buffers. Extraction
-also copies through a packed `Bytes` before allocating each result buffer.
+Construction passes the packed `Bytes` as a borrowed byte view, without a
+second payload copy into `list[u8]`. Extraction copies through a packed
+`Bytes` before allocating each result buffer.
 These are copying APIs with temporary memory overhead, not zero-copy views;
 select/filter in Polars before extracting large payloads.
 

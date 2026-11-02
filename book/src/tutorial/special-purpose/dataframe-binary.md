@@ -20,9 +20,8 @@ def main() -> Result[(), df.DataFrameError | BytesError | AllocError | IoError]:
         Some(buffers.empty()?)
     ]?
     data = df.frame([df.column_binary_nullable("payload", payloads)?]?)?
-    needle = buffers.from_bytes(b"\xff\0")?
     matches = data.lazy()?.filter(
-        df.col("payload")?.eq(df.lit_binary(needle)?)?
+        df.col("payload")?.eq(df.lit_binary(b"\xff\0")?)?
     )?.collect()?
     print(matches.height()?)?
     for payload in matches.values_binary("payload")?:
@@ -46,6 +45,8 @@ buffers that can outlive the dataframe and be changed independently.
 not support binary columns. Converting a binary expression to `DType.String`
 is explicit and checks UTF-8; it is unnecessary for writing Parquet.
 
-The current transfer path uses temporary byte lists and copies the data.
+Binary literals accept a byte literal or borrowed view directly, including
+`&buffer[a:b]`. Column construction packs values into a temporary `Bytes`
+buffer and copies them into Polars; extraction returns independent buffers.
 Prefer native filtering/projection before extraction, especially for large
 payloads. See [binary transfer details](../../design/stdlib/dataframe-types.md#binary-payloads).
