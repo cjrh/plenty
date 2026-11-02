@@ -663,6 +663,9 @@ fn engine_link_args(
         }
         libraries.push(path.into_os_string());
     }
+    // Some distributions' default linkers (AlmaLinux 8) emit legacy DT_RPATH,
+    // which distribution output rejects and LD_LIBRARY_PATH cannot override.
+    libraries.extend(["-Xlinker".into(), "--enable-new-dtags".into()]);
     for directory in directories {
         libraries.extend([
             "-Xlinker".into(),

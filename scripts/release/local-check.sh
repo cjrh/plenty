@@ -34,9 +34,17 @@ done
 out="$repo/target/release-container-$release_arch"
 mkdir -p "$out/home" "$out/tmp"
 rm -rf "$out/dist"
+# A linked worktree's .git names the main repository's git directory; mount it
+# at the same path so packaging can record the source commit.
+git_mounts=()
+git_common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)"
+case "$git_common" in
+    "$repo"/*) ;;
+    *) git_mounts=(-v "$git_common:$git_common:ro") ;;
+esac
 docker run --rm --label org.plenty.release-build=1 \
     --user "$(id -u):$(id -g)" \
-    -v "$repo:/work" -w /work \
+    -v "$repo:/work" -w /work ${git_mounts[@]+"${git_mounts[@]}"} \
     -e HOME="/work/target/release-container-$release_arch/home" \
     -e CARGO_TARGET_DIR="/work/target/release-container-$release_arch/target" \
     -e TMPDIR="/work/target/release-container-$release_arch/tmp" \
