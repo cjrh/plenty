@@ -2,7 +2,7 @@
 //! book/src/design/stdlib/signal.md.
 mod support;
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -110,6 +110,24 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server
     Ok(())
 "##;
 
+fn read_until_tick(stream: &mut impl Read, received: &mut Vec<u8>) -> io::Result<()> {
+    let mut buffer = [0u8; 512];
+    while !String::from_utf8_lossy(received).contains("tick") {
+        let count = match stream.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("ended before tick: {}", String::from_utf8_lossy(received)),
+            ));
+        }
+        received.extend_from_slice(&buffer[..count]);
+    }
+    Ok(())
+}
+
 #[test]
 fn sigterm_drains_a_streaming_response() {
     let mut server = Running::start(DRAINING_SERVER);
@@ -122,12 +140,7 @@ fn sigterm_drains_a_streaming_response() {
         .write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
     let mut received = Vec::new();
-    let mut buffer = [0u8; 512];
-    while !String::from_utf8_lossy(&received).contains("tick") {
-        let count = client.read(&mut buffer).unwrap();
-        assert!(count > 0, "{}", String::from_utf8_lossy(&received));
-        received.extend_from_slice(&buffer[..count]);
-    }
+    read_until_tick(&mut client, &mut received).unwrap();
     send(&server.child, SIGTERM);
     client.read_to_end(&mut received).unwrap();
     let text = String::from_utf8_lossy(&received);
@@ -315,5 +328,59 @@ def main() -> Result[(), SpawnError[()] | std.signal.SignalError]:
     assert!(
         error.contains("catching signals changes how every thread's process ends"),
         "{error}"
+    );
+}
+
+#[test]
+fn marker_read_retries_only_interruptions_and_requires_the_marker() {
+    struct ScriptedReads<'a> {
+        steps: std::collections::VecDeque<io::Result<&'a [u8]>>,
+    }
+    impl Read for ScriptedReads<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let data = self
+                .steps
+                .pop_front()
+                .expect("unexpected read past marker")?;
+            assert!(data.len() <= buf.len());
+            buf[..data.len()].copy_from_slice(data);
+            Ok(data.len())
+        }
+    }
+    let mut stream = ScriptedReads {
+        steps: [
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(b"ti".as_slice()),
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(b"ck\n".as_slice()),
+        ]
+        .into(),
+    };
+    let mut received = Vec::new();
+    read_until_tick(&mut stream, &mut received).unwrap();
+    assert_eq!(received, b"tick\n");
+    for kind in [
+        io::ErrorKind::TimedOut,
+        io::ErrorKind::WouldBlock,
+        io::ErrorKind::ConnectionReset,
+    ] {
+        let mut stream = ScriptedReads {
+            steps: [Ok(b"ti".as_slice()), Err(kind.into())].into(),
+        };
+        let mut received = Vec::new();
+        assert_eq!(
+            read_until_tick(&mut stream, &mut received)
+                .unwrap_err()
+                .kind(),
+            kind
+        );
+        assert_eq!(received, b"ti");
+    }
+    let mut received = Vec::new();
+    assert_eq!(
+        read_until_tick(&mut b"ti".as_slice(), &mut received)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::UnexpectedEof
     );
 }
