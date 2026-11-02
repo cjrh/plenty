@@ -1147,3 +1147,128 @@ def main() -> Result[(), AllocError | IoError]:
         "[] 9 [200] 1 2\n",
     );
 }
+
+#[test]
+fn statements_after_return_if_are_unreachable() {
+    for prefix in ["", "    unused = 0\n"] {
+        reject(
+            &format!(
+                r#"
+def select(flag: bool) -> i64:
+{prefix}    return if flag:
+        1
+    else:
+        2
+    print("unreachable").unwrap()
+    undefined_name + "x"
+"#
+            ),
+            "unreachable statement after a control-flow exit",
+        );
+    }
+    reject(
+        r#"
+def main() -> ():
+    return if True:
+        pass
+    pass
+"#,
+        "unreachable statement after a control-flow exit",
+    );
+}
+
+#[test]
+fn return_if_recursive_arms_are_tail_calls() {
+    run(
+        r#"
+def count(n: i64, total: i64) -> i64:
+    return if n == 0:
+        total
+    elif n % 2 == 0:
+        count(n - 1, total + 1)
+    else:
+        count(n - 1, total + 1)
+
+def main() -> Result[(), IoError]:
+    print(count(5000000, 0))?
+    Ok(())
+"#,
+        "5000000\n",
+    );
+}
+
+#[test]
+fn return_if_loop_exits_can_reach_code_after_the_loop() {
+    run(
+        r#"
+def choose(stop: i64) -> i64:
+    for n in range(stop):
+        return if n == 0:
+            continue
+        elif n == 1:
+            break
+        else:
+            n
+    99
+
+def main() -> Result[(), IoError]:
+    print(choose(0), choose(1), choose(5))?
+    Ok(())
+"#,
+        "99 99 99\n",
+    );
+}
+
+#[test]
+fn block_if_constructor_initialization_is_credited_to_the_outer_assignment() {
+    run(
+        r#"
+class Pair:
+    first: i64
+    second: i64
+    def __init__(self, flag: bool) -> ():
+        self.first = if flag:
+            1
+        else:
+            2
+        self.second = 3
+
+def main() -> Result[(), IoError]:
+    print(Pair(True), Pair(False))?
+    Ok(())
+"#,
+        "Pair(first=1, second=3) Pair(first=2, second=3)\n",
+    );
+    reject(
+        r#"
+class Pair:
+    first: i64
+    second: i64
+    def __init__(self, flag: bool) -> ():
+        self.first = if flag:
+            self.second = 3
+            1
+        else:
+            self.second = 4
+            2
+
+def main() -> ():
+    drop(Pair(True))
+"#,
+        "fields not initialized: second",
+    );
+}
+
+#[test]
+fn compile_time_if_is_rejected_as_a_block_value() {
+    reject(
+        r#"
+def main() -> ():
+    value = if const True:
+        1
+    else:
+        2
+"#,
+        "`if const` selects statements at compile time and cannot be used as a block value",
+    );
+}

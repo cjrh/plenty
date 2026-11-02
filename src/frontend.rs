@@ -2527,6 +2527,9 @@ impl Parser {
     }
     fn statement_value(&mut self) -> Result<Expr> {
         if self.peek().is("if") {
+            if let Some(at) = self.token(self.pos + 1).filter(|at| at.is("const")) {
+                return Err(at.error("`if const` selects statements at compile time and cannot be used as a block value; put the binding or return in its selected arm"));
+            }
             let statement = self.conditional_statement()?;
             return Ok(Expr {
                 at: statement.at.clone(),
@@ -3346,7 +3349,6 @@ const NONE_VALUE: &str =
 const NONE_TYPE: &str =
     "Plenty has no `None` type; write `()` for no result, or `Option[T]` for an optional value";
 const IF_VALUE_POSITION: &str = "an `if` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
-
 const MATCH_VALUE_POSITION: &str = "a `match` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 
 /// What becomes of the value of a suite's final expression.
@@ -5814,7 +5816,7 @@ impl Lower<'_> {
                     return exited_block(body, i);
                 }
                 Statement::Return(Some(Expr {
-                    kind: Expression::If(body),
+                    kind: Expression::If(suite),
                     ..
                 })) => {
                     if self.yield_type.is_some() {
@@ -5823,7 +5825,7 @@ impl Lower<'_> {
                     if self.return_type.is_none() {
                         return Err(stmt.at.error("return outside a function"));
                     }
-                    self.returning_block(body, &stmt.at, ops, &Tail::Return)?;
+                    self.returning_block(suite, &stmt.at, ops, &Tail::Return)?;
                     return exited_block(body, i);
                 }
                 Statement::Return(e) => {
@@ -5904,7 +5906,7 @@ impl Lower<'_> {
                 } => {
                     let start = ops.len();
                     self.unpack_tuple(names, *mutable, value, ops)?;
-                    self.building(&value.at, start, ops, block_value(value));
+                    self.building(&value.at, start, ops, false);
                     None
                 }
                 Statement::Assign {

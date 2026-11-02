@@ -69,7 +69,7 @@ collection literals. Continuing arms must agree. Arms ending in `return`,
 `if` statement instead of binding its nonexistent value. An absent `else`
 produces unit on its unselected path; unit cannot be stored in a binding.
 
-Evaluate conditions in order and only evaluate the selected suite. Its locals
+Conditions are evaluated in order; only the selected suite runs. Its locals
 are cleaned up before the binding or assignment, including before evaluating
 [destination indices](assignment.md). `?`, `return`, `break`, and `continue`
 keep their enclosing function or loop. A binding or assignment cannot receive a
@@ -81,8 +81,10 @@ value instead. These are the same lifetime and evaluation rules as a
 it ended with `return expression`. Returned references follow ordinary
 [returned-reference rules](../05-ownership/04-returned-references.md), and calls
 in these final positions remain [source-tail calls](../06-functions/06-tail-calls.md).
-A suite without a value returns unit. All paths exit the function, so a
-statement after the whole block is unreachable.
+A suite without a value returns unit. Every path leaves the enclosing suite,
+so a statement directly after the whole block is unreachable. An arm that
+executes `break` or `continue` still exits to its enclosing loop rather than
+returning from the function; code after that loop can run.
 
 The block ends the statement. Block `if` and `match` remain unsupported inside
 call arguments, operands, augmented assignments, or assignments to several
