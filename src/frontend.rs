@@ -34,6 +34,7 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod divisors;
 mod enums;
 mod executors;
 mod files;
@@ -3653,8 +3654,8 @@ impl Lower<'_> {
             "-" => Op::Sub,
             "*" => Op::Mul,
             "/" => Op::Div,
-            "//" => Op::FloorDiv,
-            "%" => Op::Modulo,
+            "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
+            "%" => Op::Modulo(crate::numeric::Divisor::Any),
             "==" => Op::Eq,
             "!=" => Op::Ne,
             "<" => Op::Lt,
@@ -4629,8 +4630,8 @@ impl Lower<'_> {
                         "-" => Op::Sub,
                         "*" => Op::Mul,
                         "/" => Op::Div,
-                        "//" => Op::FloorDiv,
-                        "%" => Op::Modulo,
+                        "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
+                        "%" => Op::Modulo(crate::numeric::Divisor::Any),
                         "==" => Op::Eq,
                         "!=" => Op::Ne,
                         "<" => Op::Lt,

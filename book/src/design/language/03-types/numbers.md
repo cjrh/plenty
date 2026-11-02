@@ -138,8 +138,8 @@ operators can produce:
 | Operation inside the block | Error |
 | --- | --- |
 | `+`, `-`, `*`, unary `-` and `pow` on `T` | `OverflowError[T]` |
-| `//` on a signed `T` (`T.MIN // -1`) | `OverflowError[T]` |
-| `//` and `%` with a zero divisor | `ZeroDivisionError` |
+| `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`) | `OverflowError[T]` |
+| `//` and `%` with a plain integer divisor that may be zero | `ZeroDivisionError` |
 
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
 2<sup>N</sup> for an N-bit `T`. `ZeroDivisionError` has no fields. Both are
@@ -236,7 +236,7 @@ integer back.
 
 ```plenty
 def per_group(total: i64, groups: NonZero[i64]) -> i64:
-    total // groups.get()
+    total // groups
 
 def main() -> Result[(), IoError | RangeError]:
     three: NonZero[i64] = 3
@@ -271,11 +271,19 @@ operands. Unary `-` and `+`, and `*` between two `NonZero[T]` values, return
 `NonZero[T]`; `*=` updates one. `+` and `-` between two values return `T`,
 since their result can be zero. Overflow traps, or is an `Err` in a
 [`checked:` block](#checked-blocks), so a product cannot wrap to zero. Other
-operators, including `//`, `%`, bitwise operators, and shifts, are compile-time
-errors that suggest `.get()`. An integer literal beside a `NonZero[T]` operand
+operators between two `NonZero` values, including `//`, `%`, bitwise operators,
+and shifts, are compile-time errors that suggest `.get()`. An integer literal beside a `NonZero[T]` operand
 is a `NonZero[T]` too: `step * 2` is a `NonZero[i64]`, and `step == 0` is a
 compile-time error. Operands must otherwise have the same type; mixing
-`NonZero[T]` with `T` is a type error whose hint shows `try_from`.
+`NonZero[T]` with `T` is otherwise a type error whose hint shows `try_from`.
+
+A plain `T` dividend accepts a `NonZero[T]` divisor: `total // groups` and
+`total % groups` return `T`, and `//=` and `%=` update a `T` destination.
+These forms omit the divide-by-zero check. Signed floor division still checks
+`T.MIN // -1` for overflow; `T.MIN % -1` returns zero. In a `checked:` block,
+signed division by `NonZero[T]` contributes only `OverflowError[T]`; modulo
+and unsigned division contribute no failures. A block containing only
+operations that cannot fail is rejected, as with other checked arithmetic.
 
 A [range](../../facilities/01-builtins/ranges.md) step is `NonZero[i64]`.
 `NonZero` is a builtin name and cannot be redefined.
@@ -322,8 +330,15 @@ True
 return `T`, and unary `+` preserves it. Overflow traps or returns `Err` in
 [checked blocks](#checked-blocks), so the domain cannot be violated by
 wrapping. Comparisons accept the same domain type or a literal in its domain.
-Other operators, including division, modulo, bitwise operations and shifts,
-require `.get()`.
+Other operators between domain values, including division, modulo, bitwise
+operations and shifts, require `.get()`.
+
+A plain `T` dividend accepts a `Positive[T]` divisor directly with `//`, `%`,
+`//=` and `%=`. The result is `T`. These forms omit both the zero check and
+the signed `MIN // -1` check, since a positive divisor can be neither zero
+nor `-1`. They contribute no failures inside a `checked:` block. A
+`NonNegative[T]` divisor still needs `.get()` or explicit conversion to a
+nonzero domain, since zero is valid for it.
 
 `NonZero.from(positive)` and `NonNegative.from(positive)` explicitly widen a
 `Positive[T]`; they cannot fail or allocate. Qualified forms name `T`.

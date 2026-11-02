@@ -1161,8 +1161,8 @@ pub enum Op {
     /// Divide same-typed numbers (legacy integer division truncates).
     Div,
     /// Integer division rounded toward negative infinity (modern `//`).
-    FloorDiv,
-    Modulo,
+    FloorDiv(crate::numeric::Divisor),
+    Modulo(crate::numeric::Divisor),
     /// Integer operations that never use implicit overflow checking.
     Integer(IntegerOp),
     /// Pop two values; push `true` if they are equal, `false` otherwise.
@@ -2486,7 +2486,7 @@ fn step(
         Op::Sub => arith(stack, "-")?,
         Op::Mul => arith(stack, "*")?,
         Op::Div => arith(stack, "/")?,
-        Op::FloorDiv | Op::Modulo => {
+        Op::FloorDiv(_) | Op::Modulo(_) => {
             if !stack.last().is_some_and(Ty::is_int) {
                 return Err("floor division and modulo require integers".into());
             }

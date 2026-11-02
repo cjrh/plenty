@@ -12,12 +12,22 @@ pub(super) fn forwards(op: &str) -> bool {
 }
 
 pub(super) fn unsupported(op: &str, ty: &Ty) -> String {
-    if ty.nonzero_element().is_some() {
+    let hint = if matches!(op, "//" | "%" | "//=" | "%=")
+        && (ty.nonzero_element().is_some() || ty.positive_element().is_some())
+    {
         format!(
-            "operator `{op}` does not accept `{ty}`, since its result could be zero; read the integer with `.get()`"
+            "; a plain integer dividend accepts this divisor as `T {} {ty}`",
+            op.trim_end_matches('=')
         )
     } else {
-        format!("operator `{op}` does not preserve `{ty}`; read the integer with `.get()`")
+        String::new()
+    };
+    if ty.nonzero_element().is_some() {
+        format!(
+            "operator `{op}` does not accept `{ty}`, since its result could be zero; read the integer with `.get()`{hint}"
+        )
+    } else {
+        format!("operator `{op}` does not preserve `{ty}`; read the integer with `.get()`{hint}")
     }
 }
 

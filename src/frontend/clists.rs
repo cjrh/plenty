@@ -187,10 +187,7 @@ impl Lower<'_> {
             Op::LoadLocal(position),
             Op::Collection(CollectionOp::Clist(ClistOp::Get(owner.clone(), field))),
         ]);
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(operator, &ty, &target.at, ops);
-        self.numeric_operation(operator, ty.clone(), &target.at, ops)?;
+        self.numeric_rhs(operator, &ty, value, &target.at, ops)?;
         let result = self.slot(ty, &target.at)?;
         ops.extend([Op::StoreLocal(result), Op::UseLoan(loan)]);
         let (_, loan) = self.borrow_with_indices(base, true, &mut Some(indices.iter()), ops)?;

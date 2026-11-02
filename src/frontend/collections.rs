@@ -272,10 +272,7 @@ impl Lower<'_> {
         }
         // Keep the shared loan through RHS evaluation: it permits observation
         // but prevents replacing or resizing the owner behind the saved path.
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         let result = self.slot(ty.clone(), &target.at)?;
         ops.push(Op::StoreLocal(result));
         ops.push(Op::UseLoan(read));
@@ -317,10 +314,7 @@ impl Lower<'_> {
         }
         ops.push(Op::Dup);
         ops.push(Op::ReadRef(ty.clone()));
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty.clone(), &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         ops.push(Op::Access(self.loans[loan].root, true, Some(loan)));
         ops.push(Op::Swap);
         ops.push(Op::WriteRef(ty));
@@ -369,10 +363,7 @@ impl Lower<'_> {
         let read = self.new_loan(slot, false, None, ops);
         let current = self.expr(target, ops)?;
         self.same(current, Some(ty.clone()), &target.at)?;
-        let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
-        self.same(actual, Some(ty.clone()), &value.at)?;
-        self.mark_arithmetic(op, &ty, &target.at, ops);
-        self.numeric_operation(op, ty, &target.at, ops)?;
+        self.numeric_rhs(op, &ty, value, &target.at, ops)?;
         ops.push(Op::UseLoan(read));
         self.mark(&target.at, ops);
         ops.push(Op::StoreLocal(slot));

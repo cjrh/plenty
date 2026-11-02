@@ -268,3 +268,29 @@ defined elsewhere keeps its own behavior. Builtin reductions such as `sum()`
 also keep trapping: use a `fold` callback defined inside the block to check an
 accumulation. See [checked blocks](../../design/language/03-types/numbers.md#checked-blocks)
 for closure lifetime rules. Arithmetic after the block traps as before.
+
+## Validate a divisor once
+
+When a divisor comes from input, validate it with `NonZero.try_from` and pass
+the resulting value to repeated divisions. A plain integer accepts that divisor
+directly; the compiler omits its zero check.
+
+```plenty
+def per_group(total: i64, groups: NonZero[i64]) -> i64:
+    total // groups
+
+def main() -> Result[(), IoError | RangeError]:
+    count = 3
+    groups = NonZero.try_from(count)?
+    print(per_group(14, groups), 14 % groups)?
+    Ok(())
+```
+```output
+4 2
+```
+
+The quotient and remainder are ordinary integers and can be zero. Signed
+`i64.MIN // -1` can still overflow, so use a
+[`checked:` block](#recover-from-overflow) when overflow should be returned.
+See [nonzero integers](../../design/language/03-types/numbers.md#nonzero-integers)
+for construction and arithmetic rules.

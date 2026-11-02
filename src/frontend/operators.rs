@@ -372,6 +372,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
+        if let Some(result) = self.domain_division(op, left, right, at, ops)? {
+            return Ok(Some(result));
+        }
         let hooks = binary(op);
         let ordering = ordering(op);
         if let Some(result) = self.nonzero_literal_operand(op, left, right, at, ops)? {

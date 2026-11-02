@@ -287,4 +287,9 @@ copying, scalar formatting and hashing. Explicit `NonZero.from(positive)` and
 `NonNegative.from(positive)` widen without failure or allocation.
 
 See [integer domains](../design/language/03-types/numbers.md#positive-and-non-negative-integers).
-The [B95 backlog](../backlog.md) retains std migrations and domain divisors.
+Plain integer dividends accept `NonZero[T]` and `Positive[T]` divisors for
+`//`, `%` and augmented assignment, preserving floor semantics while omitting
+the zero guard (issue #664). A `NonZero` divisor retains signed division
+overflow handling; a `Positive` divisor also removes the impossible `-1`
+overflow/remainder guard. Checked blocks infer only the remaining failures.
+The [B95 backlog](../backlog.md) retains std migrations.

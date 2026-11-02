@@ -87,6 +87,11 @@ executables, or tests. See [workflow and packages](references/workflow.md).
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
+- A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
+  `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
+  remains. Signed `MIN // -1` still overflows, or produces `OverflowError[T]`
+  inside `checked:` for a `NonZero` divisor; a `Positive` divisor cannot
+  cause either division failure. A domain dividend still needs `.get()`.
 - No `**`, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an

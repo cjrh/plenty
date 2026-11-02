@@ -140,8 +140,8 @@ impl Lowerer<'_, '_> {
                 let (value, overflow) = self.overflowing(kind, a, b, ty);
                 (value, vec![(overflow, TrapKind::Overflow)])
             }
-            Checked::FloorDiv => self.checked_floor_div(a, b, ty),
-            Checked::Modulo => self.checked_modulo(a, b, ty),
+            Checked::FloorDiv(proof) => self.checked_floor_div(a, b, ty, proof),
+            Checked::Modulo(proof) => self.checked_modulo(a, b, ty, proof),
             Checked::Pow => {
                 let (value, overflow) = self.int_pow_checked(a, b, ty)?;
                 (value, vec![(overflow, TrapKind::Overflow)])
@@ -288,16 +288,21 @@ impl Lowerer<'_, '_> {
         a: NativeValue,
         b: NativeValue,
         ty: &Ty,
+        proof: crate::numeric::Divisor,
     ) -> (Option<NativeValue>, Option<NativeValue>) {
-        let signed = is_signed(ty.clone()) && !self.nonnegative_operands(a, b);
+        let signed = proof != crate::numeric::Divisor::Positive
+            && is_signed(ty.clone())
+            && !self.nonnegative_division(a, b, proof);
         if let Some(divisor) = known::known_signed(&self.bcx.func.dfg, b) {
-            let zero = (divisor == 0).then(|| self.bcx.ins().iconst(types::I8, 1));
+            let zero = (proof == crate::numeric::Divisor::Any && divisor == 0)
+                .then(|| self.bcx.ins().iconst(types::I8, 1));
             let minus_one = (signed && divisor == -1).then(|| self.bcx.ins().iconst(types::I8, 1));
             return (zero, minus_one);
         }
-        let zero = self.bcx.ins().icmp_imm_s(IntCC::Equal, b, 0);
+        let zero = (proof == crate::numeric::Divisor::Any)
+            .then(|| self.bcx.ins().icmp_imm_s(IntCC::Equal, b, 0));
         let minus_one = signed.then(|| self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1));
-        (Some(zero), minus_one)
+        (zero, minus_one)
     }
 
     /// `b`, or 1 where any of `flags` holds, so the hardware division cannot
@@ -331,15 +336,16 @@ impl Lowerer<'_, '_> {
         a: NativeValue,
         b: NativeValue,
         ty: &Ty,
+        proof: crate::numeric::Divisor,
     ) -> (NativeValue, Vec<(NativeValue, TrapKind)>) {
-        let (zero, minus_one) = self.divisor_flags(a, b, ty);
+        let (zero, minus_one) = self.divisor_flags(a, b, ty, proof);
         let divisor = self.safe_divisor(b, ty, &[zero, minus_one]);
         let mut failures: Vec<_> = zero
             .map(|flag| (flag, TrapKind::DivZero))
             .into_iter()
             .collect();
         let Some(minus_one) = minus_one else {
-            let value = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
+            let value = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
                 self.floored(a, divisor)
             } else {
                 self.bcx.ins().udiv(a, divisor)
@@ -381,14 +387,15 @@ impl Lowerer<'_, '_> {
         a: NativeValue,
         b: NativeValue,
         ty: &Ty,
+        proof: crate::numeric::Divisor,
     ) -> (NativeValue, Vec<(NativeValue, TrapKind)>) {
-        let (zero, minus_one) = self.divisor_flags(a, b, ty);
+        let (zero, minus_one) = self.divisor_flags(a, b, ty, proof);
         let divisor = self.safe_divisor(b, ty, &[zero, minus_one]);
         let failures: Vec<_> = zero
             .map(|flag| (flag, TrapKind::DivZero))
             .into_iter()
             .collect();
-        let value = if is_signed(ty.clone()) && !self.nonnegative_operands(a, b) {
+        let value = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
             let remainder = self.bcx.ins().srem(a, divisor);
             let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
             let signs = self.bcx.ins().bxor(remainder, divisor);
