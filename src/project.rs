@@ -1269,7 +1269,7 @@ pub fn check_entry(
     let mut heap = crate::value::Heap::default();
     let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
-    crate::teardown((program, heap));
+    crate::teardown((program, heap), options);
     checked
 }
 

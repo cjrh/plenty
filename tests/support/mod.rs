@@ -81,7 +81,10 @@ pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 /// [`check_source`] with `--check-all-methods` (issue #517).
 pub fn check_all_methods(source: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let options = plenty::CheckOptions { all_methods: true };
+    let options = plenty::CheckOptions {
+        all_methods: true,
+        ..Default::default()
+    };
     plenty::check_source_with_options(&program(source), &options)
 }
 

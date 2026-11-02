@@ -194,6 +194,37 @@ struct Recorder {
     diagnostics: Vec<crate::diagnostic::Diagnostic>,
 }
 
+/// One analysis's recorder, installed in place of the thread's current one.
+/// Dropping it, including on unwind, restores the previous recorder and
+/// whether recording was on, so a nested analysis leaves the outer intact.
+struct Recording {
+    active: bool,
+    outer: Option<Recorder>,
+}
+
+impl Recording {
+    fn start(recorder: Recorder) -> Self {
+        Recording {
+            active: ACTIVE.replace(true),
+            outer: Some(RECORDER.replace(recorder)),
+        }
+    }
+
+    /// End the analysis, returning what it recorded.
+    fn finish(mut self) -> Recorder {
+        RECORDER.replace(self.outer.take().expect("an unfinished recording"))
+    }
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        if let Some(outer) = self.outer.take() {
+            RECORDER.set(outer);
+        }
+        ACTIVE.set(self.active);
+    }
+}
+
 pub(super) fn active() -> bool {
     ACTIVE.get()
 }
@@ -510,11 +541,10 @@ pub fn analyze(
     graph: Option<&crate::project::SourceGraph>,
     overlay: HashMap<PathBuf, String>,
 ) -> Analysis {
-    RECORDER.set(Recorder {
+    let recording = Recording::start(Recorder {
         overlay,
         ..Recorder::default()
     });
-    ACTIVE.set(true);
     let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(path, graph)));
     let result = match checked {
         Ok(result) => result,
@@ -523,8 +553,7 @@ pub fn analyze(
     if let Err(error) = result {
         recover(&*error);
     }
-    ACTIVE.set(false);
-    finish(RECORDER.take())
+    finish(recording.finish())
 }
 
 fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()> {
@@ -998,6 +1027,46 @@ mod tests {
         assert_eq!(sites[0].1, sites[1].1);
         assert_ne!(sites[0].0, sites[1].0);
         assert!(found.iter().all(|d| d.file.is_some()), "{found:?}");
+    }
+
+    fn outer() -> Recorder {
+        Recorder {
+            overlay: [(PathBuf::from("outer.plenty"), String::new())]
+                .into_iter()
+                .collect(),
+            ..Recorder::default()
+        }
+    }
+
+    fn outer_is_installed() -> bool {
+        active() && RECORDER.with_borrow(|r| r.overlay.contains_key(Path::new("outer.plenty")))
+    }
+
+    #[test]
+    fn a_nested_analysis_restores_the_outer_recorder() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("m.plenty");
+        std::fs::write(&path, "def f() -> i64:\n    return \"a\"\n").unwrap();
+        let recording = Recording::start(outer());
+        let inner = analyze(&path, None, HashMap::default());
+        assert_eq!(inner.diagnostics.len(), 1, "{:?}", inner.diagnostics);
+        assert!(outer_is_installed());
+        assert!(recording.finish().diagnostics.is_empty());
+        assert!(!active());
+    }
+
+    #[test]
+    fn an_unwind_restores_the_outer_recorder() {
+        let recording = Recording::start(outer());
+        let unwound = std::panic::catch_unwind(|| {
+            let _inner = Recording::start(Recorder::default());
+            panic!("unwind through an analysis");
+        });
+        assert!(unwound.is_err());
+        assert!(outer_is_installed());
+        drop(recording);
+        assert!(!active());
+        assert!(RECORDER.with_borrow(|r| r.overlay.is_empty()));
     }
 
     #[test]

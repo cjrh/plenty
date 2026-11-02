@@ -22,24 +22,9 @@ macro_rules! profile_block {
 }
 pub(crate) use profile_block;
 
-/// Whether this process leaks a compile's final data rather than freeing it;
-/// see [`skip_teardown`].
-static SKIP_TEARDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Leak, rather than free, the checked program (its operations and string
-/// pool) at the end of each later check. Freeing it only returns memory to a
-/// process that is about to exit: a command-line check that exits next calls
-/// this, saving about 2% of checking instructions (issue #321). Never call it
-/// in a process that keeps compiling, such as the language server,
-/// `plenty build` and `plenty test`, or a library caller: each check would
-/// keep its memory until the process exits.
-pub fn skip_teardown() {
-    SKIP_TEARDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Drop `value`, or leak it after [`skip_teardown`].
-pub(crate) fn teardown<T>(value: T) {
-    if SKIP_TEARDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+/// Drop a check's final data, or leak it when `options` skip teardown.
+pub(crate) fn teardown<T>(value: T, options: &CheckOptions) {
+    if options.skip_teardown {
         std::mem::forget(value);
     }
 }
@@ -145,15 +130,22 @@ pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
     check_source_with_options(source, &CheckOptions::default())
 }
 
-/// What a check verifies beyond what compilation checks. Only the check
-/// entry points take these: compiling never needs them, and the compile
-/// caches never see their results (issue #517).
+/// What a check verifies beyond what compilation checks, and how it ends.
+/// Only the check entry points take these: compiling never needs them, and
+/// the compile caches never see their results (issue #517).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CheckOptions {
     /// Check every method of every generic class and enum instance the
     /// program creates, as if each were called, rather than only the
     /// methods the program uses (`--check-all-methods`, issue #517).
     pub all_methods: bool,
+    /// Leak, rather than free, the checked program (its operations and
+    /// string pool). Freeing it only returns memory to a process that is
+    /// about to exit: a command-line check that exits next sets this, saving
+    /// about 2% of checking instructions (issue #321). A process that keeps
+    /// compiling, such as the language server, must not: each check would
+    /// keep its memory until the process exits.
+    pub skip_teardown: bool,
 }
 
 /// [`check_source`] with the checks `options` adds.
@@ -194,6 +186,6 @@ pub fn check_file_with_options(
     let mut heap = value::Heap::default();
     let program = frontend::compile_file(path, root, require_main, &mut heap, *options)?;
     let checked = op::check(&program.ops);
-    teardown((program, heap));
+    teardown((program, heap), options);
     checked
 }
