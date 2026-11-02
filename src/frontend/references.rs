@@ -190,13 +190,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
         if self.is_pipeline(value) && !self.is_dictionary_projection(value) {
-            let outer = std::mem::replace(&mut self.binding_pipeline, true);
+            let outer = std::mem::replace(&mut self.pipeline.binding, true);
             let plan = self.pipeline(value, ops);
-            self.binding_pipeline = outer;
+            self.pipeline.binding = outer;
             let plan = plan?;
             let item = Arc::new(plan.item.ty.clone());
-            let id = self.pipelines.len();
-            self.pipelines.push(plan);
+            let id = self.pipeline.plans.len();
+            self.pipeline.plans.push(plan);
             ops.push(Op::PipelineToken(item.clone(), id));
             return Ok((Ty::Iter(item, id), None));
         }
@@ -389,7 +389,7 @@ impl Lower<'_> {
         let id = self.reference_origin(e, ops)?;
         let mut ancestor = Some(id);
         while let Some(loan) = ancestor {
-            if self.lent_item_loans.contains(&loan) {
+            if self.pipeline.lent_item_loans.contains(&loan) {
                 return Err(e.at.error(
                     "an item of a lent pipeline cannot be returned: it borrows the caller's source only for this call; return an owned copy",
                 ));

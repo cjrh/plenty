@@ -123,9 +123,9 @@ impl Lower<'_> {
         }
         let name = format!(
             "__plenty_pipeline_{}_{}_{}_{}",
-            self.function_name, source.at.line, source.at.column, self.pipeline_generators
+            self.function_name, source.at.line, source.at.column, self.pipeline.generators
         );
-        self.pipeline_generators += 1;
+        self.pipeline.generators += 1;
         if let Some(sig) = self.sigs.get(&name) {
             let sig = sig.clone();
             for &slot in &captures {

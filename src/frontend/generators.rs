@@ -468,7 +468,7 @@ impl Lower<'_> {
             if let Expression::Name(name) = &place.kind
                 && let Some(local) = self.names.get(name)
                 && (matches!(local.ty, Ty::Iter(..))
-                    || self.lent_parameters.contains_key(&local.slot))
+                    || self.pipeline.lent_parameters.contains_key(&local.slot))
             {
                 let local = local.clone();
                 return self.pipeline_next(&local, place, at, ops).map(Some);

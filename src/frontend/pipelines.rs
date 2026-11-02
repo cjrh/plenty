@@ -53,6 +53,35 @@ fn result_payload(ty: &Ty) -> Option<Ty> {
     }
 }
 
+/// What pipeline lowering tracks for the function being lowered. Every
+/// function starts with it empty, and only pipeline lowering (plus the
+/// generator bridge and reference bookkeeping) reads or writes it.
+#[derive(Default)]
+pub(super) struct State {
+    /// Plans of the pipelines bound in this function, by binding.
+    pub(super) plans: Vec<Pipeline>,
+    /// Flags that keep a stopped `take_while` or `zip` stopped. Only `next(p)`
+    /// can leave one set before a consumer starts, so consumers of pipelines
+    /// not in `resumed_ends` fold the flag checks away.
+    pub(super) ends: std::collections::BTreeSet<u8>,
+    pub(super) resumed_ends: std::collections::BTreeSet<u8>,
+    /// Set while a pipeline binding is being built: its plan may be resumed
+    /// later, so its end checks must stay.
+    pub(super) binding: bool,
+    /// `&mut Iter[T]` parameters by slot, with their plans.
+    pub(super) lent_parameters: HashMap<u8, LentParameter>,
+    /// Where each closure value a pipeline holds as a callback came from, and
+    /// the binding it was read from, for lending diagnostics.
+    pub(super) callbacks: HashMap<u8, (Token, Option<String>)>,
+    /// Loans of the reference items of lent pipelines this borrower received.
+    pub(super) lent_item_loans: HashSet<usize>,
+    /// Generator bridges made so far in this function; the count keeps their
+    /// helper names distinct.
+    pub(super) generators: usize,
+    /// Set while a terminal consumes a pipeline; see `consume_in_place`.
+    pub(super) consuming: bool,
+}
+
 #[derive(Clone)]
 pub(super) struct Pipeline {
     iteration: Iteration,
@@ -162,7 +191,8 @@ impl Lower<'_> {
         }
         match &ungroup(e).kind {
             Expression::Name(n) => self.names.get(n).is_some_and(|local| {
-                matches!(local.ty, Ty::Iter(..)) || self.lent_parameters.contains_key(&local.slot)
+                matches!(local.ty, Ty::Iter(..))
+                    || self.pipeline.lent_parameters.contains_key(&local.slot)
             }),
             Expression::Call(n, _) => {
                 matches!(n.as_str(), "iter" | "enumerate" | "zip")
@@ -201,14 +231,19 @@ impl Lower<'_> {
     }
 
     pub(super) fn pipeline(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() && !self.consuming_pipeline {
+        if self.yield_type.is_some() && !self.pipeline.consuming {
             return Err(e.at.error("iterator pipelines cannot be held across yield"));
         }
         let start = self.locals.len();
         let ops_start = ops.len();
         let saved = self.names.clone();
         let mut plan = match &ungroup(e).kind {
-            Expression::Name(n) if self.lent_parameters.contains_key(&self.names[n].slot) => {
+            Expression::Name(n)
+                if self
+                    .pipeline
+                    .lent_parameters
+                    .contains_key(&self.names[n].slot) =>
+            {
                 self.lent_plan(e, ops)?
             }
             Expression::Name(n) => {
@@ -218,7 +253,8 @@ impl Lower<'_> {
                 };
                 self.mark(&e.at, ops);
                 ops.extend([Op::MoveLocal(local.slot), Op::Drop]);
-                self.pipelines
+                self.pipeline
+                    .plans
                     .get(id)
                     .cloned()
                     .ok_or_else(|| e.at.error("iterator pipeline has no local source plan"))?
@@ -382,9 +418,10 @@ impl Lower<'_> {
             }));
         plan.loans.sort_unstable();
         plan.loans.dedup();
-        if !self.binding_pipeline {
+        if !self.pipeline.binding {
             for &flag in &plan.resources {
-                if self.pipeline_ends.contains(&flag) && !self.resumed_ends.contains(&flag) {
+                if self.pipeline.ends.contains(&flag) && !self.pipeline.resumed_ends.contains(&flag)
+                {
                     plan.iteration.condition = specialize(&plan.iteration.condition, flag, false);
                     plan.iteration.body = specialize(&plan.iteration.body, flag, false);
                 }
@@ -395,7 +432,7 @@ impl Lower<'_> {
     }
 
     fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() && !self.consuming_pipeline {
+        if self.yield_type.is_some() && !self.pipeline.consuming {
             return Err(source
                 .at
                 .error("iterator pipelines cannot be held across yield"));
@@ -1227,7 +1264,8 @@ impl Lower<'_> {
             Expression::Name(n) => Some(n.clone()),
             _ => None,
         };
-        self.pipeline_callbacks
+        self.pipeline
+            .callbacks
             .insert(slot, (callback.at.clone(), source));
         let name = format!("<pipeline callback {slot}>");
         self.bind(
@@ -1302,7 +1340,7 @@ impl Lower<'_> {
     fn pipeline_end(&mut self, at: &Token, ops: &mut Vec<Op>) -> Result<u8> {
         let ended = self.slot(Ty::Bool, at)?;
         ops.extend([Op::PushBool(false), Op::StoreLocal(ended)]);
-        self.pipeline_ends.insert(ended);
+        self.pipeline.ends.insert(ended);
         Ok(ended)
     }
 
@@ -1324,7 +1362,8 @@ impl Lower<'_> {
                 );
             }
             let plan = self
-                .pipelines
+                .pipeline
+                .plans
                 .get(id)
                 .cloned()
                 .ok_or_else(|| at.error("iterator pipeline has no local source plan"))?;
@@ -1347,10 +1386,10 @@ impl Lower<'_> {
         if let Some(barrier) = plan.item.ty.storage_barrier() {
             return Err(at.error(barrier.message("a next result; map to an owned value first")));
         }
-        self.resumed_ends.extend(
+        self.pipeline.resumed_ends.extend(
             plan.resources
                 .iter()
-                .filter(|slot| self.pipeline_ends.contains(slot)),
+                .filter(|slot| self.pipeline.ends.contains(slot)),
         );
         let ty = crate::sum::option(plan.item.ty.clone());
         let Ty::Enum(option) = &ty else {
@@ -1461,9 +1500,9 @@ impl Lower<'_> {
         &mut self,
         consume: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
-        let outer = std::mem::replace(&mut self.consuming_pipeline, true);
+        let outer = std::mem::replace(&mut self.pipeline.consuming, true);
         let result = consume(self);
-        self.consuming_pipeline = outer;
+        self.pipeline.consuming = outer;
         result
     }
 
