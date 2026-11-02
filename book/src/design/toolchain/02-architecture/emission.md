@@ -113,9 +113,9 @@ A command-line check (`--check`, `--check-module`, and `--package-graph
 --check`) leaks the checked program instead of freeing it, since the process
 exits next (issue #321). On the 1,000-unit benchmark this saves 2.0% of
 instructions and about 4% of cycles; peak memory is unchanged. Only the
-single-file compiler interface enables it, through `plenty::skip_teardown`,
-and not when it runs the program it compiled: `plenty lsp`, project commands,
-tests and library callers free every program. Other allocation strategies
+single-file compiler interface enables it, through
+`CheckOptions::skip_teardown`: `plenty lsp`, project commands, tests and
+library callers free every program. Other allocation strategies
 were measured on 2026-10-20 and not adopted:
 
 - Leaking the operation tables and object at the end of emission saved 0.02%

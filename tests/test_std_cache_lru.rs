@@ -233,7 +233,10 @@ fn check_all_methods_skips_standard_library_types() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     std::fs::write(&path, &source).unwrap();
-    let options = plenty::CheckOptions { all_methods: true };
+    let options = plenty::CheckOptions {
+        all_methods: true,
+        ..Default::default()
+    };
     plenty::check_file_with_options(&path, None, true, &options).unwrap();
 }
 
