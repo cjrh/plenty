@@ -1098,6 +1098,15 @@ mod native {
         }
     }
 
+    // Isolated scheduling experiment; never linked into compiled programs.
+    #[cfg(all(test, target_arch = "x86_64", target_env = "gnu"))]
+    mod stack_switch_probe {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../experiments/actor-stacks/probe.rs"
+        ));
+    }
+
     #[cfg(test)]
     mod recovery_tests {
         use super::*;
