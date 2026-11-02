@@ -381,9 +381,10 @@ also pass the worker checks.
 **Chunks.** The source is split into contiguous chunks, and each chunk runs the
 fused steps as one pool job. By default the chunk count is the
 pool's worker count, read when the pipeline runs. `.par(&pool, chunks=N)` sets
-it explicitly; `N` is an `i64` expression and must be positive. A literal zero
-or negative count is a compile error, and a non-positive runtime value traps
-with `par chunks must be positive, got chunks=N`. An input with fewer items than the count gets
+it explicitly; `N` has type `Positive[i64]`. A positive literal converts at
+compile time; zero or negative literals are compile errors. Convert a computed
+count once with `Positive.try_from(count)?`, which returns `RangeError.OutOfRange`
+for zero or negative values. An input with fewer items than the count gets
 one chunk per item, so no chunk is empty. Chunk boundaries depend only on the
 input length and the count, never on scheduling.
 

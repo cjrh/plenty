@@ -7,12 +7,11 @@ existing prelude facilities, with identical generic type identity.
 
 | Export | Contract |
 |---|---|
-| `channel[T](capacity: u64)` | `Result[tuple[Sender[T], Receiver[T]], ChannelError]` |
+| `channel[T](capacity: Positive[i64])` | `Result[tuple[Sender[T], Receiver[T]], AllocError]` |
 | `Sender[T]`, `Receiver[T]` | Owned endpoints; explicit `share()` retains the queue |
 | `select_recv(&first, &second)` | `Result[Selected[A, B], SelectError]` |
 | `select_recv_nowait(&first, &second)` | Same, without waiting for messages |
 | `select_recv_timeout(&first, &second, timeout_ms: u64)` | Same, with a millisecond budget |
-| `ChannelError` | `InvalidCapacity`, `Allocation(AllocError)` |
 | `SendError[T]` | `Full(value)`, `Disconnected(value)` |
 | `RecvError` | `Empty`, `Disconnected` |
 | `SendTimeoutError[T]` | `TimedOut(value)`, `Disconnected(value)` |
@@ -23,7 +22,7 @@ existing prelude facilities, with identical generic type identity.
 A worker sums messages until the sender's scope drops it:
 
 ```plenty
-from std.channel import channel, Receiver, ChannelError, SendError
+from std.channel import channel, Receiver, SendError
 from std.thread import spawn, SpawnError
 
 def total(inbox: Receiver[i64]) -> i64:
@@ -36,7 +35,7 @@ def total(inbox: Receiver[i64]) -> i64:
                 break
     sum
 
-def main() -> Result[(), ChannelError | SendError[i64] | SpawnError[()] | IoError]:
+def main() -> Result[(), AllocError | SendError[i64] | SpawnError[()] | IoError]:
     sender, inbox = channel[i64](2)?
     with spawn(total, inbox).drop_job()? as task:
         with sender as outbox:
@@ -50,7 +49,9 @@ def main() -> Result[(), ChannelError | SendError[i64] | SpawnError[()] | IoErro
 ```
 
 The linked facility pages specify every endpoint method. Capacity must be
-positive and bounds queued messages. Construction makes one fallible allocation;
+a `Positive[i64]` and bounds queued messages. Computed capacities use
+`Positive.try_from(count)?`; invalid literals are compile errors. Construction
+returns only `AllocError` for capacity overflow or exhaustion. Construction makes one fallible allocation;
 send, receive, share, error transport and selection allocate nothing. Messages
 move without deep copying; rejected sends return the original value. Queue
 operations have constant bookkeeping plus value transfer, with unbounded lock

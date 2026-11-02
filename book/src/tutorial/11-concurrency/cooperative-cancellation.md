@@ -10,7 +10,7 @@ def work(stop: CancellationToken, ready: Sender[i64]) -> Result[i64, SendError[i
     # Release resources and return through ordinary control flow.
     Ok(42)
 
-type CancellableWorkError = SendError[i64] | FutureError | RecvError | SubmitError[()] | ChannelError | PoolError
+type CancellableWorkError = SendError[i64] | FutureError | RecvError | SubmitError[()] | AllocError | PoolError
 
 def main() -> Result[(), AllocError | IoError | CancellableWorkError]:
     stop = CancellationToken()?
@@ -47,7 +47,7 @@ Without the guard, an exit from the pool's block would reach shutdown with
 def report(ready: Sender[i64]) -> Result[(), SendError[i64]]:
     ready.send(1)
 
-def main() -> Result[(), ChannelError | PoolError | RecvError | SubmitError[()]]:
+def main() -> Result[(), AllocError | PoolError | RecvError | SubmitError[()]]:
     ready, started = channel[i64](1)?
     with ThreadPoolExecutor(1, 1)? as pool:
         pool.submit(report, ready).drop_job()?

@@ -500,7 +500,7 @@ class LruCache[K, V]
 
 Bounded channels, endpoints and selection. Errors: Channel/send/receive/selection errors. [Reference](channel.md).
 
-Compiler-provided: `channel`, `Sender`, `Receiver`, `ChannelError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
+Compiler-provided: `channel`, `Sender`, `Receiver`, `AllocError`, `SendError`, `RecvError`, `SendTimeoutError`, `RecvTimeoutError`, `Selected`, `SelectError`, `select_recv`, `select_recv_nowait`, `select_recv_timeout`, `select_recv_timeout_ms`. Their signatures are on the reference page.
 
 ## `std.cli`
 

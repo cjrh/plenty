@@ -248,7 +248,7 @@ fn a_share_that_could_own_itself_is_rejected() {
     );
     rejects(
         &format!(
-            "{HEADER}\nclass Inbox:\n    queue: Receiver[Shared[Inbox]]\n\ndef main() -> Result[(), AllocError | ChannelError]:\n    tx, rx = channel[Shared[Inbox]](1)?\n    n = Shared(Inbox(rx))?\n    Ok(())\n"
+            "{HEADER}\nclass Inbox:\n    queue: Receiver[Shared[Inbox]]\n\ndef main() -> Result[(), AllocError]:\n    tx, rx = channel[Shared[Inbox]](1)?\n    n = Shared(Inbox(rx))?\n    Ok(())\n"
         ),
         &format!("Shared[Inbox] can reach itself through Receiver[Shared[Inbox]], {cycle}"),
     );

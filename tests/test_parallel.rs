@@ -100,7 +100,7 @@ class Capture:
     sender: Sender[i64]
     def __del__(self) -> ():
         self.sender.send(99).unwrap()
-def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
     sender, receiver = channel[i64](16)?
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture(sender)
@@ -238,7 +238,7 @@ def work(value: Input) -> Result[Input, Input]:
         Err(value)
     else:
         Ok(value)
-def main() -> Result[(), AllocError | ChannelError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
     signal, wait = channel[i64](1)?
     dropped, count = channel[i64](8)?
     with ThreadPoolExecutor(3, 1)? as pool:
@@ -296,8 +296,8 @@ def subtract[T: IntType](left: T, right: T) -> T:
 def add(left: f64, right: f64) -> f64:
     left + right
 def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
-    for workers in range[u64](1, 5):
-        with ThreadPoolExecutor(workers, 1)? as pool:
+    for workers in range(1, 5):
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 1)? as pool:
             print(pool.reduce_tree(subtract, range(1, 6))?)?
             print(pool.reduce_tree(subtract, range[i32](1, 5))?)?
             print(pool.reduce_tree(add, [1e16, 1.0, -1e16, 1.0]?)?)?

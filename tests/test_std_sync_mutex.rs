@@ -442,10 +442,10 @@ fn typed_deadlines_poll_ready_values_and_preserve_unsent_ownership() {
 import std.sync
 import std.time
 
-def main() -> Result[(), AllocError | ChannelError | IoError]:
+def main() -> Result[(), AllocError | IoError]:
     cancel = CancellationToken()?
-    sender, receiver = channel[list[i64]](1u64)?
-    unused, other = channel[i64](1u64)?
+    sender, receiver = channel[list[i64]](1)?
+    unused, other = channel[i64](1)?
     expired = std.time.deadline_at(&std.time.monotonic_now())
     original = [7, 8]?
     std.sync.send_before(&sender, original, &expired, &cancel).unwrap()
@@ -486,9 +486,9 @@ def stop_later(token: &CancellationToken) -> ():
 def value() -> i64:
     42
 
-def main() -> Result[(), AllocError | ChannelError | SpawnError[()] | PoolError | IoError | RangeError]:
+def main() -> Result[(), AllocError | SpawnError[()] | PoolError | IoError | RangeError]:
     cancel = CancellationToken()?
-    sender, receiver = channel[i64](1u64)?
+    sender, receiver = channel[i64](1)?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
     with spawn(stop_later, &cancel)?:
         match std.sync.recv_before(&receiver, &deadline, &cancel):
@@ -497,7 +497,7 @@ def main() -> Result[(), AllocError | ChannelError | SpawnError[()] | PoolError 
             case _:
                 print("wrong result")?
     clean = CancellationToken()?
-    pool = ThreadPoolExecutor(1u64, 1u64)?
+    pool = ThreadPoolExecutor(1, 1)?
     future = pool.submit(value).unwrap()
     std.sync.future_before(&future, &deadline, &clean).unwrap()
     print(future.result().unwrap())?

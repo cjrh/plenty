@@ -393,7 +393,7 @@ def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
     Ok(())
 
 # Each job has its own closure type, so each needs its own SpawnError or SubmitError.
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SpawnError[()] | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
     sender, receiver = channel[i64](2)?
     with spawn(def once [sender]() -> Result[(), SendError[i64]]: produce(sender))? as task:
         mut total = 0

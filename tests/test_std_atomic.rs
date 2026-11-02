@@ -270,7 +270,7 @@ def mark(slot: &Option[Atomic[u8]]) -> ():
         case Nothing:
             pass
 
-def main() -> Result[(), AllocError | ChannelError | IoError | RecvError | SendError[Atomic[u64]] | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[Atomic[u64]] | SpawnError[()]]:
     flags = [Atomic(False), Atomic(False), Atomic(False)]?
     with spawn(flip, &flags, 1)?:
         pass

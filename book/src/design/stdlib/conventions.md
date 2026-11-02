@@ -296,8 +296,10 @@ operation that offers a mode by a separate method instead, such as
 | Value fixed by a format or the OS (file size, inode, wire integer) | Its own width |
 | Running statistics counter | `u64` |
 
-`CuckooFilter.len()` returns `u64`. Builtin `channel(capacity)`,
-`ThreadPoolExecutor(max_workers, queue_capacity)` and timed waits take `u64`.
+Fixed positive builtin capacities and worker/chunk counts use `Positive[i64]`:
+`channel(capacity)`, `ThreadPoolExecutor(max_workers, queue_capacity)` and
+`.par(pool, chunks=...)`. `CuckooFilter.len()` returns `u64`; low-level timed
+waits still take `u64` milliseconds.
 
 ## Formatting
 

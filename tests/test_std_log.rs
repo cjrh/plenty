@@ -188,7 +188,7 @@ import std.io
 import std.bytes
 from std.log import Level, Clock, Event
 from std.channel import channel
-def main() -> Result[(), AllocError | IoError | std.log.LogError | ChannelError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError | std.bytes.BytesError]:
     mut mem = std.log.logger(std.log.memory_sink(2)?, Level.Trace, Clock.Off)
     for i in range(4):
         drop(mem.info("m", [std.log.integer("i", i)]?))
@@ -196,7 +196,7 @@ def main() -> Result[(), AllocError | IoError | std.log.LogError | ChannelError 
     mut quiet = std.log.logger(std.log.discard(), Level.Trace, Clock.Off)
     quiet.error("gone", []?)?
     print(quiet.emitted())?
-    (sender, receiver) = channel[Event](2u64)?
+    (sender, receiver) = channel[Event](2)?
     mut fast = std.log.logger(std.log.channel_sink(sender), Level.Info, Clock.Off)
     for i in range(4):
         print(str.repr(fast.info("q", [std.log.integer("i", i)]?))?)?
@@ -206,7 +206,7 @@ def main() -> Result[(), AllocError | IoError | std.log.LogError | ChannelError 
     report = std.log.drain(&receiver, &mut lines)
     print(report.delivered, report.failed)?
     print(lines.writer.data.to_text()?)?
-    (closed_sender, closed_receiver) = channel[Event](1u64)?
+    (closed_sender, closed_receiver) = channel[Event](1)?
     drop(closed_receiver)
     mut orphan = std.log.logger(std.log.channel_sink(closed_sender), Level.Info, Clock.Off)
     print(str.repr(orphan.info("lost", []?))?)?
@@ -242,8 +242,8 @@ def consume(receiver: Receiver[Event]) -> Result[(Drained, TextSink[Cursor]), Al
     mut sink = std.log.text_sink(std.io.cursor(std.bytes.empty()?), 64)?
     report = std.log.drain(&receiver, &mut sink)
     Ok((report, sink))
-def main() -> Result[(), AllocError | IoError | ChannelError]:
-    (sender, receiver) = channel[Event](8u64)?
+def main() -> Result[(), AllocError | IoError]:
+    (sender, receiver) = channel[Event](8)?
     first = std.log.channel_sink(sender)
     second = first.share()
     with spawn(consume, receiver).unwrap() as reader:

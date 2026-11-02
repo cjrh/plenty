@@ -697,9 +697,7 @@ pub(crate) unsafe fn channel_new(
     capacity: usize,
     storage: *mut u128,
 ) -> u128 {
-    if capacity == 0 {
-        return wrap(wrap(0, 0), 1); // Err(ChannelError.InvalidCapacity)
-    }
+    debug_assert!(capacity > 0);
     unsafe {
         let pair = result.variants[0].fields[0];
         match crate::channels::create(pair.variants[0].fields[0].key(), capacity) {
@@ -708,7 +706,7 @@ pub(crate) unsafe fn channel_new(
                 storage.add(1).write(receiver);
                 wrap(pair.pack(storage as u128, 0), 0)
             }
-            Err(error) => wrap(wrap(wrap(0, error as u64), 1), 1),
+            Err(error) => wrap(wrap(0, error as u64), 1),
         }
     }
 }

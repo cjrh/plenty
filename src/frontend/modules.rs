@@ -285,7 +285,6 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "channel",
             "Sender",
             "Receiver",
-            "ChannelError",
             "SendError",
             "RecvError",
             "SendTimeoutError",

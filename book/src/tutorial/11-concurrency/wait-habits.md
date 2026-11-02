@@ -48,7 +48,7 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 break
     total
 
-def main() -> Result[(), SpawnError[()] | ChannelError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
     sender, receiver = channel[i64](2)?
     second = sender.share()
     with spawn(produce, sender).drop_job()?, spawn(produce, second).drop_job()?, receiver as inbox:
@@ -80,7 +80,7 @@ def total(receiver: Receiver[i64]) -> i64:
                 break
     sum
 
-def main() -> Result[(), SpawnError[()] | ChannelError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
     sender, receiver = channel[i64](2)?
     with spawn(total, receiver).drop_job()? as consumer:
         with sender as outbox, spawn(produce, outbox.share()).drop_job()?, spawn(produce, outbox.share()).drop_job()?:
@@ -121,7 +121,7 @@ def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-type Errors = ChannelError | SpawnError[()] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]]
+type Errors = AllocError | SpawnError[()] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]]
 
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
@@ -157,7 +157,7 @@ def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
         sender.send(n * n)?
     Ok(())
 
-type Errors = ChannelError | SpawnError[()]
+type Errors = AllocError | SpawnError[()]
 
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?

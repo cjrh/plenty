@@ -3007,7 +3007,6 @@ fn named_type(name: &str) -> Type {
         "CStrError" => crate::sum::c_str_error(),
         "LoadError" => crate::sum::load_error(),
         "ThreadError" => crate::sum::thread_error(),
-        "ChannelError" => crate::sum::channel_error(),
         "RecvError" => crate::sum::recv_error(),
         "RecvTimeoutError" => crate::sum::recv_timeout_error(),
         "SelectError" => crate::sum::select_error(),

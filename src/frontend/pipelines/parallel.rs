@@ -300,12 +300,7 @@ impl Lower<'_> {
         let pool = self.par_pool(&pool, hidden, ops)?;
         let parts = match chunk_count {
             Some(count) => {
-                let actual = self.expr_expected(&count, Some(Ty::I64), ops)?;
-                self.same(actual, Some(Ty::I64), &count.at)?;
-                // A computed count below 1 traps naming `chunks`; a literal one
-                // is rejected in `par_arguments`.
-                self.mark(&count.at, ops);
-                ops.push(Op::Executor(crate::executor::ExecutorOp::Chunks));
+                self.positive_count(&count, ops)?;
                 self.par_hidden("parts", Ty::I64, &count.at, hidden, ops)?
             }
             None => {
@@ -742,19 +737,6 @@ impl Lower<'_> {
             return Err(pool
                 .at
                 .error("par takes a borrowed ThreadPoolExecutor: .par(&pool)"));
-        }
-        if let Some(count) = &count
-            && let Expression::Number(n) = &count.kind
-            && n.parse::<i64>().is_ok_and(|n| n < 1)
-        {
-            return Err(count.at.error("chunks must be a positive i64"));
-        }
-        if let Some(count) = &count
-            && let Expression::Unary(op, inner) = &count.kind
-            && op == "-"
-            && matches!(inner.kind, Expression::Number(_))
-        {
-            return Err(count.at.error("chunks must be a positive i64"));
         }
         Ok((pool.clone(), count))
     }

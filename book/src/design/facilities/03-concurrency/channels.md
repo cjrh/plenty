@@ -1,9 +1,10 @@
 # Bounded channels
 
-`channel[T](capacity: u64) -> Result[tuple[Sender[T], Receiver[T]], ChannelError]`
+`channel[T](capacity: Positive[i64]) -> Result[tuple[Sender[T], Receiver[T]], AllocError]`
 constructs a bounded multi-producer, multi-consumer FIFO queue. Capacity must be
-positive: zero returns `InvalidCapacity`; size overflow or exhaustion returns
-`Allocation(AllocError)`. Failed construction exposes no partial queue.
+a `Positive[i64]`: positive literals convert at compile time; computed counts
+use `Positive.try_from(capacity)?`. Zero and negative literals are compile
+errors. Size overflow or exhaustion returns `AllocError`. Failed construction exposes no partial queue.
 
 | Operation | Result | Behavior |
 | --- | --- | --- |

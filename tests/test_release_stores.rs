@@ -112,7 +112,7 @@ def count(stats: &Mutex[i64], rounds: i64) -> ():
 def square(value: i64) -> i64:
     value * value
 
-def main() -> Result[(), AllocError | ChannelError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], i64]] | SendError[i64] | SpawnError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], i64]] | SendError[i64] | SpawnError[()]]:
     sender, receiver = channel[i64](4)?
     with spawn(produce, sender, 0).drop_job()?, receiver as inbox:
         total = collect(inbox)
