@@ -348,9 +348,11 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
     std::fs::write(dir.path().join("domain.plenty"), source).unwrap();
     for mode in [&[][..], &["--release"][..]] {
         let mut args = mode.to_vec();
-        args.extend(["--dump", "clif,clif-opt", "domain.plenty", "-o", "out"]);
+        // The asm listing decodes emitted object bytes and resolves relocation
+        // targets, so it also protects guard removal in final native code.
+        args.extend(["--dump", "clif,clif-opt,asm", "domain.plenty", "-o", "out"]);
         stdout(plenty(dir.path(), &args));
-        for stage in ["clif.txt", "clif-opt.txt"] {
+        for stage in ["clif.txt", "clif-opt.txt", "asm.txt"] {
             for ty in ["i8", "i16", "i32", "i64"] {
                 for op in ["pq", "pr", "pn"] {
                     let name = format!("{op}_{ty}");
@@ -359,7 +361,7 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
                         !body.contains("plenty_trap"),
                         "{mode:?} {stage} {name}:\n{body}"
                     );
-                    if op == "pn" {
+                    if op == "pn" && stage != "asm.txt" {
                         assert!(
                             body.contains("udiv")
                                 && !body.contains("sdiv")

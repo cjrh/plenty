@@ -203,7 +203,7 @@ def remainder(n: i64, d: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
     checked:
         (n % d) + 0
 
-print(quotient(-7, 3).unwrap(), remainder(-7, 3).unwrap()).unwrap()
+print(quotient(-7, 3).unwrap(), remainder(-7, 3).unwrap(), remainder(i64.MIN, -1).unwrap()).unwrap()
 match quotient(i64.MIN, -1):
     case Ok(n):
         print(n).unwrap()
@@ -216,7 +216,7 @@ result: Result[i64, OverflowError[i64]] = checked:
     n
 print(result.is_err(), n).unwrap()
 "#,
-        "-3 2\n-9223372036854775808\nTrue -9223372036854775808\n",
+        "-3 2 0\n-9223372036854775808\nTrue -9223372036854775808\n",
     );
     let error = check_error("d: NonZero[u64] = 3\nr = checked:\n    7u64 // d");
     assert!(

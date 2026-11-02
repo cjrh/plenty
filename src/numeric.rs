@@ -135,7 +135,7 @@ pub fn int_kind(ty: &Ty) -> i64 {
     }
 }
 
-/// Proof supplied by the divisor's nominal type, retained in typed IR and cache keys.
+/// Proof supplied by the divisor's nominal type, retained until native lowering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Divisor {
     Any,
