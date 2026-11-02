@@ -23,6 +23,9 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
         }
         _ => return None,
     };
+    if actual.checked {
+        return Some("; a closure defined in `checked:` must keep its checked error channel; remove the Callable annotation, or accept it through a generic `F: Callable[...]` parameter".into());
+    }
     let explanation =
         "; a Callable value stores only a code address and cannot hold a closure environment";
     if expected.as_ref() != &actual.signature {
@@ -387,7 +390,13 @@ impl Lower<'_> {
         let loans = self.call_arguments(args, &function.inputs, ops)?;
         self.mark_call(&callee.at, ops);
         self.passes(start, &function.inputs, function.outputs.first(), ops);
-        self.push_call(Op::CallIndirect(sig.clone()), &function.inputs, &loans, ops);
+        self.push_call(
+            Op::CallIndirect(sig.clone()),
+            &function.inputs,
+            &loans,
+            &callee.at,
+            ops,
+        )?;
         // A structural callable has no function-specific field projection summary.
         // Retain the full origin loan even when today's value happens to be named.
         self.call_reference_result("", &function, &loans, ops);

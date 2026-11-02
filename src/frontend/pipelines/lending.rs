@@ -113,8 +113,10 @@ fn slots(ops: &[Op], out: &mut BTreeSet<u8>) {
                 slots(otherwise, out);
             }
             Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, out)),
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => slots(cleanup, out),
-            Op::CheckedBlock { body, .. } => slots(body, out),
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => slots(cleanup, out),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => slots(body, out),
             _ => {}
         }
     }
@@ -143,8 +145,10 @@ fn loans(ops: &[Op], out: &mut BTreeMap<usize, crate::ownership::Loan>) {
                 loans(otherwise, out);
             }
             Op::Match(arms) => arms.iter().for_each(|arm| loans(&arm.body, out)),
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => loans(cleanup, out),
-            Op::CheckedBlock { body, .. } => loans(body, out),
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => loans(cleanup, out),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => loans(body, out),
             _ => {}
         }
     }
@@ -322,6 +326,14 @@ impl Relocation<'_> {
                 Op::CheckedBlock { body, result } => Op::CheckedBlock {
                     body: self.ops(body)?.into(),
                     result: result.clone(),
+                },
+                Op::CheckedFunction { body, result } => Op::CheckedFunction {
+                    body: self.ops(body)?.into(),
+                    result: result.clone(),
+                },
+                Op::CheckedUnwrap { result, cleanup } => Op::CheckedUnwrap {
+                    result: result.clone(),
+                    cleanup: self.ops(cleanup)?.into(),
                 },
                 Op::CheckedArith {
                     operation,

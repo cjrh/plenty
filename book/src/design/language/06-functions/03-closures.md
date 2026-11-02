@@ -34,6 +34,12 @@ def main() -> Result[(), IoError]:
 4
 ```
 
+A closure defined inside a [`checked:` block](../03-types/numbers.md#checked-blocks)
+checks its own integer arithmetic even when stored or passed through a generic
+callback helper. It cannot escape that block; `&f` and `&mut f` may be passed to
+synchronous helpers within it. A closure defined outside keeps its normal
+behavior when called from a block.
+
 Calls borrow the environment and may repeat. Mutable captures require an
 exclusive environment borrow and a mutable closure binding or owner. Captured
 owners can be borrowed and mutated as permitted but cannot be moved out; use

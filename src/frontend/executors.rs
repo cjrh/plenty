@@ -127,6 +127,9 @@ impl Lower<'_> {
                     "submit requires a concrete owned closure or a statically named function",
                 ));
             };
+            if input.checked_closure() {
+                return Err(worker.at.error("a closure defined in `checked:` cannot be submitted to an executor; define it outside the block instead"));
+            }
             if !input.heap_storable() || !closure.signature.inputs.is_empty() {
                 return Err(worker.at.error("executor jobs require wholly owned captures and no arguments, borrows, or generator frames"));
             }
@@ -193,6 +196,9 @@ impl Lower<'_> {
         let (_, worker) = take_call(ops, begin)
             .ok_or_else(|| at.error("submit requires a statically selected function"))?;
         let captures = self.sigs[&worker].inputs.clone();
+        if captures.iter().any(|(_, ty)| ty.checked_closure()) {
+            return Err(at.error("a closure defined in `checked:` cannot be submitted to an executor; define it outside the block instead"));
+        }
         if captures.iter().any(|(_, ty)| !ty.heap_storable()) {
             return Err(
                 at.error("executor arguments must be owned; borrowed work belongs in scoped spawn")
@@ -264,6 +270,9 @@ impl Lower<'_> {
                 let Ty::Closure(closure) = &ty else {
                     return Err(worker.at.error(format!("{method} requires a concrete reusable closure or statically named function; indirect Callable values lack worker eligibility evidence")));
                 };
+                if ty.checked_closure() {
+                    return Err(worker.at.error("a closure defined in `checked:` cannot be sent to executor workers; define it outside the block instead"));
+                }
                 if closure.once || closure.mutable {
                     return Err(worker.at.error(format!("{method} shares its worker across jobs; use a reusable immutable closure, not a mutable or one-shot closure")));
                 }

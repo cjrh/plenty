@@ -825,8 +825,12 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
                 }
                 in_body(otherwise, visit);
             }
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => in_body(cleanup, visit),
-            Op::CheckedBlock { body, .. } => in_body(body, visit),
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => in_body(cleanup, visit),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                in_body(body, visit)
+            }
             _ => {}
         }
     }
@@ -1054,7 +1058,7 @@ fn graph<'a>(
                 next = header;
                 continue;
             }
-            Op::CheckedArith { cleanup, .. } => {
+            Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
                 let escape = escape.expect("checked arithmetic outside a checked block");
                 let failure = graph(cleanup, site, escape, None, None, nodes);
                 nodes.push(Node {
@@ -1063,7 +1067,7 @@ fn graph<'a>(
                     site,
                 });
             }
-            Op::CheckedBlock { body, .. } => {
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 next = graph(body, site, next, targets, Some(next), nodes);
                 continue;
             }
@@ -1930,7 +1934,7 @@ impl Checker<'_, '_> {
                     checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }
-                Op::CheckedArith { cleanup, .. } => {
+                Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
                     let mut failed = state.clone();
                     // As for `?`, the operands already evaluated are dropped,
                     // so a value under construction is gone before cleanup.
@@ -1948,7 +1952,7 @@ impl Checker<'_, '_> {
                         .expect("checked arithmetic outside a checked block")
                         .push(failed);
                 }
-                Op::CheckedBlock { body, .. } => {
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     self.escapes.borrow_mut().push(Vec::new());
                     let continues = self.sequence(body, state, loops, site);
                     let mut continuing = self.escapes.borrow_mut().pop().unwrap_or_default();
@@ -2149,8 +2153,10 @@ impl Checker<'_, '_> {
         }
         fn has_loans(ops: &[Op]) -> bool {
             ops.iter().any(|op| match op {
-                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => has_loans(cleanup),
-                Op::CheckedBlock { body, .. } => has_loans(body),
+                Op::Try { cleanup, .. }
+                | Op::CheckedArith { cleanup, .. }
+                | Op::CheckedUnwrap { cleanup, .. } => has_loans(cleanup),
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => has_loans(body),
 
                 Op::Loan(_) => true,
                 Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),

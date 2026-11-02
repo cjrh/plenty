@@ -130,10 +130,12 @@ impl State {
                             visit(&arm.body, excluded);
                         }
                     }
-                    Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
-                        visit(cleanup, excluded)
+                    Op::Try { cleanup, .. }
+                    | Op::CheckedArith { cleanup, .. }
+                    | Op::CheckedUnwrap { cleanup, .. } => visit(cleanup, excluded),
+                    Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                        visit(body, excluded)
                     }
-                    Op::CheckedBlock { body, .. } => visit(body, excluded),
 
                     _ => {}
                 }

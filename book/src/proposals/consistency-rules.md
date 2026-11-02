@@ -657,7 +657,9 @@ you can call can be passed.
    variants with an expected type (issue #618).
 3. Inside `checked:`, code written in the block and closures defined in it
    report `Err`; other functions behave as their signatures say (issue
-   #614).
+   #614). Delivered as [lexical checked callbacks](../completed-work/language-and-tooling.md#b14-errors);
+   the [reference](../design/language/03-types/numbers.md#checked-blocks)
+   documents scope and callable-erasure limits.
 
 ## What the six rules remove
 

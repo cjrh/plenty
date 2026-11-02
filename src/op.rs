@@ -105,6 +105,7 @@ pub enum StorageBarrier {
     /// A `Closure`/`OnceClosure` annotation that no producer has resolved.
     UnresolvedClosure,
     BorrowedClosure,
+    CheckedClosure,
     GeneratorClosure,
     /// An `Option`/`Result` whose success payload is a reference.
     CarriedReference,
@@ -124,6 +125,7 @@ impl StorageBarrier {
             Self::Reference => "references",
             Self::Generator => "generators",
             Self::ScopedTask => "scoped tasks",
+            Self::CheckedClosure => "closures defined in `checked:` blocks",
             Self::BorrowedClosure => "closures with borrowed captures",
             Self::GeneratorClosure => "closures that capture generators",
             Self::CarriedReference => {
@@ -316,6 +318,30 @@ impl Ty {
             _ => false,
         }
     }
+    pub fn checked_error(&self) -> Option<&Ty> {
+        match self {
+            Self::Ref(inner, _) => inner.checked_error(),
+            Self::Closure(closure) => closure.checked_error.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn checked_closure(&self) -> bool {
+        match self {
+            Self::Closure(closure) => {
+                closure.checked || closure.captures.iter().any(|(_, ty)| ty.checked_closure())
+            }
+            Self::Ref(inner, _) => inner.checked_closure(),
+            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
+                .get()
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .any(Self::checked_closure),
+            _ => false,
+        }
+    }
+
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
@@ -326,6 +352,7 @@ impl Ty {
             Self::Generator(_) => Some(StorageBarrier::Generator),
             Self::Task(_) => Some(StorageBarrier::ScopedTask),
             Self::Closure(t) if t.name.is_empty() => Some(StorageBarrier::UnresolvedClosure),
+            Self::Closure(_) if self.checked_closure() => Some(StorageBarrier::CheckedClosure),
             Self::Closure(t) if t.borrowed => Some(StorageBarrier::BorrowedClosure),
             Self::Closure(_) if self.contains_generator_frame() => {
                 Some(StorageBarrier::GeneratorClosure)
@@ -1033,6 +1060,17 @@ pub enum Op {
     CheckedBlock {
         body: Arc<[Op]>,
         result: Ty,
+    },
+    /// Internal Result ABI for a specialization using a lexically checked
+    /// callback. Source returns still return the declared (logical) type.
+    CheckedFunction {
+        body: Arc<[Op]>,
+        result: Ty,
+    },
+    /// Unwrap a call's private failure channel into the innermost block.
+    CheckedUnwrap {
+        result: Ty,
+        cleanup: Arc<[Op]>,
     },
     /// Pop `T T`; push the result of `operation`. On overflow or a zero
     /// divisor, release the operands pending above the innermost
@@ -2002,7 +2040,9 @@ fn collect_sigs<'a>(ops: &'a [Op], out: &mut Sigs<'a>) {
                 collect_sigs(condition, out);
                 collect_sigs(body, out);
             }
-            Op::CheckedBlock { body, .. } => collect_sigs(body, out),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                collect_sigs(body, out)
+            }
             Op::Match(arms) => {
                 for arm in arms.iter() {
                     collect_sigs(&arm.body, out);
@@ -2244,7 +2284,11 @@ fn step(
                             .iter()
                             .map(|(_, t)| t)
                             .eq([&sort.callback, &item])
-                            && key_of.outputs == [sort.key.clone()]
+                            && key_of.outputs
+                                == [sort.callback.checked_error().map_or_else(
+                                    || sort.key.clone(),
+                                    |error| crate::sum::result(sort.key.clone(), error.clone()),
+                                )]
                     });
                     if !valid || !sort.key.is_orderable() {
                         return Err("key sort helper signature mismatch".into());
@@ -2433,6 +2477,50 @@ fn step(
             }
             operation.check(ty, stack)?;
         }
+        Op::CheckedUnwrap { result, cleanup } => {
+            let Ty::Enum(sum) = result else {
+                return Err("checked call must return Result".into());
+            };
+            let mut empty = Vec::new();
+            check_sequence(
+                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
+            )?;
+            if !sum.is_result() || !empty.is_empty() || stack.pop().as_ref() != Some(result) {
+                return Err("invalid checked call result".into());
+            }
+            let output = sum.get().variants[0].fields[0].clone();
+            if output != Ty::Unit {
+                stack.push(output);
+            }
+        }
+        Op::CheckedFunction { body, result } => {
+            let Ty::Enum(sum) = result else {
+                return Err("checked function must return Result".into());
+            };
+            let output = sum.get().variants[0].fields[0].clone();
+            let logical = if output == Ty::Unit {
+                Vec::new()
+            } else {
+                vec![output.clone()]
+            };
+            let base = stack.len();
+            let flow = check_sequence(
+                body,
+                stack,
+                locals,
+                sigs,
+                Some(&logical),
+                loop_stack,
+                yield_ty,
+            )?;
+            if flow == Flow::Exits {
+                stack.truncate(base);
+            }
+            if flow == Flow::Continues && output != Ty::Unit && stack.pop() != Some(output) {
+                return Err("checked function must leave its success value".into());
+            }
+            stack.push(result.clone());
+        }
         Op::CheckedBlock { body, result } => {
             let Ty::Enum(sum) = result else {
                 return Err("a checked block must produce a Result".into());
@@ -2536,7 +2624,7 @@ fn step(
                     .map(|(i, (n, _))| (n.clone(), t.parameter(i)))
                     .chain(t.signature.function().inputs)
                     .collect(),
-                outputs: t.signature.output.iter().cloned().collect(),
+                outputs: t.native_output().into_iter().collect(),
             };
             let actual = sigs.get(t.name.as_str()).ok_or("undefined closure body")?;
             if actual
@@ -2564,7 +2652,7 @@ fn step(
             if stack.pop() != Some(expected) {
                 return Err("closure call environment ownership mismatch".into());
             }
-            stack.extend(t.signature.output.iter().cloned());
+            stack.extend(t.native_output());
         }
         Op::BoxedCallableNew(source, adapter, signature) => {
             if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {

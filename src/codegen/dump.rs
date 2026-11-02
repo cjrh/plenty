@@ -477,7 +477,9 @@ fn definitions<'a>(ops: &'a [Op], out: &mut Vec<(&'a str, &'a CompiledFn)>) {
                     definitions(&arm.body, out);
                 }
             }
-            Op::CheckedBlock { body, .. } => definitions(body, out),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                definitions(body, out)
+            }
 
             Op::If {
                 then,
@@ -631,6 +633,10 @@ fn render_ops(ops: &[Op], heap: &Heap, depth: usize, out: &mut String) -> usize 
             }
             Op::CheckedBlock { body, result } => {
                 label(out, depth, &format!("CheckedBlock -> {result:?}"));
+                count += render_ops(body, heap, depth + 1, out);
+            }
+            Op::CheckedFunction { body, result } => {
+                label(out, depth, &format!("CheckedFunction -> {result:?}"));
                 count += render_ops(body, heap, depth + 1, out);
             }
             Op::CheckedArith {

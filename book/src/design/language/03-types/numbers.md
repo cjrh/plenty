@@ -173,13 +173,31 @@ code generator omits the branches a constant divisor rules out. A declared
 be the body of a function that returns `Result[i64, OverflowError[i64] |
 ParseError]`.
 
-The rule is lexical. Only arithmetic written in the block's own suite is
-checked, including compound assignment such as `x += 1`, element updates
-such as `items[i] += 1`, comprehensions, and operators that
+The rule is lexical. Arithmetic written in the block's suite or in a closure
+created there is checked, including compound assignment such as `x += 1`,
+element updates such as `items[i] += 1`, comprehensions, and operators that
 [`@newtype` classes](../04-expressions/operators.md#newtype-forwarding) forward to their field, which
-report `OverflowError` of the field type. Functions and closures called from
-the block, and closures defined in it, keep trapping. Nested blocks catch at
-the innermost block.
+report `OverflowError` of the field type. A stored closure, a literal callback,
+and a closure whose body contains `match` behave alike. A failure leaves the
+innermost active block, including when a generic helper calls the closure
+through `&f` or `&mut f`. Nested blocks catch at the innermost block.
+
+A named function or a closure defined outside the block keeps its own
+signature and behavior: it may trap, or return a `Result` handled with
+`match` or `?`. Builtin reductions such as pipeline `sum()` also keep trapping;
+use `fold` with a closure defined in the block for a checked sum.
+
+A closure created inside `checked:` must stay there. It cannot be returned,
+be the block's result, be assigned into an outer binding, or be stored in a
+collection, field, `BoxedCallable`, `Shared`, channel, generator, or worker
+job. Define a closure outside the block when it must escape. Local bindings,
+direct calls, pipeline callbacks, and synchronous generic callback helpers
+borrowing `&f` or `&mut f` are allowed. Let these bindings infer their closure
+type; a thin `Callable[...]` annotation would erase the private checked error
+channel and is rejected. Generic `F: Callable[...]` callback bounds retain it.
+A key sort that fails stops calling the
+key callback and reports the error after its safe row moves finish; the list
+may already have been reordered.
 
 Control flow is otherwise unchanged. `?` inside the block exits the function,
 and `return`, `break` and `continue` behave as they do outside it. A failure

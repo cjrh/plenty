@@ -106,8 +106,10 @@ impl Futures {
         fn submits(ops: &[Op]) -> bool {
             ops.iter().any(|op| match op {
                 Op::Executor(ExecutorOp::Submit(..)) | Op::Forwards(Forward::Call(..)) => true,
-                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => submits(cleanup),
-                Op::CheckedBlock { body, .. } => submits(body),
+                Op::Try { cleanup, .. }
+                | Op::CheckedArith { cleanup, .. }
+                | Op::CheckedUnwrap { cleanup, .. } => submits(cleanup),
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => submits(body),
 
                 Op::Match(arms) => arms.iter().any(|arm| submits(&arm.body)),
                 Op::If {

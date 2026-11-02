@@ -1299,7 +1299,7 @@ impl Lower<'_> {
         }
         self.record_direct_call(&callee, &base.at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, ops);
+        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, &base.at, ops)?;
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

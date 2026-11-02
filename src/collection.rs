@@ -806,7 +806,9 @@ impl CollectionOp {
                     sort.callback.clone(),
                     Ty::Bool,
                 ],
-                Ty::Unit,
+                sort.callback.checked_error().map_or(Ty::Unit, |error| {
+                    crate::sum::result(Ty::Unit, error.clone())
+                }),
             ),
             ListScalarSetRef(t) => (
                 vec![

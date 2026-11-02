@@ -603,7 +603,21 @@ impl Lowerer<'_, '_> {
             let (callback, _) = self.pop_typed(sort.callback.clone())?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
             let owner = self.reference_word(receiver);
-            let environment = self.bcx.ins().ireduce(PTR_TY, callback);
+            let checked = sort
+                .callback
+                .checked_error()
+                .map(|error| crate::sum::result(Ty::Unit, error.clone()));
+            let environment = if checked.is_some() {
+                let context = self.inline_storage(32);
+                let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+                self.bcx.ins().store(flags, callback, context, 0);
+                let zero = self.bcx.ins().iconst(types::I64, 0);
+                let zero = self.bcx.ins().uextend(types::I128, zero);
+                self.bcx.ins().store(flags, zero, context, 16);
+                context
+            } else {
+                self.bcx.ins().ireduce(PTR_TY, callback)
+            };
             let adapter = self.runtime.sort_adapters[&sort.adapter];
             let adapter = self.module.declare_func_in_func(adapter, self.bcx.func);
             let adapter = self.bcx.ins().func_addr(PTR_TY, adapter);
@@ -614,6 +628,16 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .call(function, &[owner, adapter, environment, descending]);
+            if let Some(result) = checked {
+                let value = self.bcx.ins().load(
+                    types::I128,
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
+                    environment,
+                    16,
+                );
+                self.stack.push((value, result));
+                return Ok(());
+            }
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
             self.stack.push((unit, Ty::Unit));

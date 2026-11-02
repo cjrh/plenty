@@ -135,7 +135,7 @@ impl Lower<'_> {
         }
         let signature = self.sigs[&name].clone();
         self.record_direct_call(&name, at, &[], ops);
-        self.push_call(Op::Call(name), &signature.inputs, &[], ops);
+        self.push_call(Op::Call(name), &signature.inputs, &[], at, ops)?;
         Ok(signature.outputs[0].clone())
     }
 
@@ -187,6 +187,9 @@ impl Lower<'_> {
     }
 
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
+        if actual.as_ref().is_some_and(Ty::checked_closure) {
+            return Err(at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
+        }
         if actual
             .as_ref()
             .is_some_and(|t| !t.carries_loan() && t.contains_reference())
@@ -401,7 +404,7 @@ impl Lower<'_> {
         loans.extend(state);
         self.record_direct_call(&symbol, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, ops);
+        self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, at, ops)?;
         self.call_reference_result(&symbol, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         // The lender's own loans, such as of a borrowed source, stay live

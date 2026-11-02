@@ -219,7 +219,13 @@ evaluated once, when the chain is built; borrowed captures stay borrowed until
 the pipeline is consumed or dropped; owned captures are dropped with the
 pipeline; and a `mut` capture keeps its state across items. A closure stored in
 a local, and a literal whose body is more than one expression or contains `?`,
-`match`, or another closure literal, is called as before.
+`match`, or another closure literal, is called as before. This optimization
+preserves [lexical `checked:` behavior](../03-types/numbers.md#checked-blocks):
+a closure defined in a block reports arithmetic failures to that block,
+including through stored callbacks; one defined elsewhere keeps its original
+behavior. The arithmetic implemented by `sum()` itself always traps on overflow;
+write `fold(0, def(total: i64, item: &i64) -> i64: total + *item)` inside the
+block to check the accumulation.
 
 `filter_value(value)` evaluates `value` once, at construction, and compares
 each item with `item == value` in the loop; the item passes through unchanged.

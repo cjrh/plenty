@@ -156,24 +156,36 @@ impl Lower<'_> {
                 key,
             };
             self.sigs.insert(sort_name.clone(), sig.clone());
+            let error = sort.callback.checked_error().cloned();
+            let native_sig = error.as_ref().map_or_else(
+                || sig.clone(),
+                |error| {
+                    Arc::new(FnSig {
+                        inputs: sig.inputs.clone(),
+                        outputs: vec![crate::sum::result(Ty::Unit, error.clone())],
+                    })
+                },
+            );
+            let mut body = vec![
+                Op::LoadLocal(0),
+                Op::LoadLocal(1),
+                Op::LoadLocal(2),
+                Op::Collection(CollectionOp::ListSortBy(Arc::new(sort))),
+            ];
+            if error.is_none() {
+                body.push(Op::Drop);
+            }
+            body.push(Op::Return);
             self.generics.compiled.push(Op::DefineFn(
                 sort_name.clone(),
                 Box::new(CompiledFn {
                     location: None,
                     origins: Arc::default(),
                     generator: None,
-                    sig,
+                    sig: native_sig,
                     doc: "".into(),
                     locals: Arc::default(),
-                    body: vec![
-                        Op::LoadLocal(0),
-                        Op::LoadLocal(1),
-                        Op::LoadLocal(2),
-                        Op::Collection(CollectionOp::ListSortBy(Arc::new(sort))),
-                        Op::Drop,
-                        Op::Return,
-                    ]
-                    .into(),
+                    body: body.into(),
                 }),
             ));
         }

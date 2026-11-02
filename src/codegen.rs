@@ -1579,7 +1579,10 @@ fn collect_str_ids<'a>(
                 collect_str_ids(condition, out, seen, matches);
                 collect_str_ids(body, out, seen, matches);
             }
-            Op::CheckedBlock { body, .. } | Op::CheckedArith { cleanup: body, .. } => {
+            Op::CheckedBlock { body, .. }
+            | Op::CheckedFunction { body, .. }
+            | Op::CheckedArith { cleanup: body, .. }
+            | Op::CheckedUnwrap { cleanup: body, .. } => {
                 collect_str_ids(body, out, seen, matches);
             }
             Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
@@ -1737,7 +1740,9 @@ fn collect_user_fns(
                     collect_user_fns(&arm.body, module, out, bodies)?;
                 }
             }
-            Op::CheckedBlock { body, .. } => collect_user_fns(body, module, out, bodies)?,
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                collect_user_fns(body, module, out, bodies)?
+            }
 
             Op::If {
                 then,
@@ -1793,10 +1798,12 @@ fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) {
                 }
                 mark_borrowed_locals(otherwise, addressed);
             }
-            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
-                mark_borrowed_locals(cleanup, addressed)
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                mark_borrowed_locals(body, addressed)
             }
-            Op::CheckedBlock { body, .. } => mark_borrowed_locals(body, addressed),
 
             _ => {}
         }
@@ -1945,6 +1952,7 @@ fn build_user_function(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
+            checked_function: None,
             generator: None,
             local_frame,
             return_storage,
@@ -2072,6 +2080,7 @@ fn build_main(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
+            checked_function: None,
             generator: None,
             local_frame: None,
             return_storage: None,
@@ -2246,6 +2255,7 @@ struct Lowerer<'a, 'b> {
     /// The last entry is the innermost `checked:` block: its exit, which
     /// takes the block's `Result`, and the stack depth at its start.
     checked_targets: Vec<checked::Target>,
+    checked_function: Option<Ty>,
     generator: Option<GeneratorContext>,
     local_frame: Option<LocalFrame>,
     return_storage: Option<cranelift_codegen::ir::Value>,
@@ -2503,6 +2513,12 @@ impl Lowerer<'_, '_> {
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
             Op::CheckedBlock { body, result } => self.lower_checked_block(body, result)?,
+            Op::CheckedFunction { body, result } => {
+                let outer = self.checked_function.replace(result.clone());
+                self.lower_checked_block(body, result)?;
+                self.checked_function = outer;
+            }
+            Op::CheckedUnwrap { result, cleanup } => self.lower_checked_unwrap(result, cleanup)?,
             Op::CheckedArith {
                 operation,
                 ty,
@@ -2798,6 +2814,7 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
+                self.wrap_checked_return()?;
                 self.leave(self.stack.clone(), &Arc::from([]))?;
                 self.terminated = true;
             }

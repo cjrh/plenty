@@ -547,11 +547,15 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
                 validate_ops(body)?;
                 Vec::new()
             }
-            Op::CheckedBlock { body, result } => {
+            Op::CheckedBlock { body, result } | Op::CheckedFunction { body, result } => {
                 validate_ops(body)?;
                 vec![result.clone()]
             }
-            Op::CheckedArith { ty, cleanup, .. } => {
+            Op::CheckedUnwrap {
+                result: ty,
+                cleanup,
+            }
+            | Op::CheckedArith { ty, cleanup, .. } => {
                 validate_ops(cleanup)?;
                 vec![ty.clone()]
             }

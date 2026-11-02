@@ -79,7 +79,13 @@ def main() -> Result[(), IoError]:
 3500 True True
 ```
 
-- Only arithmetic written in the block is checked; calls keep trapping.
+- Arithmetic written in the block and in closures defined there is checked.
+  Such closures must stay in the block; named functions, outside closures and
+  builtin `sum()` keep their own behavior.
+- Inside `checked:`, infer a closure's binding type, for example
+  `f = (def(x: i64) -> i64: x + 1)`. Helpers accept it through
+  `F: Callable[[i64], i64]` with `f: &F`; a thin `Callable[...]` annotation
+  would erase its checked error channel and is rejected.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
 - Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
 

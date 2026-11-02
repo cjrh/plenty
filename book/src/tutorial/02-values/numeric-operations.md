@@ -261,6 +261,10 @@ wrapped result in its `wrapped` field: `250 + 10` on a `u8` wraps to 4.
 handle each error instead of passing it on.
 
 
-Only arithmetic written inside the block is checked. A function called from
-the block keeps its own behavior, and arithmetic after the block traps as
-before, so a checked calculation costs nothing elsewhere in the program.
+Arithmetic written inside the block is checked, including the bodies of
+closures defined there. Such a closure must stay in the block; it can be called
+locally or passed to a synchronous helper. A named function or a closure
+defined elsewhere keeps its own behavior. Builtin reductions such as `sum()`
+also keep trapping: use a `fold` callback defined inside the block to check an
+accumulation. See [checked blocks](../../design/language/03-types/numbers.md#checked-blocks)
+for closure lifetime rules. Arithmetic after the block traps as before.
