@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod distribution;
+#[cfg(any(windows, target_os = "macos", test))]
+mod engine_install;
 #[cfg(any(target_os = "macos", test))]
 mod macho;
 
@@ -122,6 +124,9 @@ pub struct CompileOptions {
     /// and `--fuzz` / `--test-hooks` builds keep them regardless. See
     /// book/src/design/toolchain/01-building/linking.md.
     pub strip: bool,
+    /// The output is deleted after one run (`plenty FILE`), so its engines may
+    /// be hard links to the selected engines instead of copies.
+    pub temporary_output: bool,
     /// Publish an executable and its reached engines as a new directory.
     /// `output` names the executable inside that directory; the directory must
     /// not exist. Requires packaged engine notices; excludes extra link args.
@@ -146,6 +151,7 @@ impl Default for CompileOptions {
             test_hooks: false,
             fuzz: None,
             strip: true,
+            temporary_output: false,
             distribution: false,
         }
     }
@@ -364,7 +370,8 @@ pub(crate) fn link(
     };
     let staged_output = bundle.as_ref().map(|bundle| bundle.executable(output));
     let output = staged_output.as_deref().unwrap_or(output);
-    let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()), output)?;
+    let (engines, installs) =
+        engine_link_args(object, options, bundle.as_ref().map(|b| b.path()), output)?;
     let mut command = linker_command(options);
     let msvc = native_target().ends_with("-windows-msvc");
     if let Some(linker) = options.automatic_linker() {
@@ -408,6 +415,7 @@ pub(crate) fn link(
             if options.cache_stats {
                 eprintln!("executable cache: hit");
             }
+            install_engines(&installs, options)?;
             return Ok(());
         }
         if options.cache_stats {
@@ -450,6 +458,9 @@ pub(crate) fn link(
         )
         .into());
     }
+    // After linking, so a failed link leaves an existing application and its
+    // engines consistent.
+    install_engines(&installs, options)?;
     if let Some(cache) = executable_cache {
         cache.store(output);
     }
@@ -641,12 +652,14 @@ fn engine_link_args(
     options: &CompileOptions,
     bundle: Option<&Path>,
     output: &Path,
-) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<OsString>, Vec<EngineInstall>), Box<dyn std::error::Error>> {
     #[cfg(not(any(windows, target_os = "macos")))]
     let _ = output;
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_mut))]
+    let mut installs = Vec::new();
     let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
     if reached.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), installs));
     }
     let mut libraries = Vec::new();
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -673,17 +686,21 @@ fn engine_link_args(
         {
             #[cfg(target_os = "macos")]
             engine.validate_macho(&path)?;
+            // Ordinary output links the selected engine itself and installs it
+            // beside the executable after linking: the linker reads only its
+            // exports and install name, which a copy shares.
             let selected = if let Some(bundle) = bundle {
                 distribution::copy_engine(engine, &path, bundle)?
             } else {
                 let destination = output.with_file_name(engine.library);
                 if destination.canonicalize().ok().as_ref() != Some(&path) {
-                    #[cfg(windows)]
-                    std::fs::copy(&path, &destination)?;
-                    #[cfg(target_os = "macos")]
-                    macho::install_engine(&path, &destination)?;
+                    installs.push(EngineInstall {
+                        engine,
+                        source: path.clone(),
+                        destination,
+                    });
                 }
-                destination
+                path
             };
             #[cfg(windows)]
             libraries.push(windows_import_library(object, &selected, engine)?.into_os_string());
@@ -733,7 +750,45 @@ fn engine_link_args(
         "-Xlinker".into(),
         "@loader_path".into(),
     ]);
-    Ok(libraries)
+    Ok((libraries, installs))
+}
+
+/// An engine to place beside an ordinary Windows or macOS executable.
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+pub(crate) struct EngineInstall {
+    engine: &'static Engine,
+    source: PathBuf,
+    destination: PathBuf,
+}
+
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_variables))]
+fn install_engines(
+    installs: &[EngineInstall],
+    options: &CompileOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(any(windows, target_os = "macos"))]
+    for install in installs {
+        engine_install::install(
+            &install.source,
+            &install.destination,
+            options.temporary_output,
+        )
+        .map_err(|error| {
+            // Windows refuses to replace a DLL that a running program has loaded.
+            let hint = if cfg!(windows) {
+                "; close running copies of the application and compile again"
+            } else {
+                ""
+            };
+            format!(
+                "{} engine: cannot install {} as {}: {error}{hint}",
+                install.engine.module,
+                install.source.display(),
+                install.destination.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 /// MSVC links import libraries, not DLL files. Derive the small import library

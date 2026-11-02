@@ -82,22 +82,6 @@ pub(super) fn validate(bytes: &[u8], library: Option<&str>, engines: &[&str]) ->
     Ok(())
 }
 
-/// A new inode avoids stale vnode code-signature caches and leaves existing
-/// mappings on the old signed file. Never truncate a previously loaded dylib.
-pub(super) fn install_engine(
-    source: &std::path::Path,
-    destination: &std::path::Path,
-) -> std::io::Result<()> {
-    let directory = destination
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(std::path::Path::new("."));
-    let staged = tempfile::NamedTempFile::new_in(directory)?;
-    std::fs::copy(source, staged.path())?;
-    staged.persist(destination).map_err(|error| error.error)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,53 +197,5 @@ mod tests {
         assert!(validate(&bytes, None, &[]).is_err());
         assert!(validate(&image(None, &[], None, false), None, &[]).is_err());
         assert!(validate(b"not Mach-O", None, &[]).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn engine_replacement_preserves_old_file_handles_and_hard_links() {
-        use std::io::Read;
-        use std::os::unix::fs::MetadataExt;
-        let root = tempfile::tempdir().unwrap();
-        let source = root.path().join("selected.dylib");
-        let destination = root.path().join(LIBRARY);
-        std::fs::write(&source, b"first signed engine").unwrap();
-        install_engine(&source, &destination).unwrap();
-        let mut previous = std::fs::File::open(&destination).unwrap();
-        let inode = previous.metadata().unwrap().ino();
-        let link = root.path().join("running-engine.dylib");
-        std::fs::hard_link(&destination, &link).unwrap();
-        std::fs::write(&source, b"replacement signed engine").unwrap();
-        install_engine(&source, &destination).unwrap();
-        assert_eq!(
-            std::fs::read(&destination).unwrap(),
-            b"replacement signed engine"
-        );
-        assert_ne!(std::fs::metadata(&destination).unwrap().ino(), inode);
-        let mut bytes = Vec::new();
-        previous.read_to_end(&mut bytes).unwrap();
-        assert_eq!(bytes, b"first signed engine");
-        assert_eq!(std::fs::read(&link).unwrap(), b"first signed engine");
-    }
-
-    #[test]
-    fn failed_engine_copy_or_publication_preserves_existing_output() {
-        let root = tempfile::tempdir().unwrap();
-        let source = root.path().join("selected.dylib");
-        let destination = root.path().join(LIBRARY);
-        std::fs::write(&destination, b"old signed engine").unwrap();
-        assert!(install_engine(&source, &destination).is_err());
-        assert_eq!(std::fs::read(&destination).unwrap(), b"old signed engine");
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
-        std::fs::write(&source, b"new signed engine").unwrap();
-        let directory = root.path().join("occupied");
-        std::fs::create_dir(&directory).unwrap();
-        std::fs::write(directory.join("keep"), b"existing output").unwrap();
-        assert!(install_engine(&source, &directory).is_err());
-        assert_eq!(
-            std::fs::read(directory.join("keep")).unwrap(),
-            b"existing output"
-        );
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 3);
     }
 }

@@ -113,9 +113,9 @@ Already-linked executables still need their dynamic dependencies at run time.
 
 The macOS compiler uses the same option/environment/beside-compiler discovery
 precedence and links the selected ARM64 dylib directly. Ordinary compilation
-copies it beside the executable. Rebuilding ordinary output stages the dylib in
-a fresh sibling file and replaces the destination by rename, preserving old
-file mappings and cached signatures. Invalid selected engines report the build
+copies it beside the executable, as described in
+[engine copies beside applications](#engine-copies-beside-applications), which
+preserves old file mappings and cached signatures. Invalid selected engines report the build
 script needed to produce a compatible dylib. `--dist` adds the validated manifest, licenses
 and notices, and checks the copied dylib identity and checksum. The application
 uses `@loader_path` to resolve the library's `@rpath` identity from its own
@@ -137,6 +137,19 @@ compilation copies the DLL beside the output executable; `--dist` includes the
 DLL and validated notices. Programs use Windows DLL lookup, with the application
 directory searched by the loader. Keep the DLL beside the executable, and use
 trusted application directories and `PATH` entries. Type-checking needs no DLL.
+
+## Engine copies beside applications
+
+On Windows and macOS, ordinary compilation links the selected engine and, after
+the link succeeds, places a copy beside the executable. A failed link leaves an
+existing application and its engine unchanged. When the existing copy already
+has the same contents, it is not rewritten. Otherwise the new engine is copied
+to a fresh file in the output directory and renamed over the old one, so
+programs that have the old engine open keep it. Windows refuses to replace a DLL
+that a running program has loaded; the error names the file, and closing the
+program and compiling again replaces it. `plenty FILE` runs the program from a
+temporary directory and hard-links the engine there when the file system
+allows, instead of copying it.
 
 ## Development checks
 
