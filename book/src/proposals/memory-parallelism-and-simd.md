@@ -1,17 +1,21 @@
 # Fallible memory, parallel execution, and SIMD
 
-> **Status: Partly implemented.** Researched after `b690afe` on 2026-10-05,
-> against Cranelift `0.131.1`. API names and
-> syntax below are sketches from that date.
+> **Status: Partly implemented; retained for B13 allocator design.**
+> Originally researched after `b690afe` on 2026-10-05 against Cranelift
+> `0.131.1`; that backend evidence is historical, not the current dependency.
+> The design sketches below are not current API documentation.
 >
-> - **Fallible memory: partly implemented.** Allocating operations return
->   `Result[T, AllocError]` and `?` propagates; see
+> - **Recoverable allocation: implemented.** Allocating operations expose
+>   allocation errors through `Result`, and `?` propagates; see
 >   [allocation and traps](../design/language/08-errors/02-allocation-and-traps.md).
->   Public allocators, budgets, and bounded containers are B13.
+>   Public allocator selection, budgets, and bounded containers remain B13.
 > - **Parallel execution: implemented.** See
 >   [concurrency](../design/facilities/03-concurrency/index.md). Automatic
 >   parallelization is B24.
-> - **SIMD: not implemented** (B23).
+> - **SIMD: initial subsets implemented.** [Explicit `std.simd`](../design/stdlib/simd.md)
+>   supplies four numeric vector shapes, masks, scalar fallback and bounded native
+>   lowering. [Integer-column filter/count](columnar-list/simd-counts.md) has
+>   automatic SIMD. Broader shapes, packed views and transformations remain B23.
 >
 > This page remains the B13 design record. The newer
 > [portable `std.simd` proposal](std-simd.md) refines B23 with an API contract,
@@ -22,14 +26,34 @@
 > they are distinct from the allocator-lifetime proposal here.
 >
 > **Shipped differently:** `AllocError` has two variants, `OutOfMemory` and
-> `CapacityOverflow`. Class, tuple, enum, generator, and range values are inline
-> and their construction cannot fail. `.unwrap()` exists; `.expect(...)` does
+> `CapacityOverflow`. Class, tuple, enum, generator, and range storage is inline
+> and needs no allocation; component expressions and fallible class initializers
+> retain their own errors. `.unwrap()` exists; `.expect(...)` does
 > not. Only object headers record an allocator; container buffers use the global
 > one. Threads start through a scoped `with` manager, and a pool is
 > `ThreadPoolExecutor(max_workers, queue_capacity)` with `map`, `map_result`,
 > and `reduce_tree`.
 
-## Recommendation
+## Current delivery and remaining design
+
+The original recoverable-allocation foundation and explicit native concurrency
+have shipped. [B23's delivery record](../completed-work/performance.md#b23-simd)
+describes the initial explicit and automatic SIMD subsets. Generic collections
+are not packed numeric arrays, and ordinary loops remain serial.
+
+Public allocator switching, per-container allocator handles, allocator lifetimes,
+and buffer provenance remain unimplemented. Existing object prefixes retain an
+internal process-lifetime allocator table; container buffers still use the global
+allocator. Fixed inline arrays and constant value parameters are separately
+[accepted but unimplemented](value-generics.md) under B83; bounded containers
+build on that design. These remaining contracts keep this proposal partly
+implemented. Scope and priorities belong in [B13/B23/B24/B83](../backlog.md).
+
+The allocation, concurrency and SIMD sections preserve the original rationale
+and alternatives. Where they describe a shipped area, the linked references and
+completed audits take precedence over their historical sketches.
+
+## Original recommendation
 
 Make recoverable allocation failure a language contract, with `Result` and `?`
 as the normal way to handle it. This requires more than making collection growth
@@ -72,6 +96,13 @@ fallible operations consistently. [Rust `Vec`](https://doc.rust-lang.org/std/vec
 [allocation error handling](https://doc.rust-lang.org/std/alloc/fn.handle_alloc_error.html).
 
 ## Recoverable allocation contract
+
+This is the original design rationale. The
+[completed allocation audit](completed/allocation-audit.md) records the delivered
+per-path behavior, including inline classes, sums, ranges and generator frames.
+The third error category, fallible generator-frame construction and heap-backed
+class construction discussed here were not adopted; `.expect(...)` remains
+unimplemented. None is an additional implementation commitment.
 
 ### Allocation-free error transport comes first
 
@@ -253,16 +284,24 @@ needed. Inline means inside the containing value, not necessarily on the stack.
 [heapless](https://docs.rs/heapless/latest/heapless/),
 [SmallVec](https://docs.rs/smallvec/latest/smallvec/struct.SmallVec.html).
 
-Possible later Plenty types are `Array[T, N]`, `BoundedList[T, N]`, and
-`SmallList[T, N]`, with constant generic capacities. These names are illustrative.
+The original sketches were `Array[T, N]`, `BoundedList[T, N]`, and
+`SmallList[T, N]`, with constant generic capacities. The accepted
+[value-generics design](value-generics.md) now specifies `array[T, N]`, but is
+not implemented; the bounded and small-list names here remain illustrative.
 A bounded container returns a capacity error without allocating; a small list
 still needs fallible spill/growth. Element construction can allocate even when
 the container does not. A borrowed slice/view should let APIs accept their
 contents without copying into the ordinary heap-backed list. Defer this family
-until inline aggregates and basic constant parameters exist; it should not
-complicate the first custom-allocator interface.
+until basic constant parameters exist; inline aggregates have shipped. It should
+not complicate the first custom-allocator interface.
 
 ## Threads, channels, and parallel collections
+
+This section preserves the original concurrency design. Scoped threads, bounded
+channels, executors, ordered mapping and fixed-tree reduction are implemented;
+the [concurrency reference](../design/facilities/03-concurrency/index.md) owns
+current APIs, worker eligibility, ordering and shutdown contracts. The suggestions
+below are not additional pending concurrency work.
 
 ### Runtime prerequisites
 
@@ -336,6 +375,14 @@ for these operations, but should not silently change ordinary loop semantics.
 
 ## SIMD that fits Cranelift
 
+This is the original backend assessment, not an outstanding initial SIMD plan.
+The [explicit implementation record](std-simd/implementation.md) describes the
+shipped API and representation limits; the [portable SIMD proposal](std-simd.md)
+separates delivered subsets from broader transformations. Current values use
+copyable inline enums, with bounded local promotion to vector registers, rather
+than a public packed-vector layout or vector C ABI. The initial automatic
+integer-column filter/count slice is separate from general auto-vectorization.
+
 Cranelift represents lane-typed vectors and provides vector arithmetic, but an
 IR type's existence does not promise every instruction or width works on every
 backend. The upstream IR guide explicitly discusses target-dependent support.
@@ -355,7 +402,8 @@ Propose explicitly imported vector types/functions first: 128-bit shapes such as
 four `f32` lanes or two `f64` lanes, with splat, checked load/store, arithmetic,
 comparisons, masks, and lane extraction. Names such as `simd.f32x4` are sketches.
 Represent vectors inline in SSA/registers or stack slots; do not heap-box each
-vector as today's general managed objects are boxed. Efficient vectorized kernels
+vector as general managed objects were boxed at the time of this assessment.
+Efficient vectorized kernels
 also need contiguous typed buffers/views: the current generic collection entry
 storage is not a guarantee of a contiguous C array of lane values.
 
@@ -381,7 +429,10 @@ target. Inspect generated code and measure throughput and compilation time.
 Explicit vector lowering is compatible with Plenty's fast-compilation goal;
 global loop dependence analysis and speculative vectorization are not required.
 
-## Suggested implementation sequence
+## Original implementation sequence
+
+This sequence records the original dependencies, not the current work queue.
+Delivery status is reconciled below it; remaining scope lives in the backlog.
 
 1. Add ordinary `?` and clarify cleanup on propagated errors. Explicitly document
    that current heap-backed `Result` is not yet an OOM-recovery mechanism.
@@ -402,14 +453,21 @@ global loop dependence analysis and speculative vectorization are not required.
    allocator specialization, and runtime CPU multiversioning remain optional later
    work rather than prerequisites for useful programs.
 
-Steps 1-3 and 6 are complete. Steps 4 and 5 are B13, with B12 and B19 for
-buffers. Step 7 is B23.
+Steps 1-3 and 6 are complete; their descriptions of the then-current runtime
+are historical. Step 4 remains B13. Step 5 is mixed: inline aggregates, list/byte
+slice views and packed columnar storage have shipped, while fixed inline arrays
+and value parameters remain B83 and bounded containers remain B13. Step 7's
+initial explicit vectors and bounded automatic integer-column SIMD have shipped;
+B23 tracks extensions, not an unimplemented SIMD foundation.
 
 Allocating-expression syntax, the private sum-value lowering contract, and task
-error ordering are settled. Open decisions are allocator handle lifetime
-representation, whether failure recovers owned insertion arguments, and which
-SIMD operations have a portable scalar contract. None should be hidden behind a promise that the current
-runtime already supplies these capabilities.
+error ordering are settled. Existing collection operations also define ownership
+on failure; see the [collection reference](../design/facilities/01-builtins/collections.md).
+Any future recovering-insertion API would be a separate design, not an unresolved
+contract for today's operations. Allocator handle lifetimes and buffer routing
+remain open B13 design questions. Published SIMD operations already have scalar
+contracts; broader operations require separate decisions in the
+[portable SIMD design](std-simd.md).
 
 The private lowering contract is not a frozen ABI or a public C representation;
 it must leave room for future FFI, vector values, target-specific calling

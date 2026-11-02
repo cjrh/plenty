@@ -143,7 +143,7 @@ graph supplies editions per package; reject a conflicting global override
 instead of applying it to dependencies. Compiler library APIs, the language
 server and documentation checks must use the same selection rules.
 
-The proposed [single-file script header](single-file-scripts.md) could carry
+The proposed [single-file script header](completed/single-file-scripts.md) could carry
 `[package].edition`. It should share the package schema and default rather than
 invent another source directive. An edition does not require a script runner.
 

@@ -4,15 +4,15 @@
 existing composition, with capability parameters where needed; new protocol
 visibility is deferred.
 No new language feature or stdlib conversion is approved. The current contracts
-remain [protocols](../design/language/07-generics/protocols.md),
-[visibility](../design/language/02-source/visibility.md), and
-[classes](../design/language/03-types/classes.md). Any future access extension
-belongs to [B29](../backlog.md).
+remain [protocols](../../design/language/07-generics/protocols.md),
+[visibility](../../design/language/02-source/visibility.md), and
+[classes](../../design/language/03-types/classes.md). Any future access extension
+belongs to [B29](../../backlog.md).
 
-The later [protocol-body proposal](protocol-method-bodies.md) records agreed
+The later [protocol-body proposal](../protocol-method-bodies.md) records agreed
 default/final methods and member-specific private-hook grants. That design is
 not implemented; the wrappers and capabilities here remain the existing-language
-solution. Its [short programs](protocol-method-bodies/examples.md) contrast
+solution. Its [short programs](../protocol-method-bodies/examples.md) contrast
 the proposed programming model with this assessment's composition approach.
 
 ## Introduction
@@ -101,7 +101,7 @@ unchanged and closes the wrapper: the backend may already have emitted bytes,
 and a message boundary is no longer assumed trustworthy. The toy error does
 not report a resumable offset. A production transport must either specify an
 all-or-nothing enqueue contract or preserve partial progress and recovery state,
-as [std.io](../design/stdlib/io.md) does. Hidden hooks do not resolve this choice.
+as [std.io](../../design/stdlib/io.md) does. Hidden hooks do not resolve this choice.
 
 There is no inheritance or protocol default body here. `send_impl` is absent
 from `Transport[B]`, and the application cannot reach `_backend`. A backend
@@ -171,19 +171,19 @@ adapter. Beginning, committing and rolling back are themselves backend-specific;
 a single hidden `write_impl` does not make them backend-independent. A concrete
 transaction owner or backend protocol must supply those steps too.
 
-The real [SQLite transaction](../design/stdlib/sqlite.md) remains open after a
+The real [SQLite transaction](../../design/stdlib/sqlite.md) remains open after a
 busy commit so it can be retried, and rolls back when dropped unfinished.
 Choose explicitly whether a library wrapper retains that owner for retry or
 rolls back before returning an error. Never report commit success merely because
 the write hook succeeded. A borrowed transaction context can restrict writing to
 the transaction lifetime, but must also carry meaningful backend authority.
 
-[Resource scopes](../design/language/08-errors/03-resource-scopes.md) supply
+[Resource scopes](../../design/language/08-errors/03-resource-scopes.md) supply
 cleanup on ordinary exits; `__exit__` returns unit and has no success/failure
 argument. It cannot replace explicit fallible commit/rollback handling or infer
 that a body succeeded. Traps do not unwind it. Coarse distinct transaction/state
 owners may enforce sequencing better than method hiding; see
-[typestate](typestate-and-owned-transitions.md). Ownership transfers, retryable
+[typestate](../typestate-and-owned-transitions.md). Ownership transfers, retryable
 failure and extraction of affine fields still need an API design.
 
 ## What the stdlib actually needs

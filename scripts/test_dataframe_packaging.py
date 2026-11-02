@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 REPO = Path(__file__).resolve().parent.parent
@@ -63,6 +64,7 @@ class EnginePackage(unittest.TestCase):
         metadata = json.loads((notices / "engine.json").read_text())
         self.assertEqual(metadata["target"], f"{os.uname().machine}-unknown-linux-gnu")
         self.assertEqual(metadata["minimum_glibc"], "2.28")
+        self.assertEqual(metadata["plenty_version"], tomllib.loads((REPO / "Cargo.toml").read_text())["package"]["version"])
         self.assertNotIn("build_kind", metadata)
         self.assertEqual(metadata["library_sha256"], hashlib.sha256(self.engine.read_bytes()).hexdigest())
         for path in ["engine.json", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.md",
@@ -103,8 +105,13 @@ class WindowsEnginePackage(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("windows_packager", RELEASE / "package-engine.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        with tempfile.TemporaryDirectory(prefix="Windows engine ") as temporary:
+        with tempfile.TemporaryDirectory(prefix="Windows engine ü ") as temporary:
             root = Path(temporary)
+            # Use a different repository from cwd and version keys outside [package].
+            (root / "stdlib/std").mkdir(parents=True)
+            shutil.copyfile(REPO / "stdlib/std/dataframe.plentyi", root / "stdlib/std/dataframe.plentyi")
+            for license_name in ("LICENSE-MIT", "LICENSE-APACHE"):
+                shutil.copyfile(REPO / license_name, root / license_name)
             engine = root / "plenty_dataframe_v1.dll"
             exports = re.findall(r'= "(pldf_v1_\w+)"', (REPO / "stdlib/std/dataframe.plentyi").read_text())
             engine.write_bytes(fixtures.CheckNative.pe(dll=True, exports=exports))
@@ -120,15 +127,24 @@ class WindowsEnginePackage(unittest.TestCase):
                 self.assertIn("third_party_notices.py", str(args[2]))
                 Path(args[args.index("--out") + 1]).write_text("Dependency notices")
             def output(*args):
-                return "0.8.3" if args[-1] == "--print" else "a" * 40
-            with patch("sys.argv", argv), patch.object(module.subprocess, "run", command), patch.object(module, "output", output):
-                module.main()
-                manifest = json.loads((destination / "dataframe-notices/engine.json").read_text())
-                self.assertEqual(manifest["target"], "x86_64-pc-windows-msvc")
-                self.assertEqual(manifest["minimum_windows"], "10")
-                self.assertNotIn("minimum_glibc", manifest)
-                self.assertEqual((destination / engine.name).read_bytes(), engine.read_bytes())
-                self.assertEqual(manifest["library_sha256"], hashlib.sha256(engine.read_bytes()).hexdigest())
+                self.assertEqual(args, ("git", "-C", str(root), "rev-parse", "HEAD"))
+                return "a" * 40
+            with patch("sys.argv", argv), patch.object(module, "REPO", root), \
+                 patch.object(module.subprocess, "run", command), patch.object(module, "output", output):
+                for version, newline in (("1.2.3", "\n"), ("1.2.4-rc.1", "\r\n")):
+                    with self.subTest(version=version, newline=repr(newline)):
+                        cargo = ('[workspace.package]\nversion = "9.9.9"\n'
+                                 f'[package]\nname = "plenty"\nversion = "{version}" # release\n'
+                                 '[dependencies.fixture]\nversion = "8.8.8"\n')
+                        (root / "Cargo.toml").write_bytes(cargo.replace("\n", newline).encode("utf-8"))
+                        module.main()
+                        manifest = json.loads((destination / "dataframe-notices/engine.json").read_text())
+                        self.assertEqual(manifest["plenty_version"], version)
+                        self.assertEqual(manifest["target"], "x86_64-pc-windows-msvc")
+                        self.assertEqual(manifest["minimum_windows"], "10")
+                        self.assertNotIn("minimum_glibc", manifest)
+                        self.assertEqual((destination / engine.name).read_bytes(), engine.read_bytes())
+                        self.assertEqual(manifest["library_sha256"], hashlib.sha256(engine.read_bytes()).hexdigest())
                 engine.write_bytes(fixtures.CheckNative.pe(dll=True, exports=exports[1:]))
                 with self.assertRaisesRegex(SystemExit, "missing exports"):
                     module.main()
@@ -166,7 +182,8 @@ class MacosEnginePackage(unittest.TestCase):
                 if args[0] == "nm":
                     self.assertEqual(args[1], "-gU")
                     return "\n".join(f"000000 T _{name}" for name in exports)
-                return "0.8.3" if args[-1] == "--print" else "a" * 40
+                self.assertEqual(args, ("git", "-C", str(REPO), "rev-parse", "HEAD"))
+                return "a" * 40
             with patch("sys.argv", argv), patch.object(module.subprocess, "run", command), patch.object(module, "output", output):
                 module.main()
                 self.assertEqual(verified, [["codesign", "--verify", "--strict", str(engine)]])

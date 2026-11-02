@@ -59,7 +59,9 @@ loans (issue #593) and scalar-indexed `&substr` substring views (issue #595)
 are implemented. Methods on owned temporaries can lend within the statement
 (issue #597), calls returning mutable references can be assigned through
 (issue #598), and method receivers projected from temporaries borrow in place
-(issue #599).
+(issue #599). `len` also normalizes explicit shared borrows of literals and
+owned temporaries, preserving full-expression cleanup without allocating for
+the borrow itself (issue #683).
 
 See [borrowing](../design/language/05-ownership/02-borrowing.md),
 [returned references](../design/language/05-ownership/04-returned-references.md),
@@ -141,7 +143,8 @@ diagnostics. Per-script private cache state and resolution locks keep generated 
 out of source directories; warm runs reuse objects and eligible Linux executables.
 Check/compile modes, editor header handling and cache inspection/cleanup accompany
 the runner. A script test command and broader executable-cache platforms remain
-outside this delivery.
+outside this delivery. The [completed proposal](../proposals/completed/single-file-scripts.md)
+records the rationale (local PR #851).
 
 File imports/visibility, reserved embedded `std`, the `plentyc`/`plenty` split,
 strict manifests, pinned Git/path dependencies, locks/offline mode, workspaces,
@@ -183,6 +186,13 @@ queries in Plenty; a pinned Python/FastEmbed subprocess performs inference.
 [linking](../design/toolchain/01-building/linking.md) own current contracts.
 Outstanding tooling/investigation scope stays **B17** in the [backlog](../backlog.md).
 
+Engine-notices packaging reads the Plenty version directly from the root
+`Cargo.toml` with Python's TOML parser, avoiding the nested Bash version lookup
+that failed in Windows release CI (issue #687). Regression fixtures cover release
+and prerelease versions, LF/CRLF manifests, unrelated version keys and a repository
+path with spaces/Unicode. These local fixture checks do not substitute for a
+native Windows release build.
+
 ## B21: Documentation authoring
 
 Executable Markdown checked by `tests/test_tutorial.rs` remains the lesson
@@ -220,6 +230,11 @@ checked/emitted when used or required by a protocol/destructor
 (issue #515, local PR #616); `--check-all-methods` checks the program's own
 instances, not dependency/std types (issue #517, local PR #621).
 See [generic data](../design/language/07-generics/data.md).
+The [library-owned operations investigation](../proposals/completed/library-owned-operations.md)
+completed in issue #145 (local PR #177): existing owning wrappers and optional
+capabilities meet the assessed use cases; no language or stdlib change was approved.
+Future default/final methods and private-hook grants belong to the separate
+[protocol-body proposal](../proposals/protocol-method-bodies.md).
 Additional bounds/default-body contracts remain **B29** in the [backlog](../backlog.md).
 
 ## B32: Callback storage
