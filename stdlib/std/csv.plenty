@@ -34,7 +34,6 @@ pub enum CsvError:
     # Record number and field index.
     InvalidUtf8(i64, i64)
     InvalidDialect
-    OutOfRange
     Stopped
     Stream(StreamError)
     Allocation(AllocError)
@@ -422,13 +421,12 @@ pub class Reader[R]:
             return Err(CsvError.Width(self._records, self._expected, count))
         Ok(True)
 
-pub def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R], CsvError]:
+pub def reader[R](inner: R, dialect: &Dialect, capacity: Positive[i64]) -> Result[Reader[R], CsvError]:
     if not valid(dialect):
         return Err(CsvError.InvalidDialect)
-    if capacity < 1:
-        return Err(CsvError.OutOfRange)
-    mut buffer = listed(std.bytes.with_capacity(capacity))?
-    listed(buffer.resize(capacity, 0u8))?
+    size = capacity.get()
+    mut buffer = listed(std.bytes.with_capacity(size))?
+    listed(buffer.resize(size, 0u8))?
     mut matched = 3
     if dialect.skip_bom:
         matched = 0

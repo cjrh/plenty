@@ -762,7 +762,7 @@ class Position
     line: i64
     offset: i64
 enum CsvError
-    Invalid(Fault, Position) | Rejected(Fault, i64, i64) | Width(i64, i64, i64) | EmptyRecord(i64) | InvalidUtf8(i64, i64) | InvalidDialect | OutOfRange | Stopped | Stream(StreamError) | Allocation(AllocError)
+    Invalid(Fault, Position) | Rejected(Fault, i64, i64) | Width(i64, i64, i64) | EmptyRecord(i64) | InvalidUtf8(i64, i64) | InvalidDialect | Stopped | Stream(StreamError) | Allocation(AllocError)
 enum Width
     Any | First | Exactly(i64)
 enum Newline
@@ -799,7 +799,7 @@ class Reader[R]
     def line(self) -> i64
     def offset(self) -> i64
     def read(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]
-def reader[R](inner: R, dialect: &Dialect, capacity: i64) -> Result[Reader[R], CsvError]
+def reader[R](inner: R, dialect: &Dialect, capacity: Positive[i64]) -> Result[Reader[R], CsvError]
 class Writer[W]
     inner: W
     def records(self) -> i64
@@ -1023,7 +1023,7 @@ Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQ
 enum Mode
     ReadOnly | ReadWrite | Create
 enum KvError
-    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | InvalidLimit | ForeignDatabase | UnsupportedVersion(i64)
+    Database(sqlite.DbError) | Allocation(AllocError) | InvalidName | ForeignDatabase | UnsupportedVersion(i64)
 const format_version: i64 = 1
 class Entry
     key: Bytes
@@ -1043,8 +1043,8 @@ class Store
     def remove(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
     def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
     def len(self: &mut Store, table: &str) -> Result[i64, KvError]
-    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: i64, after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
-    def scan_all(self: &mut Store, table: &str, max_rows: i64, reverse: bool = False) -> Result[Scan, KvError]
+    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan_all(self: &mut Store, table: &str, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]
 def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
 def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
 ```
@@ -1298,9 +1298,9 @@ class Formatter[W]
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
-    def floating(self: &mut Formatter[W], value: f64, width: i64) -> Result[(), FormatError]
-    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: i64 = 0) -> Result[(), FormatError]
-    def integer(self: &mut Formatter[W], value: i64, width: i64 = 0) -> Result[(), FormatError]
+    def floating(self: &mut Formatter[W], value: f64, width: NonNegative[i64]) -> Result[(), FormatError]
+    def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
+    def integer(self: &mut Formatter[W], value: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
@@ -1313,14 +1313,14 @@ class Formatter[W]
     def float32_spec(self: &mut Formatter[W], value: f32, spec: &Spec) -> Result[(), FormatError]
     def enter(self: &mut Formatter[W]) -> Result[(), FormatError]
     def leave(self: &mut Formatter[W]) -> ()
-def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: i64, max_depth: i64) -> Result[Formatter[W], FormatError]
-def stderr_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Stderr], FormatError]
-def string_formatter(max_bytes: i64, max_depth: i64) -> Result[Formatter[Cursor], FormatError]
+def formatter[W: Writer](writer: W, scratch: Bytes, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[W], FormatError]
+def stderr_formatter(max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[Stderr], FormatError]
+def string_formatter(max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[Formatter[Cursor], FormatError]
 def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]
 def display[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def debug[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
-def to_string[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
-def to_debug[T](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
+def to_string[T](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+def to_debug[T](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
 def represent[T, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def repr_string[T](value: &T) -> Result[str, FormatError]
 def represent_view[T, W](value: &[T], output: &mut Formatter[W]) -> Result[(), FormatError]
@@ -2310,7 +2310,7 @@ Strict JSON under depth, input, and output limits: resumable event decoder, vali
 
 ```text
 enum JsonFault
-    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | Stream(StreamError) | Allocation(AllocError)
 class JsonError
     fault: JsonFault
     offset: i64
@@ -2319,9 +2319,9 @@ class JsonError
 enum DuplicateKeys
     Reject | Keep
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
     duplicate_keys: DuplicateKeys
 enum Json
     Null | Bool(bool) | Int(i64) | Float(f64) | Text(str) | Array(list[Json]) | Object(list[Member])
@@ -2470,11 +2470,11 @@ class LineBuffer
 class TextSink[W]
     writer: W
     def emit(self: &mut TextSink[W], event: Event) -> Result[(), LogError]
-def text_sink[W: Writer](writer: W, max_line: i64) -> Result[TextSink[W], LogError]
+def text_sink[W: Writer](writer: W, max_line: Positive[i64]) -> Result[TextSink[W], LogError]
 class MemorySink
     events: list[Event]
     def emit(self: &mut MemorySink, event: Event) -> Result[(), LogError]
-def memory_sink(capacity: i64) -> Result[MemorySink, LogError]
+def memory_sink(capacity: NonNegative[i64]) -> Result[MemorySink, LogError]
 class Discard
     def emit(self: &mut Discard, event: Event) -> Result[(), LogError]
 def discard() -> Discard
@@ -2494,15 +2494,15 @@ CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, an
 
 ```text
 enum MarkdownFault
-    InvalidUtf8 | InputTooLarge | OutputTooLarge | DepthExceeded | InvalidLimits | InvalidState | Stream(StreamError) | Allocation(AllocError)
+    InvalidUtf8 | InputTooLarge | OutputTooLarge | DepthExceeded | InvalidState | Stream(StreamError) | Allocation(AllocError)
 class MarkdownError
     fault: MarkdownFault
     offset: i64
     line: i64
 class Limits
-    max_input: i64
-    max_depth: i64
-    max_output: i64
+    max_input: NonNegative[i64]
+    max_depth: NonNegative[i64]
+    max_output: NonNegative[i64]
 enum Tag
     Paragraph | Heading(i64) | BlockQuote | CodeBlock(str) | BulletList | OrderedList(i64) | Item | Emphasis | Strong | Link(str, str) | Image(str, str)
 enum Event
@@ -2530,16 +2530,16 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    InvalidLimits | LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
 class Limits
-    max_source: i64
-    max_tokens: i64
-    max_templates: i64
-    max_context_nodes: i64
-    max_context_bytes: i64
-    max_depth: i64
-    max_steps: i64
-    max_output: i64
+    max_source: NonNegative[i64]
+    max_tokens: NonNegative[i64]
+    max_templates: NonNegative[i64]
+    max_context_nodes: Positive[i64]
+    max_context_bytes: NonNegative[i64]
+    max_depth: Positive[i64]
+    max_steps: NonNegative[i64]
+    max_output: NonNegative[i64]
 def limits() -> Limits
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
@@ -2864,14 +2864,14 @@ class SyntaxError
     offset: i64
     message: str
 enum RegexError
-    Syntax(SyntaxError) | LimitExceeded(Limit) | InvalidLimits | OutOfRange | Allocation(AllocError)
+    Syntax(SyntaxError) | LimitExceeded(Limit) | OutOfRange | Allocation(AllocError)
 class Limits
-    max_pattern_bytes: i64
-    max_nesting: i64
-    max_repeat: i64
-    max_instructions: i64
-    max_memory: i64
-    max_work: i64
+    max_pattern_bytes: NonNegative[i64]
+    max_nesting: NonNegative[i64]
+    max_repeat: NonNegative[i64]
+    max_instructions: NonNegative[i64]
+    max_memory: NonNegative[i64]
+    max_work: NonNegative[i64]
 def limits() -> Limits
 class Match
     start: i64
@@ -2914,7 +2914,7 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
-def to_string[T: Formattable](value: &T, max_bytes: i64, max_depth: i64) -> Result[str, FormatError]
+def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -3491,11 +3491,11 @@ class Builder
     def clear(self: &mut Builder) -> ()
     def to_text(self) -> Result[str, TextError]
     def finish(self: Builder) -> Result[str, TextError]
-def builder(max_bytes: i64) -> Result[Builder, TextError]
-def join(pieces: &list[str], separator: &str, max_bytes: i64) -> Result[str, TextError]
-def hard_wrap(text: &str, width: i64, max_bytes: i64) -> Result[str, TextError]
+def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]
+def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
 class TextWrapper
-    width: i64
+    width: Positive[i64]
     initial_indent: str
     subsequent_indent: str
     expand_tabs: bool
@@ -3504,20 +3504,20 @@ class TextWrapper
     break_long_words: bool
     drop_whitespace: bool
     break_on_hyphens: bool
-    tabsize: i64
-    max_lines: Option[i64]
+    tabsize: NonNegative[i64]
+    max_lines: Option[Positive[i64]]
     placeholder: str
-    max_bytes: i64
-    max_input_bytes: i64
+    max_bytes: NonNegative[i64]
+    max_input_bytes: NonNegative[i64]
     def wrap(self, text: &str) -> Result[list[str], TextError]
     def fill(self, text: &str) -> Result[str, TextError]
-def text_wrapper(width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> TextWrapper
-def wrap(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[list[str], TextError]
-def fill(text: &str, width: i64 = 70, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def shorten(text: &str, width: i64, placeholder: &str = " [...]", max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
-def dedent(text: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def indent(text: &str, prefix: &str, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
-def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: i64 = 1048576, max_input_bytes: i64 = 1048576) -> Result[str, TextError]
+def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper
+def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
+def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
+def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
 ```
 
 ## `std.thread`
@@ -3662,16 +3662,16 @@ Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits
 
 ```text
 enum TomlFault
-    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | InvalidLimits | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | Stream(StreamError) | Allocation(AllocError)
 class TomlError
     fault: TomlFault
     offset: i64
     line: i64
     column: i64
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
 enum DateTimeKind
     OffsetDateTime | LocalDateTime | LocalDate | LocalTime
 class DateTime
@@ -3715,10 +3715,10 @@ Unicode 17 normalization, combining classes, and Mark classification. Errors: `T
 def version() -> str
 def combining_class(scalar: &str) -> Option[u32]
 def is_mark(scalar: &str) -> Option[bool]
-def nfd(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfc(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfkd(text: &str, max_scalars: i64) -> Result[str, TextError]
-def nfkc(text: &str, max_scalars: i64) -> Result[str, TextError]
+def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 ```
 
 ## `std.url`
@@ -3727,7 +3727,7 @@ Strict RFC 3986 absolute URL parsing and formatting without normalization, compo
 
 ```text
 enum UrlError
-    InvalidLimit | LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
+    LimitExceeded | MissingScheme | MissingHost | InvalidByte(i64) | InvalidEscape(i64) | InvalidHost(i64) | InvalidPort(i64) | InvalidUtf8 | Allocation(AllocError)
 enum Component
     Userinfo | Segment | Path | Query | QueryPart | Fragment
 class Url
@@ -3742,7 +3742,7 @@ class Url
 class Pair
     key: str
     value: str
-def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]
+def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]
 def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]
 def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]
 def encode(text: &str, component: Component) -> Result[str, UrlError]
@@ -3782,16 +3782,16 @@ Bounded UTF-8 XML event readers and validating stream writers, without DTDs or e
 
 ```text
 enum Fault
-    Syntax | UnexpectedEnd | InvalidName | InvalidCharacter | InvalidUtf8 | InvalidReference | UnknownEntity | DuplicateAttribute | MismatchedEnd | DoctypeForbidden | UnsupportedDeclaration | DepthExceeded | InputTooLarge | OutputTooLarge | TokenTooLarge | TooManyAttributes | InvalidLimits | InvalidState | Stopped | Allocation(AllocError) | Stream(StreamError)
+    Syntax | UnexpectedEnd | InvalidName | InvalidCharacter | InvalidUtf8 | InvalidReference | UnknownEntity | DuplicateAttribute | MismatchedEnd | DoctypeForbidden | UnsupportedDeclaration | DepthExceeded | InputTooLarge | OutputTooLarge | TokenTooLarge | TooManyAttributes | InvalidState | Stopped | Allocation(AllocError) | Stream(StreamError)
 class XmlError
     fault: Fault
     offset: i64
 class Limits
-    max_depth: i64
-    max_input: i64
-    max_output: i64
-    max_token: i64
-    max_attributes: i64
+    max_depth: NonNegative[i64]
+    max_input: NonNegative[i64]
+    max_output: NonNegative[i64]
+    max_token: Positive[i64]
+    max_attributes: NonNegative[i64]
 def limits() -> Limits
 class Attribute
     name: str

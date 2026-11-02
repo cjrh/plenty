@@ -170,7 +170,7 @@ def failed[T](value: Result[T, FormatError]) -> bool:
             True
 def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     mut out = std.fmt.string_formatter(3, 2)?
-    print(failed(out.unsigned(1u64, 3, 0)), failed(out.integer(1, -1)), failed(out.floating(1.0, -1)))?
+    print(failed(out.unsigned(1u64, 3, 0)))?
     print(out.completed())?
     out.text("ab")?
     print(failed(out.text("é")), out.completed(), std.fmt.finish(&out)?)?
@@ -180,10 +180,9 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
     out.leave()
     out.text("c")?
     print(std.fmt.finish(&out)?)?
-    print(failed(std.fmt.string_formatter(-1, 8)))?
     Ok(())
 "#),
-        "True True True\n0\nTrue 2 ab\nTrue\nabc\nTrue"
+        "True\n0\nTrue 2 ab\nTrue\nabc"
     );
 }
 
@@ -231,25 +230,15 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.F
             print("allocation failed")?
     print("__test_fail_allocations_after_0__")?
     construction = std.fmt.string_formatter(32, 8)
-    invalid = std.fmt.string_formatter(-1, 8)
     print("__test_restore_allocations__")?
     match construction:
         case Ok(_):
             print("unexpected")?
         case Err(_):
             print("construction failed")?
-    match invalid:
-        case Err(error):
-            match error:
-                case std.fmt.FormatError.InvalidSpec:
-                    print("invalid spec")?
-                case _:
-                    print("wrong error")?
-        case Ok(_):
-            print("unexpected")?
     Ok(())
 "#),
-        "74\nallocation failed\nconstruction failed\ninvalid spec"
+        "74\nallocation failed\nconstruction failed"
     );
 }
 
@@ -417,4 +406,48 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | FormatErr
 "#),
         "True 0 False\n1 False 2"
     );
+}
+
+#[test]
+fn limits_above_the_ceiling_trap() {
+    // Nested display recursion stays within the native stack, and numeric
+    // spelling needs 32 scratch bytes; neither has a type, so both trap.
+    for (call, message) in [
+        (
+            "std.fmt.string_formatter(8, 65)",
+            "std.fmt.string_formatter: max_depth is above 64",
+        ),
+        (
+            "std.fmt.stderr_formatter(8, 65)",
+            "std.fmt.stderr_formatter: max_depth is above 64",
+        ),
+        (
+            "std.fmt.formatter(std.io.cursor(std.bytes.empty()?), std.bytes.with_capacity(8)?, 8, 8)",
+            "std.fmt.formatter: scratch is shorter than 32 bytes",
+        ),
+    ] {
+        let source = format!(
+            "import std.fmt\nimport std.io\nimport std.bytes\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.fmt.FormatError]:\n    drop({call}?)\n    Ok(())\n"
+        );
+        support::assert_file_traps(&source, message);
+    }
+}
+
+#[test]
+fn out_of_domain_limits_and_widths_are_compile_errors() {
+    // Byte budgets, depths and widths are `NonNegative[i64]`, replacing the
+    // old `InvalidSpec` results for negative values.
+    for call in [
+        "drop(std.fmt.string_formatter(-1, 8)?)",
+        "drop(std.fmt.string_formatter(8, -1)?)",
+        "std.fmt.string_formatter(8, 8)?.integer(1, -1)?",
+        "std.fmt.string_formatter(8, 8)?.floating(1.0, -1)?",
+        "std.fmt.string_formatter(8, 8)?.unsigned(1u64, 10, -1)?",
+    ] {
+        let source = format!(
+            "import std.fmt\ndef main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n    {call}\n    Ok(())\n"
+        );
+        let error = support::check_file_error(&source);
+        assert!(error.contains("cannot be negative"), "{call}: {error}");
+    }
 }

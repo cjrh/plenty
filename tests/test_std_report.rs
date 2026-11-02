@@ -127,21 +127,9 @@ def main() -> Result[(), FormatError | IoError]:
     print(error(out.enter()))?
     mut err = std.fmt.stderr_formatter(0, 64)?
     err.text("")?
-    for index in range(2):
-        depth = index * 66 - 1
-        match std.fmt.stderr_formatter(1, depth):
-            case Err(error):
-                print(error)?
-            case Ok(_):
-                print("unexpected")?
-    match std.fmt.string_formatter(-1, 1):
-        case Err(error):
-            print(error)?
-        case Ok(_):
-            print("unexpected")?
     Ok(())
 "#)),
-        "std.fmt.FormatError.LimitExceeded 1 False\nstd.fmt.FormatError.LimitExceeded 4\naé4\nstd.fmt.FormatError.InvalidSpec 4\nstd.fmt.FormatError.RecursionLimit\nstd.fmt.FormatError.InvalidSpec\nstd.fmt.FormatError.InvalidSpec\nstd.fmt.FormatError.InvalidSpec"
+        "std.fmt.FormatError.LimitExceeded 1 False\nstd.fmt.FormatError.LimitExceeded 4\naé4\nstd.fmt.FormatError.InvalidSpec 4\nstd.fmt.FormatError.RecursionLimit"
     );
 }
 

@@ -751,8 +751,14 @@ fn nesting_is_bounded_by_the_depth_limit() {
 #[test]
 fn a_depth_limit_above_the_ceiling_traps() {
     for (call, message) in [
-        ("drop(std.json.decoder(&bounds))", "std.json.decoder: max_depth is above 1024"),
-        ("drop(std.json.encoder(&bounds))", "std.json.encoder: max_depth is above 1024"),
+        (
+            "drop(std.json.decoder(&bounds))",
+            "std.json.decoder: max_depth is above 1024",
+        ),
+        (
+            "drop(std.json.encoder(&bounds))",
+            "std.json.encoder: max_depth is above 1024",
+        ),
     ] {
         let body = format!("mut bounds = std.json.limits()\nbounds.max_depth = 1025\n{call}");
         support::assert_file_traps(&program(&body), message);

@@ -104,17 +104,13 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.log.L
     log.info("ok", [std.log.boolean("a-b.c_D9", True)]?)?
     print(log.emitted(), log.failed())?
     print(log.sink.writer.data.to_text()?)?
-    print(str.repr(std.log.text_sink(std.io.cursor(std.bytes.empty()?), 0))?)?
-    print(str.repr(std.log.memory_sink(-1))?)?
     Ok(())
 "#),
         "Result[(), std.log.LogError].Err(std.log.LogError.TooLarge)\n\
 Result[(), std.log.LogError].Err(std.log.LogError.InvalidKey)\n\
 Result[(), std.log.LogError].Err(std.log.LogError.InvalidKey)\n\
 Result[(), std.log.LogError].Err(std.log.LogError.InvalidKey)\n\
-1 4\nlevel=info msg=\"ok\" a-b.c_D9=true\n\n\
-Result[std.log.TextSink[std.io.Cursor], std.log.LogError].Err(std.log.LogError.InvalidSpec)\n\
-Result[std.log.MemorySink, std.log.LogError].Err(std.log.LogError.InvalidSpec)"
+1 4\nlevel=info msg=\"ok\" a-b.c_D9=true\n"
     );
 }
 
@@ -343,5 +339,24 @@ fn ownership_and_sink_contracts_remain_checked() {
         std::fs::write(&path, source).unwrap();
         let error = plenty::check_file(&path, None).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn out_of_domain_sink_sizes_are_compile_errors() {
+    // `max_line` is `Positive[i64]` and `capacity` `NonNegative[i64]`,
+    // replacing the old `InvalidSpec` results.
+    for (call, message) in [
+        (
+            "std.log.text_sink(std.io.cursor(std.bytes.empty()?), 0)",
+            "must be greater than zero",
+        ),
+        ("std.log.memory_sink(-1)", "cannot be negative"),
+    ] {
+        let source = format!(
+            "import std.log\nimport std.io\nimport std.bytes\ndef main() -> Result[(), AllocError | std.bytes.BytesError | std.log.LogError]:\n    drop({call}?)\n    Ok(())\n"
+        );
+        let error = support::check_file_error(&source);
+        assert!(error.contains(message), "{call}: {error}");
     }
 }

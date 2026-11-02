@@ -69,7 +69,7 @@ are not automatically forwarded.
 | Operation | Behavior |
 | --- | --- |
 | `std.report.render(&value, &mut output)` | Borrowed report into any `Formatter[W]` |
-| `std.report.to_string(&value, max_bytes, max_depth)` | Create a string formatter, render, and finish |
+| `std.report.to_string(&value, max_bytes: NonNegative[i64], max_depth: NonNegative[i64])` | Create a string formatter, render, and finish |
 | `std.fmt.formatter(writer, scratch, max_bytes, max_depth)` | Transfer a writer and caller-provided scratch into a formatter |
 | `std.fmt.string_formatter(max_bytes, max_depth)` | Create an allocating `Formatter[Cursor]` |
 | `std.fmt.stderr_formatter(max_bytes, max_depth)` | Create an allocation-free `Formatter[Stderr]` |

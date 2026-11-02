@@ -162,8 +162,14 @@ fn out_of_domain_wrapper_settings_are_compile_errors() {
     for (statement, message) in [
         ("drop(std.text.fill(\"a\", 0))", "must be greater than zero"),
         ("drop(std.text.dedent(\"x\", -1))", "cannot be negative"),
-        ("mut wrapper = std.text.text_wrapper(4)\n    wrapper.tabsize = -1", "cannot be negative"),
-        ("mut wrapper = std.text.text_wrapper(4)\n    wrapper.max_lines = Some(0)", "must be greater than zero"),
+        (
+            "mut wrapper = std.text.text_wrapper(4)\n    wrapper.tabsize = -1",
+            "cannot be negative",
+        ),
+        (
+            "mut wrapper = std.text.text_wrapper(4)\n    wrapper.max_lines = Some(0)",
+            "must be greater than zero",
+        ),
     ] {
         let source = format!("import std.text\ndef main() -> ():\n    {statement}\n");
         let error = support::check_file_error(&source);

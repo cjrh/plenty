@@ -91,8 +91,8 @@ The sink owns the event from then on, even on failure.
 
 | Constructor | Sink | Delivery |
 |---|---|---|
-| `text_sink(writer: W, max_line: i64)` | `Result[TextSink[W], LogError]` | One logfmt line per event to any [`Writer`](io.md#stream-contracts) |
-| `memory_sink(capacity: i64)` | `Result[MemorySink, LogError]` | Keeps up to `capacity` events in the public list `events` |
+| `text_sink(writer: W, max_line: Positive[i64])` | `Result[TextSink[W], LogError]` | One logfmt line per event to any [`Writer`](io.md#stream-contracts) |
+| `memory_sink(capacity: NonNegative[i64])` | `Result[MemorySink, LogError]` | Keeps up to `capacity` events in the public list `events` |
 | `channel_sink(sender: Sender[Event])` | `ChannelSink` | Queues the event without waiting |
 | `discard()` | `Discard` | Accepts and drops every event |
 
@@ -117,8 +117,8 @@ time=1700000000.000001234 level=info msg="listening" port=8080 host="db" tls=fal
   be `time`, `level`, or `msg`. Otherwise `emit` returns `InvalidKey` and
   writes nothing.
 
-`max_line` bounds one line in bytes, newline included; below one is
-`InvalidSpec`. An event whose line would be longer returns `TooLarge` and
+`max_line` bounds one line in bytes, newline included; `0` is a compile error.
+An event whose line would be longer returns `TooLarge` and
 writes nothing: lines are never truncated. Each line is built in a buffer
 reserved at construction, then delivered with one
 [`write_all`](io.md#helpers) followed by `flush`. A write error is
@@ -162,7 +162,7 @@ the draining thread.
 
 | `LogError` | Meaning |
 |---|---|
-| `InvalidSpec` | A negative capacity, a line limit below one, or an event `time` with out-of-range nanoseconds |
+| `InvalidSpec` | An event `time` with out-of-range nanoseconds |
 | `InvalidKey` | A field key `TextSink` cannot write unambiguously |
 | `UnknownLevel` | `parse_level` received another name |
 | `TooLarge` | The line would exceed `max_line` |

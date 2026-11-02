@@ -88,12 +88,14 @@ fn out_of_domain_limits_are_compile_errors() {
     // replacing the old `InvalidLimit` cases.
     for (call, message) in [
         ("std.text.builder(-1)", "cannot be negative"),
-        ("std.text.hard_wrap(\"x\", 0, 4)", "must be greater than zero"),
+        (
+            "std.text.hard_wrap(\"x\", 0, 4)",
+            "must be greater than zero",
+        ),
         ("std.unicode.nfc(\"\", -1)", "cannot be negative"),
     ] {
-        let source = format!(
-            "import std.text\nimport std.unicode\ndef main() -> ():\n    drop({call})\n"
-        );
+        let source =
+            format!("import std.text\nimport std.unicode\ndef main() -> ():\n    drop({call})\n");
         let error = support::check_file_error(&source);
         assert!(error.contains(message), "{call}: {error}");
     }
