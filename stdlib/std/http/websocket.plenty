@@ -774,7 +774,8 @@ pub class Target:
     _authority: str
     _resource: str
 
-const max_url: i64 = 8192
+def max_url() -> NonNegative[i64]:
+    8192
 
 def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
     match result:
@@ -790,7 +791,7 @@ def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
 # Parses a `ws://` or `wss://` URL. URLs with credentials or a fragment are
 # rejected (RFC 6455 section 3).
 pub def target(url: &str) -> Result[Target, WebSocketError]:
-    parsed = url_of(std.url.parse(url, max_url))?
+    parsed = url_of(std.url.parse(url, max_url()))?
     scheme = allocated(parsed.scheme.lower())?
     if scheme != "ws" and scheme != "wss":
         return Err(WebSocketError.UnsupportedScheme)

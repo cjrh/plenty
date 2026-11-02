@@ -9,7 +9,6 @@ const max_port: i64 = i64(u16.MAX)
 # outside the buffer would trap rather than read past it. Nothing is repaired:
 # input outside the grammar is an error naming the offending byte.
 pub enum UrlError:
-    InvalidLimit
     LimitExceeded
     MissingScheme
     MissingHost
@@ -125,8 +124,8 @@ pub class Pair:
 
 # `max_bytes` bounds the UTF-8 length of `text`; nothing proportional to a
 # longer input is allocated.
-pub def parse(text: &str, max_bytes: i64) -> Result[Url, UrlError]:
-    source = bounded(text, max_bytes)?
+pub def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]:
+    source = bounded(text, max_bytes.get())?
     count = source.len()
     colon = until(&source, 0, count, 3)?
     if colon == 0 or colon == count or i64(source[colon]) != 58:
@@ -345,8 +344,6 @@ def optional(source: &Bytes, start: i64, stop: i64) -> Result[Option[str], UrlEr
 
 # The limit is checked before the copy, so over-limit text allocates nothing.
 def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
-    if max_bytes < 0:
-        return Err(UrlError.InvalidLimit)
     if text.byte_len() > max_bytes:
         return Err(UrlError.LimitExceeded)
     allocated(std.bytes.from_text(text))

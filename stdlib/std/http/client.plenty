@@ -396,7 +396,8 @@ def until_of(deadline: &Deadline) -> u64:
 
 # URLs
 
-const max_url: i64 = 8192
+def max_url() -> NonNegative[i64]:
+    8192
 
 # A parsed `http` URL. `host` is as written, brackets included, for the Host
 # field; `name` is lowercase without brackets, for connecting and comparing.
@@ -410,7 +411,7 @@ class Target:
     query: Option[str]
 
 def target_of(text: &str) -> Result[Target, ClientError]:
-    url = parsed(std.url.parse(text, max_url))?
+    url = parsed(std.url.parse(text, max_url()))?
     scheme = alloc(url.scheme.lower())?
     if scheme != "http" and scheme != "https":
         return Err(ClientError.UnsupportedScheme)
@@ -498,7 +499,7 @@ def without_dots(path: &str) -> Result[str, AllocError]:
 
 # The absolute URL a Location value names, resolved against `base`.
 def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
-    match std.url.parse(location, max_url):
+    match std.url.parse(location, max_url()):
         case Ok(_):
             return Ok(*location)
         case Err(UrlError.MissingScheme):
