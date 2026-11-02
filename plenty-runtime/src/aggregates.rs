@@ -1848,8 +1848,8 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 out,
             ),
             b'V' => render_view(value, ty.key(), out),
-            b't' => crate::io::repr_text(text_views::text(value), false, out),
-            b's' => crate::io::repr(value as *const Text, false, out),
+            b't' => crate::io::repr_text(text_views::text(value), out),
+            b's' => crate::io::repr(value as *const Text, out),
             b'F' => out.extend_from_slice(
                 if crate::files::closed(value as *const crate::files::File) {
                     b"File(closed)"
@@ -2438,7 +2438,7 @@ pub(crate) unsafe fn collection_at(
                     && (*descriptor).kind == b's'
                     && strings::bytes(&(a as *const Text)).starts_with(b"__test_")
                 {
-                    crate::io::plenty_println(a as *const Text);
+                    crate::io::print_test_marker(a as *const Text);
                     return wrap(0, 0);
                 }
                 if op == 111 && (*descriptor).kind == b't' {

@@ -25,7 +25,7 @@ its function declarations are already indexed by Cranelift `FuncId`.
    resolution unless translated once.
 3. Carry a compiler-owned function ID through modern IR and use indexed
    signatures/call targets. Retain names for display, exports and external
-   linkage. Adapt legacy stack-syntax lowering explicitly.
+   linkage.
 4. Compare interning all identifiers only if function IDs leave substantial
    measured name cost. This is a larger parser/AST/environment change, not a
    natural consequence of option 3.

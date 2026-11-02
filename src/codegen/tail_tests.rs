@@ -38,9 +38,6 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             preserves_caller: false,
         },
     );
-    let empty = module
-        .declare_data("empty", Linkage::Local, false, false)
-        .unwrap();
     let mut symbols = symbols::Symbols::new(Arc::new(symbols::Declared::snapshot(
         &module,
         host_isa().unwrap(),
@@ -64,7 +61,6 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         runtime: &runtime,
         user_fns: &functions,
         str_data: &strings,
-        eof_empty_str: empty,
         locals: &[],
         stack: vec![(incoming[0], sig.inputs[0].1.clone())],
         terminated: false,

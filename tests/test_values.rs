@@ -1,7 +1,6 @@
 //! Counted strings, owned values, and exhaustive sum types through native code.
 mod support;
 use rstest::rstest;
-use std::process::Command;
 use support::run;
 
 #[rstest]
@@ -145,43 +144,6 @@ fn diagnostics(#[case] source: &str, #[case] expected: &str) {
         error.contains(expected),
         "{source}\nexpected {expected:?}, got {error:?}"
     );
-}
-
-#[test]
-fn input_preserves_nul_and_validates_utf8() {
-    use std::io::Write;
-    use std::process::Stdio;
-    let workspace = tempfile::tempdir().unwrap();
-    let executable = workspace.path().join("input");
-    plenty::compile_legacy_source_to_executable(":readline drop :println", &executable).unwrap();
-    let run = |input: &[u8]| {
-        let mut child = Command::new(&executable)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input).unwrap();
-        child.wait_with_output().unwrap()
-    };
-    let valid = run("é\0😀\r\n".as_bytes());
-    assert!(valid.status.success());
-    assert_eq!(valid.stdout, "é\0😀\n".as_bytes());
-    assert_eq!(run(b"").stdout, b"\n");
-    for invalid in [
-        &b"\x80"[..],
-        &b"\xc0\x80"[..],
-        &b"\xe0\x80\x80"[..],
-        &b"\xed\xa0\x80"[..],
-        &b"\xf4\x90\x80\x80"[..],
-        &b"\xf5\x80\x80\x80"[..],
-        &b"\xf0\x9f"[..],
-        &b"\xc2A"[..],
-    ] {
-        let output = run(invalid);
-        assert_eq!(output.status.code(), Some(1), "{invalid:?}");
-        assert!(String::from_utf8_lossy(&output.stderr).contains("invalid UTF-8 input"));
-    }
 }
 
 #[test]

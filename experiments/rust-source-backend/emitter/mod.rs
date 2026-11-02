@@ -541,7 +541,7 @@ impl Function<'_> {
                     };
                     self.temp(stack, a.ty, format!("{}.{method}({})", a.name, b.name))?;
                 }
-                Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge | Op::And | Op::Or => {
+                Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge => {
                     let b = self.pop(stack)?;
                     let a = self.pop(stack)?;
                     let operator = match op {
@@ -550,9 +550,7 @@ impl Function<'_> {
                         Op::Lt => "<",
                         Op::Gt => ">",
                         Op::Le => "<=",
-                        Op::Ge => ">=",
-                        Op::And => "&",
-                        _ => "|",
+                        _ => ">=",
                     };
                     self.temp(stack, Ty::Bool, format!("{} {operator} {}", a.name, b.name))?;
                 }

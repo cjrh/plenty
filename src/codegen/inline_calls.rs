@@ -190,7 +190,6 @@ impl Lowerer<'_, '_> {
             runtime: self.runtime,
             user_fns: functions,
             str_data: self.str_data,
-            eof_empty_str: self.eof_empty_str,
             locals: &locals,
             stack: Vec::new(),
             terminated: false,

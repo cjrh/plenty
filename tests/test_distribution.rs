@@ -252,7 +252,6 @@ fn cli_rejects_incompatible_modes_and_bad_values() {
             vec!["--compile", "a.plenty", "--dist", ""],
             vec!["--compile", "a.plenty", "--dist", "one", "--dist", "two"],
             vec!["--compile", "a.plenty", "--dist", "one", "-o", "out"],
-            vec!["--legacy", "--compile", "a.plenty", "--dist", "one"],
             vec![
                 "--compile",
                 "a.plenty",

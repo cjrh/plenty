@@ -1,13 +1,12 @@
 //! Typed operations: the IR the frontend lowers to and every backend reads.
-//! [`check`] verifies it independently; [`legacy`] compiles the historical
-//! stack syntax that backend tests are written in.
+//! [`check`] verifies it independently.
 
 use crate::hash::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::value::{Heap, StrId, Value};
+use crate::value::{StrId, Value};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -1170,7 +1169,7 @@ pub enum Op {
     Sub,
     /// Pop two same-typed numbers `a b`; push `a * b`.
     Mul,
-    /// Divide same-typed numbers (legacy integer division truncates).
+    /// Divide same-typed numbers; integer division truncates.
     Div,
     /// Integer division rounded toward negative infinity (modern `//`).
     FloorDiv(crate::numeric::Divisor),
@@ -1193,20 +1192,12 @@ pub enum Op {
     Le,
     /// Pop two same-typed numbers; push whether the first is at least the second.
     Ge,
-    /// Pop two `Bool`s; push their strict conjunction.
-    And,
-    /// Pop two `Bool`s; push their strict disjunction.
-    Or,
     /// Remove the top value, whatever its type.
     Drop,
     /// Copy the top value, whatever its type.
     Dup,
     /// Exchange the top two values, whatever their types.
     Swap,
-    /// Print the whole stack — the `.` word.
-    Display,
-    /// Discard every value on the stack.
-    Clear,
     /// Define a function: bind `name` to an already-compiled body and docstring.
     ///
     /// This declaration emits a native function without affecting operand values.
@@ -1276,24 +1267,10 @@ pub enum Op {
     /// built, so this never fails. `for` loops over a stored range use this
     /// to run the same counted loop as a direct `range` call (issue #371).
     RangeParts(Ty),
-    /// Read one newline-terminated line from stdin into the heap and push
-    /// (line, got-line?). On EOF, line is the empty string and the Bool
-    /// is `false`; the user is expected to discriminate via `match` on
-    /// the Bool. The trailing `\n` (and `\r\n`) is stripped. Pending sum
-    /// types (§12.14), this two-output shape is the cleanest way to
-    /// report success-or-EOF on a stack-based surface.
-    ReadLine,
     /// Pop two strings `haystack needle`; push `true` if `needle` is a
     /// substring of `haystack`, `false` otherwise. Byte-level match
     /// using `strstr` semantics in the native runtime.
     Contains,
-    /// Pop one string; write its bytes to stdout followed by a `\n`.
-    /// This is the bare-text output primitive; `.` remains the stack
-    /// introspection word.
-    PrintLn,
-    /// Pop one value of any type and render it without a newline. The
-    /// rendering matches one entry in the `.` stack display.
-    Print,
 }
 
 /// One `elif` of an [`Op::If`]. `condition` adds a bool to the stack it found.
@@ -1348,7 +1325,6 @@ pub struct CompiledFn {
 }
 
 mod check;
-pub(crate) mod legacy;
 
 pub use check::check;
 

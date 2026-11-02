@@ -40,7 +40,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --compile: emit a native executable with Cranelift.
 --dist DIR: publish a new application directory containing FILE's stem executable,
   reached native engines and their packaged notices. Uses application-local engine lookup.
-  Requires --compile; excludes -o, --legacy and --link-arg. Not a static build.
+  Requires --compile; excludes -o and --link-arg. Not a static build.
 --emit-object: emit an application object without linking (requires main).
 --dump: write each function's compiler output as text to DIR (`-o -` prints
   it): index.txt, then one file per stage. STAGES is `all` or a comma list of
@@ -75,7 +75,6 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
 --no-program-cache: reuse compiled functions but not program objects/executables.
 --cache-stats: report the cache's hits and misses after compiling.
---legacy before FILE or --compile selects the historical stack syntax.
 ";
 
 pub fn usage(program: &str) -> String {
@@ -119,10 +118,6 @@ fn distribution_filename(stem: &OsStr, suffix: &str) -> OsString {
 
 /// Run the compiler interface on `args`, excluding the program name.
 pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
-    let legacy = args.first().is_some_and(|s| s == "--legacy");
-    if legacy {
-        args.remove(0);
-    }
     let mut options = plenty::CompileOptions::default();
     let mut library_name = None;
     let mut archiver = None;
@@ -199,9 +194,6 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         link_options = true;
     }
     let root = if let Some(index) = args.iter().position(|a| a == "--module-root") {
-        if legacy {
-            return Err("--module-root is not supported with --legacy".into());
-        }
         args.remove(index);
         if index == args.len() {
             return Err("--module-root requires a directory".into());
@@ -219,8 +211,8 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     } else {
         None
     };
-    if graph.is_some() && (legacy || root.is_some()) {
-        return Err("--package-graph excludes --module-root and --legacy".into());
+    if graph.is_some() && root.is_some() {
+        return Err("--package-graph excludes --module-root".into());
     }
     if let Some(index) = args.iter().position(|a| a == "--no-cache") {
         args.remove(index);
@@ -308,8 +300,8 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             [flag, ..] => flag == "--compile",
             [] => false,
         };
-        if !executable || legacy {
-            return Err("--test-hooks requires FILE or --compile (without --legacy)".into());
+        if !executable {
+            return Err("--test-hooks requires FILE or --compile".into());
         }
     }
     if options.target.is_some() {
@@ -355,10 +347,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         return Err("linker options require compilation or execution".into());
     }
     if let Some(destination) = dist {
-        if legacy
-            || !matches!(args.as_slice(), [flag, source] if flag == "--compile" && !source.starts_with('-'))
+        if !matches!(args.as_slice(), [flag, source] if flag == "--compile" && !source.starts_with('-'))
         {
-            return Err("--dist requires --compile FILE without -o/--output or --legacy".into());
+            return Err("--dist requires --compile FILE without -o/--output".into());
         }
         if !options.link_args.is_empty() {
             return Err(
@@ -377,7 +368,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             let graph = plenty::project::SourceGraph::read(&graph)?;
             plenty::compile_package_to_executable(source, &graph, &output, &options)?;
         } else {
-            compile(source, &output, false, root.as_deref(), &options)?;
+            compile(source, &output, root.as_deref(), &options)?;
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -386,9 +377,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     }
     match args.as_slice() {
         [flag, source, option, output]
-            if flag == "--runtime-interface"
-                && !legacy
-                && (option == "-o" || option == "--output") =>
+            if flag == "--runtime-interface" && (option == "-o" || option == "--output") =>
         {
             let name =
                 library_name.ok_or("runtime interface generation requires --library-name NAME")?;
@@ -399,21 +388,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 &name,
             )?;
         }
-        [flag, binary, interface] if flag == "--verify-interface" && !legacy && root.is_none() => {
+        [flag, binary, interface] if flag == "--verify-interface" && root.is_none() => {
             plenty::verify_library_interface(Path::new(binary), Path::new(interface))?;
         }
         [flag, source, option, output]
             if flag == "--extract-interface"
-                && !legacy
                 && root.is_none()
                 && (option == "-o" || option == "--output") =>
         {
             let name = library_name.ok_or("interface extraction requires --library-name NAME")?;
             plenty::extract_library_interface(Path::new(source), &name, Path::new(output))?;
         }
-        [flag, source, option, output]
-            if library && !legacy && (option == "-o" || option == "--output") =>
-        {
+        [flag, source, option, output] if library && (option == "-o" || option == "--output") => {
             let name = library_name.ok_or("library output requires --library-name NAME")?;
             let kind = if flag == "--static-library" {
                 plenty::LibraryKind::Static
@@ -433,10 +419,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             )?;
         }
         [flag]
-            if matches!(flag.as_str(), "-V" | "--version")
-                && !legacy
-                && root.is_none()
-                && !link_options =>
+            if matches!(flag.as_str(), "-V" | "--version") && root.is_none() && !link_options =>
         {
             println!(
                 "{program} {} ({})",
@@ -444,18 +427,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 plenty::native_target()
             );
         }
-        [flag] if flag == "--print-target" && !legacy && root.is_none() && !link_options => {
+        [flag] if flag == "--print-target" && root.is_none() && !link_options => {
             println!(
                 "{} (CPU baseline: {})",
                 plenty::native_target(),
                 plenty::native_cpu_baseline()
             );
         }
-        [flag, directory] if flag == "--emit-runtime" && !legacy && root.is_none() => {
+        [flag, directory] if flag == "--emit-runtime" && root.is_none() => {
             plenty::emit_runtime(Path::new(directory))?;
         }
         [flag, source, option, output]
-            if flag == "--emit-object" && !legacy && (option == "-o" || option == "--output") =>
+            if flag == "--emit-object" && (option == "-o" || option == "--output") =>
         {
             plenty::compile_file_to_object_with_options(
                 Path::new(source),
@@ -465,19 +448,19 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             )?;
         }
         [flag, stages, source, option, output]
-            if flag == "--dump" && !legacy && (option == "-o" || option == "--output") =>
+            if flag == "--dump" && (option == "-o" || option == "--output") =>
         {
             dump.stages = plenty::DumpStage::parse_list(stages)?;
             let result = plenty::dump_file(Path::new(source), root.as_deref(), &options, &dump)?;
             write_dump(&result, output)?;
         }
-        [] if !legacy => {
+        [] => {
             print!("{}", usage(program));
         }
         [flag] if flag == "--help" || flag == "-h" => {
             print!("{}", usage(program));
         }
-        [flag, source] if (flag == "--check" || flag == "--check-module") && !legacy => {
+        [flag, source] if (flag == "--check" || flag == "--check-module") => {
             plenty::check_file_with_options(
                 Path::new(source),
                 root.as_deref(),
@@ -486,7 +469,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             )?;
         }
         [flag, source, option, output]
-            if flag == "--fuzz" && !legacy && (option == "-o" || option == "--output") =>
+            if flag == "--fuzz" && (option == "-o" || option == "--output") =>
         {
             let mut options = options;
             options.fuzz = Some(match libfuzzer {
@@ -496,7 +479,6 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             compile(
                 Path::new(source),
                 Path::new(output),
-                legacy,
                 root.as_deref(),
                 &options,
             )?;
@@ -507,7 +489,6 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             compile(
                 Path::new(source),
                 Path::new(output),
-                legacy,
                 root.as_deref(),
                 &options,
             )?;
@@ -520,10 +501,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             compile(
                 Path::new(source),
                 &executable,
-                legacy,
                 root.as_deref(),
                 &plenty::CompileOptions {
-                    executable_cache: !legacy,
+                    executable_cache: true,
                     temporary_output: true,
                     ..options.clone()
                 },
@@ -594,24 +574,10 @@ fn with_graph(
 fn compile(
     source: &Path,
     output: &Path,
-    legacy: bool,
     root: Option<&Path>,
     options: &plenty::CompileOptions,
 ) -> Result<(), Box<dyn Error>> {
-    if legacy {
-        plenty::compile_legacy_source_to_executable_with_options(
-            &read_source(source)?,
-            output,
-            options,
-        )
-    } else {
-        plenty::compile_file_to_executable_with_options(source, output, root, options)
-    }
-}
-
-fn read_source(path: &Path) -> Result<String, Box<dyn Error>> {
-    std::fs::read_to_string(path)
-        .map_err(|error| format!("reading {}: {error}", path.display()).into())
+    plenty::compile_file_to_executable_with_options(source, output, root, options)
 }
 
 #[cfg(test)]

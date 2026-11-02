@@ -223,9 +223,7 @@ fn pure(
             | Op::Gt
             | Op::Le
             | Op::Ge
-            | Op::Not
-            | Op::And
-            | Op::Or => op.clone(),
+            | Op::Not => op.clone(),
             _ => return None,
         });
     }

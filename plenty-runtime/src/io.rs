@@ -119,7 +119,8 @@ pub(crate) unsafe fn report_write(text: *const Text, offset: i64) -> u128 {
     io_result(result.map(|written| written as u128))
 }
 
-pub(crate) fn output(bytes: &[u8]) {
+#[cfg(feature = "allocation-checks")]
+fn output(bytes: &[u8]) {
     if std::io::stdout().lock().write_all(bytes).is_err() {
         crate::fail("cannot write stdout");
     }
@@ -128,16 +129,14 @@ pub(crate) fn flush() {
     let _ = std::io::stdout().lock().flush();
 }
 
-pub(crate) unsafe fn repr(text: *const Text, legacy: bool, out: &mut crate::render_buffer::Buffer) {
+pub(crate) unsafe fn repr(text: *const Text, out: &mut crate::render_buffer::Buffer) {
     // SAFETY: the caller borrows a live, validated string throughout rendering.
-    repr_text(unsafe { strings::utf8(&text) }, legacy, out);
+    repr_text(unsafe { strings::utf8(&text) }, out);
 }
 
 /// The quoted spelling of `text`, which `str.repr` writes.
-pub(crate) fn repr_text(text: &str, legacy: bool, out: &mut crate::render_buffer::Buffer) {
+pub(crate) fn repr_text(text: &str, out: &mut crate::render_buffer::Buffer) {
     out.push(b'"');
-    // Iterate scalars, not bytes, so the legacy escape names the code point
-    // (`é` is `\u{e9}`), matching `!a` in format strings.
     for c in text.chars() {
         if out.failed() {
             return;
@@ -149,7 +148,7 @@ pub(crate) fn repr_text(text: &str, legacy: bool, out: &mut crate::render_buffer
             '\r' => out.extend_from_slice(b"\\r"),
             '\t' => out.extend_from_slice(b"\\t"),
             '\0' => out.extend_from_slice(b"\\0"),
-            c if c < ' ' || (legacy && c > '~') => {
+            c if c < ' ' => {
                 write!(out, "\\u{{{:x}}}", u32::from(c)).unwrap();
             }
             c => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
@@ -157,25 +156,12 @@ pub(crate) fn repr_text(text: &str, legacy: bool, out: &mut crate::render_buffer
     }
     out.push(b'"');
 }
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_print_str(text: *const Text) {
-    let mut out = crate::render_buffer::Buffer::default();
-    unsafe {
-        repr(text, true, &mut out);
-    }
-    output(
-        &out.finish()
-            .unwrap_or_else(|_| crate::fail("format allocation failed")),
-    );
-}
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
-    #[cfg(feature = "allocation-checks")]
-    if unsafe { strings::bytes(&text) } == b"__test_small_live_heap__" {
-        crate::accounting::checkpoint();
-    }
-    #[cfg(feature = "allocation-checks")]
+/// Act on an allocation-test marker string that a test program prints, then
+/// print it.
+#[cfg(feature = "allocation-checks")]
+pub(crate) unsafe fn print_test_marker(text: *const Text) {
     match unsafe { strings::bytes(&text) } {
+        b"__test_small_live_heap__" => crate::accounting::checkpoint(),
         b"__test_begin_no_allocations__" => crate::accounting::begin_no_allocations(),
         b"__test_end_no_allocations__" => crate::accounting::end_no_allocations(),
         b"__test_restore_allocations__" => crate::accounting::fail_after(None),
@@ -197,38 +183,6 @@ pub(crate) unsafe extern "C" fn plenty_println(text: *const Text) {
         output(strings::bytes(&text));
     }
     output(b"\n");
-}
-macro_rules! printer {
-    ($name:ident, $ty:ty, $format:literal) => {
-        #[unsafe(no_mangle)]
-        pub(crate) extern "C" fn $name(value: $ty) {
-            output(format!($format, value).as_bytes());
-        }
-    };
-}
-printer!(plenty_print_i8, i8, "{}i8");
-printer!(plenty_print_i16, i16, "{}i16");
-printer!(plenty_print_i32, i32, "{}i32");
-printer!(plenty_print_i64, i64, "{}i64");
-printer!(plenty_print_u8, u8, "{}u8");
-printer!(plenty_print_u16, u16, "{}u16");
-printer!(plenty_print_u32, u32, "{}u32");
-printer!(plenty_print_u64, u64, "{}u64");
-#[unsafe(no_mangle)]
-pub(crate) extern "C" fn plenty_print_bool(value: i8) {
-    output(if value != 0 { b"true" } else { b"false" });
-}
-#[unsafe(no_mangle)]
-pub(crate) extern "C" fn plenty_print_open_bracket() {
-    output(b"[");
-}
-#[unsafe(no_mangle)]
-pub(crate) extern "C" fn plenty_print_close_bracket() {
-    output(b"]\n");
-}
-#[unsafe(no_mangle)]
-pub(crate) extern "C" fn plenty_print_space() {
-    output(b" ");
 }
 #[unsafe(no_mangle)]
 pub(crate) extern "C" fn plenty_trap_overflow(site: *const crate::Site) -> ! {
