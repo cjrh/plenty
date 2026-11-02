@@ -79,6 +79,12 @@ for _name in ("nano-gemm-core", "nano-gemm-f32", "nano-gemm-f64", "nano-gemm-c32
         "nano-gemm-0.2.2-LICENSE.txt",
         "https://raw.githubusercontent.com/sarah-ek/nano-gemm/d5f1cd77f0af31fb90aa0d128a76e2366c5dabc7/LICENSE",
     )
+# Shipped on macOS through polars-utils' sysinfo dependency.
+for _name in ("objc2-core-foundation", "objc2-io-kit"):
+    FALLBACK_LICENSE_TEXT[(_name, "0.3.2", "Zlib OR Apache-2.0 OR MIT")] = (
+        "objc2-0.3.2-LICENSE.txt",
+        "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    )
 
 # Vendored C code that is not a Cargo package; see build.rs.
 VENDORED = """\
