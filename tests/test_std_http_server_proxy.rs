@@ -462,6 +462,8 @@ fn fetch(args: &[&str]) -> (String, String) {
 /// Receives while uploading: curl can abandon a final response when a send
 /// fails after Caddy closes an unread request body. Only a complete, correctly
 /// framed response permits an upload-side reset; no request is retried.
+/// The body starts without waiting for `100 Continue`, as HTTP permits;
+/// `bodies_and_continue` separately qualifies clients that wait for it.
 fn relayed_upload(port: u16, path: &str, body: Vec<u8>, chunked: bool, expected: (&str, &str)) {
     use std::io::ErrorKind;
     use std::net::Shutdown;
@@ -535,7 +537,13 @@ fn relayed_upload(port: u16, path: &str, body: Vec<u8>, chunked: bool, expected:
     // a read failure. shutdown affects both cloned socket handles.
     let _ = stream.shutdown(Shutdown::Both);
     let uploaded = upload.join().unwrap();
-    let text = String::from_utf8(received).unwrap();
+    let text = String::from_utf8(received).unwrap_or_else(|error| {
+        panic!(
+            "relay {path} chunked={chunked}: response is not UTF-8: {}; bytes={:?}",
+            error.utf8_error(),
+            error.as_bytes()
+        )
+    });
     if uploaded.is_err() || reading.is_err() {
         eprintln!("relay {path} chunked={chunked}: upload={uploaded:?} read={reading:?}");
     }
