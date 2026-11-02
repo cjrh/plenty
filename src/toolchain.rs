@@ -102,6 +102,9 @@ pub struct CompileOptions {
     /// sources changed. Off, a build reuses only compiled functions, so it
     /// still measures the frontend and code generation.
     pub program_cache: bool,
+    /// Reuse the linked executable for a single-file compile-and-run request.
+    /// The CLI enables this; explicit build outputs still link normally.
+    pub executable_cache: bool,
     /// Print the cache's hit and miss counts after compiling.
     pub cache_stats: bool,
     /// Link the std.test failure-injection hooks into an ordinary executable.
@@ -136,6 +139,7 @@ impl Default for CompileOptions {
             optimize: false,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
+            executable_cache: false,
             cache_stats: false,
             test_hooks: false,
             fuzz: None,
@@ -374,7 +378,7 @@ pub(crate) fn link(
         .args(extra_args)
         .args(&options.link_args)
         .args(trailing_args)
-        .args(engines)
+        .args(&engines)
         .args(native_args.split_whitespace());
     // Last before `-o`, so wrapper drivers still see the inputs first.
     if msvc {
@@ -394,6 +398,28 @@ pub(crate) fn link(
             });
         }
         command.arg("-o").arg(output);
+    }
+    let mut executable_cache =
+        crate::cache::Executable::new(options, &command, object, runtime, &engines);
+    if let Some(cache) = &executable_cache {
+        if cache.load(output) {
+            if options.cache_stats {
+                eprintln!("executable cache: hit");
+            }
+            return Ok(());
+        }
+        if options.cache_stats {
+            eprintln!("executable cache: miss");
+        }
+        if cache.supported() {
+            command
+                .arg("-Xlinker")
+                .arg("--dependency-file")
+                .arg("-Xlinker")
+                .arg(cache.dependencies());
+        } else {
+            executable_cache = None;
+        }
     }
     if options.verbose {
         eprintln!("link: {command:?}");
@@ -421,6 +447,9 @@ pub(crate) fn link(
             String::from_utf8_lossy(&result.stderr)
         )
         .into());
+    }
+    if let Some(cache) = executable_cache {
+        cache.store(output);
     }
     if let Some(bundle) = bundle {
         distribution::validate_executable(output)?;

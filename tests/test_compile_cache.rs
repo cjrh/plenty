@@ -558,6 +558,254 @@ fn the_size_limit_trims_old_entries() {
     assert!(!entries(&cache).is_empty());
 }
 
+// ---- Linked executables for single-file runs ----
+
+#[cfg(target_os = "linux")]
+fn host_supports_executable_cache() -> bool {
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let resolve = |name: &str| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .find(|file| {
+                file.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
+    };
+    let Some(driver) = resolve("cc") else {
+        return false;
+    };
+    let resolved = driver.canonicalize().unwrap();
+    let name = resolved.file_name().unwrap().to_string_lossy();
+    let mut magic = [0; 4];
+    if !name.split('-').any(|part| part == "gcc")
+        || std::fs::File::open(driver)
+            .unwrap()
+            .read_exact(&mut magic)
+            .is_err()
+        || magic != *b"\x7fELF"
+    {
+        return false;
+    }
+    ["ld.mold", "ld.lld", "ld"]
+        .iter()
+        .filter_map(|name| resolve(name))
+        .any(|linker| {
+            Command::new(linker)
+                .arg("--help")
+                .output()
+                .is_ok_and(|output| {
+                    output.status.success()
+                        && String::from_utf8_lossy(&output.stdout).contains("--dependency-file")
+                })
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn run_script(root: &Path, cache: &Path, flags: &[&str]) -> Output {
+    plenty()
+        .env_remove("COMPILER_PATH") // Cargo's test-only mold override bypasses executable caching.
+        .current_dir(root)
+        .args(["--cache-stats", "--verbose"])
+        .args(flags)
+        .arg(root.join("hello.plenty"))
+        .env("PLENTY_CACHE_DIR", cache)
+        .output()
+        .unwrap()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn single_file_runs_reuse_executables_and_invalidate_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("script with spaces");
+    std::fs::create_dir(&root).unwrap();
+    let cache = dir.path().join("cache");
+    std::fs::write(root.join("hello.plenty"), "#!/usr/bin/env plenty\nfrom helper import value\ndef main() -> Result[(), IoError]:\n    print(value())?\n    Ok(())\n").unwrap();
+    let helper = root.join("helper.plenty");
+    std::fs::write(&helper, "pub def value() -> i64:\n    7\n").unwrap();
+    let cold = run_script(&root, &cache, &[]);
+    assert!(
+        cold.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cold.stderr)
+    );
+    assert_eq!(cold.stdout, b"7\n");
+    if !host_supports_executable_cache() {
+        eprintln!("executable reuse is not supported by this host's default toolchain");
+        return;
+    }
+    let warm = run_script(&root, &cache, &[]);
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&warm.stderr);
+    assert!(stderr.contains("executable cache: hit"), "{stderr}");
+    assert!(!stderr.contains("link: "), "{stderr}");
+    assert_eq!(warm.stdout, b"7\n");
+
+    std::fs::write(&helper, "pub def value() -> i64:\n    9\n").unwrap();
+    let edited = run_script(&root, &cache, &[]);
+    assert!(edited.status.success());
+    assert_eq!(edited.stdout, b"9\n");
+    assert!(String::from_utf8_lossy(&edited.stderr).contains("executable cache: miss"));
+    let warm = run_script(&root, &cache, &[]);
+    assert!(String::from_utf8_lossy(&warm.stderr).contains("executable cache: hit"));
+
+    for flag in [
+        "--no-cache",
+        "--no-program-cache",
+        "--test-hooks",
+        "--release",
+    ] {
+        let output = run_script(&root, &cache, &[flag]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"9\n");
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("executable cache: hit"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("link: "));
+    }
+    let release = run_script(&root, &cache, &["--release"]);
+    assert!(String::from_utf8_lossy(&release.stderr).contains("executable cache: hit"));
+    let custom = run_script(&root, &cache, &["--linker", "cc"]);
+    assert!(custom.status.success());
+    assert!(!String::from_utf8_lossy(&custom.stderr).contains("executable cache: hit"));
+    assert!(String::from_utf8_lossy(&custom.stderr).contains("link: "));
+    // A cached success must not hide a later diagnostic.
+    std::fs::write(&helper, "pub def value() -> i64:\n    unknown\n").unwrap();
+    let error = run_script(&root, &cache, &[]);
+    assert!(!error.status.success());
+    assert!(error.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&error.stderr).contains("executable cache: hit"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn executable_cache_damage_concurrency_cleanup_and_exit_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let cache = root.join("cache");
+    std::fs::write(root.join("hello.plenty"), "def main() -> i32:\n    23i32\n").unwrap();
+    let cold = run_script(root, &cache, &[]);
+    assert_eq!(cold.status.code(), Some(23));
+    if !host_supports_executable_cache() {
+        eprintln!("executable reuse is not supported by this host's default toolchain");
+        return;
+    }
+    let warm = run_script(root, &cache, &[]);
+    assert_eq!(warm.status.code(), Some(23));
+    assert!(String::from_utf8_lossy(&warm.stderr).contains("executable cache: hit"));
+    let entries: Vec<_> = std::fs::read_dir(cache.join("executable"))
+        .unwrap()
+        .flatten()
+        .flat_map(|dir| {
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .map(|file| file.path())
+        })
+        .collect();
+    assert_eq!(entries.len(), 1);
+    std::fs::write(&entries[0], b"damaged").unwrap();
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..4)
+            .map(|_| scope.spawn(|| run_script(root, &cache, &[])))
+            .collect();
+        for worker in workers {
+            assert_eq!(worker.join().unwrap().status.code(), Some(23));
+        }
+    });
+    let repaired = run_script(root, &cache, &[]);
+    assert!(String::from_utf8_lossy(&repaired.stderr).contains("executable cache: hit"));
+    let cleaned = plenty()
+        .args(["cache", "clean"])
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(cleaned.status.success());
+    assert!(entries.iter().all(|path| !path.exists()));
+    let rebuilt = run_script(root, &cache, &[]);
+    assert_eq!(rebuilt.status.code(), Some(23));
+    assert!(String::from_utf8_lossy(&rebuilt.stderr).contains("executable cache: miss"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn executable_shebang_uses_the_cache_and_runs_again_each_time() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let cache = root.join("cache");
+    let script = root.join("hello.plenty");
+    std::fs::write(&script, "#!/usr/bin/env plenty\ndef main() -> Result[(), AllocError | IoError]:\n    print(read_text(\"state.txt\")?)?\n    Ok(())\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let compiler = Path::new(env!("CARGO_BIN_EXE_plenty")).parent().unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(compiler.to_path_buf())
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let run = || {
+        let mut command = Command::new(&script);
+        command
+            .current_dir(root)
+            .env("PATH", &path)
+            .env_remove("PLENTY_CACHE")
+            .env_remove("COMPILER_PATH")
+            .env("PLENTY_CACHE_DIR", &cache)
+            .env_remove("PLENTY_CACHE_LIMIT");
+        command.output().unwrap()
+    };
+    std::fs::write(root.join("state.txt"), "first").unwrap();
+    let first = run();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(first.stdout, b"first\n");
+    if !host_supports_executable_cache() {
+        eprintln!(
+            "hashbang works; executable reuse is not supported by this host's default toolchain"
+        );
+        return;
+    }
+    let entry = std::fs::read_dir(cache.join("executable"))
+        .unwrap()
+        .flatten()
+        .flat_map(|shard| {
+            std::fs::read_dir(shard.path())
+                .unwrap()
+                .flatten()
+                .map(|entry| entry.path())
+        })
+        .next()
+        .unwrap();
+    let modified = entry.metadata().unwrap().modified().unwrap();
+    std::fs::write(root.join("state.txt"), "second").unwrap();
+    let second = run();
+    assert!(second.status.success());
+    assert_eq!(second.stdout, b"second\n");
+    assert_eq!(entry.metadata().unwrap().modified().unwrap(), modified);
+    let off = plenty()
+        .current_dir(root)
+        .args(["--cache-stats", "--verbose"])
+        .arg(&script)
+        .env("PLENTY_CACHE", "off")
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(off.status.success());
+    assert!(String::from_utf8_lossy(&off.stderr).contains("link: "));
+    assert!(!String::from_utf8_lossy(&off.stderr).contains("executable cache: hit"));
+}
+
 // ---- The program cache (issue #317) ----
 
 const MAIN: &str = "import util

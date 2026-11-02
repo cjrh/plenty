@@ -34,8 +34,10 @@ use cranelift_codegen::incremental_cache::CacheKvStore;
 use sha2::{Digest, Sha256};
 
 mod compiled;
+mod executable;
 mod program;
 pub(crate) use compiled::MachineCode;
+pub(crate) use executable::Executable;
 pub(crate) use program::{Lookup, ProgramKey, compiler_identity};
 
 /// Where the compiled-function cache lives, if anywhere.
@@ -78,6 +80,7 @@ const SCHEMA: &str = "1";
 const ENTRIES: &str = "fn";
 /// Program objects live here; see [`program`].
 const PROGRAMS: &str = "program";
+const EXECUTABLES: &str = "executable";
 /// Bytes kept by default when trimming: `PLENTY_CACHE_LIMIT` overrides.
 const DEFAULT_LIMIT: u64 = 1 << 30;
 /// Trimming walks the whole directory, so a process that wrote entries runs
@@ -426,7 +429,7 @@ struct Entry {
 
 fn entries(dir: &Path) -> Vec<Entry> {
     let mut found = Vec::new();
-    let shards = [ENTRIES, PROGRAMS]
+    let shards = [ENTRIES, PROGRAMS, EXECUTABLES]
         .into_iter()
         .filter_map(|kind| fs::read_dir(dir.join(kind)).ok())
         .flatten();
@@ -516,7 +519,10 @@ pub fn clean(mode: &CacheMode) -> io::Result<Option<(u64, u64)>> {
     let Some(directory) = mode.directory() else {
         return Ok(None);
     };
-    if !directory.join(ENTRIES).exists() && !directory.join(PROGRAMS).exists() {
+    if ![ENTRIES, PROGRAMS, EXECUTABLES]
+        .iter()
+        .any(|kind| directory.join(kind).exists())
+    {
         return Ok(Some((0, 0)));
     }
     trim(&directory, 0).map(Some)

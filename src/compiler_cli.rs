@@ -25,7 +25,7 @@ Usage: {0} FILE
        {0} -V | --version
        {0} -h | --help
 
-FILE: compile to a temporary executable and run it.
+FILE: reuse a cached executable or compile/link, then run it privately.
 Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --module-root DIR: resolve absolute imports here (default: FILE's directory).
 --package-graph GRAPH: resolve imports through a package graph file, as
@@ -70,9 +70,9 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   compilation).
 --test-hooks: enable std.test failure injection for FILE or --compile.
   Intended for testing ordinary programs; omitted builds contain no hooks.
---no-cache: compile every function instead of reusing the compiled-function
-  cache (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
---no-program-cache: reuse compiled functions but not a whole program's object.
+--no-cache: compile/link without cached functions, objects or executables
+  (also PLENTY_CACHE=off; PLENTY_CACHE_DIR selects the directory).
+--no-program-cache: reuse compiled functions but not program objects/executables.
 --cache-stats: report the cache's hits and misses after compiling.
 --legacy before FILE or --compile selects the historical stack syntax.
 ";
@@ -516,7 +516,10 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 &executable,
                 legacy,
                 root.as_deref(),
-                &options,
+                &plenty::CompileOptions {
+                    executable_cache: !legacy,
+                    ..options.clone()
+                },
             )?;
             // Inherit stdin, stdout, stderr, environment, and working directory.
             // Keep the temporary directory alive until the child has exited.
@@ -557,7 +560,15 @@ fn with_graph(
             let executable = workspace
                 .path()
                 .join(format!("program{}", std::env::consts::EXE_SUFFIX));
-            plenty::compile_package_to_executable(Path::new(source), &graph, &executable, options)?;
+            plenty::compile_package_to_executable(
+                Path::new(source),
+                &graph,
+                &executable,
+                &plenty::CompileOptions {
+                    executable_cache: true,
+                    ..options.clone()
+                },
+            )?;
             let status = Command::new(&executable).status()?;
             return Ok(exit_code(status));
         }

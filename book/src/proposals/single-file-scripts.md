@@ -161,7 +161,10 @@ remain live trees. Durable locks must not be removed by cache cleanup.
 
 Executable reuse validates script/import contents, dependency graph,
 compiler/runtime identity, target, profile and linker inputs. Object/function
-caches help but do not themselves remove repeated linking. Concurrent launches
+caches help but do not themselves remove repeated linking. Plain
+`plenty FILE` already has [executable reuse](../design/toolchain/02-architecture/cache.md#single-file-executables)
+on supported Linux toolchains; embedded-dependency scripts must extend that
+contract. Concurrent launches
 need per-entry locking and atomic publication: never execute partial or failed
 builds, or replace a running executable in place. Include script outputs in
 cache inspection and cleanup.

@@ -5,7 +5,7 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 
 | Command | Behavior |
 |---|---|
-| `plenty FILE` | Compile in a private temporary directory, run, then remove it |
+| `plenty FILE` | Reuse a cached executable or compile/link, run privately, then remove the temporary directory |
 | `plenty --check FILE` | Check an application without emitting or executing code |
 | `plenty --check-module FILE` | Check a module and imports without requiring `main` |
 | `plenty --compile FILE -o OUT` | Produce a native executable (dynamic dependencies remain) |
@@ -45,7 +45,7 @@ debug sections; `--no-strip` keeps them.
 Compiled functions are reused from the
 [compile cache](../02-architecture/cache.md), and so is a whole program's
 object when none of its sources changed. `--no-cache` compiles without it,
-`--no-program-cache` reuses functions but not programs, `--cache-stats`
+`--no-program-cache` reuses functions but not programs or executables, `--cache-stats`
 reports its hits and misses after compiling, and `plenty cache stats` and
 `plenty cache clean` inspect and empty it.
 
@@ -58,8 +58,12 @@ contracts follow the [C interface rules](../../facilities/04-interop/index.md).
 Compile-and-run inherits standard streams, environment, and working directory.
 It propagates the child's exit code; Unix signal termination becomes 128 plus
 the signal number. Temporary objects and runtime files are removed on success
-and failure. Compile-and-run startup time includes compilation and linking.
+and failure. On supported Linux toolchains, single-file runs also reuse a
+[cached executable](../02-architecture/cache.md#single-file-executables) by
+default, avoiding linking when its inputs match. Other runs link normally.
+Unix scripts can use `#!/usr/bin/env plenty` as their first line and be made
+executable with `chmod +x FILE`; hashbang launches use the same caches.
 
 The proposed [`plenty script` workflow](../../../proposals/single-file-scripts.md)
-would add embedded manifests, script arguments and reusable executables. It is
-not implemented; the commands above describe current behavior.
+would add embedded manifests, isolated dependencies and script arguments.
+Those extensions are not implemented; the commands above describe current behavior.

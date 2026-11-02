@@ -23,6 +23,20 @@ plenty hello.plenty
 A run compiles your file to a native executable and then runs it. If your shell
 cannot find `plenty`, follow [Setting up](../00-setting-up.md) first.
 
+Plenty caches compiled code automatically. On supported Linux toolchains,
+unchanged runs also reuse the linked executable, so they do not link again.
+See the [compile cache](../../design/toolchain/02-architecture/cache.md#single-file-executables)
+for invalidation and toolchain limits. The program still runs each time.
+
+On Unix, you can put `#!/usr/bin/env plenty` before the first line, then run:
+
+```sh
+chmod +x hello.plenty
+./hello.plenty
+```
+
+This uses the same automatic caches as `plenty hello.plenty`.
+
 Execution begins at `main`. Indentation groups its statements; use four spaces.
 `print` prints one value followed by a newline. Put executable statements inside
 functions.

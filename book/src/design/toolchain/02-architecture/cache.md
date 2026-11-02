@@ -12,7 +12,8 @@ Reusing functions still runs the frontend and builds every function's IR:
 with every function cached, these were 45% of a warm build of a large program
 (issue #304). The cache therefore also keeps each program's
 [object](#program-objects), which a build whose sources have not changed uses
-without running the frontend or code generation.
+without running the frontend or code generation. Single-file runs also keep
+[linked executables](#single-file-executables), avoiding repeated linking.
 
 ## What is cached
 
@@ -131,8 +132,8 @@ The frontend and code generation are a function of these inputs: no phase
 reads the environment, the clock, or any file other than the modules it
 loads, and the object is the same for any number of cores. A program hit
 therefore writes the bytes a build would. Only a successful build stores an
-entry, so a program hit never hides a diagnostic. Linking still runs on a
-hit.
+entry, so a program hit never hides a diagnostic. Linking still runs on an object hit unless a single-file run also hits the
+[executable cache](#single-file-executables).
 
 Every edit to a module the program reads misses, including a change to a
 function body that no other module's code depends on: the frontend checks a
@@ -146,24 +147,65 @@ generation. With `--cache-stats`, the line begins `program hit` or
 `program miss` when the build consulted the program cache; a hit reports no
 function hits or misses.
 
+## Single-file executables
+
+`plenty FILE` and `plentyc FILE`, including Unix hashbang launches such as
+`#!/usr/bin/env plenty`, cache their linked executable by default. No extra
+flag is needed. The first successful link stores an entry; an unchanged run
+can reuse it immediately. The object/function caches still run before this
+lookup, so this avoids linking, not the object cache's initial warm-up.
+
+The executable key covers the object bytes, compiler/runtime identity, working
+directory, complete environment, effective link arguments, and the selected
+C driver and linker's identities. The linker writes a dependency file naming
+its native inputs, including startup objects, libraries and linker scripts.
+Entries record those inputs' resolved paths, sizes, timestamps and file
+identities, plus library/tool search directories (including absent ones),
+GCC specs and `collect2`. Replacing a native input or adding a library to a
+watched search directory invalidates the entry. This uses filesystem metadata,
+not content hashing of system libraries; it is not a defense against deliberate
+filesystem tampering. Environment changes conservatively miss even when they
+would only affect the running program.
+
+A hit verifies the checksummed entry, validates native inputs, and writes a
+private executable with owner-only execute permissions in the run's temporary
+directory. It does not execute the shared cache file: concurrent replacement,
+eviction, or a cache filesystem mounted `noexec` cannot disrupt a running
+program. Publication uses the cache's temporary-file/rename protocol. Failed
+links never publish an entry; missing, damaged or unwritable entries fall back
+to linking. The program always runs again; output and runtime data are not
+cached. Streams, working directory, environment and exit status are unchanged.
+
+Executable reuse currently supports Linux's default GCC-based `cc` driver
+(a native ELF binary whose resolved name identifies GCC) with mold, lld or
+GNU ld when the selected linker supports `--dependency-file`. Clang and wrapper
+drivers bypass reuse because their implicit configuration inputs are not tracked.
+Explicit drivers/link arguments, non-Linux hosts, legacy syntax, test-hook and
+fuzz builds, and redirected/injected toolchains (`COMPILER_PATH`,
+`GCC_EXEC_PREFIX`, `LIBRARY_PATH`, `LD_PRELOAD`, `LD_AUDIT`) retain ordinary
+linking. Explicit `--compile` outputs and project `plenty run` do not use this
+layer. `--no-cache`, `PLENTY_CACHE=off` and `--no-program-cache` disable it.
+`--cache-stats` adds an `executable cache: hit` or `miss` line when consulted;
+`--verbose` prints a link command only when linking actually runs.
+
 ## Location and controls
 
 | Setting | Effect |
 |---|---|
 | `PLENTY_CACHE_DIR=DIR` | Use `DIR`. The default is `$XDG_CACHE_HOME/plenty`, else `~/.cache/plenty` |
 | `PLENTY_CACHE=off`, `--no-cache` | Compile without the cache; the flag applies to one compiler command |
-| `--no-program-cache` | Reuse compiled functions, but not [program objects](#program-objects) |
+| `--no-program-cache` | Reuse compiled functions, but not [program objects](#program-objects) or executables |
 | `PLENTY_CACHE_LIMIT=SIZE` | Keep at most `SIZE` bytes (`512M`, `2G`, or a byte count); the default is 1 GiB |
 | `--cache-stats` | Print whether the program hit, function hits and misses, bytes read and written, and an estimate of the time saved |
-| `plenty cache stats` | Print the directory, its entry count (functions and programs) and size, and the limit |
+| `plenty cache stats` | Print the directory, its entry count (functions, programs and executables) and size, and the limit |
 | `plenty cache clean` | Remove every entry |
 
 The same directory also holds the automatic linker probe's results under
 `DIR/linker-probe/` ([Native linking](../01-building/linking.md)); they are not
 cache entries, and `plenty cache clean` leaves them.
 
-Function entries live under `DIR/fn/` and program entries under
-`DIR/program/`, sharded by the first byte of the hash. Each is written to a
+Function entries live under `DIR/fn/`, program entries under
+`DIR/program/`, and executable entries under `DIR/executable/`, sharded by the first byte of the hash. Each is written to a
 temporary name in its shard and renamed, so compilers running at once in
 several processes and threads share one directory without a lock and never
 read a partial entry. Two of them missing the same function write the same
@@ -172,7 +214,7 @@ later rename wins.
 
 A compile that wrote entries trims the directory to the limit when no sweep
 ran in the last hour (`DIR/sweep` records the last one), removing the least
-recently used entries of either kind first, by the later of each file's
+recently used entries of any kind first, by the later of each file's
 access and modification time. Linux updates access times lazily, so recency
 is coarse, and no hit writes anything. A program entry with an object is
 about the size of that object (1.7 MB for a program that imports

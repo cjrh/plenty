@@ -54,7 +54,7 @@ every dependency without compiling. update: move Git dependencies (all, or the
 named packages) to the commits their tags and revisions name now. graph: print
 the package graph file that plentyc --package-graph reads.
 In a workspace root these commands act on every member.
-cache: report or empty the compiled-function cache (PLENTY_CACHE_DIR,
+cache: report or empty the compile/executable cache (PLENTY_CACHE_DIR,
 default ~/.cache/plenty; PLENTY_CACHE=off disables it).
 lsp: serve the Language Server Protocol on stdin and stdout for an editor:
 diagnostics, hover, go to definition, and completion.
