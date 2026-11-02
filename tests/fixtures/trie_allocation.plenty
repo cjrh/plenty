@@ -1,0 +1,93 @@
+# Run with the integration harness's allocation-checking runtime.
+import trie
+
+enum TestError:
+    ChangedOnFailure
+    Invalid
+    MissingFailureOrSuccess
+    Query
+    NoAllocation
+
+def main() -> Result[(), AllocError | IoError | TestError]:
+    long = ("car" + "猫".repeat(100)?)?
+    mut failed = False
+    mut succeeded = False
+    for budget in range(32):
+        mut tree = trie.create()?
+        for key in ["", "car", "cat", "dog"]?:
+            drop(trie.insert(&mut tree, key)?)
+        before = trie.ordered(&tree)?
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        result = trie.insert(&mut tree, long)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(added):
+                if not added or not trie.has(&tree, long) or trie.length(&tree) != 5:
+                    return Err(TestError.ChangedOnFailure)
+                succeeded = True
+            case Err(_):
+                after = trie.ordered(&tree)?
+                if after != before or trie.has_prefix(&tree, "car猫"):
+                    return Err(TestError.ChangedOnFailure)
+                failed = True
+        if not trie.valid(&tree)?:
+            return Err(TestError.Invalid)
+        drop(trie.insert(&mut tree, long)?)
+        if not trie.has(&tree, long) or not trie.valid(&tree)?:
+            return Err(TestError.Invalid)
+    if not failed or not succeeded:
+        return Err(TestError.MissingFailureOrSuccess)
+    print("insertion allocation-failure sweep and retry passed")?
+
+    mut tree = trie.create()?
+    for key in ["car", "cart", "cat", "dog"]?:
+        drop(trie.insert(&mut tree, key)?)
+    before = trie.ordered(&tree)?
+    failed = False
+    succeeded = False
+    for budget in range(16):
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        result = trie.with_prefix(&tree, "ca")
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(words):
+                if words != ["car", "cart", "cat"]?:
+                    return Err(TestError.Query)
+                succeeded = True
+            case Err(_):
+                failed = True
+        after = trie.ordered(&tree)?
+        if after != before or not trie.valid(&tree)?:
+            return Err(TestError.ChangedOnFailure)
+    if not failed or not succeeded:
+        return Err(TestError.MissingFailureOrSuccess)
+    print("prefix-result allocation-failure sweep passed")?
+
+    # All mutations below can use existing slots, including terminal-only insert.
+    mut correct = True
+    print("__test_begin_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    correct = trie.insert(&mut tree, "ca")? and correct
+    correct = trie.insert(&mut tree, "")? and correct
+    correct = not trie.insert(&mut tree, "car")? and correct
+    correct = trie.has(&tree, "cart") and correct
+    correct = trie.has_prefix(&tree, "ca") and correct
+    retained = trie.longest_prefix(&tree, "cartwheel")
+    correct = trie.remove(&mut tree, "car") and correct
+    correct = not trie.remove(&mut tree, "missing") and correct
+    correct = trie.remove(&mut tree, "cart") and correct
+    correct = trie.remove(&mut tree, "cat") and correct
+    correct = trie.remove(&mut tree, "ca") and correct
+    correct = trie.remove(&mut tree, "dog") and correct
+    correct = trie.remove(&mut tree, "") and correct
+    # Reuse the pruned slots, including a different edge label.
+    correct = trie.insert(&mut tree, "猫咪")? and correct
+    correct = trie.insert(&mut tree, "dog")? and correct
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    if not correct or retained != Some("cart") or trie.length(&tree) != 2 or not trie.valid(&tree)?:
+        return Err(TestError.NoAllocation)
+    print("allocation-free lookup, pruning and reuse passed")?
+    Ok(())

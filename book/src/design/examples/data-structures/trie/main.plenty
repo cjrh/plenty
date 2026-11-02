@@ -1,0 +1,20 @@
+import trie
+
+def main() -> Result[(), AllocError | IoError]:
+    mut words = trie.create()?
+    for key in ["", "car", "cart", "cat", "dog", "café", "cafe\u{301}", "猫", "猫咪"]?:
+        drop(trie.insert(&mut words, key)?)
+    print(trie.ordered(&words)?)?
+    print(trie.has(&words, "car"), trie.has(&words, "ca"))?
+    print(trie.has_prefix(&words, "ca"), trie.has_prefix(&words, "z"))?
+    print(trie.with_prefix(&words, "car")?)?
+    print(trie.with_prefix(&words, "猫")?)?
+    print(trie.longest_prefix(&words, "cartwheel"))?
+    print(trie.longest_prefix(&words, "unknown"))?
+    print(trie.insert(&mut words, "car")?)?
+    print(trie.remove(&mut words, "car"), trie.has(&words, "cart"))?
+    print(trie.with_prefix(&words, "car")?)?
+    print(trie.remove(&mut words, ""))?
+    print(trie.longest_prefix(&words, "unknown"))?
+    print(trie.valid(&words)?)?
+    Ok(())

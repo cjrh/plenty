@@ -17,6 +17,10 @@ fn workspace() -> tempfile::TempDir {
             include_str!("../examples/arena/arena.plenty"),
         ),
         (
+            "trie.plenty",
+            include_str!("../book/src/design/examples/data-structures/trie/trie.plenty"),
+        ),
+        (
             "btree.plenty",
             include_str!("../book/src/design/examples/data-structures/balanced-trees/btree.plenty"),
         ),
@@ -58,6 +62,57 @@ fn runs(source: &str, expected: &str) {
         std::process::Command::new(executable).output().unwrap(),
         expected,
     );
+}
+
+#[test]
+fn trie_demo_runs() {
+    runs(
+        include_str!("../book/src/design/examples/data-structures/trie/main.plenty"),
+        "[\"\", \"cafe\u{301}\", \"café\", \"car\", \"cart\", \"cat\", \"dog\", \"猫\", \"猫咪\"]\nTrue False\nTrue False\n[\"car\", \"cart\"]\n[\"猫\", \"猫咪\"]\nOption[str].Some(\"cart\")\nOption[str].Some(\"\")\nFalse\nTrue True\n[\"cart\"]\nTrue\nOption[str].Nothing\nTrue",
+    );
+}
+
+#[test]
+fn trie_matches_sorted_model_through_unicode_insert_delete_prefix_and_reuse() {
+    runs(
+        include_str!("../book/src/design/examples/data-structures/trie/checks.plenty"),
+        "14400 permutation pairs passed\n8000 Unicode mixed operations and prefix queries passed\n10000-scalar key and retained results passed",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn trie_allocation_failures_preserve_keys_and_pruning_allocates_nothing() {
+    runs(
+        include_str!("fixtures/trie_allocation.plenty"),
+        "insertion allocation-failure sweep and retry passed\nprefix-result allocation-failure sweep passed\nallocation-free lookup, pruning and reuse passed",
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn trie_long_keys_use_a_small_native_stack() {
+    let (_dir, executable) = compile(
+        r#"
+import trie
+def main() -> Result[(), AllocError | IoError]:
+    key = "猫".repeat(100000)?
+    mut tree = trie.create()?
+    drop(trie.insert(&mut tree, key)?)
+    print(len(trie.ordered(&tree)?[0]))?
+    print(trie.valid(&tree)?)?
+    print(trie.remove(&mut tree, key))?
+    print(trie.length(&tree))?
+    print(trie.valid(&tree)?)?
+    Ok(())
+"#,
+    );
+    let output = std::process::Command::new("sh")
+        .args(["-c", "ulimit -s 256; exec \"$1\"", "trie-stack-test"])
+        .arg(executable)
+        .output()
+        .unwrap();
+    assert_output(output, "100000\nTrue\nTrue\n0\nTrue");
 }
 
 #[test]

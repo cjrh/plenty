@@ -1,0 +1,237 @@
+# A Unicode-scalar trie storing distinct strings. Original Plenty example.
+# Ordered sibling links favor a small implementation over constant-time edges.
+class Node:
+    label: str
+    parent: i64
+    child: i64
+    sibling: i64
+    word: Option[str]
+    live: bool
+    next_free: i64
+
+pub class Trie:
+    nodes: list[Node]
+    size: i64
+    free: i64
+    available: i64
+
+pub def create() -> Result[Trie, AllocError]:
+    # Slot zero is a permanent root; its terminal flag represents the empty key.
+    Ok(Trie([Node("", -1, -1, -1, Nothing, True, -1)]?, 0, -1, 0))
+
+pub def length(tree: &Trie) -> i64:
+    tree.size
+
+def child(tree: &Trie, parent: i64, scalar: &str) -> i64:
+    mut id = tree.nodes[parent].child
+    while id != -1:
+        if tree.nodes[id].label == scalar:
+            return id
+        if tree.nodes[id].label > scalar:
+            return -1
+        id = tree.nodes[id].sibling
+    -1
+
+def locate(tree: &Trie, text: &str) -> i64:
+    mut id = 0
+    for scalar in text:
+        id = child(&tree, id, scalar)
+        if id == -1:
+            return -1
+    id
+
+pub def has(tree: &Trie, key: &str) -> bool:
+    id = locate(&tree, key)
+    id != -1 and tree.nodes[id].word.is_some()
+
+pub def has_prefix(tree: &Trie, prefix: &str) -> bool:
+    tree.size > 0 and locate(&tree, prefix) != -1
+
+# Partial preparation failure may retain spare slots but cannot change keys or
+# reachable links. Only this helper allocates during insertion.
+def prepare(tree: &mut Trie, wanted: i64) -> Result[(), AllocError]:
+    while tree.available < wanted:
+        id = len(tree.nodes)
+        tree.nodes.append(Node("", -1, -1, -1, Nothing, False, tree.free))?
+        tree.free = id
+        tree.available += 1
+    Ok(())
+
+def take(tree: &mut Trie, parent: i64, label: str) -> i64:
+    id = tree.free
+    tree.free = tree.nodes[id].next_free
+    tree.available -= 1
+    tree.nodes[id] = Node(label, parent, -1, -1, Nothing, True, -1)
+    id
+
+def release(tree: &mut Trie, id: i64) -> ():
+    tree.nodes[id] = Node("", -1, -1, -1, Nothing, False, tree.free)
+    tree.free = id
+    tree.available += 1
+
+pub def insert(tree: &mut Trie, key: &str) -> Result[bool, AllocError]:
+    mut id = 0
+    mut missing = 0
+    # Stream scalars instead of repeatedly scanning UTF-8 with key[index].
+    for scalar in key:
+        if missing > 0:
+            missing += 1
+        else:
+            next = child(&tree, id, scalar)
+            if next == -1:
+                missing = 1
+            else:
+                id = next
+    if missing == 0 and tree.nodes[id].word.is_some():
+        return Ok(False)
+    prepare(&mut tree, missing)?
+    id = 0
+    for scalar in key:
+        mut previous = -1
+        mut next = tree.nodes[id].child
+        while next != -1 and tree.nodes[next].label < scalar:
+            previous = next
+            next = tree.nodes[next].sibling
+        if next == -1 or tree.nodes[next].label != scalar:
+            added = take(&mut tree, id, *scalar)
+            tree.nodes[added].sibling = next
+            if previous == -1:
+                tree.nodes[id].child = added
+            else:
+                tree.nodes[previous].sibling = added
+            next = added
+        id = next
+    # str copies share immutable storage; this does not allocate a fresh string.
+    tree.nodes[id].word = Some(*key)
+    tree.size += 1
+    Ok(True)
+
+pub def remove(tree: &mut Trie, key: &str) -> bool:
+    mut id = locate(&tree, key)
+    if id == -1 or tree.nodes[id].word.is_none():
+        return False
+    tree.nodes[id].word = Nothing
+    tree.size -= 1
+    # Prune nonterminal leaves upward, stopping at the root or a shared prefix.
+    while id != 0 and tree.nodes[id].child == -1 and tree.nodes[id].word.is_none():
+        parent = tree.nodes[id].parent
+        sibling = tree.nodes[id].sibling
+        if tree.nodes[parent].child == id:
+            tree.nodes[parent].child = sibling
+        else:
+            mut previous = tree.nodes[parent].child
+            while tree.nodes[previous].sibling != id:
+                previous = tree.nodes[previous].sibling
+            tree.nodes[previous].sibling = sibling
+        release(&mut tree, id)
+        id = parent
+    True
+
+# The longest stored key that prefixes text, not the common prefix of all keys.
+# Returning an immutable string handle allocates nothing and outlives removal.
+pub def longest_prefix(tree: &Trie, text: &str) -> Option[str]:
+    mut best = tree.nodes[0].word
+    mut id = 0
+    for scalar in text:
+        id = child(&tree, id, scalar)
+        if id == -1:
+            break
+        if tree.nodes[id].word.is_some():
+            best = tree.nodes[id].word
+    best
+
+pub def with_prefix(tree: &Trie, prefix: &str) -> Result[list[str], AllocError]:
+    mut out: list[str] = []?
+    start = locate(&tree, prefix)
+    if start == -1:
+        return Ok(out)
+    mut id = start
+    # Iterative preorder: parents let us backtrack without a native-stack frame
+    # or a list of borrowed nodes. Do not follow start's own sibling.
+    while True:
+        match tree.nodes[id].word:
+            case Some(word):
+                out.append(word)?
+            case Nothing:
+                pass
+        if tree.nodes[id].child != -1:
+            id = tree.nodes[id].child
+            continue
+        while id != start and tree.nodes[id].sibling == -1:
+            id = tree.nodes[id].parent
+        if id == start:
+            break
+        id = tree.nodes[id].sibling
+    Ok(out)
+
+pub def ordered(tree: &Trie) -> Result[list[str], AllocError]:
+    with_prefix(&tree, "")
+
+pub def valid(tree: &Trie) -> Result[bool, AllocError]:
+    if len(tree.nodes) == 0 or not tree.nodes[0].live:
+        return Ok(False)
+    if tree.nodes[0].label != "" or tree.nodes[0].parent != -1 or tree.nodes[0].sibling != -1:
+        return Ok(False)
+    mut seen = [False for _ in range(len(tree.nodes))]?
+    mut work = [0]?
+    seen[0] = True
+    mut count = 0
+    while len(work) > 0:
+        id = work.pop().unwrap()
+        if tree.nodes[id].next_free != -1:
+            return Ok(False)
+        if tree.nodes[id].word.is_some():
+            count += 1
+        if id != 0 and tree.nodes[id].child == -1 and tree.nodes[id].word.is_none():
+            return Ok(False)
+        mut next = tree.nodes[id].child
+        mut previous: Option[str] = Nothing
+        while next != -1:
+            if next <= 0 or next >= len(tree.nodes):
+                return Ok(False)
+            if seen[next] or not tree.nodes[next].live or tree.nodes[next].parent != id:
+                return Ok(False)
+            label = tree.nodes[next].label
+            if len(label) != 1:
+                return Ok(False)
+            match previous:
+                case Some(before):
+                    if before >= label:
+                        return Ok(False)
+                case Nothing:
+                    pass
+            previous = Some(label)
+            seen[next] = True
+            work.append(next)?
+            next = tree.nodes[next].sibling
+    if count != tree.size:
+        return Ok(False)
+    # After structural validation, all searches below are safe and terminating.
+    for id in range(len(tree.nodes)):
+        if seen[id]:
+            match tree.nodes[id].word:
+                case Some(word):
+                    if locate(&tree, word) != id:
+                        return Ok(False)
+                case Nothing:
+                    pass
+    mut free = tree.free
+    mut available = 0
+    while free != -1:
+        if free <= 0 or free >= len(tree.nodes):
+            return Ok(False)
+        if seen[free] or tree.nodes[free].live:
+            return Ok(False)
+        if tree.nodes[free].word.is_some() or tree.nodes[free].label != "":
+            return Ok(False)
+        if tree.nodes[free].parent != -1 or tree.nodes[free].child != -1 or tree.nodes[free].sibling != -1:
+            return Ok(False)
+        seen[free] = True
+        available += 1
+        free = tree.nodes[free].next_free
+    if available != tree.available:
+        return Ok(False)
+    for visited in &seen:
+        if not *visited:
+            return Ok(False)
+    Ok(True)

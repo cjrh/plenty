@@ -200,4 +200,5 @@ for ownership limits, and [parent links with arena IDs](../09-generics/arena-tre
 for another use of index-based links. The
 [balanced-tree examples](../../design/examples/data-structures/balanced-trees.md)
 apply the same representation to B-tree and red-black insertion, deletion,
-and sorted traversal.
+and sorted traversal. The [trie example](../../design/examples/data-structures/trie.md)
+uses parent and sibling IDs for iterative prefix retrieval and pruning.
