@@ -16,6 +16,16 @@ fn workspace() -> tempfile::TempDir {
             "arena.plenty",
             include_str!("../examples/arena/arena.plenty"),
         ),
+        (
+            "btree.plenty",
+            include_str!("../book/src/design/examples/data-structures/balanced-trees/btree.plenty"),
+        ),
+        (
+            "red_black.plenty",
+            include_str!(
+                "../book/src/design/examples/data-structures/balanced-trees/red_black.plenty"
+            ),
+        ),
     ] {
         support::write_file(&dir.path().join(name), code);
     }
@@ -47,6 +57,31 @@ fn runs(source: &str, expected: &str) {
     assert_output(
         std::process::Command::new(executable).output().unwrap(),
         expected,
+    );
+}
+
+#[test]
+fn balanced_tree_demo_runs() {
+    runs(
+        include_str!("../book/src/design/examples/data-structures/balanced-trees/main.plenty"),
+        "[10, 20, 30, 40, 50, 60, 70]\n[10, 20, 30, 40, 50, 60, 70]\nFalse False\nTrue False\nTrue True\nFalse False\n[10, 20, 30, 50, 60, 70]\n[10, 20, 30, 50, 60, 70]\nTrue True",
+    );
+}
+
+#[test]
+fn balanced_trees_preserve_invariants_through_insert_delete_and_reuse() {
+    runs(
+        include_str!("../book/src/design/examples/data-structures/balanced-trees/checks.plenty"),
+        "14400 permutation pairs passed\n4 multi-level split/merge and reuse scenarios passed\n16000 mixed operations and final drains passed",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn balanced_tree_allocation_failures_preserve_sets_and_removal_allocates_nothing() {
+    runs(
+        include_str!("fixtures/balanced_tree_allocation.plenty"),
+        "allocation failure sweeps passed\nallocation-free deletion and slot reuse passed",
     );
 }
 

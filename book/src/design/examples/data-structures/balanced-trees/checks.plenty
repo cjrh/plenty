@@ -1,0 +1,132 @@
+import btree
+import red_black
+
+# Every failure exits unsuccessfully; no assertion relies on printed output.
+enum TestError:
+    BTreeInvariant
+    RedBlackInvariant
+    Order
+    Size
+    Membership(i64)
+    Insert(i64)
+    Remove(i64)
+
+type CheckError = AllocError | TestError
+
+def verify(b: &btree.Tree, r: &red_black.Tree, expected: &list[i64]) -> Result[(), CheckError]:
+    if not btree.valid(&b)?:
+        return Err(TestError.BTreeInvariant)
+    if not red_black.valid(&r)?:
+        return Err(TestError.RedBlackInvariant)
+    if btree.length(&b) != len(expected) or red_black.length(&r) != len(expected):
+        return Err(TestError.Size)
+    left = btree.ordered(&b)?
+    right = red_black.ordered(&r)?
+    if left != expected or right != expected:
+        return Err(TestError.Order)
+    for key in expected:
+        if not btree.has(&b, *key) or not red_black.has(&r, *key):
+            return Err(TestError.Membership(*key))
+    Ok(())
+
+def change(b: &mut btree.Tree, r: &mut red_black.Tree, expected: &mut list[i64], key: i64, adding: bool) -> Result[(), CheckError]:
+    found = expected.find(key)
+    present = found.is_some()
+    if btree.has(&b, key) != present or red_black.has(&r, key) != present:
+        return Err(TestError.Membership(key))
+    if adding:
+        left = btree.insert(&mut b, key)?
+        right = red_black.insert(&mut r, key)?
+        if left != (not present) or right != (not present):
+            return Err(TestError.Insert(key))
+        if not present:
+            expected.append(key)?
+            expected.sort()
+    else:
+        left = btree.remove(&mut b, key)
+        right = red_black.remove(&mut r, key)
+        if left != present or right != present:
+            return Err(TestError.Remove(key))
+        match found:
+            case Some(index):
+                drop(expected.pop(index))
+            case Nothing:
+                pass
+    verify(&b, &r, &expected)?
+    if btree.has(&b, key) != adding or red_black.has(&r, key) != adding:
+        return Err(TestError.Membership(key))
+    Ok(())
+
+def scenario(insertions: &list[i64], deletions: &list[i64]) -> Result[(), CheckError]:
+    mut b = btree.create()?
+    mut r = red_black.create()?
+    mut expected: list[i64] = []?
+    verify(&b, &r, &expected)?
+    change(&mut b, &mut r, &mut expected, 999, False)?
+    for key in insertions:
+        change(&mut b, &mut r, &mut expected, *key, True)?
+        change(&mut b, &mut r, &mut expected, *key, True)?
+    for key in deletions:
+        change(&mut b, &mut r, &mut expected, *key, False)?
+        change(&mut b, &mut r, &mut expected, *key, False)?
+    # Refill the same owners after deletion to exercise free-slot reuse.
+    for key in insertions:
+        change(&mut b, &mut r, &mut expected, *key, True)?
+    for key in deletions:
+        change(&mut b, &mut r, &mut expected, *key, False)?
+    Ok(())
+
+def deletion_permutations(insertions: &list[i64], deletions: &mut list[i64], depth: i64) -> Result[(), CheckError]:
+    if depth == len(deletions):
+        return scenario(&insertions, &deletions)
+    for i in range(depth, len(deletions)):
+        deletions.swap(depth, i)
+        deletion_permutations(&insertions, &mut deletions, depth + 1)?
+        deletions.swap(depth, i)
+    Ok(())
+
+def insertion_permutations(keys: &mut list[i64], depth: i64) -> Result[(), CheckError]:
+    if depth == len(keys):
+        mut deletions = copy(keys)?
+        return deletion_permutations(&keys, &mut deletions, 0)
+    for i in range(depth, len(keys)):
+        keys.swap(depth, i)
+        insertion_permutations(&mut keys, depth + 1)?
+        keys.swap(depth, i)
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | TestError]:
+    # Every insertion/deletion permutation pair, including the full i64 domain.
+    mut small = [-9223372036854775808, -1, 0, 1, 9223372036854775807]?
+    insertion_permutations(&mut small, 0)?
+    print("14400 permutation pairs passed")?
+
+    ascending = [i for i in range(257)]?
+    descending = [i for i in range(256, -1, -1)]?
+    mut alternating: list[i64] = []?
+    for i in range(128):
+        alternating.append(i)?
+        alternating.append(256 - i)?
+    alternating.append(128)?
+    scenario(&ascending, &ascending)?
+    scenario(&ascending, &descending)?
+    scenario(&descending, &ascending)?
+    scenario(&alternating, &alternating)?
+    print("4 multi-level split/merge and reuse scenarios passed")?
+
+    # A bounded deterministic generator avoids overflow and external randomness.
+    for seed in [1, 7, 12345, 104729]?:
+        mut state = seed
+        mut b = btree.create()?
+        mut r = red_black.create()?
+        mut expected: list[i64] = []?
+        for step in range(4000):
+            state = (state * 48271) % 2147483647
+            key = state % 257
+            state = (state * 48271) % 2147483647
+            adding = state % 2 == 0
+            change(&mut b, &mut r, &mut expected, key, adding)?
+        for key in range(257):
+            change(&mut b, &mut r, &mut expected, key, False)?
+    print("16000 mixed operations and final drains passed")?
+    Ok(())
