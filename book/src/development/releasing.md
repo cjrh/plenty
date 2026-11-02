@@ -132,7 +132,7 @@ git push --atomic origin main vX.Y.Z
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
 | Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both engines and packages them in the compiler archive |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
-| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the core archive (`build-native.sh`) |
+| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the archive (`build-native.sh`), including the validated dataframe DLL on Windows |
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
 | Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
 
@@ -162,12 +162,14 @@ turns the list into job matrices:
 | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | compiler with dataframe and linalg engines (`.tar.gz`) |
 | `aarch64-unknown-linux-gnu` | `ubuntu-24.04-arm` | compiler with dataframe and linalg engines (`.tar.gz`) |
 | `aarch64-apple-darwin` (experimental) | `macos-15` | compiler only (`.tar.gz`), macOS 11 or later |
-| `x86_64-pc-windows-msvc` (experimental) | `windows-2025` | compiler only (`.zip`), Windows 10 or later |
+| `x86_64-pc-windows-msvc` (experimental) | `windows-2025` | compiler with dataframe DLL (`.zip`), Windows 10 or later |
 
 Each target publishes one asset, `plenty-VERSION-TRIPLE.EXT`, and its checksum.
-`release_engines` in `target.sh` lists the engines bundled for a target. They are
-Linux ELF shared libraries, so macOS and Windows archives contain only the
-compiler. Their archives are
+`release_engines` in `target.sh` lists the engines bundled for a target. Linux bundles both ELF engines; Windows bundles the dataframe DLL, built and
+validated natively by `build-native.sh`. macOS contains only the compiler.
+Windows packaging audits x86-64 PE headers, Windows/MSVC dependencies and all
+facade exports. Its clean smoke test checks a Parquet query, compiler relocation,
+`--dist` application relocation and failure without the DLL. Native archives are
 not notarized or code-signed; macOS executables carry the linker's ad-hoc
 signature, and the Windows build links the dynamic MSVC runtime that the
 documented Build Tools prerequisite installs. `archive.py` writes those archives

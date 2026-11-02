@@ -62,7 +62,7 @@ case "$PLENTY_RELEASE_TARGET" in
         release_cflags=
         release_exe=.exe
         release_archive_ext=zip
-        release_engines=
+        release_engines=dataframe
         release_experimental=1
         ;;
     *) echo "unsupported release target: $PLENTY_RELEASE_TARGET" >&2; exit 2 ;;

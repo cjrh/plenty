@@ -82,8 +82,18 @@ A second engine follows `std.dataframe` in each of these.
 | Mismatched engine | An older engine lacking a symbol fails at link time (`undefined reference to PREFIX...`) or at load time (`symbol lookup error`). Release packaging rejects an engine whose exports do not cover the facade's declarations. A different `N` is a different file and is never substituted. |
 | Errors | Each call returns an error code; the engine catches panics at the C boundary and reports them as an error. Handles are freed by the engine that allocated them. Engine allocations are outside Plenty's allocation accounting; the module's reference page states whether allocation failure is recoverable. |
 | Build | A separate Cargo workspace, `plenty-NAME/`, with its own `Cargo.lock`, built by a script outside the compiler build, for the selected x86-64/SSE2 or ARMv8-A target and the release glibc. |
-| Release | A separate archive from the same release, `plenty-NAME-VERSION-TARGET.tar.gz` with a `.sha256`, containing `lib/libplenty_NAME_vN.so`, `engine.json` (Plenty version, source commit, target, ABI generation, library checksum, minimum glibc), `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-NOTICES.md` for the engine's crates, the Rust standard library licences, and a README with the deployment recipe. `--dist` validates metadata and copied-library checksum and includes the notices; ordinary compilation does not read `engine.json`. |
+| Release | The matching compiler archive bundles the target's engines in `bin/` beside `NAME-notices/`, with `engine.json` (Plenty version, source commit, target, ABI generation, library checksum and platform minimum), Plenty and dependency licenses, and Rust standard-library notices. `--dist` validates metadata and the copied-library checksum and includes the notices; ordinary compilation does not read `engine.json`. |
 | Tests | The ordinary suite checks that unreached uses link no engine and that a reached use without one reports the missing engine. A separate CI job builds the engine and runs the real-engine tests, gated by `PLENTY_NAME_TESTS=1`. |
+
+## Windows dataframe engine
+
+The experimental Windows x86-64 archive bundles `plenty_dataframe_v1.dll` and
+`dataframe-notices/`. Discovery uses the same option/environment precedence,
+then the DLL beside the compiler. MSVC `lib.exe` generates an import library
+from the DLL's C exports. Ordinary compilation copies the DLL beside the output;
+[distribution output](distributions.md#windows-dataframe-distributions) includes
+its validated notices. Runtime lookup follows Windows loader rules rather than
+ELF RUNPATH. The linear algebra engine remains Linux-only.
 
 ## Adding a second engine
 

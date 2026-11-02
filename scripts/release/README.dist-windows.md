@@ -8,6 +8,7 @@ Windows on x86-64:
 |---|---|
 | `bin\plenty.exe` | Compiler and project tool |
 | `bin\plentyc.exe` | Single-file compiler, without project commands |
+| `bin\plenty_dataframe_v1.dll`, `bin\dataframe-notices\` | Dataframe engine and its licenses |
 | `LICENSE-MIT`, `LICENSE-APACHE` | Plenty's license: MIT or Apache-2.0, at your option |
 | `THIRD-PARTY-NOTICES.md`, `licenses\` | Licenses of software built into the compiler |
 
@@ -15,8 +16,14 @@ Windows on x86-64:
 release platforms. On Windows, release checks compile and run small programs
 using the core language, collections, generators and printing. Parts of the
 standard library and runtime are incomplete here, including actor recovery and
-several OS services. The `std.dataframe` and `std.linalg` engines are
-not available for Windows.
+several OS services. The archive includes the `std.dataframe` engine as `bin/plenty_dataframe_v1.dll`
+with its licenses in `bin/dataframe-notices/`. The `std.linalg` engine is unavailable.
+
+The compiler finds the dataframe DLL beside itself and copies it beside programs
+that use dataframe operations. For shipping an application, use
+`plenty --compile analysis.plenty --dist my-app`; this includes the executable,
+DLL and notices. Keep these files together when moving the application.
+End users need the MSVC runtime but no Plenty or Rust installation.
 
 The standard library and runtime are built into `plenty.exe`. You do not need
 Rust, Cargo, or the Plenty source code.

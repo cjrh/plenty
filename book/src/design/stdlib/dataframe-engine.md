@@ -19,7 +19,10 @@ configuration or a compiler-enforced version check.
 
 The prebuilt engine supports x86-64 and ARM64 GNU/Linux with glibc **2.28 or later**
 and `libgcc_s.so.1`, with no AVX2 requirement. Rust, Cargo and a source checkout
-are unnecessary. musl/Alpine and other OS/architecture targets are unsupported.
+are unnecessary. The experimental Windows x86-64 release also includes
+`bin/plenty_dataframe_v1.dll` and `bin/dataframe-notices/`, requiring Windows 10
+or Windows Server 2016 or later and the MSVC runtime. Its manifest records
+`minimum_windows` instead of `minimum_glibc`. musl/Alpine and macOS are unsupported.
 The compiler still needs its [linking prerequisites](../toolchain/01-building/installing.md).
 See [shipping dataframe applications](dataframe-deployment.md) for runtime
 library placement, notices and compatibility checks.
@@ -45,7 +48,9 @@ uses three Cargo jobs by default, and installs
 `--target-dir PATH` to reuse engine build artifacts and `--jobs N` to
 control build concurrency. It forces baseline `x86-64` code generation
 and the system C linker, overriding ambient CPU flags; AVX2 is not required.
-The supported target is currently `x86_64-unknown-linux-gnu`.
+The script supports native x86-64/ARM64 GNU/Linux builds, Linux cross targets,
+and native `x86_64-pc-windows-msvc` builds. On Windows it uses MSVC, installs
+`plenty_dataframe_v1.dll`, and avoids ELF linker flags.
 Build on a system with a compatible glibc version for the deployment host.
 This source-build command does not impose the release's glibc 2.28 baseline;
 the release workflow builds and audits the engine inside its pinned container.
@@ -97,6 +102,16 @@ Normal programs need neither this library nor Rust. They do not gain a
 `DT_NEEDED` entry for Polars. A project fingerprint includes the selected
 engine path and metadata, so replacing or relocating it triggers relinking.
 Already-linked executables still need their dynamic dependencies at run time.
+
+## Windows application linking
+
+The Windows compiler selects the DLL through the same option/environment/beside-
+compiler precedence. It derives an MSVC import library from that DLL's exported
+C symbols using `lib.exe`, supplied by Visual Studio Build Tools. Ordinary
+compilation copies the DLL beside the output executable; `--dist` includes the
+DLL and validated notices. Programs use Windows DLL lookup, with the application
+directory searched by the loader. Keep the DLL beside the executable, and use
+trusted application directories and `PATH` entries. Type-checking needs no DLL.
 
 ## Development checks
 

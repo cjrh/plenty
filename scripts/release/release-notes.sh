@@ -32,8 +32,8 @@ Command Line Tools for linking. Not notarized; \`std.dataframe\` and
 \`std.linalg\` are not available for macOS." ;;
         windows)
             summary="**Experimental:** 64-bit Windows 10 or later on x86-64, plus Visual Studio
-Build Tools with the C++ workload for linking. Not signed; \`std.dataframe\`
-and \`std.linalg\` are not available for Windows." ;;
+Build Tools with the C++ workload for linking. Not signed; includes the \`std.dataframe\` DLL.
+\`std.linalg\` is not available for Windows." ;;
     esac
     # shellcheck disable=SC2016 # Markdown backticks, not expansions
     printf 'Download `%s`. SHA-256:\n\n```text\n%s```\n\n%s\n\n' "$archive" "$sums" "$summary"

@@ -10,22 +10,23 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class EngineBuildTarget(unittest.TestCase):
-    def build(self, host, target=None):
+    def build(self, host, target=None, name="linalg"):
         spec = importlib.util.spec_from_file_location("engine_builder", ROOT / "scripts/build_native_engine.py")
         builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(builder)
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         output = root / "installed"
         builds = root / "builds"
-        argv = ["build_native_engine.py", "linalg", "--out", str(output), "--target-dir", str(builds)]
+        argv = ["build_native_engine.py", name, "--out", str(output), "--target-dir", str(builds)]
         if target:
             argv += ["--target", target]
+        library_name = f"plenty_{name}_v1.dll" if (target or host).endswith("windows-msvc") else f"libplenty_{name}_v1.so"
         calls = []
 
         def invoke(command, **kwargs):
             calls.append((command, kwargs["env"]))
             selected = command[command.index("--target") + 1]
-            library = builds / selected / "release/libplenty_linalg_v1.so"
+            library = builds / selected / "release" / library_name
             library.parent.mkdir(parents=True)
             library.write_bytes(b"engine")
 
@@ -33,7 +34,7 @@ class EngineBuildTarget(unittest.TestCase):
              patch.object(builder.subprocess, "run", invoke), \
              patch.dict(os.environ, {"CARGO_ENCODED_RUSTFLAGS": "-Ctarget-cpu=native", "CFLAGS": "-march=native"}):
             builder.main()
-        self.assertEqual((output / "libplenty_linalg_v1.so").read_bytes(), b"engine")
+        self.assertEqual((output / library_name).read_bytes(), b"engine")
         return calls[0]
 
     def test_native_arm_uses_generic_armv8_and_matching_artifact(self):
@@ -50,3 +51,16 @@ class EngineBuildTarget(unittest.TestCase):
         _, env = self.build("x86_64-unknown-linux-gnu")
         self.assertIn("target-cpu=x86-64", env["RUSTFLAGS"])
         self.assertEqual(env["CFLAGS"], "-march=x86-64 -mtune=generic")
+
+    def test_native_windows_dataframe_uses_msvc_without_elf_or_gcc_flags(self):
+        _, env = self.build("x86_64-pc-windows-msvc", name="dataframe")
+        self.assertEqual(env["RUSTFLAGS"], "-C target-cpu=x86-64")
+        self.assertEqual(env["CFLAGS"], "")
+        self.assertEqual(env["CXXFLAGS"], "")
+        self.assertEqual(env["CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"], "link.exe")
+
+    def test_windows_cross_build_and_linalg_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.build("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", name="dataframe")
+        with self.assertRaises(SystemExit):
+            self.build("x86_64-pc-windows-msvc")

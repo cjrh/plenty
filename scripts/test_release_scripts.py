@@ -548,7 +548,7 @@ class TargetFacts(unittest.TestCase):
             "x86_64-unknown-linux-gnu": "linux|x86-64||tar.gz|dataframe linalg|0",
             "aarch64-unknown-linux-gnu": "linux|generic||tar.gz|dataframe linalg|0",
             "aarch64-apple-darwin": "macos|apple-m1||tar.gz||1",
-            "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip||1",
+            "x86_64-pc-windows-msvc": "windows|x86-64|.exe|zip|dataframe|1",
         }
         for target, facts in expected.items():
             with self.subTest(target=target):
@@ -648,7 +648,7 @@ class CheckNative(unittest.TestCase):
 
     @staticmethod
     def pe(dlls=("KERNEL32.dll", "VCRUNTIME140.dll", "api-ms-win-crt-runtime-l1-1-0.dll"),
-           machine=0x8664, subsystem=3):
+           machine=0x8664, subsystem=3, dll=False, exports=()):
         import struct
         optional = bytearray(240)
         struct.pack_into("<H", optional, 0, 0x20B)
@@ -657,12 +657,24 @@ class CheckNative(unittest.TestCase):
         section_rva, raw = 0x1000, 0x400
         table = bytearray(20 * (len(dlls) + 1))
         names = bytearray()
-        for i, dll in enumerate(dlls):
+        for i, dependency in enumerate(dlls):
             struct.pack_into("<I", table, 20 * i + 12, section_rva + len(table) + len(names))
-            names += dll.encode() + b"\0"
+            names += dependency.encode() + b"\0"
+        if exports:
+            export_rva = section_rva + len(table) + len(names)
+            export_table = bytearray(40 + 4 * len(exports))
+            struct.pack_into("<I", export_table, 24, len(exports))
+            struct.pack_into("<I", export_table, 32, export_rva + 40)
+            export_names = bytearray()
+            for i, symbol in enumerate(exports):
+                struct.pack_into("<I", export_table, 40 + 4 * i,
+                                 export_rva + len(export_table) + len(export_names))
+                export_names += symbol.encode() + b"\0"
+            struct.pack_into("<II", optional, 112, export_rva, len(export_table) + len(export_names))
+            names += export_table + export_names
         data = bytes(table + names)
         struct.pack_into("<II", optional, 112 + 8, section_rva, len(table))
-        coff = struct.pack("<HHIIIHH", machine, 1, 0, 0, 0, len(optional), 0x22)
+        coff = struct.pack("<HHIIIHH", machine, 1, 0, 0, 0, len(optional), 0x2022 if dll else 0x22)
         section = struct.pack("<8sIIIIIIHHI", b".idata", len(data), section_rva, len(data), raw, 0, 0, 0, 0, 0)
         header = bytearray(0x40)
         header[:2] = b"MZ"
@@ -693,6 +705,17 @@ class CheckNative(unittest.TestCase):
         problems, summary = self.check.check_pe(self.pe())
         self.assertEqual(problems, [])
         self.assertIn("VCRUNTIME140.dll", summary)
+
+    def test_windows_exports_are_read_without_native_tools(self):
+        symbols = ("pldf_v1_frame", "pldf_v1_collect")
+        self.assertEqual(self.check.pe_exports(self.pe(dll=True, exports=symbols)), set(symbols))
+        self.assertEqual(self.check.pe_exports(self.pe(dll=True)), set())
+
+    def test_windows_engine_requires_a_dll_and_system_dependencies(self):
+        self.assertEqual(self.check.check_pe(self.pe(dll=True, subsystem=2), dll=True)[0], [])
+        self.assertIn("expected a DLL", self.check.check_pe(self.pe(), dll=True)[0])
+        self.assertIn("expected an executable", self.check.check_pe(self.pe(dll=True))[0])
+        self.assertTrue(self.check.check_pe(self.pe(dll=True, dlls=("zlib1.dll",)), dll=True)[0])
 
     def test_windows_foreign_imports_and_headers_are_rejected(self):
         for kwargs, message in [({"dlls": ("KERNEL32.dll", "libgcc_s_seh-1.dll")}, "imports libgcc_s_seh-1.dll"),

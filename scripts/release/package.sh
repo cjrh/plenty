@@ -10,6 +10,7 @@
 #   plenty-VERSION-TARGET/
 #     bin/plenty, bin/plentyc   (plenty.exe, plentyc.exe on Windows)
 #     bin/libplenty_NAME_v1.so  (Linux: each engine in release_engines)
+#     bin/plenty_dataframe_v1.dll (Windows dataframe engine)
 #     bin/NAME-notices/         (its engine.json, licenses and notices)
 #     README.md                 (README.dist.md, or README.dist-OS.md, filled in)
 #     LICENSE-MIT, LICENSE-APACHE  (Plenty is MIT OR Apache-2.0)
@@ -22,7 +23,7 @@
 # time, else 0). Linux archives use GNU tar; macOS and Windows hosts lack it,
 # so archive.py writes theirs. PYTHON selects the interpreter (default python3).
 #
-# Linux archives require exactly the engines in target.sh's release_engines;
+# Archives require exactly the engines in target.sh's release_engines;
 # package-engine.py audits each against the release baseline. The compiler
 # finds engines beside its executable, and --dist finds their notices there.
 set -euo pipefail

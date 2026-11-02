@@ -95,5 +95,44 @@ class EnginePackage(unittest.TestCase):
         self.assertIn("RPATH/RUNPATH", result.stderr)
 
 
+class WindowsEnginePackage(unittest.TestCase):
+    def test_installs_audited_dll_with_windows_metadata_and_notices(self):
+        import importlib.util
+        import test_release_scripts as fixtures
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location("windows_packager", RELEASE / "package-engine.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix="Windows engine ") as temporary:
+            root = Path(temporary)
+            engine = root / "plenty_dataframe_v1.dll"
+            exports = re.findall(r'= "(pldf_v1_\w+)"', (REPO / "stdlib/std/dataframe.plentyi").read_text())
+            engine.write_bytes(fixtures.CheckNative.pe(dll=True, exports=exports))
+            rust = root / "rust/share/doc/rust"
+            (rust / "licenses").mkdir(parents=True)
+            (rust / "licenses/LICENSE.txt").write_text("Rust license")
+            (rust / "COPYRIGHT-library.html").write_text("Rust notices")
+            destination = root / "out"
+            argv = ["package-engine.py", "dataframe", "--target", "x86_64-pc-windows-msvc",
+                    "--engine", str(engine), "--out-dir", str(destination),
+                    "--rust-sysroot", str(root / "rust")]
+            def command(args, **kwargs):
+                self.assertIn("third_party_notices.py", str(args[2]))
+                Path(args[args.index("--out") + 1]).write_text("Dependency notices")
+            def output(*args):
+                return "0.8.3" if args[-1] == "--print" else "a" * 40
+            with patch("sys.argv", argv), patch.object(module.subprocess, "run", command), patch.object(module, "output", output):
+                module.main()
+                manifest = json.loads((destination / "dataframe-notices/engine.json").read_text())
+                self.assertEqual(manifest["target"], "x86_64-pc-windows-msvc")
+                self.assertEqual(manifest["minimum_windows"], "10")
+                self.assertNotIn("minimum_glibc", manifest)
+                self.assertEqual((destination / engine.name).read_bytes(), engine.read_bytes())
+                self.assertEqual(manifest["library_sha256"], hashlib.sha256(engine.read_bytes()).hexdigest())
+                engine.write_bytes(fixtures.CheckNative.pe(dll=True, exports=exports[1:]))
+                with self.assertRaisesRegex(SystemExit, "missing exports"):
+                    module.main()
+
+
 if __name__ == "__main__":
     unittest.main()

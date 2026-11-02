@@ -362,7 +362,7 @@ pub(crate) fn link(
     };
     let staged_output = bundle.as_ref().map(|bundle| bundle.executable(output));
     let output = staged_output.as_deref().unwrap_or(output);
-    let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()))?;
+    let engines = engine_link_args(object, options, bundle.as_ref().map(|b| b.path()), output)?;
     let mut command = linker_command(options);
     let msvc = native_target().ends_with("-windows-msvc");
     if let Some(linker) = options.automatic_linker() {
@@ -464,7 +464,7 @@ pub(crate) fn link(
 pub(crate) struct Engine {
     /// The facade module, a trusted `.plentyi` interface in `stdlib/`.
     pub(crate) module: &'static str,
-    /// File name and SONAME: `libplenty_NAME_vN.so`, N the C ABI generation.
+    /// Platform library filename; N is the C ABI generation.
     library: &'static str,
     notices: &'static str,
     /// Every facade symbol starts with this, and no other symbol does.
@@ -481,13 +481,17 @@ pub(crate) struct Engine {
 pub(crate) const ENGINES: &[Engine] = &[
     Engine {
         module: "std.dataframe",
-        library: "libplenty_dataframe_v1.so",
+        library: if cfg!(windows) {
+            "plenty_dataframe_v1.dll"
+        } else {
+            "libplenty_dataframe_v1.so"
+        },
         notices: "dataframe-notices",
         symbol_prefix: "pldf_v1_",
         environment: "PLENTY_DATAFRAME_ENGINE",
         option: |options| options.dataframe_engine.as_ref(),
         description: "the optional Polars engine",
-        install: "Linux release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
+        install: "Linux and Windows release archives ship it in bin/ beside the compiler; from a source checkout, build it with python3 scripts/build_dataframe_engine.py --out COMPILER_DIRECTORY",
     },
     Engine {
         module: "std.linalg",
@@ -619,12 +623,16 @@ fn engine_link_args(
     object: &Path,
     options: &CompileOptions,
     bundle: Option<&Path>,
+    output: &Path,
 ) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
+    #[cfg(not(windows))]
+    let _ = output;
     let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
     if reached.is_empty() {
         return Ok(Vec::new());
     }
     let mut libraries = Vec::new();
+    #[cfg(not(windows))]
     let mut directories: Vec<OsString> = vec!["$ORIGIN".into()];
     for engine in reached {
         let selected = engine.selected(options)?;
@@ -644,28 +652,47 @@ fn engine_link_args(
                 format!("{} engine is not a file: {}", engine.module, path.display()).into(),
             );
         }
+        #[cfg(windows)]
+        {
+            let selected = if let Some(bundle) = bundle {
+                distribution::copy_engine(engine, &path, bundle)?
+            } else {
+                let destination = output.with_file_name(engine.library);
+                if destination.canonicalize().ok().as_ref() != Some(&path) {
+                    std::fs::copy(&path, &destination)?;
+                }
+                destination
+            };
+            libraries.push(windows_import_library(object, &selected, engine)?.into_os_string());
+        }
+        #[cfg(not(windows))]
         if let Some(bundle) = bundle {
             let copied = distribution::copy_engine(engine, &path, bundle)?;
             libraries.push(copied.into_os_string());
             continue;
         }
-        let directory = path.parent().unwrap().as_os_str().to_owned();
-        // ELF RUNPATH is colon-separated even when passed as one driver argument.
-        if directory.as_encoded_bytes().contains(&b':') {
-            return Err(format!(
-                "{} engine directory must not contain ':' (ELF RUNPATH separator)",
-                engine.module
-            )
-            .into());
+        #[cfg(not(windows))]
+        {
+            let directory = path.parent().unwrap().as_os_str().to_owned();
+            // ELF RUNPATH is colon-separated even when passed as one driver argument.
+            if directory.as_encoded_bytes().contains(&b':') {
+                return Err(format!(
+                    "{} engine directory must not contain ':' (ELF RUNPATH separator)",
+                    engine.module
+                )
+                .into());
+            }
+            if !directories.contains(&directory) {
+                directories.push(directory);
+            }
+            libraries.push(path.into_os_string());
         }
-        if !directories.contains(&directory) {
-            directories.push(directory);
-        }
-        libraries.push(path.into_os_string());
     }
     // Some distributions' default linkers (AlmaLinux 8) emit legacy DT_RPATH,
     // which distribution output rejects and LD_LIBRARY_PATH cannot override.
+    #[cfg(not(windows))]
     libraries.extend(["-Xlinker".into(), "--enable-new-dtags".into()]);
+    #[cfg(not(windows))]
     for directory in directories {
         libraries.extend([
             "-Xlinker".into(),
@@ -675,6 +702,63 @@ fn engine_link_args(
         ]);
     }
     Ok(libraries)
+}
+
+/// MSVC links import libraries, not DLL files. Derive the small import library
+/// from the selected DLL so overrides and distributions use exactly its exports.
+#[cfg(windows)]
+fn windows_import_library(
+    object: &Path,
+    dll: &Path,
+    engine: &Engine,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    use object::Object;
+    let bytes = std::fs::read(dll)?;
+    let image = object::File::parse(bytes.as_slice())?;
+    if image.format() != object::BinaryFormat::Pe
+        || image.architecture() != object::Architecture::X86_64
+        || image.kind() != object::ObjectKind::Dynamic
+    {
+        return Err("engine must be an x86-64 Windows DLL".into());
+    }
+    let exports = image.exports()?;
+    let mut definition = format!("LIBRARY {}\nEXPORTS\n", engine.library);
+    for export in exports {
+        let export = export?;
+        let object::read::NameOrOrdinal::Name(name) = export.name() else {
+            continue;
+        };
+        let name = std::str::from_utf8(name)?;
+        if name.starts_with(engine.symbol_prefix) {
+            definition.push_str(name);
+            definition.push('\n');
+        }
+    }
+    let def = object.with_extension(format!("{}-import.def", engine.notices));
+    let library = object.with_extension(format!("{}-import.lib", engine.notices));
+    std::fs::write(&def, definition)?;
+    let mut command = cc::windows_registry::find_tool(native_target(), "lib.exe")
+        .ok_or("cannot find MSVC lib.exe; install Visual Studio Build Tools with the C++ workload")?
+        .to_command();
+    let argument = |prefix: &str, path: &Path| {
+        let mut value = OsString::from(prefix);
+        value.push(path);
+        value
+    };
+    let result = command
+        .args(["/NOLOGO", "/MACHINE:X64"])
+        .arg(argument("/DEF:", &def))
+        .arg(argument("/OUT:", &library))
+        .output()?;
+    if !result.status.success() {
+        return Err(format!(
+            "MSVC import library generation failed: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        )
+        .into());
+    }
+    Ok(library)
 }
 
 #[cfg(test)]
@@ -1007,7 +1091,10 @@ mod tests {
     #[test]
     fn engine_prefixes_and_libraries_are_distinct() {
         for (i, a) in ENGINES.iter().enumerate() {
-            assert!(a.library.starts_with("libplenty_") && a.library.ends_with(".so"));
+            assert!(
+                a.library.starts_with("libplenty_") && a.library.ends_with(".so")
+                    || a.library == "plenty_dataframe_v1.dll"
+            );
             for b in &ENGINES[i + 1..] {
                 assert!(!a.symbol_prefix.starts_with(b.symbol_prefix));
                 assert!(!b.symbol_prefix.starts_with(a.symbol_prefix));

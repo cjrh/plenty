@@ -221,7 +221,7 @@ jobs:
       - name: Install pinned Rust
         run: |
           . scripts/release/toolchain.env
-          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
       - name: Build, test, audit, package
         env:
           PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}

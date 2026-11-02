@@ -11,6 +11,10 @@ extensions; IDs are never renumbered or reused. The
 [reference](design/index.md) describe what works today. [Proposals](proposals/index.md)
 record rationale and alternatives, not another work queue.
 
+The experimental Windows x86-64 dataframe build and release packaging are
+recorded in [completed work](completed-work/libraries.md#windows-x86-64-dataframe-packaging).
+Broader native OS qualification remains in B18.7.
+
 ## Current position
 
 B34's bounded cleanup/review, B71's typed HTTP acceptance batch, B76's initial
