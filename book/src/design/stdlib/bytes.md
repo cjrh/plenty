@@ -29,6 +29,10 @@ A byte literal such as `b"\r\n"` has the separate, immutable prelude type
 read another byte sequence take a [`&[u8]` view](#byte-views), so they accept a
 literal, a buffer, a list, or part of any of them without copying.
 
+`len(buffer)` calls its shared `len` method and returns the number of bytes,
+just as `len` does for a byte literal or byte slice view. Membership operators
+are unsupported on `Bytes`; use the explicit search methods below.
+
 ## Operations
 
 `start`, `stop`, `index`, `offset`, `count`, and sizes are `i64`; elements are `u8`.

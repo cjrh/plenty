@@ -4404,7 +4404,11 @@ impl Lower<'_> {
                 }
                 let element = b
                     .element()
-                    .ok_or_else(|| e.at.error("membership requires an iterable"))?;
+                    .ok_or_else(|| {
+                        e.at.error(format!(
+                            "membership is not defined for `{b}`; `in` and `not in` do not call user methods; search explicitly using the container's API"
+                        ))
+                    })?;
                 if element.recursive_data() {
                     return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
                 }

@@ -250,7 +250,7 @@ fn collections_preserve_typed_function_results() {
 #[case("def f(xs: list[i64]) -> ():\n    xs.append(1).unwrap()", "immutable")]
 #[case("print(range(True)).unwrap()", "expected i64")]
 #[case("xs = [1}.unwrap()", "mismatched")]
-#[case("print(len(1)).unwrap()", "requires an iterable")]
+#[case("print(len(1)).unwrap()", "len() is not defined for `i64`")]
 #[case("print(range(0, 4, 0)).unwrap()", "a NonZero value cannot be zero")]
 fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
@@ -364,5 +364,236 @@ fn collection_example_runs() {
     assert_eq!(
         output.stdout,
         b"[0, 4, 16, 36, 64]\n0\n16\n256\n1296\n4096\n5\n"
+    );
+}
+
+#[test]
+fn len_calls_shared_methods_on_std_containers_and_user_types() {
+    let output = support::run(
+        r#"
+from std.deque import Deque
+import std.bytes
+
+class Sized[T]:
+    value: T
+    def len(self) -> i64:
+        7
+    def __del__(self) -> ():
+        print("drop sized").unwrap()
+
+enum Size:
+    Small
+    def len(self) -> i64:
+        2
+
+def borrowed(value: &Sized[i64]) -> i64:
+    len(value)
+
+def mutable(value: &mut Sized[i64]) -> i64:
+    len(value)
+
+def make() -> Sized[i64]:
+    print("make").unwrap()
+    Sized(42)
+
+def main() -> ():
+    mut deque = Deque[i64]().unwrap()
+    deque.append(1).unwrap()
+    print(len(deque), len(&deque), deque.pop()).unwrap()
+    mut buffer = std.bytes.from_bytes(b"abc").unwrap()
+    print(len(buffer), len(&mut buffer), buffer.get(1)).unwrap()
+    mut value = Sized(1)
+    print(len(value), borrowed(&value), mutable(&mut value), value.value).unwrap()
+    print(len(&value), len(&mut value)).unwrap()
+    print(len(Size.Small)).unwrap()
+    print(len(make())).unwrap()
+    print(len(std.bytes.from_bytes(b"once").unwrap())).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "1 1 Option[i64].Some(1)\n3 3 98\n7 7 7 1\n7 7\n2\nmake\n7\ndrop sized\n4\ndrop sized\n"
+    );
+}
+
+#[rstest]
+#[case("def len(self) -> bool:\n        True")]
+#[case("def len(self, extra: i64) -> i64:\n        extra")]
+#[case("def len(self: &mut Bad) -> i64:\n        1")]
+#[case("def len(self: Bad) -> i64:\n        1")]
+#[case("def size(self) -> i64:\n        1")]
+#[case("def len[T](self) -> i64:\n        1")]
+fn len_rejects_methods_that_cannot_be_observed(#[case] method: &str) {
+    let source = format!("class Bad:\n    {method}\nprint(len(Bad())).unwrap()");
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(
+        error.contains("requires an accessible `def len(self) -> i64` method"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case(
+    "from std.deque import Deque\ndef main() -> ():\n    value = Deque[i64]().unwrap()",
+    "std.deque.Deque[i64]"
+)]
+#[case(
+    "import std.bytes\ndef main() -> ():\n    value = std.bytes.empty().unwrap()",
+    "std.bytes.Bytes"
+)]
+#[case(
+    "class Container:\n    def contains(self, item: i64) -> bool:\n        True\ndef main() -> ():\n    value = Container()",
+    "Container"
+)]
+fn membership_on_std_and_user_containers_names_the_actual_limit(
+    #[case] setup: &str,
+    #[case] ty: &str,
+) {
+    for op in ["in", "not in"] {
+        let source = format!("{setup}\n    print(1 {op} value).unwrap()");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("membership is not defined for `{ty}`")),
+            "{error}"
+        );
+        assert!(error.contains("do not call user methods"), "{error}");
+        assert!(!error.contains("requires an iterable"), "{error}");
+    }
+}
+
+#[test]
+fn len_preserves_method_visibility() {
+    let dir = tempfile::tempdir().unwrap();
+    let module = dir.path().join("container.plenty");
+    let main = dir.path().join("main.plenty");
+    std::fs::write(
+        &main,
+        "from container import Container\ndef main() -> ():\n    print(len(Container())).unwrap()\n",
+    )
+    .unwrap();
+    for public in [false, true] {
+        let visibility = if public { "pub " } else { "" };
+        std::fs::write(
+            &module,
+            format!("pub class Container:\n    {visibility}def len(self) -> i64:\n        3\n"),
+        )
+        .unwrap();
+        let result = plenty::check_file(&main, None);
+        if public {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("Container.len` is private"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn len_shared_method_cannot_bypass_an_exclusive_loan() {
+    let error = support::check_source(
+        r#"
+class Container:
+    value: i64
+    def len(self) -> i64:
+        self.value
+mut value = Container(3)
+borrow = &mut value
+print(len(value), borrow.value).unwrap()
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("conflicting borrow"), "{error}");
+}
+
+#[test]
+fn len_observes_projected_builtin_values_without_moving_their_owners() {
+    let output = support::run(
+        r#"
+class Holder:
+    values: list[i64]
+    def __del__(self) -> ():
+        print("drop holder").unwrap()
+
+def make() -> Holder:
+    print("make").unwrap()
+    Holder([1, 2, 3].unwrap())
+
+def lend(value: &Holder) -> &Holder:
+    print("lend").unwrap()
+    value
+
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+print(len([[1, 2, 3].unwrap()].unwrap()[index()])).unwrap()
+print(len({1: [1, 2, 3].unwrap()}.unwrap()[1])).unwrap()
+print(len(make().values)).unwrap()
+holder = Holder([1, 2, 3, 4].unwrap())
+print(len(lend(&holder).values), len(holder.values)).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "index\n3\n3\nmake\n3\ndrop holder\nlend\n4 4\ndrop holder\n"
+    );
+}
+
+#[test]
+fn len_borrows_projected_class_receivers_and_drops_temporary_parents_once() {
+    let output = support::run(
+        r#"
+class Container:
+    value: i64
+    def len(self) -> i64:
+        self.value
+    def __del__(self) -> ():
+        print("drop", self.value).unwrap()
+
+class Holder:
+    item: Container
+    def __del__(self) -> ():
+        print("drop holder", self.item.value).unwrap()
+
+def make() -> Holder:
+    print("make").unwrap()
+    Holder(Container(3))
+
+def lend(value: &Holder) -> &Holder:
+    print("lend").unwrap()
+    value
+
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+print(len(make().item)).unwrap()
+print(len([Container(4)].unwrap()[index()])).unwrap()
+print(len({1: Container(5)}.unwrap()[1])).unwrap()
+print(len((Container(7),)[0])).unwrap()
+print(len([Holder(Container(8))].unwrap()[0].item)).unwrap()
+holder = Holder(Container(6))
+print(len(lend(&holder).item), holder.item.value).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "make\n3\ndrop holder 3\ndrop 3\nindex\n4\ndrop 4\n5\ndrop 5\n7\ndrop 7\n8\ndrop holder 8\ndrop 8\nlend\n6 6\ndrop holder 6\ndrop 6\n"
     );
 }

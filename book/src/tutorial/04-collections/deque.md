@@ -11,7 +11,7 @@ def main() -> Result[(), AllocError | IoError]:
     queue.append((0, 0))?
     queue.append((0, 1))?
     queue.appendleft((-1, 0))?
-    print(queue.len())?
+    print(len(queue))?
     while not queue.is_empty():
         match queue.popleft():
             case Some(value):
@@ -28,6 +28,10 @@ def main() -> Result[(), AllocError | IoError]:
 (0, 1)
 Option[tuple[i64, i64]].Nothing
 ```
+
+`len(queue)` borrows the queue and calls its shared `len` method, so the
+queue remains available for removal. The same spelling works for built-in
+collections and standard containers with a shared `len(self) -> i64` method.
 
 Construction and appending return Result with `AllocError`. End removals
 return Option and transfer ownership. Appending takes ownership even on

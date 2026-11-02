@@ -438,12 +438,12 @@ fn unsupported_special_methods_are_rejected() {
     }
 }
 
-// Phase guard (issue #645): `len()` and `in` on user types are planned under
-// B49 (issue #623); delete this when they call a user method.
+// Ordinary `len` methods are supported, but Python special-method names remain
+// reserved (issue #645).
 #[test]
 fn length_and_membership_hooks_are_rejected() {
     for hook in ["__len__", "__contains__"] {
-        assert_special_method_rejected(hook, "planned under B49");
+        assert_special_method_rejected(hook, "define `len` instead of `__len__`");
     }
 }
 
