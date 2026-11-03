@@ -460,7 +460,7 @@ fn a_depth_limit_above_the_ceiling_traps() {
         "drop(std.xml.writer(std.io.cursor(std.bytes.empty()?), &bounds))",
     ] {
         let source = format!(
-            "{PRELUDE}\ndef main() -> Result[(), AllocError]:\n    bounds = Limits(1025, 5, 5, 5, 0)\n    {call}\n    Ok(())\n"
+            "{PRELUDE}\ndef main() -> Result[(), AllocError]:\n    bounds = Limits(NonNegative.try_from(1025).unwrap(), 5, 5, 5, 0)\n    {call}\n    Ok(())\n"
         );
         support::assert_file_traps(&source, "std.xml: max_depth is above 1024");
     }

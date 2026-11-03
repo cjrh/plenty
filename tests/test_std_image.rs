@@ -885,11 +885,11 @@ print(ColorType.Gray.has_alpha(), ColorType.GrayAlpha.has_alpha(), ColorType.Rgb
 fn dimensions_above_the_png_maximum_trap() {
     for (call, message) in [
         (
-            "drop(std.image.new(2147483648, 1, ColorType.Gray))",
+            "drop(std.image.new(Positive.try_from(2147483648).unwrap(), 1, ColorType.Gray))",
             "std.image.new: width or height is above 2147483647",
         ),
         (
-            "drop(std.image.from_pixels(1, 2147483648, ColorType.Gray, std.bytes.empty()?))",
+            "drop(std.image.from_pixels(1, Positive.try_from(2147483648).unwrap(), ColorType.Gray, std.bytes.empty()?))",
             "std.image.from_pixels: width or height is above 2147483647",
         ),
     ] {

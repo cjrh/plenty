@@ -45,7 +45,7 @@ pub class XorFilter:
 
 # Input can contain duplicates. At most max_keys input entries and 32 peeling
 # attempts are accepted; failure returns no partial filter.
-pub def build(keys: &list[u64], max_keys: NonNegative[i64], seed: u64 = 0u64) -> Result[XorFilter, SketchError]:
+pub def build(keys: &list[u64], max_keys: NonNegative[i64] __max(16777216), seed: u64 = 0u64) -> Result[XorFilter, SketchError]:
     if max_keys.get() > key_limit:
         __trap("std.sketch.xor.build: max_keys is above 16777216")
     if len(keys) > max_keys.get():
@@ -138,7 +138,7 @@ def read_word(data: &[u8], offset: i64) -> u64:
         result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
-pub def from_bytes(data: &[u8], max_keys: NonNegative[i64]) -> Result[XorFilter, SketchError]:
+pub def from_bytes(data: &[u8], max_keys: NonNegative[i64] __max(16777216)) -> Result[XorFilter, SketchError]:
     if max_keys.get() > key_limit:
         __trap("std.sketch.xor.from_bytes: max_keys is above 16777216")
     if len(data) < 28:

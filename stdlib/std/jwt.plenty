@@ -377,7 +377,7 @@ pub class Validation:
     pub require_expiry: bool
     pub issuer: Option[str]
     pub audience: Option[str]
-    pub max_size: Positive[i64]
+    pub max_size: Positive[i64] __max(1048576)
 
 pub def validation(now: &Timestamp) -> Validation:
     Validation(Timestamp(now.seconds, now.nanoseconds), nanoseconds(0u64), True, Nothing, Nothing, default_size)
@@ -476,7 +476,7 @@ def read_header(parts: &Parts) -> Result[Header, JwtError]:
 # Reads the header without verifying anything, for example to choose a key
 # by `kid`. The result is attacker-controlled until `verify` succeeds. The
 # default is `default_max_size`.
-pub def decode_header(token: &str, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]:
+pub def decode_header(token: &str, max_size: Positive[i64] __max(1048576) = 8192) -> Result[Header, JwtError]:
     if max_size.get() > max_token_size:
         __trap("std.jwt.decode_header: max_size is above max_token_size")
     parts = split(token, max_size.get())?

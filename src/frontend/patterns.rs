@@ -339,7 +339,7 @@ impl Parser {
         let qualifier = (!path.is_empty()).then(|| {
             Box::new(TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at: at.clone(),
                 name: Some(path.join(".")),
                 args: vec![],
@@ -430,7 +430,7 @@ impl Parser {
             kind: PatKind::Class {
                 owner: Box::new(TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at,
                     name: Some(name),
                     args: vec![],

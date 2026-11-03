@@ -341,7 +341,9 @@ migration (2026-11-02):
 - **Ceilings that trap.** As decision 1, plus `std.actor.net.listener` heap
   above `max_heap_limit`. `quantiles_from_bytes` and
   `frequent_items_from_bytes` had no ceiling and gained none. The compile-time
-  rejection of a literal above a ceiling is not implemented (issue #686).
+  rejection of a literal or module constant above a ceiling is implemented with
+  [std-only declaration metadata](../../design/toolchain/02-architecture/frontend.md#std-ceiling-checking)
+  (issue #686); dynamic inputs retain the runtime guards.
 - **Constants.** A module constant could not have a domain type, so std
   passed constant limits through private getters such as
   `def max_url() -> NonNegative[i64]:`. Issue #685 later added domain

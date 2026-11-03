@@ -77,7 +77,7 @@ print(std.unicode.nfc("a\0é", 4)? == "a\0é")?
 fn a_scalar_limit_above_the_ceiling_traps() {
     // `max_scalars * 4` bounds the UTF-8 output, so larger limits would overflow.
     support::assert_file_traps(
-        "import std.unicode\ndef main() -> ():\n    drop(std.unicode.nfd(\"\", 2305843009213693952))\n",
+        "import std.unicode\ndef main() -> ():\n    drop(std.unicode.nfd(\"\", NonNegative.try_from(2305843009213693952).unwrap()))\n",
         "std.unicode: max_scalars is above i64.MAX // 4",
     );
 }

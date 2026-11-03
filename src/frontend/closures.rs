@@ -71,7 +71,7 @@ impl Lower<'_> {
                 TypeRef {
                     at: at.clone(),
                     concrete: Some(Box::new(parameter)),
-                    parameter: false,
+                    metadata: None,
                     name: None,
                     args: vec![],
                 },

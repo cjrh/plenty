@@ -173,12 +173,12 @@ impl DataTypes {
         let name = "std.fmt.Formattable".to_owned();
         method.inputs[0].1 = TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: declaration.at.clone(),
             name: Some("&".into()),
             args: vec![TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at: declaration.at.clone(),
                 name: Some(name.clone()),
                 args: vec![],
@@ -208,7 +208,7 @@ impl DataTypes {
                 let at = &class.at;
                 let reference = |name: String, args: Vec<TypeRef>| TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at: at.clone(),
                     name: Some(name),
                     args,

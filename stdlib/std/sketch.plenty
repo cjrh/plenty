@@ -224,7 +224,7 @@ def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError]:
         case Err(_):
             Err(SketchError.InvalidData)
 
-pub def quantiles(capacity: Positive[i64] = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]:
+pub def quantiles(capacity: Positive[i64] __max(1048576) = 1024, seed: u64 = 0u64) -> Result[Quantiles, SketchError]:
     if capacity > 1048576:
         __trap("std.sketch.quantiles: capacity is above 1048576")
     sampled(capacity.get(), seed)
@@ -338,7 +338,7 @@ pub class FrequentItems:
             word(&mut out, self._counts[index])?
         Ok(out)
 
-pub def frequent_items(capacity: Positive[i64] = 128) -> Result[FrequentItems, SketchError]:
+pub def frequent_items(capacity: Positive[i64] __max(65536) = 128) -> Result[FrequentItems, SketchError]:
     if capacity > 65536:
         __trap("std.sketch.frequent_items: capacity is above 65536")
     counted(capacity.get())

@@ -248,7 +248,7 @@ fn directory_depth_above_the_ceiling_traps() {
     let executable = build.path().join("program");
     std::fs::write(
         &source,
-        "import std.tempfile\nimport std.fs\ndef main() -> Result[(), AllocError | IoError | std.fs.FsError]:\n    drop(std.tempfile.directory(max_depth=65))\n    Ok(())\n",
+        "import std.tempfile\nimport std.fs\ndef main() -> Result[(), AllocError | IoError | std.fs.FsError]:\n    drop(std.tempfile.directory(max_depth=Positive.try_from(65).unwrap()))\n    Ok(())\n",
     )
     .unwrap();
     plenty::compile_file_to_executable(&source, &executable, None).unwrap();

@@ -462,7 +462,7 @@ impl Lower<'_> {
         let offset_name = "__plenty_par_offset";
         let typed = |ty: Ty| TypeRef {
             concrete: Some(Box::new(ty)),
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: None,
             args: vec![],

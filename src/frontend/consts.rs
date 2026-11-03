@@ -52,6 +52,9 @@ struct Folder<'a> {
     /// `or`. They are type-checked, but a value that would trap there becomes
     /// zero of its type instead of an error.
     unselected: u32,
+    /// Ceiling checks compare domain-preserving arithmetic as its integer.
+    /// Ordinary module constants still require `.get()` to read a domain.
+    domain_arguments: bool,
 }
 
 /// Evaluates every constant and static assertion in `functions`, replacing
@@ -69,6 +72,7 @@ pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
             values: HashMap::default(),
             active: vec![],
             unselected: 0,
+            domain_arguments: false,
         };
         for (i, f) in functions.iter().enumerate() {
             let result = if f.name.starts_with(GETTER) {
@@ -108,6 +112,35 @@ pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
         !asserts.contains(&(index - 1))
     });
     Ok(())
+}
+
+/// Speculative evaluation for std ceiling diagnostics. A dynamic expression or
+/// one this evaluator cannot prove remains subject to the std runtime guard.
+pub(super) fn known_integer(e: &Expr, constants: &HashMap<String, Arc<Function>>) -> Option<i128> {
+    // Most std calls forward a local domain value. It is dynamic, and needs
+    // neither a constants table nor speculative evaluation.
+    if matches!(ungroup(e).kind, Expression::Name(_)) {
+        return None;
+    }
+    let mut folder = Folder {
+        getters: constants
+            .iter()
+            .map(|(n, f)| (n.as_str(), f.as_ref()))
+            .collect(),
+        values: HashMap::default(),
+        active: Vec::new(),
+        unselected: 0,
+        domain_arguments: true,
+    };
+    let value = match folder.domain_read(e) {
+        Some(f) => folder.constant(f),
+        None => folder.eval(e, Some(&Ty::I64)),
+    }
+    .ok()?;
+    match value {
+        Value::Int(n, _) => Some(n),
+        _ => None,
+    }
 }
 
 fn is_assert(f: &Function) -> bool {
@@ -363,7 +396,9 @@ impl<'a> Folder<'a> {
                 let Some(f) = self.getters.get(name.as_str()).copied() else {
                     return Err(e.at.error(format!("unknown constant `{}`", display(name))));
                 };
-                if let (ty, Some(domain)) = declared(f) {
+                if let (ty, Some(domain)) = declared(f)
+                    && !self.domain_arguments
+                {
                     let name = display(name);
                     return Err(e.at.error(format!(
                         "`{name}` is a `{}[{ty}]`; read its integer with `{name}.get()`",

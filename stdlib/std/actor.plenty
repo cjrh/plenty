@@ -384,7 +384,7 @@ pub class Context[M, E]:
     # context)` with the child's heap current to build the child; the hook
     # borrows the parent shared. The parent receives `Down` when the child
     # stops.
-    pub def spawn(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]:
+    pub def spawn(self: &mut Context[M, E], tag: i64, limit: Positive[i64] __max(67108864)) -> Result[Address, StartError]:
         if limit.get() > max_heap_limit:
             __trap("std.actor.Context.spawn: limit is above max_heap_limit")
         if self._building or self._spawn_count == max_spawns:
@@ -405,7 +405,7 @@ pub class Context[M, E]:
     # Construction belongs to the child: a hook error, trap or Nothing
     # produces Down without ending the parent. Failed reconstruction ends
     # that child rather than recursively retrying its constructor.
-    pub def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: Positive[i64]) -> Result[Address, StartError]:
+    pub def spawn_isolated(self: &mut Context[M, E], tag: i64, limit: Positive[i64] __max(67108864)) -> Result[Address, StartError]:
         if limit.get() > max_heap_limit:
             __trap("std.actor.Context.spawn_isolated: limit is above max_heap_limit")
         child = self.spawn(tag, limit)?
@@ -856,7 +856,7 @@ pub class Stage[N, M, E]:
     # Starts a root actor with a heap of `limit` bytes. `node` was built
     # outside that heap: what it already owns stays outside, and a trap
     # leaks it. Build anything large in `started` instead.
-    pub def start(self: &mut Stage[N, M, E], node: N, limit: Positive[i64]) -> Result[Address, StartError]:
+    pub def start(self: &mut Stage[N, M, E], node: N, limit: Positive[i64] __max(67108864)) -> Result[Address, StartError]:
         if limit.get() > max_heap_limit:
             __trap("std.actor.Stage.start: limit is above max_heap_limit")
         index = self._context.reserve(limit.get())?

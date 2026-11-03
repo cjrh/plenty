@@ -202,7 +202,7 @@ print(std.crypto.hkdf_sha256(&empty, &empty, &empty, 8160)?.len())?
 #[test]
 fn hkdf_size_above_its_ceiling_traps() {
     let output = run(&program(
-        "empty = std.bytes.empty()?\nprint(std.crypto.hkdf_sha256(&empty, &empty, &empty, 8161)?.len())?",
+        "empty = std.bytes.empty()?\nprint(std.crypto.hkdf_sha256(&empty, &empty, &empty, NonNegative.try_from(8161).unwrap())?.len())?",
     ));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{stderr}");

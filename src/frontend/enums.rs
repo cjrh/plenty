@@ -85,7 +85,7 @@ impl Parser {
                             .iter()
                             .map(|(n, _)| TypeRef {
                                 concrete: None,
-                                parameter: false,
+                                metadata: None,
                                 at: at.clone(),
                                 name: Some(n.clone()),
                                 args: vec![],
@@ -277,7 +277,7 @@ pub(super) fn resolve_types(
         if !generic {
             let ty = resolved.instantiate(&TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at: declaration.at().clone(),
                 name: Some(declaration.name().into()),
                 args: vec![],
@@ -414,7 +414,7 @@ impl Lower<'_> {
             Expression::Type(ty) => ty.resolve(self.aliases),
             Expression::GenericValue(name, args) if self.aliases.data.contains(name) => TypeRef {
                 concrete: None,
-                parameter: false,
+                metadata: None,
                 at: base.at.clone(),
                 name: Some(name.clone()),
                 args: args.clone(),

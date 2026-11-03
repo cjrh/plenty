@@ -945,15 +945,15 @@ fn bind_mount_alias_of_source_descendant_reports_partial_overlap_without_recursi
 fn budgets_above_the_ceiling_trap() {
     for (body, message) in [
         (
-            "    prefix = path.from_text(\"random-\")?\n    drop(fs.temporary_dir(&parent, &prefix, 1025))",
+            "    prefix = path.from_text(\"random-\")?\n    drop(fs.temporary_dir(&parent, &prefix, Positive.try_from(1025).unwrap()))",
             "std.fs.temporary_dir: attempts is above 1024",
         ),
         (
-            "    name = path.from_text(\"tree\")?\n    cancel = CancellationToken()?\n    drop(fs.remove_tree(&parent, &name, 10, 65, &cancel))",
+            "    name = path.from_text(\"tree\")?\n    cancel = CancellationToken()?\n    drop(fs.remove_tree(&parent, &name, 10, Positive.try_from(65).unwrap(), &cancel))",
             "std.fs.remove_tree: max_depth is above 64",
         ),
         (
-            "    name = path.from_text(\"owned\")?\n    mut owned = fs.temporary_dir_named(&parent, &name)?\n    cancel = CancellationToken()?\n    drop(owned.cleanup_tree(10, 65, &cancel))",
+            "    name = path.from_text(\"owned\")?\n    mut owned = fs.temporary_dir_named(&parent, &name)?\n    cancel = CancellationToken()?\n    drop(owned.cleanup_tree(10, Positive.try_from(65).unwrap(), &cancel))",
             "TempDir.cleanup_tree: max_depth is above 64",
         ),
     ] {

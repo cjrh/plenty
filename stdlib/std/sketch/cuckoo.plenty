@@ -161,7 +161,7 @@ def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old:
         set_slot(current, path[step], old[step])
     False
 
-pub def cuckoo(initial_buckets: i64 = 64, max_buckets: Positive[i64] = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]:
+pub def cuckoo(initial_buckets: i64 = 64, max_buckets: Positive[i64] __max(16777216) = 1048576, seed: u64 = 0u64) -> Result[CuckooFilter, SketchError]:
     if max_buckets.get() > bucket_limit:
         __trap("std.sketch.cuckoo.cuckoo: max_buckets is above 16777216")
     layered(initial_buckets, max_buckets.get(), seed)
@@ -191,7 +191,7 @@ def read_word(data: &[u8], offset: i64) -> u64:
         result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
-pub def from_bytes(data: &[u8], max_buckets: Positive[i64]) -> Result[CuckooFilter, SketchError]:
+pub def from_bytes(data: &[u8], max_buckets: Positive[i64] __max(16777216)) -> Result[CuckooFilter, SketchError]:
     if max_buckets.get() > bucket_limit:
         __trap("std.sketch.cuckoo.from_bytes: max_buckets is above 16777216")
     if len(data) < 44:

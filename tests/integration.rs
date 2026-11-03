@@ -686,3 +686,6 @@ mod test_worker_callables;
 
 #[path = "test_domain_types.rs"]
 mod test_domain_types;
+
+#[path = "test_std_ceilings.rs"]
+mod test_std_ceilings;

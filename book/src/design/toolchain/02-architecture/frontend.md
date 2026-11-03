@@ -128,6 +128,35 @@ move or loan rules. A generic instance also records the use that first required
 it, so that lowering and ownership errors in its body are
 [reported at that use](../../language/07-generics/index.md#diagnostics-from-instances).
 
+## Std ceiling checking
+
+`frontend/ceilings.rs` checks fixed upper bounds without introducing value
+generics or another integer type. Embedded std source can append
+`__max(1024)` to a parameter or field declared `Positive[i64]` or
+`NonNegative[i64]`. The decimal non-negative bound is metadata on its
+`TypeRef`; resolved types, layout, equality and callable signatures are
+unchanged. The marker is rejected in user declarations and is hidden in public
+editor signatures and the generated std signature index.
+
+Direct function, method and generated class-constructor calls check their
+supplied arguments before named/default wrappers replace expressions with local
+names. Defaults are checked at their declaration. Direct field assignments and
+`replace(owner.field, value)` use the same check, including through borrowed or
+boxed owners. The module-constant evaluator handles literals, module constants
+(including integer-domain constants), and supported constant operators/casts.
+Ordinary local bindings, arbitrary function calls and explicit fallible domain
+conversions are not constant evaluation. Indirect callable invocations and
+writes through a separately borrowed field do not retain this metadata.
+Existing std runtime guards cover values that reach operations through those
+paths; this mechanism does not claim a proof-carrying bounded integer type.
+
+The annotations cover the fixed ceilings enforced by the std limit-domain
+migration: format/JSON/TOML/XML/template/regex nesting, fs/tempfile cleanup depth
+and attempts, sketch construction limits, unicode scalar limits, JWT token size,
+HKDF output size, image dimensions, actor heaps and procfs read sizes. Decoded sketch
+`max_capacity` has no ceiling. General bounded integers and lower bounds above
+one remain [B96](../../../backlog.md).
+
 ## Embedding APIs
 
 Source-string checking and compilation accept Plenty source and reject imports.

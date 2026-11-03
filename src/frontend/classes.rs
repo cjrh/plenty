@@ -110,7 +110,7 @@ impl Parser {
                     return Err(at.error("lifecycle names must declare methods"));
                 }
                 self.expect(":")?;
-                let ty = self.ty()?;
+                let ty = self.limited_type()?;
                 self.kind(Kind::Newline, "the end of the field declaration")?;
                 fields.push((field.clone(), ty));
                 field
@@ -258,7 +258,7 @@ const COPY_FIELDS: &str = "every field of a `@copy` class must copy: a scalar, `
 fn type_ref(at: &Token, name: &str) -> TypeRef {
     TypeRef {
         concrete: None,
-        parameter: false,
+        metadata: None,
         at: at.clone(),
         name: Some(name.into()),
         args: vec![],
@@ -294,7 +294,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 "self".into(),
                 TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at: at.clone(),
                     name: Some("&mut".into()),
                     args: vec![type_ref(at, &class.name)],
@@ -333,7 +333,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 defaults: vec![],
                 output: TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at: at.clone(),
                     name: None,
                     args: vec![],
@@ -400,7 +400,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             let output = if fallible {
                 TypeRef {
                     concrete: None,
-                    parameter: false,
+                    metadata: None,
                     at: at.clone(),
                     name: Some("Result".into()),
                     args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
@@ -1094,6 +1094,7 @@ impl Lower<'_> {
         assigns: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, u8, usize)> {
+        self.check_field_ceiling(target, value)?;
         let ty = self
             .place_type(target)
             .ok_or_else(|| target.at.error(unnamed))?;

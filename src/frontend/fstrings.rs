@@ -701,7 +701,7 @@ fn statement(value: Expr) -> Stmt {
 fn type_ref(at: &Token, name: &str, args: Vec<TypeRef>) -> TypeRef {
     TypeRef {
         concrete: None,
-        parameter: false,
+        metadata: None,
         at: at.clone(),
         name: Some(name.into()),
         args,
@@ -966,7 +966,7 @@ fn method_function(symbol: &str, method_name: &str, write: bool, at: &Token) -> 
         body.push(statement(name(at, RESULT)));
         TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: None,
             args: vec![],
@@ -1779,7 +1779,7 @@ fn format_function(
     let output = if write {
         TypeRef {
             concrete: None,
-            parameter: false,
+            metadata: None,
             at: at.clone(),
             name: None,
             args: vec![],
