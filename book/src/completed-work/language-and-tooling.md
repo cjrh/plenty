@@ -143,6 +143,15 @@ reserves only additional bytes (issue #704), with zero-allocation spare-capacity
 and failed-mutation tests in debug and optimized output. Existing allocation
 causes remain intact. The process and readiness suites pass; incremental decoder
 parity tests pass apart from the still-unmigrated actor integration.
+
+Typed HTTP framing and client arithmetic now preserve existing typed transport
+causes and progress. Complete chunk wire extents are checked before delivery;
+representation failure is OutOfRange, separate from invalid transport counts.
+Boundary tests use an affine cause type without constructing huge buffers and
+verify allocation-free arithmetic in debug and optimized output. Client
+deadline saturation, bounded counters and callback independence are explicit.
+The I/O range integration and typed composition/prototype examples pass;
+server-dependent client and TLS-dependent network checks remain outstanding.
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

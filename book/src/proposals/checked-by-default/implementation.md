@@ -23,7 +23,8 @@ local arithmetic suite passes.
 The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env`,
 `std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`,
-`std.test`, `std.url`, `std.process` and `std.http.decoder`. Logging's bounded
+`std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
+and `std.http.client`. Logging's bounded
 timestamp/line-buffer arithmetic is also adapted; its generic running statistics are not yet migrated.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
@@ -42,7 +43,10 @@ Counter exhaustion in the stream protocol maps to OutOfRange before mutation.
 URL expansion and process extents check representation limits before allocating
 or consuming another chunk. Process argument encoding reserves additional bytes
 without counting held bytes twice (issue #704). Incremental decoder counters are
-bounded by its per-feed, line, head and body limits. No blanket `unchecked:`
+bounded by its per-feed, line, head and body limits. Typed chunk writers
+preflight the complete wire extent before delivery, preserving progress and
+transport causes. Client callbacks retain their own contracts; deadline
+saturation and bounded pool/retry/body arithmetic are explicit. No blanket `unchecked:`
 conversion was applied.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
