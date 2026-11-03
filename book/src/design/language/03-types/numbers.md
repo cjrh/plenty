@@ -73,11 +73,12 @@ and `-0u8` report unsigned negation, as does `value: u8 = -0` when the literal
 gets its type from context. Signed minimum literals such as `-128i8` remain
 valid, and floating-point negative zero is preserved.
 
-Integer arithmetic overflow and division by zero are runtime errors that
-[report their source position](../08-errors/02-allocation-and-traps.md), unless
-the arithmetic is written inside a [`checked:` block](#checked-blocks). `//` floors
-
-signed quotients, including negative operands; `%` is integer-only. `/` accepts
+Integer arithmetic failures return `Err` from the enclosing function by
+default. Its declared `Result` error type must include the possible errors;
+successful arithmetic still produces ordinary integers. Use an explicit
+[`checked:` block](#checked-blocks) for local recovery, or
+[`unchecked:`](#unchecked-blocks) for deliberate process termination.
+`//` floors signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
 
@@ -117,6 +118,61 @@ For scalar floats, NaN is
 unequal to every value, including itself, and all ordered comparisons with it are
 false. These rules also apply to structural equality and membership. Floats cannot
 be dictionary keys or set elements.
+
+## Function arithmetic contracts
+
+```plenty
+def scale(value: i64, factor: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * factor)
+
+def main() -> Result[(), IoError]:
+    print(scale(3, 4).unwrap(), scale(i64.MAX, 2).is_err())?
+    Ok(())
+```
+```output
+12 True
+```
+
+Each named or anonymous function has its own boundary, independent of its
+definition or call site. The declared error type must contain every escaping
+arithmetic error; a plain or `Option` return cannot implicitly propagate them.
+Explicit `Ok`, `Err`, returns and `?` keep their ordinary meaning. Operators
+do not produce individual `Result` wrappers or implicitly unwrap calls.
+
+The operation/error table under [checked blocks](#checked-blocks) also applies
+to the function default. Error contracts follow operators and operand types,
+not range analysis. Locally handled errors do not have to appear in the
+function's error type. Generators cannot propagate function-level arithmetic
+errors: handle a local checked result or explicitly opt out.
+
+> Adoption is incomplete: the compiler implements this boundary, but the
+> coordinated std API, callback-consumer and repository example migration in
+> [B14](../../../backlog.md) is still outstanding. Some existing std
+> specializations and examples therefore fail to type-check.
+
+## Unchecked blocks
+
+`unchecked:` selects trapping arithmetic for its lexical suite. It yields
+the last expression's ordinary type, without wrapping or unwrapping a
+`Result`. It is also allowed as a statement suite, including an empty
+`pass` suite and suites whose paths exit. Locals remain block scoped and
+reference-valued suites are not supported.
+
+```plenty fragment
+def scale_or_terminate(value: i64, factor: i64) -> i64:
+    unchecked:
+        value * factor
+```
+
+Overflow and division by zero terminate the process, including in optimized
+builds; they never wrap silently or reach an outer checked boundary.
+Nested `checked:` restores local recoverability; leaving either suite restores
+the outer mode. Calls still return their declared results, and `?`, `return`,
+`break` and `continue` keep their ordinary targets.
+
+`unchecked` is contextual: only a colon followed by a newline opens a suite;
+`unchecked: i64 = 0` remains a typed binding. Suites support binding,
+assignment, return, function-tail and match-arm-tail value positions.
 
 ## Checked blocks
 
@@ -161,7 +217,9 @@ def halve_sum(a: i64, b: i64) -> i64:
         case Ok(half):
             half
         case Err(OverflowError(wrapped)):
-            wrapped // 2
+            # The recovery computation has its own arithmetic contract.
+            unchecked:
+                wrapped // 2
         case Err(ZeroDivisionError()):
             0
 ```
@@ -173,31 +231,21 @@ code generator omits the branches a constant divisor rules out. A declared
 be the body of a function that returns `Result[i64, OverflowError[i64] |
 ParseError]`.
 
-The rule is lexical. Arithmetic written in the block's suite or in a closure
-created there is checked, including compound assignment such as `x += 1`,
-element updates such as `items[i] += 1`, comprehensions, and operators that
-[`@newtype` classes](../04-expressions/operators.md#newtype-forwarding) forward to their field, which
-report `OverflowError` of the field type. A stored closure, a literal callback,
-and a closure whose body contains `match` behave alike. A failure leaves the
-innermost active block, including when a generic helper calls the closure
-through `&f` or `&mut f`. Nested blocks catch at the innermost block.
+The rule is lexical within one function. Compound assignment such as
+`x += 1`, comprehensions, and operators that
+[`@newtype` classes](../04-expressions/operators.md#newtype-forwarding)
+forward to their field report the field's arithmetic error types. The nearest
+explicit arithmetic mode controls failure routing.
 
-A named function or a closure defined outside the block keeps its own
-signature and behavior: it may trap, or return a `Result` handled with
-`match` or `?`. Builtin reductions such as pipeline `sum()` also keep trapping;
-use `fold` with a closure defined in the block for a checked sum.
+Functions and closures defined inside the block keep their own declared
+contracts. There is no private callback error channel or checked-block lifetime
+restriction; ordinary ownership and borrow restrictions still apply. A callee's
+`Result` requires explicit handling, and `?` exits the function rather than
+being caught by the block.
 
-A closure created inside `checked:` must stay there. It cannot be returned,
-be the block's result, be assigned into an outer binding, or be stored in a
-collection, field, `BoxedCallable`, `Shared`, channel, generator, or worker
-job. Define a closure outside the block when it must escape. Local bindings,
-direct calls, pipeline callbacks, and synchronous generic callback helpers
-borrowing `&f` or `&mut f` are allowed. Let these bindings infer their closure
-type; a thin `Callable[...]` annotation would erase the private checked error
-channel and is rejected. Generic `F: Callable[...]` callback bounds retain it.
-A key sort that fails stops calling the
-key callback and reports the error after its safe row moves finish; the list
-may already have been reordered.
+Std reductions and callback consumers still require their coordinated B14
+migration. Do not assume a call inherits local checking or that an infallible
+callback signature can accept recoverable arithmetic.
 
 Control flow is otherwise unchanged. `?` inside the block exits the function,
 and `return`, `break` and `continue` behave as they do outside it. A failure
@@ -218,9 +266,9 @@ compile-time error. Arithmetic in a block is evaluated at run time even when
 its operands are constants, so `checked:` around `i8.MAX + 1i8` produces
 `Err(OverflowError[i8](wrapped=-128))`.
 
-Arithmetic outside a block compiles exactly as before: plain types and an
-inline check that traps. A block's operations compute the wrapped result and a
-failure flag, then branch to a cold exit path; see the
+Arithmetic uses plain values and a shared cold error exit at its nearest
+recoverable boundary. An `unchecked:` operation uses an inline trap guard
+instead; it is not a promise of check-free arithmetic or greater speed. See the
 [design note](../../../proposals/completed/checked-arithmetic.md).
 
 ## Nonzero integers
@@ -269,8 +317,9 @@ key and set element.
 Arithmetic keeps a result nonzero only where that follows from nonzero
 operands. Unary `-` and `+`, and `*` between two `NonZero[T]` values, return
 `NonZero[T]`; `*=` updates one. `+` and `-` between two values return `T`,
-since their result can be zero. Overflow traps, or is an `Err` in a
-[`checked:` block](#checked-blocks), so a product cannot wrap to zero. Other
+since their result can be zero. Overflow returns `Err` at the nearest
+recoverable boundary, or traps in [unchecked blocks](#unchecked-blocks),
+so a product cannot wrap to zero. Other
 operators between two `NonZero` values, including `//`, `%`, bitwise operators,
 and shifts, are compile-time errors that suggest `.get()`. An integer literal beside a `NonZero[T]` operand
 is a `NonZero[T]` too: `step * 2` is a `NonZero[i64]`, and `step == 0` is a
@@ -330,8 +379,8 @@ True
 ```
 
 `+`, `*`, `+=` and `*=` preserve the domain; subtraction and unary `-`
-return `T`, and unary `+` preserves it. Overflow traps or returns `Err` in
-[checked blocks](#checked-blocks), so the domain cannot be violated by
+return `T`, and unary `+` preserves it. Overflow returns `Err` by default
+or traps in [unchecked blocks](#unchecked-blocks), so the domain cannot be violated by
 wrapping. Comparisons accept the same domain type or a literal in its domain.
 Other operators between domain values, including division, modulo, bitwise
 operations and shifts, require `.get()`.

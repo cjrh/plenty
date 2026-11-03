@@ -250,6 +250,16 @@ fn body(ops: &[Op], caller: Option<&CompiledFn>, sigs: &Signatures<'_>) -> Optio
                 })
             }
 
+            Op::CheckedFunction {
+                body: nested,
+                result,
+            } => {
+                let body = shared(nested, caller, sigs, &mut changed);
+                changed.then_some(Op::CheckedFunction {
+                    body,
+                    result: result.clone(),
+                })
+            }
             Op::If {
                 then,
                 elifs,

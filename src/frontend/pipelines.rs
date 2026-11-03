@@ -1242,9 +1242,7 @@ impl Lower<'_> {
             return Ok(Callback::Value(callback.clone()));
         }
         let ty = if let Expression::Anonymous(function) = &ungroup(callback).kind {
-            if !self.lexical_checked()
-                && let Some(body) = splice::spliceable(function, &self.names)
-            {
+            if let Some(body) = splice::spliceable(function, &self.names) {
                 return self.splice_callback(function, body, &callback.at, ops);
             }
             self.closure_value(function, &callback.at, ops)?

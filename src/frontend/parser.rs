@@ -1239,12 +1239,11 @@ impl Parser {
         Ok(Stmt { at, kind })
     }
     /// The value that ends a binding, an assignment, or a `return`: an
-    /// expression, or a value-producing `if`/`match`/`checked` block.
-    /// `checked:` followed by a newline starts a `checked:` block; `checked`
-    /// is otherwise an ordinary name, so `checked: i64 = 0` still declares
-    /// one.
+    /// expression, or a value-producing `if`/`match`/arithmetic-mode block.
+    /// Arithmetic mode names are contextual: only a colon followed by a
+    /// newline opens a suite; `unchecked: i64 = 0` still declares a name.
     fn checked_block(&self) -> bool {
-        self.peek().is("checked")
+        (self.peek().is("checked") || self.peek().is("unchecked"))
             && self.tokens.get(self.pos + 1).is_some_and(|t| t.is(":"))
             && self
                 .tokens

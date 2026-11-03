@@ -8,13 +8,14 @@
 //! branching, then branches on each flag that is not known to be false to a
 //! cold block. That block builds the error, releases the block's
 //! temporaries and locals, and jumps to the block's exit with the `Err`.
-//! The normal path wraps the body's value in `Ok` and jumps to the same exit.
+//! Explicit blocks wrap the successful value in `Ok`; function boundaries
+//! pass the declared Result through unchanged. Both join the same cold exits.
 use super::*;
 use crate::numeric::Checked;
 use crate::sum::EnumOp;
 use cranelift_codegen::ir::Value as NativeValue;
 
-/// The innermost `checked:` block that failing arithmetic exits.
+/// The innermost local or function boundary that failing arithmetic exits.
 pub(super) struct Target {
     /// Takes the block's `Result` as its parameter.
     exit: Block,
@@ -26,16 +27,6 @@ pub(super) struct Target {
 }
 
 impl Lowerer<'_, '_> {
-    pub(super) fn wrap_checked_return(&mut self) -> Result<()> {
-        if let Some(Ty::Enum(result)) = self.checked_function.clone() {
-            if result.get().variants[0].fields[0] == Ty::Unit {
-                self.lower(&Op::PushUnit)?;
-            }
-            self.lower_enum(&EnumOp::New(result, 0))?;
-        }
-        Ok(())
-    }
-
     pub(super) fn lower_checked_unwrap(&mut self, result: &Ty, cleanup: &[Op]) -> Result<()> {
         let Ty::Enum(source) = result else {
             return Err("AOT: checked call must return Result".into());
@@ -84,7 +75,12 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    pub(super) fn lower_checked_block(&mut self, body: &[Op], result: &Ty) -> Result<()> {
+    pub(super) fn lower_checked_block(
+        &mut self,
+        body: &[Op],
+        result: &Ty,
+        function: bool,
+    ) -> Result<()> {
         let Ty::Enum(sum) = result else {
             return Err("AOT: a checked block must produce a Result".into());
         };
@@ -104,10 +100,12 @@ impl Lowerer<'_, '_> {
         }
         self.checked_targets.pop();
         if !self.terminated {
-            if sum.get().variants[0].fields[0] == Ty::Unit {
-                self.lower(&Op::PushUnit)?;
+            if !function {
+                if sum.get().variants[0].fields[0] == Ty::Unit {
+                    self.lower(&Op::PushUnit)?;
+                }
+                self.lower_enum(&EnumOp::New(sum.clone(), 0))?;
             }
-            self.lower_enum(&EnumOp::New(sum.clone(), 0))?;
             let (ok, _) = self.stack.pop().ok_or("AOT: missing checked block value")?;
             self.bcx.ins().jump(exit, &[BlockArg::Value(ok)]);
         }

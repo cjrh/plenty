@@ -78,6 +78,15 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
     let free = |name: &String| bound.contains(name) || !enclosing.contains_key(name);
     let all = |values: &[Expr]| values.iter().all(|v| plain(v, bound, enclosing));
     match &e.kind {
+        // Arithmetic must validate and leave the callback's own boundary,
+        // never the lexical mode at the consumer.
+        Expression::Unary(operator, _) if operator == "-" => false,
+        Expression::Binary(operator, _, _)
+            if matches!(operator.as_str(), "+" | "-" | "*" | "//" | "%") =>
+        {
+            false
+        }
+        Expression::Method(_, name, _, _) if name == "pow" => false,
         Expression::Try(_)
         | Expression::Anonymous(_)
         | Expression::Match(..)

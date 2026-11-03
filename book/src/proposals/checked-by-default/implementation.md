@@ -1,9 +1,29 @@
 # Checked defaults: implementation and validation
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
-> **Not implemented.** This is a feasibility assessment and proposed acceptance
-> contract, not benchmark evidence. Scheduling stays in **B14** in the
-> [backlog](../../backlog.md).
+> **Compiler core implemented; adoption incomplete.** The acceptance contract
+> below is not yet satisfied. Remaining work stays in **B14** in the
+> [backlog](../../backlog.md); this page contains no performance evidence.
+
+## Current implementation
+
+Function bodies collect arithmetic failures against their declared public
+`Result` type, without changing successful return rules. `unchecked:` selects
+trapping operators and leaves suite values unwrapped. Nested functions no
+longer inherit a private callback effect. Generator arithmetic receives a
+targeted diagnostic; ordinary native tail returns remain supported.
+
+`tests/test_checked_defaults.rs` exercises the new contracts, all eight
+integer widths, nesting, callbacks, cleanup, skipped compound writes, generators
+and tail recursion. Existing arithmetic tests still include retired private
+callback contracts and unconverted trapping functions. Std implementations,
+callback-consumer APIs and most examples have not been migrated; some now fail
+to type-check. No blanket `unchecked:` conversion was applied.
+
+The compiler core is therefore an incomplete implementation, not an adoption
+milestone. Remaining repository migration, full-suite validation, native
+arithmetic audits, private-channel dead-code removal and performance measurements
+are still required.
 
 ## Reuse and limits
 
@@ -25,7 +45,7 @@ tail calls need auditing.
 The whole change is **not** a small default toggle. Most arithmetic-bearing
 functions currently declare plain returns, and generic/protocol bodies,
 callbacks, generators, runtime helpers and std signatures depend on that.
-No implementation or timing experiment has been performed for this proposal.
+The core implementation reuses these paths; no timing experiment has been performed.
 
 ## Functions and callbacks
 

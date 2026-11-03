@@ -1474,7 +1474,7 @@ impl Lower<'_> {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
             Expression::Anonymous(function) => {
-                if function.once || !function.captures.is_empty() || self.lexical_checked() {
+                if function.once || !function.captures.is_empty() {
                     return self.closure_value(function, &e.at, ops).map(Some);
                 }
                 let mut function = (**function).clone();
@@ -2954,11 +2954,7 @@ impl Lower<'_> {
         {
             returned.extend(returned_loan.map(Op::UseLoan));
             self.finish_tail_temporaries(temporary_start, &mut returned);
-            if self.checked.first().is_some_and(|scope| scope.function) {
-                returned.push(Op::Return);
-            } else {
-                finish_return(&mut returned);
-            }
+            finish_return(&mut returned);
         } else {
             self.finish_temporaries(temporary_start, &mut returned);
             self.leaving(0, &mut returned);
@@ -3222,6 +3218,13 @@ impl Lower<'_> {
                     self.trap_statement(args, at, ops)?;
                     return exited_block(body, i);
                 }
+                Statement::Expr(Expr {
+                    at,
+                    kind: Expression::Checked(suite),
+                }) if at.is("unchecked") => match self.unchecked_suite(at, suite, tail, ops)? {
+                    BlockResult::Continues(ty) => ty,
+                    BlockResult::Exits => return exited_block(body, i),
+                },
                 Statement::Expr(e) if matches!(tail, Tail::Return) => {
                     self.return_statement(Some(e), &e.at, temporary_start, ops)?;
                     return exited_block(body, i);
@@ -4485,17 +4488,12 @@ fn lower_body(
             (sig, yield_type, lower, body, lent_exit)
         }
     );
-    let lexical = lower.generics.checked_closures.contains(&f.name);
-    let failures = checked::input_errors(&sig.inputs);
-    let effectful = lexical || !failures.is_empty();
-    if effectful {
-        lower.checked.push(checked::Scope {
-            start: 0,
-            function: true,
-            arithmetic: lexical,
-            failures,
-        });
-    }
+    lower.checked.push(checked::Scope {
+        start: 0,
+        function: true,
+        arithmetic: true,
+        failures: Vec::new(),
+    });
     let lowered = crate::profile_block!(
         "frontend::lower_function_body",
         lower.block(
@@ -4582,27 +4580,20 @@ fn lower_body(
             )
             .map_err(|message| f.at.error(message))?;
         }
-        if effectful {
-            let scope = lower.checked.pop().expect("function effect scope");
-            if !scope.failures.is_empty() {
-                let error = crate::sum::anonymous(scope.failures);
-                lower
-                    .generics
-                    .checked_errors
-                    .insert(f.name.clone(), error.clone());
-                let result =
-                    crate::sum::result(sig.outputs.first().cloned().unwrap_or(Ty::Unit), error);
-                sig = Arc::new(FnSig {
-                    inputs: sig.inputs.clone(),
-                    outputs: vec![result.clone()],
-                });
-                body = vec![Op::CheckedFunction {
-                    body: body.into(),
-                    result,
-                }];
-            }
-        } else if yield_type.is_none() {
+        if yield_type.is_none() {
             mark_tail_calls(&mut body);
+        }
+        let scope = lower.checked.pop().expect("function arithmetic scope");
+        if !scope.failures.is_empty() {
+            let result = sig
+                .outputs
+                .first()
+                .cloned()
+                .expect("validated Result return");
+            body = vec![Op::CheckedFunction {
+                body: body.into(),
+                result,
+            }];
         }
         // A declaration's borrowed address has one immutable slot per function.
         // Initialize it at entry so a first borrow inside a branch dominates later uses.

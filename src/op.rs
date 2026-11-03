@@ -1112,8 +1112,8 @@ pub enum Op {
         body: Arc<[Op]>,
         result: Ty,
     },
-    /// Internal Result ABI for a specialization using a lexically checked
-    /// callback. Source returns still return the declared (logical) type.
+    /// Function arithmetic boundary using its declared public Result ABI.
+    /// Success values and explicit returns are already ordinary Results.
     CheckedFunction {
         body: Arc<[Op]>,
         result: Ty,

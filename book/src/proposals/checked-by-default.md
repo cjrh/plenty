@@ -1,10 +1,11 @@
 # Checked arithmetic by default
 
-> **Status: Not implemented; proposed for discussion.** Today arithmetic outside
-> [`checked:`](../design/language/03-types/numbers.md#checked-blocks) traps.
-> This proposal makes its recoverable arithmetic behavior the function default
-> and introduces `unchecked:` as an explicit opt-out. Implementation remains under **B14** in the [backlog](../backlog.md).
-> All examples here describe proposed behavior.
+> **Status: Compiler core implemented; coordinated adoption incomplete.**
+> Function-level arithmetic boundaries, lexical `unchecked:`, and independent
+> closure contracts are implemented on this branch. Std APIs, callback consumers,
+> existing tests/examples, remaining documentation and acceptance measurements
+> still need coordinated migration under **B14** in the [backlog](../backlog.md).
+> This is not yet a complete implementation of the proposal.
 
 ## Recommendation
 

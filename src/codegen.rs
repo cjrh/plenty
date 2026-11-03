@@ -1898,7 +1898,6 @@ fn build_user_function(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
-            checked_function: None,
             generator: None,
             local_frame,
             return_storage,
@@ -2024,7 +2023,6 @@ fn build_main(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
-            checked_function: None,
             generator: None,
             local_frame: None,
             return_storage: None,
@@ -2197,7 +2195,6 @@ struct Lowerer<'a, 'b> {
     /// The last entry is the innermost `checked:` block: its exit, which
     /// takes the block's `Result`, and the stack depth at its start.
     checked_targets: Vec<checked::Target>,
-    checked_function: Option<Ty>,
     generator: Option<GeneratorContext>,
     local_frame: Option<LocalFrame>,
     return_storage: Option<cranelift_codegen::ir::Value>,
@@ -2454,12 +2451,8 @@ impl Lowerer<'_, '_> {
                 target,
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
-            Op::CheckedBlock { body, result } => self.lower_checked_block(body, result)?,
-            Op::CheckedFunction { body, result } => {
-                let outer = self.checked_function.replace(result.clone());
-                self.lower_checked_block(body, result)?;
-                self.checked_function = outer;
-            }
+            Op::CheckedBlock { body, result } => self.lower_checked_block(body, result, false)?,
+            Op::CheckedFunction { body, result } => self.lower_checked_block(body, result, true)?,
             Op::CheckedUnwrap { result, cleanup } => self.lower_checked_unwrap(result, cleanup)?,
             Op::CheckedArith {
                 operation,
@@ -2752,7 +2745,6 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
-                self.wrap_checked_return()?;
                 self.leave(self.stack.clone(), &Arc::from([]))?;
                 self.terminated = true;
             }

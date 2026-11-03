@@ -582,12 +582,10 @@ fn step(
             let Ty::Enum(sum) = result else {
                 return Err("checked function must return Result".into());
             };
-            let output = sum.get().variants[0].fields[0].clone();
-            let logical = if output == Ty::Unit {
-                Vec::new()
-            } else {
-                vec![output.clone()]
-            };
+            if !sum.is_result() {
+                return Err("checked function must return Result".into());
+            }
+            let logical = vec![result.clone()];
             let base = stack.len();
             let flow = check_sequence(
                 body,
@@ -601,8 +599,8 @@ fn step(
             if flow == Flow::Exits {
                 stack.truncate(base);
             }
-            if flow == Flow::Continues && output != Ty::Unit && stack.pop() != Some(output) {
-                return Err("checked function must leave its success value".into());
+            if flow == Flow::Continues && stack.pop().as_ref() != Some(result) {
+                return Err("checked function must leave its declared Result".into());
             }
             stack.push(result.clone());
         }

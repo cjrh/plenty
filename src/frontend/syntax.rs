@@ -205,6 +205,7 @@ pub(super) enum Expression {
     /// A `checked:` block, accepted where a `match` block is. Its value is
     /// `Ok` of its final expression, or `Err` of the first arithmetic error
     /// written inside it.
+    /// Arithmetic suite; the starting token selects checked or unchecked.
     Checked(Vec<Stmt>),
     /// One conditional statement used as a whole statement value; retaining
     /// its suites shares branch joins, lazy tests, and cleanup with tail `if`.

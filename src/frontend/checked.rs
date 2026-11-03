@@ -1,20 +1,19 @@
-//! `checked:` blocks. Integer `+ - * // %`, unary `-` and `pow` written
-//! inside one exit the block with `Err` instead of trapping; the block's
-//! value is `Result[T, E]`, where `E` holds the failures its arithmetic can
-//! produce. Closure bodies defined there inherit checking; other calls keep
-//! their signatures. A private Result ABI carries lexical callback failures. See
+//! Recoverable integer arithmetic uses each function's declared Result.
+//! Explicit `checked:` suites collect local errors; `unchecked:` suites
+//! select trapping operations. Nested functions always keep their own contracts.
+//! See
 //! `book/src/design/language/03-types/numbers.md#checked-blocks`.
 use super::*;
 use crate::numeric::Checked;
 
-/// One enclosing `checked:` block.
+/// The nearest lexical arithmetic mode and its failure boundary.
 pub(super) struct Scope {
     /// The first local the block declares; a failure drops it and every
     /// later local.
     pub(super) start: usize,
-    /// Source returns must pass through this function's private Result ABI.
+    /// Failures return the function's declared public Result.
     pub(super) function: bool,
-    /// A borrower forwards failures but must not check its own arithmetic.
+    /// False selects trapping operators without searching outer scopes.
     pub(super) arithmetic: bool,
     /// The errors the block's arithmetic can produce, in source order.
     pub(super) failures: Vec<Ty>,
@@ -135,10 +134,6 @@ impl Lower<'_> {
         Ok(())
     }
 
-    pub(super) fn lexical_checked(&self) -> bool {
-        self.checked.last().is_some_and(|scope| scope.arithmetic)
-    }
-
     /// Unwrap the private failure channel at a call boundary. The callback's
     /// declared Result, if any, is the success payload and remains untouched.
     pub(super) fn checked_call(
@@ -195,6 +190,12 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if at.is("unchecked") {
+            return match self.unchecked_suite(at, body, &Tail::Value(expected), ops)? {
+                BlockResult::Continues(ty) => Ok(ty),
+                BlockResult::Exits => Err(at.error("every path through this `unchecked:` block exits, so it has no value; write it as a statement")),
+            };
+        }
         let declared = match &expected {
             Some(Ty::Enum(result)) if result.is_result() => Some(result.clone()),
             _ => None,
@@ -250,9 +251,36 @@ impl Lower<'_> {
         Ok(Some(result))
     }
 
-    /// Push `operation` on two operands of type `ty` if a `checked:` block
-    /// encloses it, recording the errors it can produce. False outside a
-    /// block, where the caller pushes the trapping operator.
+    pub(super) fn unchecked_suite(
+        &mut self,
+        at: &Token,
+        body: &[Stmt],
+        tail: &Tail,
+        ops: &mut Vec<Op>,
+    ) -> Result<BlockResult> {
+        let saved = self.names.clone();
+        self.checked.push(Scope {
+            start: self.locals.len(),
+            function: false,
+            arithmetic: false,
+            failures: Vec::new(),
+        });
+        let outer = std::mem::replace(&mut self.checked_value_tail, false);
+        let result = self.block(body, ops, tail);
+        self.checked_value_tail = outer;
+        self.checked.pop().expect("unchecked scope");
+        self.names = saved;
+        if let Ok(BlockResult::Continues(Some(ty))) = &result
+            && ty.contains_reference()
+        {
+            return Err(at.error("an `unchecked:` block cannot produce a reference or a closure with borrowed captures; produce an owned value"));
+        }
+        result
+    }
+
+    /// Select recoverable arithmetic at the nearest boundary and record its
+    /// possible errors. False selects the ordinary operator in unchecked code
+    /// or when divisor proofs remove every failure.
     pub(super) fn checked_arith(
         &mut self,
         operation: Checked,
@@ -273,6 +301,26 @@ impl Lower<'_> {
         }
         if operation.overflows(ty) {
             failures.push(self.arithmetic_error("OverflowError", Some(ty), at)?);
+        }
+        if failures.is_empty() {
+            return Ok(false);
+        }
+        if scope.function {
+            if self.yield_type.is_some() {
+                return Err(at.error("a generator cannot propagate arithmetic errors; handle a local `checked:` result or use an explicit `unchecked:` suite"));
+            }
+            let declared = self.return_type.clone().flatten();
+            let error = match &declared {
+                Some(Ty::Enum(result)) if result.is_result() => {
+                    Some(&result.get().variants[1].fields[0])
+                }
+                _ => None,
+            };
+            for failure in &failures {
+                if !error.is_some_and(|error| crate::sum::accepts(error, failure)) {
+                    return Err(at.error(format!("arithmetic can fail with {failure}, which is not included in this function's return type {}; declare Result[_, {failure}], handle a local `checked:` result, or deliberately use `unchecked:`", declared.as_ref().map(ToString::to_string).unwrap_or_else(|| "()".into()))));
+                }
+            }
         }
         let mut cleanup = Vec::new();
         self.cleanup(start, &mut cleanup);
