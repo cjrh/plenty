@@ -70,7 +70,7 @@ from `main` on 2026-11-02.
 | Zero cost | One-field classes are represented as their field; operator hooks on a one-`f64` class compile to the same instructions as `a.x + b.x` ([operator lowering](../design/language/04-expressions/operators-implementation.md#bounded-optimization-and-evidence)) | Reference |
 | `Length * Length -> Area`, generically | **No.** Operator hooks cannot have type parameters, a class has one `__mul__` signature, and there are no associated types or type-level arithmetic | Spike 4 |
 | A domain inside a quantity | **Partly.** `@newtype` forwards `Positive + Positive` as `Positive`, but `Positive - Positive` returns a bare `i64`: the unit is lost | Spike 3 |
-| `Positive[f64]` | **No.** Integer domains take only signed integers (issue #700 records a wrong hint in that diagnostic) | Spike 5 |
+| `Positive[f64]` | **No.** Integer domains take only signed integers | Spike 5 |
 
 So a phantom-tag library can check additive code today, but multiplication
 and division, the core of dimensional analysis, need a language change.

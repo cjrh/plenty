@@ -139,7 +139,7 @@ error: s4b.plenty:7:5: operator hooks cannot have method type parameters, defaul
 
 ## Spike 5: No float domain
 
-`Positive[f64]` is rejected. The hint suggests `NonZero[f64]`, which is also rejected; recorded as issue #700.
+`Positive[f64]` is rejected. At the time of the spike the hint suggested `NonZero[f64]`, which is also rejected; issue #700, fixed by local PR #883.
 
 ```text
 # Positive over floats?
