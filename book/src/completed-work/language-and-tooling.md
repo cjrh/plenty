@@ -160,8 +160,12 @@ output progress remain intact. Unicode normalization arithmetic has explicit
 scalar-ceiling, successful-append and positive-index bounds. Both public APIs
 are unchanged. The component's 35 runtime-check tests pass on an isolated build
 target, including optimized/unoptimized boundaries and the Unicode normalization
-corpus; independent review found no defects. TOML, XML, CSV and regex remain
-part of the incomplete adoption scope.
+corpus; independent review found no defects. A separately reviewed TOML/regex
+checkpoint adds 40 passing component tests and preserves parse errors, document
+edit atomicity, regex work/memory limits and replacement error precedence.
+Public Match lengths now expose typed subtraction overflow; TOML location
+exhaustion uses InputTooLarge with unavailable zero coordinates at the valid
+offset. XML/CSV and broader adoption remain outstanding.
 
 The coordinated numerical, transport, server and actor checkpoint is integrated
 with independent source reviews. Ordinary integer SIMD operations return

@@ -2881,7 +2881,7 @@ def limits() -> Limits
 class Match
     start: i64
     end: i64
-    def len(self) -> i64
+    def len(self) -> Result[i64, OverflowError[i64]]
     def is_empty(self) -> bool
     def text(self, haystack: &str) -> Result[str, RegexError]
     def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]

@@ -26,7 +26,7 @@ The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
 and `std.http.client`, plus `std.json`, `std.unicode`, `std.complex`, `std.stat`,
 `std.linalg`, `std.simd`, `std.log`, `std.crypto`, `std.tls`, `std.uuid`,
-`std.jwt`, `std.http.server`, and actor core/TCP/TLS adapters.
+`std.jwt`, `std.http.server`, `std.toml`, `std.regex`, and actor core/TCP/TLS adapters.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -56,8 +56,14 @@ compaction preserves delivered progress without allocating. Unicode normalizatio
 uses explicit scalar-ceiling, successful-append and positive-index bounds. The
 JSON/Unicode component passed 35 isolated-target runtime-check tests, including
 debug/optimized representation boundaries and the Unicode normalization corpus,
-and received an independent source review. TOML, XML, CSV and regex remain
-outside that integrated checkpoint; this is not full formats acceptance.
+and received an independent source review. A separately reviewed TOML/regex
+checkpoint preserves parser faults, edit atomicity, regex work/memory limits
+and replacement validation order. Public mutable regex matches expose length
+subtraction as `Result[i64, OverflowError[i64]]`; unavailable TOML coordinates
+report InputTooLarge at the valid offset with zero line/column, following the
+user's explicit choices. Its 40 isolated-target tests pass, with six added
+boundary tests in both optimization modes. XML and CSV remain outstanding;
+this is not full formats acceptance.
 
 The reviewed numerical checkpoint preserves complex powers at `i64.MIN`, matrix
 shape/index invariants and statistical capacity causes. Ordinary integer SIMD
@@ -76,7 +82,7 @@ parent with both actor heaps reclaimed. Complete actor TLS, crypto, JWT, HTTPS
 and server/client tests pass after dependency integration. Combined targeted
 validation has 733 passes, two failures in unmigrated HTTP body/cookie, and one
 pre-existing ignored test. Two native-engine linalg test bodies remain unrun.
-The registry still reports 31 failing module analyses; broad tutorial validation
+The registry still reports 29 failing module analyses; broad tutorial validation
 remains incomplete. These results are not all-features or performance acceptance.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
