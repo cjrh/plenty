@@ -219,7 +219,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 
 | ID | Remaining work | Scope / dependency |
 | --- | --- | --- |
-| B97 | Units library and dimension-instance sharing | Add `std.units`, then measure sharing of instances that differ only in dimension. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics and native erasure with release instruction evidence are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design context is local proposal PR #882. |
+| B97 | Units library and dimension-instance sharing | Add `std.units`, then measure sharing of instances that differ only in dimension. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics and native erasure with release instruction evidence are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design: [units of measure proposal](proposals/units-of-measure.md). A `Positive[f64]` float domain is a separate follow-up. |
 
 ### Runtime-independent protocol support
 
