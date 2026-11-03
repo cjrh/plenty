@@ -143,7 +143,9 @@ supplied arguments before named/default wrappers replace expressions with local
 names. Defaults are checked at their declaration. Direct field assignments and
 `replace(owner.field, value)` use the same check, including through borrowed or
 boxed owners. The module-constant evaluator handles literals, module constants
-(including integer-domain constants), and supported constant operators/casts.
+(including integer-domain and Quantity constants), and supported constant
+operators/casts. Constant folding runs after type resolution so quantities
+retain normalized dimensions and storage types during evaluation.
 Ordinary local bindings, arbitrary function calls and explicit fallible domain
 conversions are not constant evaluation. Indirect callable invocations and
 writes through a separately borrowed field do not retain this metadata.

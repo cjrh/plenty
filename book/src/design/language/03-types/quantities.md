@@ -80,6 +80,47 @@ Inside `checked:`, failures remain `OverflowError[T]` and/or
 their underlying integer in `OverflowError`. Quantity construction and
 rewrapping do not change arithmetic policy.
 
+## Module constants
+
+Declare units and derived values with `const` or `pub const`. Use a concrete
+`Quantity[T, D]` annotation; dimension aliases may appear in `D`. Initializers
+can use the Quantity constructor, other constants (including imports and forward
+references), numeric casts of extracted values, quantity operators, `.get()`,
+and floating `.to(unit)`. The compiler evaluates them before generating code.
+
+```plenty
+dimension Length("m")
+dimension Time("s")
+const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+const kilometre: Quantity[f64, Length] = 1000.0 * metre
+const minute: Quantity[f64, Time] = 60.0 * Quantity[f64, Time](1.0)
+const speed: Quantity[f64, Length / Time] = kilometre / minute
+assert kilometre.to(metre) == 1000.0
+
+def main() -> Result[(), IoError | AllocError]:
+    print(kilometre)?
+    print(f"{speed:.2f}"?)?
+    Ok(())
+```
+```output
+1000.0 m
+16.67 m/s
+```
+
+Storage widths, dimensions and integer-domain results follow ordinary quantity
+arithmetic. A domain constructor accepts a valid literal or a value already in
+that domain. `p - p` still erases the storage domain, so a positive quantity
+cannot be declared from that subtraction. `.get()` on a domain-backed quantity
+returns the domain; call `.get().get()` to extract its plain integer.
+
+Integer overflow and division by zero are compile errors. Conditional and
+short-circuit expressions check both branches but evaluate only the selected
+branch. A dimension mismatch in a skipped branch is still an error. Constant
+cycles are rejected. User function calls, fallible conversions and formatting
+are not constant expressions; for a float storage conversion, write
+`Quantity[f32, D](f32(q.get()))`. See
+[module constants](../02-source/modules.md#constants) for the common rules.
+
 ## Formatting
 
 `print(q)` and `f"{q}"` show the coherent value followed by a space and the
@@ -132,6 +173,5 @@ remain in native code; identical instructions to plain-number programs are
 not yet guaranteed.
 
 Unit spellings live in static type metadata and compiled formatting calls, not
-in each value. Quantity module constants and alias-aware diagnostic spelling
-are not implemented. See the
+in each value. Alias-aware diagnostic spelling is not implemented. See the
 [remaining units work](../../../backlog.md#units-of-measure).

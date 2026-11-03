@@ -4737,6 +4737,7 @@ fn lower(
         inputs,
     } = resolved;
     let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =
         enums.into_iter().partition(|e| e.type_params.is_empty());

@@ -20,6 +20,40 @@ impl TypeAliases {
     }
 }
 
+/// Dimension rules shared by ordinary lowering and module-constant evaluation.
+pub(super) fn binary_dimension(
+    op: &str,
+    a: Option<&Dimension>,
+    b: Option<&Dimension>,
+    at: &Token,
+) -> Result<Dimension> {
+    let dimension = match (a, b) {
+        (Some(a), Some(b)) => match op {
+            "*" => a.product(b, false),
+            "/" | "//" => a.product(b, true),
+            "+" | "-" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                if a != b {
+                    return Err(at.error(format!("quantity `{op}` requires equal dimensions, not `{a}` and `{b}`")));
+                }
+                Ok(a.clone())
+            }
+            _ => return Err(at.error(format!("quantities do not support `{op}`"))),
+        },
+        (Some(d), None) | (None, Some(d)) => {
+            if !matches!(op, "*" | "/") {
+                return Err(at.error("scalars only scale quantities with `*` or `/`; addition, remainder and comparisons require quantities"));
+            }
+            if a.is_none() && op == "/" {
+                Dimension::default().product(d, true)
+            } else {
+                Ok(d.clone())
+            }
+        }
+        _ => unreachable!(),
+    }.map_err(|error| at.error(error.to_string()))?;
+    Ok(dimension)
+}
+
 fn field(value: &Expr, declared: &Token) -> Expr {
     Expr {
         at: declared.clone(),
@@ -77,30 +111,12 @@ impl Lower<'_> {
         if a.is_none() || b.is_none() {
             return self.retry_binary(op, left, right, at, ops).map(Some);
         }
-        let dimension = match (&qa, &qb) {
-            (Some((_, a, _)), Some((_, b, _))) => match op {
-                "*" => a.product(b, false),
-                "/" | "//" => a.product(b, true),
-                "+" | "-" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">=" => {
-                    if a != b {
-                        return Err(at.error(format!("quantity `{op}` requires equal dimensions, not `{a}` and `{b}`")));
-                    }
-                    Ok((**a).clone())
-                }
-                _ => return Err(at.error(format!("quantities do not support `{op}`"))),
-            },
-            (Some((_, d, _)), None) | (None, Some((_, d, _))) => {
-                if !matches!(op, "*" | "/") {
-                    return Err(at.error("scalars only scale quantities with `*` or `/`; addition, remainder and comparisons require quantities"));
-                }
-                if qa.is_none() && op == "/" {
-                    Dimension::default().product(d, true)
-                } else {
-                    Ok((**d).clone())
-                }
-            }
-            _ => unreachable!(),
-        }.map_err(|error| at.error(error.to_string()))?;
+        let dimension = binary_dimension(
+            op,
+            qa.as_ref().map(|(_, d, _)| d.as_ref()),
+            qb.as_ref().map(|(_, d, _)| d.as_ref()),
+            at,
+        )?;
         for scalar in [
             if qa.is_none() { a.as_ref() } else { None },
             if qb.is_none() { b.as_ref() } else { None },

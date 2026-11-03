@@ -422,12 +422,14 @@ impl Parser {
                 if element.args.is_empty()
                     && element.name.as_deref().is_some_and(numeric_type_name)
                     && !element.name.as_deref().is_some_and(|n| n.starts_with('f')));
+        let quantity = type_name == "Quantity" && output.args.len() == 2;
         if !domain
+            && !quantity
             && (!output.args.is_empty()
                 || !(numeric_type_name(type_name) || matches!(type_name, "bool" | "str" | "bytes")))
         {
             return Err(output.at.error(
-                "module constants require a concrete numeric type, an integer domain such as `Positive[i64]`, `bool`, `str`, or `bytes`",
+                "module constants require a concrete numeric type, an integer domain such as `Positive[i64]`, `Quantity[T, D]`, `bool`, `str`, or `bytes`",
             ));
         }
         self.expect("=")?;
@@ -2817,7 +2819,6 @@ fn resolve(
         result.classes.append(&mut m.classes);
         result.protocols.append(&mut m.protocols);
     }
-    super::consts::fold(&mut result.functions)?;
     Ok(result)
 }
 

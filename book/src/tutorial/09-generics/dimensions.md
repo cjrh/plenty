@@ -9,12 +9,13 @@ dimension Length("m")
 dimension Time("s")
 dimension Velocity = Length / Time
 
+const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+const kilometre: Quantity[f64, Length] = 1000.0 * metre
+
 def double[D: Dimension](value: Quantity[f64, D]) -> Quantity[f64, D]:
     value + value
 
 def main() -> Result[(), IoError]:
-    metre = Quantity[f64, Length](1.0)
-    kilometre = 1000.0 * metre
     distance = 1500.0 * metre
     elapsed = Quantity[f64, Time](120.0)
     speed: Quantity[f64, Velocity] = distance / elapsed
@@ -35,6 +36,10 @@ length would be a compile error.
 `double` infers its dimension parameter from its argument. The same function
 works for a length, a time or a velocity. Dimension arguments add no runtime
 fields. A dimension itself has no values: `length: Length` is invalid.
+
+Unit constants can be shared across functions or exported from a module with
+`pub const`. Their initializers are evaluated at compile time, including unit
+scaling and arithmetic between constants.
 
 The constructor takes the value in the coherent unit. A kilometre is a length
 whose stored value is `1000.0`; `.to(kilometre)` divides by that value and
