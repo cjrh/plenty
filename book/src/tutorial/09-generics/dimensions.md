@@ -31,7 +31,10 @@ def main() -> Result[(), IoError]:
 `Length` and `Time` are distinct base dimensions. `Velocity` is an alias for
 `Length / Time`. Dividing the distance by the elapsed time computes this
 dimension, so the `speed` annotation checks successfully. Adding a time to a
-length would be a compile error.
+length would be a compile error. When a dimension error involves `Velocity`,
+the diagnostic includes a note naming `Velocity` and its normal form,
+`Length * Pow[Time, -1]`. This connects the normalized dimension to the name
+used in your program.
 
 `double` infers its dimension parameter from its argument. The same function
 works for a length, a time or a velocity. Dimension arguments add no runtime

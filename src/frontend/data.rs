@@ -16,6 +16,7 @@ const MAX_DATA_INSTANCES: usize = 65_536;
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    pub(super) dimension_names: Arc<dimension_diagnostics::Names>,
     pub(super) dimensions: Rc<RefCell<crate::dimension::Interner>>,
     /// Checking state of one compilation's frontend; it never leaves its thread.
     pub(super) data: Rc<DataTypes>,
@@ -353,6 +354,7 @@ impl TypeAliases {
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
             dimensions: self.dimensions.clone(),
+            dimension_names: Arc::clone(&self.dimension_names),
             data: Rc::new(DataTypes {
                 enums: self.data.enums.clone(),
                 classes: self.data.classes.clone(),
@@ -403,6 +405,7 @@ impl TypeAliases {
         Ok(Self {
             named: HashMap::default(),
             dimensions: Rc::default(),
+            dimension_names: Arc::default(),
             data: Rc::new(data),
         })
     }

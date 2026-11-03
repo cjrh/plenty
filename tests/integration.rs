@@ -699,3 +699,6 @@ mod test_quantity_formatting;
 
 #[path = "test_quantity_constants.rs"]
 mod test_quantity_constants;
+
+#[path = "test_dimension_diagnostics.rs"]
+mod test_dimension_diagnostics;

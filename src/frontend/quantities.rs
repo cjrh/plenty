@@ -26,6 +26,7 @@ pub(super) fn binary_dimension(
     a: Option<&Dimension>,
     b: Option<&Dimension>,
     at: &Token,
+    aliases: &TypeAliases,
 ) -> Result<Dimension> {
     let dimension = match (a, b) {
         (Some(a), Some(b)) => match op {
@@ -33,7 +34,7 @@ pub(super) fn binary_dimension(
             "/" | "//" => a.product(b, true),
             "+" | "-" | "%" | "==" | "!=" | "<" | "<=" | ">" | ">=" => {
                 if a != b {
-                    return Err(at.error(format!("quantity `{op}` requires equal dimensions, not `{a}` and `{b}`")));
+                    return Err(aliases.dimension_error(at, format!("quantity `{op}` requires equal dimensions, not `{a}` and `{b}`"), [&Ty::Dimension(Arc::new(a.clone())), &Ty::Dimension(Arc::new(b.clone()))]));
                 }
                 Ok(a.clone())
             }
@@ -116,6 +117,7 @@ impl Lower<'_> {
             qa.as_ref().map(|(_, d, _)| d.as_ref()),
             qb.as_ref().map(|(_, d, _)| d.as_ref()),
             at,
+            self.aliases,
         )?;
         for scalar in [
             if qa.is_none() { a.as_ref() } else { None },
@@ -208,9 +210,11 @@ impl Lower<'_> {
                 return Err(at.error("Quantity.from takes a quantity of the same dimension"));
             };
             if dimension != d || !source_storage.is_numeric() {
-                return Err(
-                    at.error("Quantity.from requires equal dimensions and plain numeric storage")
-                );
+                return Err(self.aliases.dimension_error(
+                    at,
+                    "Quantity.from requires equal dimensions and plain numeric storage",
+                    [ty, &source],
+                ));
             }
             let result = self.construct(storage, &[field(&held, &source_at)], at, ops)?;
             self.release_operator_operand(&held, loan, ops);
@@ -288,7 +292,7 @@ impl Lower<'_> {
         };
         let actual = self.expr_expected(value, Some(expected.clone()), ops)?;
         if actual != Some(expected.clone()) {
-            return Err(value.at.error(format!("quantity `+=` and `-=` require equal dimensions and storage; `*=` and `/=` require a scalar `{expected}`, got {}", type_name(actual))));
+            return Err(self.aliases.dimension_error(&value.at, format!("quantity `+=` and `-=` require equal dimensions and storage; `*=` and `/=` require a scalar `{expected}`, got {}", type_name(actual.clone())), std::iter::once(&expected).chain(actual.iter())));
         }
         let right = self.quantity_held(expected, &value.at, ops)?;
         let expression = Expr {

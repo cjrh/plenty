@@ -735,12 +735,22 @@ fn infer(
 }
 
 /// Check an argument against a parameter type that mentions no type parameter.
-fn check_expected(expected: &Ty, actual: &Ty, coercible: bool, at: &Token) -> Result<()> {
+fn check_expected(
+    expected: &Ty,
+    actual: &Ty,
+    coercible: bool,
+    at: &Token,
+    aliases: &TypeAliases,
+) -> Result<()> {
     if crate::generator::refine(expected, actual).is_none()
         && !(coercible && crate::sum::accepts(expected, actual))
     {
         let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
-        return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
+        return Err(aliases.dimension_error(
+            at,
+            format!("expected {expected}, got {actual}{hint}"),
+            [expected, actual],
+        ));
     }
     Ok(())
 }
@@ -755,7 +765,7 @@ fn infer_inner(
     coercible: bool,
 ) -> Result<()> {
     if let Some(expected) = &pattern.concrete {
-        return check_expected(expected, actual, coercible, at);
+        return check_expected(expected, actual, coercible, at, aliases);
     }
     if let Some(name) = pattern
         .name
@@ -769,7 +779,7 @@ fn infer_inner(
         }
         if let Some(previous) = inferred.get(name) {
             if previous != actual {
-                return Err(at.error(format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name)));
+                return Err(aliases.dimension_error(at, format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name), [previous, actual]));
             }
         } else {
             inferred.insert(name.clone(), actual.clone());
@@ -778,7 +788,7 @@ fn infer_inner(
     }
     if !mentions_parameter(pattern, template) {
         let expected = pattern.resolve_argument(aliases)?.unwrap_or(Ty::Unit);
-        return check_expected(&expected, actual, coercible, at);
+        return check_expected(&expected, actual, coercible, at, aliases);
     }
     if pattern.name.as_deref() == Some("|") {
         let mut candidates = vec![inferred.clone()];
