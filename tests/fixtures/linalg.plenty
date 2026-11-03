@@ -8,7 +8,7 @@ def close(a: &la.Matrix, b: &la.Matrix) -> Result[(), la.LinalgError | test.Test
             test.check((a.get(row, col)? - b.get(row, col)?).fabs() < 0.00000001, "residual")?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | la.LinalgError | test.TestError]:
+def main() -> Result[(), AllocError | IoError | la.LinalgError | test.TestError | OverflowError[i64]]:
     values = [0.0, 2.0, 1.0, 3.0]?
     a = la.matrix(2, 2, &values)?
     rhs = la.vector(&[4.0, 7.0]?)?

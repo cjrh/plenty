@@ -44,12 +44,16 @@ def main() -> Result[(), Failure]:
             print("__test_restore_allocations__")?
             match outcome:
                 case Ok(_):
-                    successes += 1
+                    # At most one increment per iteration of the fixed forty-budget sweep.
+                    unchecked:
+                        successes += 1
                 case Err(error):
                     match error:
                         case la.LinalgError.Allocation(cause):
                             test.equal(cause, AllocError.OutOfMemory)?
-                            failures += 1
+                            # At most one increment per iteration of the fixed forty-budget sweep.
+                            unchecked:
+                                failures += 1
                         case _:
                             test.fail(f"operation {operation}, budget {budget}: unexpected {error}"?)?
             test.equal(a.get(0, 0)?, 4.0)?
