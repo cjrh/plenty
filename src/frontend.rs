@@ -1675,6 +1675,9 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
+                if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
+                    return result;
+                }
                 if name == "format"
                     && let Some(ty) = self.format_method(base, args, &e.at, ops)
                 {

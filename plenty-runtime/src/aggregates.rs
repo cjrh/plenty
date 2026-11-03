@@ -79,6 +79,9 @@ pub(crate) struct Type {
     /// The adapter calling the type's `display` method, which `print` uses
     /// for a top-level argument of this type.
     pub(crate) display: Option<Format>,
+    /// Coherent unit spelling for Quantity, shared by every value of its type.
+    /// Some("") denotes a dimensionless quantity; None an ordinary type.
+    pub(crate) quantity: Option<&'static str>,
 }
 /// A formatting adapter: it takes a reference to the value, as Plenty code
 /// passes one, and stores the method's `Result[str, FormatError]`.
@@ -99,7 +102,8 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 104);
+    assert!(size_of::<Type>() == 120);
+    assert!(std::mem::offset_of!(Type, quantity) == 104);
     assert!(std::mem::offset_of!(Type, debug) == 88);
     assert!(std::mem::offset_of!(Type, display) == 96);
     assert!(std::mem::offset_of!(Type, plan) == 72);
@@ -1743,8 +1747,10 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
         }
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
-        out.extend_from_slice(wrapper.name.as_bytes());
-        out.push(b'=');
+        if ty.quantity.is_none() {
+            out.extend_from_slice(wrapper.name.as_bytes());
+            out.push(b'=');
+        }
         unsafe { render(value, wrapper.fields[0], out) };
         out.push(b')');
         return;
@@ -2473,6 +2479,14 @@ pub(crate) unsafe fn collection_at(
                     .display
                 {
                     Some(display) if op != 110 && out.hooks() => format(display, value, ty, out),
+                    _ if op != 110 && ty.quantity.is_some() => {
+                        render(value, ty.wrapper.unwrap().fields[0], out);
+                        let symbol = ty.quantity.unwrap();
+                        if !symbol.is_empty() {
+                            out.push(b' ');
+                            out.extend_from_slice(symbol.as_bytes());
+                        }
+                    }
                     _ => render(value, ty, out),
                 };
                 if op == 166 {

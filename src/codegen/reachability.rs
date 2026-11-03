@@ -208,6 +208,7 @@ mod tests {
                 copy: false,
                 forwards_operators: false,
                 redacted: false,
+                quantity: None,
                 bytes: Default::default(),
                 managed: Default::default(),
             }),

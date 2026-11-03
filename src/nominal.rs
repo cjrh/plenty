@@ -395,6 +395,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -427,6 +428,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -453,6 +455,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

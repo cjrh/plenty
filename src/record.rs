@@ -22,6 +22,8 @@ pub struct ClassType {
     /// f-string fields) writes `Name(@redacted)` instead of the fields, at any
     /// depth. See book/src/design/language/03-types/classes.md#redacted-types.
     pub redacted: bool,
+    /// Builtin Quantity's compile-time dimension, used only for formatting.
+    pub quantity: Option<Arc<crate::dimension::Dimension>>,
     /// Inline field storage size; excluded from nominal equality.
     pub bytes: std::sync::OnceLock<usize>,
     /// Whether an instance needs cleanup; excluded from nominal equality.
