@@ -122,7 +122,9 @@ non-integral exponents use `exp(exponent * log(z))` and inherit the rounding
 of `exp` and `log`. A zero exponent gives `1+0i`, including for a NaN base, as
 `f64.pow` does. A zero base gives `0+0i` for a real positive exponent;
 otherwise it follows `f64` division and `log`, so `0.pow(-2)` is `inf+NaNi`
-rather than an error. Call `powi` directly for an `i64` exponent of any size.
+rather than an error. Call `powi` directly for an `i64` exponent of any size,
+including `i64.MIN`. Its negative-exponent magnitude is formed without signed
+overflow; the result remains an infallible `Complex` under checked defaults.
 
 ## Floating-point behavior
 

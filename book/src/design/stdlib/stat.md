@@ -109,7 +109,11 @@ No sampling function reads the clock, OS entropy, or a global generator.
 `StatError` has `Empty`, `InsufficientData`, `NonFinite`, `Domain`, `Overflow`
 and `Allocation(AllocError)`. Invalid distribution parameters and probabilities
 are `Domain`; failures to allocate sorted/output lists
-retain the original allocation cause. These operations have no hidden retry.
+retain the original allocation cause, including `CapacityOverflow` for an
+unrepresentable quantile output allocation. Validated list lengths, positive
+quantile counts and fixed iteration budgets bound internal integer arithmetic;
+no primitive arithmetic errors are added to the public contracts. These
+operations have no hidden retry.
 
 This module does not provide hypothesis tests, regression, weighted statistics,
 discrete distributions, arbitrary precision or dataframe aggregation. Use

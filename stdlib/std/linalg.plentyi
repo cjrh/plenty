@@ -44,9 +44,22 @@ def checked(code: i64) -> Result[(), LinalgError]:
 def size(rows: i64, cols: i64) -> Result[i64, LinalgError]:
     if rows <= 0 or cols <= 0:
         return Err(LinalgError.Shape)
-    if rows > (i64.MAX // 16) // cols:
-        return Err(LinalgError.Shape)
-    Ok(rows * cols)
+    # Positive divisors cannot fail; the guard bounds the product by MAX // 16.
+    unchecked:
+        if rows > (i64.MAX // 16) // cols:
+            return Err(LinalgError.Shape)
+        Ok(rows * cols)
+
+# Internal callers prove row/col are within a matrix validated by size().
+# Thus col * rows + row is below rows * cols <= i64.MAX // 16.
+def offset(rows: i64, row: i64, col: i64) -> i64:
+    unchecked:
+        col * rows + row
+
+# Columns are less than a dimension bounded by size() to i64.MAX // 16.
+def after_column(col: i64) -> i64:
+    unchecked:
+        col + 1
 
 def finite(values: &list[f64]) -> Result[(), LinalgError]:
     for value in values:
@@ -68,18 +81,18 @@ pub class Matrix:
     pub def get(self, row: i64, col: i64) -> Result[f64, LinalgError]:
         if row < 0 or row >= self._rows or col < 0 or col >= self._cols:
             return Err(LinalgError.Bounds)
-        Ok(self._values[col * self._rows + row])
+        Ok(self._values[offset(self._rows, row, col)])
 
     pub def set(self: &mut Matrix, row: i64, col: i64, value: f64) -> Result[(), LinalgError]:
         if row < 0 or row >= self._rows or col < 0 or col >= self._cols:
             return Err(LinalgError.Bounds)
         if not math.isfinite(value):
             return Err(LinalgError.NonFinite)
-        self._values[col * self._rows + row] = value
+        self._values[offset(self._rows, row, col)] = value
         Ok(())
 
     pub def to_list(self) -> Result[list[f64], AllocError]:
-        [self._values[col * self._rows + row] for row in range(self._rows) for col in range(self._cols)]
+        [self._values[offset(self._rows, row, col)] for row in range(self._rows) for col in range(self._cols)]
 
     pub def transpose(self) -> Result[Matrix, AllocError]:
         Ok(Matrix(self._cols, self._rows, self.to_list()?))
@@ -159,8 +172,8 @@ pub class Matrix:
         mut q = identity(self._rows)?
         checked(qr_raw(self._rows, self._cols, &mut packed._values, &mut q._values))?
         for col in range(packed._cols):
-            for row in range(col + 1, packed._rows):
-                packed._values[col * packed._rows + row] = 0.0
+            for row in range(after_column(col), packed._rows):
+                packed._values[offset(packed._rows, row, col)] = 0.0
         Ok((q, packed))
 
     pub def cholesky(self) -> Result[Matrix, LinalgError]:
@@ -169,7 +182,7 @@ pub class Matrix:
         checked(cholesky_raw(self._rows, &mut lower._values))?
         for col in range(lower._cols):
             for row in range(col):
-                lower._values[col * lower._rows + row] = 0.0
+                lower._values[offset(lower._rows, row, col)] = 0.0
         Ok(lower)
 
     pub def svd(self) -> Result[(Matrix, list[f64], Matrix), LinalgError]:
@@ -202,7 +215,7 @@ def symmetric(matrix: &Matrix) -> Result[(), LinalgError]:
         return Err(LinalgError.Shape)
     for col in range(matrix._cols):
         for row in range(col):
-            if matrix._values[col * matrix._rows + row] != matrix._values[row * matrix._rows + col]:
+            if matrix._values[offset(matrix._rows, row, col)] != matrix._values[offset(matrix._rows, col, row)]:
                 return Err(LinalgError.NotSymmetric)
     Ok(())
 
@@ -214,17 +227,17 @@ pub class Lu:
         rank = math.min(self._packed._rows, self._packed._cols)
         mut result = zeros(self._packed._rows, rank)?
         for col in range(rank):
-            result._values[col * result._rows + col] = 1.0
-            for row in range(col + 1, result._rows):
-                result._values[col * result._rows + row] = self._packed._values[col * self._packed._rows + row]
+            result._values[offset(result._rows, col, col)] = 1.0
+            for row in range(after_column(col), result._rows):
+                result._values[offset(result._rows, row, col)] = self._packed._values[offset(self._packed._rows, row, col)]
         Ok(result)
 
     pub def upper(self) -> Result[Matrix, LinalgError]:
         rank = math.min(self._packed._rows, self._packed._cols)
         mut result = zeros(rank, self._packed._cols)?
         for col in range(result._cols):
-            for row in range(math.min(col + 1, rank)):
-                result._values[col * rank + row] = self._packed._values[col * self._packed._rows + row]
+            for row in range(math.min(after_column(col), rank)):
+                result._values[offset(rank, row, col)] = self._packed._values[offset(self._packed._rows, row, col)]
         Ok(result)
 
     pub def permutation(self) -> Result[list[i64], AllocError]:
@@ -243,7 +256,7 @@ pub def matrix(rows: i64, cols: i64, values: &list[f64]) -> Result[Matrix, Linal
     if len(values) != count:
         return Err(LinalgError.Shape)
     finite(values)?
-    Ok(Matrix(rows, cols, ([values[row * cols + col] for col in range(cols) for row in range(rows)]).map_error(LinalgError.Allocation)?))
+    Ok(Matrix(rows, cols, ([values[offset(cols, col, row)] for col in range(cols) for row in range(rows)]).map_error(LinalgError.Allocation)?))
 
 pub def vector(values: &list[f64]) -> Result[Matrix, LinalgError]:
     matrix(len(values), 1, values)
@@ -255,12 +268,12 @@ pub def zeros(rows: i64, cols: i64) -> Result[Matrix, LinalgError]:
 pub def identity(n: i64) -> Result[Matrix, LinalgError]:
     mut result = zeros(n, n)?
     for index in range(n):
-        result._values[index * n + index] = 1.0
+        result._values[offset(n, index, index)] = 1.0
     Ok(result)
 
 pub def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]:
     finite(values)?
     mut result = zeros(len(values), len(values))?
     for index in range(len(values)):
-        result._values[index * len(values) + index] = values[index]
+        result._values[offset(len(values), index, index)] = values[index]
     Ok(result)

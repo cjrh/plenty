@@ -189,15 +189,50 @@ def main() -> ():
 #[rstest]
 #[case(false)]
 #[case(true)]
-fn checked_integer_methods_still_trap_at_the_call(#[case] release: bool) {
-    let output = run(
-        "import std.simd as simd\ndef main() -> ():\n    a = simd.i32x4.Lanes(0, i32.MAX, 0, 0)\n    b = simd.splat_i32x4(1)\n    drop(a.add(b))\n",
-        release,
-    );
-    assert!(!output.status.success());
-    let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains("overflow"), "{error}");
-    assert!(error.contains("simd.plenty:5"), "{error}");
+fn integer_methods_return_typed_overflow_in_lane_order(#[case] release: bool) {
+    let mut source =
+        String::from("import std.simd as simd\nfrom std.test import check\ndef main() -> ():\n");
+    let mut append_case = |body: String| {
+        source.push_str("    if True:\n");
+        for line in body.lines() {
+            source.push_str("    ");
+            source.push_str(line);
+            source.push('\n');
+        }
+    };
+    for (ty, max, min) in [("i32", "i32.MAX", "i32.MIN"), ("u32", "u32.MAX", "u32.MIN")] {
+        for (method, left, right, wrapped) in [
+            ("add", max, format!("1{ty}"), min.to_owned()),
+            ("sub", min, format!("1{ty}"), max.to_owned()),
+            (
+                "mul",
+                max,
+                format!("2{ty}"),
+                format!("({max}).wrapping_mul(2{ty})"),
+            ),
+        ] {
+            for lane in 0..4 {
+                let mut lanes = vec![
+                    if method == "sub" {
+                        right.clone()
+                    } else {
+                        format!("0{ty}")
+                    };
+                    4
+                ];
+                lanes[lane] = left.to_owned();
+                append_case(format!(
+                    "    a = simd.{ty}x4.Lanes({})\n    b = simd.splat_{ty}x4({right})\n    match a.{method}(b):\n        case Err(error):\n            check(error.wrapped == {wrapped}, \"typed wrapped payload\").unwrap()\n        case Ok(_):\n            check(False, \"expected overflow\").unwrap()\n",
+                    lanes.join(", ")
+                ));
+            }
+        }
+        append_case(format!(
+            "    mut a = simd.{ty}x4.Lanes({max}, {max}, 0{ty}, 0{ty})\n    mut b = simd.{ty}x4.Lanes(1{ty}, 2{ty}, 0{ty}, 0{ty})\n    match a.add(b):\n        case Err(error):\n            check(error.wrapped == ({max}).wrapping_add(1{ty}), \"first failing lane\").unwrap()\n        case Ok(_):\n            check(False, \"expected overflow\").unwrap()\n    a = simd.splat_{ty}x4(3{ty})\n    b = simd.splat_{ty}x4(2{ty})\n    check(a.add(b).unwrap().to_tuple() == (5{ty}, 5{ty}, 5{ty}, 5{ty}), \"add\").unwrap()\n    check(a.sub(b).unwrap().to_tuple() == (1{ty}, 1{ty}, 1{ty}, 1{ty}), \"sub\").unwrap()\n    check(a.mul(b).unwrap().to_tuple() == (6{ty}, 6{ty}, 6{ty}, 6{ty}), \"mul\").unwrap()\n"
+        ));
+    }
+    source.push_str("    print(\"ok\").unwrap()\n");
+    passes(&source, release);
 }
 
 #[test]
@@ -252,9 +287,10 @@ fn every_shape_checks_empty_short_and_complete_buffers(#[case] release: bool) {
         ("f32x4", "f32", 4, "7.0f32"),
         ("f64x2", "f64", 2, "7.0"),
     ] {
+        let stop = count + 1;
         passes(
             &format!(
-                "import std.simd as s\nfrom std.test import check\ndef main() -> ():\n    v = s.splat_{vector}({literal})\n    missing: Option[s.{vector}] = Nothing\n    for length in range({count} + 1):\n        mut values: list[{ty}] = [{literal} for i in range(length)].unwrap()\n        if length < {count}:\n            check(s.load_{vector}(&values) == missing, \"short load\").unwrap()\n            check(not v.store(&mut values, 0), \"short store\").unwrap()\n        else:\n            check(s.load_{vector}(&values).unwrap() == v, \"full load\").unwrap()\n            check(v.store(&mut values, 0), \"full store\").unwrap()\n        check(len(values) == length, \"length unchanged\").unwrap()\n    print(\"ok\").unwrap()\n"
+                "import std.simd as s\nfrom std.test import check\ndef main() -> ():\n    v = s.splat_{vector}({literal})\n    missing: Option[s.{vector}] = Nothing\n    for length in range({stop}):\n        mut values: list[{ty}] = [{literal} for i in range(length)].unwrap()\n        if length < {count}:\n            check(s.load_{vector}(&values) == missing, \"short load\").unwrap()\n            check(not v.store(&mut values, 0), \"short store\").unwrap()\n        else:\n            check(s.load_{vector}(&values).unwrap() == v, \"full load\").unwrap()\n            check(v.store(&mut values, 0), \"full store\").unwrap()\n        check(len(values) == length, \"length unchanged\").unwrap()\n    print(\"ok\").unwrap()\n"
             ),
             release,
         );
@@ -264,7 +300,7 @@ fn every_shape_checks_empty_short_and_complete_buffers(#[case] release: bool) {
 #[rstest]
 #[case(false)]
 #[case(true)]
-fn checked_subtraction_multiplication_and_unsigned_overflow(#[case] release: bool) {
+fn integer_overflow_results_can_be_handled_in_an_unchecked_caller(#[case] release: bool) {
     for (vector, left, method, right) in [
         ("i32x4", "i32.MIN", "sub", "1i32"),
         ("i32x4", "i32.MAX", "mul", "2i32"),
@@ -272,14 +308,12 @@ fn checked_subtraction_multiplication_and_unsigned_overflow(#[case] release: boo
         ("u32x4", "u32.MAX", "add", "1u32"),
         ("u32x4", "u32.MAX", "mul", "2u32"),
     ] {
-        let out = run(
+        passes(
             &format!(
-                "import std.simd as s\ndef main() -> ():\n    a = s.splat_{vector}({left})\n    b = s.splat_{vector}({right})\n    drop(a.{method}(b))\n"
+                "import std.simd as s\ndef main() -> ():\n    # The caller mode does not alter the callee Result contract.\n    unchecked:\n        a = s.splat_{vector}({left})\n        b = s.splat_{vector}({right})\n        match a.{method}(b):\n            case Err(_):\n                print(\"ok\").unwrap()\n            case Ok(_):\n                print(\"wrong result\").unwrap()\n"
             ),
             release,
         );
-        assert!(!out.status.success());
-        assert!(String::from_utf8_lossy(&out.stderr).contains("overflow"));
     }
 }
 
@@ -325,7 +359,7 @@ def main() -> ():
 fn optimized_operations_emit_vectors_while_checked_arithmetic_stays_scalar() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("simd.plenty");
-    std::fs::write(&path, "import std.simd as s\ndef native(a: &s.i32x4, b: &s.i32x4) -> s.i32x4:\n    a.wrapping_add(b)\ndef checked(a: &s.i32x4, b: &s.i32x4) -> s.i32x4:\n    a.add(b)\ndef main() -> ():\n    a = s.splat_i32x4(1)\n    drop(native(a, a))\n    drop(checked(a, a))\n").unwrap();
+    std::fs::write(&path, "import std.simd as s\ndef native(a: &s.i32x4, b: &s.i32x4) -> s.i32x4:\n    a.wrapping_add(b)\ndef checked(a: &s.i32x4, b: &s.i32x4) -> Result[s.i32x4, OverflowError[i32]]:\n    a.add(b)\ndef main() -> ():\n    a = s.splat_i32x4(1)\n    drop(native(a, a))\n    drop(checked(a, a))\n").unwrap();
     for (function, vector) in [
         ("std.simd.i32x4.wrapping_add", true),
         ("std.simd.i32x4.add", false),
@@ -376,7 +410,7 @@ def local_choice(flag: bool) -> s.i32x4:
     b = s.splat_i32x4(20)
     chosen = a if flag else b
     chosen.wrapping_add(s.splat_i32x4(1))
-def main() -> ():
+def main() -> Result[(), OverflowError[i64] | OverflowError[i32] | ZeroDivisionError]:
     one = s.splat_i32x4(1)
     for count in range(5):
         mut value = s.splat_i32x4(0)
@@ -422,6 +456,7 @@ def main() -> ():
     drop(change)
     check(captured.to_tuple() == (14i32, 14i32, 14i32, 14i32), "mutable capture fallback").unwrap()
     print("ok").unwrap()
+    Ok(())
 "#,
         release,
     );
@@ -445,4 +480,45 @@ def main() -> ():
 "#,
         "True [2, 4, 6, 8]",
     );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fallible_integer_operations_allocate_nothing() {
+    let source = r#"import std.simd as simd
+def main() -> Result[(), IoError]:
+    a = simd.splat_i32x4(i32.MAX)
+    b = simd.splat_i32x4(2i32)
+    print("__test_begin_no_allocations__")?
+    overflow = a.add(b)
+    product = b.mul(b)
+    print("__test_end_no_allocations__")?
+    print(overflow.is_err(), product.unwrap().to_tuple())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("main.plenty");
+        let output = dir.path().join("program");
+        std::fs::write(&input, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &input,
+            &output,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let result = support::assert_success(Command::new(output).output().unwrap());
+        let visible = String::from_utf8(result.stdout)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(visible, "True (4, 4, 4, 4)");
+    }
 }

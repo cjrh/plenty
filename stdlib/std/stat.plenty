@@ -50,7 +50,9 @@ pub def mean(values: &list[f64]) -> Result[f64, StatError]:
 # stdev can succeed even when the corresponding variance is unrepresentable.
 def deviation(values: &list[f64], sample: bool) -> Result[f64, StatError]:
     scale = scale_of(values)?
-    denominator = len(values) - (1 if sample else 0)
+    # scale_of proved at least one observation; subtracting 0 or 1 fits.
+    denominator = unchecked:
+        len(values) - (1 if sample else 0)
     if denominator == 0:
         return Err(StatError.InsufficientData)
     if scale == 0.0:
@@ -107,11 +109,15 @@ def interpolate(a: f64, b: f64, fraction: f64) -> f64:
     a * (1.0 - fraction) + b * fraction
 
 def sorted_quantile(values: &list[f64], p: f64) -> f64:
-    position = p * f64(len(values) - 1)
-    low = i64(position)
-    if low >= len(values) - 1:
-        return values[len(values) - 1]
-    interpolate(values[low], values[low + 1], position - f64(low))
+    # ordered() proves nonempty, and probability() bounds p to [0, 1].
+    # The allocated f64 list keeps its length below MAX // 8, so converting
+    # the rounded position fits i64. low+1 is used only below the last index.
+    unchecked:
+        position = p * f64(len(values) - 1)
+        low = i64(position)
+        if low >= len(values) - 1:
+            return values[len(values) - 1]
+        interpolate(values[low], values[low + 1], position - f64(low))
 
 # Inclusive linear interpolation (Hyndman-Fan type 7); p=0/1 are min/max.
 pub def quantile(values: &list[f64], p: f64) -> Result[f64, StatError]:
@@ -125,7 +131,10 @@ pub def median(values: &list[f64]) -> Result[f64, StatError]:
 pub def quantiles(values: &list[f64], n: Positive[i64] = 4) -> Result[list[f64], StatError]:
     parts = n.get()
     data = ordered(values)?
-    mut result = match list[f64].with_capacity(parts - 1):
+    # Positive n proves 1 <= parts <= MAX, so the output count fits.
+    count = unchecked:
+        parts - 1
+    mut result = match list[f64].with_capacity(count):
         case Ok(items):
             items
         case Err(error):
@@ -219,7 +228,10 @@ def normal_tail(z: f64) -> f64:
         mut term = z
         mut total = z
         for index in range(1, 20):
-            term *= z * z / f64(2 * index + 1)
+            # range(1, 20) bounds the odd denominator to [3, 39].
+            odd = unchecked:
+                2 * index + 1
+            term *= z * z / f64(odd)
             total += term
         return 0.5 - density * total
     # Laplace's continued fraction for the Mills ratio. At z>=1,
@@ -228,7 +240,9 @@ def normal_tail(z: f64) -> f64:
     mut level = 512
     while level > 0:
         fraction = f64(level) / (z + fraction)
-        level -= 1
+        # The loop keeps level in [1, 512] before decrement.
+        unchecked:
+            level -= 1
     density / (z + fraction)
 
 def standardized(x: f64, mean: f64, sigma: f64) -> f64:

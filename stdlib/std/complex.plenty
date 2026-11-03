@@ -116,8 +116,11 @@ pub class Complex:
     # of the positive one. Zero gives 1+0i, even for a NaN base.
     pub def powi(self, n: i64) -> Complex:
         if n < 0:
-            # -(n + 1) + 1 avoids negating i64.MIN.
-            return Complex(1.0, 0.0) / self.powu(u64(-(n + 1)) + 1u64)
+            # MIN <= n <= -1: n+1 and its negation fit i64; the unsigned
+            # magnitude is at most 2**63, including the final increment.
+            magnitude = unchecked:
+                u64(-(n + 1)) + 1u64
+            return Complex(1.0, 0.0) / self.powu(magnitude)
         self.powu(u64(n))
 
     def powu(self, n: u64) -> Complex:

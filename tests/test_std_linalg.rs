@@ -10,6 +10,7 @@ fn compile(root: &Path, source: &str, engine: PathBuf) -> Result<PathBuf, String
     std::fs::write(&input, source).unwrap();
     let options = plenty::CompileOptions {
         linalg_engine: Some(engine),
+        test_hooks: cfg!(feature = "runtime-checks"),
         ..Default::default()
     };
     plenty::compile_file_to_executable_with_options(&input, &output, None, &options)
@@ -197,4 +198,97 @@ fn plenty_allocation_failure_preserves_inputs() {
         .filter(|line| !line.starts_with("__test_"))
         .collect();
     assert_eq!(visible, ["linalg allocation ok"]);
+}
+
+#[test]
+fn size_and_offsets_are_bounded_at_representation_limits() {
+    // Compile the actual private helpers without allocating a huge matrix or
+    // loading the optional native engine.
+    let module = include_str!("../stdlib/std/linalg.plentyi");
+    let start = module.find("def size(").unwrap();
+    let end = module[start..].find("def finite(").unwrap() + start;
+    let source = format!(
+        r#"enum LinalgError:
+    Shape
+{}
+def main() -> Result[(), IoError]:
+    limit = 576460752303423487
+    print(size(1, limit).unwrap() == limit, size(limit, 1).unwrap() == limit)?
+    print(size(1, 576460752303423488).is_err(), size(i64.MAX, i64.MAX).is_err())?
+    print(size(0, 1).is_err(), size(1, 0).is_err(), size(i64.MIN, 1).is_err())?
+    print(offset(limit, 576460752303423486, 0) == 576460752303423486)?
+    print(offset(1, 0, 576460752303423486) == 576460752303423486)?
+    print(after_column(576460752303423486) == limit)?
+    Ok(())
+"#,
+        &module[start..end]
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("main.plenty");
+        let output = dir.path().join("program");
+        std::fs::write(&input, &source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &input,
+            &output,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let result = assert_success(Command::new(output).output().unwrap());
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap(),
+            "True True\nTrue True\nTrue True True\nTrue\nTrue\nTrue\n"
+        );
+    }
+}
+
+#[test]
+fn invalid_shape_and_indices_keep_their_typed_errors_and_values() {
+    let source = r#"import std.linalg as la
+
+def main() -> Result[(), la.LinalgError | AllocError | IoError]:
+    for rows in [i64.MAX, i64.MIN]?:
+        match la.zeros(rows, i64.MAX):
+            case Err(la.LinalgError.Shape):
+                print("shape")?
+            case _:
+                print("wrong shape result")?
+    mut matrix = la.identity(2)?
+    match matrix.set(i64.MAX, 0, 7.0):
+        case Err(la.LinalgError.Bounds):
+            print("bounds")?
+        case _:
+            print("wrong set result")?
+    match matrix.get(0, i64.MIN):
+        case Err(la.LinalgError.Bounds):
+            print("bounds")?
+        case _:
+            print("wrong get result")?
+    match matrix.set(0, 0, f64.INF):
+        case Err(la.LinalgError.NonFinite):
+            print("nonfinite")?
+        case _:
+            print("wrong nonfinite result")?
+    print(matrix.to_list()?)?
+    Ok(())
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let exe = compile(dir.path(), source, dir.path().join("missing.so")).unwrap();
+    let result = assert_success(Command::new(exe).output().unwrap());
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap(),
+        "shape\nshape\nbounds\nbounds\nnonfinite\n[1.0, 0.0, 0.0, 1.0]\n"
+    );
+}
+
+#[test]
+fn matrix_extent_invariants_cannot_be_bypassed_with_a_constructor() {
+    let error = support::check_file_error(
+        "import std.linalg as la\ndef main() -> Result[(), AllocError]:\n    drop(la.Matrix(i64.MAX, i64.MAX, [0.0]?))\n    Ok(())\n",
+    );
+    assert!(error.contains("private"), "{error}");
 }

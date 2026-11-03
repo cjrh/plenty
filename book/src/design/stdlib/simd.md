@@ -36,15 +36,16 @@ def main() -> Result[(), IoError]:
 
 | Operation | Contract |
 | --- | --- |
-| `add`, `sub`, `mul` | Scalar lane arithmetic; integer overflow traps |
+| `add`, `sub`, `mul` | Integer vectors return `Result[Vector, OverflowError[Lane]]`; float vectors stay infallible |
 | Float `div` | Scalar IEEE division, including infinities and NaNs |
 | Integer `wrapping_add`, `wrapping_sub`, `wrapping_mul` | Modular lane arithmetic |
 | Integer `wrapping_sum()` | Modular sum of all lanes |
 | Float `sum_ordered(initial)` | Left fold from `initial`, in increasing lane order |
 | `simd_eq/ne/lt/le/gt/ge(other)` | Lane comparisons returning a compatible mask |
 
-Integer checked operations execute in lane order and retain ordinary overflow
-diagnostics at the call site. Floating operations do not implicitly fuse or
+Integer checked operations execute in lane order and return the first overflowing
+lane’s scalar `OverflowError`, including its wrapped value. Callers handle this
+ordinary `Result`; an `unchecked:` caller does not change the method’s contract. Floating operations do not implicitly fuse or
 reassociate. NaN comparisons, signed zero and subnormals follow the target's
 scalar rules; NaN payload identity is not promised.
 
@@ -98,12 +99,12 @@ Handle a load that may not fit. A failed store leaves every element unchanged:
 
 ```plenty
 import std.simd as simd
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i32]]:
     mut values = [1i32, 2i32, 3i32, 4i32]?
     match simd.load_i32x4(values):
         case Some(lanes):
             print(lanes.store(&mut values, 1))?
-            print(lanes.add(simd.splat_i32x4(10i32)).store(&mut values, 0))?
+            print(lanes.add(simd.splat_i32x4(10i32))?.store(&mut values, 0))?
         case Nothing:
             print("A full vector does not fit")?
     print(values)?
