@@ -62,8 +62,8 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Plotting and data visualisation | [std.plot](std-plot.md) | [Examples beside ggplot2 and plotnine](std-plot/examples.md) |
 | Scientific numerics: optimization, integration, ODEs, special functions | [Numerics core](numerics.md) | [API sketch](numerics/api.md), [crate evaluation](numerics/crates.md), [`std.linalg`](../design/stdlib/linalg.md), [`std.stat`](../design/stdlib/stat.md) |
 | Exact decimal and financial arithmetic | [std.decimal](decimal.md) | [Polars embedding](polars-dataframes.md), [ordering](user-type-ordering.md), [dictionary keys](user-type-hashing.md), [checked arithmetic](completed/checked-arithmetic.md) |
-| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
-| [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
+| Physical units and dimensional analysis | [Units of measure](units-of-measure.md) | [precedents](units-of-measure/precedents.md), [spike evidence](units-of-measure/evidence.md), [domain types](completed/domain-types.md), [value generics](value-generics.md) |
+| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
 
 Companion examples and evidence do not imply additional implementation commitments.
 
@@ -112,6 +112,8 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Arbitrary-precision integers](bigint.md) — Plenty limbs with an inline small value; malachite rejected on allocation failure and LGPL | B38 (issue #481) |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
 | [Exact decimal arithmetic](decimal.md) — allocation-free 38-digit `Decimal` in Plenty, scale kept with numeric equality as in Python, exact operators under the integer trap and `checked:` rules, `NonZero[Decimal]` divisors, explicit rounding | None yet; related B76, B37, B74 |
+| [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
+| [Units of measure](units-of-measure.md) — compiler-known dimensions and a built-in `Quantity[T, D]` erased after checking; values in coherent SI units; integer domain storage keeps its unit through every operator; `std.units` in Plenty | B97; related B83, B96 |
 | [Six rules for a consistent core](consistency-rules.md) — one copy rule, one formatting path, owner-to-view conversion, adapters on iterators only, error types that name only what can fail, every callable form as a callback | None yet; proposes B88–B93; related B12, B49, B84 (issues #614–#636) |
 
 ## Completed investigations
