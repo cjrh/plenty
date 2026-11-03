@@ -181,17 +181,80 @@ def is_alnum(c: i64) -> bool:
 def is_ascii_punctuation(c: i64) -> bool:
     (c >= 33 and c <= 47) or (c >= 58 and c <= 64) or (c >= 91 and c <= 96) or (c >= 123 and c <= 126)
 
+# Endpoints from held byte spans are nonnegative; stop may also be the
+# scanner's -1 sentinel. Their difference is in i64.MIN..i64.MAX.
+def span_size(start: i64, stop: i64) -> i64:
+    unchecked:
+        stop - start
+
+# Lookahead has peek's existing absent-byte semantics, without first forming
+# an unrepresentable index. All callers pass nonnegative span endpoints/gaps.
+def peek_ahead(source: &[u8], index: i64, gap: i64, stop: i64) -> i64:
+    if gap >= span_size(index, stop):
+        return -1
+    at = unchecked:
+        index + gap
+    peek(source, at, stop)
+
+# A column advance is exact even when tabs expand beyond the input byte size.
+def column_after(column: i64, width: i64) -> Result[i64, MarkdownFault]:
+    value = checked:
+        column + width
+    match value:
+        case Ok(next):
+            Ok(next)
+        case Err(_):
+            Err(MarkdownFault.InputTooLarge)
+
+def tab_width(column: i64) -> i64:
+    # Parser columns are nonnegative: remainder 0..3, width 1..4.
+    unchecked:
+        4 - column % 4
+
+def normalized_capacity(size: i64) -> Result[i64, MarkdownFault]:
+    value = checked:
+        size + 1
+    match value:
+        case Ok(next):
+            Ok(next)
+        case Err(_):
+            Err(MarkdownFault.Allocation(AllocError.CapacityOverflow))
+
+def output_after(written: i64, size: i64, limit: i64) -> Result[i64, MarkdownFault]:
+    value = checked:
+        written + size
+    match value:
+        case Ok(next):
+            if next > limit:
+                return Err(MarkdownFault.OutputTooLarge)
+            Ok(next)
+        case Err(_):
+            Err(MarkdownFault.OutputTooLarge)
+
+def heading_byte(level: i64) -> Result[i64, MarkdownFault]:
+    if level < 1 or level > 6:
+        return Err(MarkdownFault.InvalidState)
+    # Valid public heading levels produce ASCII digits 49..54.
+    unchecked:
+        Ok(48 + level)
+
 def lower(c: i64) -> i64:
     if c >= 65 and c <= 90:
-        return c + 32
+        # Uppercase ASCII is 65..90; folding produces 97..122.
+        unchecked:
+            return c + 32
     c
 
 def hex_value(c: i64) -> i64:
     if is_digit(c):
-        return c - 48
+        # Validated decimal/hex ASCII produces a digit in 0..15.
+        unchecked:
+            return c - 48
     folded = lower(c)
     if folded >= 97 and folded <= 102:
-        return folded - 87
+        # Validated decimal/hex ASCII produces a digit in 0..15.
+        unchecked:
+            return folded - 87
     -1
 
 # The scalar that starts at `index`; `source` is valid UTF-8.
@@ -200,16 +263,24 @@ def scalar_at(source: &[u8], index: i64) -> i64:
     if first < 128:
         return first
     if first < 224:
-        return ((first & 31) << 6) | (i64(source[index + 1]) & 63)
+        # Valid UTF-8 at a scalar start includes all of its 1..4 bytes.
+        unchecked:
+            return ((first & 31) << 6) | (i64(source[index + 1]) & 63)
     if first < 240:
-        return ((first & 15) << 12) | ((i64(source[index + 1]) & 63) << 6) | (i64(source[index + 2]) & 63)
-    ((first & 7) << 18) | ((i64(source[index + 1]) & 63) << 12) | ((i64(source[index + 2]) & 63) << 6) | (i64(source[index + 3]) & 63)
+        # Valid UTF-8 at a scalar start includes all of its 1..4 bytes.
+        unchecked:
+            return ((first & 15) << 12) | ((i64(source[index + 1]) & 63) << 6) | (i64(source[index + 2]) & 63)
+    # Valid UTF-8 at a scalar start includes all of its 1..4 bytes.
+    unchecked:
+        ((first & 7) << 18) | ((i64(source[index + 1]) & 63) << 12) | ((i64(source[index + 2]) & 63) << 6) | (i64(source[index + 3]) & 63)
 
 # The scalar that ends just before `index`.
 def scalar_before(source: &[u8], index: i64) -> i64:
-    mut start = index - 1
+    mut start = span_size(1, index)
     while start > 0 and (i64(source[start]) & 192) == 128:
-        start -= 1
+        # index is a positive scalar endpoint; the scan only decrements above zero.
+        unchecked:
+            start -= 1
     scalar_at(source, start)
 
 def is_unicode_whitespace(code: i64) -> bool:
@@ -222,16 +293,28 @@ def is_unicode_punctuation(code: i64) -> bool:
         return is_ascii_punctuation(code)
     table = punctuation_ranges(punctuation_chunk(code))
     mut low = 0
-    mut high = len(table) // 6
+    # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+    mut high = unchecked:
+        len(table) // 6
     while low < high:
-        middle = (low + high) // 2
-        base = middle * 6
-        first = (i64(table[base]) << 16) | (i64(table[base + 1]) << 8) | i64(table[base + 2])
-        last = (i64(table[base + 3]) << 16) | (i64(table[base + 4]) << 8) | i64(table[base + 5])
+        # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+        middle = unchecked:
+            (low + high) // 2
+        # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+        base = unchecked:
+            middle * 6
+        # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+        first = unchecked:
+            (i64(table[base]) << 16) | (i64(table[base + 1]) << 8) | i64(table[base + 2])
+        # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+        last = unchecked:
+            (i64(table[base + 3]) << 16) | (i64(table[base + 4]) << 8) | i64(table[base + 5])
         if code < first:
             high = middle
         elif code > last:
-            low = middle + 1
+            # Pinned punctuation chunks are <4096 bytes, in six-byte records; search indices stay within those records.
+            low = unchecked:
+                middle + 1
         else:
             return True
     False
@@ -240,60 +323,96 @@ def is_unicode_punctuation(code: i64) -> bool:
 # `&` and `;`, and reports whether the name exists.
 def push_named(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> Result[bool, MarkdownFault]:
     table = entity_bucket(i64(source[start]))
-    rest = stop - start - 1
+    # Pinned entity records fit their table; equal name lengths bound source positions by stop.
+    rest = unchecked:
+        span_size(start, stop) - 1
     mut index = 0
     while index < len(table):
         size = i64(table[index])
-        value_at = index + 1 + size
+        # Pinned entity records fit their table; equal name lengths bound source positions by stop.
+        value_at = unchecked:
+            index + 1 + size
         value_size = i64(table[value_at])
         if size == rest:
             mut same = True
             for position in range(size):
-                if i64(table[index + 1 + position]) != i64(source[start + 1 + position]):
+                # Pinned entity records fit their table; equal name lengths bound source positions by stop.
+                name_differs = unchecked:
+                    i64(table[index + 1 + position]) != i64(source[start + 1 + position])
+                if name_differs:
                     same = False
                     break
             if same:
                 for position in range(value_size):
-                    push_byte(target, i64(table[value_at + 1 + position]))?
+                    # Pinned entity records fit their table; equal name lengths bound source positions by stop.
+                    unchecked:
+                        push_byte(target, i64(table[value_at + 1 + position]))?
                 return Ok(True)
-        index = value_at + 1 + value_size
+        # Pinned entity records fit their table; equal name lengths bound source positions by stop.
+        index = unchecked:
+            value_at + 1 + value_size
     Ok(False)
 
 # Decodes the entity or numeric character reference at `start`, which holds
 # `&`, appending its value. Returns the index after `;`, or -1 when there is no
 # valid reference, having appended nothing.
 def push_entity(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> Result[i64, MarkdownFault]:
-    mut index = start + 1
+    # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+    mut index = unchecked:
+        start + 1
     if peek(source, index, stop) == 35:
-        index += 1
+        # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+        unchecked:
+            index += 1
         mut value = 0
         mut digits = 0
         if lower(peek(source, index, stop)) == 120:
-            index += 1
-            while digits < 6 and hex_value(peek(source, index, stop)) >= 0:
-                value = value * 16 + hex_value(peek(source, index, stop))
-                digits += 1
+            # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+            unchecked:
                 index += 1
+            while digits < 6 and hex_value(peek(source, index, stop)) >= 0:
+                # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+                value = unchecked:
+                    value * 16 + hex_value(peek(source, index, stop))
+                # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+                unchecked:
+                    digits += 1
+                    index += 1
         else:
             while digits < 7 and is_digit(peek(source, index, stop)):
-                value = value * 10 + peek(source, index, stop) - 48
-                digits += 1
-                index += 1
+                # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+                value = unchecked:
+                    value * 10 + peek(source, index, stop) - 48
+                # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+                unchecked:
+                    digits += 1
+                    index += 1
         if digits == 0 or peek(source, index, stop) != 59:
             return Ok(-1)
         if value == 0 or value > 1114111 or (value >= 55296 and value <= 57343):
             value = 65533
         push_scalar(target, value)?
-        return Ok(index + 1)
+        # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+        unchecked:
+            return Ok(index + 1)
     if not is_letter(peek(source, index, stop)):
         return Ok(-1)
-    while index - start <= 32 and is_alnum(peek(source, index, stop)):
-        index += 1
-    size = index - start - 1
+    while span_size(start, index) <= 32 and is_alnum(peek(source, index, stop)):
+        # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+        unchecked:
+            index += 1
+    # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+    size = unchecked:
+        span_size(start, index) - 1
     if size < 2 or size > 32 or peek(source, index, stop) != 59:
         return Ok(-1)
-    if push_named(source, start + 1, index, target)?:
-        return Ok(index + 1)
+    # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+    named_entity = unchecked:
+        push_named(source, start + 1, index, target)?
+    if named_entity:
+        # Character matches imply index < stop; numeric references have at most six hex or seven decimal digits.
+        unchecked:
+            return Ok(index + 1)
     Ok(-1)
 
 # Appends `source[start:stop]` with backslash escapes and character references
@@ -302,19 +421,28 @@ def push_unescaped(source: &[u8], start: i64, stop: i64, target: &mut Bytes) -> 
     mut index = start
     while index < stop:
         c = i64(source[index])
-        if c == 92 and index + 1 < stop and is_ascii_punctuation(i64(source[index + 1])):
-            push_byte(target, i64(source[index + 1]))?
-            index += 2
+        # index < stop; a two-byte advance follows a validated escape pair.
+        escaped_pair = unchecked:
+            c == 92 and index + 1 < stop and is_ascii_punctuation(i64(source[index + 1]))
+        if escaped_pair:
+            # index < stop; a two-byte advance follows a validated escape pair.
+            unchecked:
+                push_byte(target, i64(source[index + 1]))?
+                index += 2
         elif c == 38:
             after = push_entity(source, index, stop, target)?
             if after < 0:
                 push_byte(target, c)?
-                index += 1
+                # index < stop; a two-byte advance follows a validated escape pair.
+                unchecked:
+                    index += 1
             else:
                 index = after
         else:
             push_byte(target, c)?
-            index += 1
+            # index < stop; a two-byte advance follows a validated escape pair.
+            unchecked:
+                index += 1
     Ok(())
 
 def unescaped(source: &[u8], start: i64, stop: i64, scratch: &mut Bytes) -> Result[str, MarkdownFault]:
@@ -344,81 +472,121 @@ def normalized_label(source: &[u8], start: i64, stop: i64, scratch: &mut Bytes) 
 def skip_spaces(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = index
     while is_space_or_tab(peek(source, at, stop)):
-        at += 1
+        # A matched space/tab is an existing byte before stop.
+        unchecked:
+            at += 1
     at
 
 def skip_whitespace(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = index
     while is_ascii_space(peek(source, at, stop)):
-        at += 1
+        # A matched whitespace character is an existing byte before stop.
+        unchecked:
+            at += 1
     at
 
 # Spaces or tabs, including up to one line ending.
 def skip_spnl(source: &[u8], index: i64, stop: i64) -> i64:
     mut at = skip_spaces(source, index, stop)
     if peek(source, at, stop) == 10:
-        at = skip_spaces(source, at + 1, stop)
+        # The matched LF is an existing byte before stop.
+        at = unchecked:
+            skip_spaces(source, at + 1, stop)
     at
 
 # The index after a link label that starts at `index`, or -1.
 def scan_label(source: &[u8], index: i64, stop: i64) -> i64:
     if peek(source, index, stop) != 91:
         return -1
-    mut at = index + 1
+    # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+    mut at = unchecked:
+        index + 1
     mut count = 0
     while at < stop:
         c = i64(source[at])
         if c == 93:
-            return at + 1
+            # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+            unchecked:
+                return at + 1
         if c == 91 or count >= 999:
             return -1
-        if c == 92 and at + 1 < stop:
+        # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+        has_label_escape = unchecked:
+            c == 92 and at + 1 < stop
+        if has_label_escape:
+            # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+            unchecked:
+                at += 1
+        # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+        unchecked:
             at += 1
-        at += 1
         while at < stop and (i64(source[at]) & 192) == 128:
-            at += 1
-        count += 1
+            # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+            unchecked:
+                at += 1
+        # Opening/closing/escaped bytes exist before stop; scalar count is capped at 999.
+        unchecked:
+            count += 1
     -1
 
 # A link destination at `index`: the index after it and the bounds of its
 # content, or -1 first.
 def scan_destination(source: &[u8], index: i64, stop: i64) -> (i64, i64, i64):
     if peek(source, index, stop) == 60:
-        mut at = index + 1
+        # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+        mut at = unchecked:
+            index + 1
         while at < stop:
             c = i64(source[at])
             if c == 62:
-                return (at + 1, index + 1, at)
+                # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+                unchecked:
+                    return (at + 1, index + 1, at)
             if c == 60 or c == 10:
                 return (-1, 0, 0)
             if c == 92:
-                if peek(source, at + 1, stop) == 10 or at + 1 >= stop:
+                # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+                escape_at_end = unchecked:
+                    peek_ahead(source, at, 1, stop) == 10 or at + 1 >= stop
+                if escape_at_end:
                     return (-1, 0, 0)
-                at += 2
+                # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+                unchecked:
+                    at += 2
             else:
-                at += 1
+                # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+                unchecked:
+                    at += 1
         return (-1, 0, 0)
     mut at = index
     mut depth = 0
     while at < stop:
         c = i64(source[at])
-        if c == 92 and is_ascii_punctuation(peek(source, at + 1, stop)):
-            at += 2
+        if c == 92 and is_ascii_punctuation(peek_ahead(source, at, 1, stop)):
+            # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+            unchecked:
+                at += 2
         elif c == 40:
             # As in cmark: a bound on nesting keeps failed scans short.
             if depth >= 32:
                 return (-1, 0, 0)
-            depth += 1
-            at += 1
+            # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+            unchecked:
+                depth += 1
+                at += 1
         elif c == 41:
             if depth < 1:
                 break
-            depth -= 1
-            at += 1
+            # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+            unchecked:
+                depth -= 1
+                at += 1
         elif c <= 32 or c == 127:
             break
         else:
-            at += 1
+            # Advances consume existing bytes (two only for a validated escape); parenthesis depth stays in 0..32.
+            unchecked:
+                at += 1
     if at == index and peek(source, at, stop) != 41:
         return (-1, 0, 0)
     if depth != 0:
@@ -433,17 +601,28 @@ def scan_title(source: &[u8], index: i64, stop: i64) -> i64:
         close = 41
     elif open != 34 and open != 39:
         return -1
-    mut at = index + 1
+    # Opening/closing bytes exist; two-byte advances require an existing escaped byte.
+    mut at = unchecked:
+        index + 1
     while at < stop:
         c = i64(source[at])
         if c == close:
-            return at + 1
+            # Opening/closing bytes exist; two-byte advances require an existing escaped byte.
+            unchecked:
+                return at + 1
         if c == 40 and open == 40:
             return -1
-        if c == 92 and at + 1 < stop:
-            at += 2
+        # Opening/closing bytes exist; two-byte advances require an existing escaped byte.
+        has_title_escape = unchecked:
+            c == 92 and at + 1 < stop
+        if has_title_escape:
+            # Opening/closing bytes exist; two-byte advances require an existing escaped byte.
+            unchecked:
+                at += 2
         else:
-            at += 1
+            # Opening/closing bytes exist; two-byte advances require an existing escaped byte.
+            unchecked:
+                at += 1
     -1
 
 # Spaces or tabs to the end of a line: the index after its line ending, `stop`
@@ -453,15 +632,21 @@ def scan_line_end(source: &[u8], index: i64, stop: i64) -> i64:
     if at >= stop:
         return stop
     if i64(source[at]) == 10:
-        return at + 1
+        # The matched LF is before stop.
+        unchecked:
+            return at + 1
     -1
 
 def scan_tag_name(source: &[u8], index: i64, stop: i64) -> i64:
     if not is_letter(peek(source, index, stop)):
         return -1
-    mut at = index + 1
+    # Opening letter and each matched name byte are before stop.
+    mut at = unchecked:
+        index + 1
     while is_alnum(peek(source, at, stop)) or peek(source, at, stop) == 45:
-        at += 1
+        # Opening letter and each matched name byte are before stop.
+        unchecked:
+            at += 1
     at
 
 def is_attribute_start(c: i64) -> bool:
@@ -472,7 +657,9 @@ def is_attribute_part(c: i64) -> bool:
 
 # An HTML open tag at `index`, which holds `<`: the index after `>`, or -1.
 def scan_open_tag(source: &[u8], index: i64, stop: i64) -> i64:
-    mut at = scan_tag_name(source, index + 1, stop)
+    # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+    mut at = unchecked:
+        scan_tag_name(source, index + 1, stop)
     if at < 0:
         return -1
     while True:
@@ -480,73 +667,103 @@ def scan_open_tag(source: &[u8], index: i64, stop: i64) -> i64:
         if gap == at or not is_attribute_start(peek(source, gap, stop)):
             at = gap
             break
-        mut name = gap + 1
+        # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+        mut name = unchecked:
+            gap + 1
         while is_attribute_part(peek(source, name, stop)):
-            name += 1
+            # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+            unchecked:
+                name += 1
         at = name
         equals = skip_whitespace(source, name, stop)
         if peek(source, equals, stop) == 61:
-            value = skip_whitespace(source, equals + 1, stop)
+            # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+            value = unchecked:
+                skip_whitespace(source, equals + 1, stop)
             quote = peek(source, value, stop)
             if quote == 34 or quote == 39:
-                mut end = value + 1
+                # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+                mut end = unchecked:
+                    value + 1
                 while end < stop and i64(source[end]) != quote:
-                    end += 1
+                    # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+                    unchecked:
+                        end += 1
                 if end >= stop:
                     return -1
-                at = end + 1
+                # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+                at = unchecked:
+                    end + 1
             else:
                 mut end = value
                 while end < stop:
                     c = i64(source[end])
                     if c <= 32 or c == 34 or c == 39 or c == 61 or c == 60 or c == 62 or c == 96:
                         break
-                    end += 1
+                    # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+                    unchecked:
+                        end += 1
                 if end == value:
                     return -1
                 at = end
     if peek(source, at, stop) == 47:
-        at += 1
+        # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+        unchecked:
+            at += 1
     if peek(source, at, stop) == 62:
-        return at + 1
+        # Each advance follows an existing name, equals, quote, slash or closing byte before stop.
+        unchecked:
+            return at + 1
     -1
 
 # An HTML closing tag at `index`, which holds `<`: the index after `>`, or -1.
 def scan_close_tag(source: &[u8], index: i64, stop: i64) -> i64:
-    if peek(source, index + 1, stop) != 47:
+    if peek_ahead(source, index, 1, stop) != 47:
         return -1
-    name = scan_tag_name(source, index + 2, stop)
+    # The opening slash and closing delimiter checks bound these offsets by stop.
+    name = unchecked:
+        scan_tag_name(source, index + 2, stop)
     if name < 0:
         return -1
     at = skip_whitespace(source, name, stop)
     if peek(source, at, stop) == 62:
-        return at + 1
+        # The opening slash and closing delimiter checks bound these offsets by stop.
+        unchecked:
+            return at + 1
     -1
 
 # Whether `source[index:]` starts with `word`, ignoring ASCII case.
 def starts_folded(source: &[u8], index: i64, stop: i64, word: bytes) -> bool:
-    if stop - index < len(word):
+    if span_size(index, stop) < len(word):
         return False
     for position in range(len(word)):
-        if lower(i64(source[index + position])) != i64(word[position]):
+        # The remaining-span check proves every word position is before stop.
+        folded_word_differs = unchecked:
+            lower(i64(source[index + position])) != i64(word[position])
+        if folded_word_differs:
             return False
     True
 
 def starts_exact(source: &[u8], index: i64, stop: i64, word: bytes) -> bool:
-    if stop - index < len(word):
+    if span_size(index, stop) < len(word):
         return False
     for position in range(len(word)):
-        if i64(source[index + position]) != i64(word[position]):
+        # The remaining-span check proves every word position is before stop.
+        exact_word_differs = unchecked:
+            i64(source[index + position]) != i64(word[position])
+        if exact_word_differs:
             return False
     True
 
 # The first index at or after `index` where `word` starts, or -1.
 def find_folded(source: &[u8], index: i64, stop: i64, word: bytes) -> i64:
     mut at = index
-    while at + len(word) <= stop:
+    while at <= stop and len(word) <= span_size(at, stop):
         if starts_folded(source, at, stop, word):
             return at
-        at += 1
+        # A failed match with a fitting nonempty word implies at < stop.
+        unchecked:
+            at += 1
     -1
 
 def raw_text_tag(which: i64) -> bytes:
@@ -576,21 +793,28 @@ def block_tag_names() -> bytes:
 
 def is_block_tag(source: &[u8], start: i64, stop: i64) -> bool:
     names = block_tag_names()
-    size = stop - start
+    size = span_size(start, stop)
     mut at = 1
     while at < len(names):
         mut end = at
         while i64(names[end]) != 32:
-            end += 1
-        if end - at == size:
+            # The fixed names table ends each name with a space; matching sizes bound source/table positions.
+            unchecked:
+                end += 1
+        if span_size(at, end) == size:
             mut same = True
             for position in range(size):
-                if lower(i64(source[start + position])) != i64(names[at + position]):
+                # The fixed names table ends each name with a space; matching sizes bound source/table positions.
+                block_name_differs = unchecked:
+                    lower(i64(source[start + position])) != i64(names[at + position])
+                if block_name_differs:
                     same = False
                     break
             if same:
                 return True
-        at = end + 1
+        # The fixed names table ends each name with a space; matching sizes bound source/table positions.
+        at = unchecked:
+            end + 1
     False
 
 def html_block_ends(kind: i64, source: &[u8], start: i64, stop: i64) -> bool:
@@ -682,7 +906,9 @@ def parse_reference(content: &[u8], start: i64, refs: &mut Refs, scratch: &mut B
     label_end = scan_label(content, start, stop)
     if label_end < 0 or peek(content, label_end, stop) != 58:
         return Ok(0)
-    destination_at = skip_spnl(content, label_end + 1, stop)
+    # Successful label/title scans include both delimiters; consumed positions lie within content.
+    destination_at = unchecked:
+        skip_spnl(content, label_end + 1, stop)
     found = scan_destination(content, destination_at, stop)
     destination_end, destination_start, destination_stop = found
     if destination_end < 0:
@@ -699,18 +925,22 @@ def parse_reference(content: &[u8], start: i64, refs: &mut Refs, scratch: &mut B
         end = scan_line_end(content, destination_end, stop)
         if end < 0:
             return Ok(0)
-    label = normalized_label(content, start + 1, label_end - 1, scratch)?
+    # Successful label/title scans include both delimiters; consumed positions lie within content.
+    label = unchecked:
+        normalized_label(content, start + 1, span_size(1, label_end), scratch)?
     if label == "":
         return Ok(0)
     if refs.index.get(label).is_none():
         destination = unescaped(content, destination_start, destination_stop, scratch)?
         mut title = ""
         if title_end >= 0:
-            title = unescaped(content, title_at + 1, title_end - 1, scratch)?
+            # Successful label/title scans include both delimiters; consumed positions lie within content.
+            title = unchecked:
+                unescaped(content, title_at + 1, span_size(1, title_end), scratch)?
         reserved(refs.index.insert(label, len(refs.destinations)))?
         reserved(refs.destinations.append(destination))?
         reserved(refs.titles.append(title))?
-    Ok(end - start)
+    Ok(span_size(start, end))
 
 def is_blank(content: &[u8], start: i64) -> bool:
     for index in range(start, len(content)):
@@ -783,22 +1013,27 @@ pub class Parser:
     def at(self, index: i64) -> i64:
         peek(&self._text, index, self._line_end)
 
-    def find_next_nonspace(self: &mut Parser) -> ():
+    def find_next_nonspace(self: &mut Parser) -> Result[(), MarkdownFault]:
         mut index = self._offset
         mut columns = self._column
         mut c = self.at(index)
         while c == 32 or c == 9:
             if c == 32:
-                columns += 1
+                columns = column_after(columns, 1)?
             else:
-                columns += 4 - columns % 4
-            index += 1
+                columns = column_after(columns, tab_width(columns))?
+            # The matched space/tab is before the current line endpoint.
+            unchecked:
+                index += 1
             c = self.at(index)
         self._blank = c == -1
         self._next_nonspace = index
         self._next_nonspace_column = columns
-        self._indent = columns - self._column
+        # Both columns are nonnegative and scanning never moves backward.
+        unchecked:
+            self._indent = columns - self._column
         self._indented = self._indent >= 4
+        Ok(())
 
     def advance_next_nonspace(self: &mut Parser) -> ():
         self._offset = self._next_nonspace
@@ -807,45 +1042,65 @@ pub class Parser:
 
     # Moves over `count` bytes, or with `columns` over `count` columns, in
     # which case a tab may be consumed only partly.
-    def advance_offset(self: &mut Parser, count: i64, columns: bool) -> ():
+    def advance_offset(self: &mut Parser, count: i64, columns: bool) -> Result[(), MarkdownFault]:
         mut remaining = count
         while remaining > 0 and self._offset < self._line_end:
             if i64(self._text[self._offset]) == 9:
-                to_tab = 4 - self._column % 4
+                to_tab = tab_width(self._column)
                 if columns:
-                    self._partial_tab = to_tab > remaining
                     step = to_tab if to_tab < remaining else remaining
-                    self._column += step
+                    next_column = column_after(self._column, step)?
+                    self._partial_tab = to_tab > remaining
+                    self._column = next_column
                     if not self._partial_tab:
-                        self._offset += 1
-                    remaining -= step
+                        # The byte cursor is below line_end; step is in 1..remaining.
+                        unchecked:
+                            self._offset += 1
+                    # The byte cursor is below line_end; step is in 1..remaining.
+                    unchecked:
+                        remaining -= step
                 else:
+                    next_column = column_after(self._column, to_tab)?
                     self._partial_tab = False
-                    self._column += to_tab
-                    self._offset += 1
-                    remaining -= 1
+                    self._column = next_column
+                    # The byte cursor is below line_end; step is in 1..remaining.
+                    unchecked:
+                        self._offset += 1
+                        remaining -= 1
             else:
+                next_column = column_after(self._column, 1)?
                 self._partial_tab = False
-                self._offset += 1
-                self._column += 1
-                remaining -= 1
+                # The byte cursor is below line_end; step is in 1..remaining.
+                unchecked:
+                    self._offset += 1
+                self._column = next_column
+                # The byte cursor is below line_end; step is in 1..remaining.
+                unchecked:
+                    remaining -= 1
+        Ok(())
 
     def add_line(self: &mut Parser) -> Result[(), MarkdownFault]:
         tip = self._tip
         if self._partial_tab:
-            self._offset += 1
-            for _ in range(4 - self._column % 4):
+            # A partial tab denotes an existing byte before line_end.
+            unchecked:
+                self._offset += 1
+            for _ in range(tab_width(self._column)):
                 push_byte(&mut self._blocks[tip].content, 32)?
         reserved(self._blocks[tip].content.extend(&self._text[self._offset:self._line_end]))?
         push_byte(&mut self._blocks[tip].content, 10)
 
     def add_child(self: &mut Parser, kind: i64, offset: i64) -> Result[i64, MarkdownFault]:
         while not can_contain(self.block_kind(self._tip), kind):
-            self.finalize(self._tip, self._line_number - 1)?
+            self.finalize(self._tip, span_size(1, self._line_number))?
         parent = self._tip
         mut depth = self._blocks[parent].depth
         if kind == k_quote or kind == k_item:
-            depth += 1
+            if depth >= self._max_depth:
+                return Err(MarkdownFault.DepthExceeded)
+            # The configured depth budget is at most i64.MAX.
+            unchecked:
+                depth += 1
         if depth > self._max_depth:
             return Err(MarkdownFault.DepthExceeded)
         content = reserved(std.bytes.empty())?
@@ -882,7 +1137,9 @@ pub class Parser:
             used = parse_reference(&self._blocks[index].content, start, &mut self._refs, &mut self._scratch)?
             if used == 0:
                 break
-            start += used
+            # used is the consumed prefix within the held content; start + used <= content.len().
+            unchecked:
+                start += used
         if start > 0:
             rest = reserved(self._blocks[index].content.slice(start, self._blocks[index].content.len()))?
             self._blocks[index].content = rest
@@ -900,8 +1157,8 @@ pub class Parser:
             self.finalize_code(index)?
         elif kind == k_html:
             size = self._blocks[index].content.len()
-            if size > 0 and i64(self._blocks[index].content[size - 1]) == 10:
-                self._blocks[index].content.truncate(size - 1)
+            if size > 0 and i64(self._blocks[index].content[span_size(1, size)]) == 10:
+                self._blocks[index].content.truncate(span_size(1, size))
         elif kind == k_list:
             self.finalize_list(index)
         elif kind == k_item:
@@ -918,28 +1175,38 @@ pub class Parser:
         if self._blocks[index].fenced:
             mut newline = 0
             while i64(self._blocks[index].content[newline]) != 10:
-                newline += 1
+                # Content contains its appended LF; backward scans stay nonnegative, and counted lines end no later than the parsed input line.
+                unchecked:
+                    newline += 1
             first = skip_whitespace(&self._blocks[index].content, 0, newline)
             mut last = newline
-            while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
-                last -= 1
+            while last > first and is_ascii_space(i64(self._blocks[index].content[span_size(1, last)])):
+                # Content contains its appended LF; backward scans stay nonnegative, and counted lines end no later than the parsed input line.
+                unchecked:
+                    last -= 1
             info = unescaped(&self._blocks[index].content, first, last, &mut self._scratch)?
             self._blocks[index].info = info
-            rest = reserved(self._blocks[index].content.slice(newline + 1, size))?
+            # Content contains its appended LF; backward scans stay nonnegative, and counted lines end no later than the parsed input line.
+            rest = unchecked:
+                reserved(self._blocks[index].content.slice(newline + 1, size))?
             self._blocks[index].content = rest
             return Ok(())
         # Trailing blank lines are not part of an indented block.
         mut end = size
         while end > 0:
-            mut line_start = end - 1
-            while line_start > 0 and i64(self._blocks[index].content[line_start - 1]) != 10:
-                line_start -= 1
-            if skip_spaces(&self._blocks[index].content, line_start, end - 1) != end - 1:
+            mut line_start = span_size(1, end)
+            while line_start > 0 and i64(self._blocks[index].content[span_size(1, line_start)]) != 10:
+                # Content contains its appended LF; backward scans stay nonnegative, and counted lines end no later than the parsed input line.
+                unchecked:
+                    line_start -= 1
+            if skip_spaces(&self._blocks[index].content, line_start, span_size(1, end)) != span_size(1, end):
                 break
             end = line_start
         lines = self._blocks[index].content.count(10u8, 0, end)
         self._blocks[index].content.truncate(end)
-        self._blocks[index].end_line = self._blocks[index].start_line + lines - 1
+        # Content contains its appended LF; backward scans stay nonnegative, and counted lines end no later than the parsed input line.
+        unchecked:
+            self._blocks[index].end_line = (span_size(1, self._blocks[index].start_line)) + lines
         Ok(())
 
     # A list is loose when a blank line separates two of its items or two
@@ -949,12 +1216,12 @@ pub class Parser:
         mut tight = True
         while item >= 0 and tight:
             following = self._blocks[item].next
-            if following >= 0 and self._blocks[item].end_line != self._blocks[following].start_line - 1:
+            if following >= 0 and self._blocks[item].end_line != span_size(1, self._blocks[following].start_line):
                 tight = False
             mut child = self._blocks[item].first
             while child >= 0 and tight:
                 after = self._blocks[child].next
-                if after >= 0 and self._blocks[child].end_line != self._blocks[after].start_line - 1:
+                if after >= 0 and self._blocks[child].end_line != span_size(1, self._blocks[after].start_line):
                     tight = False
                 child = after
             item = following
@@ -967,7 +1234,7 @@ pub class Parser:
         if not self._all_closed:
             while self._old_tip != self._last_matched:
                 parent = self._blocks[self._old_tip].parent
-                self.finalize(self._old_tip, self._line_number - 1)?
+                self.finalize(self._old_tip, span_size(1, self._line_number))?
                 self._old_tip = parent
             self._all_closed = True
         Ok(())
@@ -979,9 +1246,9 @@ pub class Parser:
         if kind == k_quote:
             if not self._indented and self.at(self._next_nonspace) == 62:
                 self.advance_next_nonspace()
-                self.advance_offset(1, False)
+                self.advance_offset(1, False)?
                 if is_space_or_tab(self.at(self._offset)):
-                    self.advance_offset(1, True)
+                    self.advance_offset(1, True)?
                 return Ok(0)
             return Ok(1)
         if kind == k_item:
@@ -990,9 +1257,11 @@ pub class Parser:
                     return Ok(1)
                 self.advance_next_nonspace()
                 return Ok(0)
-            width = self._blocks[container].marker_offset + self._blocks[container].padding
+            # Fence scans consume existing line bytes; marker offset <=3 and padding <=14; skip decreases only while positive.
+            width = unchecked:
+                self._blocks[container].marker_offset + self._blocks[container].padding
             if self._indent >= width:
-                self.advance_offset(width, True)
+                self.advance_offset(width, True)?
                 return Ok(0)
             return Ok(1)
         if kind == k_heading or kind == k_rule:
@@ -1003,17 +1272,21 @@ pub class Parser:
                 if self._indent <= 3 and self.at(self._next_nonspace) == fence:
                     mut end = self._next_nonspace
                     while self.at(end) == fence:
-                        end += 1
-                    if end - self._next_nonspace >= self._blocks[container].fence_length and skip_spaces(&self._text, end, self._line_end) == self._line_end:
+                        # Fence scans consume existing line bytes; marker offset <=3 and padding <=14; skip decreases only while positive.
+                        unchecked:
+                            end += 1
+                    if span_size(self._next_nonspace, end) >= self._blocks[container].fence_length and skip_spaces(&self._text, end, self._line_end) == self._line_end:
                         self.finalize(container, self._line_number)?
                         return Ok(2)
                 mut skip = self._blocks[container].fence_offset
                 while skip > 0 and is_space_or_tab(self.at(self._offset)):
-                    self.advance_offset(1, True)
-                    skip -= 1
+                    self.advance_offset(1, True)?
+                    # Fence scans consume existing line bytes; marker offset <=3 and padding <=14; skip decreases only while positive.
+                    unchecked:
+                        skip -= 1
                 return Ok(0)
             if self._indent >= 4:
-                self.advance_offset(4, True)
+                self.advance_offset(4, True)?
                 return Ok(0)
             if self._blank:
                 self.advance_next_nonspace()
@@ -1037,27 +1310,38 @@ pub class Parser:
             return 0
         for which in range(4):
             tag = raw_text_tag(which)
-            if starts_folded(&self._text, start + 1, stop, tag):
-                after = self.at(start + 1 + len(tag))
+            # Matched prefix/name bytes exist within the line; a successful prefix check bounds its full length.
+            raw_tag_matches = unchecked:
+                starts_folded(&self._text, start + 1, stop, tag)
+            if raw_tag_matches:
+                # Matched prefix/name bytes exist within the line; a successful prefix check bounds its full length.
+                after = unchecked:
+                    self.at(start + 1 + len(tag))
                 if after == -1 or after == 62 or is_ascii_space(after):
                     return 1
         if starts_folded(&self._text, start, stop, b"<!--"):
             return 2
-        if self.at(start + 1) == 63:
+        if peek_ahead(&self._text, start, 1, self._line_end) == 63:
             return 3
-        if self.at(start + 1) == 33 and is_letter(self.at(start + 2)):
+        if peek_ahead(&self._text, start, 1, self._line_end) == 33 and is_letter(peek_ahead(&self._text, start, 2, self._line_end)):
             return 4
         if starts_exact(&self._text, start, stop, b"<![CDATA["):
             return 5
-        mut name = start + 1
+        # Matched prefix/name bytes exist within the line; a successful prefix check bounds its full length.
+        mut name = unchecked:
+            start + 1
         if self.at(name) == 47:
-            name += 1
+            # Matched prefix/name bytes exist within the line; a successful prefix check bounds its full length.
+            unchecked:
+                name += 1
         mut end = name
         while is_alnum(self.at(end)):
-            end += 1
+            # Matched prefix/name bytes exist within the line; a successful prefix check bounds its full length.
+            unchecked:
+                end += 1
         if end > name and is_block_tag(&self._text, name, end):
             after = self.at(end)
-            if after == -1 or after == 62 or is_ascii_space(after) or (after == 47 and self.at(end + 1) == 62):
+            if after == -1 or after == 62 or is_ascii_space(after) or (after == 47 and peek_ahead(&self._text, end, 1, self._line_end) == 62):
                 return 6
         if self.block_kind(container) == k_paragraph:
             return 0
@@ -1072,9 +1356,9 @@ pub class Parser:
 
     # Recognizes a list marker at the current position, filling `marker`'s
     # list fields and consuming the marker and its padding.
-    def list_marker(self: &mut Parser, container: i64, marker: &mut Block) -> bool:
+    def list_marker(self: &mut Parser, container: i64, marker: &mut Block) -> Result[bool, MarkdownFault]:
         if self._indent >= 4:
-            return False
+            return Ok(False)
         start = self._next_nonspace
         c = self.at(start)
         mut size = 0
@@ -1085,43 +1369,58 @@ pub class Parser:
         else:
             mut end = start
             mut value = 0
-            while end - start < 9 and is_digit(self.at(end)):
-                value = value * 10 + self.at(end) - 48
-                end += 1
+            while span_size(start, end) < 9 and is_digit(self.at(end)):
+                # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+                value = unchecked:
+                    value * 10 + self.at(end) - 48
+                # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+                unchecked:
+                    end += 1
             delimiter = self.at(end)
             if end == start or (delimiter != 46 and delimiter != 41):
-                return False
+                return Ok(False)
             if self.block_kind(container) == k_paragraph and value != 1:
-                return False
+                return Ok(False)
             marker.ordered = True
             marker.start = value
             marker.delimiter = delimiter
-            size = end - start + 1
-        after = self.at(start + size)
+            # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+            size = unchecked:
+                span_size(start, end) + 1
+        # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+        after = unchecked:
+            self.at(start + size)
         if not (after == -1 or after == 9 or after == 32):
-            return False
-        if self.block_kind(container) == k_paragraph and skip_spaces(&self._text, start + size, self._line_end) == self._line_end:
-            return False
+            return Ok(False)
+        # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+        interrupts_paragraph = unchecked:
+            self.block_kind(container) == k_paragraph and skip_spaces(&self._text, start + size, self._line_end) == self._line_end
+        if interrupts_paragraph:
+            return Ok(False)
         marker.marker_offset = self._indent
         self.advance_next_nonspace()
-        self.advance_offset(size, True)
+        self.advance_offset(size, True)?
         spaces_column = self._column
         spaces_offset = self._offset
         while True:
-            self.advance_offset(1, True)
-            if not (self._column - spaces_column < 5 and is_space_or_tab(self.at(self._offset))):
+            self.advance_offset(1, True)?
+            if not (span_size(spaces_column, self._column) < 5 and is_space_or_tab(self.at(self._offset))):
                 break
         blank_item = self.at(self._offset) == -1
-        spaces = self._column - spaces_column
+        spaces = span_size(spaces_column, self._column)
         if spaces >= 5 or spaces < 1 or blank_item:
-            marker.padding = size + 1
+            # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+            unchecked:
+                marker.padding = size + 1
             self._column = spaces_column
             self._offset = spaces_offset
             if is_space_or_tab(self.at(self._offset)):
-                self.advance_offset(1, True)
+                self.advance_offset(1, True)?
         else:
-            marker.padding = size + spaces
-        True
+            # At most nine decimal digits, a present delimiter, and at most four padding columns; marker size <=10.
+            unchecked:
+                marker.padding = size + spaces
+        Ok(True)
 
     # Tries each block start in turn: 0 when none applies, 1 for a new
     # container, and 2 for a new leaf that takes the rest of the line.
@@ -1131,36 +1430,42 @@ pub class Parser:
         c = self.at(start)
         if not self._indented and c == 62:
             self.advance_next_nonspace()
-            self.advance_offset(1, False)
+            self.advance_offset(1, False)?
             if is_space_or_tab(self.at(self._offset)):
-                self.advance_offset(1, True)
+                self.advance_offset(1, True)?
             self.close_unmatched()?
             self.add_child(k_quote, self._next_nonspace)?
             return Ok(1)
         if not self._indented and c == 35:
             mut end = start
-            while self.at(end) == 35 and end - start < 7:
-                end += 1
-            level = end - start
+            while self.at(end) == 35 and span_size(start, end) < 7:
+                # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                unchecked:
+                    end += 1
+            level = span_size(start, end)
             after = self.at(end)
             if level <= 6 and (after == -1 or is_space_or_tab(after)):
                 self.advance_next_nonspace()
-                self.advance_offset(level, False)
+                self.advance_offset(level, False)?
                 self._offset = skip_spaces(&self._text, self._offset, stop)
                 self.close_unmatched()?
                 heading = self.add_child(k_heading, self._next_nonspace)?
                 self._blocks[heading].level = level
                 first = self._offset
                 mut last = stop
-                while last > first and is_space_or_tab(self.at(last - 1)):
-                    last -= 1
+                while last > first and is_space_or_tab(self.at(span_size(1, last))):
+                    # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                    unchecked:
+                        last -= 1
                 mut hashes = last
-                while hashes > first and self.at(hashes - 1) == 35:
-                    hashes -= 1
+                while hashes > first and self.at(span_size(1, hashes)) == 35:
+                    # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                    unchecked:
+                        hashes -= 1
                 if hashes < last:
                     if hashes == first:
                         last = first
-                    elif is_space_or_tab(self.at(hashes - 1)):
+                    elif is_space_or_tab(self.at(span_size(1, hashes))):
                         last = hashes
                 reserved(self._blocks[heading].content.extend(&self._text[first:last]))?
                 self._offset = stop
@@ -1168,8 +1473,10 @@ pub class Parser:
         if not self._indented and (c == 96 or c == 126):
             mut end = start
             while self.at(end) == c:
-                end += 1
-            size = end - start
+                # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                unchecked:
+                    end += 1
+            size = span_size(start, end)
             mut fenced = size >= 3
             if fenced and c == 96:
                 found = self._text.find(96u8, end, stop)
@@ -1182,7 +1489,7 @@ pub class Parser:
                 self._blocks[code].fence_char = c
                 self._blocks[code].fence_offset = self._indent
                 self.advance_next_nonspace()
-                self.advance_offset(size, False)
+                self.advance_offset(size, False)?
                 return Ok(2)
         if not self._indented and c == 60:
             html_kind = self.html_start(container)
@@ -1194,7 +1501,9 @@ pub class Parser:
         if not self._indented and self.block_kind(container) == k_paragraph and (c == 61 or c == 45):
             mut end = start
             while self.at(end) == c:
-                end += 1
+                # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                unchecked:
+                    end += 1
             if skip_spaces(&self._text, end, stop) == stop:
                 self.close_unmatched()?
                 if self.take_references(container)?:
@@ -1209,11 +1518,15 @@ pub class Parser:
             while at < stop:
                 d = self.at(at)
                 if d == c:
-                    count += 1
+                    # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                    unchecked:
+                        count += 1
                 elif not is_space_or_tab(d):
                     rule = False
                     break
-                at += 1
+                # Scans consume existing line bytes; heading/hash/rule counts never exceed the consumed span.
+                unchecked:
+                    at += 1
             if rule and count >= 3:
                 self.close_unmatched()?
                 self.add_child(k_rule, self._next_nonspace)?
@@ -1221,7 +1534,7 @@ pub class Parser:
                 return Ok(2)
         if not self._indented or self.block_kind(container) == k_list:
             mut marker = Block(k_item, 0, -1, -1, -1, -1, True, 0, 0, reserved(std.bytes.empty())?, 0, False, 0, 0, 0, 0, "", False, 0, 0, 0, 0, 0, True, 0)
-            if self.list_marker(container, &mut marker):
+            if self.list_marker(container, &mut marker)?:
                 self.close_unmatched()?
                 tip = self._tip
                 same = self.block_kind(tip) == k_list and self._blocks[tip].ordered == marker.ordered and self._blocks[tip].bullet == marker.bullet and self._blocks[tip].delimiter == marker.delimiter
@@ -1240,7 +1553,7 @@ pub class Parser:
                 self._blocks[item].padding = marker.padding
                 return Ok(1)
         if self._indented and self.block_kind(self._tip) != k_paragraph and not self._blank:
-            self.advance_offset(4, True)
+            self.advance_offset(4, True)?
             self.close_unmatched()?
             self.add_child(k_code, self._offset)?
             return Ok(2)
@@ -1248,7 +1561,9 @@ pub class Parser:
 
     def incorporate_line(self: &mut Parser, start: i64, stop: i64) -> Result[(), MarkdownFault]:
         self._line_end = stop
-        self._line_number += 1
+        # Each incorporated line consumes at least one LF in normalized text, so its ordinal is <= text.len().
+        unchecked:
+            self._line_number += 1
         self._offset = start
         self._column = 0
         self._blank = False
@@ -1260,7 +1575,7 @@ pub class Parser:
             if last < 0 or not self._blocks[last].open:
                 break
             container = last
-            self.find_next_nonspace()
+            self.find_next_nonspace()?
             outcome = self.continues(container)?
             if outcome == 2:
                 return Ok(())
@@ -1272,7 +1587,7 @@ pub class Parser:
         kind = self.block_kind(container)
         mut leaf = kind != k_paragraph and accepts_lines(kind)
         while not leaf:
-            self.find_next_nonspace()
+            self.find_next_nonspace()?
             c = self.at(self._next_nonspace)
             special = c == 35 or c == 96 or c == 126 or c == 42 or c == 43 or c == 95 or c == 61 or c == 60 or c == 62 or c == 45 or is_digit(c)
             if not self._indented and not special:
@@ -1307,7 +1622,11 @@ pub class Parser:
             found = self._text.find(10u8, start, size)
             stop = found.unwrap_or(size)
             self.incorporate_line(start, stop)?
-            start = stop + 1
+            if stop == size:
+                break
+            # A found LF occupies stop < size.
+            unchecked:
+                start = stop + 1
         while self._tip >= 0:
             self.finalize(self._tip, self._line_number)?
         Ok(())
@@ -1382,7 +1701,9 @@ pub class Parser:
     def add_byte_text(self: &mut Parser, value: i64) -> Result[i64, MarkdownFault]:
         at = self._pool.len()
         push_byte(&mut self._pool, value)?
-        node = self.new_inline(i_text, at, at + 1)?
+        # The successful byte append proves at + 1 == pool.len() is representable.
+        node = unchecked:
+            self.new_inline(i_text, at, at + 1)?
         self.append_inline(i_root, node)
         Ok(node)
 
@@ -1392,33 +1713,45 @@ pub class Parser:
         Ok(node)
 
     def parse_newline(self: &mut Parser) -> Result[(), MarkdownFault]:
-        self._pos += 1
+        # Cursor advances consume existing subject bytes; trimmed endpoints only decrease above start.
+        unchecked:
+            self._pos += 1
         last = self._inlines[i_root].last
         mut kind = i_soft
         if last >= 0 and self._inlines[last].kind == i_text:
             stop = self._inlines[last].stop
             start = self._inlines[last].start
-            if stop > start and i64(self._pool[stop - 1]) == 32:
-                if stop - start >= 2 and i64(self._pool[stop - 2]) == 32:
+            if stop > start and i64(self._pool[span_size(1, stop)]) == 32:
+                if span_size(start, stop) >= 2 and i64(self._pool[span_size(2, stop)]) == 32:
                     kind = i_hard
                 mut trimmed = stop
-                while trimmed > start and i64(self._pool[trimmed - 1]) == 32:
-                    trimmed -= 1
+                while trimmed > start and i64(self._pool[span_size(1, trimmed)]) == 32:
+                    # Cursor advances consume existing subject bytes; trimmed endpoints only decrease above start.
+                    unchecked:
+                        trimmed -= 1
                 self._inlines[last].stop = trimmed
         self.add_node(kind)?
         while self.subject_at(self._pos) == 32:
-            self._pos += 1
+            # Cursor advances consume existing subject bytes; trimmed endpoints only decrease above start.
+            unchecked:
+                self._pos += 1
         Ok(())
 
     def parse_backslash(self: &mut Parser) -> Result[(), MarkdownFault]:
-        self._pos += 1
+        # Cursor advances consume an existing backslash, LF or punctuation byte.
+        unchecked:
+            self._pos += 1
         c = self.subject_at(self._pos)
         if c == 10:
-            self._pos += 1
+            # Cursor advances consume an existing backslash, LF or punctuation byte.
+            unchecked:
+                self._pos += 1
             self.add_node(i_hard)?
         elif is_ascii_punctuation(c):
             self.add_byte_text(c)?
-            self._pos += 1
+            # Cursor advances consume an existing backslash, LF or punctuation byte.
+            unchecked:
+                self._pos += 1
         else:
             self.add_byte_text(92)?
         Ok(())
@@ -1435,15 +1768,19 @@ pub class Parser:
             if i64(self._subject[at]) == 96:
                 mut end = at
                 while end < stop and i64(self._subject[end]) == 96:
-                    end += 1
-                run = end - at
+                    # Runs and scan advances remain within the held subject span.
+                    unchecked:
+                        end += 1
+                run = span_size(at, end)
                 if run < len(self._tick_last):
                     self._tick_last[run] = at
                 if run == size:
                     return at
                 at = end
             else:
-                at += 1
+                # Runs and scan advances remain within the held subject span.
+                unchecked:
+                    at += 1
         self._ticks_scanned = True
         -1
 
@@ -1451,8 +1788,12 @@ pub class Parser:
         start = self._pos
         mut after = start
         while self.subject_at(after) == 96:
-            after += 1
-        size = after - start
+            # The matching closing run has size bytes before subject end; trimming stays within the pool span.
+            unchecked:
+                after += 1
+        # The matching closing run has size bytes before subject end; trimming stays within the pool span.
+        size = unchecked:
+            after - start
         close = self.closing_ticks(after, size)
         if close < 0:
             self._pos = after
@@ -1470,19 +1811,25 @@ pub class Parser:
                 push_byte(&mut self._pool, c)?
         mut first = at
         mut last = self._pool.len()
-        if nonspace and last - first >= 2 and i64(self._pool[first]) == 32 and i64(self._pool[last - 1]) == 32:
-            first += 1
-            last -= 1
+        if nonspace and span_size(first, last) >= 2 and i64(self._pool[first]) == 32 and i64(self._pool[span_size(1, last)]) == 32:
+            # The matching closing run has size bytes before subject end; trimming stays within the pool span.
+            unchecked:
+                first += 1
+                last -= 1
         node = self.new_inline(i_code, first, last)?
         self.append_inline(i_root, node)
-        self._pos = close + size
+        # The matching closing run has size bytes before subject end; trimming stays within the pool span.
+        unchecked:
+            self._pos = close + size
         Ok(())
 
     def scan_delimiters(self: &mut Parser, cc: i64) -> (i64, bool, bool):
         start = self._pos
         mut end = start
         while self.subject_at(end) == cc:
-            end += 1
+            # The run consumes existing subject bytes; its endpoints are nonnegative.
+            unchecked:
+                end += 1
         before = 10 if start == 0 else scalar_before(&self._subject, start)
         after = 10 if end >= self._subject.len() else scalar_at(&self._subject, end)
         after_space = is_unicode_whitespace(after)
@@ -1492,14 +1839,16 @@ pub class Parser:
         left = not after_space and (not after_punct or before_space or before_punct)
         right = not before_space and (not before_punct or after_space or after_punct)
         if cc == 95:
-            return (end - start, left and (not right or before_punct), right and (not left or after_punct))
-        (end - start, left, right)
+            return (span_size(start, end), left and (not right or before_punct), right and (not left or after_punct))
+        (span_size(start, end), left, right)
 
     def handle_delimiter(self: &mut Parser, cc: i64) -> Result[(), MarkdownFault]:
         found = self.scan_delimiters(cc)
         count, can_open, can_close = found
         start = self._pos
-        self._pos += count
+        # count is exactly the scanned run ending within the subject.
+        unchecked:
+            self._pos += count
         node = self.add_text(start, self._pos)?
         if can_open or can_close:
             index = len(self._delimiters)
@@ -1536,11 +1885,15 @@ pub class Parser:
             cc = self._delimiters[closer].cc
             closer_open = self._delimiters[closer].can_open
             closer_original = self._delimiters[closer].original
-            slot = (0 if cc == 95 else 6) + (3 if closer_open else 0) + closer_original % 3
+            # Remainders are 0..2 (slot <=11); used is <= both delimiter counts and their text spans.
+            slot = unchecked:
+                (0 if cc == 95 else 6) + (3 if closer_open else 0) + closer_original % 3
             mut opener = self._delimiters[closer].previous
             mut found = False
             while opener >= 0 and opener != bottom and opener != openers_bottom[slot]:
-                odd = (closer_open or self._delimiters[opener].can_close) and closer_original % 3 != 0 and (self._delimiters[opener].original + closer_original) % 3 == 0
+                # Remainders are 0..2 (slot <=11); used is <= both delimiter counts and their text spans.
+                odd = unchecked:
+                    (closer_open or self._delimiters[opener].can_close) and closer_original % 3 != 0 and ((self._delimiters[opener].original % 3) + (closer_original % 3)) % 3 == 0
                 if self._delimiters[opener].cc == cc and self._delimiters[opener].can_open and not odd:
                     found = True
                     break
@@ -1555,10 +1908,14 @@ pub class Parser:
             used = 2 if self._delimiters[closer].count >= 2 and self._delimiters[opener].count >= 2 else 1
             opener_node = self._delimiters[opener].node
             closer_node = self._delimiters[closer].node
-            self._delimiters[opener].count -= used
-            self._delimiters[closer].count -= used
-            self._inlines[opener_node].stop -= used
-            self._inlines[closer_node].stop -= used
+            # Remainders are 0..2 (slot <=11); used is <= both delimiter counts and their text spans.
+            unchecked:
+                self._delimiters[opener].count -= used
+                self._delimiters[closer].count -= used
+            # Remainders are 0..2 (slot <=11); used is <= both delimiter counts and their text spans.
+            unchecked:
+                self._inlines[opener_node].stop -= used
+                self._inlines[closer_node].stop -= used
             emphasis = self.new_inline(i_emphasis if used == 1 else i_strong, 0, 0)?
             self.adopt(emphasis, opener_node, closer_node)
             self.insert_after(opener_node, emphasis)
@@ -1580,24 +1937,36 @@ pub class Parser:
     def add_bracket(self: &mut Parser, node: i64, index: i64, image: bool) -> Result[(), MarkdownFault]:
         if self._bracket_top >= 0:
             self._brackets[self._bracket_top].bracket_after = True
-        self._bracket_count += 1
+        # Each bracket consumes a distinct subject byte; count < current subject position before increment.
+        unchecked:
+            self._bracket_count += 1
         reserved(self._brackets.append(Bracket(node, self._bracket_top, self._delimiter_top, index, image, False, self._bracket_count)))?
-        self._bracket_top = len(self._brackets) - 1
+        # Each bracket consumes a distinct subject byte; count < current subject position before increment.
+        unchecked:
+            self._bracket_top = len(self._brackets) - 1
         Ok(())
 
     def parse_open_bracket(self: &mut Parser) -> Result[(), MarkdownFault]:
         start = self._pos
-        self._pos += 1
+        # The opening bracket exists before subject end.
+        unchecked:
+            self._pos += 1
         node = self.add_text(start, self._pos)?
         self.add_bracket(node, start, False)
 
     def parse_bang(self: &mut Parser) -> Result[(), MarkdownFault]:
         start = self._pos
-        self._pos += 1
-        if self.subject_at(self._pos) == 91:
+        # Advances consume the existing bang and optional opening bracket.
+        unchecked:
             self._pos += 1
+        if self.subject_at(self._pos) == 91:
+            # Advances consume the existing bang and optional opening bracket.
+            unchecked:
+                self._pos += 1
             node = self.add_text(start, self._pos)?
-            return self.add_bracket(node, start + 1, True)
+            # Advances consume the existing bang and optional opening bracket.
+            unchecked:
+                return self.add_bracket(node, start + 1, True)
         self.add_text(start, self._pos)?
         Ok(())
 
@@ -1606,7 +1975,9 @@ pub class Parser:
         stop = self._subject.len()
         if self.subject_at(self._pos) != 40:
             return Ok(False)
-        destination_at = skip_spnl(&self._subject, self._pos + 1, stop)
+        # Scanned target delimiters exist before subject end.
+        destination_at = unchecked:
+            skip_spnl(&self._subject, self._pos + 1, stop)
         found = scan_destination(&self._subject, destination_at, stop)
         destination_end, destination_start, destination_stop = found
         if destination_end < 0:
@@ -1623,8 +1994,12 @@ pub class Parser:
         self._target_destination = unescaped(&self._subject, destination_start, destination_stop, &mut self._scratch)?
         self._target_title = ""
         if title_end >= 0:
-            self._target_title = unescaped(&self._subject, title_at + 1, title_end - 1, &mut self._scratch)?
-        self._pos = end + 1
+            # Scanned target delimiters exist before subject end.
+            unchecked:
+                self._target_title = unescaped(&self._subject, title_at + 1, span_size(1, title_end), &mut self._scratch)?
+        # Scanned target delimiters exist before subject end.
+        unchecked:
+            self._pos = end + 1
         Ok(True)
 
     def lookup(self: &mut Parser, start: i64, stop: i64) -> Result[bool, MarkdownFault]:
@@ -1638,35 +2013,41 @@ pub class Parser:
                 Ok(False)
 
     def parse_close_bracket(self: &mut Parser) -> Result[(), MarkdownFault]:
-        self._pos += 1
+        # The closing bracket and successful label scans bound all consumed endpoints.
+        unchecked:
+            self._pos += 1
         start = self._pos
         opener = self._bracket_top
         if opener < 0:
-            self.add_text(start - 1, start)?
+            self.add_text(span_size(1, start), start)?
             return Ok(())
         image = self._brackets[opener].image
         if not image and self._brackets[opener].sequence <= self._link_floor:
-            self.add_text(start - 1, start)?
+            self.add_text(span_size(1, start), start)?
             self._bracket_top = self._brackets[opener].previous
             return Ok(())
         mut matched = self.inline_target()?
         if not matched:
             stop = self._subject.len()
             label_end = scan_label(&self._subject, self._pos, stop)
-            if label_end - self._pos > 2:
-                matched = self.lookup(self._pos + 1, label_end - 1)?
+            if span_size(self._pos, label_end) > 2:
+                # The closing bracket and successful label scans bound all consumed endpoints.
+                matched = unchecked:
+                    self.lookup(self._pos + 1, span_size(1, label_end))?
                 if matched:
                     self._pos = label_end
             elif not self._brackets[opener].bracket_after:
                 first = self._brackets[opener].index
                 if scan_label(&self._subject, first, stop) == start:
-                    matched = self.lookup(first + 1, start - 1)?
+                    # The closing bracket and successful label scans bound all consumed endpoints.
+                    matched = unchecked:
+                        self.lookup(first + 1, span_size(1, start))?
                     if matched and label_end >= 0:
                         self._pos = label_end
         if not matched:
             self._bracket_top = self._brackets[opener].previous
             self._pos = start
-            self.add_text(start - 1, start)?
+            self.add_text(span_size(1, start), start)?
             return Ok(())
         node = self.new_inline(i_image if image else i_link, 0, 0)?
         self._inlines[node].destination = self._target_destination
@@ -1699,48 +2080,77 @@ pub class Parser:
     def parse_autolink(self: &mut Parser) -> Result[bool, MarkdownFault]:
         start = self._pos
         stop = self._subject.len()
-        mut at = start + 1
+        # Advances consume existing scheme/email/delimiter bytes before subject end.
+        mut at = unchecked:
+            start + 1
         if is_letter(self.subject_at(at)):
-            at += 1
-            while at - start - 1 < 32 and (is_alnum(self.subject_at(at)) or self.subject_at(at) == 46 or self.subject_at(at) == 43 or self.subject_at(at) == 45):
+            # Advances consume existing scheme/email/delimiter bytes before subject end.
+            unchecked:
                 at += 1
-            scheme = at - start - 1
+            while span_size(start, at) < 33 and (is_alnum(self.subject_at(at)) or self.subject_at(at) == 46 or self.subject_at(at) == 43 or self.subject_at(at) == 45):
+                # Advances consume existing scheme/email/delimiter bytes before subject end.
+                unchecked:
+                    at += 1
+            # Advances consume existing scheme/email/delimiter bytes before subject end.
+            scheme = unchecked:
+                span_size(start, at) - 1
             if scheme >= 2 and scheme <= 32 and self.subject_at(at) == 58:
-                at += 1
+                # Advances consume existing scheme/email/delimiter bytes before subject end.
+                unchecked:
+                    at += 1
                 while at < stop:
                     c = i64(self._subject[at])
                     if c == 62:
-                        self.add_link_text(False, start + 1, at)?
-                        self._pos = at + 1
+                        # Advances consume existing scheme/email/delimiter bytes before subject end.
+                        unchecked:
+                            self.add_link_text(False, start + 1, at)?
+                            self._pos = at + 1
                         return Ok(True)
                     if c == 60 or c <= 32:
                         break
-                    at += 1
-        at = start + 1
+                    # Advances consume existing scheme/email/delimiter bytes before subject end.
+                    unchecked:
+                        at += 1
+        # Advances consume existing scheme/email/delimiter bytes before subject end.
+        at = unchecked:
+            start + 1
         while at < stop:
             c = i64(self._subject[at])
             if is_alnum(c) or (c >= 35 and c <= 39) or c == 33 or c == 42 or c == 43 or c == 45 or c == 46 or c == 47 or c == 61 or c == 63 or (c >= 94 and c <= 96) or (c >= 123 and c <= 126):
-                at += 1
+                # Advances consume existing scheme/email/delimiter bytes before subject end.
+                unchecked:
+                    at += 1
             else:
                 break
-        if at == start + 1 or self.subject_at(at) != 64:
+        # Advances consume existing scheme/email/delimiter bytes before subject end.
+        empty_email = unchecked:
+            at == start + 1 or self.subject_at(at) != 64
+        if empty_email:
             return Ok(False)
-        at += 1
+        # Advances consume existing scheme/email/delimiter bytes before subject end.
+        unchecked:
+            at += 1
         while True:
             label = at
             while is_alnum(self.subject_at(at)) or self.subject_at(at) == 45:
-                at += 1
-            size = at - label
-            if size < 1 or size > 63 or not is_alnum(self.subject_at(label)) or not is_alnum(self.subject_at(at - 1)):
+                # Advances consume existing scheme/email/delimiter bytes before subject end.
+                unchecked:
+                    at += 1
+            size = span_size(label, at)
+            if size < 1 or size > 63 or not is_alnum(self.subject_at(label)) or not is_alnum(self.subject_at(span_size(1, at))):
                 return Ok(False)
             c = self.subject_at(at)
             if c == 62:
-                self.add_link_text(True, start + 1, at)?
-                self._pos = at + 1
+                # Advances consume existing scheme/email/delimiter bytes before subject end.
+                unchecked:
+                    self.add_link_text(True, start + 1, at)?
+                    self._pos = at + 1
                 return Ok(True)
             if c != 46:
                 return Ok(False)
-            at += 1
+            # Advances consume existing scheme/email/delimiter bytes before subject end.
+            unchecked:
+                at += 1
         Ok(False)
 
     # The index after `word` at or after `from`, or -1. A failed search is
@@ -1752,27 +2162,41 @@ pub class Parser:
         if found < 0:
             self._missing[which] = origin
             return -1
-        found + len(word)
+        # A successful fixed-word search includes the whole word before subject end.
+        unchecked:
+            found + len(word)
 
     def parse_html_tag(self: &mut Parser) -> Result[bool, MarkdownFault]:
         start = self._pos
         stop = self._subject.len()
-        c = self.subject_at(start + 1)
+        c = peek_ahead(&self._subject, start, 1, self._subject.len())
         mut end = -1
         if c == 33:
             if starts_folded(&self._subject, start, stop, b"<!-->"):
-                end = start + 5
+                # Each offset follows a successful fixed-prefix or existing character check.
+                end = unchecked:
+                    start + 5
             elif starts_folded(&self._subject, start, stop, b"<!--->"):
-                end = start + 6
+                # Each offset follows a successful fixed-prefix or existing character check.
+                end = unchecked:
+                    start + 6
             elif starts_folded(&self._subject, start, stop, b"<!--"):
-                end = self.find_end(0, start + 4, b"-->")
+                # Each offset follows a successful fixed-prefix or existing character check.
+                end = unchecked:
+                    self.find_end(0, start + 4, b"-->")
             elif starts_folded(&self._subject, start, stop, b"<![cdata["):
                 if starts_exact(&self._subject, start, stop, b"<![CDATA["):
-                    end = self.find_end(1, start + 9, b"]]>")
-            elif is_letter(self.subject_at(start + 2)):
-                end = self.find_end(2, start + 3, b">")
+                    # Each offset follows a successful fixed-prefix or existing character check.
+                    end = unchecked:
+                        self.find_end(1, start + 9, b"]]>")
+            elif is_letter(peek_ahead(&self._subject, start, 2, self._subject.len())):
+                # Each offset follows a successful fixed-prefix or existing character check.
+                end = unchecked:
+                    self.find_end(2, start + 3, b">")
         elif c == 63:
-            end = self.find_end(3, start + 2, b"?>")
+            # Each offset follows a successful fixed-prefix or existing character check.
+            end = unchecked:
+                self.find_end(3, start + 2, b"?>")
         elif c == 47:
             end = scan_close_tag(&self._subject, start, stop)
         else:
@@ -1799,12 +2223,16 @@ pub class Parser:
     def parse_string(self: &mut Parser) -> Result[(), MarkdownFault]:
         start = self._pos
         stop = self._subject.len()
-        mut at = start + 1
+        # The initial and loop bytes are before subject end.
+        mut at = unchecked:
+            start + 1
         while at < stop:
             c = i64(self._subject[at])
             if c == 10 or c == 96 or c == 91 or c == 93 or c == 92 or c == 33 or c == 60 or c == 38 or c == 42 or c == 95:
                 break
-            at += 1
+            # The initial and loop bytes are before subject end.
+            unchecked:
+                at += 1
         self._pos = at
         self.add_text(start, at)?
         Ok(())
@@ -1828,14 +2256,18 @@ pub class Parser:
         if c == 60:
             if self.parse_autolink()? or self.parse_html_tag()?:
                 return Ok(())
-            self._pos += 1
-            self.add_text(self._pos - 1, self._pos)?
+            # Dispatch consumes one existing subject byte.
+            unchecked:
+                self._pos += 1
+            self.add_text(span_size(1, self._pos), self._pos)?
             return Ok(())
         if c == 38:
             if self.parse_entity()?:
                 return Ok(())
-            self._pos += 1
-            self.add_text(self._pos - 1, self._pos)?
+            # Dispatch consumes one existing subject byte.
+            unchecked:
+                self._pos += 1
+            self.add_text(span_size(1, self._pos), self._pos)?
             return Ok(())
         self.parse_string()
 
@@ -1844,8 +2276,10 @@ pub class Parser:
         size = self._blocks[index].content.len()
         first = skip_whitespace(&self._blocks[index].content, 0, size)
         mut last = size
-        while last > first and is_ascii_space(i64(self._blocks[index].content[last - 1])):
-            last -= 1
+        while last > first and is_ascii_space(i64(self._blocks[index].content[span_size(1, last)])):
+            # Whitespace trimming only decrements positive held-content endpoints.
+            unchecked:
+                last -= 1
         self._subject.clear()
         reserved(self._subject.extend(&self._blocks[index].content[first:last]))?
         self._pool.clear()
@@ -2023,7 +2457,9 @@ pub class Parser:
                     self._broken = True
                     return Err(MarkdownError(fault, 0, 0))
         index = self._queued
-        self._queued += 1
+        # queued is an index strictly below queue length after successful advance.
+        unchecked:
+            self._queued += 1
         Ok(replace(self._queue[index], Event.Done))
 
 # The start of line `line`, counted from one, in the original input.
@@ -2034,31 +2470,61 @@ def line_offset(source: &[u8], line: i64) -> i64:
     while current < line and index < size:
         c = i64(source[index])
         if c == 10:
-            current += 1
+            # Line count advances only below requested line; byte advances consume existing input bytes.
+            unchecked:
+                current += 1
         elif c == 13:
-            if index + 1 < size and i64(source[index + 1]) == 10:
-                index += 1
-            current += 1
-        index += 1
+            # Line count advances only below requested line; byte advances consume existing input bytes.
+            has_crlf = unchecked:
+                index + 1 < size and i64(source[index + 1]) == 10
+            if has_crlf:
+                # Line count advances only below requested line; byte advances consume existing input bytes.
+                unchecked:
+                    index += 1
+            # Line count advances only below requested line; byte advances consume existing input bytes.
+            unchecked:
+                current += 1
+        # Line count advances only below requested line; byte advances consume existing input bytes.
+        unchecked:
+            index += 1
     index
+
+# Expanded-column exhaustion has no available raw byte location. Only a
+# depth fault is placed at the original input's corresponding line.
+def block_error(fault: MarkdownFault, source: &[u8], line: i64) -> MarkdownError:
+    match fault:
+        case MarkdownFault.DepthExceeded:
+            MarkdownError(fault, line_offset(source, line), line)
+        case _:
+            MarkdownError(fault, 0, 0)
 
 # Line endings become LF, NUL becomes U+FFFD, and a final line ending is added.
 def normalized(source: &[u8]) -> Result[Bytes, MarkdownFault]:
     size = len(source)
-    mut text = reserved(std.bytes.with_capacity(size + 1))?
+    mut text = reserved(std.bytes.with_capacity(normalized_capacity(size)?))?
     mut index = 0
     while index < size:
         c = i64(source[index])
         if c == 13:
             push_byte(&mut text, 10)?
-            if index + 1 < size and i64(source[index + 1]) == 10:
-                index += 1
+            # Advances consume existing source bytes; CRLF consumes two only when both exist.
+            has_crlf = unchecked:
+                index + 1 < size and i64(source[index + 1]) == 10
+            if has_crlf:
+                # Advances consume existing source bytes; CRLF consumes two only when both exist.
+                unchecked:
+                    index += 1
         elif c == 0:
             push_scalar(&mut text, 65533)?
         else:
             push_byte(&mut text, c)?
-        index += 1
-    if size > 0 and i64(text[text.len() - 1]) != 10:
+        # Advances consume existing source bytes; CRLF consumes two only when both exist.
+        unchecked:
+            index += 1
+    # Advances consume existing source bytes; CRLF consumes two only when both exist.
+    needs_final_lf = unchecked:
+        size > 0 and i64(text[text.len() - 1]) != 10
+    if needs_final_lf:
         push_byte(&mut text, 10)?
     Ok(text)
 
@@ -2098,12 +2564,7 @@ pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
         case Ok(_):
             Ok(result)
         case Err(fault):
-            match fault:
-                case MarkdownFault.DepthExceeded:
-                    line = result._line_number
-                    Err(MarkdownError(fault, line_offset(source, line), line))
-                case _:
-                    Err(MarkdownError(fault, 0, 0))
+            Err(block_error(fault, source, result._line_number))
 
 pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]:
     source = unplaced(reserved(std.bytes.from_text(text)))?
@@ -2128,9 +2589,7 @@ pub class HtmlRenderer:
         self._written
 
     def room(self: &mut HtmlRenderer, size: i64) -> Result[(), MarkdownFault]:
-        if size > self._max_output - self._written:
-            return Err(MarkdownFault.OutputTooLarge)
-        self._written += size
+        self._written = output_after(self._written, size, self._max_output)?
         Ok(())
 
     def put(self: &mut HtmlRenderer, markup: bytes) -> Result[(), MarkdownFault]:
@@ -2138,7 +2597,9 @@ pub class HtmlRenderer:
             return Ok(())
         self.room(len(markup))?
         reserved(self._out.extend(&markup))?
-        self._last = i64(markup[len(markup) - 1])
+        # Nonempty markup has a positive length.
+        unchecked:
+            self._last = i64(markup[len(markup) - 1])
         Ok(())
 
     def put_byte(self: &mut HtmlRenderer, value: i64) -> Result[(), MarkdownFault]:
@@ -2158,7 +2619,9 @@ pub class HtmlRenderer:
         source = reserved(std.bytes.from_text(text))?
         self.room(source.len())?
         reserved(self._out.extend(&source))?
-        self._last = i64(source[source.len() - 1])
+        # Nonempty text encodes to a positive byte-buffer length.
+        unchecked:
+            self._last = i64(source[source.len() - 1])
         Ok(())
 
     # Escapes `&`, `<`, `>`, and `"`; with `href`, also percent-encodes bytes
@@ -2202,9 +2665,10 @@ pub class HtmlRenderer:
                 self.cr()?
                 self.put(b"<p>")
             case Tag.Heading(level):
+                digit = heading_byte(*level)?
                 self.cr()?
                 self.put(b"<h")?
-                self.put_byte(48 + *level)?
+                self.put_byte(digit)?
                 self.put(b">")
             case Tag.BlockQuote:
                 self.cr()?
@@ -2216,7 +2680,9 @@ pub class HtmlRenderer:
                 source = reserved(std.bytes.from_text(info))?
                 mut end = 0
                 while end < source.len() and not is_ascii_space(i64(source[end])):
-                    end += 1
+                    # The language-name scan consumes existing info-string bytes.
+                    unchecked:
+                        end += 1
                 if end > 0:
                     word = text_of(&source, 0, end)?
                     self.put(b" class=\"language-")?
@@ -2259,8 +2725,9 @@ pub class HtmlRenderer:
                 self.put(b"</p>")?
                 self.cr()
             case Tag.Heading(level):
+                digit = heading_byte(*level)?
                 self.put(b"</h")?
-                self.put_byte(48 + *level)?
+                self.put_byte(digit)?
                 self.put(b">")?
                 self.cr()
             case Tag.BlockQuote:
@@ -2292,20 +2759,39 @@ pub class HtmlRenderer:
                 self.put_title(title)?
                 self.put(b" />")
 
+    def nest_image(self: &mut HtmlRenderer) -> Result[(), MarkdownFault]:
+        value = checked:
+            self._image_depth + 1
+        match value:
+            case Ok(next):
+                self._image_depth = next
+                Ok(())
+            case Err(_):
+                Err(MarkdownFault.InvalidState)
+
     def render(self: &mut HtmlRenderer, event: &Event) -> Result[(), MarkdownFault]:
+        match event:
+            case Event.Start(Tag.Heading(level)):
+                drop(heading_byte(*level)?)
+            case Event.End(Tag.Heading(level)):
+                drop(heading_byte(*level)?)
+            case _:
+                pass
         if self._image_depth > 0:
             # Inside an image only text survives, as its `alt` attribute.
             match event:
                 case Event.Start(tag):
                     match tag:
                         case Tag.Image(_, _):
-                            self._image_depth += 1
+                            self.nest_image()?
                         case _:
                             pass
                 case Event.End(tag):
                     match tag:
                         case Tag.Image(_, _):
-                            self._image_depth -= 1
+                            # Positive image nesting decrements toward zero.
+                            unchecked:
+                                self._image_depth -= 1
                             if self._image_depth == 0:
                                 self.put_end(tag)?
                         case _:
@@ -2358,12 +2844,16 @@ pub class HtmlRenderer:
                 pass
         Ok(())
 
-    # Appends the HTML for one event. Events must come from one parser, in
-    # order. After an error the renderer is unusable.
+    # Appends one event in document order, including rewritten events.
+    # Invalid heading levels or nesting exhaustion break the renderer before
+    # the failing event emits bytes. Earlier output remains available.
     pub def event(self: &mut HtmlRenderer, event: &Event) -> Result[(), MarkdownError]:
         if self._broken:
             return Err(MarkdownError(MarkdownFault.InvalidState, self._written, 0))
         outcome = self.render(event)
+        self.event_result(outcome)
+
+    def event_result(self: &mut HtmlRenderer, outcome: Result[(), MarkdownFault]) -> Result[(), MarkdownError]:
         match outcome:
             case Ok(_):
                 Ok(())
@@ -2388,8 +2878,12 @@ def href_safe(c: i64) -> bool:
 
 def hex_digit(value: i64) -> i64:
     if value < 10:
-        return 48 + value
-    55 + value
+        # Callers pass one nibble in 0..15.
+        unchecked:
+            return 48 + value
+    # Callers pass one nibble in 0..15.
+    unchecked:
+        55 + value
 
 pub def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]:
     out = unplaced(reserved(std.bytes.empty()))?
@@ -2405,10 +2899,14 @@ pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> R
             source._out.clear()
             Ok(())
         case Err(partial):
-            kept = source._out.len() - partial.completed
+            # write_all guarantees 0 <= completed <= pending; shifted indices remain below the old pending length.
+            kept = unchecked:
+                source._out.len() - partial.completed
             # Shifted in place: a failure path must not need memory.
             for index in range(kept):
-                source._out.set(index, source._out.get(partial.completed + index))
+                # write_all guarantees 0 <= completed <= pending; shifted indices remain below the old pending length.
+                unchecked:
+                    source._out.set(index, source._out.get(partial.completed + index))
             source._out.truncate(kept)
             Err(MarkdownError(MarkdownFault.Stream(partial.cause), source._written, 0))
 
