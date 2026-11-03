@@ -24,8 +24,9 @@ The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env`,
 `std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`,
 `std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
-and `std.http.client`, plus `std.json` and `std.unicode`. Logging's bounded
-timestamp/line-buffer arithmetic is also adapted; its generic running statistics are not yet migrated.
+and `std.http.client`, plus `std.json`, `std.unicode`, `std.complex`, `std.stat`,
+`std.linalg`, `std.simd`, `std.log`, `std.crypto`, `std.tls`, `std.uuid`,
+`std.jwt`, `std.http.server`, and actor core/TCP/TLS adapters.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -56,7 +57,27 @@ uses explicit scalar-ceiling, successful-append and positive-index bounds. The
 JSON/Unicode component passed 35 isolated-target runtime-check tests, including
 debug/optimized representation boundaries and the Unicode normalization corpus,
 and received an independent source review. TOML, XML, CSV and regex remain
-unmigrated; this is not full formats acceptance.
+outside that integrated checkpoint; this is not full formats acceptance.
+
+The reviewed numerical checkpoint preserves complex powers at `i64.MIN`, matrix
+shape/index invariants and statistical capacity causes. Ordinary integer SIMD
+arithmetic returns lane-typed overflow results; explicit wrapping and IEEE float
+APIs remain unchanged. The SIMD tutorial and generated declarations match.
+Observation-only logger, server-report and actor statistics saturate at their
+existing maximum, following the user's explicit policy; semantic progress stays
+exact and fallible. Server output and unread extents preflight before delivery
+or buffer growth. TLS/crypto/UUID/JWT retain their existing public errors with
+source-visible buffer, DER, timestamp and time/leeway bounds.
+
+Actor slots and timer/request records retire rather than wrap exhausted identity
+generations. Mailbox counters rebase all linked target-owned exit fences while
+preserving message-prefix ordering. An affine arithmetic error reaches its
+parent with both actor heaps reclaimed. Complete actor TLS, crypto, JWT, HTTPS
+and server/client tests pass after dependency integration. Combined targeted
+validation has 733 passes, two failures in unmigrated HTTP body/cookie, and one
+pre-existing ignored test. Two native-engine linalg test bodies remain unrun.
+The registry still reports 31 failing module analyses; broad tutorial validation
+remains incomplete. These results are not all-features or performance acceptance.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining

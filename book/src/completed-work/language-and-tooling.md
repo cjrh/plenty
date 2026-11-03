@@ -151,7 +151,8 @@ Boundary tests use an affine cause type without constructing huge buffers and
 verify allocation-free arithmetic in debug and optimized output. Client
 deadline saturation, bounded counters and callback independence are explicit.
 The I/O range integration and typed composition/prototype examples pass;
-server-dependent client and TLS-dependent network checks remain outstanding.
+those cross-module dependencies were resolved by the coordinated checkpoint
+below.
 
 JSON position arithmetic now reports the existing InputTooLarge fault before
 advancing a failing byte or ASCII-run cursor; input/output budgets and partial
@@ -161,6 +162,24 @@ are unchanged. The component's 35 runtime-check tests pass on an isolated build
 target, including optimized/unoptimized boundaries and the Unicode normalization
 corpus; independent review found no defects. TOML, XML, CSV and regex remain
 part of the incomplete adoption scope.
+
+The coordinated numerical, transport, server and actor checkpoint is integrated
+with independent source reviews. Ordinary integer SIMD operations return
+lane-typed overflow results; floats and explicit wrapping operations retain
+their contracts. Complex powers cover the full signed exponent range; matrix
+construction/indexing and statistics keep their typed errors. Diagnostic logger,
+server-report and actor counters saturate under the user-approved policy.
+Exact streamed progress, allocation extents, crypto/DER/UUID and JWT time bounds
+retain existing errors rather than hiding overflow.
+
+Actor identity generations never wrap: exhausted slots and clock records retire.
+Mailbox rebasing preserves every target-owned child-exit fence and prefix order;
+affine callback arithmetic errors reach the parent without leaking actor heaps.
+Combined targeted runtime-check validation reports 733 passes, two failures in
+still-unmigrated HTTP body/cookie dependencies and one pre-existing ignored test.
+Full crypto, JWT, HTTPS, standalone server/client and actor TLS tests now pass
+together. Two optional native-engine linalg bodies, broad documentation examples,
+remaining modules and full acceptance measurements are still outstanding.
 
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
