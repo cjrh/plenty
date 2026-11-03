@@ -28,12 +28,13 @@ pub(super) fn callable_bound(bound: &TypeRef) -> bool {
 }
 
 /// The test a type must pass to satisfy the built-in constraint `bound`
-/// names: `IntType`, `FloatType`, or `CopyType`.
+/// names: `IntType`, `FloatType`, `CopyType`, `KeyType`, or `Dimension`.
 pub(super) fn builtin_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
     match bound.name.as_deref() {
         Some("IntType") => Some(Ty::is_int),
         Some("FloatType") => Some(Ty::is_float),
         Some("CopyType") => Some(copies),
+        Some("KeyType") => Some(Ty::hashable),
         Some("Dimension") => Some(dimensions::is_dimension),
         _ => None,
     }
@@ -1528,7 +1529,7 @@ impl Engine {
                     )));
                 }
             } else if builtin_bound(bound).is_none() || !bound.args.is_empty() {
-                return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, Dimension, Callable, OnceCallable, or a declared protocol"));
+                return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, KeyType, Dimension, Callable, OnceCallable, or a declared protocol"));
             }
         }
         Ok(())

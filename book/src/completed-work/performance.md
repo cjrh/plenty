@@ -174,5 +174,7 @@ not bitset storage. See [collections](../design/facilities/01-builtins/collectio
 
 
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
-traversal performs linear field-offset work per pass (issue #330). Broader class-key and generic-constraint support remains
+traversal performs linear field-offset work per pass (issue #330). The built-in `KeyType` constraint now exposes the same key admission rule on
+functions, methods, classes and enums; see [generics](../design/language/07-generics/index.md#keytype).
+Broader class-key support remains
 **B74** in the [backlog](../backlog.md).

@@ -16,13 +16,59 @@ generic syntax adds no runtime type lookup or allocation.
 The toolchain documents [specialization limits and caching](../../toolchain/02-architecture/emission.md).
 
 Functions and methods accept unconstrained parameters, `IntType`, `FloatType`,
-`CopyType`, `Dimension`, structural protocol constraints, and callable constraints.
+`CopyType`, `KeyType`, `Dimension`, structural protocol constraints, and callable constraints.
 `Dimension` accepts [compile-time dimensions](../03-types/dimensions.md), which
 have no values. `IntType` accepts the
 eight fixed-width integer types and `FloatType` accepts `f32` and `f64`,
 including aliases; each is a constraint rather than a value type. No constraint
 admits both integers and floats; an unconstrained parameter does, because a
 body is checked for each instance. Callable capabilities follow [functions](../06-functions/index.md).
+
+## KeyType
+
+`KeyType` accepts exactly the [supported dictionary keys and set members](../../facilities/01-builtins/collections.md):
+integers and their supported domains, `bool`, `str`, `bytes`, and tuples or named
+enums whose every payload is a supported key type. Classes (including `@copy`
+classes), floats, collections, boxes, recursive types and anonymous sums remain
+excluded. It is a built-in constraint, not a protocol or a stored value type;
+no `__hash__` method is needed or accepted.
+
+Functions, methods, classes and enums can declare `K: KeyType`. Explicit and
+inferred arguments are checked against the same admission rule as `dict[K, V]`
+and `set[K]`. This makes the requirement visible and reports unsuitable
+arguments at the generic boundary, even when its body does not hash anything.
+Generic bodies remain checked per concrete instance: an unconstrained `K`
+can still be used with collections when its concrete type is valid.
+
+```plenty
+def distinct[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
+    mut result: set[K] = set()?
+    for value in values:
+        result.add(*value)?
+    Ok(result)
+
+def main() -> Result[(), AllocError | IoError]:
+    print(len(distinct(&["red", "blue", "red"]?)?))?
+    Ok(())
+```
+```output
+2
+```
+
+All currently admitted key types copy on ordinary use, so the borrowed loop can
+read `*value`. The constraint describes key eligibility, rather than a separate
+promise that any future affine key extension will copy.
+
+```plenty-error
+def accept[K: KeyType](value: K) -> ():
+    pass
+
+def main() -> ():
+    accept(1.5)
+```
+```error
+f64 does not satisfy KeyType
+```
 
 ## CopyType
 
