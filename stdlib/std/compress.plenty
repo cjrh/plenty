@@ -41,7 +41,9 @@ def kind(format: Format, decoding: bool) -> u8:
     if decoding:
         if base == 7u8:
             return 8u8
-        return base + 3u8
+        # The non-Brotli tags are 1..=3, so decoding tags are 4..=6.
+        unchecked:
+            return base + 3u8
     base
 
 # A codec state: a `Bytes` whose bytes are the codec's pending output, which a
@@ -56,8 +58,9 @@ def codec(kind: u8, level: i64, capacity: i64) -> Result[Bytes, CompressError]:
         case Err(cause):
             Err(CompressError.Allocation(cause))
 
-# Feeds `input` to the codec: the count consumed, or a negative code for
-# `failed`.
+# Feeds `input` to the codec: a count in 0..=len(input), or a negative
+# code for `failed`. Both native engines bound consumption by the offered
+# view and pending output by the reserved capacity; callers rely on this.
 def stepped(state: &mut Bytes, input: &[u8]) -> i64:
     __compress_step(state, input)
 
@@ -108,6 +111,20 @@ def leveled(format: Format, level: i64) -> Result[(), CompressError]:
         return Err(CompressError.OutOfRange)
     Ok(())
 
+# Exact decoded progress, including across gzip members. Representation
+# exhaustion is output beyond the limit too, never a wrapped/saturated count.
+# Callers keep 0 <= produced <= limit and amount >= 0.
+def output_total(produced: i64, amount: i64, limit: i64) -> Result[i64, CompressError]:
+    total = checked:
+        produced + amount
+    match total:
+        case Ok(value):
+            if value > limit:
+                return Err(CompressError.LimitExceeded)
+            Ok(value)
+        case Err(_):
+            Err(CompressError.LimitExceeded)
+
 # A decoder with its output limit and the policy for what follows a stream:
 # a further gzip member is decoded, anything else is TrailingData. The caller
 # empties the pending output before each step. Readers that own their input
@@ -133,9 +150,7 @@ pub class Inflater:
         if consumed < 0:
             return Err(failed(consumed))
         produced = self._state.len()
-        if produced > self._limit - self._produced:
-            return Err(CompressError.LimitExceeded)
-        self._produced += produced
+        self._produced = output_total(self._produced, produced, self._limit)?
         # Codecs consume or produce whenever input and output room remain.
         if len(input) != 0 and consumed == 0 and produced == 0 and not __compress_ended(self._state):
             return Err(CompressError.Corrupt)
@@ -172,7 +187,9 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
         consumed = stepped(&mut state, &data[at:total])
         if consumed < 0:
             return Err(failed(consumed))
-        at += consumed
+        # Native consumption is in 0..=total-at, so the new cursor <= total.
+        unchecked:
+            at += consumed
         out.extend(&state).map_error(CompressError.Allocation)?
         state.clear()
     while True:
@@ -196,7 +213,9 @@ pub def decompress(format: Format, data: &[u8], limit: NonNegative[i64]) -> Resu
     while at < total or not decoder.complete():
         consumed = decoder.step(&data[at:total])?
         produced = decoder._state.len()
-        at += consumed
+        # Native consumption is in 0..=total-at, so the new cursor <= total.
+        unchecked:
+            at += consumed
         out.extend(&decoder._state).map_error(CompressError.Allocation)?
         decoder._state.clear()
         if at == total and consumed == 0 and produced == 0:
@@ -231,9 +250,12 @@ pub class Compressor[W]:
                 case Ok(count):
                     if count == 0:
                         return Err(StreamError.WriteZero)
-                    if count < 0 or count > total - self._start:
-                        return Err(StreamError.InvalidProgress)
-                    self._start += count
+                    # 0 <= _start <= total <= window; validate progress before
+                    # advancing so retries retain the exact undelivered tail.
+                    unchecked:
+                        if count < 0 or count > total - self._start:
+                            return Err(StreamError.InvalidProgress)
+                        self._start += count
                 case Err(cause):
                     if not interrupted(&cause):
                         return Err(cause)
@@ -326,13 +348,19 @@ pub class Decompressor[R]:
         if start == stop:
             return Ok(0)
         while True:
-            pending = self._decoder._state.len() - self._start
+            # The output cursor stays in 0..=state.len() <= window.
+            pending = unchecked:
+                self._decoder._state.len() - self._start
             if pending > 0:
-                mut count = stop - start
+                # The caller's destination range was validated above.
+                mut count = unchecked:
+                    stop - start
                 if count > pending:
                     count = pending
-                buffer.overwrite(start, &self._decoder._state[self._start:self._start + count])
-                self._start += count
+                # count <= pending, hence _start+count <= state.len().
+                unchecked:
+                    buffer.overwrite(start, &self._decoder._state[self._start:self._start + count])
+                    self._start += count
                 if self._start == self._decoder._state.len():
                     self._decoder._state.clear()
                     self._start = 0
@@ -365,7 +393,10 @@ pub class Decompressor[R]:
             else:
                 match self._decoder.step(&self._input[self._in_start:self._in_stop]):
                     case Ok(consumed):
-                        self._in_start += consumed
+                        # Native consumption <= _in_stop-_in_start; both
+                        # cursors remain inside the fixed input window.
+                        unchecked:
+                            self._in_start += consumed
                     case Err(error):
                         return self.fail(error)
         Ok(0)

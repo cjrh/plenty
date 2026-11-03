@@ -26,7 +26,7 @@ def shown(result: Result[Bytes, CompressError]) -> Result[str, AllocError | IoEr
         case Err(error):
             Ok(str.repr(error)?)
 
-def repeated(text: &str, count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError]:
+def repeated(text: &str, count: i64) -> Result[Bytes, AllocError | IoError | std.bytes.BytesError | OverflowError[i64]]:
     piece = std.bytes.from_text(text)?
     mut out = std.bytes.with_capacity(piece.len() * count)?
     for _ in range(0, count):
@@ -62,7 +62,9 @@ pub class Trickle:
         if start == stop or self.at == self.data.len():
             return Ok(0)
         buffer.set(start, self.data.get(self.at))
-        self.at += 1
+        # self.at < data.len() <= i64.MAX.
+        unchecked:
+            self.at += 1
         Ok(1)
 
 # A writer that accepts one byte per call, is interrupted every other call,
@@ -94,7 +96,9 @@ pub class Counter:
     total: i64
 
     pub def write(self: &mut Counter, source: &[u8]) -> Result[i64, StreamError]:
-        self.total += len(source)
+        total = checked:
+            self.total + len(source)
+        self.total = total.map_error(def(_: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?
         Ok(len(source))
 
     pub def flush(self: &mut Counter) -> Result[(), StreamError]:
@@ -120,7 +124,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesError | std.encoding.EncodingError | std.compress.CompressError | std.io.Partial | std.io.StreamError | std.io.CopyError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -148,7 +152,26 @@ fn piped(source: &str, input: &[u8]) -> Vec<u8> {
 }
 
 fn output(source: &str) -> String {
-    let output = run(source);
+    visible_output(source, run(source))
+}
+
+fn output_in_mode(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    visible_output(source, output)
+}
+
+fn visible_output(source: &str, output: std::process::Output) -> String {
     assert!(
         output.status.success(),
         "{source}\n{}",
@@ -767,5 +790,133 @@ print(partial.read(&mut buffer, 0, 10)?)?
             "after {after}: {out}"
         );
         assert_eq!(lines.next(), Some("10"), "after {after}: {out}");
+    }
+}
+
+// Exercise the actual private accumulator without allocating enormous buffers.
+#[test]
+fn output_total_representation_boundaries_in_both_modes() {
+    let module = include_str!("../stdlib/std/compress.plenty");
+    let helper = module.split("def output_total(").nth(1).unwrap();
+    let helper = helper
+        .split("# A decoder with its output limit")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"from std.compress import CompressError
+def output_total({helper}
+def failure(result: Result[i64, CompressError]) -> CompressError:
+    match result:
+        case Err(error):
+            error
+        case Ok(_):
+            CompressError.Corrupt
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    zero = output_total(0, 0, 0)
+    maximum = output_total(0, i64.MAX, i64.MAX)
+    last = output_total(9223372036854775806, 1, i64.MAX)
+    full = output_total(i64.MAX, 0, i64.MAX)
+    overflow = output_total(i64.MAX, 1, i64.MAX)
+    oversized = output_total(9223372036854775806, 2, i64.MAX)
+    limited = output_total(4, 2, 5)
+    empty_limit = output_total(0, 1, 0)
+    print("__test_end_no_allocations__")?
+    print(zero.unwrap(), maximum.unwrap(), last.unwrap(), full.unwrap())?
+    print(failure(overflow), failure(oversized), failure(limited), failure(empty_limit))?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_in_mode(&source, optimize),
+            "0 9223372036854775807 9223372036854775807 9223372036854775807\nLimitExceeded LimitExceeded LimitExceeded LimitExceeded",
+            "optimize={optimize}"
+        );
+    }
+}
+
+#[test]
+fn exact_limits_and_concatenated_member_budget_in_both_modes() {
+    let source = program(&format!(
+        r#"
+for format in [Format.Deflate, Format.Zlib, Format.Gzip, Format.Brotli]?:
+    packed = std.compress.compress(format, b"abc", 6)?
+    print(std.compress.decompress(format, &packed, 3)?.to_text()?)?
+    print(shown(std.compress.decompress(format, &packed, 2))?)?
+print(std.compress.decompress(Format.Gzip, &unhex("{MEMBERS}")?, 6)?.to_text()?)?
+print(shown(std.compress.decompress(Format.Gzip, &unhex("{MEMBERS}")?, 5))?)?
+print(std.compress.crc32(4294967295, b"123456789")?)?
+"#
+    ));
+    for optimize in [false, true] {
+        assert_eq!(
+            output_in_mode(&source, optimize),
+            "abc\nLimitExceeded\nabc\nLimitExceeded\nabc\nLimitExceeded\nabc\nLimitExceeded\nabcdef\nLimitExceeded\n3523400311",
+            "optimize={optimize}"
+        );
+    }
+}
+
+#[test]
+fn invalid_inner_progress_preserves_retry_state_in_both_modes() {
+    let declarations = r#"
+pub class BadWriter:
+    out: Bytes
+    bad: bool
+
+    pub def write(self: &mut BadWriter, source: &[u8]) -> Result[i64, StreamError]:
+        if self.bad:
+            return Ok(i64.MAX)
+        self.out.extend(source).map_error(StreamError.Allocation)?
+        Ok(len(source))
+
+    pub def flush(self: &mut BadWriter) -> Result[(), StreamError]:
+        Ok(())
+
+pub class BadReader:
+    inner: std.io.Cursor
+    bad: bool
+
+    pub def read(self: &mut BadReader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if self.bad:
+            return Ok(-1)
+        self.inner.read(buffer, start, stop)
+"#;
+    let source = format!(
+        "{declarations}{}",
+        program(
+            r#"
+mut writer = std.compress.compressor(Format.Gzip, BadWriter(std.bytes.empty()?, True), 6)?
+std.io.write_all(&mut writer, b"retry")?
+match writer.finish():
+    case Err(StreamError.InvalidProgress):
+        print("invalid writer")?
+    case _:
+        print("wrong")?
+writer.inner.bad = False
+writer.finish()?
+mut reader = std.compress.decompressor(Format.Gzip, BadReader(std.io.cursor(writer.inner.out.copy()?), True), 5)?
+mut buffer = std.bytes.with_capacity(5)?
+buffer.resize(5, 0u8)?
+match reader.read(&mut buffer, 0, 5):
+    case Err(StreamError.InvalidProgress):
+        print("invalid reader")?
+    case _:
+        print("wrong")?
+print(reader.failure().is_none())?
+reader.inner.bad = False
+print(reader.read(&mut buffer, 0, 5)?, buffer.to_text()?)?
+print(reader.read(&mut buffer, 0, 5)?)?
+"#
+        )
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_in_mode(&source, optimize),
+            "invalid writer\ninvalid reader\nTrue\n5 retry\n0",
+            "optimize={optimize}"
+        );
     }
 }

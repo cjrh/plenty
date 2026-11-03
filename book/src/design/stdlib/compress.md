@@ -52,7 +52,8 @@ is `OutOfRange`.
 
 `crc32` is the gzip and zip checksum; start a fresh sum with seed 0. The
 check value of the nine bytes `123456789` is 3421780262. `seed` must lie in
-0 to 2³²−1.
+0 to 2³²−1. CRC-32 retains its native 32-bit polynomial checksum semantics;
+checked integer defaults do not change the checksum algorithm.
 
 ## Input policy
 
@@ -73,7 +74,9 @@ A decoder accepts exactly one stream, with these rules:
 - **Output limit.** Producing more than `limit` bytes in total, counted across
   gzip members, is `LimitExceeded`. Exactly `limit` bytes succeeds. Choose the
   limit from what the program can hold, not from the input size: a few
-  kilobytes of DEFLATE can expand by a factor of 1000.
+  kilobytes of DEFLATE can expand by a factor of 1000. Decoded progress stays
+  exact: exceeding the `i64` representation also reports `LimitExceeded`,
+  rather than wrapping or saturating the counter.
 
 Gzip header fields (name, comment, modification time, extra data) are
 validated and discarded; the encoder writes a minimal header with no name and
@@ -189,7 +192,12 @@ The codec state is held in a `Bytes` whose contents are the pending output.
 The `__compress_*` intrinsics that operate on it are
 [reserved for the standard library](bytes.md#transport). Given a buffer not
 made by `std.compress`, they stop the program with
-`operand is not a std.compress state`.
+`operand is not a std.compress state`. Both native engines report a successful
+consumed count within the offered input view and keep pending output within the
+reserved capacity. The Plenty adapters rely on these bounds for their buffer
+cursors; these native wrapper contracts are unchanged by checked arithmetic
+defaults. Inner stream progress is still validated separately:
+`InvalidProgress` does not advance the cursor or discard the pending tail.
 
 ## Costs
 
