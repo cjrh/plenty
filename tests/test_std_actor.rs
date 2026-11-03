@@ -1299,3 +1299,50 @@ def main() -> Result[(), IoError]:
         assert_eq!(actual, "-2 -1 1 -1 True True True\n1 4294967295 -1 -1");
     }
 }
+
+#[test]
+fn affine_arithmetic_error_reaches_parent_and_reclaims_both_heaps() {
+    let source = r#"
+from std.actor import Address, Context, Exit, Mail, heaps_live, heap_bytes_used, stage
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+type Fault = OverflowError[i64]
+pub enum Node:
+    Parent
+    Child(i64)
+
+    pub def started(self: &mut Node, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        match self:
+            case Node.Parent:
+                drop(context.spawn(0, 65536).unwrap())
+            case Node.Child(value):
+                *value += 1
+        Ok(())
+
+    pub def receive(self: &mut Node, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
+        match mail:
+            case Mail.Down(_, _, Exit.Failed(error)):
+                print(error.wrapped).unwrap()
+                context.stop()
+            case _:
+                pass
+        Ok(())
+
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Node], Fault]:
+        Ok(Some(Node.Child(i64.MAX)))
+
+def main() -> Result[(), IoError]:
+    mut actors = stage[Node, i64, Fault](2, 1, 1).unwrap()
+    drop(actors.start(Node.Parent, 65536).unwrap())
+    actors.run(&deadline_after(&monotonic_now(), &seconds(2)).unwrap(), &CancellationToken().unwrap()).unwrap()
+    print(actors.stats().failed, actors.stats().stopped, heaps_live(), heap_bytes_used())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            actor_probe_stdout(source, optimize),
+            "-9223372036854775808\n1 1 0 0"
+        );
+    }
+}
