@@ -193,6 +193,12 @@ An error while writing an entry or the directory to `inner` leaves the
 archive unusable: that call returns the error, and every later `add_*` or
 `finish` call returns `InvalidInput` without writing.
 
+Offsets and entry counts remain exact `i64` values. An entry or final directory
+whose complete output extent cannot be represented returns
+`Stream(StreamError.OutOfRange)` before new I/O, directory mutation, or the
+failed-writer latch. This preflight failure leaves the writer usable and
+preserves previously written output; it does not wrap or saturate progress.
+
 ## Extraction
 
 `extract_tar` and `extract_zip` create `destination`, a single name, under
@@ -211,7 +217,12 @@ extracted:
 
 On any error the staging tree is removed and the first error returned.
 Removal allocates; if it fails too, the staging directory keeps its
-`.plenty-extract-` name for the caller to remove.
+`.plenty-extract-` name for the caller to remove. Resource bookkeeping is exact
+and includes newly created intermediate directories, not just archive entries.
+Before creating a directory or copying a file, extraction checks that its
+creation count and the two cleanup traversal slots remain representable;
+exhaustion is `Limit` before that creation/copy. Cleanup still preserves the
+original extraction error.
 
 Every path is resolved through `std.fs.Root` handles that refuse symbolic
 links, so an entry cannot reach outside the staging directory. Name rules:
@@ -337,6 +348,13 @@ the central directory and once per opened entry.
   and data descriptors (sizes after the data) are not written.
 - No ZIP encryption, and no methods other than stored and DEFLATE.
 - No sparse TAR files, and no TAR archives split across volumes.
+- TAR reader content lengths are at most 2⁶² bytes, keeping block padding
+  representable. PAX decimal fields retain a conservative parsing ceiling of
+  9223372036854775799; larger values are `Corrupt`, even the final eight
+  representable nonnegative `i64` values. Octal accumulation subtracts ASCII
+  bias before adding a digit; fixed-block checksums do not wrap.
+- An unrepresentable PAX output record length is
+  `Allocation(AllocError.CapacityOverflow)` before appending the record.
 - One target, x86-64 Linux GNU.
 
 ## Acknowledgements
