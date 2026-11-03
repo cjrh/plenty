@@ -97,6 +97,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.tls`](tls.md) | TLS 1.2 and 1.3 client and server streams over `std.net` TCP, with verified certificates, client certificates, ALPN, deadlines, and cancellation | `TlsError` |
 | [`std.toml`](toml.md) | Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits, under depth, input, and output limits | `TomlError` |
 | [`std.unicode`](unicode.md) | Unicode 17 normalization, combining classes, and Mark classification | `TextError` |
+| [`std.units`](units.md) | SI dimensions, prefixed and common units, physical constants, and dimension-aware square roots, sums and trigonometry over `Quantity` | `MathError`, `RangeError` |
 | [`std.url`](url.md) | Strict RFC 3986 absolute URL parsing and formatting without normalization, component-aware percent encoding, and query pairs | `UrlError` |
 | [`std.uuid`](uuid.md) | UUID values, canonical text and network bytes, random v4 and timestamp-prefixed v7 generation | `ParseError`, `BytesError`, `SecretsError`, `RangeError` |
 | [`std.xml`](xml.md) | Bounded UTF-8 XML event readers and validating stream writers, without DTDs or external entities | `XmlError` |

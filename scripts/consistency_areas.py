@@ -55,7 +55,7 @@ STD_THEMES = {
     "std-crypto": "crypto jwt secrets random",
     "std-text": "text unicode regex fmt shlex diff bytes",
     "std-system": "io fs path tempfile env system process cli log archive compress error",
-    "std-numeric": "math complex simd stat graph sketch plot",
+    "std-numeric": "math complex simd stat graph sketch plot units",
     "std-data": "dataframe linalg kv db sqlite cache",
     "std-core": "collections deque sync atomic test time index",
 }

@@ -425,6 +425,8 @@ Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer
 exponents and exact roots. `One` is dimensionless. A dimension cannot be a value
 type. `Quantity[T, D]` checks dimensions in arithmetic and `.get()` reads its
 stored number. For floats, `.to(unit)` divides by a quantity of the same type.
+[`std.units`](../stdlib/units.md) provides SI dimensions, units such as `u.km`
+and constants; declare your own only for other bases.
 See [dimensions](../language/03-types/dimensions.md) and
 [quantities](../language/03-types/quantities.md).
 

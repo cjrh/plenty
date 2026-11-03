@@ -219,7 +219,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 
 | ID | Remaining work | Scope / dependency |
 | --- | --- | --- |
-| B97 | Units library and dimension-instance sharing | Add `std.units`, then measure sharing of instances that differ only in dimension. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics and native erasure with release instruction evidence are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design: [units of measure proposal](proposals/units-of-measure.md). A `Positive[f64]` float domain is a separate follow-up. |
+| B97 | Units list conversion and dimension-instance sharing | Add zero-copy `std.units` `wrap_list`/`strip_list` (needs compiler retagging of list element types), then measure sharing of instances that differ only in dimension. Print symbols in SI order (`kg*m/s^2`) rather than by base name. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics, native erasure and [`std.units`](design/stdlib/units.md) are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design: [units of measure proposal](proposals/units-of-measure.md). A `Positive[f64]` float domain is a separate follow-up. |
 
 ### Runtime-independent protocol support
 

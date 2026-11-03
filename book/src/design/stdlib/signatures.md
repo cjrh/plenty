@@ -18,91 +18,92 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 107-184
-- [`std.actor.net`](#stdactornet): 186-249
-- [`std.actor.tls`](#stdactortls): 251-280
-- [`std.actor.http.server`](#stdactorhttpserver): 282-345
-- [`std.archive`](#stdarchive): 347-413
-- [`std.atomic`](#stdatomic): 415-424
-- [`std.bytes`](#stdbytes): 426-473
-- [`std.cache.lru`](#stdcachelru): 475-497
-- [`std.channel`](#stdchannel): 499-503
-- [`std.cli`](#stdcli): 505-535
-- [`std.cli.fileinput`](#stdclifileinput): 537-546
-- [`std.cli.progress`](#stdcliprogress): 548-572
-- [`std.collections`](#stdcollections): 574-601
-- [`std.complex`](#stdcomplex): 603-629
-- [`std.compress`](#stdcompress): 631-661
-- [`std.concurrent`](#stdconcurrent): 663-667
-- [`std.crypto`](#stdcrypto): 669-750
-- [`std.csv`](#stdcsv): 752-815
-- [`std.dataframe`](#stddataframe): 817-1016
-- [`std.db.kv`](#stddbkv): 1018-1050
-- [`std.db.sqlite`](#stddbsqlite): 1052-1116
-- [`std.deque`](#stddeque): 1118-1132
-- [`std.diff`](#stddiff): 1134-1163
-- [`std.encoding`](#stdencoding): 1165-1232
-- [`std.env`](#stdenv): 1234-1248
-- [`std.error`](#stderror): 1250-1270
-- [`std.fmt`](#stdfmt): 1272-1339
-- [`std.fs`](#stdfs): 1341-1435
-- [`std.fs.dirs`](#stdfsdirs): 1437-1447
-- [`std.fs.watch`](#stdfswatch): 1449-1484
-- [`std.graph`](#stdgraph): 1486-1574
-- [`std.http`](#stdhttp): 1576-1646
-- [`std.http.decoder`](#stdhttpdecoder): 1648-1665
-- [`std.http.body`](#stdhttpbody): 1667-1702
-- [`std.http.client`](#stdhttpclient): 1704-1814
-- [`std.http.cookie`](#stdhttpcookie): 1816-1848
-- [`std.http.files`](#stdhttpfiles): 1850-1863
-- [`std.http.https`](#stdhttphttps): 1865-1879
-- [`std.http.proxy`](#stdhttpproxy): 1881-1902
-- [`std.http.server`](#stdhttpserver): 1904-1989
-- [`std.http.sse`](#stdhttpsse): 1991-2010
-- [`std.http.tls`](#stdhttptls): 2012-2029
-- [`std.http.typed`](#stdhttptyped): 2031-2064
-- [`std.http.websocket`](#stdhttpwebsocket): 2066-2101
-- [`std.http.wss`](#stdhttpwss): 2103-2109
-- [`std.image`](#stdimage): 2111-2157
-- [`std.io`](#stdio): 2159-2265
-- [`std.io.typed`](#stdiotyped): 2267-2305
-- [`std.json`](#stdjson): 2307-2371
-- [`std.jwt`](#stdjwt): 2373-2420
-- [`std.log`](#stdlog): 2422-2489
-- [`std.markdown`](#stdmarkdown): 2491-2525
-- [`std.template`](#stdtemplate): 2527-2548
-- [`std.math`](#stdmath): 2550-2616
-- [`std.mime`](#stdmime): 2618-2644
-- [`std.net`](#stdnet): 2646-2728
-- [`std.path`](#stdpath): 2730-2747
-- [`std.process`](#stdprocess): 2749-2798
-- [`std.random`](#stdrandom): 2800-2821
-- [`std.ready`](#stdready): 2823-2854
-- [`std.regex`](#stdregex): 2856-2909
-- [`std.report`](#stdreport): 2911-2918
-- [`std.secrets`](#stdsecrets): 2920-2946
-- [`std.shlex`](#stdshlex): 2948-2957
-- [`std.sketch`](#stdsketch): 2959-2997
-- [`std.sketch.xor`](#stdsketchxor): 2999-3010
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3012-3027
-- [`std.signal`](#stdsignal): 3029-3046
-- [`std.simd`](#stdsimd): 3048-3149
-- [`std.stat`](#stdstat): 3151-3184
-- [`std.plot`](#stdplot): 3186-3275
-- [`std.linalg`](#stdlinalg): 3277-3318
-- [`std.sync`](#stdsync): 3320-3338
-- [`std.system`](#stdsystem): 3340-3398
-- [`std.tempfile`](#stdtempfile): 3400-3432
-- [`std.test`](#stdtest): 3434-3476
-- [`std.text`](#stdtext): 3478-3521
-- [`std.thread`](#stdthread): 3523-3527
-- [`std.time`](#stdtime): 3529-3573
-- [`std.tls`](#stdtls): 3575-3657
-- [`std.toml`](#stdtoml): 3659-3708
-- [`std.unicode`](#stdunicode): 3710-3722
-- [`std.url`](#stdurl): 3724-3752
-- [`std.uuid`](#stduuid): 3754-3777
-- [`std.xml`](#stdxml): 3779-3812
+- [`std.actor`](#stdactor): 108-185
+- [`std.actor.net`](#stdactornet): 187-250
+- [`std.actor.tls`](#stdactortls): 252-281
+- [`std.actor.http.server`](#stdactorhttpserver): 283-346
+- [`std.archive`](#stdarchive): 348-414
+- [`std.atomic`](#stdatomic): 416-425
+- [`std.bytes`](#stdbytes): 427-474
+- [`std.cache.lru`](#stdcachelru): 476-498
+- [`std.channel`](#stdchannel): 500-504
+- [`std.cli`](#stdcli): 506-536
+- [`std.cli.fileinput`](#stdclifileinput): 538-547
+- [`std.cli.progress`](#stdcliprogress): 549-573
+- [`std.collections`](#stdcollections): 575-602
+- [`std.complex`](#stdcomplex): 604-630
+- [`std.compress`](#stdcompress): 632-662
+- [`std.concurrent`](#stdconcurrent): 664-668
+- [`std.crypto`](#stdcrypto): 670-751
+- [`std.csv`](#stdcsv): 753-816
+- [`std.dataframe`](#stddataframe): 818-1017
+- [`std.db.kv`](#stddbkv): 1019-1051
+- [`std.db.sqlite`](#stddbsqlite): 1053-1117
+- [`std.deque`](#stddeque): 1119-1133
+- [`std.diff`](#stddiff): 1135-1164
+- [`std.encoding`](#stdencoding): 1166-1233
+- [`std.env`](#stdenv): 1235-1249
+- [`std.error`](#stderror): 1251-1271
+- [`std.fmt`](#stdfmt): 1273-1340
+- [`std.fs`](#stdfs): 1342-1436
+- [`std.fs.dirs`](#stdfsdirs): 1438-1448
+- [`std.fs.watch`](#stdfswatch): 1450-1485
+- [`std.graph`](#stdgraph): 1487-1575
+- [`std.http`](#stdhttp): 1577-1647
+- [`std.http.decoder`](#stdhttpdecoder): 1649-1666
+- [`std.http.body`](#stdhttpbody): 1668-1703
+- [`std.http.client`](#stdhttpclient): 1705-1815
+- [`std.http.cookie`](#stdhttpcookie): 1817-1849
+- [`std.http.files`](#stdhttpfiles): 1851-1864
+- [`std.http.https`](#stdhttphttps): 1866-1880
+- [`std.http.proxy`](#stdhttpproxy): 1882-1903
+- [`std.http.server`](#stdhttpserver): 1905-1990
+- [`std.http.sse`](#stdhttpsse): 1992-2011
+- [`std.http.tls`](#stdhttptls): 2013-2030
+- [`std.http.typed`](#stdhttptyped): 2032-2065
+- [`std.http.websocket`](#stdhttpwebsocket): 2067-2102
+- [`std.http.wss`](#stdhttpwss): 2104-2110
+- [`std.image`](#stdimage): 2112-2158
+- [`std.io`](#stdio): 2160-2266
+- [`std.io.typed`](#stdiotyped): 2268-2306
+- [`std.json`](#stdjson): 2308-2372
+- [`std.jwt`](#stdjwt): 2374-2421
+- [`std.log`](#stdlog): 2423-2490
+- [`std.markdown`](#stdmarkdown): 2492-2526
+- [`std.template`](#stdtemplate): 2528-2549
+- [`std.math`](#stdmath): 2551-2617
+- [`std.mime`](#stdmime): 2619-2645
+- [`std.net`](#stdnet): 2647-2729
+- [`std.path`](#stdpath): 2731-2748
+- [`std.process`](#stdprocess): 2750-2799
+- [`std.random`](#stdrandom): 2801-2822
+- [`std.ready`](#stdready): 2824-2855
+- [`std.regex`](#stdregex): 2857-2910
+- [`std.report`](#stdreport): 2912-2919
+- [`std.secrets`](#stdsecrets): 2921-2947
+- [`std.shlex`](#stdshlex): 2949-2958
+- [`std.sketch`](#stdsketch): 2960-2998
+- [`std.sketch.xor`](#stdsketchxor): 3000-3011
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3013-3028
+- [`std.signal`](#stdsignal): 3030-3047
+- [`std.simd`](#stdsimd): 3049-3150
+- [`std.stat`](#stdstat): 3152-3185
+- [`std.plot`](#stdplot): 3187-3276
+- [`std.linalg`](#stdlinalg): 3278-3319
+- [`std.sync`](#stdsync): 3321-3339
+- [`std.system`](#stdsystem): 3341-3399
+- [`std.tempfile`](#stdtempfile): 3401-3433
+- [`std.test`](#stdtest): 3435-3477
+- [`std.text`](#stdtext): 3479-3522
+- [`std.thread`](#stdthread): 3524-3528
+- [`std.time`](#stdtime): 3530-3574
+- [`std.tls`](#stdtls): 3576-3658
+- [`std.toml`](#stdtoml): 3660-3709
+- [`std.unicode`](#stdunicode): 3711-3723
+- [`std.units`](#stdunits): 3725-3953
+- [`std.url`](#stdurl): 3955-3983
+- [`std.uuid`](#stduuid): 3985-4008
+- [`std.xml`](#stdxml): 4010-4043
 
 ## `std.actor`
 
@@ -3719,6 +3720,236 @@ def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+```
+
+## `std.units`
+
+SI dimensions, prefixed and common units, physical constants, and dimension-aware square roots, sums and trigonometry over `Quantity`. Errors: `MathError`, `RangeError`. [Reference](units.md).
+
+```text
+dimension Mass("kg")
+dimension Length("m")
+dimension Time("s")
+dimension Current("A")
+dimension Temperature("K")
+dimension Amount("mol")
+dimension Luminosity("cd")
+dimension Area = Pow[Length, 2]
+dimension Volume = Pow[Length, 3]
+dimension Wavenumber = One / Length
+dimension Velocity = Length / Time
+dimension Acceleration = Length / Pow[Time, 2]
+dimension Frequency = One / Time
+dimension Force = Mass * Acceleration
+dimension Pressure = Force / Area
+dimension Energy = Force * Length
+dimension Power = Energy / Time
+dimension Momentum = Mass * Velocity
+dimension Action = Energy * Time
+dimension Density = Mass / Volume
+dimension MassFlowRate = Mass / Time
+dimension VolumeFlowRate = Volume / Time
+dimension DynamicViscosity = Pressure * Time
+dimension KinematicViscosity = Area / Time
+dimension SurfaceTension = Force / Length
+dimension HeatFlux = Power / Area
+dimension SpecificEnergy = Energy / Mass
+dimension Entropy = Energy / Temperature
+dimension SpecificHeatCapacity = SpecificEnergy / Temperature
+dimension ThermalConductivity = Power / (Length * Temperature)
+dimension MolarMass = Mass / Amount
+dimension MolarEnergy = Energy / Amount
+dimension MolarHeatCapacity = Entropy / Amount
+dimension Concentration = Amount / Volume
+dimension PerAmount = One / Amount
+dimension CatalyticActivity = Amount / Time
+dimension Charge = Current * Time
+dimension Voltage = Power / Current
+dimension ElectricField = Voltage / Length
+dimension Capacitance = Charge / Voltage
+dimension Permittivity = Capacitance / Length
+dimension Resistance = Voltage / Current
+dimension Conductance = Current / Voltage
+dimension MagneticFlux = Voltage * Time
+dimension MagneticFluxDensity = MagneticFlux / Area
+dimension Inductance = MagneticFlux / Current
+dimension Permeability = Inductance / Length
+dimension Illuminance = Luminosity / Area
+dimension LuminousEfficacy = Luminosity / Power
+dimension StefanBoltzmann = HeatFlux / Pow[Temperature, 4]
+dimension Gravitation = Volume / (Mass * Pow[Time, 2])
+const kg: Quantity[f64, Mass] = Quantity[f64, Mass](1.0)
+const m: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+const s: Quantity[f64, Time] = Quantity[f64, Time](1.0)
+const A: Quantity[f64, Current] = Quantity[f64, Current](1.0)
+const K: Quantity[f64, Temperature] = Quantity[f64, Temperature](1.0)
+const mol: Quantity[f64, Amount] = Quantity[f64, Amount](1.0)
+const cd: Quantity[f64, Luminosity] = Quantity[f64, Luminosity](1.0)
+const rad: Quantity[f64, One] = Quantity[f64, One](1.0)
+const sr: Quantity[f64, One] = Quantity[f64, One](1.0)
+const degree: Quantity[f64, One] = (f64.PI / 180.0) * rad
+const arcminute: Quantity[f64, One] = degree / 60.0
+const arcsecond: Quantity[f64, One] = degree / 3600.0
+const Hz: Quantity[f64, Frequency] = 1.0 / s
+const N: Quantity[f64, Force] = kg * m / (s * s)
+const Pa: Quantity[f64, Pressure] = N / (m * m)
+const J: Quantity[f64, Energy] = N * m
+const W: Quantity[f64, Power] = J / s
+const C: Quantity[f64, Charge] = A * s
+const V: Quantity[f64, Voltage] = W / A
+const F: Quantity[f64, Capacitance] = C / V
+const ohm: Quantity[f64, Resistance] = V / A
+const S: Quantity[f64, Conductance] = A / V
+const Wb: Quantity[f64, MagneticFlux] = V * s
+const T: Quantity[f64, MagneticFluxDensity] = Wb / (m * m)
+const H: Quantity[f64, Inductance] = Wb / A
+const lm: Quantity[f64, Luminosity] = cd * sr
+const lx: Quantity[f64, Illuminance] = lm / (m * m)
+const Bq: Quantity[f64, Frequency] = 1.0 / s
+const Gy: Quantity[f64, SpecificEnergy] = J / kg
+const Sv: Quantity[f64, SpecificEnergy] = J / kg
+const kat: Quantity[f64, CatalyticActivity] = mol / s
+const ug: Quantity[f64, Mass] = 1e-9 * kg
+const mg: Quantity[f64, Mass] = 1e-6 * kg
+const g: Quantity[f64, Mass] = 1e-3 * kg
+const pm: Quantity[f64, Length] = 1e-12 * m
+const nm: Quantity[f64, Length] = 1e-9 * m
+const um: Quantity[f64, Length] = 1e-6 * m
+const mm: Quantity[f64, Length] = 1e-3 * m
+const cm: Quantity[f64, Length] = 1e-2 * m
+const km: Quantity[f64, Length] = 1e3 * m
+const ps: Quantity[f64, Time] = 1e-12 * s
+const ns: Quantity[f64, Time] = 1e-9 * s
+const us: Quantity[f64, Time] = 1e-6 * s
+const ms: Quantity[f64, Time] = 1e-3 * s
+const uA: Quantity[f64, Current] = 1e-6 * A
+const mA: Quantity[f64, Current] = 1e-3 * A
+const kA: Quantity[f64, Current] = 1e3 * A
+const mK: Quantity[f64, Temperature] = 1e-3 * K
+const umol: Quantity[f64, Amount] = 1e-6 * mol
+const mmol: Quantity[f64, Amount] = 1e-3 * mol
+const kmol: Quantity[f64, Amount] = 1e3 * mol
+const kHz: Quantity[f64, Frequency] = 1e3 * Hz
+const MHz: Quantity[f64, Frequency] = 1e6 * Hz
+const GHz: Quantity[f64, Frequency] = 1e9 * Hz
+const mN: Quantity[f64, Force] = 1e-3 * N
+const kN: Quantity[f64, Force] = 1e3 * N
+const MN: Quantity[f64, Force] = 1e6 * N
+const hPa: Quantity[f64, Pressure] = 1e2 * Pa
+const kPa: Quantity[f64, Pressure] = 1e3 * Pa
+const MPa: Quantity[f64, Pressure] = 1e6 * Pa
+const GPa: Quantity[f64, Pressure] = 1e9 * Pa
+const mJ: Quantity[f64, Energy] = 1e-3 * J
+const kJ: Quantity[f64, Energy] = 1e3 * J
+const MJ: Quantity[f64, Energy] = 1e6 * J
+const GJ: Quantity[f64, Energy] = 1e9 * J
+const uW: Quantity[f64, Power] = 1e-6 * W
+const mW: Quantity[f64, Power] = 1e-3 * W
+const kW: Quantity[f64, Power] = 1e3 * W
+const MW: Quantity[f64, Power] = 1e6 * W
+const GW: Quantity[f64, Power] = 1e9 * W
+const Wh: Quantity[f64, Energy] = 3600.0 * J
+const kWh: Quantity[f64, Energy] = 3.6e6 * J
+const MWh: Quantity[f64, Energy] = 3.6e9 * J
+const GWh: Quantity[f64, Energy] = 3.6e12 * J
+const nC: Quantity[f64, Charge] = 1e-9 * C
+const uC: Quantity[f64, Charge] = 1e-6 * C
+const mC: Quantity[f64, Charge] = 1e-3 * C
+const uV: Quantity[f64, Voltage] = 1e-6 * V
+const mV: Quantity[f64, Voltage] = 1e-3 * V
+const kV: Quantity[f64, Voltage] = 1e3 * V
+const MV: Quantity[f64, Voltage] = 1e6 * V
+const pF: Quantity[f64, Capacitance] = 1e-12 * F
+const nF: Quantity[f64, Capacitance] = 1e-9 * F
+const uF: Quantity[f64, Capacitance] = 1e-6 * F
+const mF: Quantity[f64, Capacitance] = 1e-3 * F
+const kohm: Quantity[f64, Resistance] = 1e3 * ohm
+const Mohm: Quantity[f64, Resistance] = 1e6 * ohm
+const uS: Quantity[f64, Conductance] = 1e-6 * S
+const mS: Quantity[f64, Conductance] = 1e-3 * S
+const uT: Quantity[f64, MagneticFluxDensity] = 1e-6 * T
+const mT: Quantity[f64, MagneticFluxDensity] = 1e-3 * T
+const nH: Quantity[f64, Inductance] = 1e-9 * H
+const uH: Quantity[f64, Inductance] = 1e-6 * H
+const mH: Quantity[f64, Inductance] = 1e-3 * H
+const delta_nu_Cs: Quantity[f64, Frequency] = 9192631770.0 * Hz
+const c: Quantity[f64, Velocity] = 299792458.0 * (m / s)
+const h: Quantity[f64, Action] = 6.62607015e-34 * (J * s)
+const e: Quantity[f64, Charge] = 1.602176634e-19 * C
+const k_B: Quantity[f64, Entropy] = 1.380649e-23 * (J / K)
+const N_A: Quantity[f64, PerAmount] = 6.02214076e23 / mol
+const K_cd: Quantity[f64, LuminousEfficacy] = 683.0 * (lm / W)
+const hbar: Quantity[f64, Action] = h / f64.TAU
+const R: Quantity[f64, MolarHeatCapacity] = N_A * k_B
+const sigma: Quantity[f64, StefanBoltzmann] = 5.670374419e-8 * (W / (m * m * K * K * K * K))
+const g_n: Quantity[f64, Acceleration] = 9.80665 * (m / (s * s))
+const atm: Quantity[f64, Pressure] = 101325.0 * Pa
+const G: Quantity[f64, Gravitation] = 6.67430e-11 * (m * m * m / (kg * s * s))
+const m_e: Quantity[f64, Mass] = 9.1093837139e-31 * kg
+const m_p: Quantity[f64, Mass] = 1.67262192595e-27 * kg
+const m_u: Quantity[f64, Mass] = 1.66053906892e-27 * kg
+const epsilon_0: Quantity[f64, Permittivity] = 8.8541878188e-12 * (F / m)
+const mu_0: Quantity[f64, Permeability] = 1.25663706127e-6 * (H / m)
+const minute: Quantity[f64, Time] = 60.0 * s
+const hour: Quantity[f64, Time] = 3600.0 * s
+const day: Quantity[f64, Time] = 86400.0 * s
+const hectare: Quantity[f64, Area] = 1e4 * (m * m)
+const litre: Quantity[f64, Volume] = 1e-3 * (m * m * m)
+const millilitre: Quantity[f64, Volume] = 1e-6 * (m * m * m)
+const tonne: Quantity[f64, Mass] = 1e3 * kg
+const dalton: Quantity[f64, Mass] = m_u
+const eV: Quantity[f64, Energy] = e * V
+const keV: Quantity[f64, Energy] = 1e3 * eV
+const MeV: Quantity[f64, Energy] = 1e6 * eV
+const GeV: Quantity[f64, Energy] = 1e9 * eV
+const au: Quantity[f64, Length] = 149597870700.0 * m
+const bar: Quantity[f64, Pressure] = 1e5 * Pa
+const mbar: Quantity[f64, Pressure] = 1e2 * Pa
+const rankine: Quantity[f64, Temperature] = K * 5.0 / 9.0
+const inch: Quantity[f64, Length] = 0.0254 * m
+const foot: Quantity[f64, Length] = 0.3048 * m
+const yard: Quantity[f64, Length] = 0.9144 * m
+const mile: Quantity[f64, Length] = 1609.344 * m
+const nautical_mile: Quantity[f64, Length] = 1852.0 * m
+const light_year: Quantity[f64, Length] = 9460730472580800.0 * m
+const parsec: Quantity[f64, Length] = (648000.0 / f64.PI) * au
+const acre: Quantity[f64, Area] = 4046.8564224 * (m * m)
+const gallon: Quantity[f64, Volume] = 3.785411784e-3 * (m * m * m)
+const pound: Quantity[f64, Mass] = 0.45359237 * kg
+const ounce: Quantity[f64, Mass] = pound / 16.0
+const pound_force: Quantity[f64, Force] = 0.45359237 * 9.80665 * N
+const knot: Quantity[f64, Velocity] = nautical_mile / hour
+const psi: Quantity[f64, Pressure] = pound_force / (inch * inch)
+const torr: Quantity[f64, Pressure] = atm / 760.0
+const mmHg: Quantity[f64, Pressure] = 133.322387415 * Pa
+const calorie: Quantity[f64, Energy] = 4.184 * J
+const kilocalorie: Quantity[f64, Energy] = 4184.0 * J
+const btu: Quantity[f64, Energy] = 1055.05585262 * J
+const horsepower: Quantity[f64, Power] = 550.0 * foot * pound_force / s
+def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]
+def clamp[Num, D: Dimension](x: Quantity[Num, D], low: Quantity[Num, D], high: Quantity[Num, D]) -> Quantity[Num, D]
+def sum[D: Dimension](items: &list[Quantity[f64, D]]) -> Quantity[f64, D]
+def mean[D: Dimension](items: &list[Quantity[f64, D]]) -> Option[Quantity[f64, D]]
+def sqrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 2]], MathError]
+def cbrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 3]], MathError]
+def hypot[D: Dimension](a: Quantity[f64, D], b: Quantity[f64, D]) -> Quantity[f64, D]
+def exp(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def log(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def log2(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def log10(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def sin(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def cos(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def tan(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def asin(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def acos(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def atan(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]
+def atan2[D: Dimension](y: Quantity[f64, D], x: Quantity[f64, D]) -> Result[Quantity[f64, One], MathError]
+def from_celsius(degrees: f64) -> Quantity[f64, Temperature]
+def to_celsius(t: Quantity[f64, Temperature]) -> f64
+def from_fahrenheit(degrees: f64) -> Quantity[f64, Temperature]
+def to_fahrenheit(t: Quantity[f64, Temperature]) -> f64
+def from_duration(span: &Duration) -> Quantity[f64, Time]
+def to_duration(t: Quantity[f64, Time]) -> Result[Duration, RangeError]
 ```
 
 ## `std.url`

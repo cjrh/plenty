@@ -49,8 +49,16 @@ identical instructions to plain `f32`/`f64` for addition, multiplication and
 conversion by a parameter or constant unit. Tests cover numeric bits across
 calls, references, aggregates, closures, generators and workers in both modes.
 Domain-backed quantity aliases also resolve safely before storage definitions
-are finalized. [B97](../backlog.md#units-of-measure) retains `std.units` and
-measured sharing of bodies that differ only in dimension.
+are finalized.
+
+[`std.units`](../design/stdlib/units.md) is embedded Plenty: the seven SI base
+dimensions, distinct derived aliases, prefixed SI and common exact units, the
+exact SI defining and CODATA 2022 constants, and dimension-aware `sqrt`,
+`cbrt`, `hypot`, `sum`, `mean`, `abs`, `clamp` and `std.math` wrappers. Celsius,
+Fahrenheit and `std.time.Duration` convert at the boundary; `to_duration`
+rejects negative, NaN and out-of-range times. [B97](../backlog.md#units-of-measure)
+retains `wrap_list`/`strip_list` and measured sharing of bodies that differ
+only in dimension.
 
 ## Heterogeneous collections tutorial
 
