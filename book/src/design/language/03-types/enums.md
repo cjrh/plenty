@@ -42,7 +42,9 @@ expected callable signature, for example
 the enum, not functions. A constructor value cannot have unit or generator
 payload parameters; use a closure for those signatures.
 Enums with permitted element types can be list elements or dictionary values;
-they are not dictionary keys or set elements.
+they can also be dictionary keys or set elements when every payload is a
+[supported key type](../../facilities/01-builtins/collections.md). Hashing includes
+the variant tag and payloads. Recursive enums and anonymous sums remain excluded.
 
 Equality compares nominal identity, variant, and payload contents, including IEEE
 float comparisons; it never calls user methods, and comparison and hashing

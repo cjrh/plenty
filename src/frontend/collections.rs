@@ -1463,14 +1463,14 @@ impl Lower<'_> {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("dictionary keys must be integers, bool, str, or tuples of these"));
+                    .error("dictionary keys must be integers, bool, str, bytes, or tuples/enums containing only these key types"));
             }
             Ty::Dict(Arc::new(k), Arc::new(v))
         } else if kind == "set" {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("set elements must be integers, bool, str, or tuples of these"));
+                    .error("set elements must be integers, bool, str, bytes, or tuples/enums containing only these key types"));
             }
             Ty::Set(Arc::new(k))
         } else {

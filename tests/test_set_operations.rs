@@ -379,3 +379,82 @@ fn invalid_relations(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn structural_enum_keys_survive_growth_removal_and_algebra() {
+    native(
+        r#"
+enum Key:
+    Empty
+    Id(i64)
+    Name(str)
+    Pair(i64, str)
+mut keys: set[Key] = set().unwrap()
+mut values: dict[Key, i64] = {}.unwrap()
+for n in range(200):
+    keys.add(Key.Pair(n, "value")).unwrap()
+    values.insert(Key.Pair(n, "value"), n).unwrap()
+keys.add(Key.Empty).unwrap()
+keys.add(Key.Id(1)).unwrap()
+keys.add(Key.Name("value")).unwrap()
+keys.add(Key.Pair(1, ("val" + "ue").unwrap())).unwrap()
+print(len(keys), values[Key.Pair(199, "value")]).unwrap()
+for n in range(100):
+    keys.discard(Key.Pair(n, "value"))
+print(len(keys), Key.Pair(100, "value") in keys).unwrap()
+other = {Key.Empty, Key.Id(1)}.unwrap()
+print(len(keys.intersection(other).unwrap())).unwrap()
+print(len(keys.difference(other).unwrap())).unwrap()
+print(len(keys.union(other).unwrap())).unwrap()
+print(len(keys.symmetric_difference(other).unwrap())).unwrap()
+keys.update(other).unwrap()
+print(len(keys)).unwrap()
+"#,
+        "203 199\n103 True\n2\n101\n103\n101\n103\n",
+    );
+}
+
+#[test]
+fn nested_and_generic_enum_keys_keep_tags_and_payload_identity() {
+    native(
+        r#"
+enum Color:
+    Red
+    Blue
+enum Key[T]:
+    Empty
+    First(T)
+    Second(T)
+mut keys: set[Key[(Color, str)]] = set().unwrap()
+keys.add(Key[(Color, str)].First((Color.Red, "x"))).unwrap()
+keys.add(Key[(Color, str)].Second((Color.Red, "x"))).unwrap()
+keys.add(Key[(Color, str)].First((Color.Blue, "x"))).unwrap()
+keys.add(Key[(Color, str)].First((Color.Red, ("x" + "").unwrap()))).unwrap()
+print(len(keys)).unwrap()
+colors = {Color.Red, Color.Blue, Color.Red}.unwrap()
+print(len(colors)).unwrap()
+options: dict[Option[i64], i64] = {Nothing: 1, Some(2): 3}.unwrap()
+empty: Option[i64] = Nothing
+print(options[empty], options[Some(2)]).unwrap()
+"#,
+        "3\n2\n1 3\n",
+    );
+}
+
+#[test]
+fn unsupported_enum_payloads_remain_rejected_as_keys() {
+    // B74's class and anonymous-sum stages remain separate from enum admission.
+    for declaration in [
+        "enum Key:\n    Value(f64)\n",
+        "enum Key:\n    Value(list[i64])\n",
+        "class Data:\n    n: i64\nenum Key:\n    Value(Data)\n",
+        "enum Key:\n    End\n    Next(Box[Key])\n",
+        "type Key = i64 | str\n",
+    ] {
+        let source = format!(
+            "{declaration}\ndef main() -> Result[(), AllocError]:\n    keys: set[Key] = set()?\n    Ok(())\n"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("set elements must be"), "{error}");
+    }
+}

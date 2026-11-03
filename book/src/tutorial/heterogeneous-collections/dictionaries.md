@@ -90,7 +90,27 @@ def main() -> Result[(), AllocError]:
 dictionary keys must be
 ```
 
-Wrapping those keys in an enum does not change that restriction. Keep separate
+A named enum can represent these distinct key domains while preserving their
+identity:
+
+```plenty
+enum Key:
+    Id(i64)
+    Name(str)
+
+def main() -> Result[(), AllocError | IoError]:
+    labels: dict[Key, str] = {
+        Key.Id(7): "numeric account",
+        Key.Name("7"): "named account",
+    }?
+    print(labels[Key.Id(7)], labels[Key.Name("7")])?
+    Ok(())
+```
+```output
+numeric account named account
+```
+
+Every enum payload must itself be a supported key type. You can also keep separate
 dictionaries when numeric IDs and textual names are different lookup domains:
 
 ```plenty

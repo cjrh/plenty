@@ -6,7 +6,7 @@ and algebra methods. Their operations accept `&set[K]` or `&KeyView[K]`;
 equality also compares a key view and a set in either operand order.
 
 Sets use the [common collection rules](collections.md); members are integers,
-booleans, strings, `bytes`, or tuples recursively containing those types.
+booleans, strings, `bytes`, or tuples and named enums recursively containing those types.
 Iteration order is unspecified. `add` and `reserve` follow
 the [recoverable growth contract](construction-copy.md).
 
