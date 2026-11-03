@@ -326,6 +326,13 @@ Future default/final methods and private-hook grants belong to the separate
 [protocol-body proposal](../proposals/protocol-method-bodies.md).
 Additional bounds/default-body contracts remain **B29** in the [backlog](../backlog.md).
 
+The [boxed protocol investigation](../proposals/boxed-protocols.md) records a
+proposed `Box[P]` contract, compiler/runtime integration map and qualification
+criteria. Four retained probes establish current rejection of protocol-valued
+boxes, concrete boxed method calls, and single-method erasure of class/enum
+instances through `BoxedCallable`. This delivers research and a proposal, not
+protocol objects; implementation remains unscheduled under B29.
+
 ## B32: Callback storage
 
 Owned concrete reusable/consuming environments and worker eligibility work in
