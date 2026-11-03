@@ -5,6 +5,18 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## B97 compile-time dimensions
+
+[Dimension declarations and algebra](../design/language/03-types/dimensions.md)
+provide nominal bases, transparent derived aliases, `One`, normalized products
+and quotients, integer powers, and exact roots. Dimensions are interned types
+without values and are admitted by the `Dimension` generic constraint.
+Generic input expressions remain structurally inferable; output/body expressions
+are checked per instance. Tests compare random expressions against a dense
+reference evaluator and cover exponent boundaries, imports, privacy and generic
+diagnostics. This is the first stage of issue #701; quantity values, operators,
+formatting and constants remain in [B97](../backlog.md#units-of-measure).
+
 ## Unicode trie example
 
 The [runnable trie](../design/examples/data-structures/trie.md) stores exact

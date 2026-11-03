@@ -215,6 +215,12 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 | B93 | Callable forms | Delivered: reusable callable forms in serial pipelines and `sort_by_key`, and `&mut` named functions (issues #617, #619, #620); [constructor values](completed-work/language-and-tooling.md#constructor-function-values), including generic classes and `Some`/`Ok`/`Err` (issue #618); [lexical checked callbacks](completed-work/language-and-tooling.md#b14-errors) with scoped failure propagation (issue #614). Remaining: `par` callbacks for stored capture-free closures and `Callable` values, including class and variant constructors. Callable names stay (issue #24). [Proposal](proposals/consistency-rules.md#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted). |
 | B96 | Bounded integers | `Bounded[T, lo, hi]` for parameters and fields with fixed bounds that `Positive`/`NonNegative` cannot state (a lower bound above 1, or a ceiling), checked at compile time for literals. First uses: `std.http.Limits.max_line`/`max_head` (`>= 2`), which stay `i64` after B95, then proof-carrying std ceilings. Static std ceiling checks are [delivered with declaration metadata](completed-work/language-and-tooling.md#b95-std-limit-domains) (issue #686); dynamic values still trap. Needs B83 value generics. Follows [B95](completed-work/language-and-tooling.md#b95-std-limit-domains). |
 
+### Units of measure
+
+| ID | Remaining work | Scope / dependency |
+| --- | --- | --- |
+| B97 | Quantity values and units | Issue #701: built-in `Quantity[T, D]`, numeric/domain operators and checked arithmetic, constructors/conversions, formatting, constants, alias-aware diagnostics and zero-cost evidence. Dimension declarations, normalized algebra and dimension arguments are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Follow with `std.units` and measured sharing of instances that differ only in dimension. Design context is local proposal PR #882; its documentation is not a dependency of this implementation stage. |
+
 ### Runtime-independent protocol support
 
 | ID | Remaining work | Scope / dependency |

@@ -16,7 +16,9 @@ generic syntax adds no runtime type lookup or allocation.
 The toolchain documents [specialization limits and caching](../../toolchain/02-architecture/emission.md).
 
 Functions and methods accept unconstrained parameters, `IntType`, `FloatType`,
-`CopyType`, structural protocol constraints, and callable constraints. `IntType` accepts the
+`CopyType`, `Dimension`, structural protocol constraints, and callable constraints.
+`Dimension` accepts [compile-time dimensions](../03-types/dimensions.md), which
+have no values. `IntType` accepts the
 eight fixed-width integer types and `FloatType` accepts `f32` and `f64`,
 including aliases; each is a constraint rather than a value type. No constraint
 admits both integers and floats; an unconstrained parameter does, because a

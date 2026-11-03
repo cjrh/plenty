@@ -36,6 +36,7 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod dimensions;
 mod divisors;
 mod enums;
 mod executors;
@@ -111,6 +112,9 @@ impl TypeRef {
         };
         let args: Vec<String> = self.args.iter().map(TypeRef::spelling).collect();
         match name.as_str() {
+            "$Pow" | "$Root" => format!("{}[{}]", &name[1..], args.join(", ")),
+            "*" | "/" => format!("({} {name} {})", args[0], args[1]),
+            _ if name.starts_with("$exponent:") => name[10..].into(),
             "|" => args.join(" | "),
             "&" | "&mut" => format!("{name}{}", args.concat()),
             _ if args.is_empty() => name.clone(),
@@ -118,6 +122,15 @@ impl TypeRef {
         }
     }
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
+        let ty = self.resolve_argument(aliases)?;
+        if let Some(Ty::Dimension(d)) = &ty {
+            return Err(self.at.error(format!(
+                "dimension `{d}` has no values; use it only as a dimension argument"
+            )));
+        }
+        Ok(ty)
+    }
+    fn resolve_argument(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
         if ty == Some(Ty::Text) {
             return Err(self.at.error(
@@ -138,6 +151,9 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "One" || dimensions::expression(name) {
+            return self.dimension_expression(aliases);
+        }
         if name == "|" {
             let members = self
                 .args
@@ -677,6 +693,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "FloatType"
                 | "CopyType"
+                | "Dimension"
+                | "One"
                 | "next"
                 | "copy"
                 | "drop"
@@ -715,6 +733,7 @@ keywords!(
         | "try"
         | "with"
         | "type"
+        | "dimension"
         | "const"
         | "return"
         | "if"
@@ -1470,6 +1489,19 @@ impl Lower<'_> {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
         let ty = match &e.kind {
+            Expression::Name(name) | Expression::Call(name, _)
+                if !self.names.contains_key(name)
+                    && !self.captures.contains(name)
+                    && (name == "One"
+                        || matches!(
+                            lookup_type(name, self.aliases),
+                            Some(Some(Ty::Dimension(_)))
+                        )) =>
+            {
+                return Err(e.at.error(format!(
+                    "dimension `{name}` has no values; use it only as a dimension argument"
+                )));
+            }
             Expression::NamedArgument(..) => {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
@@ -1501,7 +1533,7 @@ impl Lower<'_> {
                 }
                 let actual = types
                     .iter()
-                    .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
+                    .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<_>>()?;
                 let symbol = self.specialize(name, actual, &e.at)?;
                 Some(self.function_value(&symbol, &e.at, ops)?)

@@ -281,6 +281,7 @@ fn define_type(
 /// `NonZero`, newtype, or atomic by the type whose layout it shares.
 fn kind_code(ty: &Ty) -> u8 {
     match ty {
+        Ty::Dimension(_) => unreachable!("dimensions have no runtime representation"),
         Ty::I8 => b'1',
         Ty::Callable(_) | Ty::Task(_) => b'c',
         Ty::Channel(_, true) => b'X',

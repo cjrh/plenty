@@ -732,6 +732,7 @@ impl Items<'_, '_> {
                 self.parser
                     .kind(Kind::Newline, "the end of the opaque pointer declaration")?;
                 module.declarations.push(TypeAlias {
+                    dimension: false,
                     at: at.clone(),
                     name: name.clone(),
                     target: TypeRef {
@@ -821,6 +822,11 @@ impl Items<'_, '_> {
             let name = e.name.clone();
             module.enums.push(e);
             name
+        } else if self.parser.peek().is("dimension") {
+            let a = self.parser.dimension_decl(&module.name)?;
+            let name = a.name.clone();
+            module.declarations.push(a);
+            name
         } else if self.parser.peek().is("type") {
             let a = self.parser.alias()?;
             let name = a.name.clone();
@@ -845,7 +851,7 @@ impl Items<'_, '_> {
             return Err(at.error(message));
         } else {
             return Err(at.error(if public {
-            "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"
+            "pub requires a function, class, enum, type, dimension, or const declaration; re-exports are not supported"
         } else {
             "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
         }));
@@ -1647,8 +1653,19 @@ impl Scope {
         if ty.concrete.is_some() {
             return Ok(());
         }
-        for arg in &mut ty.args {
-            self.ty(arg)?;
+        if let Some(name) = &ty.name
+            && matches!(name.as_str(), "Pow" | "Root")
+            && !self.type_param(name)
+            && self.symbol(name, &ty.at)?.is_none()
+        {
+            // Dimension operators are fallback names. In particular, the
+            // existing std.fs.Root type keeps its ordinary imported meaning.
+            ty.name = Some(format!("${name}"));
+        }
+        for (i, arg) in ty.args.iter_mut().enumerate() {
+            if i != 1 || !matches!(ty.name.as_deref(), Some("$Pow" | "$Root")) {
+                self.ty(arg)?;
+            }
         }
         if let Some(name) = &mut ty.name {
             if self.type_param(name) {
@@ -1656,7 +1673,7 @@ impl Scope {
             }
             // Imports can bind a builtin spelling only to that same identity.
             // Avoid probing the module table for these common types (issue #57).
-            if builtin(name) {
+            if builtin(name) || dimensions::syntax(name) {
                 return Ok(());
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
@@ -1704,6 +1721,7 @@ impl Scope {
         }
         for (_, ty) in &mut f.inputs {
             scope.ty(ty)?;
+            dimensions::validate_input(ty, &scope.type_params)?;
         }
         scope.ty(&mut f.output)?;
         for default in f.defaults.iter_mut().flatten() {
@@ -2644,6 +2662,15 @@ fn resolve(
             }
         }
         for a in &mut m.declarations {
+            if a.dimension && a.target.concrete.is_some() {
+                result.access.types.insert(
+                    qualified(&m.name, &a.name),
+                    Access {
+                        owner: a.at.source(),
+                        public: m.exports.contains(&a.name),
+                    },
+                );
+            }
             if let Some(Ty::ForeignPtr(name)) = a.target.concrete.as_deref() {
                 result.access.types.insert(
                     name.to_string(),
@@ -2868,6 +2895,12 @@ fn signature_public_types(
 }
 
 fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
+    if t.name
+        .as_deref()
+        .is_some_and(|name| name.starts_with("$exponent:"))
+    {
+        return;
+    }
     fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
         params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
             || t.args.iter().any(|t| mentions(t, params))
@@ -2879,7 +2912,9 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
         out.push(t.clone());
     } else {
         if t.name.as_ref().is_some_and(|n| {
-            !builtin(n) && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
+            !builtin(n)
+                && !dimensions::syntax(n)
+                && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
         }) {
             let mut head = t.clone();
             head.args.clear();
@@ -2893,6 +2928,21 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
 
 pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &AccessMap) -> Result<()> {
     fn visible(ty: &Ty, at: &Token, access: &AccessMap, aliases: &TypeAliases) -> Result<()> {
+        if let Ty::Dimension(d) = ty {
+            for base in d.bases() {
+                if access
+                    .types
+                    .get(base.name.as_ref())
+                    .is_some_and(|rule| !rule.public)
+                {
+                    return Err(at.error(format!(
+                        "public signature exposes private dimension `{}`",
+                        base.name
+                    )));
+                }
+            }
+            return Ok(());
+        }
         if let Some((name, arguments)) = aliases.data.arguments(ty) {
             if access.types.get(&name).is_some_and(|rule| !rule.public) {
                 return Err(at.error(format!("public signature exposes private type `{name}`")));
@@ -2978,7 +3028,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
             continue;
         }
-        if let Some(ty) = t.resolve(aliases)? {
+        if let Some(ty) = t.resolve_argument(aliases)? {
             visible(&ty, &t.at, access, aliases)?;
         }
     }

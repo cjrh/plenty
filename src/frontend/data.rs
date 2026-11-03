@@ -16,6 +16,7 @@ const MAX_DATA_INSTANCES: usize = 65_536;
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    pub(super) dimensions: Rc<RefCell<crate::dimension::Interner>>,
     /// Checking state of one compilation's frontend; it never leaves its thread.
     pub(super) data: Rc<DataTypes>,
 }
@@ -351,6 +352,7 @@ impl TypeAliases {
         let mut shapes = self.data.shapes.borrow_mut();
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
+            dimensions: self.dimensions.clone(),
             data: Rc::new(DataTypes {
                 enums: self.data.enums.clone(),
                 classes: self.data.classes.clone(),
@@ -400,6 +402,7 @@ impl TypeAliases {
         data.deferred.set(true);
         Ok(Self {
             named: HashMap::default(),
+            dimensions: Rc::default(),
             data: Rc::new(data),
         })
     }
@@ -420,7 +423,11 @@ impl TypeAliases {
         let actual = application
             .args
             .iter()
-            .map(|t| {
+            .zip(params)
+            .map(|(t, (_, bound))| {
+                if bound.as_ref().is_some_and(dimensions::bound) {
+                    return t.resolve_dimension(self);
+                }
                 let ty = t
                     .resolve(self)?
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
@@ -856,7 +863,7 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
             || generics::callable_bound(bound))
         {
             return Err(bound.at.error(
-                "generic data constraints currently require IntType, FloatType, CopyType, Callable, or OnceCallable",
+                "generic data constraints currently require IntType, FloatType, CopyType, Dimension, Callable, or OnceCallable",
             ));
         }
     }
