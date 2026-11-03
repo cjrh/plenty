@@ -122,10 +122,12 @@ def text_of(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
 
 # The first `byte` in data[start:stop], as an index into `data`.
 def located(data: &[u8], byte: u8, start: i64, stop: i64) -> Option[i64]:
-    found = __bytes_find(&data[start:stop], byte)
-    if found < 0:
-        return Nothing
-    Some(start + found)
+    # 0 <= start <= stop <= len(data); a found offset is below stop-start.
+    unchecked:
+        found = __bytes_find(&data[start:stop], byte)
+        if found < 0:
+            return Nothing
+        Some(start + found)
 
 # Bytes
 
@@ -139,19 +141,23 @@ def digit(value: i64) -> bool:
 # the set `std.http` reads field names with (issue #376). Callers pass
 # ranges within `data`.
 def token_end(data: &[u8], start: i64, stop: i64) -> i64:
-    found = __bytes_find_in(&data[start:stop], b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
-    if found < 0:
-        return stop
-    start + found
+    # 0 <= start <= stop <= len(data); a found offset is below stop-start.
+    unchecked:
+        found = __bytes_find_in(&data[start:stop], b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
+        if found < 0:
+            return stop
+        start + found
 
 # The first byte in `start..stop` that a quoted string holds only escaped or
 # never: `"`, `\`, or a control other than tab (RFC 9110 qdtext and
 # quoted-pair); `stop` if there is none.
 def quoted_end(data: &[u8], start: i64, stop: i64) -> i64:
-    found = __bytes_find_in(&data[start:stop], b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\", 1u8)
-    if found < 0:
-        return stop
-    start + found
+    # 0 <= start <= stop <= len(data); a found offset is below stop-start.
+    unchecked:
+        found = __bytes_find_in(&data[start:stop], b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f\"\\", 1u8)
+        if found < 0:
+            return stop
+        start + found
 
 # Whether `start..stop` holds a control other than tab, which no field value
 # may contain.
@@ -162,29 +168,35 @@ def control(value: i64) -> bool:
     (value < 32 and value != 9) or value == 127
 
 def hex_value(value: i64) -> i64:
-    if digit(value):
-        return value - 48
-    if value >= 65 and value <= 70:
-        return value - 55
-    if value >= 97 and value <= 102:
-        return value - 87
-    -1
+    # Each subtraction is guarded by its ASCII digit range (48..57, 65..70, 97..102).
+    unchecked:
+        if digit(value):
+            return value - 48
+        if value >= 65 and value <= 70:
+            return value - 55
+        if value >= 97 and value <= 102:
+            return value - 87
+        -1
 
 def lowered(data: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
-    mut out = allocated(std.bytes.with_capacity(stop - start))?
-    for index in range(start, stop):
-        value = code(data, index)
-        if value >= 65 and value <= 90:
-            allocated(out.push(u8(value + 32)))?
-        else:
-            allocated(out.push(data[index]))?
-    lifted(out.to_text())
+    # 0 <= start <= stop <= len(data); ASCII uppercase + 32 is at most 122.
+    unchecked:
+        mut out = allocated(std.bytes.with_capacity(stop - start))?
+        for index in range(start, stop):
+            value = code(data, index)
+            if value >= 65 and value <= 90:
+                allocated(out.push(u8(value + 32)))?
+            else:
+                allocated(out.push(data[index]))?
+        lifted(out.to_text())
 
 def skip_blanks(data: &[u8], start: i64) -> i64:
-    mut at = start
-    while at < len(data) and (code(data, at) == 32 or code(data, at) == 9):
-        at += 1
-    at
+    # at begins within data and increments only while at < len(data).
+    unchecked:
+        mut at = start
+        while at < len(data) and (code(data, at) == 32 or code(data, at) == 9):
+            at += 1
+        at
 
 # Media types and parameters
 
@@ -198,67 +210,69 @@ class Parameters:
     pairs: list[Pair]
 
 def parameters(value: &str) -> Result[Parameters, BodyError]:
-    data = allocated(std.bytes.from_text(value))?
-    count = data.len()
-    mut at = token_end(&data, 0, count)
-    if at == 0:
-        return Err(BodyError.Malformed)
-    if at < count and code(&data, at) == 47:
-        subtype = at + 1
-        at = token_end(&data, subtype, count)
-        if at == subtype:
+    # at stays in 0..count; increments follow at < count (or a scanned byte).
+    unchecked:
+        data = allocated(std.bytes.from_text(value))?
+        count = data.len()
+        mut at = token_end(&data, 0, count)
+        if at == 0:
             return Err(BodyError.Malformed)
-    essence = lowered(&data, 0, at)?
-    mut pairs = allocated(list[Pair].new())?
-    while True:
-        at = skip_blanks(&data, at)
-        if at == count:
-            break
-        if code(&data, at) != 59:
-            return Err(BodyError.Malformed)
-        at = skip_blanks(&data, at + 1)
-        if at == count or code(&data, at) == 59:
-            continue
-        start = at
-        at = token_end(&data, start, count)
-        if at == start or at == count or code(&data, at) != 61:
-            return Err(BodyError.Malformed)
-        name = lowered(&data, start, at)?
-        at += 1
-        mut text = ""
-        if at < count and code(&data, at) == 34:
+        if at < count and code(&data, at) == 47:
+            subtype = at + 1
+            at = token_end(&data, subtype, count)
+            if at == subtype:
+                return Err(BodyError.Malformed)
+        essence = lowered(&data, 0, at)?
+        mut pairs = allocated(list[Pair].new())?
+        while True:
+            at = skip_blanks(&data, at)
+            if at == count:
+                break
+            if code(&data, at) != 59:
+                return Err(BodyError.Malformed)
+            at = skip_blanks(&data, at + 1)
+            if at == count or code(&data, at) == 59:
+                continue
+            start = at
+            at = token_end(&data, start, count)
+            if at == start or at == count or code(&data, at) != 61:
+                return Err(BodyError.Malformed)
+            name = lowered(&data, start, at)?
             at += 1
-            mut out = allocated(std.bytes.empty())?
-            mut closed = False
-            while at < count:
-                run = quoted_end(&data, at, count)
-                allocated(out.extend(&data[at:run]))?
-                at = run
-                if at == count:
-                    break
-                value_byte = code(&data, at)
-                if value_byte == 34:
-                    closed = True
+            mut text = ""
+            if at < count and code(&data, at) == 34:
+                at += 1
+                mut out = allocated(std.bytes.empty())?
+                mut closed = False
+                while at < count:
+                    run = quoted_end(&data, at, count)
+                    allocated(out.extend(&data[at:run]))?
+                    at = run
+                    if at == count:
+                        break
+                    value_byte = code(&data, at)
+                    if value_byte == 34:
+                        closed = True
+                        at += 1
+                        break
+                    if value_byte != 92:
+                        return Err(BodyError.Malformed)
                     at += 1
-                    break
-                if value_byte != 92:
+                    if at == count or control(code(&data, at)):
+                        return Err(BodyError.Malformed)
+                    allocated(out.push(data[at]))?
+                    at += 1
+                if not closed:
                     return Err(BodyError.Malformed)
-                at += 1
-                if at == count or control(code(&data, at)):
+                text = lifted(out.to_text())?
+            else:
+                first = at
+                at = token_end(&data, first, count)
+                if at == first:
                     return Err(BodyError.Malformed)
-                allocated(out.push(data[at]))?
-                at += 1
-            if not closed:
-                return Err(BodyError.Malformed)
-            text = lifted(out.to_text())?
-        else:
-            first = at
-            at = token_end(&data, first, count)
-            if at == first:
-                return Err(BodyError.Malformed)
-            text = text_of(&data, first, at)?
-        allocated(pairs.append(Pair(name, text)))?
-    Ok(Parameters(essence, pairs))
+                text = text_of(&data, first, at)?
+            allocated(pairs.append(Pair(name, text)))?
+        Ok(Parameters(essence, pairs))
 
 def parameter(params: &Parameters, name: &str) -> Option[i64]:
     for index in range(len(params.pairs)):
@@ -281,8 +295,19 @@ def content_type(headers: &list[Header]) -> Result[Parameters, BodyError]:
         case Nothing:
             Err(BodyError.UnsupportedMediaType)
 
-# Fails with TooLarge when the request declares a Content-Length over `limit`,
-# before any of the body is read.
+# Semantic byte totals beyond i64 exceed every supported body limit.
+def body_extent(size: i64, count: i64) -> Result[i64, BodyError]:
+    extent = checked:
+        size + count
+    extent.map_error(def(error: OverflowError[i64]) -> BodyError: BodyError.TooLarge)
+
+# The caller has validated a decimal digit. Overflow exceeds every i64 limit.
+def decimal_extent(size: i64, number: i64) -> Result[i64, BodyError]:
+    extent = checked:
+        size * 10 + (number - 48)
+    extent.map_error(def(error: OverflowError[i64]) -> BodyError: BodyError.TooLarge)
+
+# Fails before reading when Content-Length exceeds the limit.
 def declared_within(headers: &list[Header], limit: i64) -> Result[(), BodyError]:
     match std.http.find(headers, "content-length"):
         case Some(index):
@@ -294,7 +319,7 @@ def declared_within(headers: &list[Header], limit: i64) -> Result[(), BodyError]
                         number = i64(point)
                         if not digit(number):
                             return Ok(())
-                        size = size * 10 + (number - 48)
+                        size = decimal_extent(size, number)?
                         if size > limit:
                             return Err(BodyError.TooLarge)
                     case Err(_):
@@ -311,7 +336,7 @@ def collect[T: Transport](exchange: &mut Exchange[T], limit: i64) -> Result[Byte
     allocated(chunk.resize(4096, 0u8))?
     mut count = http(exchange.read_body(&mut chunk, 0, 4096))?
     while count > 0:
-        if out.len() + count > limit:
+        if body_extent(out.len(), count)? > limit:
             return Err(BodyError.TooLarge)
         allocated(out.extend(&chunk[:count]))?
         count = http(exchange.read_body(&mut chunk, 0, 4096))?
@@ -328,59 +353,66 @@ pub def form_limits() -> FormLimits:
 
 # `+` is a space and `%hh` a byte; the result must be UTF-8.
 def form_decoded(source: &[u8], start: i64, stop: i64) -> Result[str, BodyError]:
-    mut out = allocated(std.bytes.with_capacity(stop - start))?
-    mut at = start
-    while at < stop:
-        value = code(source, at)
-        if value == 43:
-            allocated(out.push(32u8))?
-            at += 1
-        elif value == 37:
-            if at + 2 >= stop:
-                return Err(BodyError.Malformed)
-            high = hex_value(code(source, at + 1))
-            low = hex_value(code(source, at + 2))
-            if high < 0 or low < 0:
-                return Err(BodyError.Malformed)
-            allocated(out.push(u8(high * 16 + low)))?
-            at += 3
-        else:
-            allocated(out.push(source[at]))?
-            at += 1
-    lifted(out.to_text())
+    # 0 <= start <= at <= stop <= len(source); the loop has at < stop.
+    # Escapes require stop-at >= 3; hex digits are 0..15.
+    unchecked:
+        mut out = allocated(std.bytes.with_capacity(stop - start))?
+        mut at = start
+        while at < stop:
+            value = code(source, at)
+            if value == 43:
+                allocated(out.push(32u8))?
+                at += 1
+            elif value == 37:
+                if stop - at < 3:
+                    return Err(BodyError.Malformed)
+                high = hex_value(code(source, at + 1))
+                low = hex_value(code(source, at + 2))
+                if high < 0 or low < 0:
+                    return Err(BodyError.Malformed)
+                allocated(out.push(u8(high * 16 + low)))?
+                at += 3
+            else:
+                allocated(out.push(source[at]))?
+                at += 1
+        lifted(out.to_text())
 
 # Splits an application/x-www-form-urlencoded body into decoded pairs, in
 # order. Empty pieces between `&` are skipped; a piece without `=` has an
 # empty value. A `%` not followed by two hex digits is Malformed.
 pub def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]:
-    count = len(source)
-    if count > limits.max_bytes.get():
-        return Err(BodyError.TooLarge)
-    mut pairs = allocated(list[Pair].new())?
-    mut at = 0
-    while at < count:
-        mut stop = count
-        match located(source, 38u8, at, count):
-            case Some(found):
-                stop = found
-            case Nothing:
-                pass
-        if stop > at:
-            if len(pairs) >= limits.max_fields.get():
-                return Err(BodyError.TooManyFields)
-            mut split = stop
-            match located(source, 61u8, at, stop):
+    # All positions lie in 0..count; split+1 requires split<stop and stop+1 requires stop<count.
+    unchecked:
+        count = len(source)
+        if count > limits.max_bytes.get():
+            return Err(BodyError.TooLarge)
+        mut pairs = allocated(list[Pair].new())?
+        mut at = 0
+        while at < count:
+            mut stop = count
+            match located(source, 38u8, at, count):
                 case Some(found):
-                    split = found
+                    stop = found
                 case Nothing:
                     pass
-            key = form_decoded(source, at, split)?
-            mut value = ""
-            if split < stop:
-                value = form_decoded(source, split + 1, stop)?
-            allocated(pairs.append(Pair(key, value)))?
-        at = stop + 1
-    Ok(pairs)
+            if stop > at:
+                if len(pairs) >= limits.max_fields.get():
+                    return Err(BodyError.TooManyFields)
+                mut split = stop
+                match located(source, 61u8, at, stop):
+                    case Some(found):
+                        split = found
+                    case Nothing:
+                        pass
+                key = form_decoded(source, at, split)?
+                mut value = ""
+                if split < stop:
+                    value = form_decoded(source, split + 1, stop)?
+                allocated(pairs.append(Pair(key, value)))?
+            if stop == count:
+                break
+            at = stop + 1
+        Ok(pairs)
 
 # `parse_form` over text, such as `exchange.query`.
 pub def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]:
@@ -480,15 +512,21 @@ def fill[T: Transport](exchange: &mut Exchange[T], window: &mut Window) -> Resul
     if count == 0:
         window.ended = True
         return Ok(False)
-    window.total += count
-    if window.total > window.limit:
+    total = body_extent(window.total, count)?
+    if total > window.limit:
         return Err(BodyError.TooLarge)
+    window.total = total
     allocated(window.data.extend(&window.chunk[:count]))?
     Ok(True)
 
 # Reads until `count` unexamined bytes are held; False if the body ends first.
 def holding[T: Transport](exchange: &mut Exchange[T], window: &mut Window, count: i64) -> Result[bool, BodyError]:
-    while window.data.len() - window.at < count:
+    while True:
+        # 0 <= window.at <= window.data.len().
+        available = unchecked:
+            window.data.len() - window.at
+        if available >= count:
+            break
         if not fill(exchange, window)?:
             return Ok(False)
     Ok(True)
@@ -508,68 +546,77 @@ class PartHead:
 
 # Parses the header section data[start:stop], without its final CRLF CRLF.
 def part_head(data: &[u8], start: i64, stop: i64) -> Result[PartHead, BodyError]:
-    mut disposition: Option[Parameters] = Nothing
-    mut kind = "text/plain"
-    mut at = start
-    while at < stop:
-        mut end = stop
-        match located(data, 13u8, at, stop):
-            case Some(found):
-                if found + 1 >= stop or code(data, found + 1) != 10:
-                    return Err(BodyError.Malformed)
-                end = found
-            case Nothing:
-                pass
-        colon = match located(data, 58u8, at, end):
-            case Some(found):
-                found
-            case Nothing:
-                return Err(BodyError.Malformed)
-        if colon == at:
-            return Err(BodyError.Malformed)
-        if token_end(data, at, colon) != colon:
-            return Err(BodyError.Malformed)
-        name = lowered(data, at, colon)?
-        value_start = skip_blanks(data, colon + 1)
-        mut value_stop = end
-        while value_stop > value_start and (code(data, value_stop - 1) == 32 or code(data, value_stop - 1) == 9):
-            value_stop -= 1
-        if has_control(data, value_start, value_stop):
-            return Err(BodyError.Malformed)
-        value = text_of(data, value_start, value_stop)?
-        if name == "content-disposition":
-            if disposition.is_some():
-                return Err(BodyError.Malformed)
-            disposition = Some(parameters(&value)?)
-        elif name == "content-type":
-            kind = value
-        at = end + 2
-    match disposition:
-        case Some(params):
-            if params.essence != "form-data":
-                return Err(BodyError.Malformed)
-            name_index = match parameter(&params, "name"):
+    # start <= at <= stop <= len(data); found < stop and colon < end.
+    # skip_blanks stays within data; trimming only decrements positive stops.
+    # end+2 follows an in-range CRLF.
+    unchecked:
+        mut disposition: Option[Parameters] = Nothing
+        mut kind = "text/plain"
+        mut at = start
+        while at < stop:
+            mut end = stop
+            match located(data, 13u8, at, stop):
+                case Some(found):
+                    if found + 1 >= stop or code(data, found + 1) != 10:
+                        return Err(BodyError.Malformed)
+                    end = found
+                case Nothing:
+                    pass
+            colon = match located(data, 58u8, at, end):
                 case Some(found):
                     found
                 case Nothing:
                     return Err(BodyError.Malformed)
-            mut filename: Option[str] = Nothing
-            match parameter(&params, "filename"):
-                case Some(found):
-                    filename = Some(params.pairs[found].value)
-                case Nothing:
-                    pass
-            field = params.pairs[name_index].value
-            Ok(PartHead(field, filename, kind))
-        case Nothing:
-            Err(BodyError.Malformed)
+            if colon == at:
+                return Err(BodyError.Malformed)
+            if token_end(data, at, colon) != colon:
+                return Err(BodyError.Malformed)
+            name = lowered(data, at, colon)?
+            value_start = skip_blanks(data, colon + 1)
+            mut value_stop = end
+            while value_stop > value_start and (code(data, value_stop - 1) == 32 or code(data, value_stop - 1) == 9):
+                value_stop -= 1
+            if has_control(data, value_start, value_stop):
+                return Err(BodyError.Malformed)
+            value = text_of(data, value_start, value_stop)?
+            if name == "content-disposition":
+                if disposition.is_some():
+                    return Err(BodyError.Malformed)
+                disposition = Some(parameters(&value)?)
+            elif name == "content-type":
+                kind = value
+            if end == stop:
+                break
+            at = end + 2
+        match disposition:
+            case Some(params):
+                if params.essence != "form-data":
+                    return Err(BodyError.Malformed)
+                name_index = match parameter(&params, "name"):
+                    case Some(found):
+                        found
+                    case Nothing:
+                        return Err(BodyError.Malformed)
+                mut filename: Option[str] = Nothing
+                match parameter(&params, "filename"):
+                    case Some(found):
+                        filename = Some(params.pairs[found].value)
+                    case Nothing:
+                        pass
+                field = params.pairs[name_index].value
+                Ok(PartHead(field, filename, kind))
+            case Nothing:
+                Err(BodyError.Malformed)
 
 # Appends data[start:stop] to the part being read, whose content so far is
 # `size` bytes, and returns the new size.
 def emit(data: &[u8], start: i64, stop: i64, file: &mut Option[TempFile], text: &mut Bytes, size: i64, limits: &MultipartLimits) -> Result[i64, BodyError]:
     if stop <= start:
         return Ok(size)
-    total = size + (stop - start)
+    # 0 <= start < stop <= len(data), so the difference fits.
+    count = unchecked:
+        stop - start
+    total = body_extent(size, count)?
     match file:
         case Some(handle):
             if total > limits.max_file.get():
@@ -613,10 +660,14 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
     while True:
         match window.data.find_bytes(&delimiter, window.at, window.data.len()):
             case Some(found):
-                window.at = found + width
+                # A found delimiter fits wholly in data, so found+width <= len(data).
+                unchecked:
+                    window.at = found + width
                 break
             case Nothing:
-                kept = window.data.len() - (width - 1)
+                # 5 <= width <= 74; len(data) >= 0, so the difference is at least -73.
+                kept = unchecked:
+                    window.data.len() - (width - 1)
                 if kept > window.at:
                     window.at = kept
                 if not fill(exchange, &mut window)?:
@@ -626,8 +677,13 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
         # and a CRLF begin a part.
         if not holding(exchange, &mut window, 2)?:
             return Err(BodyError.Malformed)
-        if code(&window.data, window.at) == 45 and code(&window.data, window.at + 1) == 45:
-            window.at += 2
+        # holding(2) proves window.at+1 < len(data).
+        closing = unchecked:
+            code(&window.data, window.at) == 45 and code(&window.data, window.at + 1) == 45
+        if closing:
+            # holding(2) proves window.at+2 <= len(data).
+            unchecked:
+                window.at += 2
             break
         while True:
             if not holding(exchange, &mut window, 1)?:
@@ -635,10 +691,15 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
             value = code(&window.data, window.at)
             if value != 32 and value != 9:
                 break
-            window.at += 1
+            # holding(1) proves window.at+1 <= len(data).
+            unchecked:
+                window.at += 1
         if not holding(exchange, &mut window, 2)?:
             return Err(BodyError.Malformed)
-        if code(&window.data, window.at) != 13 or code(&window.data, window.at + 1) != 10:
+        # holding(2) proves window.at+1 < len(data).
+        malformed = unchecked:
+            code(&window.data, window.at) != 13 or code(&window.data, window.at + 1) != 10
+        if malformed:
             return Err(BodyError.Malformed)
         if len(parts) >= limits.max_parts.get():
             return Err(BodyError.TooManyFields)
@@ -653,17 +714,27 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
                 case Nothing:
                     # A legal section spans the opening CRLF, up to
                     # `max_head` header bytes and the 4-byte terminator.
-                    if window.data.len() - window.at > limits.max_head.get() + 5:
+                    # Unexamined length is in 0..i64.MAX; subtracting 5 fits.
+                    over_head = unchecked:
+                        window.data.len() - window.at - 5 > limits.max_head.get()
+                    if over_head:
                         return Err(BodyError.TooLarge)
                     if not fill(exchange, &mut window)?:
                         return Err(BodyError.Malformed)
-        head_start = window.at + 2
+        # holding(2) proved window.at+2 <= len(data); compaction only decreases at.
+        head_start = unchecked:
+            window.at + 2
         if head_end < head_start:
             return Err(BodyError.Malformed)
-        if head_end - head_start > limits.max_head.get():
+        # 0 <= head_start <= head_end <= len(data).
+        over_head = unchecked:
+            head_end - head_start > limits.max_head.get()
+        if over_head:
             return Err(BodyError.TooLarge)
         head = part_head(&window.data, head_start, head_end)?
-        window.at = head_end + 4
+        # The found four-byte terminator fits wholly in data.
+        unchecked:
+            window.at = head_end + 4
         mut file: Option[TempFile] = Nothing
         if head.filename.is_some():
             file = Some(stored(std.fs.temporary_file(storage))?)
@@ -675,10 +746,14 @@ pub def read_multipart[T: Transport](exchange: &mut Exchange[T], limits: &Multip
             match window.data.find_bytes(&delimiter, window.at, window.data.len()):
                 case Some(found):
                     size = emit(&window.data, window.at, found, &mut file, &mut text, size, limits)?
-                    window.at = found + width
+                    # A found delimiter fits wholly in data, so found+width <= len(data).
+                    unchecked:
+                        window.at = found + width
                     break
                 case Nothing:
-                    safe = window.data.len() - (width - 1)
+                    # 5 <= width <= 74; len(data) >= 0, so the difference is at least -73.
+                    safe = unchecked:
+                        window.data.len() - (width - 1)
                     if safe > window.at:
                         size = emit(&window.data, window.at, safe, &mut file, &mut text, size, limits)?
                         window.at = safe

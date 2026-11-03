@@ -100,42 +100,46 @@ pub class Cookie:
 # cookie must not make every request fail. A value in double quotes loses
 # the quotes.
 def split_pairs(field: &str, cookies: &mut list[Cookie], limit: i64) -> Result[(), CookieError]:
-    data = allocated(std.bytes.from_text(field))?
-    count = data.len()
-    mut at = 0
-    while at < count:
-        mut stop = count
-        match data.find(59u8, at, count):
-            case Some(found):
-                stop = found
-            case Nothing:
-                pass
-        mut first = at
-        while first < stop and (code(&data, first) == 32 or code(&data, first) == 9):
-            first += 1
-        mut last = stop
-        while last > first and (code(&data, last - 1) == 32 or code(&data, last - 1) == 9):
-            last -= 1
-        if last > first:
-            match data.find(61u8, first, last):
-                case Some(equals):
-                    mut value_start = equals + 1
-                    mut value_stop = last
-                    if value_stop - value_start >= 2 and code(&data, value_start) == 34 and code(&data, value_stop - 1) == 34:
-                        value_start += 1
-                        value_stop -= 1
-                    # Both sets are ASCII, so a valid pair is UTF-8 and only
-                    # valid pairs are copied.
-                    if equals > first and all_in(&data, first, equals, True) and all_in(&data, value_start, value_stop, False):
-                        if len(cookies) >= limit:
-                            return Err(CookieError.TooManyCookies)
-                        name = lifted(data.to_text_range(first, equals))?
-                        value = lifted(data.to_text_range(value_start, value_stop))?
-                        allocated(cookies.append(Cookie(name, value)))?
+    # Positions stay in 0..count. Trim steps require a nonempty range; equals<last; stop+1 requires stop<count.
+    unchecked:
+        data = allocated(std.bytes.from_text(field))?
+        count = data.len()
+        mut at = 0
+        while at < count:
+            mut stop = count
+            match data.find(59u8, at, count):
+                case Some(found):
+                    stop = found
                 case Nothing:
                     pass
-        at = stop + 1
-    Ok(())
+            mut first = at
+            while first < stop and (code(&data, first) == 32 or code(&data, first) == 9):
+                first += 1
+            mut last = stop
+            while last > first and (code(&data, last - 1) == 32 or code(&data, last - 1) == 9):
+                last -= 1
+            if last > first:
+                match data.find(61u8, first, last):
+                    case Some(equals):
+                        mut value_start = equals + 1
+                        mut value_stop = last
+                        if value_stop - value_start >= 2 and code(&data, value_start) == 34 and code(&data, value_stop - 1) == 34:
+                            value_start += 1
+                            value_stop -= 1
+                        # Both sets are ASCII, so a valid pair is UTF-8 and only
+                        # valid pairs are copied.
+                        if equals > first and all_in(&data, first, equals, True) and all_in(&data, value_start, value_stop, False):
+                            if len(cookies) >= limit:
+                                return Err(CookieError.TooManyCookies)
+                            name = lifted(data.to_text_range(first, equals))?
+                            value = lifted(data.to_text_range(value_start, value_stop))?
+                            allocated(cookies.append(Cookie(name, value)))?
+                    case Nothing:
+                        pass
+            if stop == count:
+                break
+            at = stop + 1
+        Ok(())
 
 # Every valid cookie in the request's Cookie fields, in order. More than
 # `limit` valid cookies is TooManyCookies.
@@ -203,7 +207,11 @@ pub class SetCookie:
         match &self.max_age:
             case Some(span):
                 out = allocated(out.concat("; Max-Age="))?
-                out = allocated(out.concat(&allocated(str.from(span.as_seconds() + (1u64 if span.as_nanoseconds() % 1000000000u64 != 0u64 else 0u64)))?))?
+                # Duration holds at most u64.MAX nanoseconds; ceil(seconds)
+                # is at most 18446744074, far below u64.MAX. Divisor is nonzero.
+                age = unchecked:
+                    span.as_seconds() + (1u64 if span.as_nanoseconds() % 1000000000u64 != 0u64 else 0u64)
+                out = allocated(out.concat(&allocated(str.from(age))?))?
             case Nothing:
                 pass
         if self.secure:
@@ -299,32 +307,34 @@ pub def sign(keys: &list[Bytes], name: &str, value: &str) -> Result[str, CookieE
 # keys, otherwise `Nothing`. Every key is tried, so the time taken does not
 # show which one matched; each comparison is constant-time.
 pub def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[str], CookieError]:
-    checked_keys(keys)?
-    if not valid_name(name) or not valid_value(signed):
-        return Ok(Nothing)
-    data = allocated(std.bytes.from_text(signed))?
-    count = data.len()
-    mut dot = count - 1
-    while dot >= 0 and code(&data, dot) != 46:
-        dot -= 1
-    # An HMAC-SHA-256 tag is 43 unpadded base64url characters.
-    if dot < 0 or count - dot - 1 != 43:
-        return Ok(Nothing)
-    tag = match std.encoding.base64url_decode(&data[dot + 1:count]):
-        case Ok(bytes):
-            bytes
-        case Err(EncodingError.Allocation(cause)):
-            return Err(CookieError.Allocation(cause))
-        case Err(_):
+    # count is nonnegative; dot starts at count-1 and decrements only at dot>=0. After dot>=0, dot<count, so tag offsets fit.
+    unchecked:
+        checked_keys(keys)?
+        if not valid_name(name) or not valid_value(signed):
             return Ok(Nothing)
-    mut matched = False
-    for index in range(len(keys)):
-        mut mac = tag_state(&keys[index], name, &data, dot)?
-        if crypto(mac.verify(&tag))?:
-            matched = True
-    if not matched:
-        return Ok(Nothing)
-    Ok(Some(lifted(data.to_text_range(0, dot))?))
+        data = allocated(std.bytes.from_text(signed))?
+        count = data.len()
+        mut dot = count - 1
+        while dot >= 0 and code(&data, dot) != 46:
+            dot -= 1
+        # An HMAC-SHA-256 tag is 43 unpadded base64url characters.
+        if dot < 0 or count - dot - 1 != 43:
+            return Ok(Nothing)
+        tag = match std.encoding.base64url_decode(&data[dot + 1:count]):
+            case Ok(bytes):
+                bytes
+            case Err(EncodingError.Allocation(cause)):
+                return Err(CookieError.Allocation(cause))
+            case Err(_):
+                return Ok(Nothing)
+        mut matched = False
+        for index in range(len(keys)):
+            mut mac = tag_state(&keys[index], name, &data, dot)?
+            if crypto(mac.verify(&tag))?:
+                matched = True
+        if not matched:
+            return Ok(Nothing)
+        Ok(Some(lifted(data.to_text_range(0, dot))?))
 
 # The value of the first cookie named `name` whose signature verifies.
 pub def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &str) -> Result[Option[str], CookieError]:
