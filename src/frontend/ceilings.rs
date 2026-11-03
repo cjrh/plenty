@@ -54,7 +54,7 @@ impl Lower<'_> {
         parameter: &str,
         ceiling: i64,
     ) -> Result<()> {
-        if let Some(integer) = consts::known_integer(value, &self.generics.constants)
+        if let Some(integer) = consts::known_integer(value, &self.generics.constants, self.aliases)
             && integer > i128::from(ceiling)
         {
             return Err(value.at.error(format!("`{operation}`: constant argument `{parameter}` is {integer}, above its fixed ceiling of {ceiling}")));

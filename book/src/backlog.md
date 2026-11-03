@@ -219,7 +219,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 
 | ID | Remaining work | Scope / dependency |
 | --- | --- | --- |
-| B97 | Quantity integration and units | Issue #701: quantity constants, alias-aware diagnostics and native erasure/zero-cost instruction evidence remain. Dimension algebra and Quantity construction, numeric/domain operators, checked arithmetic, conversions and coherent-unit formatting are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Allocation-denial tests pass, but release probes still show the class ABI and constructor bookkeeping. Follow with `std.units` and measured sharing of instances that differ only in dimension. Design context is local proposal PR #882. |
+| B97 | Quantity integration and units | Issue #701: alias-aware diagnostics and native erasure/zero-cost instruction evidence remain. Dimension algebra and Quantity construction, numeric/domain operators, checked arithmetic, conversions, coherent-unit formatting and quantity constants are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Allocation-denial tests pass, but release probes still show the class ABI and constructor bookkeeping. Follow with `std.units` and measured sharing of instances that differ only in dimension. Design context is local proposal PR #882. |
 
 ### Runtime-independent protocol support
 

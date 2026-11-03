@@ -76,7 +76,8 @@ symbol. Item and module aliases retain the same types and compiler safety checks
 `const name: T = value` declares an immutable value at module scope;
 `pub const` exports it. `T` must be a concrete integer or float type, an
 [integer domain](../03-types/numbers.md#positive-and-non-negative-integers)
-such as `Positive[i64]`, `bool`, `str`, or `bytes`. The compiler evaluates the initializer, a constant
+such as `Positive[i64]`, a [`Quantity[T, D]`](../03-types/quantities.md#module-constants),
+`bool`, `str`, or `bytes`. The compiler evaluates the initializer, a constant
 expression, and each read uses the result:
 
 ```plenty
@@ -107,8 +108,10 @@ A constant expression contains literals, other constants (from this module or
 imported, in any declaration order), numeric type constants such as `u8.MAX` or
 `f64.PI`, numeric casts such as `f32(x)` and `u8(x)`, parentheses, the unary
 operators `-`, `~`, and `not`, the arithmetic, bitwise, shift, comparison, and
-logical operators, `x if c else y`, and `+` on two `str` values. Calls, f-strings,
-collections, and other expressions are rejected with "not a constant expression".
+logical operators, `x if c else y`, and `+` on two `str` values. Quantity
+construction, quantity operators, `.get()` and floating `.to(unit)` also fold.
+User function calls, f-strings, collections, and other expressions are rejected
+with "not a constant expression".
 
 Evaluation follows the [numeric rules](../03-types/numbers.md) of the same
 expression at run time, so the folded value is the value the program would

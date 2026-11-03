@@ -696,3 +696,6 @@ mod test_std_ceilings;
 
 #[path = "test_quantity_formatting.rs"]
 mod test_quantity_formatting;
+
+#[path = "test_quantity_constants.rs"]
+mod test_quantity_constants;

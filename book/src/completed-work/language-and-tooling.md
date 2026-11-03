@@ -29,9 +29,15 @@ Unit spellings are static metadata, with no per-value dimension tag. Tests cover
 numeric widths and domains, normalized symbols, conversions, nested specs,
 writer limits and allocation denial.
 
+The fourth stage adds compile-time Quantity module constants: construction,
+quantity arithmetic, coherent-value extraction and float unit conversion.
+Dimensions and storage domains survive evaluation; overflow and invalid
+constant expressions are compile errors. Imports, forward references, static
+assertions and skipped branches follow the existing constant rules.
+
 Native erasure is not complete: the release addition probe retains the class
 ABI and constructor/caller bookkeeping instead of the plain `f64` instructions.
-Constants, alias-aware diagnostics and this performance work remain
+Alias-aware diagnostics and this performance work remain
 in [B97](../backlog.md#units-of-measure).
 
 ## Unicode trie example
