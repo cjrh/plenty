@@ -227,7 +227,10 @@ head declares it; otherwise it adds chunked framing for HTTP/1.1 or closes
 the connection after the body for HTTP/1.0. Writing past a declared length,
 or ending short of it, is `LengthMismatch`; a `HEAD` response sends no body,
 so it may end without writing. A streamed response the handler
-leaves unended is ended after it returns.
+leaves unended is ended after it returns. Streamed body progress remains exact:
+a write that would make `sent()` exceed `i64.MAX` returns `BodyTooLarge`
+before output or response-state mutation, leaving the earlier progress intact.
+`HEAD` does not accumulate body bytes.
 
 The first body read sends `100 Continue` when the request asked for it. A
 response sent before the body is read to its end closes the connection after
@@ -470,7 +473,10 @@ process at once.
 
 `Report` counts, as `u64`: `connections`, `rejected`, `requests`,
 `handler_errors`, `protocol_errors`, `timeouts`, `cancelled`,
-`accept_errors` and `dropped_events`.
+`accept_errors` and `dropped_events`. These observation-only counters saturate
+at `u64.MAX`, both when incremented and when worker reports are merged;
+exhausting a counter does not interrupt serving or change an operation's error.
+Body-byte progress and framing limits do not saturate.
 
 With `events` set, each answered request emits an `Info` event `request`
 with fields `method`, `target`, `status`, `bytes` (body bytes sent) and

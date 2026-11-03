@@ -72,7 +72,8 @@ pub class Config:
 pub def config() -> Config:
     Config(4, 16, std.http.limits(), seconds(5u32), seconds(10u32), seconds(30u32), seconds(10u32), seconds(60u32), seconds(5u32), 1000, Nothing, seconds(10u32), 256)
 
-# Counts for one connection, one worker, or a whole run of `serve`.
+# Observation-only counts for one connection, one worker, or a whole run
+# of `serve`; increments and report merges saturate at u64.MAX.
 pub class Report:
     pub connections: u64
     pub rejected: u64
@@ -87,16 +88,38 @@ pub class Report:
 def empty_report() -> Report:
     Report(0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64)
 
+# Observation counts must not interrupt serving when their representation fills.
+def counted(total: u64, part: u64) -> u64:
+    sum = checked:
+        total + part
+    match sum:
+        case Ok(value):
+            value
+        case Err(_):
+            u64.MAX
+
+# Preflight allocation extents without summing already-consumed bytes.
+def unread_extent(held: i64, size: i64, at: i64) -> Result[i64, AllocError]:
+    extent = checked:
+        held + (size - at)
+    extent.map_error(def(error: OverflowError[i64]) -> AllocError: AllocError.CapacityOverflow)
+
+# Semantic progress remains exact and fails before another body write.
+def sent_extent(sent: i64, count: i64) -> Result[i64, HttpError]:
+    extent = checked:
+        sent + count
+    extent.map_error(def(error: OverflowError[i64]) -> HttpError: HttpError.BodyTooLarge)
+
 def merge(total: &mut Report, part: &Report) -> ():
-    total.connections += part.connections
-    total.rejected += part.rejected
-    total.requests += part.requests
-    total.handler_errors += part.handler_errors
-    total.protocol_errors += part.protocol_errors
-    total.timeouts += part.timeouts
-    total.cancelled += part.cancelled
-    total.accept_errors += part.accept_errors
-    total.dropped_events += part.dropped_events
+    total.connections = counted(total.connections, part.connections)
+    total.rejected = counted(total.rejected, part.rejected)
+    total.requests = counted(total.requests, part.requests)
+    total.handler_errors = counted(total.handler_errors, part.handler_errors)
+    total.protocol_errors = counted(total.protocol_errors, part.protocol_errors)
+    total.timeouts = counted(total.timeouts, part.timeouts)
+    total.cancelled = counted(total.cancelled, part.cancelled)
+    total.accept_errors = counted(total.accept_errors, part.accept_errors)
+    total.dropped_events = counted(total.dropped_events, part.dropped_events)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, ServerError]:
     match result:
@@ -118,9 +141,11 @@ def now_ns() -> u64:
     monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
 
 def after(start: u64, budget: u64) -> u64:
-    if budget > u64.MAX - start:
-        return u64.MAX
-    start + budget
+    # start <= MAX makes the subtraction safe; the guard bounds the addition.
+    unchecked:
+        if budget > u64.MAX - start:
+            return u64.MAX
+        start + budget
 
 def deadline_of(at: u64) -> Deadline:
     deadline_at(&instant_at(at))
@@ -222,14 +247,16 @@ def valid_name(name: &str) -> bool:
 def parse_pattern(pattern: &str) -> Result[list[Segment], ServerError]:
     pieces = allocated(pattern.split("/"))?
     mut segments: list[Segment] = allocated(list[Segment].new())?
-    # pieces[0] is the empty text before the leading `/`.
+    # split is nonempty, including the empty text before the leading `/`.
+    last = unchecked:
+        len(pieces) - 1
     for index in range(1, len(pieces)):
         piece = &pieces[index]
         if piece.startswith("{") and piece.endswith("}"):
             inner = allocated(piece.slice(1, -1))?
             if inner.endswith("..."):
                 name = allocated(inner.slice(0, -3))?
-                if index != len(pieces) - 1 or not valid_name(&name):
+                if index != last or not valid_name(&name):
                     return Err(ServerError.InvalidPattern)
                 allocated(segments.append(Segment(name, rest)))?
             else:
@@ -254,14 +281,19 @@ def same_segments(left: &list[Segment], right: &list[Segment]) -> bool:
 
 # `pieces` is the path split at `/`, so pieces[0] is empty.
 def matches(segments: &list[Segment], pieces: &list[str]) -> bool:
-    count = len(pieces) - 1
+    # split is nonempty, so the count excluding its leading piece fits i64.
+    count = unchecked:
+        len(pieces) - 1
     for index in range(len(segments)):
         segment = &segments[index]
         if segment.kind == rest:
             return True
         if index >= count:
             return False
-        piece = &pieces[index + 1]
+        # index < count proves the following split piece exists.
+        next_piece = unchecked:
+            index + 1
+        piece = &pieces[next_piece]
         if segment.kind == capture:
             if piece.byte_len() == 0:
                 return False
@@ -273,11 +305,15 @@ def captured(segments: &list[Segment], pieces: &list[str]) -> Result[list[str], 
     mut params: list[str] = allocated(list[str].new())?
     for index in range(len(segments)):
         segment = &segments[index]
+        # matches proved that every preceding segment has a path piece;
+        # even a final rest capture starts at most at len(pieces).
+        next_piece = unchecked:
+            index + 1
         if segment.kind == capture:
-            allocated(params.append(pieces[index + 1]))?
+            allocated(params.append(pieces[next_piece]))?
         elif segment.kind == rest:
             mut joined: list[str] = allocated(list[str].new())?
-            for later in range(index + 1, len(pieces)):
+            for later in range(next_piece, len(pieces)):
                 allocated(joined.append(pieces[later]))?
             allocated(params.append(allocated("/".join(&joined))?))?
     Ok(params)
@@ -312,38 +348,40 @@ def gathered(data: Bytes, limits: &Limits) -> Gathered:
 # its LF, a line over its bound, and a field line past `max_headers` are
 # rejected. Searching resumes where the last call stopped.
 def scanned(input: &mut Gathered, limits: &Limits) -> bool:
-    size = input.data.len()
-    while True:
-        mut limit = input.left
-        if limits.max_line < limit:
-            limit = limits.max_line
-        if limit <= 0:
-            return True
-        bound = input.line + limit
-        mut end = size
-        if bound < end:
-            end = bound
-        match input.data.find(line_feed, input.searched, end):
-            case Some(index):
-                count = index + 1 - input.line
-                if count < 2 or input.data[index - 1] != carriage_return:
-                    return True
-                input.left -= count
-                input.line = index + 1
-                input.searched = input.line
-                if count == 2:
-                    if input.fields >= 0:
+    # line + left == max_head; found indices are below size/end, and fields increments only below max_headers.
+    unchecked:
+        size = input.data.len()
+        while True:
+            mut limit = input.left
+            if limits.max_line < limit:
+                limit = limits.max_line
+            if limit <= 0:
+                return True
+            bound = input.line + limit
+            mut end = size
+            if bound < end:
+                end = bound
+            match input.data.find(line_feed, input.searched, end):
+                case Some(index):
+                    count = index + 1 - input.line
+                    if count < 2 or input.data[index - 1] != carriage_return:
                         return True
-                elif input.fields < 0:
-                    input.fields = 0
-                elif input.fields >= limits.max_headers.get():
-                    return True
-                else:
-                    input.fields += 1
-            case Nothing:
-                input.searched = end
-                return end == bound
-    True
+                    input.left -= count
+                    input.line = index + 1
+                    input.searched = input.line
+                    if count == 2:
+                        if input.fields >= 0:
+                            return True
+                    elif input.fields < 0:
+                        input.fields = 0
+                    elif input.fields >= limits.max_headers.get():
+                        return True
+                    else:
+                        input.fields += 1
+                case Nothing:
+                    input.searched = end
+                    return end == bound
+        True
 
 # Appends input that has already arrived to `input.data`, without waiting.
 # Zero is the end of the peer's stream; TimedOut means nothing has arrived.
@@ -355,7 +393,13 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
     if have >= limits.max_head:
         return Err(NetError.Stream(StreamError.OutOfRange))
     if input.data.capacity() <= have:
-        mut size = input.data.capacity() * 2
+        doubled = checked:
+            input.data.capacity() * 2
+        mut size = match doubled:
+            case Ok(value):
+                value
+            case Err(_):
+                limits.max_head
         if size == 0:
             size = read_chunk
         if size > limits.max_head:
@@ -363,15 +407,26 @@ def read_ahead[T: Transport](stream: &mut T, input: &mut Gathered, limits: &Limi
         mut grown = std.bytes.with_capacity(size).map_error(StreamError.Allocation).map_error(NetError.Stream)?
         grown.extend(&input.data).map_error(StreamError.Allocation).map_error(NetError.Stream)?
         input.data = grown
-    mut room = input.data.capacity() - have
-    if room > read_chunk:
-        room = read_chunk
-    if room > limits.max_head - have:
-        room = limits.max_head - have
-    input.data.resize(have + room, 0u8).map_error(StreamError.Allocation).map_error(NetError.Stream)?
-    match stream.read_before(&mut input.data, have, have + room, &deadline_of(0u64), token):
+    # capacity >= have; have < max_head; cap room so have + room <= max_head.
+    room = unchecked:
+        mut available = input.data.capacity() - have
+        if available > read_chunk:
+            available = read_chunk
+        if available > limits.max_head - have:
+            available = limits.max_head - have
+        available
+    end = unchecked:
+        have + room
+    input.data.resize(end, 0u8).map_error(StreamError.Allocation).map_error(NetError.Stream)?
+    match stream.read_before(&mut input.data, have, end, &deadline_of(0u64), token):
         case Ok(count):
-            input.data.truncate(have + count)
+            if count < 0 or count > room:
+                input.data.truncate(have)
+                return Err(NetError.Stream(StreamError.OutOfRange))
+            # Validated count is in 0..room and have + room <= max_head.
+            end_read = unchecked:
+                have + count
+            input.data.truncate(end_read)
             Ok(count)
         case Err(error):
             input.data.truncate(have)
@@ -403,7 +458,14 @@ def send_all[T: Transport](stream: &mut T, source: &[u8], span: u64, until: u64,
         count = stream.write_before(&source[at:], &deadline_of(limit), cancel)?
         if count <= 0:
             return Err(NetError.Stream(StreamError.WriteZero))
-        at += count
+        # The loop maintains 0 <= at < stop <= len(source).
+        left = unchecked:
+            stop - at
+        if count > left:
+            return Err(NetError.Stream(StreamError.OutOfRange))
+        # The transport count is positive and no larger than the remaining slice.
+        unchecked:
+            at += count
     Ok(())
 
 def read_some[T: Transport](stream: &mut Option[T], buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
@@ -446,7 +508,11 @@ def discard[T: Transport](stream: &mut T, buffer: &mut Bytes, left: i64, until: 
             case Ok(0):
                 return 0
             case Ok(count):
-                rest -= count
+                if count < 0 or count > size:
+                    return 0
+                # rest > 0 and 0 <= count <= size <= i64.MAX.
+                unchecked:
+                    rest -= count
             case Err(NetError.TimedOut):
                 return rest
             case Err(_):
@@ -484,14 +550,17 @@ pub class Conn[T]:
     pub def read(self: &mut Conn[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if not (0 <= start and start <= stop and stop <= buffer.len()):
             __trap("read: start/stop outside buffer")
-        unread = self._input.data.len() - self._at
-        if unread > 0 and stop > start:
-            mut count = stop - start
-            if count > unread:
-                count = unread
-            buffer.overwrite(start, &self._input.data[self._at:self._at + count])
-            self._at += count
-            return Ok(count)
+        # _at is a cursor in the gathered bytes; count is bounded by both
+        # the validated destination range and the unread source suffix.
+        unchecked:
+            unread = self._input.data.len() - self._at
+            if unread > 0 and stop > start:
+                mut count = stop - start
+                if count > unread:
+                    count = unread
+                buffer.overwrite(start, &self._input.data[self._at:self._at + count])
+                self._at += count
+                return Ok(count)
         if not self._idle:
             match read_some(&mut self._stream, buffer, start, stop, &deadline_of(self._until), &self._cancel):
                 case Ok(count):
@@ -516,7 +585,10 @@ pub class Conn[T]:
 
     pub def write(self: &mut Conn[T], source: &[u8]) -> Result[i64, StreamError]:
         count = len(source)
-        if self._out.len() + count > self._out_limit:
+        # Buffered output never exceeds the fixed output limit.
+        room = unchecked:
+            self._out_limit - self._out.len()
+        if count > room:
             self.flush()?
             if count >= self._out_limit:
                 match send_some(&mut self._stream, source, self._write_span, self._write_until, &self._cancel):
@@ -814,13 +886,19 @@ pub class Exchange[T]:
         count = len(source)
         if self._state == sized and count > self._remaining:
             return Err(HttpError.LengthMismatch)
+        next_sent = if self._head_only:
+            self._sent
+        else:
+            sent_extent(self._sent, count)?
         state = self._state
         self._state = broken
         self.put(source, state == chunked)?
         self.flush()?
-        self._remaining -= count
-        if not self._head_only:
-            self._sent += count
+        if state == sized:
+            # A sized write was checked against its nonnegative remainder.
+            unchecked:
+                self._remaining -= count
+        self._sent = next_sent
         self._state = state
         Ok(())
 
@@ -904,7 +982,8 @@ pub class Exchange[T]:
         std.http.write_response(&mut taken.inner, head)?
         flushed(taken.inner.flush())?
         held = taken.buffered()
-        mut input = http_allocated(std.bytes.with_capacity(held + taken.inner._input.data.len() - taken.inner._at))?
+        extent = http_allocated(unread_extent(held, taken.inner._input.data.len(), taken.inner._at))?
+        mut input = http_allocated(std.bytes.with_capacity(extent))?
         http_allocated(input.resize(held, 0u8))?
         if held > 0:
             match taken.read(&mut input, 0, held):
@@ -984,7 +1063,7 @@ def emit(events: &mut Option[ChannelSink], level: Level, message: str, fields: l
                 case Ok(_):
                     pass
                 case Err(_):
-                    report.dropped_events += 1u64
+                    report.dropped_events = counted(report.dropped_events, 1u64)
         case Nothing:
             pass
 
@@ -993,12 +1072,14 @@ def emit(events: &mut Option[ChannelSink], level: Level, message: str, fields: l
 def access[T](events: &mut Option[ChannelSink], exchange: &Exchange[T], started: u64, report: &mut Report) -> ():
     if events.is_none():
         return
-    elapsed = (now_ns() - started) // 1000u64
+    # Monotonic time cannot precede started; the fixed divisor is nonzero.
+    elapsed = unchecked:
+        (now_ns() - started) // 1000u64
     match access_fields(exchange, elapsed):
         case Ok(fields):
             emit(events, Level.Info, "request", fields, report)
         case Err(_):
-            report.dropped_events += 1u64
+            report.dropped_events = counted(report.dropped_events, 1u64)
 
 def access_fields[T](exchange: &Exchange[T], elapsed: u64) -> Result[list[Field], AllocError]:
     mut fields = list[Field].new()?
@@ -1019,17 +1100,17 @@ def problem(events: &mut Option[ChannelSink], message: str, status: i64, report:
                 case Ok(_):
                     emit(events, Level.Warn, message, owned, report)
                 case Err(_):
-                    report.dropped_events += 1u64
+                    report.dropped_events = counted(report.dropped_events, 1u64)
         case Err(_):
-            report.dropped_events += 1u64
+            report.dropped_events = counted(report.dropped_events, 1u64)
 
 def count_failure(failure: &Option[NetError], events: &mut Option[ChannelSink], report: &mut Report) -> ():
     match failure:
         case Some(NetError.TimedOut):
-            report.timeouts += 1u64
+            report.timeouts = counted(report.timeouts, 1u64)
             problem(events, "timed out", 408, report)
         case Some(NetError.Cancelled):
-            report.cancelled += 1u64
+            report.cancelled = counted(report.cancelled, 1u64)
             problem(events, "cancelled", 0, report)
         case _:
             pass
@@ -1057,7 +1138,10 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
     mut head = std.http.response(status, reason(status))?
     text = reason(status)
     head.add("Content-Type", "text/plain; charset=utf-8")?
-    head.add("Content-Length", http_allocated(str.from(text.byte_len() + 1))?)?
+    # reason() returns one of the fixed short ASCII reason phrases.
+    length = unchecked:
+        text.byte_len() + 1
+    head.add("Content-Length", http_allocated(str.from(length))?)?
     if allow.byte_len() > 0:
         head.add("Allow", *allow)?
     head.add("Connection", "close")?
@@ -1122,7 +1206,12 @@ def unread[T](reader: &mut BufReader[Conn[T]], limits: &Limits) -> bool:
     if held == 0 and at == size:
         reader.inner._input.data.clear()
     elif held > 0 or at > 0:
-        mut merged = match std.bytes.with_capacity(held + size - at):
+        extent = match unread_extent(held, size, at):
+            case Ok(value):
+                value
+            case Err(_):
+                return False
+        mut merged = match std.bytes.with_capacity(extent):
             case Ok(bytes):
                 bytes
             case Err(_):
@@ -1268,7 +1357,7 @@ def connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, input: Option
                         if refuse(&mut reader.inner, 408, "").is_ok():
                             return linger(&mut reader.inner, park and not stop.is_cancelled(), config)
                     return Nothing
-                report.protocol_errors += 1u64
+                report.protocol_errors = counted(report.protocol_errors, 1u64)
                 status = error_status(&error)
                 reader.inner._write_until = after(now_ns(), config.write_timeout.as_nanoseconds())
                 answered = refuse(&mut reader.inner, status, "").is_ok()
@@ -1276,8 +1365,10 @@ def connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, input: Option
                 if answered:
                     return linger(&mut reader.inner, park and not stop.is_cancelled(), config)
                 return Nothing
-        *served += 1
-        report.requests += 1u64
+        # The loop admits another request only below max_requests <= i64.MAX.
+        unchecked:
+            *served += 1
+        report.requests = counted(report.requests, 1u64)
         mut lingering = False
         match request(reader, head, peer, router, handler, config, stop, cancel, *served < config.max_requests, &mut lingering, events, report):
             case Some(next):
@@ -1292,7 +1383,7 @@ def connection[T: Transport, R, E, H: Handler[T, R, E]](stream: T, input: Option
 # unread, so a connection that took the answer is returned for lingering.
 def refused[T: Transport](reader: BufReader[Conn[T]], status: i64, lingering: &mut bool, events: &mut Option[ChannelSink], report: &mut Report) -> Option[BufReader[Conn[T]]]:
     mut conn = reader
-    report.protocol_errors += 1u64
+    report.protocol_errors = counted(report.protocol_errors, 1u64)
     answered = refuse(&mut conn.inner, status, "").is_ok()
     problem(events, "bad request", status, report)
     if not answered:
@@ -1368,7 +1459,7 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
         match handler.handle(router.route(route), &mut exchange):
             case Ok(_):
                 if exchange._state == unanswered:
-                    report.handler_errors += 1u64
+                    report.handler_errors = counted(report.handler_errors, 1u64)
                     problem(events, "handler sent no response", 500, report)
                     drop(plain(&mut exchange, 500))
                 elif exchange._state != ended:
@@ -1378,10 +1469,10 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
                 mut status = 500
                 if exchange._state == unanswered and exchange._refusal != 0:
                     status = exchange._refusal
-                    report.protocol_errors += 1u64
+                    report.protocol_errors = counted(report.protocol_errors, 1u64)
                     problem(events, "bad request body", status, report)
                 else:
-                    report.handler_errors += 1u64
+                    report.handler_errors = counted(report.handler_errors, 1u64)
                     problem(events, "handler failed", 500, report)
                 if exchange._state == unanswered:
                     exchange._keep = False
@@ -1519,13 +1610,13 @@ class Plain:
 def open_failed(error: OpenError, events: &mut Option[ChannelSink], report: &mut Report) -> ():
     match error:
         case OpenError.TimedOut:
-            report.timeouts += 1u64
+            report.timeouts = counted(report.timeouts, 1u64)
             problem(events, "handshake timed out", 0, report)
         case OpenError.Cancelled:
-            report.cancelled += 1u64
+            report.cancelled = counted(report.cancelled, 1u64)
             problem(events, "cancelled", 0, report)
         case OpenError.Failed:
-            report.protocol_errors += 1u64
+            report.protocol_errors = counted(report.protocol_errors, 1u64)
             problem(events, "handshake failed", 0, report)
         case OpenError.Gone:
             pass
@@ -1613,7 +1704,7 @@ def take[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](received: Job[T]
     mut stream = replace(job.resumed, Nothing)
     match replace(job.fresh, Nothing):
         case Some(tcp):
-            report.connections += 1u64
+            report.connections = counted(report.connections, 1u64)
             match tcp.peer_address():
                 case Ok(address):
                     peer = Some(address)
@@ -1742,6 +1833,16 @@ class Admission[T]:
     reject_ns: u64
     linger_ns: u64
 
+# Called only for registered slot keys >= first_slot, derived from i64 indices.
+def slot_index(key: u64) -> i64:
+    unchecked:
+        i64(key - first_slot)
+
+# Slot indices are nonnegative i64 list positions; adding two fits u64.
+def slot_key(index: i64) -> u64:
+    unchecked:
+        first_slot + u64(index)
+
 def watch_job[T, O: Opener[T]](job: &Job[T], selector: &mut Selector, key: u64, opener: &O) -> bool:
     match &job.fresh:
         case Some(tcp):
@@ -1772,7 +1873,7 @@ def send_job[T: Transport, O: Opener[T]](state: &mut Admission[T], job: Job[T], 
         case Ok(_):
             pass
         case Err(SendError.Full(returned)):
-            state.total.rejected += 1u64
+            state.total.rejected = counted(state.total.rejected, 1u64)
             problem(&mut state.events, "queue full", 503, &mut state.total)
             mut refused = returned
             match replace(refused.fresh, Nothing):
@@ -1804,19 +1905,29 @@ def park[T, O: Opener[T]](state: &mut Admission[T], parked: Job[T], cap: i64, op
         case Some(vacant):
             index = vacant
         case Nothing:
-            if state.free.reserve(index + 1).is_err():
+            needed = checked:
+                index + 1
+            size = match needed:
+                case Ok(value):
+                    value
+                case Err(_):
+                    drop(parked)
+                    return
+            if state.free.reserve(size).is_err():
                 drop(parked)
                 return
             empty: Option[Job[T]] = Nothing
             if state.slots.append(empty).is_err():
                 drop(parked)
                 return
-    if not watch_job(&parked, &mut state.selector, first_slot + u64(index), opener):
+    if not watch_job(&parked, &mut state.selector, slot_key(index), opener):
         drop(state.free.append(index))
         drop(parked)
         return
     state.slots[index] = Some(parked)
-    state.parked += 1
+    # The slot is allocated and was empty, so parked + 1 <= len(slots).
+    unchecked:
+        state.parked += 1
 
 # Takes the connection out of slot `index`, if any.
 def unpark[T, O: Opener[T]](state: &mut Admission[T], index: i64, opener: &O) -> Option[Job[T]]:
@@ -1824,7 +1935,9 @@ def unpark[T, O: Opener[T]](state: &mut Admission[T], index: i64, opener: &O) ->
         return Nothing
     match replace(state.slots[index], Nothing):
         case Some(parked):
-            state.parked -= 1
+            # Removing an occupied slot proves parked >= 1.
+            unchecked:
+                state.parked -= 1
             drop(state.free.append(index))
             unwatch_job(&parked, &mut state.selector, opener)
             Some(parked)
@@ -1837,9 +1950,9 @@ def unpark[T, O: Opener[T]](state: &mut Admission[T], index: i64, opener: &O) ->
 def retire[T, O: Opener[T]](state: &mut Admission[T], job: Job[T], expired: bool, opener: &O) -> ():
     fresh = job.fresh.is_some()
     if fresh:
-        state.total.connections += 1u64
+        state.total.connections = counted(state.total.connections, 1u64)
     if expired and opener.handshakes() and (fresh or job.opening):
-        state.total.timeouts += 1u64
+        state.total.timeouts = counted(state.total.timeouts, 1u64)
         problem(&mut state.events, "handshake timed out", 0, &mut state.total)
     drop(job)
 
@@ -1848,7 +1961,7 @@ def retire[T, O: Opener[T]](state: &mut Admission[T], job: Job[T], expired: bool
 # lingering.
 def time_out[T: Transport, O: Opener[T]](state: &mut Admission[T], job: Job[T], cap: i64, token: &CancellationToken, opener: &O) -> ():
     mut closing = job
-    state.total.timeouts += 1u64
+    state.total.timeouts = counted(state.total.timeouts, 1u64)
     problem(&mut state.events, "timed out", 408, &mut state.total)
     match replace(closing.resumed, Nothing):
         case Some(stream):
@@ -1943,7 +2056,7 @@ def readied[T: Transport, O: Opener[T]](state: &mut Admission[T], index: i64, ou
     if step == wait_parked:
         # Registered again because a TLS stream's interest changes with
         # the ciphertext it has left to send.
-        drop(watch_job(&job, &mut state.selector, first_slot + u64(index), opener))
+        drop(watch_job(&job, &mut state.selector, slot_key(index), opener))
     state.slots[index] = Some(job)
     if step == wait_parked:
         return
@@ -1977,7 +2090,7 @@ def admitted[T: Transport, O: Opener[T]](state: &mut Admission[T], tcp: TcpStrea
     now = now_ns()
     cap = config.idle_connections
     if cap > 0 and state.parked >= cap:
-        state.total.rejected += 1u64
+        state.total.rejected = counted(state.total.rejected, 1u64)
         problem(&mut state.events, "too many connections", 503, &mut state.total)
         turn_away(opener, tcp, state.reject_ns)
         return
@@ -2003,7 +2116,7 @@ def accept_some[T: Transport, O: Opener[T]](state: &mut Admission[T], listener: 
             case Err(NetError.Cancelled):
                 return
             case Err(_):
-                state.total.accept_errors += 1u64
+                state.total.accept_errors = counted(state.total.accept_errors, 1u64)
                 problem(&mut state.events, "accept failed", 0, &mut state.total)
                 std.time.sleep(&std.time.milliseconds(accept_backoff_ms))
                 return
@@ -2016,7 +2129,7 @@ def ready_events[T: Transport, O: Opener[T]](state: &mut Admission[T], count: i6
                 if event.key == listener_key:
                     accept_some(state, listener, outbox, config, stop, opener)
                 elif event.key >= first_slot:
-                    readied(state, i64(event.key - first_slot), outbox, config, cancel, opener)
+                    readied(state, slot_index(event.key), outbox, config, cancel, opener)
             case Err(_):
                 pass
 
@@ -2034,7 +2147,7 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
             case Err(WaitError.TimedOut):
                 pass
             case Err(_):
-                state.total.accept_errors += 1u64
+                state.total.accept_errors = counted(state.total.accept_errors, 1u64)
                 problem(&mut state.events, "accept failed", 0, &mut state.total)
                 std.time.sleep(&std.time.milliseconds(accept_backoff_ms))
         collect(&mut state, cap, cancel, opener)
@@ -2050,7 +2163,7 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
                 match state.selector.event(index):
                     case Ok(event):
                         if event.key >= first_slot:
-                            match unpark(&mut state, i64(event.key - first_slot), opener):
+                            match unpark(&mut state, slot_index(event.key), opener):
                                 case Some(job):
                                     if job.linger > 0:
                                         retire(&mut state, job, False, opener)
@@ -2079,11 +2192,15 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
         now = now_ns()
         if now >= drain_until:
             break
-        wait_ms = least((drain_until - now) // 1000000u64 + 1u64, drain_slice_ms)
+        # now < drain_until; dividing a u64 by one million leaves room for +1.
+        wait_ms = unchecked:
+            least((drain_until - now) // 1000000u64 + 1u64, drain_slice_ms)
         match reports.recv_timeout(wait_ms):
             case Ok(part):
                 merge(&mut state.total, &part)
-                finished += 1
+                # finished < workers <= 1024.
+                unchecked:
+                    finished += 1
             case Err(RecvTimeoutError.TimedOut):
                 pass
             case Err(RecvTimeoutError.Disconnected):
@@ -2093,7 +2210,9 @@ def admit[T: Transport, O: Opener[T]](listener: TcpListener, outbox: Sender[Job[
         match reports.recv():
             case Ok(part):
                 merge(&mut state.total, &part)
-                finished += 1
+                # finished < workers <= 1024.
+                unchecked:
+                    finished += 1
             case Err(_):
                 break
     drop_returns(&mut state)
@@ -2117,7 +2236,10 @@ def launch[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](count: i64, li
         return Ok(admit(listener, outbox, reports, admission, opener, config, stop, cancel, workers))
     mut result: Result[Report, SpawnError[()]] = Ok(empty_report())
     with spawn(worker, inbox.share(), done.share(), back.share(), copy_address(wake), opener, router, handler, config, stop, cancel, shared_sink(&config.events))? as task:
-        result = launch(count - 1, listener, inbox, outbox, done, reports, back, wake, admission, opener, router, handler, config, stop, cancel, workers)
+        # count is nonzero here and never exceeds config.workers <= 1024.
+        remaining = unchecked:
+            count - 1
+        result = launch(remaining, listener, inbox, outbox, done, reports, back, wake, admission, opener, router, handler, config, stop, cancel, workers)
     result
 
 def valid(config: &Config) -> bool:
@@ -2150,7 +2272,10 @@ def run[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](listener: TcpList
     cancel = allocated(CancellationToken())?
     (outbox, inbox) = channeled(channel[Job[T]](Positive.try_from(config.queue).unwrap()))?
     (done, reports) = channeled(channel[Report](Positive.try_from(config.workers).unwrap()))?
-    (back, returns) = channeled(channel[Job[T]](Positive.try_from(config.workers + 64).unwrap()))?
+    # valid(config) proves 1 <= workers <= 1024.
+    return_slots = unchecked:
+        config.workers + 64
+    (back, returns) = channeled(channel[Job[T]](Positive.try_from(return_slots).unwrap()))?
     mut selector = selected(std.ready.selector(64))?
     netted(listener.watch(&mut selector, listener_key))?
     mut wake = netted(std.net.bind_udp(&std.net.loopback_v4(0u16)))?
