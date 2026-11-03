@@ -152,6 +152,16 @@ verify allocation-free arithmetic in debug and optimized output. Client
 deadline saturation, bounded counters and callback independence are explicit.
 The I/O range integration and typed composition/prototype examples pass;
 server-dependent client and TLS-dependent network checks remain outstanding.
+
+JSON position arithmetic now reports the existing InputTooLarge fault before
+advancing a failing byte or ASCII-run cursor; input/output budgets and partial
+output progress remain intact. Unicode normalization arithmetic has explicit
+scalar-ceiling, successful-append and positive-index bounds. Both public APIs
+are unchanged. The component's 35 runtime-check tests pass on an isolated build
+target, including optimized/unoptimized boundaries and the Unicode normalization
+corpus; independent review found no defects. TOML, XML, CSV and regex remain
+part of the incomplete adoption scope.
+
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

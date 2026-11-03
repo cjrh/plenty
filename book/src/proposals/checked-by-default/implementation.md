@@ -24,7 +24,7 @@ The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env`,
 `std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`,
 `std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
-and `std.http.client`. Logging's bounded
+and `std.http.client`, plus `std.json` and `std.unicode`. Logging's bounded
 timestamp/line-buffer arithmetic is also adapted; its generic running statistics are not yet migrated.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
@@ -48,6 +48,15 @@ preflight the complete wire extent before delivery, preserving progress and
 transport causes. Client callbacks retain their own contracts; deadline
 saturation and bounded pool/retry/body arithmetic are explicit. No blanket `unchecked:`
 conversion was applied.
+
+JSON retains its input/output budgets and maps one-based position exhaustion
+to `JsonFault.InputTooLarge` before advancing the failing cursor. Partial output
+compaction preserves delivered progress without allocating. Unicode normalization
+uses explicit scalar-ceiling, successful-append and positive-index bounds. The
+JSON/Unicode component passed 35 isolated-target runtime-check tests, including
+debug/optimized representation boundaries and the Unicode normalization corpus,
+and received an independent source review. TOML, XML, CSV and regex remain
+unmigrated; this is not full formats acceptance.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining
