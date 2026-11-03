@@ -85,8 +85,8 @@ function parameter, so `identity[()](())` is rejected.
 ## Require collection keys
 
 Use `K: KeyType` when a generic algorithm needs dictionary keys or set members.
-It accepts integers, booleans, strings, bytes, and supported tuples and named
-enums. The compiler checks all enum payloads; no hashing method is required.
+It accepts integers, booleans, strings, bytes, and supported tuples, classes and named
+enums without custom cleanup. The compiler checks all enum payloads; no hashing method is required.
 
 ```plenty
 enum Label:
@@ -96,7 +96,7 @@ enum Label:
 def frequencies[K: KeyType](values: &list[K]) -> Result[dict[K, i64], AllocError]:
     mut counts: dict[K, i64] = {}?
     for value in values:
-        counts.insert(*value, counts.get(*value, 0) + 1)?
+        counts.insert(copy(value)?, counts.get(value, 0) + 1)?
     Ok(counts)
 
 def main() -> Result[(), AllocError | IoError]:
@@ -109,7 +109,8 @@ def main() -> Result[(), AllocError | IoError]:
 2 1
 ```
 
-The input is borrowed; currently supported keys copy without allocating, so
-`*value` supplies a key without consuming the list. Dictionary insertion remains
-fallible. Floats, classes and anonymous sums do not satisfy `KeyType`; see the
+The input is borrowed, so `copy(value)?` supplies an independent key without
+consuming the list, including when the key is a move-only class. Dictionary
+insertion remains fallible. Floats, anonymous sums and classes with custom
+cleanup do not satisfy `KeyType`; see the
 [constraint reference](../../design/language/07-generics/index.md#keytype).

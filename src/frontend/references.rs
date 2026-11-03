@@ -611,10 +611,11 @@ impl Lower<'_> {
                     }
                     _ => return Err(e.at.error("indexed assignment requires a list")),
                 };
-                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-                self.same(actual, Some(key.clone()), &index.at)?;
+                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+                self.same(Some(actual), Some(key.clone()), &index.at)?;
                 let slot = self.slot(key, &index.at)?;
                 ops.push(Op::StoreLocal(slot));
+                Self::end_reads(reads, ops);
                 slots.push(slot);
                 Ok(())
             }
@@ -729,17 +730,20 @@ impl Lower<'_> {
                     break;
                 }
             }
-            if let Some(indices) = indices {
+            let reads = if let Some(indices) = indices {
                 let slot = *indices.next().expect("prepared assignment index");
                 ops.push(Op::MoveLocal(slot));
+                vec![]
             } else {
-                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-                self.same(actual, Some(key), &index.at)?;
-            }
+                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+                self.same(Some(actual), Some(key), &index.at)?;
+                reads
+            };
             let operation = CollectionOp::ElementRef(collection, mutable);
             let output = operation.signature().1;
             self.mark(&e.at, ops);
             ops.push(Op::Collection(operation));
+            Self::end_reads(reads, ops);
             return Ok((output, loan));
         }
         if let Expression::Unary(op, base) = &ungroup(e).kind

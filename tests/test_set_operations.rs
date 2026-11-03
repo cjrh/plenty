@@ -443,11 +443,10 @@ print(options[empty], options[Some(2)]).unwrap()
 
 #[test]
 fn unsupported_enum_payloads_remain_rejected_as_keys() {
-    // B74's class and anonymous-sum stages remain separate from enum admission.
+    // Anonymous sums remain a separate B74 design decision.
     for declaration in [
         "enum Key:\n    Value(f64)\n",
         "enum Key:\n    Value(list[i64])\n",
-        "class Data:\n    n: i64\nenum Key:\n    Value(Data)\n",
         "enum Key:\n    End\n    Next(Box[Key])\n",
         "type Key = i64 | str\n",
     ] {
@@ -456,5 +455,132 @@ fn unsupported_enum_payloads_remain_rejected_as_keys() {
         );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains("set elements must be"), "{error}");
+    }
+}
+
+#[test]
+fn structural_class_keys_support_owned_nested_and_copy_classes() {
+    support::assert_stdout(
+        r#"
+class Name:
+    text: str
+class Key:
+    name: Name
+    number: i64
+@copy
+class Small:
+    number: i64
+    flag: bool
+enum Choice:
+    Named(Key)
+    Small(Small)
+mut keys: set[Key] = set().unwrap()
+for n in range(80):
+    keys.add(Key(Name(str.from(n).unwrap()), n)).unwrap()
+probe = Key(Name("42"), 42)
+print(probe in keys, len(keys), probe.name.text).unwrap()
+keys.add(Key(Name(("4" + "2").unwrap()), 42)).unwrap()
+keys.discard(&probe)
+print(probe in keys, len(keys), probe.name.text).unwrap()
+choices = {Choice.Named(Key(Name("a"), 1)), Choice.Named(Key(Name("a"), 1)), Choice.Small(Small(1, True))}.unwrap()
+print(len(choices), Choice.Named(Key(Name("a"), 1)) in choices).unwrap()
+"#,
+        "True 80 42\nFalse 79 42\n2 True\n",
+    );
+}
+
+#[test]
+fn structural_class_keys_algebra_copies_independent_owners() {
+    support::assert_stdout(
+        r#"
+class Key:
+    text: str
+    n: i64
+mut left = {Key("same", 1), Key("left", 2)}.unwrap()
+right = {Key("same", 1), Key("right", 3)}.unwrap()
+union = left.union(&right).unwrap()
+intersection = left.intersection(&right).unwrap()
+difference = left.difference(&right).unwrap()
+symmetric = left.symmetric_difference(&right).unwrap()
+print(left.issubset(&union), left.isdisjoint(&difference), len(intersection), len(difference), len(symmetric)).unwrap()
+left.intersection_update(&right)
+print(len(left)).unwrap()
+drop(left)
+drop(right)
+print(Key("same", 1) in union, Key("right", 3) in union).unwrap()
+for item in union:
+    mut key = item
+    key.n += 10
+    print(key.text, key.n).unwrap()
+print(Key("same", 1) in intersection, Key("left", 2) in difference, Key("right", 3) in symmetric).unwrap()
+"#,
+        "True False 1 1 2\n1\nTrue True\nsame 11\nleft 12\nright 13\nTrue True True\n",
+    );
+}
+
+#[test]
+fn structural_class_keys_reject_ineligible_fields_and_cleanup() {
+    for declaration in [
+        "class Key:\n    value: f64\n",
+        "class Key:\n    value: list[i64]\n",
+        "class Key:\n    value: Box[i64]\n",
+        "class Key:\n    value: i64\n    def __del__(self: &mut Key) -> ():\n        pass\n",
+    ] {
+        let source = format!(
+            "{declaration}\ndef main() -> Result[(), AllocError]:\n    keys: set[Key] = set()?\n    Ok(())\n"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("set elements must be"), "{error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn structural_class_keys_allocation_failure_preserves_sources() {
+    for budget in 0..=4 {
+        for operation in [
+            "union",
+            "intersection",
+            "difference",
+            "symmetric_difference",
+        ] {
+            native(
+                &format!(
+                    r#"
+class Key:
+    text: str
+    n: i64
+left = {{Key(("same" + "").unwrap(), 1), Key(("left" + "").unwrap(), 2)}}.unwrap()
+right = {{Key(("same" + "").unwrap(), 1), Key(("right" + "").unwrap(), 3)}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = left.{operation}(&right)
+print("__test_restore_allocations__").unwrap()
+print(result.is_ok()).unwrap()
+print(Key("left", 2) in left, Key("right", 3) in right).unwrap()
+drop(left)
+drop(right)
+match result:
+    case Ok(keys):
+        for key in &keys:
+            print(len(key.text) > 0).unwrap()
+    case Err(error):
+        pass
+"#
+                ),
+                &format!(
+                    "{}\nTrue True{}",
+                    if budget == 4 { "True" } else { "False" },
+                    if budget == 4 {
+                        "\nTrue".repeat(match operation {
+                            "union" => 3,
+                            "symmetric_difference" => 2,
+                            _ => 1,
+                        })
+                    } else {
+                        String::new()
+                    }
+                ),
+            );
+        }
     }
 }

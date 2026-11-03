@@ -168,7 +168,7 @@ which remains partly implemented for its public allocator design.
 
 Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
-enums and tuples are supported. Classes, floats, boxes, recursive types and
+enums, tuples and classes without custom cleanup are supported. Floats, boxes, recursive types and
 anonymous sums remain excluded. This reuses the existing keyed runtime hashing,
 not bitset storage. See [collections](../design/facilities/01-builtins/collections.md).
 
@@ -176,5 +176,11 @@ not bitset storage. See [collections](../design/facilities/01-builtins/collectio
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
 traversal performs linear field-offset work per pass (issue #330). The built-in `KeyType` constraint now exposes the same key admission rule on
 functions, methods, classes and enums; see [generics](../design/language/07-generics/index.md#keytype).
-Broader class-key support remains
+Anonymous-sum and custom-cleanup admission remain under
 **B74** in the [backlog](../backlog.md).
+
+Class keys hash their fields rather than their addresses. Move-only class keys,
+and enums containing them, transfer on insertion and owned extraction; lookups
+and views borrow them. Set algebra and key-view `to_set()` create independent
+copies, and affine `keys_snapshot()` requires an owned temporary, matching
+`values_snapshot()`. Classes with custom cleanup remain excluded.

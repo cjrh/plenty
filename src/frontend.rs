@@ -500,7 +500,7 @@ impl TypeRef {
                 "set" => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "set elements must be integers, bool, str, bytes, or tuples/enums containing only these key types",
+                            "set elements must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup",
                         ));
                     }
                     Ty::Set(Arc::new(args[0].clone()))
@@ -508,7 +508,7 @@ impl TypeRef {
                 _ => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "dictionary keys must be integers, bool, str, bytes, or tuples/enums containing only these key types",
+                            "dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup",
                         ));
                     }
                     Ty::Dict(Arc::new(args[0].clone()), Arc::new(args[1].clone()))

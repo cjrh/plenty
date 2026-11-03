@@ -45,7 +45,17 @@ pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u6
 
 unsafe fn write_key(state: &mut SipHasher24, value: u128, ty: &Type) {
     state.write_u8(ty.kind);
-    if ty.kind == b'B' {
+    if ty.kind == b'C' {
+        if let Some(record) = ty.record(value) {
+            state.write_usize(record.len());
+            for (field, ty) in record.slots() {
+                // SAFETY: the record view belongs to this live typed key.
+                unsafe { write_key(state, field.read(), ty) };
+            }
+        } else {
+            state.write_usize(0);
+        }
+    } else if ty.kind == b'B' {
         state.write_u64(ty.tag(value) as u64);
         if let Some(record) = ty.record(value) {
             state.write_usize(record.len());

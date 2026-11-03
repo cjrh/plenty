@@ -6,7 +6,7 @@ and algebra methods. Their operations accept `&set[K]` or `&KeyView[K]`;
 equality also compares a key view and a set in either operand order.
 
 Sets use the [common collection rules](collections.md); members are integers,
-booleans, strings, `bytes`, or tuples and named enums recursively containing those types.
+booleans, strings, `bytes`, or tuples, classes and named enums recursively containing those types, without custom cleanup.
 Iteration order is unspecified. `add` and `reserve` follow
 the [recoverable growth contract](construction-copy.md).
 
@@ -48,7 +48,7 @@ and returns `Result[set[T], AllocError]`:
 
 Inputs may be the same set and remain unchanged on failure. Output is independent,
 though immutable strings can share storage. All storage for the actual result is
-reserved before retaining members: four allocations for a nonempty result,
+reserved before copying members, including move-only class records: four allocations for a nonempty result,
 one for an empty owner. Arithmetic operator overloads and iterable conversions
 are not implied.
 
