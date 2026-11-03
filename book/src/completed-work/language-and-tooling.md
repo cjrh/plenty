@@ -212,7 +212,13 @@ unused-definition pruning (issue #688). Bare unused `std.dataframe`/`std.linalg`
 imports emit no engine symbols in debug or optimized objects; required native
 calls retain ordinary engine discovery. This fixes the Windows release smoke
 failure after packaging; native Windows CI must still confirm the archive run.
-Retained unused user helpers are a separate COFF limitation (issue #690).
+Windows executable emission also omits unreachable user helpers and generators
+from its temporary COFF object (issue #690), eliminating native imports only
+those bodies require. Explicit objects, library objects and dumps retain their
+inspection contract; missing reached imports remain linker errors. Actual COFF
+links cover the unused-helper case and a reached-call negative control, in
+both optimization modes. Native Windows execution remains a CI qualification
+requirement. See the [emission policy](../design/toolchain/02-architecture/emission.md).
 
 Distribution output appends the native executable suffix to the source stem
 (issue #697), producing `analysis.exe` on Windows while preserving dotted stems

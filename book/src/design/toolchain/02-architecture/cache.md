@@ -93,7 +93,9 @@ The entry's name is a SHA-256 of:
   compiler's identity: its executable's path, size and modification time;
 - a digest of every standard module's text, which the compiler embeds;
 - the target, the optimization level, and whether the build has `plenty test`
-  hooks or fuzzing coverage;
+  hooks or fuzzing coverage, and the executable reachability policy (Windows
+  temporary objects omit unreachable user helpers; inspectable objects retain
+  them);
 - the request: the canonical entry file and the package graph (each package's
   canonical root, identity, library and dependencies), and the `main` that
   `plenty test` appends; or, for a source compiled from memory, its text.

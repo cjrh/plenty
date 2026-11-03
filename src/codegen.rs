@@ -303,7 +303,7 @@ fn compile_ops_to_executable(
     let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
-    let build = Build::new(options, test_hooks);
+    let build = Build::new(options, test_hooks).for_executable();
     let cache = build.cache.clone();
     compile_to_object(ops, heap, &obj_path, returns_status, build)?;
     report_cache(options, cache.as_deref());
@@ -324,7 +324,7 @@ fn compile_sources_to_executable(
     let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
-    let build = Build::new(options, test_hooks);
+    let build = Build::new(options, test_hooks).for_executable();
     let cache = build.cache.clone();
     program_object(sources, &obj_path, build)?;
     report_cache(options, cache.as_deref());
@@ -345,8 +345,8 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} test hooks {} coverage {}",
-                build.optimize, build.test_hooks, build.coverage
+                "optimize {} test hooks {} coverage {} executable pruning {}",
+                build.optimize, build.test_hooks, build.coverage, build.prune_user
             );
             Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
         });
@@ -453,6 +453,11 @@ fn link_object(
 /// Code generation choices that do not change the program's meaning.
 #[derive(Clone, Default)]
 struct Build {
+    /// Temporary COFF executable objects omit unreachable user functions.
+    /// Inspectable objects, libraries and dumps preserve all user definitions.
+    prune_user: bool,
+    #[cfg(test)]
+    target: Option<&'static str>,
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
     /// Lower std's `__test_fault` to the explicitly enabled hook object.
@@ -476,6 +481,9 @@ impl Build {
     fn new(options: &crate::CompileOptions, test_hooks: bool) -> Self {
         Self {
             optimize: options.optimize,
+            prune_user: false,
+            #[cfg(test)]
+            target: None,
             test_hooks,
             coverage: options.fuzz.is_some(),
             cache: Cache::open(&options.cache),
@@ -483,6 +491,27 @@ impl Build {
             check_cache_hits: false,
             dump: None,
         }
+    }
+
+    fn targets(&self, opt_level: &str) -> Result<output::Targets> {
+        #[cfg(test)]
+        if let Some(target) = self.target {
+            return Ok(output::Targets {
+                ordinary: baseline_isa(target, "backtracking", opt_level, self.check_cache_hits)?,
+                single_pass: baseline_isa(target, "single_pass", opt_level, self.check_cache_hits)?,
+            });
+        }
+        Ok(output::Targets {
+            ordinary: optimized_isa("backtracking", opt_level, self.check_cache_hits)?,
+            single_pass: optimized_isa("single_pass", opt_level, self.check_cache_hits)?,
+        })
+    }
+
+    fn for_executable(mut self) -> Self {
+        // Unlike ELF/Mach-O garbage collection, COFF resolves undefined symbols
+        // even in discarded functions. Keep this policy out of inspectable artifacts.
+        self.prune_user = cfg!(windows);
+        self
     }
 
     /// The default build with the cache the environment selects.
@@ -713,15 +742,12 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
-    reachability::prune(&mut ops, exports);
+    reachability::prune_for_emission(&mut ops, exports, build.prune_user);
     small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
     last_use::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
-    let targets = output::Targets {
-        ordinary: optimized_isa("backtracking", opt_level, build.check_cache_hits)?,
-        single_pass: optimized_isa("single_pass", opt_level, build.check_cache_hits)?,
-    };
+    let targets = build.targets(opt_level)?;
     let mut out = Output::new(targets, build.cache.clone())?;
     out.coverage = build.coverage;
 
