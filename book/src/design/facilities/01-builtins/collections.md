@@ -9,7 +9,11 @@ nested collections. Dictionary keys and set members are integers, `bool`, `str`,
 `bytes`, or tuples recursively containing those types. Hashing uses tuple
 contents, including string and byte-literal contents, independently of where a
 tuple is stored. Floats, owned collection/class components, and user-defined
-hash/equality are unsupported. Unit elements are rejected.
+hash/equality are unsupported. Enum and anonymous-sum keys or set members are
+also unsupported, even when every payload is a supported key type. List
+elements and dictionary values can be enums or anonymous sums; see the
+[heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
+Unit elements are rejected.
 
 Dictionary and set bucket selection uses SipHash-2-4 over the complete key,
 including framed tuple fields and string lengths. One secret 128-bit key is

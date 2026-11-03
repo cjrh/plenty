@@ -52,6 +52,15 @@ Domain-backed quantity aliases also resolve safely before storage definitions
 are finalized. [B97](../backlog.md#units-of-measure) retains `std.units` and
 measured sharing of bodies that differ only in dimension.
 
+## Heterogeneous collections tutorial
+
+The [heterogeneous collections section](../tutorial/heterogeneous-collections/index.md)
+follows classes and enums. Runnable lessons teach enum wrappers with shared
+methods and anonymous-sum lists, enum and sum dictionary values, and separate
+typed sets/dictionaries for distinct key domains. Checked rejection examples
+make the current set-member and dictionary-key limits explicit. This adds
+teaching coverage, not new key types; B74 retains user-defined hashing work.
+
 ## Unicode trie example
 
 The [runnable trie](../design/examples/data-structures/trie.md) stores exact

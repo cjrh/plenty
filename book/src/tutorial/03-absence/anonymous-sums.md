@@ -113,3 +113,6 @@ The parameter supplies the destination type, so either member can be passed
 directly. `str | i64` means the same type as `i64 | str`; duplicate members
 collapse. To inspect without moving an owned payload, match `&value`; use
 `&mut value` to change the active payload through a mutable borrow.
+
+[Heterogeneous collections](../heterogeneous-collections/index.md) uses sums
+and enum wrappers to store different kinds of values in lists and dictionaries.
