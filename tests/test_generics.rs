@@ -840,3 +840,56 @@ def main() -> ():
   2:11: note: in instantiation `wrap[i64]`: a type parameter cannot take type arguments"
     );
 }
+
+#[test]
+fn keytype_supports_inferred_explicit_and_forwarded_collection_functions() {
+    support::assert_stdout(
+        r#"
+enum Key:
+    Id(i64)
+    Name(str)
+def count[K: KeyType](values: &list[K]) -> Result[dict[K, i64], AllocError]:
+    mut counts: dict[K, i64] = {}?
+    for value in values:
+        counts.insert(*value, counts.get(*value, 0) + 1)?
+    Ok(counts)
+def unique[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
+    mut result: set[K] = set()?
+    for value in values:
+        result.add(*value)?
+    Ok(result)
+def forward[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
+    unique(values)
+def main() -> Result[(), AllocError | IoError]:
+    values = [Key.Id(7), Key.Name("7"), Key.Id(7)]?
+    counts = count(&values)?
+    print(counts[Key.Id(7)], len(forward(&values)?))?
+    print(len(unique[str](&["a", "a", "b"]?)?))?
+    print(len(unique(&[(1, True), (1, False)]?)?))?
+    Ok(())
+"#,
+        "2 2\n2\n2\n",
+    );
+}
+
+#[test]
+fn keytype_accepts_builtin_keys_and_preserves_unconstrained_specialization() {
+    support::assert_stdout(
+        r#"
+def accept[K: KeyType](value: K) -> ():
+    pass
+def unique[K](values: &list[K]) -> Result[set[K], AllocError]:
+    mut result: set[K] = set()?
+    for value in values:
+        result.add(*value)?
+    Ok(result)
+accept(b"key")
+accept(True)
+positive: Positive[i64] = 1
+accept(positive)
+accept(Some("value"))
+print(len(unique(&["a", "a"].unwrap()).unwrap())).unwrap()
+"#,
+        "1\n",
+    );
+}

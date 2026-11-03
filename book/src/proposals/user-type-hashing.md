@@ -2,25 +2,28 @@
 
 **Status: Partly implemented.** Named enums whose payloads are supported key
 types now work as dictionary keys and set members, including nested enums.
-Classes, anonymous sums, the `KeyType` constraint and bitset specialization
+The `KeyType` constraint is also implemented. Classes, anonymous sums and bitset specialization
 remain future work under [B74](../backlog.md). The
 [collection reference](../design/facilities/01-builtins/collections.md) owns the
 current contract. The design and historical analysis below describe the broader
-proposal; the first enum-admission stage has shipped.
+proposal; enum admission and the explicit generic constraint have shipped.
+Generic bodies remain checked per concrete instance: unconstrained parameters
+are not rejected solely for appearing in a collection signature. The original
+eager-rejection analysis below is historical, not current behavior.
 
 ## Problem
 
 A program that wants `dict[Point, V]`, `set[Color]` or `dict[UserId, V]` must
-flatten the key into a tuple by hand, losing the nominal type. Generic code is
-worse off: an unconstrained `K` cannot appear in `dict[K, V]` at all.
+flatten the key into a tuple by hand, losing the nominal type. Generic code can now state its key requirement explicitly:
 
 ```text
-def count[K](xs: &list[K]) -> Result[dict[K, i64], AllocError]:
+def count[K: KeyType](xs: &list[K]) -> Result[dict[K, i64], AllocError]:
     ...
 ```
 
-is rejected at the signature (`dictionary keys must be integers, bool, str, or
-tuples of these`), before any instance is checked, so only `K: IntType` works.
+The bound rejects unsupported arguments at instantiation. Unconstrained generic
+functions continue to work when their concrete keys are valid; requiring a bound
+on every collection signature is not part of the implemented contract.
 
 The suggested direction is a `__hash__` dunder and a protocol requiring it as
 the key bound. This page assesses that idea against the current implementation,
@@ -248,20 +251,15 @@ motivates the staging below.
 ### Generic bound
 
 `KeyType` is a built-in constraint beside `IntType` and `FloatType`
-(`src/frontend/generics.rs:19`). In a generic signature, `dict[K, V]` and
-`set[K]` require `K: KeyType`; today's eager rejection at resolution stays, with
-a diagnostic that names the fix. At a concrete use, a rejected type reports the
-first offending path:
+(`src/frontend/generics.rs`). It accepts exactly the current collection key
+predicate, on functions, methods, classes and enums. An unsuitable argument
+reports `TYPE does not satisfy KeyType`, even if the generic body does not use
+hashing. Unconstrained generic bodies remain checked per concrete instance;
+`dict[K, V]` and `set[K]` do not independently require an explicit bound.
 
-```text
-error: `Sample` is not a key type
-  note: field `Sample.ratio` has type `f64`; floats are not key types
-```
-
-```text
-error: `dict[K, i64]` requires `K: KeyType`
-  help: declare `def count[K: KeyType](...)`
-```
+For the future class-key extension, diagnostics could also name an offending
+field path, such as `Sample.ratio` containing `f64`. This is not implemented by
+the initial constraint addition.
 
 ### DoS resistance and seeding
 

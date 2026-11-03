@@ -471,3 +471,38 @@ def main() -> ():
     )
     .unwrap();
 }
+
+#[test]
+fn keytype_bounds_apply_to_data_and_methods() {
+    support::assert_stdout(
+        r#"
+class Registry[K: KeyType]:
+    values: dict[K, i64]
+    def count[Q: KeyType](self, keys: &set[Q]) -> i64:
+        len(keys)
+enum Label[K: KeyType]:
+    Value(K)
+registry = Registry({"a": 1}.unwrap())
+print(registry.values["a"]).unwrap()
+print(registry.count(&{1, 2}.unwrap())).unwrap()
+labels = {Label[str].Value("a"), Label[str].Value("a")}.unwrap()
+print(len(labels)).unwrap()
+"#,
+        "1\n2\n1\n",
+    );
+}
+
+#[test]
+fn keytype_rejects_nonkeys_at_function_and_data_boundaries() {
+    for source in [
+        "@copy\nclass Value:\n    n: i64\ndef need[K: KeyType](value: K) -> ():\n    pass\nneed(Value(1))\n",
+        "def need[K: KeyType](value: K) -> ():\n    pass\nneed(1.0)\n",
+        "def need[K: KeyType](value: K) -> ():\n    pass\nneed[list[i64]]([1].unwrap())\n",
+        "class Holder[K: KeyType]:\n    value: K\nvalue = Holder(1.0)\n",
+        "enum Label[K: KeyType]:\n    Value(K)\nvalue = Label[f64].Value(1.0)\n",
+        "class Holder[K: KeyType]:\n    value: K\ntype Bad = Holder[f64]\n",
+    ] {
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains("does not satisfy KeyType"), "{error}");
+    }
+}

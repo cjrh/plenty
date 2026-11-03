@@ -888,7 +888,7 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
             || generics::callable_bound(bound))
         {
             return Err(bound.at.error(
-                "generic data constraints currently require IntType, FloatType, CopyType, Dimension, Callable, or OnceCallable",
+                "generic data constraints currently require IntType, FloatType, CopyType, KeyType, Dimension, Callable, or OnceCallable",
             ));
         }
     }

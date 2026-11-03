@@ -698,6 +698,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "FloatType"
                 | "CopyType"
+                | "KeyType"
                 | "Dimension"
                 | "One"
                 | "next"

@@ -107,7 +107,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Columnar lists](columnar-list.md) — explicit field-column storage, a bounded object facade, and native layout/ownership spikes | B76; related B11, B12, B23, B75 |
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
-| [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | Named enums with supported key payloads; broader scope remains B74 |
+| [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | Named enums with supported key payloads and `KeyType`; broader scope remains B74 |
 | [Derived serialization for classes and enums](derived-serialization.md) — `@serial` derives hooks against a JSON-shaped `std.serial` data model shared by JSON and TOML | None yet; candidate under B51/B38 (issue #471) |
 | [Returned enums that carry references](returned-reference-enums.md) — `Option[&T]` and `Result[&T, E]` returned under the first-reference-parameter rule, held in locals, never stored | None yet; extends B11 (issue #516) |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
