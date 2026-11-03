@@ -19,14 +19,16 @@ pub class Entropy:
     fail: bool
 
     pub def read(self: &mut Entropy, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self.calls += 1
-        if self.fail:
-            return Err(StreamError.Io(IoError.System(5)))
-        count = stop - start
-        for index in range(count):
-            buffer.set(start + index, self.data[self.at + index])
-        self.at += count
-        Ok(count)
+        result = checked:
+            self.calls += 1
+            if self.fail:
+                return Err(StreamError.Io(IoError.System(5)))
+            count = stop - start
+            for index in range(count):
+                buffer.set(start + index, self.data[self.at + index])
+            self.at += count
+            count
+        Ok(result.map_error(def(error: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?)
 
 "#;
 
@@ -277,19 +279,26 @@ std.secrets.SecretsError.Allocation(AllocError.OutOfMemory)",
 }
 
 fn assert_trap(source: &str, message: &str) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = std::process::Command::new(executable).output().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
-    assert!(
-        stderr.contains(&format!(": {message}\n")),
-        "{source}\n{stderr}"
-    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(": {message}\n")),
+            "{source}\n{stderr}"
+        );
+    }
 }
 
 #[test]

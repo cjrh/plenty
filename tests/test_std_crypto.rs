@@ -24,7 +24,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.crypto.CryptoError | std.encoding.EncodingError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.crypto.CryptoError | std.encoding.EncodingError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 

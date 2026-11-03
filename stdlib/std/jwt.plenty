@@ -383,7 +383,9 @@ pub def validation(now: &Timestamp) -> Validation:
     Validation(Timestamp(now.seconds, now.nanoseconds), nanoseconds(0u64), True, Nothing, Nothing, default_size)
 
 def valid_rules(rules: &Validation) -> bool:
-    rules.now.seconds >= 0 and rules.now.nanoseconds < 1000000000u32 and rules.leeway.as_nanoseconds() <= u64(max_leeway) * 1000000000u64
+    # max_leeway is 86400 seconds; its nanoseconds fit u64.
+    unchecked:
+        rules.now.seconds >= 0 and rules.now.nanoseconds < 1000000000u32 and rules.leeway.as_nanoseconds() <= u64(max_leeway) * 1000000000u64
 
 const default_size: Positive[i64] = default_max_size
 
@@ -417,7 +419,10 @@ def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
             index
         case Nothing:
             return Err(JwtError.Malformed)
-    second = match source.find(46u8, first + 1, source.len()):
+    # find returns an index strictly below source.len().
+    after_first = unchecked:
+        first + 1
+    second = match source.find(46u8, after_first, source.len()):
         case Some(index):
             index
         case Nothing:
@@ -525,13 +530,30 @@ def numeric_date(claims: &list[Member], name: &str, claim: Claim, down: bool) ->
 
 # `later - now > leeway` without overflow: `now` is nonnegative.
 def in_future(moment: i64, rules: &Validation) -> bool:
-    if moment <= rules.now.seconds:
-        return False
-    delta = u64(moment - rules.now.seconds)
-    whole = rules.leeway.as_seconds()
-    if delta > whole + 1u64:
-        return True
-    delta * 1000000000u64 > rules.leeway.as_nanoseconds() + u64(rules.now.nanoseconds)
+    # valid_rules bounds now to nonnegative seconds and leeway to max_leeway.
+    # The early return bounds delta to whole + 1 before scaling to nanoseconds;
+    # leeway plus the subsecond clock remains below 86402 * 1e9 < u64.MAX.
+    unchecked:
+        if moment <= rules.now.seconds:
+            return False
+        delta = u64(moment - rules.now.seconds)
+        whole = rules.leeway.as_seconds()
+        if delta > whole + 1u64:
+            return True
+        delta * 1000000000u64 > rules.leeway.as_nanoseconds() + u64(rules.now.nanoseconds)
+
+# RFC 7519 section 4.1.4: invalid on or after `exp`.
+def expired(moment: i64, rules: &Validation) -> bool:
+    # valid_rules bounds now >= 0 and leeway <= max_leeway; threshold
+    # is at least -max_leeway, leaving room for the subsecond adjustment.
+    # The nanosecond divisor is the nonzero constant one billion.
+    unchecked:
+        threshold = rules.now.seconds - i64(rules.leeway.as_seconds())
+        fraction = rules.leeway.as_nanoseconds() % 1000000000u64
+        if u64(rules.now.nanoseconds) < fraction:
+            return threshold - 1 >= moment
+        threshold >= moment
+
 
 def audience_contains(value: &Json, expected: &str) -> Result[bool, JwtError]:
     match value:
@@ -553,13 +575,7 @@ def audience_contains(value: &Json, expected: &str) -> Result[bool, JwtError]:
 def check_claims(claims: &list[Member], rules: &Validation) -> Result[(), JwtError]:
     match numeric_date(claims, "exp", Claim.Expiry, True)?:
         case Some(expiry):
-            # RFC 7519 section 4.1.4: invalid on or after `exp`.
-            threshold = rules.now.seconds - i64(rules.leeway.as_seconds())
-            fraction = rules.leeway.as_nanoseconds() % 1000000000u64
-            if u64(rules.now.nanoseconds) < fraction:
-                if threshold - 1 >= expiry:
-                    return Err(JwtError.Expired)
-            elif threshold >= expiry:
+            if expired(expiry, rules):
                 return Err(JwtError.Expired)
         case Nothing:
             if rules.require_expiry:
@@ -619,8 +635,13 @@ pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[To
     header = read_header(&parts)?
     if header.algorithm != key._algorithm:
         return Err(JwtError.AlgorithmMismatch)
-    payload = from_encoding(std.encoding.base64url_decode(&parts.source[parts.first + 1:parts.second]))?
-    signature = from_encoding(std.encoding.base64url_decode(&parts.source[parts.second + 1:]))?
+    # split returns two found dot indices strictly below the source length.
+    payload_start = unchecked:
+        parts.first + 1
+    signature_start = unchecked:
+        parts.second + 1
+    payload = from_encoding(std.encoding.base64url_decode(&parts.source[payload_start:parts.second]))?
+    signature = from_encoding(std.encoding.base64url_decode(&parts.source[signature_start:]))?
     parts.source.truncate(parts.second)
     if not signature_valid(key, &parts.source, &signature)?:
         return Err(JwtError.InvalidSignature)

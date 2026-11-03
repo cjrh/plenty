@@ -25,14 +25,14 @@ from std.bytes import Bytes, BytesError
 from std.crypto import AdvancedError, RsaScheme
 from std.encoding import EncodingError
 
-def size(data: &Bytes, at: i64) -> i64:
-    i64(data[at]) * 16777216 + i64(data[at + 1]) * 65536 + i64(data[at + 2]) * 256 + i64(data[at + 3])
+def size(data: &Bytes, at: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(i64(data[at]) * 16777216 + i64(data[at + 1]) * 65536 + i64(data[at + 2]) * 256 + i64(data[at + 3]))
 
-def field(data: &Bytes, at: i64) -> Result[Bytes, AllocError | BytesError]:
-    data.slice(at + 4, at + 4 + size(data, at))
+def field(data: &Bytes, at: i64) -> Result[Bytes, AllocError | BytesError | OverflowError[i64]]:
+    data.slice(at + 4, at + 4 + size(data, at)?)
 
-def after(data: &Bytes, at: i64) -> i64:
-    at + 4 + size(data, at)
+def after(data: &Bytes, at: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(at + 4 + size(data, at)?)
 
 def token(result: Result[bool, AdvancedError]) -> str:
     match result:
@@ -47,7 +47,7 @@ def token(result: Result[bool, AdvancedError]) -> str:
         case Err(_):
             "E"
 
-def stdin() -> Result[Bytes, AllocError | IoError | BytesError]:
+def stdin() -> Result[Bytes, AllocError | IoError | BytesError | OverflowError[i64]]:
     mut data = std.bytes.empty()?
     mut used = 0
     while True:
@@ -80,27 +80,27 @@ def scheme(code: u8) -> RsaScheme:
             RsaScheme.PssSha512
 
 # One group: its key record, then test records up to the next key.
-def group(data: &Bytes, start: i64, code: u8) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64, code: u8) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     mut at = start + 1
     spki = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     n = jwk(&field(data, at)?)?
-    at = after(data, at)
+    at = after(data, at)?
     e = jwk(&field(data, at)?)?
-    at = after(data, at)
+    at = after(data, at)?
     from_spki = std.crypto.rsa_public_key_from_spki(&spki)?
     from_jwk = std.crypto.rsa_public_key_from_components(&n, &e)?
     while at < data.len() and data[at] == 84u8:
         message = field(data, at + 1)?
-        at = after(data, at + 1)
+        at = after(data, at + 1)?
         signature = field(data, at)?
-        at = after(data, at)
+        at = after(data, at)?
         a = token(from_spki.verify(scheme(code), &message, &signature))
         b = token(from_jwk.verify(scheme(code), &message, &signature))
         print(a, b)?
     Ok(at)
 
-def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     data = stdin()?
     mut at = 1
     while at < data.len():
@@ -109,16 +109,16 @@ def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | Enc
 "#;
 
 const P256: &str = r#"
-def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     mut at = start + 1
     spki = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     point = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     x_text = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     y_text = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     from_spki = std.crypto.p256_public_key_from_spki(&spki)?
     from_point = std.crypto.p256_public_key_from_point(&point)?
     # Groups without a JWK send empty members; those cases print `-` for it.
@@ -131,9 +131,9 @@ def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesE
     from_jwk = std.crypto.p256_public_key_from_coordinates(&x, &y)?
     while at < data.len() and data[at] == 84u8:
         message = field(data, at + 1)?
-        at = after(data, at + 1)
+        at = after(data, at + 1)?
         signature = field(data, at)?
-        at = after(data, at)
+        at = after(data, at)?
         a = token(from_spki.verify(&message, &signature))
         b = token(from_point.verify(&message, &signature))
         mut c = "-"
@@ -142,7 +142,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesE
         print(a, b, c)?
     Ok(at)
 
-def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     data = stdin()?
     mut at = 1
     while at < data.len():
@@ -162,14 +162,14 @@ def verify(key: &Result[Bytes, AdvancedError], message: &Bytes, signature: &Byte
         case Err(_):
             "E"
 
-def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     mut at = start + 1
     spki = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     raw = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     x_text = field(data, at)?
-    at = after(data, at)
+    at = after(data, at)?
     from_spki = std.crypto.ed25519_public_key_from_spki(&spki)
     # Groups without a JWK send an empty member; those cases print `-` for it.
     has_jwk = x_text.len() > 0
@@ -178,9 +178,9 @@ def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesE
         from_jwk = jwk(&x_text)?
     while at < data.len() and data[at] == 84u8:
         message = field(data, at + 1)?
-        at = after(data, at + 1)
+        at = after(data, at + 1)?
         signature = field(data, at)?
-        at = after(data, at)
+        at = after(data, at)?
         a = verify(&from_spki, &message, &signature)
         b = token(std.crypto.ed25519_verify(&raw, &message, &signature))
         mut c = "-"
@@ -189,7 +189,7 @@ def group(data: &Bytes, start: i64) -> Result[i64, AllocError | IoError | BytesE
         print(a, b, c)?
     Ok(at)
 
-def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError]:
+def main() -> Result[(), AllocError | IoError | BytesError | AdvancedError | EncodingError | OverflowError[i64]]:
     data = stdin()?
     mut at = 1
     while at < data.len():

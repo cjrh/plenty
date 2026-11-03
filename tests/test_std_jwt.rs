@@ -38,7 +38,7 @@ from std.bytes import Bytes
 from std.json import Json
 from std.jwt import Algorithm, JwtError, SigningKey, Token, Validation, VerifyingKey
 
-type Fault = AllocError | IoError | std.bytes.BytesError | std.crypto.AdvancedError | std.crypto.CryptoError | std.encoding.EncodingError | std.json.JsonError | std.fmt.FormatError | JwtError
+type Fault = OverflowError[i64] | AllocError | IoError | std.bytes.BytesError | std.crypto.AdvancedError | std.crypto.CryptoError | std.encoding.EncodingError | std.json.JsonError | std.fmt.FormatError | JwtError
 
 def unhex(text: &str) -> Result[Bytes, Fault]:
     Ok(std.encoding.hex_from_text(text)?)
@@ -756,4 +756,79 @@ check(&signed(&signer, "{\"exp\":-9223372036854775808}")?, &key, &rules)?
 "#,
         "ok HS256 1\nExpired\nok HS256 2\nNotYetValid\nExpired\nExpired",
     );
+}
+
+#[test]
+fn time_comparison_checks_actual_private_helpers_at_representation_limits() {
+    let library = include_str!("../stdlib/std/jwt.plenty");
+    let helpers = ["valid_rules", "in_future", "expired"].map(|name| {
+        library[library.find(&format!("def {name}(")).unwrap()..]
+            .split("\n\n")
+            .next()
+            .unwrap()
+    });
+    let source = format!(
+        r#"from std.time import Timestamp, Duration, nanoseconds
+const max_leeway: i64 = 86400
+class Validation:
+    now: Timestamp
+    leeway: Duration
+
+{}
+
+{}
+
+{}
+
+def main() -> Result[(), IoError]:
+    at_max = Validation(Timestamp(i64.MAX, 999999999u32), nanoseconds(86400000000000u64))
+    near_max = Validation(Timestamp(9223372036854775806, 999999999u32), nanoseconds(0u64))
+    at_zero = Validation(Timestamp(0, 0u32), nanoseconds(86400000000000u64))
+    invalid = Validation(Timestamp(0, 0u32), nanoseconds(u64.MAX))
+    fractional = Validation(Timestamp(0, 999999999u32), nanoseconds(1u64))
+    epoch_fraction = Validation(Timestamp(0, 0u32), nanoseconds(1u64))
+    print("__test_begin_no_allocations__")?
+    valid = valid_rules(&at_max) and valid_rules(&at_zero) and not valid_rules(&invalid)
+    past = not in_future(i64.MIN, &at_zero) and not in_future(i64.MAX, &at_max)
+    future = in_future(i64.MAX, &at_zero) and in_future(i64.MAX, &near_max)
+    edge = not in_future(86400, &at_zero) and in_future(86401, &at_zero)
+    fraction = not in_future(1, &fractional) and in_future(2, &fractional)
+    expiry = expired(i64.MAX, &at_max) == False and expired(i64.MIN, &at_zero)
+    expiry_edge = not expired(1, &fractional) and expired(0, &fractional)
+    expiry_floor = not expired(-86399, &at_zero) and expired(-86400, &at_zero)
+    expiry_borrow = not expired(0, &epoch_fraction) and expired(-1, &epoch_fraction)
+    print("__test_end_no_allocations__")?
+    print(valid, past, future, edge, fraction, expiry, expiry_edge, expiry_floor, expiry_borrow)?
+    Ok(())
+"#,
+        helpers[0], helpers[1], helpers[2]
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "optimize={optimize}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            actual, "True True True True True True True True True",
+            "optimize={optimize}"
+        );
+    }
 }
