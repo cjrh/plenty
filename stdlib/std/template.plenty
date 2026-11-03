@@ -77,8 +77,11 @@ def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
         return Err(TemplateError.Syntax(at))
     mut pieces: list[str] = allocated(list[str]())?
     mut escaped = False
+    # The length check proves at least two scalars.
+    last = unchecked:
+        len(text) - 1
     for index, scalar in enumerate(text):
-        if index == 0 or index == len(text) - 1:
+        if index == 0 or index == last:
             continue
         if escaped:
             if scalar == "n":
@@ -190,11 +193,32 @@ class Template:
     parent: str
     tokens: list[Token]
 
+# Both positions are nonnegative byte endpoints, so their difference fits
+# even when index is the final endpoint i64.MAX.
+def has_pair(index: i64, stop: i64) -> bool:
+    unchecked:
+        stop - index >= 2
+
+# Exact budget growth: overflow has the same meaning as exceeding the limit.
+def bounded_total(current: i64, amount: i64, limit: i64) -> Result[i64, TemplateError]:
+    total = checked:
+        current + amount
+    match total:
+        case Ok(value):
+            if value > limit:
+                return Err(TemplateError.LimitExceeded)
+            Ok(value)
+        case Err(_):
+            Err(TemplateError.LimitExceeded)
+
 def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64, TemplateError]:
     mut quote = 0u8
     mut escaped = False
     mut index = start
-    while index + 1 < source.len():
+    while has_pair(index, source.len()):
+        # has_pair proves index + 1 < source.len().
+        next = unchecked:
+            index + 1
         scalar = source[index]
         if escaped:
             escaped = False
@@ -203,12 +227,15 @@ def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64,
                 escaped = True
             elif scalar == quote:
                 quote = 0u8
-        elif source[index] == close and source[index + 1] == 125u8:
+        elif source[index] == close and source[next] == 125u8:
             return Ok(index)
         elif not comment and (scalar == 39u8 or scalar == 34u8):
             quote = scalar
-        index += 1
-    Err(TemplateError.Syntax(start - 2))
+        index = next
+    # parse passes the endpoint just after a two-byte opening delimiter.
+    at = unchecked:
+        start - 2
+    Err(TemplateError.Syntax(at))
 
 def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Result[(), TemplateError]:
     if len(tokens) >= bounds.max_tokens.get():
@@ -225,8 +252,11 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
     mut start = 0
     mut significant = False
     while index < data.len():
-        if index + 1 >= data.len() or data[index] != 123u8 or (data[index + 1] != 123u8 and data[index + 1] != 37u8 and data[index + 1] != 35u8):
-            index += 1
+        # The loop guard proves index + 1 <= data.len().
+        next = unchecked:
+            index + 1
+        if not has_pair(index, data.len()) or data[index] != 123u8 or (data[next] != 123u8 and data[next] != 37u8 and data[next] != 35u8):
+            index = next
             continue
         if index > start:
             text = bytes_result(data.to_text_range(start, index))?
@@ -235,12 +265,17 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
                 if parent != "" and len(stack) == 0:
                     return Err(TemplateError.Syntax(start))
             push_token(&mut tokens, Token(0, text, empty_expression()?, -1, -1, start), bounds)?
-        marker = data[index + 1]
+        marker = data[next]
+        # has_pair proved both opening bytes are present.
+        content_start = unchecked:
+            index + 2
         close = 125u8 if marker == 123u8 else marker
-        end = closing(&data, index + 2, close, marker == 35u8)?
-        content = allocated(bytes_result(data.to_text_range(index + 2, end))?.strip())?
+        end = closing(&data, content_start, close, marker == 35u8)?
+        content = allocated(bytes_result(data.to_text_range(content_start, end))?.strip())?
         at = index
-        index = end + 2
+        # closing only returns an index with two bytes still present.
+        unchecked:
+            index = end + 2
         start = index
         if marker == 35u8:
             continue
@@ -294,7 +329,10 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
                 return Err(TemplateError.Syntax(at))
             opening = stack.pop().unwrap()
             kind = 4 if content == "endif" else (6 if content == "endfor" else 8)
-            if tokens[opening].kind != kind - 1 and kind != 4:
+            # Closing kinds are exactly 4, 6 or 8.
+            opening_kind = unchecked:
+                kind - 1
+            if tokens[opening].kind != opening_kind and kind != 4:
                 return Err(TemplateError.Syntax(at))
             if kind == 4 and tokens[opening].kind != 2:
                 return Err(TemplateError.Syntax(at))
@@ -344,18 +382,19 @@ class State:
 def step(state: &mut State, bounds: &Limits) -> Result[(), TemplateError]:
     if state.steps >= bounds.max_steps.get():
         return Err(TemplateError.LimitExceeded)
-    state.steps += 1
+    state.steps = bounded_total(state.steps, 1, bounds.max_steps.get())?
     Ok(())
 
 def context_bytes(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
-    if text.byte_len() > bounds.max_context_bytes.get() - state.bytes:
-        return Err(TemplateError.LimitExceeded)
-    state.bytes += text.byte_len()
+    state.bytes = bounded_total(state.bytes, text.byte_len(), bounds.max_context_bytes.get())?
     Ok(())
 
 def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
     if depth > bounds.max_depth.get() or len(state.nodes) >= bounds.max_context_nodes.get():
         return Err(TemplateError.LimitExceeded)
+    # engine validates max_depth <= 64; this frame passed its depth check.
+    next_depth = unchecked:
+        depth + 1
     step(state, bounds)?
     context_bytes(state, &key, bounds)?
     node = len(state.nodes)
@@ -382,7 +421,7 @@ def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limit
         case Json.Array(items):
             state.nodes[node].value.kind = 5
             for item in items:
-                child = flatten(state, "", item, depth + 1, bounds)?
+                child = flatten(state, "", item, next_depth, bounds)?
                 allocated(state.nodes[node].children.append(child))?
         case Json.Object(items):
             state.nodes[node].value.kind = 6
@@ -392,7 +431,7 @@ def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limit
                     step(state, bounds)?
                     if state.nodes[child].key == item.key:
                         return Err(TemplateError.TypeMismatch)
-                child = flatten(state, item.key, &item.value, depth + 1, bounds)?
+                child = flatten(state, item.key, &item.value, next_depth, bounds)?
                 allocated(state.nodes[node].children.append(child))?
     Ok(node)
 
@@ -416,7 +455,9 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
     mut start = 0
     mut index = len(state.bindings)
     while index > 0:
-        index -= 1
+        # The loop guard proves index > 0.
+        unchecked:
+            index -= 1
         step(state, bounds)?
         if path[0] == "loop":
             if len(path) != 2:
@@ -424,14 +465,17 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
             name = path[1]
             position = state.bindings[index].index
             count = state.bindings[index].count
+            # Bindings are created by range(count): 0 <= position < count.
+            ordinal = unchecked:
+                position + 1
             if name == "index":
-                return Ok(Value(2, "", position + 1, 0.0, -1, False))
+                return Ok(Value(2, "", ordinal, 0.0, -1, False))
             elif name == "index0":
                 return Ok(Value(2, "", position, 0.0, -1, False))
             elif name == "first":
                 return Ok(Value(1, "", 1 if position == 0 else 0, 0.0, -1, False))
             elif name == "last":
-                return Ok(Value(1, "", 1 if position + 1 == count else 0, 0.0, -1, False))
+                return Ok(Value(1, "", 1 if ordinal == count else 0, 0.0, -1, False))
             elif name == "length":
                 return Ok(Value(2, "", count, 0.0, -1, False))
             return Err(TemplateError.MissingValue(name))
@@ -476,7 +520,10 @@ def escape(text: &str, max_bytes: i64) -> Result[str, TemplateError]:
             size = 4
         elif *byte == 34u8 or *byte == 39u8:
             size = 6
-        if size > max_bytes - output.len():
+        # Both budget and output length are nonnegative i64 values.
+        remaining = unchecked:
+            max_bytes - output.len()
+        if size > remaining:
             return Err(TemplateError.LimitExceeded)
         if *byte == 38u8:
             allocated(output.extend(b"&amp;"))?
@@ -531,7 +578,10 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
     Ok(value)
 
 def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
-    if text.byte_len() > bounds.max_output.get() - state.output.len():
+    # Both operands are nonnegative; append keeps output within this budget.
+    remaining = unchecked:
+        bounds.max_output.get() - state.output.len()
+    if text.byte_len() > remaining:
         return Err(TemplateError.LimitExceeded)
     encoded = allocated(std.bytes.from_text(text))?
     allocated(state.output.extend(&encoded))
@@ -549,7 +599,10 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
     elif value.kind != 0:
         return Err(TemplateError.TypeMismatch)
     if state.html and not value.safe:
-        text = escape(&text, bounds.max_output.get() - state.output.len())?
+        # Output has only grown through budget-checked append.
+        remaining = unchecked:
+            bounds.max_output.get() - state.output.len()
+        text = escape(&text, remaining)?
     append(state, &text, bounds)
 
 pub class Engine:
@@ -565,18 +618,16 @@ pub class Engine:
         for template in &self._templates:
             if template.name == name:
                 return Err(TemplateError.DuplicateTemplate(*name))
-        if len(self._templates) >= self._bounds.max_templates.get() or name.byte_len() > self._bounds.max_source.get() - self._source_bytes:
+        if len(self._templates) >= self._bounds.max_templates.get():
             return Err(TemplateError.LimitExceeded)
-        remaining = self._bounds.max_source.get() - self._source_bytes - name.byte_len()
-        if source.byte_len() > remaining:
-            return Err(TemplateError.LimitExceeded)
+        named_bytes = bounded_total(self._source_bytes, name.byte_len(), self._bounds.max_source.get())?
+        source_bytes = bounded_total(named_bytes, source.byte_len(), self._bounds.max_source.get())?
         template = parse(*name, source, &self._bounds)?
         count = len(template.tokens)
-        if count > self._bounds.max_tokens.get() - self._token_count:
-            return Err(TemplateError.LimitExceeded)
+        token_count = bounded_total(self._token_count, count, self._bounds.max_tokens.get())?
         allocated(self._templates.append(template))?
-        self._source_bytes += name.byte_len() + source.byte_len()
-        self._token_count += count
+        self._source_bytes = source_bytes
+        self._token_count = token_count
         Ok(())
 
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
@@ -624,8 +675,14 @@ pub class Engine:
     def run(self, template: i64, begin: i64, end: i64, state: &mut State, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
         if depth > self._bounds.max_depth.get():
             return Err(TemplateError.LimitExceeded)
+        # engine validates max_depth <= 64; this frame passed its depth check.
+        next_depth = unchecked:
+            depth + 1
         mut index = begin
         while index < end:
+            # index < end <= len(tokens), so the following endpoint fits.
+            next = unchecked:
+                index + 1
             step(state, &self._bounds)?
             token = &self._templates[template].tokens[index]
             if token.kind == 0:
@@ -637,9 +694,12 @@ pub class Engine:
                 value = evaluate(&token.expr, state, &self._bounds)?
                 stop = token.jump if token.alternate < 0 else token.alternate
                 if truth(&value, state):
-                    self.run(template, index + 1, stop, state, overrides, depth + 1)?
+                    self.run(template, next, stop, state, overrides, next_depth)?
                 elif token.alternate >= 0:
-                    self.run(template, token.alternate + 1, token.jump, state, overrides, depth + 1)?
+                    # Parser links alternate to an existing else token.
+                    after_else = unchecked:
+                        token.alternate + 1
+                    self.run(template, after_else, token.jump, state, overrides, next_depth)?
                 index = token.jump
             elif token.kind == 5:
                 value = evaluate(&token.expr, state, &self._bounds)?
@@ -651,22 +711,31 @@ pub class Engine:
                     step(state, &self._bounds)?
                     child = state.nodes[value.node].children[item]
                     allocated(state.bindings.append(Binding(token.text, child, item, count)))?
-                    self.run(template, index + 1, stop, state, overrides, depth + 1)?
+                    self.run(template, next, stop, state, overrides, next_depth)?
                     drop(state.bindings.pop())
                 if count == 0 and token.alternate >= 0:
-                    self.run(template, token.alternate + 1, token.jump, state, overrides, depth + 1)?
+                    # Parser links alternate to an existing else token.
+                    after_else = unchecked:
+                        token.alternate + 1
+                    self.run(template, after_else, token.jump, state, overrides, next_depth)?
                 index = token.jump
             elif token.kind == 7:
                 for item in overrides:
                     step(state, &self._bounds)?
                     if item.name == token.text:
                         stop = self._templates[item.template].tokens[item.token].jump
-                        self.run(item.template, item.token + 1, stop, state, overrides, depth + 1)?
+                        # Overrides refer to existing block tokens.
+                        after_block = unchecked:
+                            item.token + 1
+                        self.run(item.template, after_block, stop, state, overrides, next_depth)?
                         break
                 index = token.jump
             else:
                 return Err(TemplateError.Syntax(token.at))
-            index += 1
+            # A jump targets an existing closing token; otherwise index was
+            # already below end. Both endpoints are below their token length.
+            unchecked:
+                index += 1
         Ok(())
 
 pub def engine(bounds: &Limits) -> Result[Engine, TemplateError]:
