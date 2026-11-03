@@ -185,7 +185,7 @@ fn timers_requests_and_restarts() {
         assert!(positions.is_sorted(), "{stdout}");
     }
     lines.sort_unstable();
-    let exit = "std.actor.Exit[AllocError | IoError]";
+    let exit = "std.actor.Exit[AllocError | IoError | OverflowError[i64]]";
     let mut expected = vec![
         "cancelled True False".to_string(),
         "restart True False".into(),
@@ -390,16 +390,18 @@ from std.actor import Address, Context, Mail, stage
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, milliseconds, seconds
 
+type Fault = AllocError | OverflowError[i64]
+
 pub class Node:
     pub count: i64
     pub values: list[i64]
 
-    pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+    pub def started(self: &mut Node, context: &mut Context[i64, Fault]) -> Result[(), Fault]:
         self.count += 1
         self.values = [self.count]?
         Ok(())
 
-    pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+    pub def receive(self: &mut Node, mail: Mail[i64, Fault], context: &mut Context[i64, Fault]) -> Result[(), Fault]:
         match mail:
             case Mail.Message(value):
                 if value < 0:
@@ -410,11 +412,11 @@ pub class Node:
                 pass
         Ok(())
 
-    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, Fault]) -> Result[Option[Node], Fault]:
         Ok(Nothing)
 
 def main() -> ():
-    mut actors = stage[Node, i64, AllocError](1, 4, 1).unwrap()
+    mut actors = stage[Node, i64, Fault](1, 4, 1).unwrap()
     first = actors.start(Node(40, list[i64].new().unwrap()), 65536).unwrap()
     BODY
 "#;
@@ -426,8 +428,8 @@ fn impossible_stage_capacities_are_capacity_overflow() {
     let source = OBSERVED_NODE
         .replace(
             "    BODY",
-            r#"    print(str.repr(stage[Node, i64, AllocError](-1, 4, 1))?)?
-    print(str.repr(stage[Node, i64, AllocError](1048577, 4, 1))?)?"#,
+            r#"    print(str.repr(stage[Node, i64, Fault](-1, 4, 1))?)?
+    print(str.repr(stage[Node, i64, Fault](1048577, 4, 1))?)?"#,
         )
         .replace(
             "def main() -> ():",
@@ -435,7 +437,7 @@ fn impossible_stage_capacities_are_capacity_overflow() {
         );
     let source = format!("{source}    Ok(())\n");
     let output = support::run_file_stdout(&source);
-    let line = "Result[std.actor.Stage[Node, i64, AllocError], std.actor.StageError].Err(std.actor.StageError.Allocation(AllocError.CapacityOverflow))";
+    let line = "Result[std.actor.Stage[Node, i64, AllocError | OverflowError[i64]], std.actor.StageError].Err(std.actor.StageError.Allocation(AllocError.CapacityOverflow))";
     assert_eq!(output, format!("{line}\n{line}"), "{source}");
 }
 
@@ -524,7 +526,7 @@ from std.time import deadline_after, monotonic_now, seconds
 pub enum Fault:
     Detail(str)
 
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
         entry?
@@ -560,7 +562,9 @@ pub class Node:
                 print(tag, exit).unwrap()
                 timer = context.after(&seconds(60), 88).unwrap()
                 drop(context.cancel(timer))
-                self.attempt += 1
+                # This constructor fixture makes at most four attempts.
+                unchecked:
+                    self.attempt += 1
                 if RESTART or self.attempt == 4:
                     context.stop()
                 else:
@@ -725,7 +729,7 @@ import std.path
 from std.actor import Address, Context, Mail, heaps_live, heap_bytes_used, heap_bytes_committed, stage
 from std.net import TcpListener, listen, loopback_v4
 
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
         entry?
@@ -812,7 +816,9 @@ pub class Node:
                     print("message", value)?
             case Mail.Down(_, tag, _):
                 print("down", tag, self.last_message == tag)?
-                self.exits += 1
+                # Only the eight non-restarting children above can exit.
+                unchecked:
+                    self.exits += 1
                 if self.exits == 8:
                     context.stop()
             case _:
@@ -880,7 +886,10 @@ def main() -> ():
     # Reuse the other slot before the queued observer or retired actors run.
     # Its existing scheduling ticket must not be appended a second time.
     for index in range(128):
-        drop(actors.start(Node(index % 3), 65536).unwrap())
+        # index is in 0..128; the fixed positive divisor cannot fail.
+        mode = unchecked:
+            index % 3
+        drop(actors.start(Node(mode), 65536).unwrap())
     result = actors.run(&deadline_after(&monotonic_now(), &seconds(1)).unwrap(), &CancellationToken().unwrap())
     stats = actors.stats()
     print(result.is_ok(), actors.live(), stats.started, stats.stopped, stats.failed, stats.trapped, heaps_live()).unwrap()
@@ -901,4 +910,392 @@ def main() -> ():
         String::from_utf8_lossy(&output.stdout),
         "observer\nTrue 0 129 44 43 42 0\nobserver\nTrue 0 0\n"
     );
+}
+
+fn actor_probe_stdout(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&input, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&input, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Exercise the actual private helpers at representation limits without large
+/// mailboxes/heaps. Both codegen modes must preserve each opt-out's bounds.
+#[test]
+fn bounded_ring_and_timer_arithmetic_at_representation_limits() {
+    let actor = include_str!("../stdlib/std/actor.plenty");
+    let helpers = &actor[actor.find("def ring_at(").unwrap()..];
+    let order_down = actor
+        .split("    def order_down(")
+        .nth(1)
+        .unwrap()
+        .split("    def accepts(")
+        .next()
+        .unwrap()
+        .replace("Context[M, E]", "HeapProbe");
+    let order_up = actor
+        .split("    def order_up(")
+        .nth(1)
+        .unwrap()
+        .split("    def order_down(")
+        .next()
+        .unwrap()
+        .replace("Context[M, E]", "HeapProbe");
+    let timer_error = actor
+        .split("pub enum TimerError:\n")
+        .nth(1)
+        .unwrap()
+        .split("# A request that was not sent")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"enum TimerError:
+{timer_error}
+{helpers}
+class HeapProbe:
+    _order_count: i64
+    swapped: bool
+    def order_due(self, at: i64) -> u64:
+        u64(at)
+    def order_swap(self: &mut HeapProbe, a: i64, b: i64) -> ():
+        self.swapped = True
+    def order_down({order_down}
+    def order_up({order_up}
+def main() -> Result[(), IoError]:
+    mut heap = HeapProbe(i64.MAX, False)
+    print("__test_begin_no_allocations__")?
+    heap.order_down(9223372036854775806)
+    heap.order_down(4611686018427387902)
+    heap.order_up(9223372036854775806)
+    a = ring_at(0, 1, 1)
+    b = ring_at(9223372036854775806, 9223372036854775806, i64.MAX)
+    c = ring_at(9223372036854775805, 1, i64.MAX)
+    d = ring_at(5, 7, 12)
+    e = timer_due(u64.MAX, 0u64).unwrap()
+    f = timer_due(u64.MAX, 1u64).is_err()
+    g = timer_due(0u64, u64.MAX).unwrap()
+    h = request_due(u64.MAX, 1u64)
+    i = repeat_due(10u64, 5u64, 14u64)
+    j = repeat_due(10u64, 5u64, 15u64)
+    k = repeat_due(u64.MAX, 1u64, u64.MAX)
+    l = count_event(9223372036854775806)
+    m = count_event(i64.MAX)
+    n = next_generation(4294967294u32).unwrap()
+    o = next_generation(u32.MAX).is_none()
+    p = rebase_fence(8u64, 9u64)
+    q = rebase_fence(9u64, 9u64)
+    r = rebase_fence(u64.MAX, 9u64)
+    print("__test_end_no_allocations__")?
+    print(a, b, c, d)?
+    print(e, f, g, h)?
+    print(i, j, k)?
+    print(l, m, n, o, p, q, r)?
+    print(heap.swapped)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let actual = actor_probe_stdout(&source, optimize);
+        assert_eq!(
+            actual,
+            "0 9223372036854775805 9223372036854775806 0\n18446744073709551615 True 18446744073709551615 18446744073709551615\n15 20 18446744073709551615\n9223372036854775807 9223372036854775807 4294967295 True 0 0 18446744073709551606\nFalse"
+        );
+    }
+}
+
+#[test]
+fn mailbox_rebase_preserves_all_linked_down_fences() {
+    let actor = include_str!("../stdlib/std/actor.plenty");
+    let method = actor
+        .split("    def rebase_mail(")
+        .nth(1)
+        .unwrap()
+        .split("    def enqueue(")
+        .next()
+        .unwrap();
+    let push = actor
+        .split("    def push(")
+        .nth(1)
+        .unwrap()
+        .split("    # Rebase every fence")
+        .next()
+        .unwrap();
+    let clear = actor
+        .split("    def clear(")
+        .nth(1)
+        .unwrap()
+        .split("    def free(")
+        .next()
+        .unwrap();
+    let unlink = actor
+        .split("    def unlink_down(")
+        .nth(1)
+        .unwrap()
+        .split("    # Returns a zombie")
+        .next()
+        .unwrap();
+    let bury = actor
+        .split("    def bury(")
+        .nth(1)
+        .unwrap()
+        .split("    def prepare(")
+        .next()
+        .unwrap();
+    let helpers = &actor[actor.find("def ring_at(").unwrap()..];
+    let source = format!(
+        r#"enum TimerError:
+    Range
+    Capacity
+enum Mail[M, E]:
+    Message(M)
+    Failure(E)
+class Payload:
+    id: i64
+    def __del__(self) -> ():
+        print("dropped", self.id).unwrap()
+class ProbeMailbox[M, E]:
+    mail_read: u64
+    mail_written: u64
+    down_head: i64
+    down_after: u64
+    down_next: i64
+    items: list[Option[Mail[M, E]]]
+    head: i64
+    count: i64
+    ready: i64
+    exit: Option[Payload]
+    heap: i64
+    zombie: bool
+    down_tail: i64
+class Stats:
+    lost: i64
+class Context[M, E]:
+    _boxes: list[ProbeMailbox[M, E]]
+    _free: list[i64]
+    _stats: Stats
+    def rebase_mail({method}
+    def push({push}
+    def enqueue(self: &mut Context[M, E], index: i64) -> ():
+        pass
+class Stage[N, M, E]:
+    _context: Context[M, E]
+    def clear({clear}
+    def unlink_down({unlink}
+    def bury({bury}
+{helpers}
+def child(fence: u64, next: i64, heap: i64, id: i64) -> ProbeMailbox[i64, i64]:
+    ProbeMailbox[i64, i64](0u64, 0u64, -1, fence, next, [].unwrap(), 0, 0, 0, Some(Payload(id)), heap, True, -1)
+def main() -> Result[(), IoError]:
+    # Four linked Down records: past, equal, future, and MAX.
+    # The fourth has an exhausted slot; the fifth belongs to another parent.
+    mut stage = Stage[i64, i64, i64](Context[i64, i64]([
+        ProbeMailbox[i64, i64](18446744073709551612u64, u64.MAX, 1, 0u64, -1,
+            [Some(Mail[i64, i64].Message(1)), Some(Mail[i64, i64].Message(2)), Some(Mail[i64, i64].Message(3)), Nothing].unwrap(), 0, 3, 0, Nothing, 0, False, 4),
+        child(7u64, 2, -1, 1),
+        child(18446744073709551612u64, 3, -1, 2),
+        child(18446744073709551614u64, 4, -1, 3),
+        child(u64.MAX, -1, -2, 4),
+        child(u64.MAX, -1, -1, 5)].unwrap(), [].unwrap(), Stats(0)))
+    print("__test_begin_no_allocations__")?
+    stage._context.push(0, Some(Mail[i64, i64].Message(9)))
+    print("__test_end_no_allocations__")?
+    print(stage._context._boxes[0].mail_read, stage._context._boxes[0].mail_written, stage._context._boxes[0].count)?
+    print(stage._context._boxes[1].down_after, stage._context._boxes[2].down_after, stage._context._boxes[3].down_after, stage._context._boxes[4].down_after, stage._context._boxes[5].down_after)?
+    # clear is used by both stop and restart; it must drop every owned Down
+    # exactly once before reserve resets the counters for reuse.
+    stage.clear(0)
+    print(stage._context._boxes[0].mail_read, stage._context._boxes[0].mail_written, stage._context._boxes[0].count, stage._context._stats.lost, len(stage._context._free))?
+    # A cleared/restarted mailbox can accept more mail without stale fences.
+    stage._context.push(0, Some(Mail[i64, i64].Message(10)))
+    print(stage._context._boxes[0].mail_read, stage._context._boxes[0].mail_written, stage._context._boxes[0].count, stage._context._boxes[0].down_head)?
+    stage.clear(0)
+    drop(replace(stage._context._boxes[5].exit, Nothing))
+    # Cross MAX-1 -> MAX and then rebase on the following enqueue.
+    mut edge = Context[i64, i64]([ProbeMailbox[i64, i64](18446744073709551614u64, 18446744073709551614u64, -1, 0u64, -1,
+        [Nothing, Nothing].unwrap(), 0, 0, 0, Nothing, 0, False, -1)].unwrap(), [].unwrap(), Stats(0))
+    edge.push(0, Some(Mail[i64, i64].Message(1)))
+    edge.push(0, Some(Mail[i64, i64].Message(2)))
+    print(edge._boxes[0].mail_read, edge._boxes[0].mail_written, edge._boxes[0].count)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let actual = actor_probe_stdout(&source, optimize);
+        assert_eq!(
+            actual,
+            "0 4 4\n0 0 2 3 18446744073709551615\ndropped 1\ndropped 2\ndropped 3\ndropped 4\n4 4 0 4 3\n4 5 1 -1\ndropped 5\n0 2 2"
+        );
+    }
+}
+
+#[test]
+fn exhausted_slot_generation_retires_after_zombie_cleanup() {
+    let actor = include_str!("../stdlib/std/actor.plenty");
+    let free = actor
+        .split("    def free(")
+        .nth(1)
+        .unwrap()
+        .split("# Allocates a stage")
+        .next()
+        .unwrap();
+    let bury = actor
+        .split("    def bury(")
+        .nth(1)
+        .unwrap()
+        .split("    def prepare(")
+        .next()
+        .unwrap();
+    let generation = actor
+        .split("def next_generation(")
+        .nth(1)
+        .unwrap()
+        .split("def rebase_fence(")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"enum Mail[M, E]:
+    Message(M)
+    Failure(E)
+class ProbeMailbox[M, E]:
+    generation: u32
+    heap: i64
+    pending: bool
+    zombie: bool
+    down_next: i64
+    items: list[Option[Mail[M, E]]]
+class Context[M, E]:
+    _boxes: list[ProbeMailbox[M, E]]
+    _free: list[i64]
+class Stage[N, M, E]:
+    _context: Context[M, E]
+    def free({free}
+    def bury({bury}
+def next_generation({generation}
+def main() -> Result[(), IoError]:
+    mut stage = Stage[i64, i64, i64](Context[i64, i64]([
+        ProbeMailbox[i64, i64](4294967294u32, 0, False, False, -1, [] .unwrap()),
+        ProbeMailbox[i64, i64](u32.MAX, 0, False, True, 7, [] .unwrap()),
+        ProbeMailbox[i64, i64](u32.MAX, 0, False, False, -1, [] .unwrap())].unwrap(), [] .unwrap()))
+    stage.free(0)
+    stage.free(1)
+    # The exhausted zombie stays reserved until Down delivery/cleanup.
+    print(len(stage._context._free), stage._context._boxes[1].zombie)?
+    stage.bury(1)
+    stage.free(2)
+    print(len(stage._context._free), stage._context._boxes[0].generation, stage._context._boxes[0].heap)?
+    print(stage._context._boxes[1].heap, stage._context._boxes[1].zombie, stage._context._boxes[1].down_next, stage._context._boxes[2].heap)?
+    Ok(())
+"#
+    )
+    .replace("[] .unwrap()", "[].unwrap()");
+    for optimize in [false, true] {
+        let actual = actor_probe_stdout(&source, optimize);
+        assert_eq!(actual, "1 True\n1 4294967295 -1\n-2 False -1 -2");
+    }
+}
+
+#[test]
+fn timer_record_key_capacity_is_checked_before_mutation() {
+    let source = r#"
+from std.actor import Address, Context, Mail, stage
+pub class Node:
+    pub def started(self: &mut Node, context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        Ok(())
+    pub def receive(self: &mut Node, mail: Mail[i64, AllocError], context: &mut Context[i64, AllocError]) -> Result[(), AllocError]:
+        Ok(())
+    pub def spawn(self, tag: i64, child: Address, context: &mut Context[i64, AllocError]) -> Result[Option[Node], AllocError]:
+        Ok(Nothing)
+
+def main() -> Result[(), IoError]:
+    mut actors = stage[Node, i64, AllocError](0, 1, 1).unwrap()
+    print(str.repr(actors.add_timers(4294967297)).unwrap())?
+    print(str.repr(actors.add_timers(i64.MAX)).unwrap())?
+    print(actors.add_timers(1).is_ok())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            actor_probe_stdout(source, optimize),
+            "Result[(), AllocError].Err(AllocError.CapacityOverflow)\nResult[(), AllocError].Err(AllocError.CapacityOverflow)\nTrue"
+        );
+    }
+}
+
+#[test]
+fn exhausted_clock_generation_unlinks_without_reentering_free_list() {
+    let actor = include_str!("../stdlib/std/actor.plenty");
+    let free_clock = actor
+        .split("    def free_clock(")
+        .nth(1)
+        .unwrap()
+        .split("    # Removes a request")
+        .next()
+        .unwrap();
+    let generation = actor
+        .split("def next_generation(")
+        .nth(1)
+        .unwrap()
+        .split("def rebase_fence(")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"class ProbeClock:
+    generation: u32
+    owner: i64
+    owner_prev: i64
+    owner_next: i64
+    position: i64
+    noticed: bool
+class ProbeMailbox:
+    clocks_head: i64
+class Context[M, E]:
+    _clocks: list[ProbeClock]
+    _boxes: list[ProbeMailbox]
+    _clock_free: i64
+    removed: bool
+    target_unlinked: bool
+    notice_unlinked: bool
+    def order_remove(self: &mut Context[M, E], record: i64) -> ():
+        self._clocks[record].position = -1
+        self.removed = True
+    def unlink_target(self: &mut Context[M, E], record: i64) -> ():
+        self.target_unlinked = True
+    def unlink_notice(self: &mut Context[M, E], record: i64) -> ():
+        self._clocks[record].noticed = False
+        self.notice_unlinked = True
+    def free_clock({free_clock}
+def next_generation({generation}
+def main() -> Result[(), IoError]:
+    mut context = Context[i64, i64]([
+        ProbeClock(u32.MAX, 0, -1, 1, 0, True),
+        ProbeClock(4294967294u32, 0, 0, -1, -1, False)].unwrap(),
+        [ProbeMailbox(0)].unwrap(), -1, False, False, False)
+    print("__test_begin_no_allocations__")?
+    context.free_clock(0)
+    print("__test_end_no_allocations__")?
+    print(context._clocks[0].owner, context._clock_free, context._boxes[0].clocks_head, context._clocks[1].owner_prev, context.removed, context.target_unlinked, context.notice_unlinked)?
+    context.free_clock(1)
+    print(context._clock_free, context._clocks[1].generation, context._clocks[1].owner, context._boxes[0].clocks_head)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let actual = actor_probe_stdout(&source, optimize);
+        assert_eq!(actual, "-2 -1 1 -1 True True True\n1 4294967295 -1 -1");
+    }
 }

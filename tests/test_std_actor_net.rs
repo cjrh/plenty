@@ -585,3 +585,58 @@ fn dial_and_lookup_from_an_actor() {
     );
     peer.finish();
 }
+
+#[test]
+fn deadline_and_output_room_helpers_accept_representation_boundaries() {
+    let net = include_str!("../stdlib/std/actor/net.plenty");
+    let later = net
+        .split("def later(")
+        .nth(1)
+        .unwrap()
+        .split("# Buffer sizes")
+        .next()
+        .unwrap();
+    let output_room = &net[net.find("def output_room(").unwrap()..];
+    let source = format!(
+        r#"def later({later}
+{output_room}
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    a = later(0u64, u64.MAX)
+    b = later(u64.MAX, 0u64)
+    c = later(u64.MAX, 1u64)
+    d = output_room(i64.MAX, 9223372036854775806)
+    e = output_room(i64.MAX, 0)
+    f = count_refusal(9223372036854775806)
+    g = count_refusal(i64.MAX)
+    print("__test_end_no_allocations__")?
+    print(a, b, c, d, e, f, g)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&input, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&input, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let actual = stdout
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            actual,
+            "18446744073709551615 18446744073709551615 18446744073709551615 1 9223372036854775807 9223372036854775807 9223372036854775807"
+        );
+    }
+}

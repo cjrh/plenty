@@ -20,10 +20,13 @@ def now() -> u64:
     monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
 
 def later(at: u64, span: u64) -> u64:
-    if span > u64.MAX - at:
-        u64.MAX
-    else:
+    due = checked:
         at + span
+    match due:
+        case Ok(value):
+            value
+        case Err(_):
+            u64.MAX
 
 # Buffer sizes and deadlines for each connection. A zero duration turns that
 # deadline off.
@@ -147,14 +150,18 @@ pub class Connection:
 
     # Received bytes not yet consumed.
     pub def available(self) -> i64:
-        self._input_stop - self._input_start
+        # Input cursors satisfy 0 <= start <= stop <= allocated length.
+        unchecked:
+            self._input_stop - self._input_start
 
     # Releases the first `count` received bytes. Reading resumes if a full
     # buffer had stopped it.
     pub def consume[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
         if count < 0 or count > self.available():
             return Err(invalid())
-        self._input_start += count
+        # The validated count is at most stop - start.
+        unchecked:
+            self._input_start += count
         if self._input_start == self._input_stop:
             self._input_start = 0
             self._input_stop = 0
@@ -163,11 +170,15 @@ pub class Connection:
 
     # Output bytes not yet sent.
     pub def pending(self) -> i64:
-        self._output_stop - self._output_start
+        # Output cursors satisfy 0 <= start <= stop <= allocated length.
+        unchecked:
+            self._output_stop - self._output_start
 
     # Output bytes `write` would accept now.
     pub def space(self) -> i64:
-        self._output.len() - self.pending()
+        # Pending output lies within the allocated buffer.
+        unchecked:
+            self._output.len() - self.pending()
 
     # Copies as much of `source` as fits into the output buffer,
     # sends what the socket takes at once, and returns how many bytes were
@@ -179,7 +190,9 @@ pub class Connection:
         at = now()
         count = self.make_room(len(source), at)
         self._output.overwrite(self._output_stop, &source[:count])
-        self._output_stop += count
+        # count is bounded by the remaining output buffer extent.
+        unchecked:
+            self._output_stop += count
         mut events = no_events()
         self.flush(&mut events, at)?
         self.refresh(context)?
@@ -198,11 +211,13 @@ pub class Connection:
             self._output_start = 0
             self._output_stop = 0
             self._progress = now()
-        elif self._output_stop + want > self._output.len() and self._output_start > 0:
+        elif want > output_room(self._output.len(), self._output_stop) and self._output_start > 0:
             shift(&mut self._output, self._output_start, self._output_stop)
-            self._output_stop -= self._output_start
+            # Output cursors are ordered within the allocated buffer.
+            unchecked:
+                self._output_stop -= self._output_start
             self._output_start = 0
-        room = self._output.len() - self._output_stop
+        room = output_room(self._output.len(), self._output_stop)
         if want < room:
             return Ok(want)
         Ok(room)
@@ -216,11 +231,13 @@ pub class Connection:
     # Adds `count` bytes written at `output_stop()` to the pending output and
     # sends what the socket takes at once, as `write` does.
     pub def commit[M, E](self: &mut Connection, count: i64, context: &mut Context[M, E]) -> Result[(), NetError | TimerError]:
-        if count < 0 or count > self._output.len() - self._output_stop:
+        if count < 0 or count > output_room(self._output.len(), self._output_stop):
             return Err(invalid())
         if self._closed or self._shutdown or not self._writing:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-        self._output_stop += count
+        # count is bounded by the remaining output buffer extent.
+        unchecked:
+            self._output_stop += count
         mut events = no_events()
         self.flush(&mut events, now())?
         self.refresh(context)?
@@ -236,9 +253,15 @@ pub class Connection:
             return Err(NetError.Stream(StreamError.Io(IoError.Closed)))
         at = now()
         moved = self.make_room(count, at)
-        self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved])
-        self._output_stop += moved
-        self._input_start += moved
+        # moved <= count <= available input, and make_room bounds output.
+        unchecked:
+            self._output.overwrite(self._output_stop, &self._input[self._input_start:self._input_start + moved])
+        # make_room bounds moved by remaining output capacity.
+        unchecked:
+            self._output_stop += moved
+        # moved <= count <= available input.
+        unchecked:
+            self._input_start += moved
         if self._input_start == self._input_stop:
             self._input_start = 0
             self._input_stop = 0
@@ -311,11 +334,13 @@ pub class Connection:
             self._output_start = 0
             self._output_stop = 0
             self._progress = at
-        elif self._output_stop + wanted > self._output.len() and self._output_start > 0:
+        elif wanted > output_room(self._output.len(), self._output_stop) and self._output_start > 0:
             shift(&mut self._output, self._output_start, self._output_stop)
-            self._output_stop -= self._output_start
+            # Output cursors are ordered within the allocated buffer.
+            unchecked:
+                self._output_stop -= self._output_start
             self._output_start = 0
-        room = self._output.len() - self._output_stop
+        room = output_room(self._output.len(), self._output_stop)
         if wanted > room:
             self._refused = True
             return room
@@ -327,10 +352,14 @@ pub class Connection:
             return Ok(())
         mut attempts = 0
         while self._output_start < self._output_stop and attempts < max_writes:
-            attempts += 1
+            # The loop bounds attempts by max_writes (4).
+            unchecked:
+                attempts += 1
             match self._stream.write_now(&self._output[self._output_start:self._output_stop]):
                 case Ok(count):
-                    self._output_start += count
+                    # write_now returns at most the offered pending bytes.
+                    unchecked:
+                        self._output_start += count
                     self._active = at
                     self._progress = at
                 case Err(NetError.WouldBlock):
@@ -358,7 +387,9 @@ pub class Connection:
         size = self._input.len()
         if self._input_stop == size and self._input_start > 0:
             shift(&mut self._input, self._input_start, self._input_stop)
-            self._input_stop -= self._input_start
+            # Input cursors are ordered within the allocated buffer.
+            unchecked:
+                self._input_stop -= self._input_start
             self._input_start = 0
         if self._input_stop == size:
             return Ok(())
@@ -367,7 +398,9 @@ pub class Connection:
                 self._reading = False
                 events.ended = True
             case Ok(count):
-                self._input_stop += count
+                # read_now returns at most the offered remaining input extent.
+                unchecked:
+                    self._input_stop += count
                 events.received = count
                 self._active = at
             case Err(NetError.WouldBlock):
@@ -412,10 +445,12 @@ pub class Connection:
         if self._closed:
             return Ok(())
         mut wanted = 0
-        if self._reading and self._input_stop - self._input_start < self._input.len():
+        if self._reading and self.available() < self._input.len():
             wanted = 1
         if self._writing and self._output_start < self._output_stop:
-            wanted += 2
+            # Interest is a two-bit value; wanted is 0 or 1 here.
+            unchecked:
+                wanted += 2
         if wanted != self._watched:
             if wanted == 0:
                 watched(context.unwatch(&self._stream))?
@@ -437,7 +472,9 @@ pub class Connection:
         at = now()
         mut delay = 0u64
         if due > at:
-            delay = due - at
+            # The branch proves due > at for unsigned subtraction.
+            unchecked:
+                delay = due - at
         self._timer = Some(context.after(&nanoseconds(delay), 0)?)
         self._due = due
         Ok(())
@@ -530,7 +567,9 @@ pub class Listener:
                     if self._live < self._capacity:
                         match context.spawn(self._tag, self._heap):
                             case Ok(_):
-                                self._live += 1
+                                # The admission guard proves live < capacity <= i64.MAX.
+                                unchecked:
+                                    self._live += 1
                                 return Ok(True)
                             # No slot, heap or mailbox: as at capacity.
                             case Err(_):
@@ -540,7 +579,11 @@ pub class Listener:
             case Mail.Down(_, tag, _):
                 if tag != self._tag:
                     return Ok(False)
-                self._live -= 1
+                if self._live <= 0:
+                    return Err(invalid())
+                # A matching live child is being removed.
+                unchecked:
+                    self._live -= 1
                 if not self._watching and self._live < self._capacity:
                     self._watching = True
                     watched(context.watch(&self._listener, Interest.Read))?
@@ -585,7 +628,7 @@ pub class Listener:
                 match self._listener.accept_now():
                     case Ok(stream):
                         drop(stream)
-                        self._refused += 1
+                        self._refused = count_refusal(self._refused)
                     case Err(NetError.WouldBlock):
                         pass
                     case Err(NetError.HandleLimit):
@@ -750,3 +793,16 @@ pub def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Co
     if not timeout.is_zero():
         timer = Some(context.after(timeout, 0)?)
     Ok(Resolving(Some(pending), timer, watch))
+
+# 0 <= stop <= size: cursors refer to successfully allocated output storage.
+def output_room(size: i64, stop: i64) -> i64:
+    unchecked:
+        size - stop
+
+# Observation-only diagnostic: do not affect accept/drop results at exhaustion.
+def count_refusal(value: i64) -> i64:
+    if value == i64.MAX:
+        return value
+    # The guard removes the only overflowing increment input.
+    unchecked:
+        value + 1

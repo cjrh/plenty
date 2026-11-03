@@ -31,14 +31,15 @@ const server_name: str = "localhost"
 def positive(value: i64) -> Positive[i64]:
     Positive.try_from(value).unwrap()
 
-type Fault = AllocError | NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError | OverflowError[i64]
 
 pub enum Note:
     # Bytes echoed, and whether they matched.
     Done(i64, bool)
 
-def pattern(index: i64) -> u8:
-    u8((index * 7 + 3) % 251)
+def pattern(index: i64) -> Result[u8, OverflowError[i64]]:
+    divisor: Positive[i64] = 251
+    Ok(u8((index * 7 + 3) % divisor))
 
 pub class Root:
     pub config: ClientConfig
@@ -190,14 +191,14 @@ pub enum Node:
                 mut data = std.bytes.with_capacity(payload)?
                 data.resize(payload, 0u8)?
                 for index in range(payload):
-                    data[index] = pattern(index)
+                    data[index] = pattern(index)?
                 if mode == 1 and tag == 0:
                     data[0] = 88u8
                 Ok(Some(Node.Running(Client(root.me.unwrap(), Some(session), Nothing, Nothing, data, 0, 0, True))))
             case Node.Running(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | StageError | WaitError | TlsError]:
+def main() -> Result[(), OverflowError[i64] | AllocError | IoError | StageError | WaitError | TlsError]:
     config = client_config(&roots_from_pem(&read_text(&("FIXTURES/" + roots)?)?)?)?
     mut actors = stage[Node, Note, Fault](clients + 8, 8, 64)?
     actors.add_timers(clients + 8)?

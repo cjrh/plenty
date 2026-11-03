@@ -3,7 +3,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now, nanoseconds, seconds
 
-type Fault = AllocError | IoError
+type Fault = AllocError | IoError | OverflowError[i64]
 
 pub enum Job:
     Square(i64)

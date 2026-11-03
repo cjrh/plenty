@@ -44,7 +44,9 @@ pub class Node:
                 missing.unwrap()
             case Mail.Down(child, tag, exit):
                 print("down", child.key() & 4294967295u64, tag, exit).unwrap()
-                self.downs += 1
+                # Only the three children created in started can exit.
+                unchecked:
+                    self.downs += 1
                 if self.downs == 3:
                     context.stop()
             case _:
