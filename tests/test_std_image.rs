@@ -13,7 +13,7 @@ from std.encoding import EncodingError
 from std.fmt import FormatError
 from std.image import ColorType, Filter, Format, Image, ImageError, Limits
 
-type Problem = AllocError | IoError | FormatError | EncodingError | BytesError | ImageError
+type Problem = AllocError | IoError | FormatError | EncodingError | BytesError | ImageError | OverflowError[i64] | ZeroDivisionError
 
 def unhex(text: &str) -> Result[Bytes, Problem]:
     Ok(std.encoding.hex_from_text(text)?)
@@ -893,10 +893,12 @@ fn dimensions_above_the_png_maximum_trap() {
             "std.image.from_pixels: width or height is above 2147483647",
         ),
     ] {
-        let output = run(&program(call));
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
-        assert!(stderr.contains(message), "{call}\n{stderr}");
+        for optimize in [false, true] {
+            let output = execute_with_optimization(&program(call), optimize);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+            assert!(stderr.contains(message), "{call}\n{stderr}");
+        }
     }
 }
 
@@ -1310,5 +1312,330 @@ for operation in range(0, 10):
         if operation != 8 {
             assert_ne!(parts[1], "0", "operation {operation} did not allocate");
         }
+    }
+}
+
+fn execute_with_optimization(source: &str, optimize: bool) -> std::process::Output {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    std::process::Command::new(executable)
+        .current_dir(dir.path())
+        .output()
+        .unwrap()
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let output = execute_with_optimization(source, optimize);
+    assert!(
+        output.status.success(),
+        "{source}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("std.image.ImageError.", "")
+        .replace("std.image.", "")
+}
+
+#[test]
+fn image_production_extents_check_representation_limits_without_allocating() {
+    let library = include_str!("../stdlib/std/image.plenty");
+    let sizes = &library
+        [library.find("def size(width:").unwrap()..library.find("# A zeroed image:").unwrap()];
+    let chunk_end = &library[library.find("def chunk_end(").unwrap()
+        ..library.find("# The header and the chunks").unwrap()];
+    let raw_total =
+        &library[library.find("def raw_total(").unwrap()..library.find("def paeth(").unwrap()];
+    let scan =
+        &library[library.find("class Scan:").unwrap()..library.find("def depth_allowed(").unwrap()];
+    let passes =
+        &library[library.find("def adam7(").unwrap()..library.find("def raw_total(").unwrap()];
+    let source = format!(
+        r#"from std.image import ColorType, ImageError
+{sizes}
+{chunk_end}
+{raw_total}
+{scan}
+{passes}
+def limited(result: Result[i64, ImageError]) -> bool:
+    match result:
+        case Err(ImageError.LimitExceeded):
+            True
+        case _:
+            False
+
+def outside(result: Result[i64, ImageError]) -> bool:
+    match result:
+        case Err(ImageError.OutOfRange):
+            True
+        case _:
+            False
+
+def truncated(result: Result[i64, ImageError]) -> bool:
+    match result:
+        case Err(ImageError.Truncated):
+            True
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    scan = Scan(2147483647, 2147483647, 16, 6, False, 0, 0, 0, 0, False, 0, 0, 0, 0)
+    thin = Scan(2147483647, 1, 16, 6, True, 0, 0, 0, 0, False, 0, 0, 0, 0)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    pixel = pixel_extent(i64.MAX, 1, 1).unwrap() == i64.MAX
+    pixel_over = limited(pixel_extent(i64.MAX, 1, 2)) and limited(pixel_extent(2147483647, 2147483647, 4))
+    dimensions = size(2147483647, 2147483647, ColorType.GrayAlpha).unwrap() == 9223372028264841218
+    bad_dimensions = outside(size(i64.MIN, 1, ColorType.Gray)) and outside(size(i64.MAX, 1, ColorType.Gray)) and outside(size(1, 0, ColorType.Gray))
+    raw = raw_total(0, 1, i64.MAX).unwrap() == i64.MAX and raw_total(i64.MAX, 0, 1).unwrap() == i64.MAX
+    raw_over = limited(raw_total(i64.MAX, 1, 1)) and limited(raw_total(0, 2, 4611686018427387904))
+    chunk = chunk_end(i64.MAX, 9223372034707292156, 2147483647).unwrap() == 9223372036854775803
+    short_chunk = truncated(chunk_end(i64.MAX, 9223372034707292157, 2147483647)) and truncated(chunk_end(i64.MAX, i64.MAX, 0))
+    empty = chunk_end(i64.MAX, 9223372036854775803, 0).unwrap() == 9223372036854775803
+    spans = spanned(2147483647, 0, 1) == 2147483647 and spanned(2147483647, 0, 8) == 268435456 and spanned(1, 4, 8) == 0
+    raw_scan = limited(raw_size(&scan)) and scan.row_bytes(2147483647) == 17179869176
+    thin_scan = raw_size(&thin).unwrap() == 17179869180
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(pixel, pixel_over, dimensions, bad_dimensions, raw, raw_over, chunk, short_chunk, empty, spans, raw_scan, thin_scan)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True True True True True True True"
+        );
+    }
+}
+
+#[test]
+fn image_codec_preserves_precise_errors_and_extreme_coordinates_in_both_modes() {
+    let plain = fixture(&stored(5, 4, 8, 6, 31), false, None, None);
+    let interlaced = fixture(&stored(5, 4, 4, 3, 17), true, Some(&[0, 255, 128]), None);
+    let mut checksum = plain.clone();
+    checksum[32] ^= 1;
+    let bad_filter = file(&[
+        header(1, 1, 8, 0, 0),
+        chunk(b"IDAT", &zlib(&[5, 255])),
+        end(),
+    ]);
+    let body = format!(
+        r#"
+plain = unhex("{}")?
+interlaced = unhex("{}")?
+print(decoded("{}")?)?
+print(decoded("{}")?)?
+raw_overflow = unhex("{raw_overflow}")?
+maximum = Limits(2147483647, 2147483647, 9223372036854775807)
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+overflow = std.image.decode(&raw_overflow, &maximum)
+print("__test_end_no_allocations__")?
+print("__test_restore_allocations__")?
+print(shown(overflow)?)?
+image = std.image.decode(&plain, &std.image.limits())?
+for position in [i64.MIN, i64.MAX]?:
+    print(str.repr(image.get(position, 0, 0))?)?
+    print(shown(image.crop(position, 0, 1, 1))?)?
+    print(shown(image.crop(0, position, 1, 1))?)?
+    print(shown(image.resize(position, 1, Filter.Nearest))?)?
+    print(shown(image.resize(1, position, Filter.Bilinear))?)?
+for data in [plain, interlaced]?:
+    for count in range(data.len()):
+        prefix = data.slice(0, count)?
+        match std.image.decode(&prefix, &std.image.limits()):
+            case Err(ImageError.Unsupported):
+                if count >= 8:
+                    return Err(ImageError.Corrupt)
+            case Err(ImageError.Truncated):
+                if count < 8:
+                    return Err(ImageError.Corrupt)
+            case _:
+                return Err(ImageError.Corrupt)
+print("all prefixes rejected precisely")?
+print(trip(&image, 0)?, trip(&image, 6)?, trip(&image, 9)?)?
+print(shown(image.resize(0, 0, Filter.Nearest))?)?
+print(shown(image.resize(2147483647, 2147483647, Filter.Bilinear))?)?
+"#,
+        hex(&plain),
+        hex(&interlaced),
+        hex(&checksum),
+        hex(&bad_filter),
+        raw_overflow = hex(&file(&[
+            header(2147483647, 2147483647, 16, 4, 0),
+            chunk(b"IDAT", &[]),
+            end(),
+        ]))
+    );
+    let expected = format!(
+        "Checksum\nCorrupt\nLimitExceeded\n{}\nall prefixes rejected precisely\nTrue True True\nOutOfRange\nLimitExceeded",
+        [
+            "Result[u8, ImageError].Err(OutOfRange)",
+            "OutOfRange",
+            "OutOfRange",
+            "OutOfRange",
+            "OutOfRange"
+        ]
+        .repeat(2)
+        .join("\n")
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&program(&body), optimize),
+            expected
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn image_allocation_failure_cleanup_and_moves_hold_in_both_modes() {
+    let png = fixture(&stored(5, 4, 4, 3, 17), true, Some(&[0, 255, 128]), None);
+    let source = program(&format!(
+        r#"
+data = unhex("{}")?
+image = std.image.decode(&data, &std.image.limits())?
+print(shown(std.image.from_pixels(1, 1, ColorType.Rgba, std.bytes.from_bytes(b"x")?))?)?
+for operation in range(4):
+    mut succeeded = False
+    for after in range(100):
+        print(f"__test_fail_allocations_after_{{after}}__"?)?
+        result: Result[Image, ImageError] = match operation:
+            case 0:
+                std.image.decode(&data, &std.image.limits())
+            case 1:
+                image.convert(ColorType.Rgba)
+            case 2:
+                image.resize(7, 3, Filter.Bilinear)
+            case _:
+                match std.image.encode_png(&image, 6):
+                    case Ok(encoded):
+                        std.image.decode(&encoded, &std.image.limits())
+                    case Err(error):
+                        Err(error)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(result):
+                pixels = result.into_pixels()
+                print(operation, after > 0, pixels.len() > 0)?
+                succeeded = True
+            case Err(ImageError.Allocation(AllocError.OutOfMemory)):
+                pass
+            case Err(error):
+                return Err(error)
+        if succeeded:
+            break
+    if not succeeded:
+        return Err(ImageError.Corrupt)
+print(trip(&image, 6)?)?
+"#,
+        hex(&png)
+    ));
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "OutOfRange\n0 True True\n1 True True\n2 True True\n3 True True\nTrue"
+        );
+    }
+}
+
+#[test]
+fn image_reference_examples_keep_their_documented_output_in_both_modes() {
+    let page = include_str!("../book/src/design/stdlib/image.md");
+    let mut examples = 0;
+    for fence in page.split("```plenty\n").skip(1) {
+        let (source, rest) = fence.split_once("```").unwrap();
+        let expected = rest
+            .strip_prefix("\n```output\n")
+            .unwrap()
+            .split_once("```")
+            .unwrap()
+            .0
+            .trim_end();
+        for optimize in [false, true] {
+            assert_eq!(
+                output_with_optimization(source, optimize).trim_end(),
+                expected
+            );
+        }
+        examples += 1;
+    }
+    assert_eq!(examples, 2);
+}
+
+#[test]
+fn image_production_filters_use_byte_ring_arithmetic_without_allocation() {
+    let library = include_str!("../stdlib/std/image.plenty");
+    let be16 = &library[library.find("def be16(").unwrap()..library.find("def letter(").unwrap()];
+    let decode = &library
+        [library.find("def paeth(").unwrap()..library.find("# The palette as four bytes").unwrap()];
+    let encode =
+        &library[library.find("def cost(").unwrap()..library.find("def color_kind(").unwrap()];
+    let rounding = &library
+        [library.find("def clamped(").unwrap()..library.find("# Resamples each row of").unwrap()];
+    let precision = library
+        .lines()
+        .find(|line| line.starts_with("const precision:"))
+        .unwrap();
+    let source = format!(
+        r#"{HEADER}
+{be16}
+{decode}
+{encode}
+{precision}
+{rounding}
+def main() -> Result[(), Problem]:
+    pixels = std.bytes.from_bytes(b"\xff\x00\xff\x01\xfe\x02\x80\x7f")?
+    above = std.bytes.from_bytes(b"\xff\xff\x00\xfe\x01\xfd\x7f\x80")?
+    packed = std.bytes.from_bytes(b"\x1b\xff\x00\x01")?
+    mut rows = std.bytes.with_capacity(45)?
+    rows.resize(45, 0u8)?
+    mut lines = std.bytes.with_capacity(16)?
+    lines.resize(16, 0u8)?
+    lines.overwrite(0, &above)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    mut correct = True
+    for step in range(1, 5):
+        best = filtered(&mut rows, &pixels, 0, &above, 0, 8, step)
+        correct = correct and best >= 0 and best <= 4
+        for filter in range(5):
+            lines.overwrite(8, &rows[9 * filter + 1:9 * filter + 9])
+            unfiltered(&mut lines, 8, 0, 8, step, u8(filter))?
+            for i in range(8):
+                correct = correct and lines[8 + i] == pixels[i]
+    invalid = match unfiltered(&mut lines, 8, 0, 8, 1, 5u8):
+        case Err(ImageError.Corrupt):
+            True
+        case _:
+            False
+    predictor = paeth(0, 255, 0) == 255 and paeth(255, 0, 0) == 255
+    rounded = scaled(65535, 16) == 255u8 and premultiplied(255, 255) == 255 and clamped(2296835808889405440) == 255u8
+    scores = cost(255) == 1 and cost(128) == 128 and cost(0) == 0
+    samples = sample(&packed, 0, 0, 2) == 0 and sample(&packed, 0, 1, 2) == 1 and sample(&packed, 0, 2, 2) == 2 and sample(&packed, 0, 3, 2) == 3 and sample(&packed, 1, 0, 16) == 65280
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(correct, invalid, predictor, rounded, scores, samples)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True"
+        );
     }
 }
