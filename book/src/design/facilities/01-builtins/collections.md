@@ -6,12 +6,11 @@ have a deliberately smaller interface than ordinary lists.
 
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
 nested collections. Dictionary keys and set members are integers, `bool`, `str`,
-`bytes`, or tuples recursively containing those types. Hashing uses tuple
-contents, including string and byte-literal contents, independently of where a
-tuple is stored. Floats, owned collection/class components, and user-defined
-hash/equality are unsupported. Enum and anonymous-sum keys or set members are
-also unsupported, even when every payload is a supported key type. List
-elements and dictionary values can be enums or anonymous sums; see the
+`bytes`, or tuples and named enums recursively containing those types. Every
+payload of every variant must be a supported key type. Hashing includes the
+variant tag and payload contents, independently of where the value is stored.
+Floats, classes, collections, boxes, recursive types and anonymous sums are not
+supported keys. User-defined hash/equality hooks remain unsupported. See the
 [heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
 Unit elements are rejected.
 

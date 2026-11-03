@@ -1,11 +1,12 @@
 # User-defined dictionary keys and set members
 
-**Status: Not implemented.** Nothing shipped. Dictionary keys and set members
-remain integers, `bool`, `str`, and tuples of these, as the
-[collections](../design/facilities/01-builtins/collections.md) and
-[enums](../design/language/03-types/enums.md) references state. Equality stays
-structural and non-overridable ([classes](../design/language/03-types/classes.md)).
-No backlog entry exists yet.
+**Status: Partly implemented.** Named enums whose payloads are supported key
+types now work as dictionary keys and set members, including nested enums.
+Classes, anonymous sums, the `KeyType` constraint and bitset specialization
+remain future work under [B74](../backlog.md). The
+[collection reference](../design/facilities/01-builtins/collections.md) owns the
+current contract. The design and historical analysis below describe the broader
+proposal; the first enum-admission stage has shipped.
 
 ## Problem
 

@@ -393,10 +393,21 @@ impl Ty {
         }
     }
     pub fn hashable(&self) -> bool {
+        if let Self::Enum(t) = self {
+            // A recursive or unfinished declaration cannot establish a finite key.
+            // Anonymous-sum admission remains a separate B74 design decision.
+            let facts = self.facts();
+            return !t.anonymous()
+                && facts.complete
+                && !facts.recursive
+                && t.get()
+                    .variants
+                    .iter()
+                    .all(|variant| variant.fields.iter().all(Self::hashable));
+        }
         self.is_int()
             || matches!(self, Self::Bool | Self::Str | Self::ByteStr)
             || self.domain_element().is_some()
-            || matches!(self, Self::Enum(t) if t.tuple() && t.get().variants[0].fields.iter().all(Self::hashable))
     }
 }
 
