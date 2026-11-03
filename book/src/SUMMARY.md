@@ -723,6 +723,7 @@
   - [Match dispatch measurements](development/profiling-match-results.md)
   - [Serial pipeline measurements](development/profiling-pipeline-results.md)
   - [Parallel pipeline measurements](development/profiling-parallel-pipeline-results.md)
+  - [Warm script startup measurements](development/script-startup.md)
 - [Measuring module edits](development/module-edits.md)
   - [Module-edit emission measurements](development/module-edits-emission-results.md)
 - [Per-module cache investigation](development/module-cache-investigation.md)

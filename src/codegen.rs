@@ -389,7 +389,6 @@ fn link_object(
         return Err("test fault injection and fuzzing require a Linux host".into());
     }
     let rt_path = workspace.path().join("libplenty_runtime.a");
-    std::fs::write(&rt_path, RUNTIME_ARCHIVE)?;
     // Fuzz and `plenty test` executables are run and debugged where they are
     // built, never shipped, so they keep their symbols.
     let unstripped;
@@ -418,7 +417,7 @@ fn link_object(
         inputs.push("-lstdc++".into());
         return crate::toolchain::link(
             obj_path,
-            &rt_path,
+            crate::toolchain::RuntimeInput::Bundled(&rt_path),
             RUNTIME_LINK_ARGS,
             output,
             options,
@@ -429,7 +428,7 @@ fn link_object(
     if !test_hooks {
         return crate::toolchain::link(
             obj_path,
-            &rt_path,
+            crate::toolchain::RuntimeInput::Bundled(&rt_path),
             RUNTIME_LINK_ARGS,
             output,
             options,
@@ -441,7 +440,7 @@ fn link_object(
     std::fs::write(&hooks, TEST_HOOKS)?;
     crate::toolchain::link(
         obj_path,
-        &rt_path,
+        crate::toolchain::RuntimeInput::Bundled(&rt_path),
         RUNTIME_LINK_ARGS,
         output,
         options,
@@ -4018,6 +4017,105 @@ impl Lowerer<'_, '_> {
             self.terminated = true;
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod executable_cache_tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn warm_executable_needs_no_runtime_archive_but_a_miss_still_does() {
+        const CHILD: &str = "PLENTY_TEST_LAZY_RUNTIME_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            // Cargo's test linker override deliberately disables executable
+            // reuse. Isolate the eligible environment without mutating it in
+            // this multithreaded test process.
+            let cwd = tempfile::tempdir().unwrap();
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "codegen::executable_cache_tests::warm_executable_needs_no_runtime_archive_but_a_miss_still_does",
+                    "--nocapture",
+                ])
+                .current_dir(cwd.path())
+                .env(CHILD, "1");
+            for name in [
+                "COMPILER_PATH",
+                "GCC_EXEC_PREFIX",
+                "LIBRARY_PATH",
+                "LD_PRELOAD",
+                "LD_AUDIT",
+            ] {
+                command.env_remove(name);
+            }
+            let result = command.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            assert!(
+                stderr.contains("executable cache: hit") || stderr.contains("ineligible toolchain"),
+                "{stderr}"
+            );
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir_in(root.path()).unwrap();
+        let object = workspace.path().join("program.o");
+        let output = workspace.path().join("program");
+        let runtime = workspace.path().join("libplenty_runtime.a");
+        let cache = root.path().join("cache");
+        let options = crate::CompileOptions {
+            cache: crate::cache::CacheMode::Directory(cache.clone()),
+            executable_cache: true,
+            cache_stats: true,
+            ..Default::default()
+        };
+        program_object(
+            &Sources::Text("def main() -> i32:\n    23i32\n"),
+            &object,
+            Build::new(&options, false).for_executable(),
+        )
+        .unwrap();
+        link_object(&workspace, &object, &output, &options, false).unwrap();
+        assert!(runtime.is_file(), "a cold link must prepare the runtime");
+        if !cache.join("executable").is_dir() {
+            eprintln!(
+                "ineligible toolchain: executable reuse requires native GCC and linker depfiles"
+            );
+            return;
+        }
+        std::fs::remove_file(&runtime).unwrap();
+        // A directory at the extraction path makes any attempted archive write
+        // fail, so success proves the real cache-hit path never materializes it.
+        std::fs::create_dir(&runtime).unwrap();
+        std::fs::remove_file(&output).unwrap();
+        link_object(&workspace, &object, &output, &options, false).unwrap();
+        assert!(runtime.is_dir());
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(23));
+
+        program_object(
+            &Sources::Text("def main() -> i32:\n    24i32\n"),
+            &object,
+            Build::new(&options, false).for_executable(),
+        )
+        .unwrap();
+        std::fs::remove_file(&output).unwrap();
+        let error = link_object(&workspace, &object, &output, &options, false).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::IsADirectory
+        );
+        assert!(
+            !output.exists(),
+            "a failed miss must not run an old executable"
+        );
     }
 }
 
