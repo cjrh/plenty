@@ -3473,7 +3473,7 @@ class FakeStream
     output: Bytes
     def calls(self) -> i64
     def limit(self: &mut FakeStream, bytes: i64) -> ()
-    def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> ()
+    def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> Result[(), OverflowError[i64]]
     def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FakeStream) -> Result[(), StreamError]

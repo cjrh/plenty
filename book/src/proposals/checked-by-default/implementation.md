@@ -22,7 +22,9 @@ local arithmetic suite passes.
 
 The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env` and
-`std.secrets`.
+`std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`
+and `std.test`. Logging's bounded timestamp/line-buffer arithmetic is also
+adapted; its generic running statistics are not yet migrated.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -32,7 +34,11 @@ their existing error contracts. Encoding expansion sizes are checked before
 allocation, stream position/total limits return their declared errors, and
 filesystem walk reservation no longer counts pending frames twice (issue #702).
 Pure capacity helpers are tested at representation limits without allocating
-huge buffers. No blanket `unchecked:` conversion was applied.
+huge buffers. The HTTP decimal accumulator subtracts ASCII bias before checked
+multiply/add (issue #703), accepting the complete i64 range while mapping larger
+lengths to protocol errors. `FakeStream.fail_after` returns a public
+`Result[(), OverflowError[i64]]`; failures preserve its pending schedule.
+Counter exhaustion in the stream protocol maps to OutOfRange before mutation. No blanket `unchecked:` conversion was applied.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining

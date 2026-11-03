@@ -26,7 +26,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError]:\n{body}    Ok(())\n"
+        "import std.test\n\ndef main() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -356,7 +356,7 @@ fn suite(root: &Path, files: &[(&str, &str)]) {
     );
     write(
         &root.join("src/lib.plenty"),
-        "pub def add(a: i64, b: i64) -> i64:\n    a + b\n",
+        "pub def add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\n",
     );
     for (path, text) in files {
         write(&root.join(path), text);
@@ -366,13 +366,13 @@ fn suite(root: &Path, files: &[(&str, &str)]) {
 const ARITHMETIC: &str = r#"import std.test
 from calc import add
 
-def test_adds() -> Result[(), std.test.TestError]:
-    std.test.equal(&add(2, 2), &4)?
+def test_adds() -> Result[(), std.test.TestError | OverflowError[i64]]:
+    std.test.equal(&add(2, 2)?, &4)?
     Ok(())
 
-def test_wrong() -> Result[(), IoError | std.test.TestError]:
+def test_wrong() -> Result[(), IoError | std.test.TestError | OverflowError[i64]]:
     print("about to compare")?
-    std.test.equal(&add(2, 2), &5)?
+    std.test.equal(&add(2, 2)?, &5)?
     Ok(())
 
 def helper() -> i64:
@@ -384,7 +384,7 @@ def test_unit() -> ():
 def test_typed() -> Result[(), std.test.TestError]:
     std.test.check(helper() == 1, "helper")
 
-def test_trap() -> Result[(), AllocError | IoError]:
+def test_trap() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [1]?
     print(values[helper() + 4])?
     Ok(())
@@ -711,7 +711,7 @@ from std.time import Clock, Instant, nanoseconds, seconds
 def waited[C: Clock](clock: &C, start: &Instant) -> u64:
     clock.now().saturating_duration_since(start).as_seconds()
 
-def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError | std.bytes.BytesError | StreamError | std.io.Partial]:
+def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError | std.bytes.BytesError | StreamError | std.io.Partial | OverflowError[i64]]:
     mut clock = std.test.fake_clock(10u64)
     start = clock.now()
     std.test.equal(&waited(&clock, &start), &0u64)?
@@ -730,7 +730,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError 
     mut buffer = std.bytes.with_capacity(16)?
     buffer.resize(16, 0u8)?
     std.test.equal(&stream.read(&mut buffer, 0, 16)?, &4)?
-    stream.fail_after(0, StreamError.Interrupted)
+    stream.fail_after(0, StreamError.Interrupted)?
     std.test.is_err(&stream.read(&mut buffer, 0, 16))?
     std.test.equal(&stream.read(&mut buffer, 0, 0)?, &0)?
     mut rest = std.bytes.empty()?
@@ -739,7 +739,7 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError 
 
     stream.limit(0)
     message = std.bytes.from_text("abc")?
-    stream.fail_after(1, StreamError.WriteZero)
+    stream.fail_after(1, StreamError.WriteZero)?
     std.test.equal(&stream.write(&message[:3])?, &3)?
     match stream.write(&message[:3]):
         case Err(StreamError.WriteZero):
@@ -757,6 +757,74 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.test.TestError 
     );
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(output.stdout, b"done\n");
+}
+
+#[test]
+fn fake_stream_schedule_overflow_preserves_the_pending_fault() {
+    let output = run_program(
+        r#"import std.test
+import std.bytes
+from std.io import StreamError
+
+def main() -> Result[(), AllocError | IoError | StreamError | OverflowError[i64]]:
+    mut stream = std.test.fake_stream(std.bytes.empty()?)?
+    stream.flush()?
+    stream.fail_after(1, StreamError.Interrupted)?
+    failed = unchecked:
+        stream.fail_after(i64.MAX, StreamError.WriteZero)
+    wrapped = match failed:
+        case Err(error):
+            error.wrapped == i64.MIN
+        case _:
+            False
+    print(wrapped, stream.calls() == 1)?
+    stream.flush()?
+    retained = match stream.flush():
+        case Err(StreamError.Interrupted):
+            True
+        case _:
+            False
+    print(retained, stream.calls() == 3)?
+    Ok(())
+"#,
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"True True\nTrue True\n");
+}
+
+#[test]
+fn fake_stream_call_counter_exhaustion_preserves_state() {
+    let source = include_str!("../stdlib/std/test.plenty");
+    let begin = source[source.find("    def begin(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap()
+        .replace("self: &mut FakeStream", "self: &mut Counter");
+    // Use the actual method with a tiny state mirror to reach i64.MAX
+    // without issuing 2^63 calls. Only its receiver's type name changes.
+    let output = run_program(&format!(
+        r#"from std.io import StreamError
+
+class Counter:
+    _calls: i64
+    _fault_at: i64
+    _fault: Option[StreamError]
+
+{begin}
+
+def main() -> Result[(), AllocError | IoError]:
+    mut counter = Counter(i64.MAX, i64.MAX, Some(StreamError.Interrupted))
+    exhausted = match counter.begin():
+        case Err(StreamError.OutOfRange):
+            True
+        case _:
+            False
+    print(exhausted, counter._calls == i64.MAX, counter._fault_at == i64.MAX, counter._fault.is_some())?
+    Ok(())
+"#
+    ));
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"True True True True\n");
 }
 
 const FAULTS: &str = r#"import std.test

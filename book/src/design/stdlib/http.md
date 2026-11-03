@@ -171,6 +171,13 @@ or an IP literal in brackets. An IPv6 literal is checked for its characters,
 not parsed as an address; an IPvFuture literal must match
 `"v" 1*HEXDIG "." 1*(unreserved / sub-delims / ":")`. A port is digits.
 
+Decimal Content-Length and hexadecimal chunk-size accumulation use local
+checked results. Every nonnegative value through `i64.MAX` is representable;
+larger values return `InvalidContentLength` or `InvalidChunk`, not an arithmetic
+trap. Body limits are enforced separately, so a representable length can still
+be `BodyTooLarge`. Bounded line, header and body cursors use documented
+bounds-proven arithmetic opt-outs.
+
 ## Reading bodies
 
 | Function or method | Result |
@@ -210,6 +217,11 @@ similar helpers. Stream and allocation errors keep their `StreamError`;
 `Truncated` becomes `UnexpectedEof`; any other framing error becomes
 `Io(IoError.InvalidInput)` and is kept for `take_failure`. After any error
 the body reports only `Broken`.
+
+`read_to_end` checks its next output-buffer extent before growing the buffer
+or reading another chunk. An unrepresentable extent is
+`Allocation(AllocError.CapacityOverflow)` and leaves the existing output and
+connection position unchanged for that iteration. Earlier appended bytes remain.
 
 ## Writing
 

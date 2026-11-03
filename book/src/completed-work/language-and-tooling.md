@@ -124,6 +124,17 @@ bounds-proven opt-outs. Filesystem walks reserve only newly appended frames
 reservation from failure while scanning a popped sibling. Coordinated adoption
 of remaining std modules, tests/examples and documentation is **not complete**
 and remains B14.
+
+Core HTTP decimal/chunk sizes, networking/readiness, bounded text operations,
+deterministic random helpers and testing streams are migrated. HTTP accepts the
+full representable Content-Length range without overflowing an ASCII-digit
+intermediate (issue #703); larger lengths remain protocol errors. HTTP and DNS
+reply-buffer extents report existing allocation-capacity errors before consuming
+another chunk. `FakeStream.fail_after` now returns a precise overflow result and
+preserves the previous schedule on failure. Counter exhaustion returns stream
+OutOfRange before mutation. Representation-limit probes exercise the actual
+private helpers without huge allocations, and RNG golden/reference sequences,
+text-wrap compatibility/allocation tests and testing-toolchain checks pass.
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

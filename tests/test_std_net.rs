@@ -165,7 +165,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocErr
 fn immediate_tcp_writes_report_backpressure_and_resume_after_drain() {
     runs(
         r#"
-def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | AllocError | IoError | OverflowError[i64]]:
     cancel = CancellationToken()?
     deadline = within(10000u32)?
     listener = listen(&loopback_v4(0u16), 1)?
@@ -317,7 +317,7 @@ def main() -> Result[(), std.bytes.BytesError | NetError | RangeError | SpawnErr
 fn large_transfers_offer_the_remaining_range_without_a_page_cap() {
     runs(
         r#"
-def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError | OverflowError[i64]]:
     mut stream = listener.accept(deadline, cancel)?
     mut buffer = std.bytes.with_capacity(65536).unwrap()
     buffer.resize(65536, 0u8).unwrap()
@@ -329,7 +329,7 @@ def sink(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
         total += count
     Ok(total)
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     cancel = CancellationToken()?
     deadline = within(10000u32)?
     listener = listen(&loopback_v4(0u16), 1).unwrap()
@@ -419,7 +419,9 @@ def delayed_sink(listener: &TcpListener, deadline: &Deadline, cancel: &Cancellat
     mut buffer = zeroed(65536).unwrap()
     mut count = 0
     while count < 8000000:
-        count += stream.read(&mut buffer, 0, 65536).unwrap()
+        # Before this read count < 8,000,000, and native progress is at most 65,536.
+        count = unchecked:
+            count + stream.read(&mut buffer, 0, 65536).unwrap()
     sleep(&milliseconds(30u32))
     std.io.write_all(&mut stream, &b"done").unwrap()
 
@@ -754,7 +756,7 @@ fn sockets_close_with_their_owner() {
 import std.fs
 import std.path
 
-def count() -> Result[i64, IoError]:
+def count() -> Result[i64, IoError | OverflowError[i64]]:
     mut entries = std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?
     mut total = 0
     while entries.next()?.is_some():
@@ -767,7 +769,7 @@ def round(deadline: &Deadline, cancel: &CancellationToken) -> ():
     accepted = listener.accept(deadline, cancel).unwrap()
     socket = bind_udp(&any_v4(0u16)).unwrap()
 
-def main() -> Result[(), RangeError | AllocError | IoError]:
+def main() -> Result[(), RangeError | AllocError | IoError | OverflowError[i64]]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     # The first wait gives the token its wake descriptor, which it keeps.
@@ -820,7 +822,7 @@ def ping(stream: &mut TcpStream, deadline: &Deadline, cancel: &CancellationToken
     stream.shutdown(Shutdown.Write).unwrap()
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     cancel = CancellationToken()?
     deadline = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 8).unwrap()
@@ -844,7 +846,7 @@ def main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | Al
 fn a_selector_reports_which_sockets_are_ready() {
     runs(
         r#"
-def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | RangeError | AllocError | IoError | OverflowError[u64]]:
     cancel = CancellationToken()?
     long = within(5000u32)?
     listener = listen(&loopback_v4(0u16), 4).unwrap()
@@ -971,7 +973,7 @@ def main() -> Result[(), RangeError | AllocError | IoError]:
 fn the_accept_queue_holds_about_backlog_connections() {
     runs(
         r#"
-def main() -> Result[(), RangeError | AllocError | IoError]:
+def main() -> Result[(), RangeError | AllocError | IoError | OverflowError[i64]]:
     cancel = CancellationToken()?
     listener = listen(&loopback_v4(0u16), 2).unwrap()
     address = listener.local_address().unwrap()

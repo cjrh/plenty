@@ -190,7 +190,11 @@ pub class LineBuffer:
     _overflow: bool
 
     pub def write(self: &mut LineBuffer, source: &[u8]) -> Result[i64, StreamError]:
-        if len(source) > self._limit - self.data.len():
+        # Both endpoints are nonnegative i64 lengths; their difference fits even
+        # if a caller has grown the public data buffer beyond the private limit.
+        remaining = unchecked:
+            self._limit - self.data.len()
+        if len(source) > remaining:
             self._overflow = True
             return Err(StreamError.OutOfRange)
         match self.data.extend(source):
@@ -223,10 +227,13 @@ def render(out: &mut Formatter[LineBuffer], event: &Event) -> Result[(), FormatE
             out.text("time=")?
             out.integer(at.seconds, 0)?
             out.text(".")?
+            radix = NonZero.try_from(10u32).unwrap()
             mut divisor = 100000000u32
             while divisor > 0u32:
-                out.unsigned(u64(at.nanoseconds // divisor % 10u32), 10, 0)?
-                divisor //= 10u32
+                # The loop proves the constructor succeeds; no division can fail.
+                place = NonZero.try_from(divisor).unwrap()
+                out.unsigned(u64(at.nanoseconds // place % radix), 10, 0)?
+                divisor //= radix
             out.text(" ")?
         case Nothing:
             pass

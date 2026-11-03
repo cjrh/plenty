@@ -56,13 +56,16 @@ pub class Rng:
     # Uniform in [0, bound). Rejecting the low `2^64 mod bound` values removes
     # modulo bias; fewer than two steps are expected for every bound.
     pub def below(self: &mut Rng, bound: u64) -> Result[u64, RandomError]:
-        if bound == 0u64:
-            return Err(RandomError.EmptyRange)
-        threshold = 0u64.wrapping_sub(bound) % bound
+        divisor = match NonZero.try_from(bound):
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(RandomError.EmptyRange)
+        threshold = 0u64.wrapping_sub(bound) % divisor
         while True:
             value = self.next_u64()
             if value >= threshold:
-                return Ok(value % bound)
+                return Ok(value % divisor)
         Err(RandomError.EmptyRange)
 
     # Uniform in the half-open range [low, high).
@@ -84,52 +87,58 @@ pub class Rng:
     # Fisher-Yates over the whole list: every permutation is equally likely
     # up to the generator's period. Elements are exchanged, never copied.
     pub def shuffle[T](self: &mut Rng, items: &mut list[T]) -> ():
-        mut last = len(items) - 1
-        while last > 0:
-            # last + 1 is positive, so the draw cannot fail.
-            match self.below(u64(last + 1)):
-                case Ok(pick):
-                    items.swap(last, i64(pick))
-                case Err(_):
-                    pass
-            last -= 1
+        # last runs from len - 1 down to zero; last + 1 never exceeds len(items).
+        unchecked:
+            mut last = len(items) - 1
+            while last > 0:
+                # last + 1 is positive, so the draw cannot fail.
+                match self.below(u64(last + 1)):
+                    case Ok(pick):
+                        items.swap(last, i64(pick))
+                    case Err(_):
+                        pass
+                last -= 1
 
     # `amount` distinct indices below `count`, in selection order. Allocates
     # one list of `count` indices; a failure consumes no generator steps.
     pub def sample_indices(self: &mut Rng, count: i64, amount: i64) -> Result[list[i64], AllocError]:
-        if count < 0:
-            __trap("Rng.sample_indices: count is negative")
-        if amount < 0 or amount > count:
-            __trap("Rng.sample_indices: amount is outside 0..=count")
-        mut pool = list[i64].with_capacity(count)?
-        for position in range(count):
-            pool.append(position)?
-        for position in range(amount):
-            # count - position is positive, so the draw cannot fail.
-            match self.below(u64(count - position)):
-                case Ok(offset):
-                    pool.swap(position, position + i64(offset))
-                case Err(_):
-                    pass
-        while len(pool) > amount:
-            drop(pool.pop())
-        Ok(pool)
+        # Validated amount <= count bounds each positive draw and position + offset below count.
+        unchecked:
+            if count < 0:
+                __trap("Rng.sample_indices: count is negative")
+            if amount < 0 or amount > count:
+                __trap("Rng.sample_indices: amount is outside 0..=count")
+            mut pool = list[i64].with_capacity(count)?
+            for position in range(count):
+                pool.append(position)?
+            for position in range(amount):
+                # count - position is positive, so the draw cannot fail.
+                match self.below(u64(count - position)):
+                    case Ok(offset):
+                        pool.swap(position, position + i64(offset))
+                    case Err(_):
+                        pass
+            while len(pool) > amount:
+                drop(pool.pop())
+            Ok(pool)
 
     # Overwrites target[start:stop], eight bytes per step in little-endian
     # order; a final partial group uses the low bytes of one more step.
     pub def fill(self: &mut Rng, target: &mut Bytes, start: i64, stop: i64) -> ():
-        if start < 0 or start > stop or stop > target.len():
-            __trap("Rng.fill: start..stop is outside 0..=target.len()")
-        mut at = start
-        while at < stop:
-            mut word = self.next_u64()
-            mut group = stop - at
-            if group > 8:
-                group = 8
-            for offset in range(group):
-                target.set(at + offset, u8(word & 255u64))
-                word = word >> 8u64
-            at += group
+        # Validated endpoints bound at + group and at + offset by stop; group is at most eight.
+        unchecked:
+            if start < 0 or start > stop or stop > target.len():
+                __trap("Rng.fill: start..stop is outside 0..=target.len()")
+            mut at = start
+            while at < stop:
+                mut word = self.next_u64()
+                mut group = stop - at
+                if group > 8:
+                    group = 8
+                for offset in range(group):
+                    target.set(at + offset, u8(word & 255u64))
+                    word = word >> 8u64
+                at += group
 
     # The four state words, for checkpointing with from_state.
     pub def state(self) -> (u64, u64, u64, u64):

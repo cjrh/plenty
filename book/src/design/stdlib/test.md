@@ -125,13 +125,21 @@ produces only under load:
 | Method | Result | Contract |
 |---|---|---|
 | `limit(bytes: i64)` | `()` | Each later `read` or `write` moves at most `bytes` bytes; 0 or less removes the limit |
-| `fail_after(after: i64, error: StreamError)` | `()` | The call `after` calls from now (0 is the next) returns `Err(error)` and moves nothing. One failure is pending at a time; a later request replaces it |
+| `fail_after(after: i64, error: StreamError)` | `Result[(), OverflowError[i64]]` | The call `after` calls from now (0 is the next) returns `Err(error)` and moves nothing. One failure is pending at a time; a later request replaces it |
 | `calls()` | `i64` | `read`, `write`, and `flush` calls made so far, including failed ones |
 | `read`, `write`, `flush` | as `std.io` | The stream protocol methods |
 
 A range outside its buffer traps with `read: start/stop outside buffer` before the call is
 counted. `flush` does nothing but count and fail when told. Writing allocates
 as `output` grows; that failure is `StreamError.Allocation`.
+
+`fail_after` checks the absolute call index before replacing the pending fault.
+On overflow it returns the wrapped `OverflowError[i64]` and changes neither
+schedule nor counter; callers must handle its result. `read`, `write` and
+`flush` return `StreamError.OutOfRange` without changing data, counter or pending
+fault if the call counter cannot advance. No caller arithmetic mode changes
+these boundaries. Existing signed offsets are retained: a representable past
+index does not match a future call.
 
 ```text
 from std.time import Clock, Instant

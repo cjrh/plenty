@@ -49,34 +49,38 @@ pub class Builder:
         self._limit
 
     pub def append(self: &mut Builder, text: &str) -> Result[(), TextError]:
-        count = text.byte_len()
-        if count > self._limit - self._bytes.len():
-            return Err(TextError.LimitExceeded)
-        if count == 0:
-            return Ok(())
-        if count <= 4:
-            # Reserve before writing so failure leaves the builder unchanged.
-            # Scalar appends must not allocate a temporary Bytes per character.
-            if count > self._bytes.capacity() - self._bytes.len():
-                # Bytes.reserve is exact. Reserve geometrically here, otherwise
-                # repeated scalar appends can reallocate once per character.
-                mut additional = self._bytes.capacity()
-                if additional < 8:
-                    additional = 8
-                if additional > i64.MAX - self._bytes.len():
-                    additional = count
-                text_result(self._bytes.reserve(additional))?
-            for at in range(count):
-                text_result(self._bytes.push(u8(__regex_text_byte(text, at))))?
-            return Ok(())
-        encoded = text_result(std.bytes.from_text(text))?
-        text_result(self._bytes.extend(&encoded))
+        # Private storage satisfies 0 <= len <= capacity and len <= limit; growth is guarded before reserve.
+        unchecked:
+            count = text.byte_len()
+            if count > self._limit - self._bytes.len():
+                return Err(TextError.LimitExceeded)
+            if count == 0:
+                return Ok(())
+            if count <= 4:
+                # Reserve before writing so failure leaves the builder unchanged.
+                # Scalar appends must not allocate a temporary Bytes per character.
+                if count > self._bytes.capacity() - self._bytes.len():
+                    # Bytes.reserve is exact. Reserve geometrically here, otherwise
+                    # repeated scalar appends can reallocate once per character.
+                    mut additional = self._bytes.capacity()
+                    if additional < 8:
+                        additional = 8
+                    if additional > i64.MAX - self._bytes.len():
+                        additional = count
+                    text_result(self._bytes.reserve(additional))?
+                for at in range(count):
+                    text_result(self._bytes.push(u8(__regex_text_byte(text, at))))?
+                return Ok(())
+            encoded = text_result(std.bytes.from_text(text))?
+            text_result(self._bytes.extend(&encoded))
 
     # Tab expansion is a bounded bulk fill, not one append per output space.
     def append_spaces(self: &mut Builder, count: i64) -> Result[(), TextError]:
-        if count > self._limit - self._bytes.len():
-            return Err(TextError.LimitExceeded)
-        text_result(self._bytes.resize(self._bytes.len() + count, 32u8))
+        # Private callers supply nonnegative counts; the remaining-budget check bounds len + count.
+        unchecked:
+            if count > self._limit - self._bytes.len():
+                return Err(TextError.LimitExceeded)
+            text_result(self._bytes.resize(self._bytes.len() + count, 32u8))
 
     pub def clear(self: &mut Builder) -> ():
         self._bytes.clear()
@@ -109,20 +113,22 @@ pub def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -
 # Hard wrap by Unicode scalar count, preserving explicit LF and every input
 # scalar. This is deliberately not display-width or grapheme/word wrapping.
 pub def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]:
-    columns = width.get()
-    mut output = bounded(max_bytes.get())?
-    mut column = 0
-    for scalar in text:
-        if scalar == "\n":
-            output.append(scalar)?
-            column = 0
-        else:
-            if column == columns:
-                output.append("\n")?
+    # Each increment follows the column == width reset, so 0 <= column <= width <= i64.MAX.
+    unchecked:
+        columns = width.get()
+        mut output = bounded(max_bytes.get())?
+        mut column = 0
+        for scalar in text:
+            if scalar == "\n":
+                output.append(scalar)?
                 column = 0
-            output.append(scalar)?
-            column += 1
-    output.finish()
+            else:
+                if column == columns:
+                    output.append("\n")?
+                    column = 0
+                output.append(scalar)?
+                column += 1
+        output.finish()
 
 
 def text_result[T](value: Result[T, AllocError]) -> Result[T, TextError]:
@@ -162,61 +168,67 @@ def text_piece(text: &str, start: i64, stop: i64) -> Result[str, TextError]:
 # Unlike a list of scalar strings plus sliced temporary lists, this needs one
 # four-byte entry per input scalar and only one string copy per chunk.
 def split_chunks(text: &str, hyphens: bool) -> Result[list[str], TextError]:
-    codes = text_result([ord(scalar).unwrap() for scalar in text])?
-    mut chunks = text_result(list[str].new())?
-    mut start = 0
-    mut at = 0
-    mut byte_at = 0
-    while at < len(codes):
-        if wrap_space(codes[at]):
-            at += 1
-            byte_at += 1
-            while at < len(codes) and wrap_space(codes[at]):
+    # Scalar/UTF-8 cursors follow actual input spans; lookahead is clamped and byte advances add only a run length.
+    unchecked:
+        codes = text_result([ord(scalar).unwrap() for scalar in text])?
+        mut chunks = text_result(list[str].new())?
+        mut start = 0
+        mut at = 0
+        mut byte_at = 0
+        while at < len(codes):
+            if wrap_space(codes[at]):
                 at += 1
                 byte_at += 1
-            chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
-            start = byte_at
-            continue
-        if hyphens and codes[at] == 45u32:
-            mut stop = at
-            while stop < len(codes) and codes[stop] == 45u32:
-                stop += 1
-            if stop - at >= 2 and byte_at > start and stop < len(codes) and word_scalar(codes[stop]) and (word_scalar(codes[at - 1]) or codes[at - 1] == 33u32 or codes[at - 1] == 34u32 or codes[at - 1] == 39u32 or codes[at - 1] == 38u32 or codes[at - 1] == 46u32 or codes[at - 1] == 44u32 or codes[at - 1] == 63u32):
+                while at < len(codes) and wrap_space(codes[at]):
+                    at += 1
+                    byte_at += 1
                 chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
-                chunks.append(text_piece(text, byte_at, byte_at + stop - at)?).map_error(TextError.Allocation)?
-                byte_at += stop - at
-                at = stop
                 start = byte_at
                 continue
-            if stop - at >= 2:
-                byte_at += stop - at
-                at = stop
-                if at == len(codes) or wrap_space(codes[at]):
+            if hyphens and codes[at] == 45u32:
+                mut stop = at
+                while stop < len(codes) and codes[stop] == 45u32:
+                    stop += 1
+                if stop - at >= 2 and byte_at > start and stop < len(codes) and word_scalar(codes[stop]) and (word_scalar(codes[at - 1]) or codes[at - 1] == 33u32 or codes[at - 1] == 34u32 or codes[at - 1] == 39u32 or codes[at - 1] == 38u32 or codes[at - 1] == 46u32 or codes[at - 1] == 44u32 or codes[at - 1] == 63u32):
+                    chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
+                    chunks.append(text_piece(text, byte_at, byte_at + (stop - at))?).map_error(TextError.Allocation)?
+                    byte_at += stop - at
+                    at = stop
+                    start = byte_at
+                    continue
+                if stop - at >= 2:
+                    byte_at += stop - at
+                    at = stop
+                    if at == len(codes) or wrap_space(codes[at]):
+                        chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
+                        start = byte_at
+                    continue
+                before = (at >= 2 and letter_scalar(codes[at - 1]) and letter_scalar(codes[at - 2])) or (at >= 3 and letter_scalar(codes[at - 1]) and codes[at - 2] == 45u32 and letter_scalar(codes[at - 3]))
+                mut after = at + 1
+                if after < len(codes):
+                    after += 1
+                if after < len(codes) and codes[after] == 45u32:
+                    after += 1
+                if before and at + 1 < len(codes) and letter_scalar(codes[at + 1]) and after < len(codes) and letter_scalar(codes[after]):
+                    at += 1
+                    byte_at += 1
                     chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
                     start = byte_at
-                continue
-            before = (at >= 2 and letter_scalar(codes[at - 1]) and letter_scalar(codes[at - 2])) or (at >= 3 and letter_scalar(codes[at - 1]) and codes[at - 2] == 45u32 and letter_scalar(codes[at - 3]))
-            mut after = at + 2
-            if after < len(codes) and codes[after] == 45u32:
-                after += 1
-            if before and at + 1 < len(codes) and letter_scalar(codes[at + 1]) and after < len(codes) and letter_scalar(codes[after]):
-                at += 1
-                byte_at += 1
+                    continue
+            byte_at += utf8_width(codes[at])
+            at += 1
+            if at == len(codes) or wrap_space(codes[at]):
                 chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
                 start = byte_at
-                continue
-        byte_at += utf8_width(codes[at])
-        at += 1
-        if at == len(codes) or wrap_space(codes[at]):
-            chunks.append(text_piece(text, start, byte_at)?).map_error(TextError.Allocation)?
-            start = byte_at
-    Ok(chunks)
+        Ok(chunks)
 
 def sentence_ending(text: &str) -> bool:
-    mut stop = len(text)
-    if stop > 0 and (text[stop - 1] == "\"" or text[stop - 1] == "'"):
-        stop -= 1
-    stop >= 2 and text[stop - 1] in ".!?" and text[stop - 2] >= "a" and text[stop - 2] <= "z"
+    # Every subtraction follows a scalar-length check.
+    unchecked:
+        mut stop = len(text)
+        if stop > 0 and (text[stop - 1] == "\"" or text[stop - 1] == "'"):
+            stop -= 1
+        stop >= 2 and text[stop - 1] in ".!?" and text[stop - 2] >= "a" and text[stop - 2] <= "z"
 
 pub class TextWrapper:
     pub width: Positive[i64]
@@ -235,171 +247,179 @@ pub class TextWrapper:
     pub max_input_bytes: NonNegative[i64]
 
     def validate(self) -> Result[(), TextError]:
-        check_input(&self.initial_indent, self.max_input_bytes.get())?
-        check_input(&self.subsequent_indent, self.max_input_bytes.get())?
-        match self.max_lines:
-            case Some(count):
-                check_input(&self.placeholder, self.max_input_bytes.get())?
-                indent = self.subsequent_indent if count.get() > 1 else self.initial_indent
-                # Subtract after the bounds check to avoid overflow for i64.MAX.
-                if len(indent) > self.width.get():
-                    return Err(TextError.InvalidLimit)
-                mark = text_result(self.placeholder.lstrip())?
-                if len(mark) > self.width.get() - len(indent):
-                    return Err(TextError.InvalidLimit)
-            case Nothing:
-                pass
-        Ok(())
-
-    def prepare(self, text: &str) -> Result[str, TextError]:
-        if not self.replace_whitespace:
-            if not self.expand_tabs or find_in(text, b"\t").is_none():
-                return Ok(*text)
-        elif find_in(text, b"\t\n\x0b\x0c\r").is_none():
-            return Ok(*text)
-        mut output = bounded(self.max_input_bytes.get())?
-        mut column = 0
-        for scalar in text:
-            if scalar == "\t" and self.expand_tabs:
-                if self.tabsize.get() > 0:
-                    count = self.tabsize.get() - column % self.tabsize.get()
-                    # Check the cap before growing, even for i64.MAX tabsize.
-                    output.append_spaces(count)?
-                    # Only the remainder is needed to place the next tab.
-                    column = 0
-            else:
-                if self.replace_whitespace and wrap_space(ord(scalar).unwrap()):
-                    output.append(" ")?
-                else:
-                    output.append(scalar)?
-                if scalar == "\n" or scalar == "\r":
-                    column = 0
-                elif self.tabsize.get() > 0:
-                    column = (column + 1) % self.tabsize.get()
-        output.finish()
-
-    pub def wrap(self, text: &str) -> Result[list[str], TextError]:
-        self.validate()?
-        check_input(text, self.max_input_bytes.get())?
-        normalized = self.prepare(text)?
-        mut chunks = split_chunks(&normalized, self.break_on_hyphens)?
-        if self.fix_sentence_endings:
-            for at in range(1, len(chunks)):
-                if chunks[at] == " " and sentence_ending(&chunks[at - 1]):
-                    chunks[at] = "  "
-        chunks.reverse()
-        mut lines = text_result(list[str].new())?
-        mut used_bytes = 0
-        # Retain an offset into a split long word: repeatedly copying the
-        # whole remaining suffix would make narrow wrapping quadratic.
-        mut offset = 0
-        mut byte_offset = 0
-        mut nonwhite_stop = 0
-        while len(chunks) > 0:
-            indent = self.initial_indent if len(lines) == 0 else self.subsequent_indent
-            available = self.width.get() - len(indent)
-            mut current = text_result(list[str].new())?
-            mut size = 0
-            head_is_space = chunks[-1].isspace() if offset == 0 else byte_offset >= nonwhite_stop
-            if self.drop_whitespace and len(lines) > 0 and head_is_space:
-                drop(chunks.pop())
-                offset = 0
-                byte_offset = 0
-            while len(chunks) > 0:
-                if len(chunks[-1]) - offset > available - size:
-                    break
-                size += len(chunks[-1]) - offset
-                piece = chunks.pop().unwrap()
-                current.append(text_piece(&piece, byte_offset, piece.byte_len())?).map_error(TextError.Allocation)?
-                offset = 0
-                byte_offset = 0
-            if len(chunks) > 0 and len(chunks[-1]) - offset > available:
-                mut space_left = 1 if available < 1 else available - size
-                if self.break_long_words and space_left > 0:
-                    chunk = chunks[-1]
-                    if offset == 0:
-                        nonwhite_stop = 0
-                        mut position = 0
-                        for scalar in &chunk:
-                            position += scalar.byte_len()
-                            if not scalar.isspace():
-                                nonwhite_stop = position
-                    if space_left > len(chunk) - offset:
-                        space_left = len(chunk) - offset
-                    mut end = byte_offset
-                    mut units = 0
-                    mut hyphen_end = -1
-                    mut hyphen_units = 0
-                    mut non_hyphen = False
-                    while units < space_left:
-                        unit = __regex_text_at(&chunk, end)
-                        code = unit // 8
-                        end += unit % 8
-                        units += 1
-                        if code == 45 and non_hyphen:
-                            hyphen_end = end
-                            hyphen_units = units
-                        elif code != 45:
-                            non_hyphen = True
-                    if self.break_on_hyphens and len(chunk) - offset > space_left and hyphen_end > 0:
-                        end = hyphen_end
-                        units = hyphen_units
-                    current.append(text_piece(&chunk, byte_offset, end)?).map_error(TextError.Allocation)?
-                    byte_offset = end
-                    offset += units
-                    if offset == len(chunk):
-                        drop(chunks.pop())
-                        offset = 0
-                        byte_offset = 0
-                    size += units
-                elif len(current) == 0:
-                    size = len(chunks[-1])
-                    current.append(chunks.pop().unwrap()).map_error(TextError.Allocation)?
-                    offset = 0
-                    byte_offset = 0
-            if self.drop_whitespace and len(current) > 0 and current[-1].isspace():
-                size -= len(current[-1])
-                drop(current.pop())
-            if len(current) == 0:
-                continue
-            mut truncate = False
+        # Indent length is checked before subtracting it from the positive width.
+        unchecked:
+            check_input(&self.initial_indent, self.max_input_bytes.get())?
+            check_input(&self.subsequent_indent, self.max_input_bytes.get())?
             match self.max_lines:
                 case Some(count):
-                    mut exhausted = len(chunks) == 0
-                    if self.drop_whitespace and len(chunks) == 1:
-                        exhausted = chunks[0].isspace() if offset == 0 else byte_offset >= nonwhite_stop
-                    truncate = len(lines) + 1 >= count.get() and not (exhausted and size <= available)
+                    check_input(&self.placeholder, self.max_input_bytes.get())?
+                    indent = self.subsequent_indent if count.get() > 1 else self.initial_indent
+                    # Subtract after the bounds check to avoid overflow for i64.MAX.
+                    if len(indent) > self.width.get():
+                        return Err(TextError.InvalidLimit)
+                    mark = text_result(self.placeholder.lstrip())?
+                    if len(mark) > self.width.get() - len(indent):
+                        return Err(TextError.InvalidLimit)
                 case Nothing:
                     pass
-            mut mark = ""
-            if truncate:
-                mark = self.placeholder
-                while len(current) > 0:
-                    if not current[-1].isspace() and len(mark) <= available - size:
+            Ok(())
+
+    def prepare(self, text: &str) -> Result[str, TextError]:
+        # column is a remainder below positive tabsize; append_spaces checks its output budget before growth.
+        unchecked:
+            if not self.replace_whitespace:
+                if not self.expand_tabs or find_in(text, b"\t").is_none():
+                    return Ok(*text)
+            elif find_in(text, b"\t\n\x0b\x0c\r").is_none():
+                return Ok(*text)
+            mut output = bounded(self.max_input_bytes.get())?
+            mut column = 0
+            for scalar in text:
+                if scalar == "\t" and self.expand_tabs:
+                    if self.tabsize.get() > 0:
+                        count = self.tabsize.get() - column % self.tabsize.get()
+                        # Check the cap before growing, even for i64.MAX tabsize.
+                        output.append_spaces(count)?
+                        # Only the remainder is needed to place the next tab.
+                        column = 0
+                else:
+                    if self.replace_whitespace and wrap_space(ord(scalar).unwrap()):
+                        output.append(" ")?
+                    else:
+                        output.append(scalar)?
+                    if scalar == "\n" or scalar == "\r":
+                        column = 0
+                    elif self.tabsize.get() > 0:
+                        column = (column + 1) % self.tabsize.get()
+            output.finish()
+
+    pub def wrap(self, text: &str) -> Result[list[str], TextError]:
+        # Chunk offsets stay within their scalar/UTF-8 lengths; builders bound cumulative output by max_bytes.
+        # A negative available width only permits a one-scalar split or a whole-word
+        # fallback; max-lines placeholder arithmetic first validates indent <= width.
+        unchecked:
+            self.validate()?
+            check_input(text, self.max_input_bytes.get())?
+            normalized = self.prepare(text)?
+            mut chunks = split_chunks(&normalized, self.break_on_hyphens)?
+            if self.fix_sentence_endings:
+                for at in range(1, len(chunks)):
+                    if chunks[at] == " " and sentence_ending(&chunks[at - 1]):
+                        chunks[at] = "  "
+            chunks.reverse()
+            mut lines = text_result(list[str].new())?
+            mut used_bytes = 0
+            # Retain an offset into a split long word: repeatedly copying the
+            # whole remaining suffix would make narrow wrapping quadratic.
+            mut offset = 0
+            mut byte_offset = 0
+            mut nonwhite_stop = 0
+            while len(chunks) > 0:
+                indent = self.initial_indent if len(lines) == 0 else self.subsequent_indent
+                available = self.width.get() - len(indent)
+                mut current = text_result(list[str].new())?
+                mut size = 0
+                head_is_space = chunks[-1].isspace() if offset == 0 else byte_offset >= nonwhite_stop
+                if self.drop_whitespace and len(lines) > 0 and head_is_space:
+                    drop(chunks.pop())
+                    offset = 0
+                    byte_offset = 0
+                while len(chunks) > 0:
+                    if len(chunks[-1]) - offset > available - size:
                         break
+                    size += len(chunks[-1]) - offset
+                    piece = chunks.pop().unwrap()
+                    current.append(text_piece(&piece, byte_offset, piece.byte_len())?).map_error(TextError.Allocation)?
+                    offset = 0
+                    byte_offset = 0
+                if len(chunks) > 0 and len(chunks[-1]) - offset > available:
+                    mut space_left = 1 if available < 1 else available - size
+                    if self.break_long_words and space_left > 0:
+                        chunk = chunks[-1]
+                        if offset == 0:
+                            nonwhite_stop = 0
+                            mut position = 0
+                            for scalar in &chunk:
+                                position += scalar.byte_len()
+                                if not scalar.isspace():
+                                    nonwhite_stop = position
+                        if space_left > len(chunk) - offset:
+                            space_left = len(chunk) - offset
+                        mut end = byte_offset
+                        mut units = 0
+                        mut hyphen_end = -1
+                        mut hyphen_units = 0
+                        mut non_hyphen = False
+                        while units < space_left:
+                            unit = __regex_text_at(&chunk, end)
+                            code = unit // 8
+                            end += unit % 8
+                            units += 1
+                            if code == 45 and non_hyphen:
+                                hyphen_end = end
+                                hyphen_units = units
+                            elif code != 45:
+                                non_hyphen = True
+                        if self.break_on_hyphens and len(chunk) - offset > space_left and hyphen_end > 0:
+                            end = hyphen_end
+                            units = hyphen_units
+                        current.append(text_piece(&chunk, byte_offset, end)?).map_error(TextError.Allocation)?
+                        byte_offset = end
+                        offset += units
+                        if offset == len(chunk):
+                            drop(chunks.pop())
+                            offset = 0
+                            byte_offset = 0
+                        size += units
+                    elif len(current) == 0:
+                        size = len(chunks[-1])
+                        current.append(chunks.pop().unwrap()).map_error(TextError.Allocation)?
+                        offset = 0
+                        byte_offset = 0
+                if self.drop_whitespace and len(current) > 0 and current[-1].isspace():
                     size -= len(current[-1])
                     drop(current.pop())
                 if len(current) == 0:
-                    if len(lines) > 0:
-                        previous = text_result(lines[-1].rstrip())?
-                        if len(mark) <= self.width.get() - len(previous):
-                            mut output = bounded(self.max_bytes.get() - used_bytes + lines[-1].byte_len())?
-                            output.append(&previous)?
-                            output.append(&mark)?
-                            lines[-1] = output.finish()?
+                    continue
+                mut truncate = False
+                match self.max_lines:
+                    case Some(count):
+                        mut exhausted = len(chunks) == 0
+                        if self.drop_whitespace and len(chunks) == 1:
+                            exhausted = chunks[0].isspace() if offset == 0 else byte_offset >= nonwhite_stop
+                        truncate = len(lines) + 1 >= count.get() and not (exhausted and size <= available)
+                    case Nothing:
+                        pass
+                mut mark = ""
+                if truncate:
+                    mark = self.placeholder
+                    while len(current) > 0:
+                        if not current[-1].isspace() and len(mark) <= available - size:
                             break
-                    mark = text_result(self.placeholder.lstrip())?
-            mut output = bounded(self.max_bytes.get() - used_bytes)?
-            output.append(&indent)?
-            for piece in &current:
-                output.append(piece)?
-            output.append(&mark)?
-            line = output.finish()?
-            used_bytes += line.byte_len()
-            lines.append(line).map_error(TextError.Allocation)?
-            if truncate:
-                break
-        Ok(lines)
+                        size -= len(current[-1])
+                        drop(current.pop())
+                    if len(current) == 0:
+                        if len(lines) > 0:
+                            previous = text_result(lines[-1].rstrip())?
+                            if len(mark) <= self.width.get() - len(previous):
+                                mut output = bounded(self.max_bytes.get() - used_bytes + lines[-1].byte_len())?
+                                output.append(&previous)?
+                                output.append(&mark)?
+                                lines[-1] = output.finish()?
+                                break
+                        mark = text_result(self.placeholder.lstrip())?
+                mut output = bounded(self.max_bytes.get() - used_bytes)?
+                output.append(&indent)?
+                for piece in &current:
+                    output.append(piece)?
+                output.append(&mark)?
+                line = output.finish()?
+                used_bytes += line.byte_len()
+                lines.append(line).map_error(TextError.Allocation)?
+                if truncate:
+                    break
+            Ok(lines)
 
     pub def fill(self, text: &str) -> Result[str, TextError]:
         lines = self.wrap(text)?
@@ -439,38 +459,40 @@ pub def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", 
 # LF defines dedent lines; other whitespace-only line bodies are normalized,
 # while only literal spaces and tabs contribute to the common margin.
 pub def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
-    check_input(text, max_input_bytes.get())?
-    mut output = bounded(max_bytes.get())?
-    lines = text_result(text.split("\n"))?
-    mut margin = ""
-    mut seen = False
-    for line in &lines:
-        if len(line) == 0 or line.isspace():
-            continue
-        if not seen:
-            mut stop = 0
-            while stop < line.byte_len():
-                code = __regex_text_byte(line, stop)
-                if code != 32 and code != 9:
-                    break
-                stop += 1
-            margin = text_piece(line, 0, stop)?
-            seen = True
-        elif margin.byte_len() > 0:
-            mut common = 0
-            while common < margin.byte_len() and common < line.byte_len() and __regex_text_byte(line, common) == __regex_text_byte(&margin, common):
-                common += 1
-            if common < margin.byte_len():
-                margin = text_piece(&margin, 0, common)?
-    count = margin.byte_len()
-    mut first = True
-    for line in &lines:
-        if not first:
-            output.append("\n")?
-        first = False
-        if len(line) > 0 and not line.isspace():
-            output.append(&text_piece(line, count, line.byte_len())?)?
-    output.finish()
+    # Margin and common-prefix cursors increment only below actual byte lengths.
+    unchecked:
+        check_input(text, max_input_bytes.get())?
+        mut output = bounded(max_bytes.get())?
+        lines = text_result(text.split("\n"))?
+        mut margin = ""
+        mut seen = False
+        for line in &lines:
+            if len(line) == 0 or line.isspace():
+                continue
+            if not seen:
+                mut stop = 0
+                while stop < line.byte_len():
+                    code = __regex_text_byte(line, stop)
+                    if code != 32 and code != 9:
+                        break
+                    stop += 1
+                margin = text_piece(line, 0, stop)?
+                seen = True
+            elif margin.byte_len() > 0:
+                mut common = 0
+                while common < margin.byte_len() and common < line.byte_len() and __regex_text_byte(line, common) == __regex_text_byte(&margin, common):
+                    common += 1
+                if common < margin.byte_len():
+                    margin = text_piece(&margin, 0, common)?
+        count = margin.byte_len()
+        mut first = True
+        for line in &lines:
+            if not first:
+                output.append("\n")?
+            first = False
+            if len(line) > 0 and not line.isspace():
+                output.append(&text_piece(line, count, line.byte_len())?)?
+        output.finish()
 
 def nonblank_line(line: &str) -> bool:
     len(line) > 0 and not line.isspace()
