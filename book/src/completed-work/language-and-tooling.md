@@ -135,6 +135,14 @@ preserves the previous schedule on failure. Counter exhaustion returns stream
 OutOfRange before mutation. Representation-limit probes exercise the actual
 private helpers without huge allocations, and RNG golden/reference sequences,
 text-wrap compatibility/allocation tests and testing-toolchain checks pass.
+
+URL output sizing, process request/output extents and incremental HTTP decoder
+arithmetic are migrated. URL expansion checks its final representation before
+allocation; terminal scans stop at the input endpoint. Process argument encoding
+reserves only additional bytes (issue #704), with zero-allocation spare-capacity
+and failed-mutation tests in debug and optimized output. Existing allocation
+causes remain intact. The process and readiness suites pass; incremental decoder
+parity tests pass apart from the still-unmigrated actor integration.
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

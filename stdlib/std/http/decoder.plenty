@@ -105,119 +105,123 @@ pub class Decoder:
                 Err(error)
 
     def step(self: &mut Decoder, source: &[u8]) -> Result[(i64, Option[Event]), HttpError]:
-        if self._state == failed:
-            return Err(HttpError.Broken)
-        if self._state == done:
-            return Ok((0, Nothing))
-        if self._state == ending:
-            self._state = done
-            return Ok((0, Some(Event.End)))
-        mut end = len(source)
-        if end > feed_budget:
-            end = feed_budget
-        if self._state == sized or self._state == chunk_data:
-            mut count = end
-            if count > self._remaining:
-                count = self._remaining
-            if count == 0:
+        # feed cursors stay within feed_budget; framing/body limits bound remaining, total and field counts.
+        unchecked:
+            if self._state == failed:
+                return Err(HttpError.Broken)
+            if self._state == done:
                 return Ok((0, Nothing))
-            mut body = allocated(std.bytes.with_capacity(count))?
-            allocated(body.extend(&source[:count]))?
-            self._remaining -= count
-            self._total += count
-            if self._remaining == 0:
-                self._state = ending if self._state == sized else chunk_end
-            return Ok((count, Some(Event.Body(body))))
-        mut at = 0
-        while at < end:
-            taken, complete = self.gather(&source[at:end])?
-            at += taken
-            if not complete:
-                return Ok((at, Nothing))
-            size = self._line.len() - 2
-            if self._state == head:
-                allocated(self._section.extend(&self._line))?
-                if not self._request_line:
-                    if size > 0:
-                        self._request_line = True
-                        self._started = True
-                elif size == 0:
-                    self._line.clear()
-                    return Ok((at, Some(self.parsed_head()?)))
+            if self._state == ending:
+                self._state = done
+                return Ok((0, Some(Event.End)))
+            mut end = len(source)
+            if end > feed_budget:
+                end = feed_budget
+            if self._state == sized or self._state == chunk_data:
+                mut count = end
+                if count > self._remaining:
+                    count = self._remaining
+                if count == 0:
+                    return Ok((0, Nothing))
+                mut body = allocated(std.bytes.with_capacity(count))?
+                allocated(body.extend(&source[:count]))?
+                self._remaining -= count
+                self._total += count
+                if self._remaining == 0:
+                    self._state = ending if self._state == sized else chunk_end
+                return Ok((count, Some(Event.Body(body))))
+            mut at = 0
+            while at < end:
+                taken, complete = self.gather(&source[at:end])?
+                at += taken
+                if not complete:
+                    return Ok((at, Nothing))
+                size = self._line.len() - 2
+                if self._state == head:
+                    allocated(self._section.extend(&self._line))?
+                    if not self._request_line:
+                        if size > 0:
+                            self._request_line = True
+                            self._started = True
+                    elif size == 0:
+                        self._line.clear()
+                        return Ok((at, Some(self.parsed_head()?)))
+                    else:
+                        if self._fields >= self._limits.max_headers.get():
+                            return Err(HttpError.TooManyHeaders)
+                        self._fields += 1
+                elif self._state == chunk_size:
+                    length = std.http.parse_chunk_size(&self._line[:size])?
+                    if length > self._limits.max_body.get() - self._total:
+                        return Err(HttpError.BodyTooLarge)
+                    self._remaining = length
+                    self._state = trailers if length == 0 else chunk_data
+                    self._fields = 0
+                    self._section.clear()
+                elif self._state == chunk_end:
+                    if size != 0:
+                        return Err(HttpError.InvalidChunk)
+                    self._state = chunk_size
                 else:
+                    allocated(self._section.extend(&self._line))?
+                    if size == 0:
+                        self._line.clear()
+                        values = self.parsed_trailers()?
+                        self._state = ending
+                        return Ok((at, Some(Event.Trailers(values))))
                     if self._fields >= self._limits.max_headers.get():
                         return Err(HttpError.TooManyHeaders)
                     self._fields += 1
-            elif self._state == chunk_size:
-                length = std.http.parse_chunk_size(&self._line[:size])?
-                if length > self._limits.max_body.get() - self._total:
-                    return Err(HttpError.BodyTooLarge)
-                self._remaining = length
-                self._state = trailers if length == 0 else chunk_data
-                self._fields = 0
-                self._section.clear()
-            elif self._state == chunk_end:
-                if size != 0:
-                    return Err(HttpError.InvalidChunk)
-                self._state = chunk_size
-            else:
-                allocated(self._section.extend(&self._line))?
-                if size == 0:
-                    self._line.clear()
-                    values = self.parsed_trailers()?
-                    self._state = ending
-                    return Ok((at, Some(Event.Trailers(values))))
-                if self._fields >= self._limits.max_headers.get():
-                    return Err(HttpError.TooManyHeaders)
-                self._fields += 1
-            self._line.clear()
-            if (self._state == head or self._state == trailers) and self._section.len() == self._limits.max_head:
-                return Err(HttpError.HeadTooLarge)
-            # Body data belongs in a separate bounded event. Returning here
-            # also avoids treating its arbitrary bytes as a framing line.
-            if self._state == chunk_data:
-                return Ok((at, Nothing))
-        Ok((at, Nothing))
+                self._line.clear()
+                if (self._state == head or self._state == trailers) and self._section.len() == self._limits.max_head:
+                    return Err(HttpError.HeadTooLarge)
+                # Body data belongs in a separate bounded event. Returning here
+                # also avoids treating its arbitrary bytes as a framing line.
+                if self._state == chunk_data:
+                    return Ok((at, Nothing))
+            Ok((at, Nothing))
 
     # One CRLF line. Reserve/check the section and line budgets before
     # copying input; valid CRLF at exactly the limit remains valid.
     def gather(self: &mut Decoder, source: &[u8]) -> Result[(i64, bool), HttpError]:
-        mut limit = self._limits.max_line
-        mut overflow = HttpError.LineTooLong
-        if self._state == chunk_end:
-            limit = 2
-            overflow = HttpError.InvalidChunk
-        elif self._state == head or self._state == trailers:
-            left = self._limits.max_head - self._section.len()
-            if left < limit:
-                limit = left
-                overflow = HttpError.HeadTooLarge
-        if limit <= self._line.len():
-            return Err(overflow)
-        mut end = len(source)
-        room = limit - self._line.len()
-        if end > room:
-            end = room
-        mut complete = False
-        # The scan is bounded by feed_budget and reads the view in place.
-        mut at = 0
-        while at < end:
-            byte = source[at]
-            if self._state == head and byte != 13u8 and byte != 10u8:
-                self._started = True
-            if byte == 10u8:
-                end = at + 1
-                complete = True
-                break
-            at += 1
-        allocated(self._line.extend(&source[:end]))?
-        if complete:
-            length = self._line.len()
-            if length < 2 or self._line[length - 2] != 13u8:
-                return Err(HttpError.BareLineFeed)
-        elif self._line.len() == limit:
-            return Err(overflow)
-        Ok((end, complete))
+        # Section/line budgets bound all differences; source cursors increment strictly below end.
+        unchecked:
+            mut limit = self._limits.max_line
+            mut overflow = HttpError.LineTooLong
+            if self._state == chunk_end:
+                limit = 2
+                overflow = HttpError.InvalidChunk
+            elif self._state == head or self._state == trailers:
+                left = self._limits.max_head - self._section.len()
+                if left < limit:
+                    limit = left
+                    overflow = HttpError.HeadTooLarge
+            if limit <= self._line.len():
+                return Err(overflow)
+            mut end = len(source)
+            room = limit - self._line.len()
+            if end > room:
+                end = room
+            mut complete = False
+            # The scan is bounded by feed_budget and reads the view in place.
+            mut at = 0
+            while at < end:
+                byte = source[at]
+                if self._state == head and byte != 13u8 and byte != 10u8:
+                    self._started = True
+                if byte == 10u8:
+                    end = at + 1
+                    complete = True
+                    break
+                at += 1
+            allocated(self._line.extend(&source[:end]))?
+            if complete:
+                length = self._line.len()
+                if length < 2 or self._line[length - 2] != 13u8:
+                    return Err(HttpError.BareLineFeed)
+            elif self._line.len() == limit:
+                return Err(overflow)
+            Ok((end, complete))
 
     def parsed_head(self: &mut Decoder) -> Result[Event, HttpError]:
         raw = replace(self._section, allocated(std.bytes.empty())?)
@@ -240,18 +244,20 @@ pub class Decoder:
         Ok(Event.Head(request, target, framing))
 
     def parsed_trailers(self: &mut Decoder) -> Result[list[Header], HttpError]:
-        mut values: list[Header] = allocated(list[Header].new())?
-        mut at = 0
-        while at < self._section.len():
-            end = self._section.find(10u8, at, self._section.len()).ok_or(HttpError.Truncated)?
-            size = end - at - 1
-            if size == 0:
-                break
-            line = allocated(self._section.slice(at, end - 1))?
-            allocated(values.append(std.http.parse_field(&line[:size])?))?
-            at = end + 1
-        self._section.clear()
-        Ok(values)
+        # Every stored line already has CRLF; newline endpoints bound sizes and the next cursor.
+        unchecked:
+            mut values: list[Header] = allocated(list[Header].new())?
+            mut at = 0
+            while at < self._section.len():
+                end = self._section.find(10u8, at, self._section.len()).ok_or(HttpError.Truncated)?
+                size = end - at - 1
+                if size == 0:
+                    break
+                line = allocated(self._section.slice(at, end - 1))?
+                allocated(values.append(std.http.parse_field(&line[:size])?))?
+                at = end + 1
+            self._section.clear()
+            Ok(values)
 
 pub def decoder(limits: &Limits) -> Result[Decoder, HttpError]:
     if limits.max_line < 2 or limits.max_head < 2:

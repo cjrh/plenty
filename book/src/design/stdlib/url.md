@@ -204,11 +204,19 @@ Every operation is linear in its input and allocates in proportion to it.
 | `query_pairs` | A copy of the query, the list, and two strings per pair |
 | `query_text` | One growing buffer and two temporaries per pair |
 
-Encoded output is at most three times its input.
+Encoded output is at most three times its input. The encoder counts literal
+bytes, then checks `3 * escaped + literals` before allocating its result.
+Unrepresentable output sizes are `Allocation(AllocError.CapacityOverflow)`.
+Parser, decoder and query cursors use documented bounds-proven arithmetic;
+terminal literal runs and final query pairs stop at the input endpoint instead
+of advancing past it. A serializer error offset that cannot fit `i64` also
+returns allocation-capacity overflow. Caller arithmetic modes do not change
+these contracts.
 
 Every byte goes through checked single-element `Bytes` calls, several times
-per byte. Measured with a release compiler on x86-64 Linux, pinned to one
-core, parsing one 91-byte URL with all seven components takes about 49 µs:
+per byte. An earlier release-compiler measurement, before checked-default
+adoption, on x86-64 Linux pinned to one core found that parsing one 91-byte URL
+with all seven components took about 49 µs:
 roughly half a microsecond per input byte.
 
 ## Limits

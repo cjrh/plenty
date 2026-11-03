@@ -81,17 +81,26 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.process.WaitError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.process.WaitError | std.bytes.BytesError | std.io.StreamError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
 /// Runs the program with a known environment; stdout and stderr are captured.
 fn run(source: &str) -> String {
+    run_with_optimization(source, false)
+}
+
+fn run_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable)
         .current_dir(dir.path())
@@ -115,6 +124,122 @@ fn run(source: &str) -> String {
 
 fn native(body: &str, expected: &str) {
     assert_eq!(run(&program(body)), expected.trim_matches('\n'), "{body}");
+}
+
+fn private_helper<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("def {name}");
+    let start = source.find(&marker).unwrap();
+    source[start..].split("\n\n").next().unwrap()
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn terminated_reserves_only_new_bytes_and_preserves_failed_mutations() {
+    let library = include_str!("../stdlib/std/process.plenty");
+    let helpers = ["allocated", "extent", "has_nul", "terminated"]
+        .map(|name| private_helper(library, name))
+        .join("\n\n");
+    let source = format!(
+        r#"import std.test
+
+{helpers}
+
+def fresh(capacity: i64, used: i64) -> Result[list[u8], AllocError]:
+    mut target = list[u8].with_capacity(capacity)?
+    for index in range(used):
+        target.append(65u8)?
+    Ok(target)
+
+def main() -> Result[(), AllocError | IoError | std.test.TestError]:
+    mut first = fresh(16, 13)?
+    mut second = fresh(16, 15)?
+    mut repeated = fresh(32, 24)?
+    mut failed = fresh(16, 13)?
+    pair = [120u8, 121u8]?
+    four = [1u8, 2u8, 3u8, 4u8]?
+    empty = list[u8].new()?
+    std.test.fail_allocations_after(0u32)?
+    a = terminated(&mut first, &pair)
+    b = terminated(&mut second, &empty)
+    c = terminated(&mut repeated, &pair)
+    d = terminated(&mut repeated, &four)
+    e = terminated(&mut failed, &four)
+    std.test.restore_allocations()?
+    std.test.check(a.is_ok() and b.is_ok() and c.is_ok() and d.is_ok(), "existing capacity is enough")?
+    std.test.equal(&len(first), &16)?
+    std.test.equal(&first[13], &120u8)?
+    std.test.equal(&first[14], &121u8)?
+    std.test.equal(&first[15], &0u8)?
+    std.test.equal(&len(second), &16)?
+    std.test.equal(&second[15], &0u8)?
+    std.test.equal(&len(repeated), &32)?
+    std.test.equal(&repeated[26], &0u8)?
+    std.test.equal(&repeated[31], &0u8)?
+    allocation_failed = match e:
+        case Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory))):
+            True
+        case _:
+            False
+    std.test.check(allocation_failed, "a required allocation fails")?
+    std.test.equal(&len(failed), &13)?
+    std.test.equal(&failed[12], &65u8)?
+    print("ok")?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(run_with_optimization(&source, optimize), "ok");
+    }
+}
+
+#[test]
+fn process_extent_helpers_preserve_typed_representation_errors() {
+    let library = include_str!("../stdlib/std/process.plenty");
+    let chunk = library
+        .lines()
+        .find(|line| line.starts_with("const chunk:"))
+        .unwrap();
+    let source = format!(
+        r#"from std.io import StreamError
+{chunk}
+{extent}
+
+{drain_extent}
+
+def main() -> Result[(), AllocError | IoError]:
+    print(extent(i64.MAX, 0).unwrap() == i64.MAX)?
+    size_error = match extent(i64.MAX, 1):
+        case Err(IoError.Data(DataError.Allocation(AllocError.CapacityOverflow))):
+            True
+        case _:
+            False
+    print(size_error)?
+    print(drain_extent(0, 0).unwrap() == 1)?
+    print(drain_extent(9223372036854767615, i64.MAX).unwrap() == i64.MAX)?
+    probe_error = match drain_extent(9223372036854767616, i64.MAX):
+        case Err(StreamError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+    print(probe_error)?
+    full_error = match drain_extent(i64.MAX, i64.MAX):
+        case Err(StreamError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+    print(full_error)?
+    print(drain_extent(2, 1).is_err(), drain_extent(-1, 1).is_err())?
+    Ok(())
+"#,
+        extent = private_helper(library, "extent"),
+        drain_extent = private_helper(library, "drain_extent"),
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            run_with_optimization(&source, optimize),
+            "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue True"
+        );
+    }
 }
 
 #[test]
@@ -845,7 +970,7 @@ census = "cat /proc/$PPID/task/$PPID/children | wc -w"
 mut quick = std.process.command("true")?
 for round in range(40):
     mut child = quick.spawn()?
-    if round % 2 == 0:
+    if round & 1 == 0:
         child.wait()?
     else:
         child.wait_timeout(&std.time.seconds(30u32), &CancellationToken().unwrap())?
@@ -930,7 +1055,7 @@ True Option[i32].Some(0) Option[i32].Nothing
 fn a_just_written_program_runs_while_other_threads_spawn() {
     let source = format!(
         r##"{PRELUDE}
-def churn(rounds: i64) -> Result[i64, AllocError | IoError]:
+def churn(rounds: i64) -> Result[i64, AllocError | IoError | OverflowError[i64]]:
     mut ran = 0
     for _ in range(rounds):
         mut child = std.process.command("/bin/true")?.spawn()?
@@ -938,7 +1063,7 @@ def churn(rounds: i64) -> Result[i64, AllocError | IoError]:
             ran += 1
     Ok(ran)
 
-def rewrite_and_run(rounds: i64) -> Result[i64, AllocError | IoError]:
+def rewrite_and_run(rounds: i64) -> Result[i64, AllocError | IoError | OverflowError[i64]]:
     mut ran = 0
     for _ in range(rounds):
         with open("tool", "w")? as stream:
@@ -955,7 +1080,7 @@ def rewrite_and_run(rounds: i64) -> Result[i64, AllocError | IoError]:
                 pass
     Ok(ran)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     with spawn(churn, 400).drop_job()? as a:
         with spawn(churn, 400).drop_job()? as b:
             with spawn(churn, 400).drop_job()? as c:

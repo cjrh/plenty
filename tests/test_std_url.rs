@@ -55,16 +55,25 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.url.UrlError | AllocError | IoError]:\n{body}    Ok(())\n"
+        "{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.url.UrlError | AllocError | IoError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable).output().unwrap();
     assert!(
@@ -278,6 +287,59 @@ fn fixtures(cases: &[(&str, &str)]) {
             assert_eq!(oracle, *line, "{input}");
         }
     }
+}
+
+#[test]
+fn percent_expansion_checks_actual_private_size_helper_at_i64_limits() {
+    let library = include_str!("../stdlib/std/url.plenty");
+    let helper = library[library.find("def encoded_size(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"{HEADER}
+{helper}
+
+def capacity_error(value: Result[i64, UrlError]) -> bool:
+    match value:
+        case Err(UrlError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError]:
+    print(encoded_size(i64.MAX, 0).unwrap() == i64.MAX)?
+    print(encoded_size(1, 3074457345618258602).unwrap() == i64.MAX)?
+    print(capacity_error(encoded_size(2, 3074457345618258602)))?
+    print(capacity_error(encoded_size(0, 3074457345618258603)))?
+    print(capacity_error(encoded_size(i64.MAX, 1)))?
+    print(encoded_size(5, 7).unwrap() == 26)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            ["True"; 6].join("\n")
+        );
+    }
+}
+
+#[test]
+fn final_literal_runs_and_empty_query_pairs_do_not_step_past_input() {
+    native(
+        r#"
+print(std.url.decode_bytes(b"plain")?.to_text()?)?
+print(std.url.decode_bytes(b"prefix%20suffix")?.to_text()?)?
+print(std.url.decode_bytes(b"")?.len())?
+pairs = std.url.query_pairs("a=1&")?
+print(len(pairs), pairs[0].key, pairs[0].value, pairs[1].key == "", pairs[1].value == "")?
+empty_pairs = std.url.query_pairs("&")?
+print(len(empty_pairs), empty_pairs[0].key == "", empty_pairs[1].value == "")?
+print(len(std.url.query_pairs("")?))?
+"#,
+        "plain\nprefix suffix\n0\n2 a 1 True True\n2 True True\n0",
+    );
 }
 
 #[test]

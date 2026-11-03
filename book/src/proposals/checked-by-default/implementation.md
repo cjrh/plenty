@@ -21,10 +21,10 @@ are removed; its tests are replaced by public-contract coverage. The retained
 local arithmetic suite passes.
 
 The initial library migration covers `std.math`, `std.bytes`, `std.time`,
-`std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env` and
-`std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`
-and `std.test`. Logging's bounded timestamp/line-buffer arithmetic is also
-adapted; its generic running statistics are not yet migrated.
+`std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env`,
+`std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`,
+`std.test`, `std.url`, `std.process` and `std.http.decoder`. Logging's bounded
+timestamp/line-buffer arithmetic is also adapted; its generic running statistics are not yet migrated.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -38,7 +38,12 @@ huge buffers. The HTTP decimal accumulator subtracts ASCII bias before checked
 multiply/add (issue #703), accepting the complete i64 range while mapping larger
 lengths to protocol errors. `FakeStream.fail_after` returns a public
 `Result[(), OverflowError[i64]]`; failures preserve its pending schedule.
-Counter exhaustion in the stream protocol maps to OutOfRange before mutation. No blanket `unchecked:` conversion was applied.
+Counter exhaustion in the stream protocol maps to OutOfRange before mutation.
+URL expansion and process extents check representation limits before allocating
+or consuming another chunk. Process argument encoding reserves additional bytes
+without counting held bytes twice (issue #704). Incremental decoder counters are
+bounded by its per-feed, line, head and body limits. No blanket `unchecked:`
+conversion was applied.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining

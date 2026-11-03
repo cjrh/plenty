@@ -16,7 +16,7 @@ import std.http
 import std.http.decoder
 from std.http.decoder import Event
 
-def main() -> Result[(), std.http.HttpError | IoError]:
+def main() -> Result[(), std.http.HttpError | IoError | OverflowError[i64]]:
     mut decoder = std.http.decoder.decoder(&std.http.limits())?
     wire = b"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\nping"
     mut at = 0
@@ -81,6 +81,12 @@ empty feed. `finish` does not make an incomplete request reusable.
 
 Reset only when the application is ready to process pipelined input. Framing
 and allocation errors poison the decoder; discard it instead of resuming
-with a suffix whose request boundary is no longer trustworthy. Invalid source
-ranges report a stream range error. The decoder never reads a socket, waits,
-or owns the caller's input buffer.
+with a suffix whose request boundary is no longer trustworthy. Source
+ranges follow the ordinary [byte-view rules](bytes.md#byte-views); `feed`
+takes an already-formed view, not separate range parameters. The decoder never
+reads a socket, waits, or owns the caller's input buffer.
+
+Internal cursor arithmetic uses explicit opt-outs whose bounds come from the
+4096-byte feed budget, validated CRLF lines and the copied head/body limits.
+Numeric length parsing keeps the shared parser's recoverable errors. Calling
+from another arithmetic mode does not change the decoder's `HttpError` contract.
