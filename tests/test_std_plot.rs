@@ -1152,3 +1152,117 @@ def check{budget}(p: &gg.Plot) -> Result[(), AllocError | PlotError | BytesError
         "{output}"
     );
 }
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("main.plenty");
+    let binary = temp.path().join("program");
+    std::fs::write(&input, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&input, &binary, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = support::assert_success(std::process::Command::new(binary).output().unwrap());
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn diagnostic_increment_and_hex_channel_boundaries_do_not_allocate() {
+    let library = include_str!("../stdlib/std/plot.plenty");
+    let helpers = ["def diagnostic_increment(", "def hex_channel("]
+        .map(|name| {
+            library[library.find(name).unwrap()..]
+                .split("\n\n")
+                .next()
+                .unwrap()
+        })
+        .join("\n\n");
+    let source = format!(
+        r##"
+{helpers}
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    first = diagnostic_increment(0) == 1
+    last = diagnostic_increment(9223372036854775806) == i64.MAX
+    saturated = diagnostic_increment(i64.MAX) == i64.MAX
+    low = hex_channel("#000000", 1) == 0.0
+    high = hex_channel("#FFFFFF", 3) == 255.0
+    mixed = hex_channel("#0000fF", 5) == 255.0
+    print("__test_end_no_allocations__")?
+    print(first, last, saturated, low, high, mixed)?
+    Ok(())
+"##
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True"
+        );
+    }
+}
+
+#[test]
+fn facet_panel_and_setting_extremes_keep_existing_errors() {
+    let source = program(
+        r#"
+for count in range(1000, 1002):
+    data = gg.table([("x", Column.Int([i for i in range(count)]?)), ("key", Column.Int([i for i in range(count)]?))]?)?
+    value = gg.ggplot(data, gg.aes("x"), [gg.geom_bar(), gg.facet_wrap("key")]?)
+    if count == 1000:
+        print(value.is_ok())?
+    else:
+        match value:
+            case Err(PlotError.InvalidSetting(message)):
+                print(message == "at most 1000 facet panels are supported")?
+            case _:
+                print(False)?
+data = gg.table([("x", Column.Int([1]?)), ("key", Column.Int([1]?))]?)?
+print(gg.ggplot(data.share(), gg.aes("x"), [gg.geom_bar(), gg.facet_wrap("key", nrow=1000, ncol=1000)]?).is_ok())?
+for count in [i64.MIN, i64.MAX]?:
+    match gg.ggplot(data.share(), gg.aes("x"), [gg.geom_bar(), gg.facet_wrap("key", ncol=count)]?):
+        case Err(PlotError.InvalidSetting(message)):
+            print(message == "facet row/column counts must be between 0 (automatic) and 1000")?
+        case _:
+            print(False)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            ["True"; 5].join("\n")
+        );
+    }
+}
+
+#[test]
+fn histogram_maximum_bins_retains_final_endpoint() {
+    let source = program(
+        r#"
+data = gg.table([("x", Column.Num([0.0, 0.5, 1.0]?))]?)?
+p = gg.ggplot(data, gg.aes("x"), [gg.geom_histogram(bins=10000)]?)?
+mut output = std.io.cursor(std.bytes.empty()?)
+drop(p.write_svg(&mut output)?)
+print(output.data.to_text()?)?
+"#,
+    );
+    for optimize in [false, true] {
+        let svg = output_with_optimization(&source, optimize);
+        let bars = svg
+            .split("data-geom=\"histogram\"")
+            .nth(1)
+            .unwrap()
+            .split("</g>")
+            .next()
+            .unwrap();
+        assert_eq!(bars.matches("<rect ").count(), 3);
+    }
+}
