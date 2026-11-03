@@ -172,18 +172,22 @@ def number_complete(state: i64) -> bool:
     state == 2 or state == 3 or state == 5 or state == 8
 
 def hex_value(code: i64) -> i64:
-    if code >= 48 and code <= 57:
-        return code - 48
-    if code >= 97 and code <= 102:
-        return code - 87
-    if code >= 65 and code <= 70:
-        return code - 55
-    -1
+    # Each subtraction follows its ASCII digit range check.
+    unchecked:
+        if code >= 48 and code <= 57:
+            return code - 48
+        if code >= 97 and code <= 102:
+            return code - 87
+        if code >= 65 and code <= 70:
+            return code - 55
+        -1
 
 def hex_digit(value: i64) -> i64:
-    if value < 10:
-        return 48 + value
-    87 + value
+    # Only called with a nibble (0..15) from an escaped byte below 32.
+    unchecked:
+        if value < 10:
+            return 48 + value
+        87 + value
 
 # The byte at `index` of `true`, `false`, or `null`, or -1 past its end.
 def literal_byte(which: i64, index: i64) -> i64:
@@ -266,6 +270,20 @@ def run_end(found: Option[i64], stop: i64) -> i64:
         case Nothing:
             stop
 
+# Locations are one-based: even an input byte budget of i64.MAX cannot
+# prove that its following line/column fits. Preflight before consuming input.
+def advanced_position(offset: i64, line: i64, column: i64, count: i64, scalar_start: bool, newline: bool) -> Result[(i64, i64, i64), JsonFault]:
+    next_position = checked:
+        next_offset = offset + count
+        next_line = line + 1 if newline else line
+        next_column = 1 if newline else column + count if scalar_start else column
+        (next_offset, next_line, next_column)
+    match next_position:
+        case Ok(position):
+            Ok(position)
+        case Err(_):
+            Err(JsonFault.InputTooLarge)
+
 # A recognizer whose whole state lives in these fields, so input may stop and
 # resume between any two bytes. It examines one byte at a time, except that a
 # run of plain string content is taken in one step. `_window` holds input not
@@ -320,7 +338,10 @@ pub class Decoder:
     pub def feed(self: &mut Decoder, source: &[u8]) -> Result[(), JsonError]:
         if self._broken or self._finished:
             return Err(self.here(JsonFault.InvalidState))
-        if len(source) > self._max_input - self._fed:
+        # 0 <= _fed <= _max_input; additions below fit the remaining budget.
+        room = unchecked:
+            self._max_input - self._fed
+        if len(source) > room:
             self._broken = True
             return Err(JsonError(JsonFault.InputTooLarge, self._max_input, 0, 0))
         if self._at == self._window.len():
@@ -328,7 +349,8 @@ pub class Decoder:
             self._at = 0
         match reserved(self._window.extend(source)):
             case Ok(_):
-                self._fed += len(source)
+                unchecked:
+                    self._fed += len(source)
                 Ok(())
             case Err(fault):
                 Err(self.here(fault))
@@ -351,14 +373,15 @@ pub class Decoder:
                 self._broken = True
                 Err(self.here(fault))
 
-    def bump(self: &mut Decoder, byte: i64) -> ():
-        self._at += 1
-        self._offset += 1
-        if byte == 10:
-            self._line += 1
-            self._column = 1
-        elif byte & 192 != 128:
-            self._column += 1
+    def bump(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
+        offset, line, column = advanced_position(self._offset, self._line, self._column, 1, byte & 192 != 128, byte == 10)?
+        # advance only calls bump with _at < _window.len().
+        unchecked:
+            self._at += 1
+        self._offset = offset
+        self._line = line
+        self._column = column
+        Ok(())
 
     def mark(self: &mut Decoder) -> ():
         self._token_offset = self._offset
@@ -380,7 +403,7 @@ pub class Decoder:
             mut step: Option[Event] = Nothing
             if mode == mode_none:
                 if byte == 32 or byte == 10 or byte == 13 or byte == 9:
-                    self.bump(byte)
+                    self.bump(byte)?
                 else:
                     step = self.token(byte)?
             elif mode == mode_string:
@@ -416,7 +439,7 @@ pub class Decoder:
         if expect == expect_colon:
             if byte != 58:
                 return Err(JsonFault.UnexpectedByte)
-            self.bump(byte)
+            self.bump(byte)?
             self._expect = expect_value
             return Ok(Nothing)
         if expect == expect_key or expect == expect_first_key:
@@ -437,7 +460,7 @@ pub class Decoder:
             self.mark()
             self._number = number_step(0, byte)
             push_byte(&mut self._scratch, byte)?
-            self.bump(byte)
+            self.bump(byte)?
             self._mode = mode_number
             return Ok(Nothing)
         mut which = -1
@@ -450,7 +473,7 @@ pub class Decoder:
         if which < 0:
             return Err(JsonFault.UnexpectedByte)
         self.mark()
-        self.bump(byte)
+        self.bump(byte)?
         self._literal = which
         self._literal_at = 1
         self._mode = mode_literal
@@ -461,9 +484,11 @@ pub class Decoder:
         count = self._stack.len()
         if count == 0:
             return Err(JsonFault.TrailingData)
-        top = i64(self._stack.get(count - 1))
+        # count > 0, bounded by the allocated stack.
+        top = unchecked:
+            i64(self._stack.get(count - 1))
         if byte == 44:
-            self.bump(byte)
+            self.bump(byte)?
             if top == in_object:
                 self._expect = expect_key
             else:
@@ -478,7 +503,7 @@ pub class Decoder:
             return Err(JsonFault.DepthExceeded)
         push_byte(&mut self._stack, kind)?
         self.mark()
-        self.bump(byte)
+        self.bump(byte)?
         if kind == in_object:
             self._expect = expect_first_key
             return Ok(Some(Event.StartObject))
@@ -488,7 +513,7 @@ pub class Decoder:
     def close(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
         drop(self._stack.pop())
         self.mark()
-        self.bump(byte)
+        self.bump(byte)?
         self._expect = expect_after
         if byte == 93:
             return Ok(Some(Event.EndArray))
@@ -496,7 +521,7 @@ pub class Decoder:
 
     def open_string(self: &mut Decoder, byte: i64, is_key: bool) -> Result[Option[Event], JsonFault]:
         self.mark()
-        self.bump(byte)
+        self.bump(byte)?
         self._is_key = is_key
         self._mode = mode_string
         Ok(Nothing)
@@ -507,7 +532,7 @@ pub class Decoder:
         if byte == 34:
             text = faulted(self._scratch.to_text())?
             self._scratch.clear()
-            self.bump(byte)
+            self.bump(byte)?
             self._mode = mode_none
             if self._is_key:
                 self._expect = expect_colon
@@ -515,7 +540,7 @@ pub class Decoder:
             self._expect = expect_after
             return Ok(Some(Event.Text(text)))
         if byte == 92:
-            self.bump(byte)
+            self.bump(byte)?
             self._mode = mode_escape
             return Ok(Nothing)
         if byte < 32:
@@ -548,25 +573,31 @@ pub class Decoder:
             self._utf8_high = high
             self._mode = mode_utf8
             push_byte(&mut self._scratch, byte)?
-            self.bump(byte)
+            self.bump(byte)?
             return Ok(Nothing)
         # Plain content: one scan and one copy for the whole run. Each byte is
         # one column, and none is a line feed.
         available = self._window.len()
         stop = run_end(self._window.find_not_in(&self._plain, self._at, available), available)
+        # find_not_in returns a position in [_at, available].
+        count = unchecked:
+            stop - self._at
+        offset, line, column = advanced_position(self._offset, self._line, self._column, count, True, False)?
         reserved(self._scratch.extend(&self._window[self._at:stop]))?
-        count = stop - self._at
         self._at = stop
-        self._offset += count
-        self._column += count
+        self._offset = offset
+        self._line = line
+        self._column = column
         Ok(Nothing)
 
     def continuation(self: &mut Decoder, byte: i64) -> Result[(), JsonFault]:
         if byte < self._utf8_low or byte > self._utf8_high:
             return Err(JsonFault.InvalidUtf8)
         push_byte(&mut self._scratch, byte)?
-        self.bump(byte)
-        self._utf8_need -= 1
+        self.bump(byte)?
+        # A validated lead byte sets need to 1..3, then this mode counts down.
+        unchecked:
+            self._utf8_need -= 1
         self._utf8_low = 128
         self._utf8_high = 191
         if self._utf8_need == 0:
@@ -580,13 +611,13 @@ pub class Decoder:
         if mode == mode_low_slash:
             if byte != 92:
                 return Err(JsonFault.InvalidSurrogate)
-            self.bump(byte)
+            self.bump(byte)?
             self._mode = mode_low_u
             return Ok(())
         if mode == mode_low_u:
             if byte != 117:
                 return Err(JsonFault.InvalidSurrogate)
-            self.bump(byte)
+            self.bump(byte)?
             self._hex_count = 0
             self._hex_value = 0
             self._mode = mode_unicode
@@ -607,7 +638,7 @@ pub class Decoder:
         elif byte == 116:
             plain = 9
         elif byte == 117:
-            self.bump(byte)
+            self.bump(byte)?
             self._hex_count = 0
             self._hex_value = 0
             self._mode = mode_unicode
@@ -615,7 +646,7 @@ pub class Decoder:
         if plain < 0:
             return Err(JsonFault.InvalidEscape)
         push_byte(&mut self._scratch, plain)?
-        self.bump(byte)
+        self.bump(byte)?
         self._mode = mode_string
         Ok(())
 
@@ -623,16 +654,23 @@ pub class Decoder:
         digit = hex_value(byte)
         if digit < 0:
             return Err(JsonFault.InvalidEscape)
-        code = self._hex_value * 16 + digit
+        # At most four hex digits: partial <= 4095 and digit is 0..15.
+        code = unchecked:
+            self._hex_value * 16 + digit
         if self._hex_count < 3:
-            self.bump(byte)
+            self.bump(byte)?
             self._hex_value = code
-            self._hex_count += 1
+            # This branch only increments counts 0..2.
+            unchecked:
+                self._hex_count += 1
             return Ok(())
         if self._high != 0:
             if code < 56320 or code > 57343:
                 return Err(JsonFault.InvalidSurrogate)
-            push_scalar(&mut self._scratch, 65536 + ((self._high - 55296) << 10) + (code - 56320))?
+            # Validated high/low surrogates produce a scalar <= U+10FFFF.
+            scalar = unchecked:
+                65536 + ((self._high - 55296) << 10) + (code - 56320)
+            push_scalar(&mut self._scratch, scalar)?
             self._high = 0
             self._mode = mode_string
         elif code >= 55296 and code <= 56319:
@@ -643,7 +681,7 @@ pub class Decoder:
         else:
             push_scalar(&mut self._scratch, code)?
             self._mode = mode_string
-        self.bump(byte)
+        self.bump(byte)?
         Ok(())
 
     def number(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
@@ -653,7 +691,7 @@ pub class Decoder:
         if state == 0:
             return Ok(Some(self.end_number()?))
         push_byte(&mut self._scratch, byte)?
-        self.bump(byte)
+        self.bump(byte)?
         self._number = state
         Ok(Nothing)
 
@@ -670,8 +708,10 @@ pub class Decoder:
     def literal(self: &mut Decoder, byte: i64) -> Result[Option[Event], JsonFault]:
         if byte != literal_byte(self._literal, self._literal_at):
             return Err(JsonFault.InvalidLiteral)
-        self.bump(byte)
-        self._literal_at += 1
+        self.bump(byte)?
+        # The longest literal is false (5 bytes); a mismatch exits above.
+        unchecked:
+            self._literal_at += 1
         if literal_byte(self._literal, self._literal_at) >= 0:
             return Ok(Nothing)
         self._mode = mode_none
@@ -707,11 +747,14 @@ def is_end(event: &Event) -> bool:
 
 # One read into the emptied window. End of input finishes the decoder.
 def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFault]:
-    mut room = source._max_input - source._fed
+    # 0 <= _fed <= _max_input. The extra byte is added only below 4096.
+    mut room = unchecked:
+        source._max_input - source._fed
     # One byte past the limit is enough to tell a full document from an
     # oversized one.
     if room < read_chunk:
-        room += 1
+        unchecked:
+            room += 1
     else:
         room = read_chunk
     reserved(source._window.resize(room, 0u8))?
@@ -726,10 +769,15 @@ def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFa
                 source._window.truncate(count)
                 if count == 0:
                     source._finished = True
-                elif count > source._max_input - source._fed:
+                # Remaining input budget is nonnegative and representable.
+                remaining = unchecked:
+                    source._max_input - source._fed
+                if count > remaining:
                     source._window.clear()
                     return Err(JsonFault.InputTooLarge)
-                source._fed += count
+                # Validated count is nonnegative and no larger than remaining.
+                unchecked:
+                    source._fed += count
                 return Ok(())
             case Err(cause):
                 match cause:
@@ -975,14 +1023,21 @@ pub class Encoder:
         if self._written >= self._max_output:
             return Err(JsonFault.OutputTooLarge)
         push_byte(&mut self._out, byte)?
-        self._written += 1
+        # _written < _max_output <= i64.MAX.
+        unchecked:
+            self._written += 1
         Ok(())
 
     def extend(self: &mut Encoder, source: &[u8]) -> Result[(), JsonFault]:
-        if len(source) > self._max_output - self._written:
+        # 0 <= _written <= _max_output, including output already taken.
+        remaining = unchecked:
+            self._max_output - self._written
+        if len(source) > remaining:
             return Err(JsonFault.OutputTooLarge)
         reserved(self._out.extend(source))?
-        self._written += len(source)
+        # The successful preflight bounds the sum by _max_output.
+        unchecked:
+            self._written += len(source)
         Ok(())
 
     def raw(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
@@ -993,7 +1048,9 @@ pub class Encoder:
         count = self._stack.len()
         if count == 0:
             return Err(JsonFault.InvalidState)
-        Ok(i64(self._stack.get(count - 1)))
+        # count > 0, bounded by the allocated stack.
+        unchecked:
+            Ok(i64(self._stack.get(count - 1)))
 
     def before_value(self: &mut Encoder) -> Result[(), JsonFault]:
         if self._broken:
@@ -1042,7 +1099,9 @@ pub class Encoder:
                 self.put(48)?
                 self.put(hex_digit(byte >> 4))?
                 self.put(hex_digit(byte & 15))?
-            run = index + 1
+            # index < count <= i64.MAX.
+            unchecked:
+                run = index + 1
             index = run_end(source.find_in(&self._escaped, run, count), count)
         self.extend(&source[run:count])?
         self.put(34)
@@ -1267,10 +1326,14 @@ pub def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result
             source._out.clear()
             Ok(())
         case Err(partial):
-            kept = source._out.len() - partial.completed
-            # Shifted in place: a failure path must not need memory.
+            # write_all validates 0 <= completed <= output length; for every
+            # index < kept, completed + index < output length. Shift in place:
+            # a failure path must not need memory.
+            kept = unchecked:
+                source._out.len() - partial.completed
             for index in range(kept):
-                source._out.set(index, source._out.get(partial.completed + index))
+                unchecked:
+                    source._out.set(index, source._out.get(partial.completed + index))
             source._out.truncate(kept)
             Err(JsonError(JsonFault.Stream(partial.cause), source._written, 0, 0))
 
