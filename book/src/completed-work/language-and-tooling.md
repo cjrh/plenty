@@ -394,6 +394,8 @@ conversion, fallible run-time conversion, private construction, `.get()`,
 domain-preserving arithmetic with checked overflow, ordinary comparisons,
 copying, scalar formatting and hashing. Explicit `NonZero.from(positive)` and
 `NonNegative.from(positive)` widen without failure or allocation.
+Invalid element diagnostics suggest `NonZero[uN]` or `uN` only for unsigned
+integers, not floats or other unsupported types (issue #700).
 
 See [integer domains](../design/language/03-types/numbers.md#positive-and-non-negative-integers).
 Plain integer dividends accept `NonZero[T]` and `Positive[T]` divisors for

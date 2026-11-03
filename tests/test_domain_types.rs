@@ -94,6 +94,42 @@ match overflow(p):
 }
 
 #[rstest]
+fn non_integer_elements_have_no_replacement_hint(
+    #[values("Positive", "NonNegative")] domain: &str,
+    #[values("f32", "f64", "bool", "str", "list[i64]")] element: &str,
+) {
+    // Issue #700: NonZero[float] is not a valid alternative.
+    let source =
+        format!("def f(x: {domain}[{element}]) -> ():\n    pass\ndef main() -> ():\n    pass\n");
+    let error = plenty::check_source(&source).unwrap_err().to_string();
+    assert!(
+        error.ends_with(&format!("`{domain}` requires a signed integer type")),
+        "{error}"
+    );
+}
+
+#[rstest]
+fn unsigned_elements_keep_valid_replacement_hints(
+    #[values("Positive", "NonNegative")] domain: &str,
+    #[values("u8", "u16", "u32", "u64")] element: &str,
+) {
+    let source =
+        format!("def f(x: {domain}[{element}]) -> ():\n    pass\ndef main() -> ():\n    pass\n");
+    let error = plenty::check_source(&source).unwrap_err().to_string();
+    let suggestion = if domain == "Positive" {
+        format!("NonZero[{element}]")
+    } else {
+        element.to_owned()
+    };
+    assert!(
+        error.ends_with(&format!(
+            "`{domain}` requires a signed integer type; for `{element}`, use `{suggestion}`"
+        )),
+        "{error}"
+    );
+}
+
+#[rstest]
 #[case("p: Positive[i64] = 0", "must be greater than zero")]
 #[case("p: Positive[i64] = -1", "must be greater than zero")]
 #[case("n: NonNegative[i8] = -1", "cannot be negative")]

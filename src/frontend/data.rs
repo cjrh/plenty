@@ -435,14 +435,16 @@ impl TypeAliases {
             && let [element] = actual.as_slice()
             && !matches!(element, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
         {
-            let suggestion = if domain == crate::op::IntegerDomain::Positive {
-                format!("NonZero[{element}]")
-            } else {
-                element.to_string()
-            };
-            return Err(application.at.error(format!(
-                "`{name}` requires a signed integer type; for `{element}`, use `{suggestion}`"
-            )));
+            let mut message = format!("`{name}` requires a signed integer type");
+            if matches!(element, Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64) {
+                let suggestion = if domain == crate::op::IntegerDomain::Positive {
+                    format!("NonZero[{element}]")
+                } else {
+                    element.to_string()
+                };
+                message.push_str(&format!("; for `{element}`, use `{suggestion}`"));
+            }
+            return Err(application.at.error(message));
         }
         let key = (name.clone(), actual.clone());
         if let Some(ty) = self.data.instances.borrow().get(&key) {
