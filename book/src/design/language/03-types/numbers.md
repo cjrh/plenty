@@ -293,6 +293,7 @@ A [range](../../facilities/01-builtins/ranges.md) step is `NonZero[i64]`.
 `Positive[T]` holds an integer greater than zero; `NonNegative[T]` holds an
 integer greater than or equal to zero. `T` must be `i8`, `i16`, `i32` or
 `i64`. For unsigned integers use `NonZero[uN]` or plain `uN`, respectively.
+Floats and other non-integer types are rejected without a replacement suggestion.
 Both are builtin names and cannot be redefined.
 
 An unsuffixed integer literal converts where the domain type is expected,
