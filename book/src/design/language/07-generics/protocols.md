@@ -120,3 +120,6 @@ records the shipped foundation. [Protocol method bodies](../../../proposals/prot
 propose defaults, final methods, and explicit private-hook grants; those
 extensions are not implemented. For an existing-language solution, see
 [library-owned operations](../../../proposals/completed/library-owned-operations.md).
+The separate [boxed protocol proposal](../../../proposals/boxed-protocols.md)
+investigates explicit `Box[P]` owners and runtime method dispatch for
+heterogeneous collections; these protocol objects are not implemented.
