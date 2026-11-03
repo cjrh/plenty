@@ -126,6 +126,12 @@ pieces, so `send` allocates nothing for any message size.
 | `subprotocol` | `Nothing` | The subprotocol a client offers, or a server accepts when the client offers it |
 
 Both maxima are `Positive[i64]`, so a zero or negative maximum is a type error.
+They bound payload bytes, not the prefix already held by the caller's buffer.
+An unrepresentable combined buffer extent is
+`Allocation(AllocError.CapacityOverflow)`, not `TooLarge`; as with other receive
+errors, the original prefix is retained and the connection is closed. Frame
+splitting and mask positions stay within their source ranges even when the
+configured maximum is `i64.MAX`.
 
 ## Servers
 

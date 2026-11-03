@@ -185,9 +185,30 @@ def now_ns() -> u64:
 def until_of(deadline: &Deadline) -> u64:
     start = now_ns()
     budget = deadline.remaining(&monotonic_now()).as_nanoseconds()
-    if budget > u64.MAX - start:
-        return u64.MAX
-    start + budget
+    deadline_extent(start, budget)
+
+# Preserve the existing saturated absolute-deadline representation.
+def deadline_extent(start: u64, budget: u64) -> u64:
+    unchecked:
+        # MAX-start fits; the addition is reached only when it is <= MAX.
+        if budget > u64.MAX - start:
+            return u64.MAX
+        start + budget
+
+# Callers supply 0 <= at <= stop <= i64.MAX and limit > 0. Only add
+# limit when the result is strictly below stop; never compute at+limit first.
+def piece_end(at: i64, stop: i64, limit: i64) -> i64:
+    unchecked:
+        if stop - at > limit:
+            return at + limit
+        stop
+
+# A caller prefix and a frame can each fit while their combined buffer cannot.
+# This is allocation capacity exhaustion, not a protocol/message-limit error.
+def payload_extent(base: i64, count: i64) -> Result[i64, AllocError]:
+    extent = checked:
+        base + count
+    extent.map_error(def(error: OverflowError[i64]) -> AllocError: AllocError.CapacityOverflow)
 
 # An open WebSocket connection over `T`, which reads and writes like a
 # std.http.server Transport. Every call waits at most until its deadline.
@@ -256,9 +277,7 @@ pub class WebSocket[T]:
                 pass
         mut at = 0
         while True:
-            mut end = stop
-            if end - at > self._max_frame:
-                end = at + self._max_frame
+            end = piece_end(at, stop, self._max_frame)
             last = end == stop
             outcome = self.frame(opcode, &data[at:end], last, deadline, cancel)
             self.sent(outcome)?
@@ -302,7 +321,10 @@ pub class WebSocket[T]:
         if self._state == state_open:
             if not valid_code(code) or reason.byte_len() > 123:
                 return Err(WebSocketError.OutOfRange)
-            mut payload = allocated(std.bytes.with_capacity(2 + reason.byte_len()))?
+            # The preceding validation bounds reason to 123 bytes.
+            capacity = unchecked:
+                2 + reason.byte_len()
+            mut payload = allocated(std.bytes.with_capacity(capacity))?
             encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
             spelled = allocated(std.bytes.from_text(reason))?
             allocated(payload.extend(&spelled))?
@@ -341,7 +363,10 @@ pub class WebSocket[T]:
                     return self.closed_by_peer(out, base, mark, deadline, cancel)
                 if opcode == op_ping:
                     if self._state == state_open:
-                        self.frame(op_pong, &out[mark:mark + length], True, deadline, cancel)?
+                        # take succeeded, so mark+length <= out.len().
+                        end = unchecked:
+                            mark + length
+                        self.frame(op_pong, &out[mark:end], True, deadline, cancel)?
                 elif opcode != op_pong:
                     return Err(WebSocketError.Protocol)
                 out.truncate(mark)
@@ -355,7 +380,11 @@ pub class WebSocket[T]:
                     kind = opcode
                 else:
                     return Err(WebSocketError.Protocol)
-                if length > self._max_frame or out.len() - base > self._max_message - length:
+                # base <= out.len(); 1 <= max_message <= MAX and
+                # 0 <= length <= MAX, so both differences fit, even negative.
+                too_large = unchecked:
+                    length > self._max_frame or out.len() - base > self._max_message - length
+                if too_large:
                     return Err(WebSocketError.TooLarge)
                 self.take(out, length, deadline, cancel)?
                 if fin:
@@ -369,28 +398,32 @@ pub class WebSocket[T]:
     # The peer's close payload is out[mark:]. Answers it, unless this side
     # closed first, and leaves only its reason after `base`.
     def closed_by_peer(self: &mut WebSocket[T], out: &mut Bytes, base: i64, mark: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]:
-        length = out.len() - mark
-        if length == 1:
-            return Err(WebSocketError.Protocol)
-        mut code = 1005
-        mut reason = mark
-        if length >= 2:
-            code = i64(out[mark]) * 256 + i64(out[mark + 1])
-            if not valid_code(code):
+        # base <= mark <= out.len(), with at most 125 control payload bytes.
+        # length>=2 guards mark+1/2; a two-byte code is at most 65535.
+        # base<=reason<=out.len() bounds both copy indexes and base+size.
+        unchecked:
+            length = out.len() - mark
+            if length == 1:
                 return Err(WebSocketError.Protocol)
-            reason = mark + 2
-            if out.utf8_run(reason, out.len()) != out.len():
-                return Err(WebSocketError.InvalidText)
-        if cancel.is_cancelled():
-            return Err(WebSocketError.Net(NetError.Cancelled))
-        if self._state == state_open:
-            self.frame(op_close, &out[mark:reason], True, deadline, cancel)?
-        size = out.len() - reason
-        for index in range(size):
-            out[base + index] = out[reason + index]
-        out.truncate(base + size)
-        self.shut(state_done)
-        Ok(Message.Close(code))
+            mut code = 1005
+            mut reason = mark
+            if length >= 2:
+                code = i64(out[mark]) * 256 + i64(out[mark + 1])
+                if not valid_code(code):
+                    return Err(WebSocketError.Protocol)
+                reason = mark + 2
+                if out.utf8_run(reason, out.len()) != out.len():
+                    return Err(WebSocketError.InvalidText)
+            if cancel.is_cancelled():
+                return Err(WebSocketError.Net(NetError.Cancelled))
+            if self._state == state_open:
+                self.frame(op_close, &out[mark:reason], True, deadline, cancel)?
+            size = out.len() - reason
+            for index in range(size):
+                out[base + index] = out[reason + index]
+            out.truncate(base + size)
+            self.shut(state_done)
+            Ok(Message.Close(code))
 
     # Closes the stream after an error, first sending the close code a
     # protocol fault calls for.
@@ -439,195 +472,218 @@ pub class WebSocket[T]:
     # Reads until `need` bytes are buffered. `wait` marks the wait for a new
     # message, which server shutdown ends.
     def fill(self: &mut WebSocket[T], need: i64, wait: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
-        while self._stop - self._start < need:
-            if cancel.is_cancelled():
-                return Err(WebSocketError.Net(NetError.Cancelled))
-            limited = cancellation_slice(deadline)
-            if self._input.len() - self._start < need:
-                held = self._stop - self._start
-                for index in range(held):
-                    self._input[index] = self._input[self._start + index]
-                self._start = 0
-                self._stop = held
-            waiting = wait and self._stop == self._start
-            size = self._input.len()
-            outcome: Result[i64, NetError] = match &mut self._stream:
-                case Some(stream):
-                    if waiting:
-                        stream.read_before(&mut self._input, self._stop, size, &limited, &self._waiting)
-                    else:
-                        stream.read_before(&mut self._input, self._stop, size, &limited, &self._cancel)
-                case Nothing:
-                    Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-            count = match outcome:
-                case Ok(found):
-                    found
-                case Err(NetError.TimedOut):
-                    if not deadline.expired(&monotonic_now()):
-                        continue
-                    return Err(WebSocketError.Net(NetError.TimedOut))
-                case Err(NetError.Cancelled):
-                    if waiting and not self._cancel.is_cancelled():
-                        return Err(WebSocketError.Stopping)
+        # 0 <= start <= stop <= input.len(); need is 1..14. Compaction
+        # copies only held bytes. Transport count <= input.len()-stop, so
+        # stop+count never exceeds the buffer representation.
+        unchecked:
+            while self._stop - self._start < need:
+                if cancel.is_cancelled():
                     return Err(WebSocketError.Net(NetError.Cancelled))
-                case Err(error):
-                    return Err(net_error(error))
-            if count == 0:
-                return Err(ended())
-            self._stop += count
-        Ok(())
+                limited = cancellation_slice(deadline)
+                if self._input.len() - self._start < need:
+                    held = self._stop - self._start
+                    for index in range(held):
+                        self._input[index] = self._input[self._start + index]
+                    self._start = 0
+                    self._stop = held
+                waiting = wait and self._stop == self._start
+                size = self._input.len()
+                outcome: Result[i64, NetError] = match &mut self._stream:
+                    case Some(stream):
+                        if waiting:
+                            stream.read_before(&mut self._input, self._stop, size, &limited, &self._waiting)
+                        else:
+                            stream.read_before(&mut self._input, self._stop, size, &limited, &self._cancel)
+                    case Nothing:
+                        Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+                count = match outcome:
+                    case Ok(found):
+                        found
+                    case Err(NetError.TimedOut):
+                        if not deadline.expired(&monotonic_now()):
+                            continue
+                        return Err(WebSocketError.Net(NetError.TimedOut))
+                    case Err(NetError.Cancelled):
+                        if waiting and not self._cancel.is_cancelled():
+                            return Err(WebSocketError.Stopping)
+                        return Err(WebSocketError.Net(NetError.Cancelled))
+                    case Err(error):
+                        return Err(net_error(error))
+                if count == 0:
+                    return Err(ended())
+                self._stop += count
+            Ok(())
 
     # Reads a frame header: whether it ends its message, its opcode, and its
     # payload length. The masking key goes to `_mask`.
     def header(self: &mut WebSocket[T], wait: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(bool, u8, i64), WebSocketError]:
-        self.fill(2, wait, deadline, cancel)?
-        first = self._input[self._start]
-        second = self._input[self._start + 1]
-        # No extension is negotiated, so the reserved bits must be clear.
-        if (first & 112u8) != 0u8:
-            return Err(WebSocketError.Protocol)
-        masked = (second & 128u8) != 0u8
-        # Clients mask every frame and servers none (section 5.1).
-        if masked == self._client:
-            return Err(WebSocketError.Protocol)
-        small = i64(second & 127u8)
-        mut need = 2
-        if small == 126:
-            need += 2
-        elif small == 127:
-            need += 8
-        if masked:
-            need += 4
-        self.fill(need, False, deadline, cancel)?
-        mut at = self._start + 2
-        mut length = small
-        if small == 126:
-            length = i64(std.encoding.unpack_u16(&self._input, at, Endian.Big))
-            at += 2
-        elif small == 127:
-            large = std.encoding.unpack_u64(&self._input, at, Endian.Big)
-            if large > 9223372036854775807u64:
+        # need is 2..14. Each fill proves start+need <= stop <= input.len();
+        # all length/mask positions fit inside that header. No payload count is added.
+        unchecked:
+            self.fill(2, wait, deadline, cancel)?
+            first = self._input[self._start]
+            second = self._input[self._start + 1]
+            # No extension is negotiated, so the reserved bits must be clear.
+            if (first & 112u8) != 0u8:
                 return Err(WebSocketError.Protocol)
-            length = i64(large)
-            at += 8
-        if masked:
-            for index in range(4):
-                self._mask[index] = self._input[at + index]
-        self._start += need
-        Ok(((first & 128u8) != 0u8, first & 15u8, length))
+            masked = (second & 128u8) != 0u8
+            # Clients mask every frame and servers none (section 5.1).
+            if masked == self._client:
+                return Err(WebSocketError.Protocol)
+            small = i64(second & 127u8)
+            mut need = 2
+            if small == 126:
+                need += 2
+            elif small == 127:
+                need += 8
+            if masked:
+                need += 4
+            self.fill(need, False, deadline, cancel)?
+            mut at = self._start + 2
+            mut length = small
+            if small == 126:
+                length = i64(std.encoding.unpack_u16(&self._input, at, Endian.Big))
+                at += 2
+            elif small == 127:
+                large = std.encoding.unpack_u64(&self._input, at, Endian.Big)
+                if large > 9223372036854775807u64:
+                    return Err(WebSocketError.Protocol)
+                length = i64(large)
+                at += 8
+            if masked:
+                for index in range(4):
+                    self._mask[index] = self._input[at + index]
+            self._start += need
+            Ok(((first & 128u8) != 0u8, first & 15u8, length))
 
     # Appends `count` payload bytes to `out`, unmasked.
     def take(self: &mut WebSocket[T], out: &mut Bytes, count: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
-        base = out.len()
-        mut held = self._stop - self._start
-        if held > count:
-            held = count
-        allocated(out.extend(&self._input[self._start:self._start + held]))?
-        self._start += held
-        if held < count:
-            allocated(out.resize(base + count, 0u8))?
-            mut at = base + held
-            while at < base + count:
+        # 0 <= start <= stop <= input.len(); count>=0. held<=count and
+        # held<=stop-start bound input consumption. Successful extend/resize
+        # proves base+held/count <= out.len(); reads stay within that extent.
+        # Thus mask indexes fit; divisor 4 is nonzero.
+        unchecked:
+            base = out.len()
+            mut held = self._stop - self._start
+            if held > count:
+                held = count
+            allocated(out.extend(&self._input[self._start:self._start + held]))?
+            self._start += held
+            if held < count:
+                # Preserve the existing ordering: buffered bytes were appended
+                # and consumed before the direct-read resize is attempted.
+                end = allocated(payload_extent(base, count))?
+                allocated(out.resize(end, 0u8))?
+                mut at = base + held
+                while at < end:
+                    if cancel.is_cancelled():
+                        return Err(WebSocketError.Net(NetError.Cancelled))
+                    limited = cancellation_slice(deadline)
+                    outcome: Result[i64, NetError] = match &mut self._stream:
+                        case Some(stream):
+                            stream.read_before(out, at, end, &limited, &self._cancel)
+                        case Nothing:
+                            Err(NetError.Stream(StreamError.Io(IoError.Closed)))
+                    read = match outcome:
+                        case Err(NetError.TimedOut):
+                            if not deadline.expired(&monotonic_now()):
+                                continue
+                            return Err(WebSocketError.Net(NetError.TimedOut))
+                        case _ as result:
+                            netted(result)?
+                    if read == 0:
+                        return Err(ended())
+                    at += read
+            if not self._client:
+                for index in range(count):
+                    out[base + index] = out[base + index] ^ self._mask[index % 4]
+            Ok(())
+
+    # Skips `count` payload bytes.
+    def skip(self: &mut WebSocket[T], count: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+        # 0 <= start <= stop <= input.len(); 0<=step<=left, and
+        # step<=stop-start. Consuming buffered bytes cannot overrun either range.
+        unchecked:
+            mut left = count
+            while left > 0:
+                if self._stop == self._start:
+                    self.fill(1, False, deadline, cancel)?
+                mut step = self._stop - self._start
+                if step > left:
+                    step = left
+                self._start += step
+                left -= step
+            Ok(())
+
+    # Sends one frame with payload `source`, at most `chunk` bytes of it
+    # copied at a time.
+    def frame(self: &mut WebSocket[T], opcode: u8, source: &[u8], last: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+        # piece_end keeps 0<=at<=end<=stop. Each copied piece is at most
+        # chunk=4096; successful extend proves mark+index < out.len().
+        # at+index < end <= stop bounds mask phase; divisor 4 is nonzero.
+        unchecked:
+            length = len(source)
+            self._out.clear()
+            mut first = opcode
+            if last:
+                first = first | 128u8
+            allocated(self._out.push(first))?
+            mut flag = 0u8
+            if self._client:
+                flag = 128u8
+            if length < 126:
+                allocated(self._out.push(flag | u8(length)))?
+            elif length < 65536:
+                allocated(self._out.push(flag | 126u8))?
+                encoded(std.encoding.append_u16(&mut self._out, u16(length), Endian.Big))?
+            else:
+                allocated(self._out.push(flag | 127u8))?
+                encoded(std.encoding.append_u64(&mut self._out, u64(length), Endian.Big))?
+            if self._client:
+                secret(std.secrets.fill(&mut self._key, 0, 4))?
+                allocated(self._out.extend(&self._key))?
+            stop = length
+            mut at = 0
+            while True:
+                end = piece_end(at, stop, chunk)
+                mark = self._out.len()
+                allocated(self._out.extend(&source[at:end]))?
+                if self._client:
+                    for index in range(end - at):
+                        self._out[mark + index] = self._out[mark + index] ^ self._key[(at + index) % 4]
+                self.flush(deadline, cancel)?
+                if end == stop:
+                    return Ok(())
+                at = end
+            Ok(())
+
+    def flush(self: &mut WebSocket[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+        # at starts at zero; Transport writes at most size-at bytes,
+        # so each advance stays in 0..size <= i64.MAX.
+        unchecked:
+            size = self._out.len()
+            mut at = 0
+            while at < size:
                 if cancel.is_cancelled():
                     return Err(WebSocketError.Net(NetError.Cancelled))
                 limited = cancellation_slice(deadline)
                 outcome: Result[i64, NetError] = match &mut self._stream:
                     case Some(stream):
-                        stream.read_before(out, at, base + count, &limited, &self._cancel)
+                        stream.write_before(&self._out[at:size], &limited, &self._cancel)
                     case Nothing:
                         Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-                read = match outcome:
+                written = match outcome:
                     case Err(NetError.TimedOut):
                         if not deadline.expired(&monotonic_now()):
                             continue
                         return Err(WebSocketError.Net(NetError.TimedOut))
                     case _ as result:
                         netted(result)?
-                if read == 0:
-                    return Err(ended())
-                at += read
-        if not self._client:
-            for index in range(count):
-                out[base + index] = out[base + index] ^ self._mask[index % 4]
-        Ok(())
-
-    # Skips `count` payload bytes.
-    def skip(self: &mut WebSocket[T], count: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
-        mut left = count
-        while left > 0:
-            if self._stop == self._start:
-                self.fill(1, False, deadline, cancel)?
-            mut step = self._stop - self._start
-            if step > left:
-                step = left
-            self._start += step
-            left -= step
-        Ok(())
-
-    # Sends one frame with payload `source`, at most `chunk` bytes of it
-    # copied at a time.
-    def frame(self: &mut WebSocket[T], opcode: u8, source: &[u8], last: bool, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
-        length = len(source)
-        self._out.clear()
-        mut first = opcode
-        if last:
-            first = first | 128u8
-        allocated(self._out.push(first))?
-        mut flag = 0u8
-        if self._client:
-            flag = 128u8
-        if length < 126:
-            allocated(self._out.push(flag | u8(length)))?
-        elif length < 65536:
-            allocated(self._out.push(flag | 126u8))?
-            encoded(std.encoding.append_u16(&mut self._out, u16(length), Endian.Big))?
-        else:
-            allocated(self._out.push(flag | 127u8))?
-            encoded(std.encoding.append_u64(&mut self._out, u64(length), Endian.Big))?
-        if self._client:
-            secret(std.secrets.fill(&mut self._key, 0, 4))?
-            allocated(self._out.extend(&self._key))?
-        stop = length
-        mut at = 0
-        while True:
-            mut end = stop
-            if end - at > chunk:
-                end = at + chunk
-            mark = self._out.len()
-            allocated(self._out.extend(&source[at:end]))?
-            if self._client:
-                for index in range(end - at):
-                    self._out[mark + index] = self._out[mark + index] ^ self._key[(at + index) % 4]
-            self.flush(deadline, cancel)?
-            if end == stop:
-                return Ok(())
-            at = end
-        Ok(())
-
-    def flush(self: &mut WebSocket[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
-        size = self._out.len()
-        mut at = 0
-        while at < size:
-            if cancel.is_cancelled():
-                return Err(WebSocketError.Net(NetError.Cancelled))
-            limited = cancellation_slice(deadline)
-            outcome: Result[i64, NetError] = match &mut self._stream:
-                case Some(stream):
-                    stream.write_before(&self._out[at:size], &limited, &self._cancel)
-                case Nothing:
-                    Err(NetError.Stream(StreamError.Io(IoError.Closed)))
-            written = match outcome:
-                case Err(NetError.TimedOut):
-                    if not deadline.expired(&monotonic_now()):
-                        continue
-                    return Err(WebSocketError.Net(NetError.TimedOut))
-                case _ as result:
-                    netted(result)?
-            if written == 0:
-                return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
-            at += written
-        self._out.clear()
-        Ok(())
+                if written == 0:
+                    return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
+                at += written
+            self._out.clear()
+            Ok(())
 
 def blank(size: i64) -> Result[Bytes, WebSocketError]:
     mut made = allocated(std.bytes.with_capacity(size))?
@@ -643,7 +699,10 @@ def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotoco
     allocated(buffer.resize(size, 0u8))?
     mask = blank(4)?
     key = blank(4)?
-    out = allocated(std.bytes.with_capacity(chunk + 14))?
+    # Fixed 4096-byte chunks and at most 14 header/mask bytes.
+    capacity = unchecked:
+        chunk + 14
+    out = allocated(std.bytes.with_capacity(capacity))?
     Ok(WebSocket(subprotocol, Some(stream), client, config.max_frame.get(), config.max_message.get(), buffer, 0, held, mask, key, out, waiting, cancel, state_open))
 
 # Whether a comma-separated element of a field named `name` is `token`:
@@ -887,7 +946,9 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
         written = netted(owned.write_before(&request[at:], deadline, cancel))?
         if written == 0:
             return Err(WebSocketError.Net(NetError.Stream(StreamError.WriteZero)))
-        at += written
+        # Transport writes at most the request suffix it was passed.
+        unchecked:
+            at += written
     wire = Wire(Some(owned), until_of(deadline), cancel.share(), Nothing)
     mut reader = match std.io.buffered_reader(wire, chunk_capacity):
         case Ok(made):
