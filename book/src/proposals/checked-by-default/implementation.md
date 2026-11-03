@@ -1,4 +1,4 @@
-# Checked defaults: implementation and migration
+# Checked defaults: implementation and validation
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
 > **Not implemented.** This is a feasibility assessment and proposed acceptance
@@ -17,10 +17,10 @@ recognizes contextual `checked:` suites in value positions.
 Adding an explicit trapping mode and retaining nested `checked:` should be a
 contained extension of that machinery. Represent the nearest arithmetic mode
 explicitly; do not merely search past an unchecked scope for an outer checked
-target. Separate the arithmetic mode from callback error forwarding, which is
-already a distinct concern. Function failures must use the declared public
-`Result` ABI, not blindly reuse the extra private wrapper used for checked
-callbacks. Success returns, `?`, early exits, cleanup and tail calls need auditing.
+target. Function failures use the declared public `Result` ABI. Remove the
+private wrapper and forwarding machinery for lexical checked callbacks under
+the uniform function rule below. Success returns, `?`, early exits, cleanup and
+tail calls need auditing.
 
 The whole change is **not** a small default toggle. Most arithmetic-bearing
 functions currently declare plain returns, and generic/protocol bodies,
@@ -29,41 +29,44 @@ No implementation or timing experiment has been performed for this proposal.
 
 ## Functions and callbacks
 
-A named function keeps its own declared behavior regardless of its caller's
-mode. Ordinary anonymous functions also get their own default function error
-boundary: their declared return type must cover their arithmetic, just as a named
-function's does. Do not turn every closure created in an implicitly checked
-function into a scope-bound closure with a hidden error channel. That would
-prevent ordinary escaping callbacks and spread private effects across APIs.
+Every named function and anonymous function has its own default error boundary,
+regardless of the mode surrounding its definition or call. Its declared return
+type must cover its escaping arithmetic errors. A `checked:` or `unchecked:`
+suite affects arithmetic in that function body, not a nested function's body.
+Inlining must preserve this distinction.
 
-Preserve the existing special rule for closures lexically created inside an
-**explicit** `checked:` block: their arithmetic can exit that block through the
-private checked channel, and their existing escape and erasure restrictions
-remain. This honors the lexical callback decisions recorded in issue #614 and
-the [current reference](../../design/language/03-types/numbers.md#checked-blocks).
-An ordinary closure returning `Result` and an explicit checked closure carrying
-a private arithmetic error channel remain distinct.
+Remove the special hidden error channel for closures defined inside explicit
+`checked:` blocks. That behavior was implemented for issue #614 under the old
+opt-in model; retaining it would give closures two different error mechanisms
+depending on their definition site. With checked defaults, an ordinary declared
+`Result` provides the same recoverability and a visible contract. Existing
+scope-bound callback behavior is not a compatibility requirement.
 
-An `unchecked:` suite masks that explicit lexical inheritance at a closure's
-definition site. Such a newly defined closure starts with the ordinary default
-function boundary; trapping arithmetic in its body requires its own
-`unchecked:`. This avoids a source opt-out silently creating an escaping
-trapping function. A closure previously created in `checked:` keeps its checked
-channel when called from a nested unchecked region: forward the failure to its
-active checked boundary, while arithmetic written in the unchecked region
-traps. Never discard a callback error channel because the caller opted out.
+```text
+def make_incrementer() -> Callable[[i64], Result[i64, OverflowError[i64]]]:
+    def(value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + 1)
+```
 
-These rules add boundary cases, but reuse existing explicit checked closures
-without making them the representation of all functions. Removing lexical
-checked callbacks instead would be a separate source-breaking design reversal;
-this proposal does not require it.
+This closure needs no surrounding checked block or private error channel. Its
+arithmetic contract does not tie its lifetime to its definition scope; ordinary
+capture ownership and borrow rules still apply. A closure defined inside
+`unchecked:` likewise defaults to recoverable arithmetic. To make its arithmetic
+trap, put `unchecked:` inside the closure body, where the opt-out is visible.
 
-Ordinary callbacks whose return becomes `Result[T, E]` no longer satisfy a
-`Callable[..., T]` contract. Their consumers must accept and handle the fallible
-result, use an existing explicit checked callback region when suitable, or have
-a justified opt-out in the callback. Audit pipelines, sorting, generic helpers,
-worker jobs and boxed callables rather than blanket-wrapping callbacks in
-`unchecked:`. Worker boundaries still cannot carry scope-bound checked closures.
+Calls returning `Result` still require explicit handling, even within `checked:`.
+Using `?` there exits the function as usual; it does not turn the call's error
+into the enclosing block's result. Local recovery from a callee uses `match` or
+ordinary Result operations. The cost of the uniform rule is that a checked
+block cannot transparently collect arithmetic errors from an arbitrary callback
+invocation; the callback and its consumer expose and handle them normally.
+
+Update callback consumers to support the appropriate fallible return contracts.
+Review pipelines, sorting, generic helpers, worker jobs and boxed callables;
+change their APIs where that produces the clearest design. Do not preserve
+infallible callback signatures by blanket-inserting `unchecked:`. Worker error
+transport and resource ownership still need explicit contracts, but no lexical
+checked-block lifetime or private callback effect crosses those boundaries.
 
 ## Special boundaries and library code
 
@@ -71,12 +74,13 @@ worker jobs and boxed callables rather than blanket-wrapping callbacks in
   from its suspended body. Reject unhandled recoverable arithmetic there with a
   targeted diagnostic; locally handle a `checked:` result or use a deliberate
   `unchecked:`. A fallible generator protocol is not implied by this proposal.
-- **Destructors and fixed protocol returns:** where a signature must remain
-  infallible, recover locally or explicitly opt out. Do not silently exempt all
-  such bodies from the default.
-- **FFI and exports:** preserve their ABI contracts. A wrapper must handle errors
-  before a fixed C boundary; checked defaults do not invent a cross-language
-  `Result` ABI. Native implementations need their own documented arithmetic
+- **Destructors and protocol returns:** revise protocols where fallible results
+  fit their purpose. Where execution semantics require infallibility, such as
+  cleanup with no error recipient, recover locally or explicitly opt out. Do not
+  preserve a fixed return merely because it is the current API.
+- **FFI and exports:** choose explicit ABI contracts for fallible operations.
+  Wrappers for foreign APIs must respect those APIs; Plenty-owned exports can
+  change. Checked defaults do not invent a cross-language `Result` ABI. Native implementations need their own documented arithmetic
   audit because they are not Plenty source suites.
 - **Generic functions and recursion:** validate against declared returns and
   bounds, with specialization diagnostics where needed. Do not discover public
@@ -90,36 +94,35 @@ worker jobs and boxed callables rather than blanket-wrapping callbacks in
   operations do not acquire Plenty source semantics. Generated operations that
   implement a public primitive must nevertheless honor that primitive's contract.
 
-These are compatibility obligations, not reasons to pretend all current
-library arithmetic becomes recoverable just by changing user-function lowering.
+These are implementation and execution-contract questions. Changing
+user-function lowering alone does not make all library arithmetic recoverable.
 Any public std signature changes need a std-conventions review and regenerated
 signature index as part of implementation.
 
-## Source compatibility and teaching
+## Coordinated repository changes and teaching
 
-This deliberately breaks arithmetic-bearing plain-return functions. A useful
-migration diagnostic offers three meaningful options: declare and propagate the
-precise errors, handle a local checked result, or mark a narrowly justified
-trapping region. Do not automatically insert unchecked blocks throughout the
-repository to make the build pass: that would defeat the chosen default.
+Plenty has no external users or dependent systems. Breaking syntax, APIs and
+behavior is acceptable: select the clearest resulting design and update the
+repository together. There is no compatibility release gate, edition dependency,
+legacy mode, deprecation period or external migration plan.
 
-Existing explicit checked expressions generally remain useful. Arithmetic after
-handling their errors now also needs scrutiny: a recovery calculation can itself
-fail. Existing checked closures retain their restrictions, while newly fallible
-ordinary closures require callback contract changes. Reserve the contextual
-`unchecked:` suite without reserving the identifier everywhere.
+Implementation still needs to update arithmetic-bearing functions, callback
+consumers, std implementations, examples and tests. This is ordinary work to
+make the repository obey the new contract, not a reason to preserve an inferior
+API. Diagnostics should explain missing arithmetic errors and the choices of
+propagation, local recovery or deliberate termination. Do not insert unchecked
+blocks throughout the repository merely to make the build pass.
+
+Explicit checked expressions remain useful for local recovery. Recovery
+calculations can themselves fail and need the same scrutiny. Use a contextual
+`unchecked:` suite consistently with the block grammar; identifier compatibility
+is not a requirement if a different grammar proves clearer.
 
 Teach simple arithmetic in a fallible entry point, with a short explanation of
-`Result` and `Ok(())`, then introduce local recovery and finally deliberate
-opt-outs. Revisit application examples, counters, loop updates, sizes, parsing,
-std implementations and numeric helpers. Keep tutorial/reference examples on
+`Result` and `Ok(())`, then introduce local recovery and deliberate opt-outs.
+Update lessons and application examples to recommend the new behavior directly;
+no old-to-new migration lesson is needed. Keep tutorial/reference examples on
 current behavior until implementation lands; proposal examples use `text` fences.
-
-Choose and document the compatibility release boundary before adoption. The
-[edition proposal](../language-editions.md) is exploratory, so this design cannot
-assume editions exist. A compiler-version break is sufficient for an initial
-migration; mixed-semantics dependencies would require an explicit compatibility
-mechanism, never a caller-selected runtime mode.
 
 ## Validation contract
 
@@ -131,9 +134,11 @@ negative powers, constant operands, compound assignments and forwarded newtypes.
 
 Ownership tests must cover resources and temporaries on failure, partial
 mutation, skipped writes, `?`, explicit returns, loop exits and tail recursion.
-Callback tests must distinguish ordinary fallible closures from explicit checked
-closures, including stored callbacks, generic borrowers, nested unchecked calls,
-escape rejection, generators and worker boundaries. Inlining and optimization
+Callback tests must verify that named and anonymous functions keep their own
+declared error contracts when defined or called in either block mode. Cover
+stored and returned callbacks, generic borrowers, generators, worker boundaries
+and ordinary borrow-based escape restrictions; remove tests for the retired
+private checked channel. Inlining and optimization
 must preserve the lexical contract. Trapping tests need child processes and must
 verify termination in both debug and optimized builds.
 
@@ -150,7 +155,7 @@ records why local PR #678, which returned a `Result` from every operator, was
 abandoned. Preserve its lesson: use plain values between operators and a shared
 failure exit, rather than reviving per-operator wrapping and unwrapping.
 
-Adoption also requires migrated executable tutorial/reference examples, updated
+Adoption also requires updated executable tutorial/reference examples, updated
 arithmetic and trap documentation, the std signature index, the full relevant
 compiler/runtime tests and the complete docs CI checks. The proposal itself
 changes none of those implemented contracts.

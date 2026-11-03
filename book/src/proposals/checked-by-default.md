@@ -3,8 +3,7 @@
 > **Status: Not implemented; proposed for discussion.** Today arithmetic outside
 > [`checked:`](../design/language/03-types/numbers.md#checked-blocks) traps.
 > This proposal makes its recoverable arithmetic behavior the function default
-> and introduces `unchecked:` as an explicit opt-out. Implementation and
-> migration remain under **B14** in the [backlog](../backlog.md).
+> and introduces `unchecked:` as an explicit opt-out. Implementation remains under **B14** in the [backlog](../backlog.md).
 > All examples here describe proposed behavior.
 
 ## Recommendation
@@ -24,6 +23,11 @@ This improves recoverability by default and makes deliberate arithmetic traps
 searchable. It does **not** remove all machine checks: guaranteeing termination
 on overflow requires detecting it. “Unchecked” means unchecked by the typed
 arithmetic error mechanism, not undefined behavior or silent wrapping.
+
+Plenty has no external users or dependent systems to preserve. Adopt this as a
+coordinated breaking change across the compiler, standard library, tests and
+documentation. Existing syntax and APIs are inputs to the design, not
+compatibility constraints; no transition mode or edition mechanism is required.
 
 ## Function contracts
 
@@ -120,8 +124,10 @@ contain the opt-out. Inlining cannot change that behavior.
 
 ## Keeping `checked:`
 
-Retain its current `Result[T, E]` expression semantics and lexical callback
-behavior. It remains useful for recovering or mapping errors before they reach
+Retain its `Result[T, E]` expression semantics for arithmetic in the suite.
+Functions and closures defined there have their own declared error boundaries,
+as described in [functions and callbacks](checked-by-default/implementation.md#functions-and-callbacks).
+The block remains useful for recovering or mapping errors before they reach
 the function signature, even when the default is checked. Within `unchecked:`,
 it also restores recoverability for a smaller region:
 
@@ -170,7 +176,7 @@ that confidence proves wrong.
 
 This search is not a complete trap audit: indexing, `unwrap()`, negative powers,
 foreign code and existing runtime primitives remain separate trap sources. Std
-migration must expose deliberate arithmetic opt-outs in source or documented
+implementations must expose deliberate arithmetic opt-outs in source or documented
 native contracts; hiding unchanged trapping reductions behind safe-looking calls
 would weaken the proposal's benefit.
 
@@ -180,5 +186,5 @@ error payload construction, recoverable cleanup paths and some return ABI costs;
 it cannot promise check-free arithmetic or a speedup. Retaining `checked:` does
 not itself imply runtime mode switches: the mode is lexical.
 
-See [implementation and migration](checked-by-default/implementation.md) for
-callback boundaries, compatibility risks and the evidence needed before adoption.
+See [implementation and validation](checked-by-default/implementation.md) for
+callback boundaries, repository-wide changes and the evidence needed before adoption.
