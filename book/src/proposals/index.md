@@ -60,8 +60,10 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Columnar record storage | [Columnar lists](columnar-list.md) | [Ownership and API](columnar-list/contract.md), [chunks and deletion](columnar-list/chunks.md), [layout evidence](columnar-list/evidence.md), [Plenty implementation spike](columnar-list/implementation-spike.md) |
 | Analytical dataframes | [Polars embedding](polars-dataframes.md) | [Native interface and measured costs](polars-dataframes/evidence.md) |
 | Plotting and data visualisation | [std.plot](std-plot.md) | [Examples beside ggplot2 and plotnine](std-plot/examples.md) |
+| Scientific numerics: optimization, integration, ODEs, special functions | [Numerics core](numerics.md) | [API sketch](numerics/api.md), [crate evaluation](numerics/crates.md), [`std.linalg`](../design/stdlib/linalg.md), [`std.stat`](../design/stdlib/stat.md) |
 | Exact decimal and financial arithmetic | [std.decimal](decimal.md) | [Polars embedding](polars-dataframes.md), [ordering](user-type-ordering.md), [dictionary keys](user-type-hashing.md), [checked arithmetic](completed/checked-arithmetic.md) |
-| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
+| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
+| [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
 
 Companion examples and evidence do not imply additional implementation commitments.
 
