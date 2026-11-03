@@ -99,7 +99,10 @@ and modification time, compared weakly as RFC 9110 requires for
 which is ignored unless it is an exact IMF-fixdate (the obsolete RFC 850 and
 asctime forms are refused). Size and time come from `std.fs.file_metadata`
 on the open file, so they describe what is sent even if the path is replaced
-meanwhile.
+meanwhile. A metadata size above `i64.MAX` is rejected as
+`FilesError.Http(HttpError.InvalidContentLength)` before validators are built,
+even when a conditional request would otherwise answer `304`. No wrapped size,
+invalid header or file-body read is produced on that path.
 
 The body is read in 16 KiB pieces into one buffer and written as it is
 read, so memory does not depend on the file's size. Exactly the size seen at

@@ -30,15 +30,18 @@ pub class Script:
     pub at: i64
 
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        left = self.input.len() - self.at
-        if left == 0:
-            return Ok(0)
-        mut count = stop - start
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # Validated transport ranges; count is bounded by the input and
+        # destination suffixes, so at+count remains within input.
+        unchecked:
+            left = self.input.len() - self.at
+            if left == 0:
+                return Ok(0)
+            mut count = stop - start
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -452,17 +455,20 @@ pub class Script:
     pub at: i64
 
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        left = self.input.len() - self.at
-        if left == 0:
-            return Ok(0)
-        mut count = stop - start
-        if count > 7:
-            count = 7
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # Validated transport ranges; count is bounded by the input and
+        # destination suffixes, so at+count remains within input.
+        unchecked:
+            left = self.input.len() - self.at
+            if left == 0:
+                return Ok(0)
+            mut count = stop - start
+            if count > 7:
+                count = 7
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -515,7 +521,7 @@ pub class Upload:
         exchange.send_text(200, "done")?
         Ok(())
 
-def open_files() -> Result[i64, IoError]:
+def open_files() -> Result[i64, IoError | OverflowError[i64]]:
     mut names = std.fs.root(&std.path.from_text("/proc/self/fd")?)?.names()?
     mut count = 0
     while names.next()?.is_some():
@@ -528,7 +534,7 @@ def request() -> Result[Bytes, std.bytes.BytesError | AllocError]:
     text = text.concat(str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?
     Ok(std.bytes.from_text(&text)?)
 
-def exhaust(files: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
+def exhaust(files: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError | OverflowError[i64]]:
     scratch = std.test.scratch()?
     mut table = std.http.server.router[Route]()?
     table.add("POST", "/upload", Route.Upload)?
@@ -546,14 +552,16 @@ def exhaust(files: bool) -> Result[(), std.bytes.BytesError | std.http.server.Se
             std.test.check(budget > 0u32, "no injected failure was reached")?
             return Ok(())
         std.test.check(app.refused.is_cancelled(), "the handler did not finish")?
-        budget += 1u32
+        # The loop has budget<10000 before advancing.
+        unchecked:
+            budget += 1u32
     std.test.fail("the upload never parsed")?
     Ok(())
 
-def test_allocation_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
+def test_allocation_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError | OverflowError[i64]]:
     exhaust(False)
 
-def test_storage_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError]:
+def test_storage_failures_are_reported_and_release_files() -> Result[(), std.bytes.BytesError | std.http.server.ServerError | std.test.TestError | AllocError | IoError | OverflowError[i64]]:
     exhaust(True)
 "##;
 
@@ -642,7 +650,7 @@ pub class Site:
 
 # One request on its own TLS connection; reads until `marker` arrives,
 # since the server sends no close_notify.
-def ask(port: u16, request: &str, marker: &str) -> str:
+def ask(port: u16, request: &str, marker: &str) -> Result[str, OverflowError[i64]]:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32)).unwrap()
     roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
@@ -657,15 +665,16 @@ def ask(port: u16, request: &str, marker: &str) -> str:
         out.resize(at + 64, 0u8).unwrap()
         count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
         out.truncate(at + count)
-    out.to_text().unwrap().replace("\r\n", "|").unwrap()
+    Ok(out.to_text().unwrap().replace("\r\n", "|").unwrap())
 
-def client(port: u16, cookie: str, stop: CancellationToken) -> ():
-    print(ask(port, "GET /s/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n", "</h1>\n")).unwrap()
-    print(ask(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n", "\r\n\r\n")).unwrap()
-    request = "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=".concat(&cookie).unwrap().concat("\r\n\r\n").unwrap()
-    print(ask(port, &request, "user42")).unwrap()
-    print(ask(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=user42\r\n\r\n", "first")).unwrap()
-    stop.cancel()
+def client(port: u16, cookie: str, stop: CancellationToken) -> Result[(), OverflowError[i64]]:
+    with stop.cancel_on_exit():
+        print(ask(port, "GET /s/index.html HTTP/1.1\r\nHost: localhost\r\n\r\n", "</h1>\n")?).unwrap()
+        print(ask(port, "POST /login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n", "\r\n\r\n")?).unwrap()
+        request = "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=".concat(&cookie).unwrap().concat("\r\n\r\n").unwrap()
+        print(ask(port, &request, "user42")?).unwrap()
+        print(ask(port, "GET /me HTTP/1.1\r\nHost: localhost\r\nCookie: session=user42\r\n\r\n", "first")?).unwrap()
+    Ok(())
 
 def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | std.tls.TlsError | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
@@ -724,4 +733,114 @@ HTTP/1.1 401 Unauthorized|Content-Type: text/plain; charset=utf-8|Content-Length
 "
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+}
+
+/// Extract the actual metadata/conditional/date path without the MIME-table
+/// dependency or enormous files. Full adapter tests above keep their imports.
+#[test]
+fn file_size_precedes_conditionals_and_date_bounds_are_checked() {
+    fn declaration<'a>(source: &'a str, marker: &str) -> &'a str {
+        let start = source.find(marker).unwrap();
+        source[start..].split("\n\n").next().unwrap()
+    }
+    let module = include_str!("../stdlib/std/http/files.plenty");
+    let mut source = String::from(
+        "import std.bytes\nimport std.http\nfrom std.bytes import Bytes, BytesError\nfrom std.io import StreamError\nfrom std.http import Header, HttpError, ResponseHead\nfrom std.time import Timestamp\n",
+    );
+    source.push_str(declaration(module, "pub enum FilesError:"));
+    source.push_str("\n\n");
+    source.push_str(declaration(module, "class Validators:"));
+    source.push_str("\n\n");
+    for name in [
+        "allocated[T]",
+        "lifted[T]",
+        "file_size",
+        "prepared",
+        "validators",
+        "unchanged",
+        "tag_listed",
+        "trimmed",
+        "same_bytes",
+        "parse_http_date",
+        "digits",
+        "http_date",
+        "days_from_civil",
+        "two",
+        "day_names",
+        "month_names",
+    ] {
+        let helper = declaration(module, &format!("def {name}("));
+        // __trap is std-only. The replacement also necessarily traps on this
+        // unreachable internal-invalid-UTF8 branch; it adds no recovery path.
+        source.push_str(&helper.replace(
+            "__trap(\"HTTP files text: invalid internal byte conversion\")",
+            "Ok(allocated[T](Err(AllocError.CapacityOverflow)).unwrap())",
+        ));
+        source.push_str("\n\n");
+    }
+    source.push_str(r#"
+def main() -> Result[(), FilesError | AllocError | IoError]:
+    conditional = [Header("If-None-Match", "*")]?
+    ordinary = list[Header].new()?
+    print("__test_begin_no_allocations__")?
+    exact = file_size(9223372036854775807u64).unwrap() == i64.MAX
+    above = match prepared(9223372036854775808u64, Some(Timestamp(0, 0u32)), &conditional):
+        case Err(FilesError.Http(HttpError.InvalidContentLength)):
+            True
+        case _:
+            False
+    maximum = match prepared(u64.MAX, Some(Timestamp(0, 0u32)), &ordinary):
+        case Err(FilesError.Http(HttpError.InvalidContentLength)):
+            True
+        case _:
+            False
+    print("__test_end_no_allocations__")?
+    print(exact, above, maximum)?
+    size, tag, not_modified = prepared(9223372036854775807u64, Some(Timestamp(0, 0u32)), &conditional)?
+    print(size == i64.MAX, not_modified, tag.tag.is_some())?
+    normal_size, normal_tag, modified = prepared(12u64, Some(Timestamp(0, 0u32)), &ordinary)?
+    print(normal_size == 12, not modified, normal_tag.tag.is_some())?
+    no_tag_size, no_tag, wildcard = prepared(12u64, Nothing, &conditional)?
+    print(no_tag_size == 12, wildcard, no_tag.tag.is_none())?
+    print(http_date(&Timestamp(0, 0u32))?.unwrap())?
+    print(http_date(&Timestamp(253402300799, 999999999u32))?.unwrap())?
+    print(http_date(&Timestamp(-1, 0u32))?.is_none(), http_date(&Timestamp(253402300800, 0u32))?.is_none(), http_date(&Timestamp(0, 1000000000u32))?.is_none())?
+    for text in ["Thu, 01 Jan 1970 00:00:00 GMT", "Fri, 31 Dec 9999 23:59:59 GMT", "Tue, 29 Feb 2000 00:00:00 GMT", "Mon, 29 Feb 2100 00:00:00 GMT"]?:
+        print(parse_http_date(text)?.is_some())?
+    Ok(())
+"#);
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{:?}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            text,
+            "True True True\nTrue True True\nTrue True True\nTrue True True\nThu, 01 Jan 1970 00:00:00 GMT\nFri, 31 Dec 9999 23:59:59 GMT\nTrue True True\nTrue\nTrue\nTrue\nFalse"
+        );
+    }
 }
