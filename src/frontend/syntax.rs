@@ -58,6 +58,7 @@ impl TypeRef {
 }
 
 pub(super) struct TypeAlias {
+    pub(super) dimension: bool,
     pub(super) at: Token,
     pub(super) name: String,
     pub(super) target: TypeRef,

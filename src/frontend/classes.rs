@@ -224,7 +224,13 @@ impl TypeAliases {
                 let float = bound
                     .as_ref()
                     .is_some_and(|b| b.name.as_deref() == Some("FloatType"));
-                let ty = if float { Ty::F64 } else { Ty::I64 };
+                let ty = if bound.as_ref().is_some_and(dimensions::bound) {
+                    self.intern_dimension(crate::dimension::Dimension::default())
+                } else if float {
+                    Ty::F64
+                } else {
+                    Ty::I64
+                };
                 (
                     name.clone(),
                     super::generics::type_ref(&ty, &declaration.at),

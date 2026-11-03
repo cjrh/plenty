@@ -46,6 +46,8 @@ impl IntegerDomain {
 /// generic functions are specialized before native lowering.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
+    /// A compile-time kind with no values; legal only as a dimension argument.
+    Dimension(Arc<crate::dimension::Dimension>),
     /// Affine token for a frontend-local fused plan; its state lives in local slots.
     Iter(Arc<Ty>, usize),
     /// Lexical join token: only direct `.join()` consumes a source task.
@@ -124,6 +126,7 @@ pub enum Ty {
 /// Why a type cannot enter heap storage; see `Ty::storage_barrier`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageBarrier {
+    Dimension,
     Iter,
     KeyView,
     DictView,
@@ -144,6 +147,7 @@ impl StorageBarrier {
     /// The diagnostic for storing the rejected type in `place`, e.g. "collections".
     pub fn message(self, place: &str) -> String {
         let subject = match self {
+            Self::Dimension => "dimensions (which have no values)",
             Self::Iter => "iterator pipelines",
             Self::KeyView => "dictionary key views",
             Self::DictView => "dictionary views",
@@ -390,6 +394,7 @@ impl Ty {
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
+            Self::Dimension(_) => Some(StorageBarrier::Dimension),
             Self::Iter(..) => Some(StorageBarrier::Iter),
             Self::KeyView(_) => Some(StorageBarrier::KeyView),
             Self::DictView(..) => Some(StorageBarrier::DictView),
@@ -683,6 +688,7 @@ impl Ty {
     /// may describe origins shared by distinct specialized environments.
     pub fn identity_name(&self) -> String {
         match self {
+            Ty::Dimension(d) => d.identity_name(),
             Ty::Closure(t) => {
                 let signature = t.signature.identity_name().replacen(
                     "Callable",
@@ -785,6 +791,7 @@ impl FormatBlocker {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Ty::Dimension(d) => return write!(f, "{d}"),
             Ty::Task(_) => "scoped task",
             Ty::Executor => "ThreadPoolExecutor",
             Ty::CancellationToken => "CancellationToken",

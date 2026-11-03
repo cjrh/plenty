@@ -48,6 +48,7 @@ mod compress;
 mod control;
 mod crypto;
 mod diagnostic;
+mod dimension;
 mod effects;
 mod executor;
 mod exports;

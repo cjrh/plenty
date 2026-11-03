@@ -19,6 +19,10 @@ declared types interchangeable. Import aliases preserve a declaration's identity
 transparent aliases create none. Generic instances with different arguments have
 different nominal identities.
 
+[Dimensions](dimensions.md) are compile-time types with no values. Nominal
+bases and normalized products, quotients, powers and exact roots can be arguments
+to generic parameters constrained by `Dimension`.
+
 Type inference stays within local expressions and calls; every function interface
 declares its types. Collection, reference, callable, and generator types follow
 their respective [facilities](../../facilities/index.md),

@@ -306,7 +306,11 @@ pub(super) fn resolve_types(
                 let Decl::Alias(alias) = declaration else {
                     unreachable!()
                 };
-                let ty = alias.target.resolve(&resolved)?;
+                let ty = if alias.dimension {
+                    Some(alias.target.resolve_dimension(&resolved)?)
+                } else {
+                    alias.target.resolve(&resolved)?
+                };
                 if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
                     return Err(declaration
                         .at()

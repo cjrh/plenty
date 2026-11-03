@@ -399,6 +399,32 @@ there is no automatic `+=` fallback. Equality remains structural. Other
 [rejected](../language/04-expressions/operators.md#reserved-method-names):
 write `display`/`debug` for formatting and named methods for the rest.
 
+## Compile-time dimensions
+
+Use `dimension` for a base or a derived dimension, and `D: Dimension` for an
+argument that carries no runtime value:
+
+```plenty
+dimension Length("m")
+dimension Time("s")
+dimension Velocity = Length / Time
+class Sample[D: Dimension]:
+    value: f64
+
+def main() -> Result[(), IoError]:
+    speed: Sample[Velocity] = Sample[Length / Time](3.0)
+    print(speed.value)?
+    Ok(())
+```
+```output
+3.0
+```
+
+Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer
+exponents and exact roots. `One` is dimensionless. A dimension cannot be a value
+type. `Sample` only labels its stored number; built-in quantities and unit-aware
+operators are not implemented yet. See [dimensions](../language/03-types/dimensions.md).
+
 ## Option, Result, and errors
 
 ```plenty

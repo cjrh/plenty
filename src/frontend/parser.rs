@@ -265,14 +265,14 @@ impl Parser {
         result
     }
     fn ty_sum(&mut self) -> Result<TypeRef> {
-        let first = self.ty_inner()?;
+        let first = self.ty_product()?;
         if !self.eat("|") {
             return Ok(first);
         }
         let at = first.at.clone();
-        let mut args = vec![first, self.ty_inner()?];
+        let mut args = vec![first, self.ty_product()?];
         while self.eat("|") {
-            args.push(self.ty_inner()?);
+            args.push(self.ty_product()?);
         }
         Ok(TypeRef {
             concrete: None,
@@ -281,6 +281,31 @@ impl Parser {
             name: Some("|".into()),
             args,
         })
+    }
+    fn ty_product(&mut self) -> Result<TypeRef> {
+        fn depth(ty: &TypeRef) -> usize {
+            1 + ty.args.iter().map(depth).max().unwrap_or(0)
+        }
+        let mut left = self.ty_inner()?;
+        while self.peek().is("*") || self.peek().is("/") {
+            let divide = self.take().is("/");
+            let right = self.ty_inner()?;
+            // Products add AST depth without entering `ty` recursively.
+            // Count both children, including grouped products, before nesting.
+            if self.type_depth + depth(&left).max(depth(&right)) >= 64 {
+                return Err(left
+                    .at
+                    .error("type nesting exceeds the implementation limit of 64"));
+            }
+            left = TypeRef {
+                at: left.at.clone(),
+                concrete: None,
+                metadata: None,
+                name: Some(if divide { "/" } else { "*" }.into()),
+                args: vec![left, right],
+            };
+        }
+        Ok(left)
     }
     fn ty_inner(&mut self) -> Result<TypeRef> {
         let at = self.peek().clone();
@@ -346,6 +371,32 @@ impl Parser {
             while self.eat(".") {
                 name.push('.');
                 name.push_str(&self.name()?);
+            }
+            if matches!(name.as_str(), "Pow" | "Root") && self.peek().is("[") {
+                self.expect("[")?;
+                let mut args = Vec::new();
+                while !self.eat("]") {
+                    args.push(
+                        if args.len() == 1
+                            && (self.peek().is("-") || matches!(self.peek().kind, Kind::Number(_)))
+                        {
+                            self.dimension_exponent()?
+                        } else {
+                            self.ty()?
+                        },
+                    );
+                    if self.eat("]") {
+                        break;
+                    }
+                    self.expect(",")?;
+                }
+                return Ok(TypeRef {
+                    concrete: None,
+                    metadata: None,
+                    at,
+                    name: Some(name),
+                    args,
+                });
             }
             if matches!(
                 name.as_str(),
@@ -478,7 +529,12 @@ impl Parser {
         self.expect("=")?;
         let target = self.ty()?;
         self.kind(Kind::Newline, "the end of the type alias declaration")?;
-        Ok(TypeAlias { at, name, target })
+        Ok(TypeAlias {
+            at,
+            name,
+            target,
+            dimension: false,
+        })
     }
     pub(super) fn function(&mut self) -> Result<Function> {
         self.function_in(None)
