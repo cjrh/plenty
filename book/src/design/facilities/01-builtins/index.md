@@ -9,6 +9,8 @@ method names. Their contracts complement the language rules for
 - [Numbers](numbers.md): parsing, checked integer conversion, limits and
   constants, powers, float functions, and scalar
   formatting.
+- [Quantities](../../language/03-types/quantities.md): numeric values with checked
+  dimensions, coherent-value access and unit conversion.
 - [Formatting](formatting.md): representations and printed values.
 - [Tuples](tuples.md): fixed products and component access.
 - [Boxes](boxes.md): explicit heap ownership and content access.

@@ -59,6 +59,7 @@ mod patterns;
 mod pipelines;
 mod protocols;
 mod provenance;
+mod quantities;
 mod references;
 mod retention;
 mod shared;
@@ -658,6 +659,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "AppendError"
                 | "OverflowError"
                 | "ZeroDivisionError"
+                | "Quantity"
                 | "NonZero"
                 | "Positive"
                 | "NonNegative"

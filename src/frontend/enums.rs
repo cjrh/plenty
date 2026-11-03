@@ -254,7 +254,12 @@ pub(super) fn resolve_types(
         if builtin(name)
             && !matches!(
                 name,
-                "OverflowError" | "ZeroDivisionError" | "NonZero" | "Positive" | "NonNegative"
+                "OverflowError"
+                    | "ZeroDivisionError"
+                    | "NonZero"
+                    | "Positive"
+                    | "NonNegative"
+                    | "Quantity"
             )
         {
             return Err(declaration

@@ -293,7 +293,7 @@ impl Lower<'_> {
         None
     }
 
-    fn hold_operator_operand(
+    pub(super) fn hold_operator_operand(
         &mut self,
         e: &Expr,
         ops: &mut Vec<Op>,
@@ -355,7 +355,12 @@ impl Lower<'_> {
         ))
     }
 
-    fn release_operator_operand(&mut self, e: &Expr, loan: Option<usize>, ops: &mut Vec<Op>) {
+    pub(super) fn release_operator_operand(
+        &mut self,
+        e: &Expr,
+        loan: Option<usize>,
+        ops: &mut Vec<Op>,
+    ) {
         if let Expression::Name(name) = &e.kind {
             self.names.remove(name);
         }
@@ -372,6 +377,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
+        if let Some(result) = self.quantity_binary(op, left, right, at, ops)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = self.domain_division(op, left, right, at, ops)? {
             return Ok(Some(result));
         }
@@ -481,7 +489,7 @@ impl Lower<'_> {
 
     /// Evaluates both operands once, in source order, and lowers the operation
     /// again with their types known.
-    fn retry_binary(
+    pub(super) fn retry_binary(
         &mut self,
         op: &str,
         left: &Expr,
@@ -756,6 +764,9 @@ impl Lower<'_> {
             self.release_operator_operand(&held, loan, ops);
             return Ok(Some(result));
         };
+        if let Some(result) = self.quantity_unary(op, value, &ty, ops)? {
+            return Ok(Some(result));
+        }
         let Some(name) = self.operator_symbol(&ty, hook, &value.at)? else {
             let Some((class, declared)) = self.forwarding(&ty) else {
                 return Ok(None);
@@ -793,6 +804,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<bool> {
+        if self.quantity_augment(target, op, value, ops)? {
+            return Ok(true);
+        }
         let Some((_, _, hook)) = binary(op) else {
             return Ok(false);
         };

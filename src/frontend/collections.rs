@@ -317,6 +317,32 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let (ty, loan) = self.returned_reference(target, call, ops)?;
+        if self.aliases.quantity(&ty).is_some() {
+            let reference = Ty::Ref(Arc::new(ty), true);
+            let slot = self.slot(reference.clone(), &target.at)?;
+            ops.push(Op::StoreLocal(slot));
+            self.bind_reference(slot, loan, false, ops);
+            let name = format!("$quantity_destination{slot}");
+            self.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty: reference,
+                    mutable: false,
+                },
+            );
+            let held = Expr {
+                at: target.at.clone(),
+                kind: Expression::Name(name),
+            };
+            let destination = Expr {
+                at: target.at.clone(),
+                kind: Expression::Unary("*".into(), Box::new(held.clone())),
+            };
+            self.quantity_augment(&destination, op, value, ops)?;
+            self.release_operator_operand(&held, Some(loan), ops);
+            return Ok(());
+        }
         if !ty.is_numeric() {
             return Err(target
                 .at
@@ -3329,6 +3355,9 @@ impl Lower<'_> {
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
+            if let Some(result) = self.quantity_static(&ty, name, args, &base.at, ops)? {
+                return Ok(result);
+            }
             if let Some((domain, element)) = ty.integer_domain() {
                 if name == "try_from" {
                     return self.domain_try_from(domain, Some(element), args, &base.at, ops);

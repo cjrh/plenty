@@ -14,8 +14,19 @@ without values and are admitted by the `Dimension` generic constraint.
 Generic input expressions remain structurally inferable; output/body expressions
 are checked per instance. Tests compare random expressions against a dense
 reference evaluator and cover exponent boundaries, imports, privacy and generic
-diagnostics. This is the first stage of issue #701; quantity values, operators,
-formatting and constants remain in [B97](../backlog.md#units-of-measure).
+diagnostics.
+
+The second stage of issue #701 adds [Quantity core](../design/language/03-types/quantities.md):
+coherent-value construction, `get`, float `to`/`from`, domain `try_from`,
+dimension-aware operators and compound assignments. Numeric widths, domain
+preservation/erasure and checked failures use existing arithmetic rules.
+Tests cover storage/result dimensions, rejection rules, evaluation order,
+collection/reference destinations and allocation denial.
+
+Native erasure is not complete: the release addition probe retains the class
+ABI and constructor/caller bookkeeping instead of the plain `f64` instructions.
+Formatting, constants, alias-aware diagnostics and this performance work remain
+in [B97](../backlog.md#units-of-measure).
 
 ## Unicode trie example
 

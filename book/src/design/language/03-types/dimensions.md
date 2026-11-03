@@ -28,7 +28,8 @@ def main() -> Result[(), IoError]:
 
 `Sample` demonstrates a dimension argument. Its field is an ordinary `f64`;
 this class does not supply dimension-aware arithmetic or unit conversion.
-The built-in `Quantity` type and its operators are not implemented yet.
+For physical values and arithmetic, use the built-in
+[`Quantity[T, D]`](quantities.md).
 
 ## Declarations and identity
 

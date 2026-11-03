@@ -408,12 +408,12 @@ argument that carries no runtime value:
 dimension Length("m")
 dimension Time("s")
 dimension Velocity = Length / Time
-class Sample[D: Dimension]:
-    value: f64
 
 def main() -> Result[(), IoError]:
-    speed: Sample[Velocity] = Sample[Length / Time](3.0)
-    print(speed.value)?
+    distance = Quantity[f64, Length](12.0)
+    elapsed = Quantity[f64, Time](4.0)
+    speed: Quantity[f64, Velocity] = distance / elapsed
+    print(speed.get())?
     Ok(())
 ```
 ```output
@@ -422,8 +422,10 @@ def main() -> Result[(), IoError]:
 
 Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer
 exponents and exact roots. `One` is dimensionless. A dimension cannot be a value
-type. `Sample` only labels its stored number; built-in quantities and unit-aware
-operators are not implemented yet. See [dimensions](../language/03-types/dimensions.md).
+type. `Quantity[T, D]` checks dimensions in arithmetic and `.get()` reads its
+stored number. For floats, `.to(unit)` divides by a quantity of the same type.
+See [dimensions](../language/03-types/dimensions.md) and
+[quantities](../language/03-types/quantities.md).
 
 ## Option, Result, and errors
 
