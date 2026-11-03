@@ -220,12 +220,15 @@ the pipeline is consumed or dropped; owned captures are dropped with the
 pipeline; and a `mut` capture keeps its state across items. A closure stored in
 a local, and a literal whose body is more than one expression or contains `?`,
 `match`, or another closure literal, is called as before. This optimization
-preserves [lexical `checked:` behavior](../03-types/numbers.md#checked-blocks):
-a closure defined in a block reports arithmetic failures to that block,
-including through stored callbacks; one defined elsewhere keeps its original
-behavior. The arithmetic implemented by `sum()` itself always traps on overflow;
-write `fold(0, def(total: i64, item: &i64) -> i64: total + *item)` inside the
-block to check the accumulation.
+preserves each callback's [declared arithmetic contract](../03-types/numbers.md#function-arithmetic-contracts).
+Callbacks never inherit the consumer's checked or unchecked mode. Arithmetic
+callbacks keep their function boundary; use `try_fold` for a callback returning
+`Result[A, E]`. An infallible callback must handle arithmetic locally or
+contain an explicit, justified `unchecked:` suite.
+
+Integer `sum()` returns `Result[T, OverflowError[T]]`, including inside
+`unchecked:`, and stops at the first overflow. Floating `sum()` returns an
+ordinary float using sequential IEEE addition, including infinity on overflow.
 
 `filter_value(value)` evaluates `value` once, at construction, and compares
 each item with `item == value` in the loop; the item passes through unchanged.
@@ -281,7 +284,7 @@ the pipeline is dropped. Inner items are owned, so `flat_map` adds no loan.
 | `fold(initial, f)` | Left fold with callback `(A, Item) -> A` |
 | `reduce(f)` | Left fold without an initial value; `Option[Item]`, empty is `Nothing` |
 | `count()` | Checked `i64` item count |
-| `sum()` | Numeric total; zero when empty; integer overflow traps like `+` |
+| `sum()` | Integer `Result[T, OverflowError[T]]` (`Ok(0)` when empty); floating `T` (`0.0` when empty) |
 | `min()` / `max()` | Least / greatest numeric or `str` item in `Option[Item]`; empty is `Nothing`; ties keep the first |
 | `any(f)` / `all(f)` | Short-circuit shared-reference predicates; empty is false / true |
 | `any()` / `all()` | Short-circuit over `bool` or `&bool` items; empty is false / true |
@@ -313,7 +316,9 @@ tuples, and other types are rejected: map them to a supported item first, or use
 item. [`std.math.min_all` and `max_all`](../../stdlib/math.md) share this rule
 and give the same result for the same items. A float `sum` adds in source
 order with IEEE 754 addition, with no compensated summation: any NaN item
-makes the sum NaN, and an empty float `sum` is `0.0`.
+makes the sum NaN, and an empty float `sum` is `0.0`. Integer sums return the first overflow's
+wrapped payload without allocation. Handle their ordinary result explicitly;
+an outer `checked:` suite does not catch errors returned by a terminal.
 
 Collecting needs an expected collection type, from a binding annotation,
 argument, or return type. There is no default collection:

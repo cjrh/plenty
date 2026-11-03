@@ -1529,8 +1529,7 @@ fn collect_str_ids<'a>(
             }
             Op::CheckedBlock { body, .. }
             | Op::CheckedFunction { body, .. }
-            | Op::CheckedArith { cleanup: body, .. }
-            | Op::CheckedUnwrap { cleanup: body, .. } => {
+            | Op::CheckedArith { cleanup: body, .. } => {
                 collect_str_ids(body, out, seen, matches);
             }
             Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
@@ -1746,9 +1745,9 @@ fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) {
                 }
                 mark_borrowed_locals(otherwise, addressed);
             }
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                mark_borrowed_locals(cleanup, addressed)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 mark_borrowed_locals(body, addressed)
             }
@@ -2453,7 +2452,6 @@ impl Lowerer<'_, '_> {
             } => self.lower_try(source, target, cleanup)?,
             Op::CheckedBlock { body, result } => self.lower_checked_block(body, result, false)?,
             Op::CheckedFunction { body, result } => self.lower_checked_block(body, result, true)?,
-            Op::CheckedUnwrap { result, cleanup } => self.lower_checked_unwrap(result, cleanup)?,
             Op::CheckedArith {
                 operation,
                 ty,

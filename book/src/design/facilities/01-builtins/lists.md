@@ -92,7 +92,7 @@ of numbers and strings has its field offsets resolved once per sort.
 
 `items.sort_by_key(key) -> ()` accepts any element type. The key is a named
 function, a reusable shared-call closure, or an anonymous function written in
-place, such as `items.sort_by_key(def(x: &i64) -> i64: -*x)`; it takes `&T` for the element type `T` and returns an
+place, such as `items.sort_by_key(def(x: &i64) -> i64: *x)`; it takes `&T` for the element type `T` and returns an
 integer, float, string, or tuple of those. `items.sort_by_key(key, True)` orders
 descending. The list is exclusively borrowed for the operation; callbacks
 cannot also borrow it through a capture. Keys use the same total order as
@@ -103,8 +103,16 @@ elements may change relative order. It allocates no buffer and recomputes keys
 during O(n log n) comparisons, so the callback should give consistent keys and
 remains responsible for its own explicit allocations. An inconsistent key
 yields an unspecified order but keeps every element.
-One-shot and mutable-call closures, fallible keys, and reference-valued keys
-are unsupported. Elements are moved by row exchange, with no copying or early destruction.
+A key returning `Result[K, E]` is also accepted: the sort then returns
+`Result[(), E]` instead of `()`. The first error stops further key calls;
+the runtime finishes its safe row moves and returns that error unchanged.
+The list may already be reordered, but every element remains owned exactly
+once. Both keys and errors may own strings. Callers handle this public result
+normally, even inside `unchecked:`; no private callback channel is involved.
+For example, a negating key declares
+`def(x: &i64) -> Result[i64, OverflowError[i64]]: Ok(-*x)`.
+One-shot and mutable-call closures and reference-valued keys are unsupported.
+Elements are moved by row exchange, with no copying or early destruction.
 
 `sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
 copies it before sorting by natural order. `sorted(items, True)` gives a

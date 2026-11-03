@@ -123,13 +123,22 @@ fn declarations(module: &str, symbols: &[Symbol]) -> Vec<String> {
     lines
 }
 
-fn analyze(module: &str, dir: &Path) -> Vec<String> {
+fn inspect(module: &str, dir: &Path) -> (Vec<String>, Vec<String>) {
     let path = dir.join(format!("{}.plenty", module.replace('.', "_")));
     std::fs::write(&path, format!("import {module}\n")).unwrap();
     let analysis = ide::analyze(&path, None, Default::default());
-    let messages: Vec<_> = analysis.diagnostics.iter().map(|d| &d.message).collect();
+    let messages = analysis
+        .diagnostics
+        .iter()
+        .map(|d| d.message.clone())
+        .collect();
+    (declarations(module, &analysis.symbols), messages)
+}
+
+fn analyze(module: &str, dir: &Path) -> Vec<String> {
+    let (lines, messages) = inspect(module, dir);
     assert!(messages.is_empty(), "{module}: {messages:?}");
-    declarations(module, &analysis.symbols)
+    lines
 }
 
 /// mdBook's heading id for ``## `std.x.y` ``: punctuation is dropped.
@@ -268,19 +277,20 @@ fn signature_index_matches_standard_sources() {
     );
 
     let dir = tempfile::tempdir().unwrap();
-    let listings: Vec<Vec<String>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = rows
-            .iter()
-            .map(|row| {
-                let dir = dir.path();
-                std::thread::Builder::new()
-                    .stack_size(64 << 20)
-                    .spawn_scoped(scope, move || analyze(&row.module, dir))
-                    .unwrap()
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap()).collect()
-    });
+    let (listings, diagnostics): (Vec<Vec<String>>, Vec<Vec<String>>) =
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = rows
+                .iter()
+                .map(|row| {
+                    let dir = dir.path();
+                    std::thread::Builder::new()
+                        .stack_size(64 << 20)
+                        .spawn_scoped(scope, move || inspect(&row.module, dir))
+                        .unwrap()
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).unzip()
+        });
     let provided: Vec<Vec<&str>> = rows
         .iter()
         .map(|row| {
@@ -293,12 +303,33 @@ fn signature_index_matches_standard_sources() {
 
     let path = book_src().join(PAGE);
     if std::env::var_os("UPDATE_STDLIB_INDEX").is_some() {
+        // Declaration extraction does not require valid function bodies. Allow
+        // regeneration during a coordinated language migration, but still fail
+        // this test below until every module's semantic diagnostics are fixed.
         std::fs::write(&path, &page).unwrap();
-        return;
+    } else {
+        let current = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            current == page,
+            "{PAGE} is out of date; rerun with UPDATE_STDLIB_INDEX=1 (see tests/test_stdlib_index.rs)"
+        );
     }
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    let failures: Vec<_> = rows
+        .iter()
+        .zip(&diagnostics)
+        .filter_map(|(row, messages)| {
+            messages.first().map(|message| {
+                format!(
+                    "{}: {} diagnostics; first: {message}",
+                    row.module,
+                    messages.len()
+                )
+            })
+        })
+        .collect();
     assert!(
-        current == page,
-        "{PAGE} is out of date; rerun with UPDATE_STDLIB_INDEX=1 (see tests/test_stdlib_index.rs)"
+        failures.is_empty(),
+        "standard module semantic errors:\n{}",
+        failures.join("\n")
     );
 }

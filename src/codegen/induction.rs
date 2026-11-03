@@ -183,9 +183,9 @@ fn writes_are_steps(ops: &[Op], local: u8, only_grows: &mut bool) -> bool {
             Op::Match(arms) => arms
                 .iter()
                 .all(|arm| writes_are_steps(&arm.body, local, only_grows)),
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => writes_are_steps(cleanup, local, only_grows),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                writes_are_steps(cleanup, local, only_grows)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 writes_are_steps(body, local, only_grows)
             }
@@ -228,9 +228,7 @@ fn writes_nested(op: &Op, local: u8) -> bool {
                     .any(|arm| any(&arm.condition) || any(&arm.body))
         }
         Op::Match(arms) => arms.iter().any(|arm| any(&arm.body)),
-        Op::Try { cleanup, .. }
-        | Op::CheckedArith { cleanup, .. }
-        | Op::CheckedUnwrap { cleanup, .. } => any(cleanup),
+        Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => any(cleanup),
         Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => any(body),
         _ => false,
     }

@@ -415,7 +415,7 @@ def position_scale(components: &list[Component], vertical: bool) -> Result[Posit
         case Some(values):
             mut seen = allocated(list[f64]())?
             for value in values:
-                if transformed(*value, result._transform).is_none() or std.math.abs(*value) > 1.0e100 or *value in seen:
+                if transformed(*value, result._transform).is_none() or std.math.abs_float(*value) > 1.0e100 or *value in seen:
                     return Err(PlotError.InvalidSetting("breaks must be distinct finite values in the transform domain"))
                 allocated(seen.append(*value))?
             match &result._labels:
@@ -560,7 +560,7 @@ def check_limits(limits: Option[(f64, f64)]) -> Result[(), PlotError]:
     match limits:
         case Some(pair):
             low, high = pair
-            if not finite(low) or not finite(high) or low >= high or std.math.abs(low) > 1.0e100 or std.math.abs(high) > 1.0e100:
+            if not finite(low) or not finite(high) or low >= high or std.math.abs_float(low) > 1.0e100 or std.math.abs_float(high) > 1.0e100:
                 return Err(PlotError.InvalidSetting("limits must be finite, increasing, and within +/-1e100"))
         case Nothing:
             pass
@@ -1078,7 +1078,7 @@ def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
             match value:
                 case Some(number):
                     if finite(number):
-                        if std.math.abs(number) > 1.0e100:
+                        if std.math.abs_float(number) > 1.0e100:
                             return Err(PlotError.InvalidSetting("numeric data magnitude exceeds 1e100"))
                         allocated(values.append(Some(number)))?
                     else:
@@ -1466,7 +1466,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 row.y = top
                 allocated(previous.insert(key, top))?
                 if geom._position == Position.Fill:
-                    total = std.math.abs(totals[key])
+                    total = std.math.abs_float(totals[key])
                     if total > 0.0:
                         row.bottom /= total
                         row.y /= total
@@ -1715,7 +1715,7 @@ def rectangle[W: Writer](writer: &mut W, x: f64, y: f64, width: f64, height: f64
 
 def expand(low: f64, high: f64, discrete: bool) -> (f64, f64):
     span = high - low
-    padding = 0.6 if discrete else (span * 0.05 if span > 0.0 else std.math.max(0.5, std.math.abs(low) * 0.05))
+    padding = 0.6 if discrete else (span * 0.05 if span > 0.0 else std.math.max(0.5, std.math.abs_float(low) * 0.05))
     (low - padding, high + padding)
 
 def coordinate(value: f64, low: f64, high: f64, start: f64, length: f64) -> f64:
@@ -1738,7 +1738,7 @@ def tick_step(low: f64, high: f64) -> f64:
         power * 10.0
 
 def number_label(value: f64, step: f64) -> Result[str, PlotError]:
-    rounded = 0.0 if std.math.abs(value) < step * 1.0e-9 else value
+    rounded = 0.0 if std.math.abs_float(value) < step * 1.0e-9 else value
     short = allocated(f"{rounded:.6g}")?
     if step <= 0.0 or short != allocated(f"{rounded + step:.6g}")?:
         return Ok(short)
@@ -1868,7 +1868,7 @@ def scene_plan(scene: &Scene, w: f64, h: f64, margins: (f64, f64, f64, f64)) -> 
     y = &scene.y
     xmin, xmax, ymin, ymax = scene.bounds
     for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
-        if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
+        if not finite(ratio) or std.math.abs_float(ratio) > 1.0e9:
             return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
     legends = scene_legends(scene, w)?
     xticks = axis_ticks(x, &scene.xs, xlo, xhi)?
@@ -2057,7 +2057,7 @@ def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, 
             bottom = std.math.max(bottom, cell_height - plan.top - plan.height)
             allocated(plans.append(plan))?
         updated = (left, right, top, bottom)
-        if std.math.abs(left - margins[0]) < 1.0e-7 and std.math.abs(right - margins[1]) < 1.0e-7 and std.math.abs(top - margins[2]) < 1.0e-7 and std.math.abs(bottom - margins[3]) < 1.0e-7:
+        if std.math.abs_float(left - margins[0]) < 1.0e-7 and std.math.abs_float(right - margins[1]) < 1.0e-7 and std.math.abs_float(top - margins[2]) < 1.0e-7 and std.math.abs_float(bottom - margins[3]) < 1.0e-7:
             converged = True
             break
         margins = updated
@@ -2232,9 +2232,9 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
                 fx2 = coordinate(row.bottom, ylo, yhi, left, width)
                 fy1 = coordinate(row.x - row.width / 2.0, xlo, xhi, top + height, -height)
                 fy2 = coordinate(row.x + row.width / 2.0, xlo, xhi, top + height, -height)
-                rectangle(writer, std.math.min(fx1, fx2), std.math.min(fy1, fy2), std.math.abs(fx2 - fx1), std.math.abs(fy2 - fy1), row.fill, row.colour)?
+                rectangle(writer, std.math.min(fx1, fx2), std.math.min(fy1, fy2), std.math.abs_float(fx2 - fx1), std.math.abs_float(fy2 - fy1), row.fill, row.colour)?
             else:
-                rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs(y2 - y1), row.fill, row.colour)?
+                rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs_float(y2 - y1), row.fill, row.colour)?
     emit(writer, "</g>\n")
 
 def draw_ribbons[W: Writer](writer: &mut W, layer: &LayerRows, order: &list[(i64, f64, i64)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, left: f64, top: f64, width: f64, height: f64, flip: bool) -> Result[(), PlotError]:

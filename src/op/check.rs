@@ -370,7 +370,7 @@ fn step(
                             .map(|(_, t)| t)
                             .eq([&sort.callback, &item])
                             && key_of.outputs
-                                == [sort.callback.checked_error().map_or_else(
+                                == [sort.error.as_ref().map_or_else(
                                     || sort.key.clone(),
                                     |error| crate::sum::result(sort.key.clone(), error.clone()),
                                 )]
@@ -562,22 +562,6 @@ fn step(
             }
             operation.check(ty, stack)?;
         }
-        Op::CheckedUnwrap { result, cleanup } => {
-            let Ty::Enum(sum) = result else {
-                return Err("checked call must return Result".into());
-            };
-            let mut empty = Vec::new();
-            check_sequence(
-                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
-            )?;
-            if !sum.is_result() || !empty.is_empty() || stack.pop().as_ref() != Some(result) {
-                return Err("invalid checked call result".into());
-            }
-            let output = sum.get().variants[0].fields[0].clone();
-            if output != Ty::Unit {
-                stack.push(output);
-            }
-        }
         Op::CheckedFunction { body, result } => {
             let Ty::Enum(sum) = result else {
                 return Err("checked function must return Result".into());
@@ -697,7 +681,7 @@ fn step(
                     .map(|(i, (n, _))| (n.clone(), t.parameter(i)))
                     .chain(t.signature.function().inputs)
                     .collect(),
-                outputs: t.native_output().into_iter().collect(),
+                outputs: t.signature.output.clone().into_iter().collect(),
             };
             let actual = sigs.get(t.name.as_str()).ok_or("undefined closure body")?;
             if actual
@@ -725,7 +709,7 @@ fn step(
             if stack.pop() != Some(expected) {
                 return Err("closure call environment ownership mismatch".into());
             }
-            stack.extend(t.native_output());
+            stack.extend(t.signature.output.clone());
         }
         Op::BoxedCallableNew(source, adapter, signature) => {
             if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {

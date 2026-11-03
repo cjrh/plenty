@@ -197,16 +197,7 @@ impl Liveness {
                     cleanup,
                 })
             }
-            // A failure runs `cleanup` and leaves the innermost block.
-            Op::CheckedUnwrap { result, cleanup } => {
-                let escape = self.escapes.last().copied().unwrap_or_default();
-                let (failing, cleanup) = self.nested(cleanup, escape, rewrite, &mut changed);
-                live = live.union(failing);
-                changed.then(|| Op::CheckedUnwrap {
-                    result: result.clone(),
-                    cleanup,
-                })
-            }
+            // A failure runs cleanup and leaves its arithmetic boundary.
             Op::CheckedArith {
                 operation,
                 ty,

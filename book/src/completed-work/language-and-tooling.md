@@ -112,8 +112,13 @@ block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
 [checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
-That core also supports lexical trapping `unchecked:` suites; coordinated std,
-test/example and documentation adoption is **not complete** and remains B14.
+That core also supports lexical trapping `unchecked:` suites. The private
+callback channel is removed. Initial std migration covers math helpers, bytes
+and time: integer reductions preserve typed overflow payloads, separate float
+helpers retain infallible IEEE values, serial pipeline sums return public
+results, and key sorting transports fallible callbacks' ordinary errors.
+Coordinated adoption of remaining std modules, tests/examples and documentation
+is **not complete** and remains B14.
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

@@ -609,8 +609,8 @@ impl Lowerer<'_, '_> {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
             let owner = self.reference_word(receiver);
             let checked = sort
-                .callback
-                .checked_error()
+                .error
+                .as_ref()
                 .map(|error| crate::sum::result(Ty::Unit, error.clone()));
             let environment = if checked.is_some() {
                 let context = self.inline_storage(32);

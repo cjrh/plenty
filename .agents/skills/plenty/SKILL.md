@@ -50,7 +50,16 @@ See [workflow and packages](references/workflow.md).
   source's error or contain it in a union (`AllocError | IoError | ParseError`).
   `?` never turns an `Option` into a `Result`; use `.ok_or(error)?`.
 - No exceptions, `None`, `try`, `raise`, or `lambda`. Use `Result[T, E]`,
-  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`.
+  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)`.
+- Integer arithmetic returns errors from the enclosing function by default:
+  declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
+  plain `//` and `%` also require `ZeroDivisionError` (signed `//` can overflow).
+  Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
+  small, justified `unchecked:` suite for deliberate termination. Functions and
+  closures keep independent declared contracts; a caller's mode never changes
+  them. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
+  helpers stay infallible. Serial pipeline integer `.sum()` also returns a
+  public `Result`.
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
   and `float`. No implicit numeric widening; cast with `f64(n)`.
 - `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) are signed integer domains.

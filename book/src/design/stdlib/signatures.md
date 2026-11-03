@@ -71,38 +71,38 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.log`](#stdlog): 2422-2489
 - [`std.markdown`](#stdmarkdown): 2491-2525
 - [`std.template`](#stdtemplate): 2527-2548
-- [`std.math`](#stdmath): 2550-2616
-- [`std.mime`](#stdmime): 2618-2644
-- [`std.net`](#stdnet): 2646-2728
-- [`std.path`](#stdpath): 2730-2747
-- [`std.process`](#stdprocess): 2749-2798
-- [`std.random`](#stdrandom): 2800-2821
-- [`std.ready`](#stdready): 2823-2854
-- [`std.regex`](#stdregex): 2856-2909
-- [`std.report`](#stdreport): 2911-2918
-- [`std.secrets`](#stdsecrets): 2920-2946
-- [`std.shlex`](#stdshlex): 2948-2957
-- [`std.sketch`](#stdsketch): 2959-2997
-- [`std.sketch.xor`](#stdsketchxor): 2999-3010
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3012-3027
-- [`std.signal`](#stdsignal): 3029-3046
-- [`std.simd`](#stdsimd): 3048-3149
-- [`std.stat`](#stdstat): 3151-3184
-- [`std.plot`](#stdplot): 3186-3275
-- [`std.linalg`](#stdlinalg): 3277-3318
-- [`std.sync`](#stdsync): 3320-3338
-- [`std.system`](#stdsystem): 3340-3398
-- [`std.tempfile`](#stdtempfile): 3400-3432
-- [`std.test`](#stdtest): 3434-3476
-- [`std.text`](#stdtext): 3478-3521
-- [`std.thread`](#stdthread): 3523-3527
-- [`std.time`](#stdtime): 3529-3573
-- [`std.tls`](#stdtls): 3575-3657
-- [`std.toml`](#stdtoml): 3659-3708
-- [`std.unicode`](#stdunicode): 3710-3722
-- [`std.url`](#stdurl): 3724-3752
-- [`std.uuid`](#stduuid): 3754-3777
-- [`std.xml`](#stdxml): 3779-3812
+- [`std.math`](#stdmath): 2550-2621
+- [`std.mime`](#stdmime): 2623-2649
+- [`std.net`](#stdnet): 2651-2733
+- [`std.path`](#stdpath): 2735-2752
+- [`std.process`](#stdprocess): 2754-2803
+- [`std.random`](#stdrandom): 2805-2826
+- [`std.ready`](#stdready): 2828-2859
+- [`std.regex`](#stdregex): 2861-2914
+- [`std.report`](#stdreport): 2916-2923
+- [`std.secrets`](#stdsecrets): 2925-2951
+- [`std.shlex`](#stdshlex): 2953-2962
+- [`std.sketch`](#stdsketch): 2964-3002
+- [`std.sketch.xor`](#stdsketchxor): 3004-3015
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3017-3032
+- [`std.signal`](#stdsignal): 3034-3051
+- [`std.simd`](#stdsimd): 3053-3154
+- [`std.stat`](#stdstat): 3156-3189
+- [`std.plot`](#stdplot): 3191-3280
+- [`std.linalg`](#stdlinalg): 3282-3323
+- [`std.sync`](#stdsync): 3325-3343
+- [`std.system`](#stdsystem): 3345-3403
+- [`std.tempfile`](#stdtempfile): 3405-3437
+- [`std.test`](#stdtest): 3439-3481
+- [`std.text`](#stdtext): 3483-3526
+- [`std.thread`](#stdthread): 3528-3532
+- [`std.time`](#stdtime): 3534-3578
+- [`std.tls`](#stdtls): 3580-3662
+- [`std.toml`](#stdtoml): 3664-3713
+- [`std.unicode`](#stdunicode): 3715-3727
+- [`std.url`](#stdurl): 3729-3757
+- [`std.uuid`](#stduuid): 3759-3782
+- [`std.xml`](#stdxml): 3784-3817
 
 ## `std.actor`
 
@@ -2549,7 +2549,7 @@ def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 
 ## `std.math`
 
-Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants. Errors: `MathError`. [Reference](math.md).
+Floating-point functions, checked rounding, integer algorithms, integer and float helpers, and constants. Errors: `MathError`, `OverflowError[T]`. [Reference](math.md).
 
 ```text
 enum MathError
@@ -2604,15 +2604,20 @@ def lcm(a: u64, b: u64) -> Result[u64, MathError]
 def isqrt(n: u64) -> u64
 def perm(n: u64, k: u64) -> Result[u64, MathError]
 def comb(n: u64, k: u64) -> Result[u64, MathError]
-def abs[T](x: T) -> T
+def abs[T: IntType](x: T) -> Result[T, OverflowError[T]]
+def abs_float[T: FloatType](x: T) -> T
 def min[T](a: T, b: T) -> T
 def max[T](a: T, b: T) -> T
 def min_all[T](items: &list[T]) -> Option[T]
 def max_all[T](items: &list[T]) -> Option[T]
-def sum[T](items: &list[T], start: T) -> T
-def prod[T](items: &list[T], start: T) -> T
-def sum_iter[I, T](items: &I, start: T) -> T
-def prod_iter[I, T](items: &I, start: T) -> T
+def sum[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]
+def prod[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]
+def sum_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]
+def prod_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]
+def sum_float[T: FloatType](items: &list[T], start: T) -> T
+def prod_float[T: FloatType](items: &list[T], start: T) -> T
+def sum_iter_float[I, T: FloatType](items: &I, start: T) -> T
+def prod_iter_float[I, T: FloatType](items: &I, start: T) -> T
 ```
 
 ## `std.mime`

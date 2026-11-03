@@ -220,6 +220,14 @@ immediate check where readiness still wins.
 
 ## Errors, costs, and limits
 
+Additions, products and non-saturating differences handle local checked
+arithmetic and map unrepresentable results to the existing
+`RangeError.OutOfRange`. Infallible unit conversions, saturating differences
+and fractional timestamp arithmetic use explicit `unchecked:` suites with
+bounds documented in source. Their guards prove nonzero divisors and
+representable results; no operation relies on silent wrapping except the
+explicit two's-complement difference used for ordered timestamp seconds.
+
 Every recoverable failure is the built-in
 [`RangeError.OutOfRange`](../facilities/01-builtins/numbers.md#checked-conversion):
 the result is not representable in its type. Time arithmetic therefore

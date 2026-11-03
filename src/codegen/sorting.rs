@@ -96,7 +96,7 @@ pub(super) fn build_adapter(
     };
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.
-    let checked = sort.callback.checked_error().is_some();
+    let checked = sort.error.is_some();
     let callback = if checked {
         let flags = MemFlagsData::trusted();
         let previous = lower.bcx.ins().load(types::I128, flags, params[0], 16);

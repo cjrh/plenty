@@ -31,9 +31,6 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
         }
         _ => return None,
     };
-    if actual.checked {
-        return Some("; a closure defined in `checked:` must keep its checked error channel; remove the Callable annotation, or accept it through a generic `F: Callable[...]` parameter".into());
-    }
     let explanation =
         "; a Callable value stores only a code address and cannot hold a closure environment";
     if expected.as_ref() != &actual.signature {

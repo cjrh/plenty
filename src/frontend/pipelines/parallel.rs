@@ -634,10 +634,7 @@ impl Lower<'_> {
             }))
             .collect(),
         };
-        let checked = std::mem::take(&mut self.checked);
-        let worker_ty = self.closure_value(&worker, &par_at, ops);
-        self.checked = checked;
-        let worker_ty = worker_ty?;
+        let worker_ty = self.closure_value(&worker, &par_at, ops)?;
         let worker = self.par_hidden("worker", worker_ty, &at, hidden, ops)?;
         let template = self.par_helper(template)?;
         let mut call_args = vec![pool.clone(), chunks, worker];
@@ -806,9 +803,6 @@ impl Lower<'_> {
                 ));
             }
         };
-        if ty.checked_closure() {
-            return Err(callback.at.error("a closure defined in `checked:` cannot be sent to parallel workers; define it outside the block instead"));
-        }
         if closure.once {
             return Err(callback
                 .at

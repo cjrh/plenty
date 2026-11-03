@@ -204,9 +204,6 @@ impl Lower<'_> {
     }
 
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
-        if actual.as_ref().is_some_and(Ty::checked_closure) {
-            return Err(at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
-        }
         if actual
             .as_ref()
             .is_some_and(|t| !t.carries_loan() && t.contains_reference())

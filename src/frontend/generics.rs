@@ -182,7 +182,6 @@ pub(super) fn prepare(
         signatures.push(signature);
     }
     let mut engine = Engine {
-        checked_errors: HashMap::default(),
         protocols: declarations,
         methods,
         templates: HashMap::default(),
@@ -257,9 +256,6 @@ pub(super) fn prepare(
 }
 
 pub(super) struct Engine {
-    /// Hidden closure bodies whose own arithmetic is lexically checked.
-    /// Private native failure channels; Functions retains logical signatures.
-    pub(super) checked_errors: HashMap<String, Ty>,
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,

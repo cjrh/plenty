@@ -113,9 +113,6 @@ impl Lower<'_> {
             .iter()
             .map(|slot| self.locals[*slot as usize - self.parameters].clone())
             .collect();
-        if types[..captures.len()].iter().any(Ty::checked_closure) {
-            return Err(source.at.error("a closure defined in `checked:` cannot be stored in a generator; consume its pipeline inside the block"));
-        }
         if types[..captures.len()].iter().any(Ty::contains_reference) {
             return Err(source
                 .at
@@ -212,8 +209,7 @@ fn inspect(ops: &[Op], read: &mut BTreeSet<u8>, loans: &mut BTreeSet<usize>) {
             }
             Op::CheckedBlock { body, .. }
             | Op::CheckedFunction { body, .. }
-            | Op::CheckedArith { cleanup: body, .. }
-            | Op::CheckedUnwrap { cleanup: body, .. } => {
+            | Op::CheckedArith { cleanup: body, .. } => {
                 inspect(body, read, loans);
             }
             Op::Match(arms) => {
@@ -330,10 +326,6 @@ fn relocate(
             Op::CheckedFunction { body, result } => Op::CheckedFunction {
                 body: relocate(body, slots, loans, at)?.into(),
                 result: result.clone(),
-            },
-            Op::CheckedUnwrap { result, cleanup } => Op::CheckedUnwrap {
-                result: result.clone(),
-                cleanup: relocate(cleanup, slots, loans, at)?.into(),
             },
             Op::CheckedArith {
                 operation,

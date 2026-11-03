@@ -14,16 +14,23 @@ longer inherit a private callback effect. Generator arithmetic receives a
 targeted diagnostic; ordinary native tail returns remain supported.
 
 `tests/test_checked_defaults.rs` exercises the new contracts, all eight
-integer widths, nesting, callbacks, cleanup, skipped compound writes, generators
-and tail recursion. Existing arithmetic tests still include retired private
-callback contracts and unconverted trapping functions. Std implementations,
-callback-consumer APIs and most examples have not been migrated; some now fail
-to type-check. No blanket `unchecked:` conversion was applied.
+integer widths, nesting, mutable and stored callbacks, worker error transport,
+fallible key sorting, cleanup, skipped compound writes, generators and tail
+recursion. The private callback error channel and its lifetime restrictions
+are removed; its tests are replaced by public-contract coverage. The retained
+local arithmetic suite passes.
 
-The compiler core is therefore an incomplete implementation, not an adoption
-milestone. Remaining repository migration, full-suite validation, native
-arithmetic audits, private-channel dead-code removal and performance measurements
-are still required.
+The initial library migration covers `std.math`, `std.bytes` and `std.time`.
+Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
+separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
+returns a public result for integer items. Sorting accepts `Result[K, E]`
+key callbacks and returns `Result[(), E]`. Bounds-proven byte/time operations
+use small documented opt-outs; fallible size and time calculations retain
+their existing error contracts. No blanket `unchecked:` conversion was applied.
+
+Adoption remains incomplete. Other std modules, parallel reductions and many
+tests/examples still fail to type-check. Full-suite validation, remaining
+native arithmetic audits and performance measurements are still required.
 
 ## Reuse and limits
 

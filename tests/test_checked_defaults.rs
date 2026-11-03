@@ -285,6 +285,207 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
+fn integer_reductions_have_public_results_in_either_lexical_mode() {
+    assert_eq!(
+        run_stdout(
+            r#"
+import std.math as math
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [i64.MAX, 1]?
+    result = unchecked:
+        iter(&values).sum()
+    print(result.is_err(), math.sum(&values, 0).is_err())?
+    match result:
+        case Ok(_):
+            pass
+        case Err(error):
+            print(error.wrapped)?
+    print(math.abs(i64.MIN).is_err())?
+    product = [i8.MAX, 2i8]?
+    match math.prod(&product, 1i8):
+        case Ok(_):
+            pass
+        case Err(error):
+            print(error.wrapped)?
+    finite = [1.0f32, 2.0f32]?
+    print(math.sum_float(&finite, 0.0f32), iter(&finite).sum())?
+    print(math.abs_float(-0.0f32), math.prod_float(&finite, 1.0f32))?
+    big = [1.7e308, 1.7e308]?
+    print(math.sum_float(&big, 0.0), iter(&big).sum())?
+    empty: list[i64] = []?
+    print(iter(&empty).sum().unwrap(), math.sum(&empty, 9).unwrap())?
+    print(len(values), len(product))?
+    Ok(())
+"#
+        ),
+        "True True\n-9223372036854775808\nTrue\n-2\n3.0 3.0\n0.0 2.0\ninf inf\n0 9\n2 2\n"
+    );
+}
+
+#[test]
+fn public_callback_failures_release_captures_locals_and_pending_arguments_once() {
+    let output = run_stdout(
+        r#"
+class Resource:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def add(a: Resource, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a.id + b)
+def apply[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &F, x: i64) -> Result[i64, OverflowError[i64]]:
+    local = Resource(20)
+    add(Resource(30), f(x)?)
+def main() -> Result[(), IoError]:
+    resource = Resource(10)
+    f = def [resource](x: i64) -> Result[i64, OverflowError[i64]]:
+        local = Resource(40)
+        Ok(resource.id + x)
+    result = apply(&f, i64.MAX)
+    drop(f)
+    print(result.is_err())?
+    Ok(())
+"#,
+    );
+    for id in [10, 20, 30, 40] {
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| *line == format!("drop {id}"))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+    assert!(output.ends_with("True\n"), "{output}");
+}
+
+#[test]
+fn fallible_key_sort_uses_public_results_and_preserves_affine_rows() {
+    let output = run_stdout(
+        r#"
+class Row:
+    id: i64
+    name: str
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    mut rows = [Row(0, "a".repeat(1000)?), Row(1, "b".repeat(1000)?), Row(2, "c".repeat(1000)?)]?
+    key = def(row: &Row) -> Result[(str, i64), OverflowError[i64]]:
+        print("key", row.id).unwrap()
+        Ok((row.name, i64.MAX + row.id))
+    result = unchecked:
+        rows.sort_by_key(key)
+    print(result.is_err(), len(rows))?
+    drop(rows)
+    mut numbers = [3, 1, 2]?
+    good = numbers.sort_by_key(def(value: &i64) -> Result[i64, OverflowError[i64]]: Ok(*value + 1))
+    print(good.is_ok(), numbers)?
+    fallible = def(value: &i64) -> Result[str, str]:
+        if *value == 2:
+            return Err("a heap allocated callback error".repeat(10).unwrap())
+        Ok("a heap allocated key".repeat(10).unwrap())
+    owned_error = numbers.sort_by_key(fallible)
+    print(owned_error.is_err())?
+    drop(owned_error)
+    Ok(())
+"#,
+    );
+    assert!(output.starts_with("key 0\nkey 1\nTrue 3\n"), "{output}");
+    for id in 0..3 {
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| *line == format!("drop {id}"))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+    assert!(output.ends_with("True [1, 2, 3]\nTrue\n"), "{output}");
+}
+
+#[test]
+fn closure_errors_cross_workers_without_lexical_effects() {
+    assert_eq!(
+        run_stdout(
+            r#"
+def main() -> Result[(), IoError]:
+    created = checked:
+        value = 1 + 1
+        def [value]() -> Result[i64, OverflowError[i64]]:
+            Ok(i64.MAX + value)
+    job = created.unwrap()
+    with spawn(&job).unwrap() as task:
+        print(task.join().is_err())?
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(job).unwrap()
+        print(future.result().unwrap().is_err())?
+    Ok(())
+"#
+        ),
+        "True\nTrue\n"
+    );
+}
+
+#[test]
+fn fallible_folds_and_mutable_callbacks_propagate_only_their_public_errors() {
+    assert_eq!(
+        run_stdout(
+            r#"
+def forward[F: Callable[[i64], Result[i64, OverflowError[i64] | str]]](f: &mut F, x: i64) -> Result[i64, OverflowError[i64] | str]:
+    value = f(x)?
+    Ok(value)
+def main() -> Result[(), AllocError | IoError]:
+    mut count = 0
+    mut f = def [&mut count](x: i64) -> Result[i64, OverflowError[i64] | str]:
+        count += 1
+        if x == 0:
+            return Err("explicit")
+        Ok(x + 1)
+    print(forward(&mut f, 0).is_err(), forward(&mut f, 41).unwrap(), forward(&mut f, i64.MAX).is_err())?
+    drop(f)
+    print(count)?
+    values = [i64.MAX, 1]?
+    result = unchecked:
+        iter(&values).try_fold(0, def(total: i64, value: &i64) -> Result[i64, OverflowError[i64]]: Ok(total + *value))
+    print(result.is_err(), len(values))?
+    Ok(())
+"#
+        ),
+        "True 42 True\n3\nTrue 2\n"
+    );
+}
+
+#[test]
+fn reduction_failures_drop_owned_sources_and_resume_lent_sources_after_the_item() {
+    assert_eq!(
+        run_stdout(
+            r#"
+class Resource:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def values() -> Generator[i64]:
+    owner = Resource(10)
+    yield i64.MAX
+    yield 1
+    yield 2
+def consume(source: &mut Iter[i64]) -> Result[i64, OverflowError[i64]]:
+    source.sum()
+def main() -> Result[(), AllocError | IoError]:
+    print(iter(values()).sum().is_err())?
+    mut source = iter([i64.MAX, 1, 2]?)
+    print(consume(&mut source).is_err(), next(source).unwrap())?
+    drop(source)
+    Ok(())
+"#
+        ),
+        "drop 10\nTrue\nTrue 2\n"
+    );
+}
+
+#[test]
 fn every_integer_width_uses_the_default_boundary() {
     let mut source = String::new();
     let mut calls = String::new();

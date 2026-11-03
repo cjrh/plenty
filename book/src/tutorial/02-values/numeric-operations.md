@@ -290,9 +290,10 @@ Use `unchecked:` only when process termination is intentional. It yields
 an ordinary value, not a `Result`, and overflow still traps rather than
 wrapping. Keep the suite small and explain why its bounds are safe. See
 [arithmetic modes](../../design/language/03-types/numbers.md#unchecked-blocks).
-Std reductions and callback consumers still need the coordinated adoption
-described in [B14](../../backlog.md); do not assume they inherit a caller's
-arithmetic mode.
+Integer [`std.math` helpers](../../design/stdlib/math.md) return ordinary
+overflow results; their float variants remain infallible. Remaining std
+implementations and parallel reductions still need the coordinated adoption
+described in [B14](../../backlog.md). Calls never inherit a caller's mode.
 
 ## Validate a divisor once
 

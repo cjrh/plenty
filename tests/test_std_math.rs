@@ -12,7 +12,7 @@ fn run_mode(body: &str, optimize: bool) -> String {
     let source = dir.path().join("main.plenty");
     std::fs::write(
         &source,
-        format!("import std.math as math\ntype Real = Result[f64, math.MathError]\ntype Integer = Result[u64, math.MathError]\ntype Rounded = Result[i64, math.MathError]\ntype Close = Result[bool, math.MathError]\ndef main() -> Result[(), AllocError | IoError | math.MathError]:\n{body}    Ok(())\n"),
+        format!("import std.math as math\ntype Real = Result[f64, math.MathError]\ntype Integer = Result[u64, math.MathError]\ntype Rounded = Result[i64, math.MathError]\ntype Close = Result[bool, math.MathError]\ndef main() -> Result[(), AllocError | IoError | math.MathError | OverflowError[i16] | OverflowError[i32] | OverflowError[i64] | OverflowError[u64]]:\n{body}    Ok(())\n"),
     )
     .unwrap();
     plenty::check_file(&source, None).unwrap();
@@ -67,12 +67,12 @@ fn floating_algorithms_and_generic_helpers() {
     print(math.floor(-2.5)?)?
     print(math.ceil(-2.5)?)?
     print(math.trunc(-2.5)?)?
-    print(math.abs(-7i32))?
+    print(math.abs(-7i32)?)?
     print(math.min(3u8, 2u8))?
     print(math.max(3.0f32, 2.0f32))?
     items = [2i16, 3, 4]?
-    print(math.sum(&items, 1i16))?
-    print(math.prod(&items, 1i16))?
+    print(math.sum(&items, 1i16)?)?
+    print(math.prod(&items, 1i16)?)?
 "#),
         "3.0\n3.0\n2.0\n3.0\n8.0\nTrue\nTrue\nTrue\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\n0.0\n0.0\n1.0\n0.0\n0.0\n0.0\n0.0\nTrue\n180.0\n0.125\n-1.5\n-3\n-2\n-2\n7\n2\n3.0\n10\n24\n"
     );
@@ -158,16 +158,16 @@ fn collection_extrema_and_borrowed_iterable_folds() {
     print(math.min_all(&zeros).unwrap())?
     print(math.max_all(&zeros).unwrap())?
     interval = range(1, 5)
-    print(math.sum_iter(&interval, 0))?
-    print(math.prod_iter(&interval, 1))?
+    print(math.sum_iter(&interval, 0)?)?
+    print(math.prod_iter(&interval, 1)?)?
     unique = {2, 3, 4}?
-    print(math.sum_iter(&unique, 0))?
-    print(math.prod_iter(&unique, 1))?
+    print(math.sum_iter(&unique, 0)?)?
+    print(math.prod_iter(&unique, 1)?)?
     mapping = {2: 'a', 3: 'b'}?
-    print(math.sum_iter(&mapping, 0))?
-    print(math.prod_iter(&mapping, 1))?
-    print(math.sum_iter(&values, 0i16))?
-    print(math.prod_iter(&empty, 7))?
+    print(math.sum_iter(&mapping, 0)?)?
+    print(math.prod_iter(&mapping, 1)?)?
+    print(math.sum_iter(&values, 0i16)?)?
+    print(math.prod_iter(&empty, 7)?)?
     print(len(values))?
     print(len(unique))?
     print(len(mapping))?
@@ -294,14 +294,14 @@ fn nontrivial_float_values_match_reference_and_integer_results_match_wider_oracl
 #[test]
 fn generic_helpers_preserve_magnitudes_ties_nan_and_empty_start_values() {
     assert_eq!(
-        run(r#"    print(math.abs(5u64))?
-    print(math.copysign(1.0, math.abs(-0.0)))?
+        run(r#"    print(math.abs(5u64)?)?
+    print(math.copysign(1.0, math.abs_float(-0.0)))?
     print(math.min(-0.0, 0.0))?
     print(math.isnan(math.min(f64.NAN, 1.0)))?
     print(math.isnan(math.max(1.0, f64.NAN)))?
     empty: list[f64] = []?
-    print(math.sum(&empty, 2.5))?
-    print(math.prod(&empty, 2.5))?
+    print(math.sum_float(&empty, 2.5))?
+    print(math.prod_float(&empty, 2.5))?
 "#),
         "5\n1.0\n-0.0\nTrue\nTrue\n2.5\n2.5\n"
     );
@@ -435,15 +435,15 @@ fn math_algorithms_and_error_construction_allocate_nothing() {
     near = math.isclose(1.0, 1.0000000001, 1e-9, 0.0)?
     choose = math.comb(67, 33)?
     integer = math.isqrt(u64.MAX)
-    total = math.sum(&values, 0u64)
+    total = math.sum(&values, 0u64)?
     rounded = math.round(3.5)?
     pair = math.divmod(u64.MAX, 2u64)?
     float_pair = math.divmod_float(-7.5, 2.0)?
     lowest = math.min_all(&values).unwrap()
     highest = math.max_all(&values).unwrap()
     interval = range(1, 5)
-    folded = math.sum_iter(&interval, 0)
-    product = math.prod_iter(&interval, 1)
+    folded = math.sum_iter(&interval, 0)?
+    product = math.prod_iter(&interval, 1)?
     constant = math.pi
     print('__test_restore_allocations__')?
     print('__test_end_no_allocations__')?

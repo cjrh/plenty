@@ -264,7 +264,7 @@ impl Lower<'_> {
         match callback {
             Callback::Value(e) => self
                 .expression_type_hint(e)
-                .is_some_and(|ty| ty.contains_reference() || ty.checked_closure()),
+                .is_some_and(|ty| ty.contains_reference()),
             Callback::Spliced(splice) => splice
                 .environment
                 .iter()
@@ -347,9 +347,7 @@ impl Lower<'_> {
             };
             self.bind(env.name.clone(), local);
         }
-        let checked = std::mem::take(&mut self.checked);
         let result = self.expr_expected(&splice.body, splice.output.clone(), ops);
-        self.checked = checked;
         self.names = names;
         self.captures = captures;
         self.source_tail = tail;

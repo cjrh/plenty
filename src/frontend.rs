@@ -2873,7 +2873,7 @@ impl Lower<'_> {
         call: Op,
         inputs: &[(String, Ty)],
         loans: &[usize],
-        at: &Token,
+        _at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let parameters = self
@@ -2894,22 +2894,7 @@ impl Lower<'_> {
         {
             ops.push(Op::ForwardsReferences);
         }
-        // Most programs have no lexical callback failure channel. Preserve
-        // the ordinary call path without a name copy or extra signature walk.
-        if self.generics.checked_errors.is_empty() {
-            ops.push(call);
-            return Ok(());
-        }
-        let direct = if let Op::Call(name) = &call {
-            Some(name.clone())
-        } else {
-            None
-        };
         ops.push(call);
-        if let Some(name) = direct {
-            let sig = self.sigs[&name].clone();
-            self.checked_named_call(&name, &sig, at, ops)?;
-        }
         Ok(())
     }
     /// Lowers `return` with its value, the function's cleanup, and the exit.
@@ -3241,12 +3226,6 @@ impl Lower<'_> {
                         ops,
                         last && self.yield_type.is_none(),
                     )?;
-                    if self.checked_value_tail
-                        && matches!(tail, Tail::Value(_))
-                        && ty.as_ref().is_some_and(Ty::checked_closure)
-                    {
-                        return Err(e.at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
-                    }
                     if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {
@@ -3453,13 +3432,6 @@ impl Lower<'_> {
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name) {
-                        if ty.checked_closure()
-                            && self.checked.last().is_some_and(|scope| {
-                                usize::from(local.slot) < self.parameters + scope.start
-                            })
-                        {
-                            return Err(stmt.at.error("a closure defined in `checked:` cannot be assigned outside its block; define it outside the block instead"));
-                        }
                         if *mutable || annotation.is_some() {
                             return Err(stmt.at.error(format!("duplicate binding `{name}`")));
                         }

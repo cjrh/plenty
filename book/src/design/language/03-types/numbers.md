@@ -243,9 +243,13 @@ restriction; ordinary ownership and borrow restrictions still apply. A callee's
 `Result` requires explicit handling, and `?` exits the function rather than
 being caught by the block.
 
-Std reductions and callback consumers still require their coordinated B14
-migration. Do not assume a call inherits local checking or that an infallible
-callback signature can accept recoverable arithmetic.
+Integer [`std.math` reductions](../../stdlib/math.md) and serial pipeline
+`sum()` return public overflow results; float reductions stay infallible.
+[`sort_by_key`](../../facilities/01-builtins/lists.md) accepts ordinary
+fallible key callbacks and returns their error. Other std implementations and
+parallel reductions still require their coordinated B14 migration. Do not
+assume a call inherits local checking or that an infallible callback signature
+can accept recoverable arithmetic.
 
 Control flow is otherwise unchanged. `?` inside the block exits the function,
 and `return`, `break` and `continue` behave as they do outside it. A failure

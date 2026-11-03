@@ -214,9 +214,6 @@ impl Lower<'_> {
         self.mark_call(at, ops);
         self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
-        if let Some(error) = &closure.checked_error {
-            self.checked_call(error, closure.signature.output.clone(), at, ops)?;
-        }
         Self::end_reads(loans, ops);
         if let Some(loans) = self.closure_loans.get(&closure.name) {
             ops.extend(loans.iter().copied().map(Op::UseLoan));
@@ -238,9 +235,6 @@ impl Lower<'_> {
         self.mark_call(at, ops);
         self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
-        if let Some(error) = &closure.checked_error {
-            self.checked_call(error, closure.signature.output.clone(), at, ops)?;
-        }
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));
         if let Some(loans) = self.closure_loans.get(&closure.name) {
