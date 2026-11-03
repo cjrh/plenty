@@ -413,11 +413,11 @@ def main() -> Result[(), IoError]:
     distance = Quantity[f64, Length](12.0)
     elapsed = Quantity[f64, Time](4.0)
     speed: Quantity[f64, Velocity] = distance / elapsed
-    print(speed.get())?
+    print(speed)?
     Ok(())
 ```
 ```output
-3.0
+3.0 m/s
 ```
 
 Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer

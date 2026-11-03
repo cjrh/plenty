@@ -17,6 +17,7 @@ static INTEGER: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
 };
 static ID: Type = Type {
     kind: b'B',

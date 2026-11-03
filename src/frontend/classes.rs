@@ -171,6 +171,7 @@ impl ClassDecl {
             copy: self.copy.is_some(),
             forwards_operators: self.newtype.is_some(),
             redacted: self.redacted,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         })))

@@ -721,7 +721,15 @@ impl TypeAliases {
                 })();
                 let (definition, class): (Ty, Option<classes::ClassDecl>) = result?;
                 match (&ty, definition) {
-                    (Ty::Class(t), Ty::Class(value)) => t.define((*value.get()).clone()),
+                    (Ty::Class(t), Ty::Class(value)) => {
+                        let mut definition = (*value.get()).clone();
+                        if name == "Quantity"
+                            && let [_, Ty::Dimension(dimension)] = actual.as_slice()
+                        {
+                            definition.quantity = Some(dimension.clone());
+                        }
+                        t.define(definition);
+                    }
                     (Ty::Enum(t), Ty::Enum(value)) => t.define((*value.get()).clone()),
                     _ => unreachable!(),
                 }

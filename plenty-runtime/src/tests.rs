@@ -26,6 +26,7 @@ const fn scalar(kind: u8) -> Type {
         transparent: false,
         debug: None,
         display: None,
+        quantity: None,
     }
 }
 const fn list(key: &'static Type) -> Type {
@@ -333,6 +334,7 @@ static GUARD_CLASS: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
     ..scalar(b'C')
 };
 /// A boxed guard: a heap owner whose content runs a hook when dropped.
@@ -2467,6 +2469,7 @@ static RECURSIVE_NODE: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
     ..scalar(b'C')
 };
 static RECURSIVE_BOX: Type = Type {
@@ -2554,6 +2557,7 @@ fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
         transparent: false,
         debug: None,
         display: None,
+        quantity: None,
         ..GUARD_CLASS
     };
     // The tail is a flat field: its state word and id follow the option.

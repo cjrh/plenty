@@ -19,7 +19,7 @@ def main() -> Result[(), IoError]:
     elapsed = Quantity[f64, Time](120.0)
     speed: Quantity[f64, Velocity] = distance / elapsed
     print(double(distance).to(kilometre), "km")?
-    print(speed.get(), "m/s")?
+    print(speed)?
     Ok(())
 ```
 ```output
@@ -40,8 +40,13 @@ The constructor takes the value in the coherent unit. A kilometre is a length
 whose stored value is `1000.0`; `.to(kilometre)` divides by that value and
 returns a plain `f64`. `.get()` reads the coherent value directly. Both methods
 remove the dimension from the result, so keep quantities until the boundary
-where you need a number. Unit labels are explicit here because automatic
-coherent-unit formatting is not implemented yet.
+where you need a number. Printing a quantity includes its coherent-unit symbol.
+The explicit `"km"` label accompanies the plain number returned by `.to(kilometre)`;
+printing `double(distance)` directly would show `3000.0 m`.
+
+Use an f-string to choose numeric precision: `f"{speed:.2f}"?` produces
+`"12.50 m/s"`. As with other f-strings, include `AllocError` in the function's
+error type when propagating its allocation failure.
 
 Scalars only scale quantities. Write `0.0 * metre` for a zero length; `distance
 + 0.0` and `distance > 0.0` are errors. Dividing a length by a length produces

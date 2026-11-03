@@ -17,6 +17,7 @@ static INTEGER: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
 };
 static WIDE: Type = Type {
     inline_bytes: 64,

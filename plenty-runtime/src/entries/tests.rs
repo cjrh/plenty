@@ -19,6 +19,7 @@ static INTEGER: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
 };
 static RANGE: Type = Type {
     kind: b'R',

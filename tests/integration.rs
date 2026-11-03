@@ -693,3 +693,6 @@ mod test_dimensions;
 mod test_quantities;
 #[path = "test_std_ceilings.rs"]
 mod test_std_ceilings;
+
+#[path = "test_quantity_formatting.rs"]
+mod test_quantity_formatting;

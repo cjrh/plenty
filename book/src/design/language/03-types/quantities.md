@@ -80,6 +80,49 @@ Inside `checked:`, failures remain `OverflowError[T]` and/or
 their underlying integer in `OverflowError`. Quantity construction and
 rewrapping do not change arithmetic policy.
 
+## Formatting
+
+`print(q)` and `f"{q}"` show the coherent value followed by a space and the
+coherent-unit symbol: `1.3 m/s`. Numeric format specs apply to the number,
+including its padding; `f"{q:08.2f}"` gives `00001.30 m/s`. Integer domains
+format as their underlying integers. Dimensionless quantities have no suffix.
+
+Symbols follow normalized base order. Products use `*`, powers use `^`, and
+multiple denominator factors are parenthesized: `kg*m/s^2` or `m/(kg*s)`.
+The ordering is by nominal base identity, not by symbol. Distinct dimensions
+with equal symbols remain distinct; their symbols do not cancel.
+
+```plenty
+dimension Length("m")
+dimension Time("s")
+
+def main() -> Result[(), IoError | AllocError]:
+    speed = Quantity[f64, Length / Time](1.3)
+    print(speed)?
+    print(f"{speed:.2f}"?)?
+    print(f"{speed!r}"?)?
+    Ok(())
+```
+```output
+1.3 m/s
+1.30 m/s
+Quantity[f64, Length * Pow[Time, -1]](1.3)
+```
+
+`str.repr(q)`, `!r` and quantities inside aggregates show
+`Quantity[T, D](value)`, with the normalized dimension expression. `!a` escapes
+non-ASCII characters in that debug spelling. `!s` converts the display spelling
+to text first, so `f"{q!s:>12}"` pads the whole number-and-unit text.
+
+Quantities support `display(out)` and `debug(out)` with a mutable
+[`std.fmt.Formatter`](../../stdlib/fmt.md), including through `std.fmt.display`,
+`debug`, `to_string` and `to_debug`. Direct writer formatting and numeric
+f-string fields write the number and static symbols without allocating a
+quantity-specific string; ordinary formatter limits and writer errors apply.
+String-producing operations still allocate. Printing retains `IoError`, and
+`str.repr` retains `AllocError`; quantities do not add user formatting errors.
+Nested format specs and `c` retain their ordinary `FormatError` possibility.
+
 ## Representation and current limits
 
 Dimensions add no runtime field. Quantities currently use the existing copy
@@ -88,8 +131,7 @@ allocate, but the class calling convention and constructor bookkeeping still
 remain in native code; identical instructions to plain-number programs are
 not yet guaranteed.
 
-Printing currently uses ordinary class formatting. Print `.get()` with an
-explicit unit label when presenting a numeric result. Coherent-symbol
-formatting and numeric format specifications on quantities, quantity module
-constants, and alias-aware diagnostic spelling are not implemented. See the
+Unit spellings live in static type metadata and compiled formatting calls, not
+in each value. Quantity module constants and alias-aware diagnostic spelling
+are not implemented. See the
 [remaining units work](../../../backlog.md#units-of-measure).

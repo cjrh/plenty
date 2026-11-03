@@ -23,9 +23,15 @@ preservation/erasure and checked failures use existing arithmetic rules.
 Tests cover storage/result dimensions, rejection rules, evaluation order,
 collection/reference destinations and allocation denial.
 
+The third stage adds coherent-unit display and numeric format specs, normalized
+quantity debug output in aggregates, and writer methods through `std.fmt`.
+Unit spellings are static metadata, with no per-value dimension tag. Tests cover
+numeric widths and domains, normalized symbols, conversions, nested specs,
+writer limits and allocation denial.
+
 Native erasure is not complete: the release addition probe retains the class
 ABI and constructor/caller bookkeeping instead of the plain `f64` instructions.
-Formatting, constants, alias-aware diagnostics and this performance work remain
+Constants, alias-aware diagnostics and this performance work remain
 in [B97](../backlog.md#units-of-measure).
 
 ## Unicode trie example

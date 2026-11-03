@@ -85,6 +85,40 @@ impl fmt::Display for Error {
 }
 
 impl Dimension {
+    /// Coherent symbols are presentation only. Group a multi-factor divisor
+    /// so the spelling stays unambiguous, including at exponent -128.
+    pub fn symbol(&self) -> String {
+        let mut numerator = Vec::new();
+        let mut denominator = Vec::new();
+        for (base, exponent) in &self.0 {
+            let power = exponent.unsigned_abs();
+            let term = if power == 1 {
+                base.symbol.to_string()
+            } else {
+                format!("{}^{power}", base.symbol)
+            };
+            if *exponent > 0 {
+                numerator.push(term);
+            } else {
+                denominator.push(term);
+            }
+        }
+        if denominator.is_empty() {
+            return numerator.join("*");
+        }
+        let numerator = if numerator.is_empty() {
+            "1".into()
+        } else {
+            numerator.join("*")
+        };
+        let divisor = denominator.join("*");
+        if denominator.len() == 1 {
+            format!("{numerator}/{divisor}")
+        } else {
+            format!("{numerator}/({divisor})")
+        }
+    }
+
     pub fn bases(&self) -> impl Iterator<Item = &Base> {
         self.0.iter().map(|(base, _)| base.as_ref())
     }
@@ -212,6 +246,29 @@ mod tests {
 
     fn base(i: usize) -> Dimension {
         Dimension::base(format!("base{i}"), format!("u{i}"))
+    }
+
+    #[test]
+    fn coherent_symbols_normalize_products_and_divisors() {
+        assert_eq!(Dimension::default().symbol(), "");
+        assert_eq!(base(0).symbol(), "u0");
+        assert_eq!(base(0).power(-128).unwrap().symbol(), "1/u0^128");
+        assert_eq!(base(0).power(127).unwrap().symbol(), "u0^127");
+        let divisor = base(1).product(&base(2), false).unwrap();
+        assert_eq!(
+            base(0).product(&divisor, true).unwrap().symbol(),
+            "u0/(u1*u2)"
+        );
+        assert_eq!(
+            divisor.product(&base(0), false).unwrap().symbol(),
+            "u0*u1*u2"
+        );
+        assert_eq!(base(0).product(&base(0), true).unwrap().symbol(), "");
+        let same_symbol = Dimension::base("other".into(), "u0".into());
+        assert_eq!(
+            base(0).product(&same_symbol, true).unwrap().symbol(),
+            "u0/u0"
+        );
     }
 
     #[test]
