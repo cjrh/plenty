@@ -31,11 +31,12 @@ produce new values, so the original readings remain unchanged. `i32x4`, `u32x4`
 and `f64x2` provide the same pattern with other lane types. Mask shapes must
 match the vectors they select.
 
-Use `add`, `sub` and `mul` for ordinary arithmetic. Integer overflow still
-traps; integer `wrapping_add`, `wrapping_sub` and `wrapping_mul` explicitly choose
-modular arithmetic. Floating `sum_ordered(initial)` preserves scalar addition
-order. Selection is eager: a false mask lane does not prevent a trap while
-computing either input.
+Use `add`, `sub` and `mul` for ordinary arithmetic. Integer versions return a
+`Result` with a lane-typed overflow error; propagate it with `?` or handle it
+with `match`. Integer `wrapping_add`, `wrapping_sub` and `wrapping_mul` explicitly
+choose modular arithmetic. Floating `sum_ordered(initial)` preserves scalar
+addition order. Selection is eager: compute and handle both inputs before
+selecting between them.
 
 The module also provides checked list loads and stores; they require a complete
 vector to fit and never allocate. Handle any leftover elements with a scalar

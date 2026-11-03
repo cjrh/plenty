@@ -3059,9 +3059,9 @@ enum i32x4
     Lanes(i32, i32, i32, i32)
     def lane(self, index: i64) -> Option[i32]
     def to_tuple(self) -> (i32, i32, i32, i32)
-    def add(self, other: &i32x4) -> i32x4
-    def sub(self, other: &i32x4) -> i32x4
-    def mul(self, other: &i32x4) -> i32x4
+    def add(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
+    def sub(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
+    def mul(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
     def wrapping_add(self, other: &i32x4) -> i32x4
     def wrapping_sub(self, other: &i32x4) -> i32x4
     def wrapping_mul(self, other: &i32x4) -> i32x4
@@ -3079,9 +3079,9 @@ enum u32x4
     Lanes(u32, u32, u32, u32)
     def lane(self, index: i64) -> Option[u32]
     def to_tuple(self) -> (u32, u32, u32, u32)
-    def add(self, other: &u32x4) -> u32x4
-    def sub(self, other: &u32x4) -> u32x4
-    def mul(self, other: &u32x4) -> u32x4
+    def add(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
+    def sub(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
+    def mul(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
     def wrapping_add(self, other: &u32x4) -> u32x4
     def wrapping_sub(self, other: &u32x4) -> u32x4
     def wrapping_mul(self, other: &u32x4) -> u32x4
