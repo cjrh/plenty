@@ -166,11 +166,20 @@ Nested format specs and `c` retain their ordinary `FormatError` possibility.
 
 ## Representation and current limits
 
-Dimensions add no runtime field. Quantities currently use the existing copy
-class representation with one numeric field. Arithmetic and conversion do not
-allocate, but the class calling convention and constructor bookkeeping still
-remain in native code; identical instructions to plain-number programs are
-not yet guaranteed.
+`Quantity[T, D]` uses `T`'s native value and parameter/result representation.
+Dimensions add no runtime field, tag, or arithmetic operation. Construction and
+`get` retag the coherent numeric value without a constructor call; float `to`
+lowers to ordinary storage division. Integer-domain storage keeps the domain's
+existing representation and arithmetic contracts. Ordinary classes keep their
+existing ABI.
+
+Collections, aggregates, references, closures and generators use the same
+storage packing as their numeric payloads. Arithmetic and conversion do not
+allocate. The [release instruction probe](../04-expressions/operators-implementation.md#quantity-erasure)
+compares addition, multiplication and unit conversion with plain-number code.
+This does not promise that every surrounding function call or temporary is
+optimized away; generic instances that differ only in dimension can still have
+separate function bodies.
 
 Unit spellings live in static type metadata and compiled formatting calls, not
 in each value. Type and dimension errors include

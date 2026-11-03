@@ -4866,6 +4866,26 @@ impl Lower<'_> {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
             }
             modules::check_member(self.access, &class.name, "__new__", at)?;
+            if let Some(storage) = ty.quantity_storage() {
+                let [value] = args else {
+                    return Err(at.error("Quantity construction takes one coherent value"));
+                };
+                let value = match &value.kind {
+                    Expression::NamedArgument(name, value) if name == "value" => value,
+                    Expression::NamedArgument(name, _) => {
+                        return Err(value.at.error(format!(
+                            "unknown Quantity argument `{name}`; expected `value`"
+                        )));
+                    }
+                    _ => value,
+                };
+                let actual = self.expr_expected(value, Some(storage.clone()), ops)?;
+                self.same(actual, Some(storage), &value.at)?;
+                ops.push(Op::Class(crate::record::ClassOp::WrapQuantity(
+                    class.clone(),
+                )));
+                return Ok(ty);
+            }
             return self
                 .call_named(&crate::record::method(&class.name, "new"), args, at, ops)?
                 .ok_or_else(|| at.error("class constructor must return Result"));

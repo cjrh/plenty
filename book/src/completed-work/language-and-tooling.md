@@ -42,9 +42,15 @@ bindings, visibility and generic-parameter shadowing. Canonical type identity an
 runtime formatting remain unchanged; tests cover nested types, defining-module
 scope, editor checks and concurrent compilations.
 
-Native erasure is not complete: the release addition probe retains the class
-ABI and constructor/caller bookkeeping instead of the plain `f64` instructions.
-This performance work remains in [B97](../backlog.md#units-of-measure).
+The sixth stage completes issue #701's native erasure: Quantity parameters and
+results use their storage type's ABI, construction/projection are direct, and
+unit constants substitute folded values. The x86-64 release probe produces
+identical instructions to plain `f32`/`f64` for addition, multiplication and
+conversion by a parameter or constant unit. Tests cover numeric bits across
+calls, references, aggregates, closures, generators and workers in both modes.
+Domain-backed quantity aliases also resolve safely before storage definitions
+are finalized. [B97](../backlog.md#units-of-measure) retains `std.units` and
+measured sharing of bodies that differ only in dimension.
 
 ## Unicode trie example
 

@@ -881,6 +881,25 @@ impl Lower<'_> {
             ops.push(Op::Collection(CollectionOp::Clist(operation)));
             return Ok((ty, vec![loan]));
         }
+        let Expression::Member(base, name, _) = &e.kind else {
+            unreachable!()
+        };
+        // A Quantity is a copyable numeric value. Projecting its coherent
+        // value does not need to take the owner's address or create a loan.
+        if let Some(ty @ Ty::Class(_)) = self.operator_hint(base)
+            && ty.quantity_storage().is_some()
+        {
+            let Ty::Class(class) = &ty else {
+                unreachable!()
+            };
+            let index = field_index(class, name, &e.at)?;
+            modules::check_member(self.access, &class.name, name, &e.at)?;
+            let (actual, loans) = self.observe(base, ops)?;
+            self.same(Some(actual), Some(ty.clone()), &base.at)?;
+            let output = class.get().fields[index].1.clone();
+            ops.push(Op::Class(ClassOp::Field(class.clone(), index)));
+            return Ok((output, loans));
+        }
         if self.place_type(e).is_some() {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(ty, _) = reference else {
@@ -889,9 +908,6 @@ impl Lower<'_> {
             ops.push(Op::ReadRef((*ty).clone()));
             return Ok(((*ty).clone(), vec![loan]));
         }
-        let Expression::Member(base, name, _) = &e.kind else {
-            unreachable!()
-        };
         let (ty, loans) = self.observe(base, ops)?;
         // Checked after `observe` so a temporary such as `open(p)?.closed`
         // reaches the property, not only a named place.
@@ -1295,6 +1311,33 @@ impl Lower<'_> {
                 "method `{name}` expects {} arguments",
                 sig.inputs.len() - 1
             )));
+        }
+        if let Ty::Ref(receiver, false) = &sig.inputs[0].1
+            && let Ty::Class(class) = receiver.as_ref()
+            && let Some(storage) = receiver.quantity_storage()
+            && matches!(name, "get" | "to")
+        {
+            // Keep the method's shared loan through argument evaluation, but
+            // read its numeric value directly. A named owner needs no address
+            // merely to lend this compiler-known, copyable receiver.
+            let (reference, loan) = self.borrow(base, false, ops)?;
+            self.unbox_reference(reference, ops);
+            if let Some(Op::BorrowLocal(slot, false)) = ops.last() {
+                let slot = *slot;
+                *ops.last_mut().unwrap() = Op::LoadLocal(slot);
+            } else {
+                ops.push(Op::ReadRef((**receiver).clone()));
+            }
+            ops.push(Op::Class(ClassOp::Field(class.clone(), 0)));
+            let mut loans = vec![loan];
+            loans.extend(self.call_arguments(args, &sig.inputs[1..], ops)?);
+            if name == "to" {
+                ops.push(Op::Class(ClassOp::Field(class.clone(), 0)));
+                self.mark(&base.at, ops);
+                ops.push(Op::Div);
+            }
+            Self::end_reads(loans, ops);
+            return Ok(Some(storage));
         }
         let Ty::Ref(_, mutable) = &sig.inputs[0].1 else {
             unreachable!()

@@ -456,7 +456,18 @@ impl TypeAliases {
             }
             return Err(application.at.error(message));
         }
-        if name == "Quantity" && !actual[0].is_numeric() && actual[0].integer_domain().is_none() {
+        // Alias discovery can resolve storage before its class definition is
+        // finalized. The declaration identifies a builtin domain at this phase;
+        // its own instantiation validates the integer argument.
+        if name == "Quantity"
+            && !actual[0].is_numeric()
+            && !self
+                .data
+                .origin_class(&actual[0])
+                .is_some_and(|(declaration, _)| {
+                    crate::op::IntegerDomain::named(&declaration.name).is_some()
+                })
+        {
             return Err(application.at.error("Quantity storage must be an integer, float, or integer domain; put the domain inside Quantity"));
         }
         let key = (name.clone(), actual.clone());

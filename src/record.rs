@@ -22,7 +22,8 @@ pub struct ClassType {
     /// f-string fields) writes `Name(@redacted)` instead of the fields, at any
     /// depth. See book/src/design/language/03-types/classes.md#redacted-types.
     pub redacted: bool,
-    /// Builtin Quantity's compile-time dimension, used only for formatting.
+    /// Builtin Quantity's compile-time dimension. Its presence selects the
+    /// storage type's native ABI; the dimension itself is used only for formatting.
     pub quantity: Option<Arc<crate::dimension::Dimension>>,
     /// Inline field storage size; excluded from nominal equality.
     pub bytes: std::sync::OnceLock<usize>,
@@ -80,6 +81,9 @@ pub fn method_display(symbol: &str) -> &str {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassOp {
+    /// Give a checked coherent storage value its Quantity type. No call,
+    /// allocation, constructor state, or numeric conversion is involved.
+    WrapQuantity(crate::nominal::Nominal<ClassType>),
     /// Zeroed inline storage, before `__init__` initializes the fields.
     New(crate::nominal::Nominal<ClassType>),
     ArmDrop(crate::nominal::Nominal<ClassType>),
@@ -89,6 +93,10 @@ pub enum ClassOp {
 impl ClassOp {
     pub fn signature(&self) -> Option<(Vec<Ty>, Ty)> {
         Some(match self {
+            Self::WrapQuantity(t) => {
+                let storage = Ty::Class(t.clone()).quantity_storage()?;
+                (vec![storage], Ty::Class(t.clone()))
+            }
             Self::ArmDrop(t) => (
                 vec![Ty::Ref(Arc::new(Ty::Class(t.clone())), true)],
                 Ty::Unit,

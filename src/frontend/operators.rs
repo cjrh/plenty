@@ -622,6 +622,12 @@ impl Lower<'_> {
         let field = class.get().fields[0].1.clone();
         let wrapped = Ty::Class(class.clone());
         let at = declared;
+        if class.get().quantity.is_some() && ty == field {
+            ops.push(Op::Class(crate::record::ClassOp::WrapQuantity(
+                class.clone(),
+            )));
+            return Ok(Some(wrapped));
+        }
         let error = match &ty {
             _ if ty == field => None,
             Ty::Enum(sum) if sum.is_result() && sum.get().variants[0].fields[0] == field => {
