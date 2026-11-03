@@ -21,20 +21,27 @@ pub class Trickle:
     pub step: i64
 
     pub def read(self: &mut Trickle, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut count = stop - start
-        if count > self.step:
-            count = self.step
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        if start < 0 or stop < start or stop > buffer.len() or self.at < 0 or self.at > self.data.len() or self.step < 1:
+            return Err(StreamError.InvalidProgress)
+        # Validated view endpoints; count <= remaining input and output room.
+        unchecked:
+            mut count = stop - start
+            if count > self.step:
+                count = self.step
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
+
 
 pub class Sink:
     pub data: Bytes
     pub room: i64
 
     pub def write(self: &mut Sink, buffer: &[u8]) -> Result[i64, StreamError]:
+        if self.room < 0:
+            return Err(StreamError.InvalidProgress)
         mut count = len(buffer)
         if count > 3:
             count = 3
@@ -47,7 +54,9 @@ pub class Sink:
                 pass
             case Err(_):
                 return Err(StreamError.OutOfRange)
-        self.room -= count
+        # count is nonnegative and capped by the remaining room.
+        unchecked:
+            self.room -= count
         Ok(count)
 
     pub def flush(self: &mut Sink) -> Result[(), StreamError]:
@@ -63,21 +72,29 @@ pub class Faulty:
     pub mode: i64
 
     pub def read(self: &mut Faulty, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self.reads += 1
+        reads = checked:
+            self.reads + 1
+        self.reads = reads.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?
         if self.reads == self.when:
             if self.mode == 0:
                 return Err(StreamError.Interrupted)
             if self.mode == 1:
                 return Err(StreamError.UnexpectedEof)
-            return Ok(stop - start + 1)
-        mut count = stop - start
-        if count > 2:
-            count = 2
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+            lie = checked:
+                stop - start + 1
+            return lie.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)
+        if start < 0 or stop < start or stop > buffer.len() or self.at < 0 or self.at > self.data.len():
+            return Err(StreamError.InvalidProgress)
+        # Ordered nonnegative endpoints; count <= remaining input/output room.
+        unchecked:
+            mut count = stop - start
+            if count > 2:
+                count = 2
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
 def unhex(digits: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(digits)?)
@@ -224,17 +241,26 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.toml.TomlError]:\n{body}    Ok(())\n"
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.encoding.EncodingError | std.bytes.BytesError | std.toml.TomlError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 
 /// Runs a program and shortens the qualified names in rendered values.
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable).output().unwrap();
     assert!(
@@ -1348,4 +1374,86 @@ fn mutated_documents_parse_or_fail_cleanly() {
         }
     }
     assert!(accepted > 20 && accepted < 220, "{accepted} accepted");
+}
+
+#[test]
+fn parser_representation_helpers_preserve_faults_and_preflight_capacity() {
+    let library = include_str!("../stdlib/std/toml.plenty");
+    let helpers = &library[library.find("def lookahead_offset(").unwrap()
+        ..library.find("# One key, table, or value.").unwrap()];
+    let deeper = &library[library.find("    def deeper(").unwrap()
+        ..library.find("    # A value on one line.").unwrap()];
+    let source = format!(
+        r#"{HEADER}
+const read_chunk: i64 = 4096
+{helpers}
+class Emitter:
+    max_depth: i64
+{deeper}
+def capacity(result: Result[(i64, i64), TomlFault]) -> bool:
+    match result:
+        case Err(TomlFault.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+
+def unavailable(error: TomlError) -> bool:
+    match error.fault:
+        case TomlFault.InputTooLarge:
+            error.offset == i64.MAX and error.line == 0 and error.column == 0
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    depth = Emitter(1024)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    a = lookahead_offset(i64.MAX, 1) == -1
+    b = lookahead_offset(9223372036854775806, 1) == i64.MAX
+    c = lookahead_offset(0, i64.MAX) == i64.MAX
+    last = located_position(TomlFault.InvalidEscape, i64.MAX, 9223372036854775806, 9223372036854775806)
+    line = unavailable(located_position(TomlFault.InvalidEscape, i64.MAX, i64.MAX, 0))
+    column = unavailable(located_position(TomlFault.InvalidEscape, i64.MAX, 0, i64.MAX))
+    extent = read_extent(9223372036854771711, i64.MAX).unwrap()
+    extra = read_extent(9223372036854775805, 9223372036854775806).unwrap()
+    too_big = capacity(read_extent(9223372036854775806, i64.MAX)) and capacity(read_extent(i64.MAX, i64.MAX))
+    exact_depth = depth.deeper(1023, 1).unwrap() == 1024
+    bad_depth = depth.deeper(i64.MAX, 2).is_err() and depth.deeper(1023, 2).is_err()
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(a, b, c, last.fault, last.line, last.column)?
+    print(line, column, extent, extra, too_big, exact_depth, bad_depth)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True InvalidEscape 9223372036854775807 9223372036854775807\nTrue True (4096, 9223372036854775807) (2, 9223372036854775807) True True True"
+        );
+    }
+}
+
+#[test]
+fn maximum_toml_budgets_keep_integer_datetime_and_escape_diagnostics() {
+    let source = program(
+        r#"
+mut bounds = std.toml.limits()
+bounds.max_input = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_output = NonNegative.try_from(i64.MAX).unwrap()
+check("6e3d307837666666666666666666666666666666", &bounds)?
+print(described(std.toml.parse_text("n=0x8000000000000000", &bounds))?)?
+print(described(std.toml.parse_text("n=-9223372036854775808", &bounds))?)?
+print(described(std.toml.parse_text("s='''\n'''''", &bounds))?)?
+print(described(std.toml.parse_text("s=\"\\UFFFFFFFF\"", &bounds))?)?
+value = std.toml.parse_text("n=9223372036854775807\nd=9999-12-31T23:59:60.999999999-23:59", &bounds)?
+print(encoded(&value, &bounds)?)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "{\"n\"=9223372036854775807}\nNumberOutOfRange 2 1 3\n{\"n\"=-9223372036854775808}\n{\"s\"=\"''\"}\nInvalidEscape 3 1 4\n\"n = 9223372036854775807\\nd = 9999-12-31T23:59:60.999999999-23:59\\n\""
+        );
+    }
 }

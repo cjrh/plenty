@@ -195,16 +195,20 @@ def run_end(found: Option[i64], stop: i64) -> i64:
             stop
 
 def hex_value(code: i64) -> i64:
-    if code >= 48 and code <= 57:
-        return code - 48
-    if code >= 97 and code <= 102:
-        return code - 87
-    if code >= 65 and code <= 70:
-        return code - 55
-    -1
+    # Every subtraction is guarded by its ASCII hex digit range.
+    unchecked:
+        if code >= 48 and code <= 57:
+            return code - 48
+        if code >= 97 and code <= 102:
+            return code - 87
+        if code >= 65 and code <= 70:
+            return code - 55
+        -1
 
 def leap(year: i64) -> bool:
-    (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+    # All divisors are positive constants; remainder has no overflow case.
+    unchecked:
+        (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
 
 def days_in(year: i64, month: i64) -> i64:
     if month == 2:
@@ -221,6 +225,42 @@ def valid_date(year: i64, month: i64, day: i64) -> bool:
 # RFC 3339 permits a leap second, so `second` may be 60.
 def valid_time(hour: i64, minute: i64, second: i64, nanosecond: i64) -> bool:
     hour >= 0 and hour <= 23 and minute >= 0 and minute <= 59 and second >= 0 and second <= 60 and nanosecond >= 0 and nanosecond <= 999999999
+
+# A lookahead beyond representable offsets is also beyond the held input.
+def lookahead_offset(at: i64, ahead: i64) -> i64:
+    offset = checked:
+        at + ahead
+    match offset:
+        case Ok(value):
+            value
+        case Err(_):
+            -1
+
+# One-based coordinates need a representation check separate from input size.
+def located_position(fault: TomlFault, offset: i64, breaks: i64, scalars: i64) -> TomlError:
+    position = checked:
+        (breaks + 1, scalars + 1)
+    match position:
+        case Ok(pair):
+            line, column = pair
+            TomlError(fault, offset, line, column)
+        case Err(_):
+            TomlError(TomlFault.InputTooLarge, offset, 0, 0)
+
+# The parser owns `have` bytes within its input budget. One extra byte detects
+# oversize input, but its allocation extent must fit before resize or read.
+def read_extent(have: i64, max_input: i64) -> Result[(i64, i64), TomlFault]:
+    remaining = unchecked:
+        max_input - have
+    room = unchecked:
+        remaining + 1 if remaining < read_chunk else read_chunk
+    extent = checked:
+        have + room
+    match extent:
+        case Ok(stop):
+            Ok((room, stop))
+        case Err(_):
+            Err(TomlFault.Allocation(AllocError.CapacityOverflow))
 
 # One key, table, or value. Children are node indices in source order; array
 # elements have no name and are not in the name index.
@@ -268,7 +308,7 @@ class Parser:
         -1
 
     def peek(self, ahead: i64) -> i64:
-        self.byte_at(self.at + ahead)
+        self.byte_at(lookahead_offset(self.at, ahead))
 
     def is_digit(self, ahead: i64) -> bool:
         byte = self.peek(ahead)
@@ -289,73 +329,85 @@ class Parser:
         TomlFault.UnexpectedByte
 
     def located(self, fault: TomlFault) -> TomlError:
-        mut line = 1
-        mut column = 1
-        line += self.src.count(10u8, 0, self.at)
-        mut index = self.at - 1
-        while index >= 0:
-            byte = self.byte_at(index)
-            if byte == 10:
-                break
-            if byte & 192 != 128:
-                column += 1
-            index -= 1
-        TomlError(fault, self.at, line, column)
+        breaks = self.src.count(10u8, 0, self.at)
+        mut scalars = 0
+        # 0 <= at <= src.len(); index decrements only as far as -1, and the
+        # zero-based scalar count cannot exceed at. Add the one-based bias later.
+        unchecked:
+            mut index = self.at - 1
+            while index >= 0:
+                byte = self.byte_at(index)
+                if byte == 10:
+                    break
+                if byte & 192 != 128:
+                    scalars += 1
+                index -= 1
+        located_position(fault, self.at, breaks, scalars)
 
     def add(self: &mut Parser, parent: i64, key: str, kind: i64, origin: i64, named: bool) -> Result[i64, TomlFault]:
-        mut level = self.nodes[parent].level
-        if kind != kind_value:
-            level += 1
-            if level > self.max_depth:
-                return Err(TomlFault.DepthExceeded)
-        child = len(self.nodes)
-        children = reserved(list[i64]())?
-        reserved(self.nodes.append(Node(kind, origin, level, key, Toml.Bool(False), children, parent)))?
-        reserved(self.nodes[parent].children.append(child))?
-        if named:
-            reserved(self.index.insert((parent, key), child))?
-        Ok(child)
+        # Node levels are 0..max_depth <= 1024. Increment at most to 1025.
+        unchecked:
+            mut level = self.nodes[parent].level
+            if kind != kind_value:
+                level += 1
+                if level > self.max_depth:
+                    return Err(TomlFault.DepthExceeded)
+            child = len(self.nodes)
+            children = reserved(list[i64]())?
+            reserved(self.nodes.append(Node(kind, origin, level, key, Toml.Bool(False), children, parent)))?
+            reserved(self.nodes[parent].children.append(child))?
+            if named:
+                reserved(self.index.insert((parent, key), child))?
+            Ok(child)
 
     def blank(self: &mut Parser) -> ():
-        while True:
-            byte = self.peek(0)
-            if byte == 32 or byte == 9:
-                self.at += 1
-            else:
-                return
+        # Each increment consumes a whitespace byte observed within src.
+        unchecked:
+            while True:
+                byte = self.peek(0)
+                if byte == 32 or byte == 9:
+                    self.at += 1
+                else:
+                    return
 
     def comment(self: &mut Parser) -> Result[(), TomlFault]:
-        self.at += 1
-        stop = self.src.len()
-        self.at = run_end(self.src.find_in(&self.comment_stop, self.at, stop), stop)
-        if self.peek(0) < 0 or self.newline() > 0:
-            return Ok(())
-        Err(TomlFault.ControlCharacter)
+        # Called only after observing #, hence at < src.len().
+        unchecked:
+            self.at += 1
+            stop = self.src.len()
+            self.at = run_end(self.src.find_in(&self.comment_stop, self.at, stop), stop)
+            if self.peek(0) < 0 or self.newline() > 0:
+                return Ok(())
+            Err(TomlFault.ControlCharacter)
 
     # Whitespace, an optional comment, then a newline or the end of input.
     def end_line(self: &mut Parser) -> Result[(), TomlFault]:
-        self.blank()
-        if self.peek(0) == 35:
-            self.comment()?
-        if self.peek(0) < 0:
-            return Ok(())
-        count = self.newline()
-        if count == 0:
-            return Err(TomlFault.UnexpectedByte)
-        self.at += count
-        Ok(())
-
-    # Whitespace, comments, and newlines between array elements.
-    def array_space(self: &mut Parser) -> Result[(), TomlFault]:
-        while True:
+        # newline() reports only bytes present in src; at + count <= src.len().
+        unchecked:
             self.blank()
             if self.peek(0) == 35:
                 self.comment()?
+            if self.peek(0) < 0:
+                return Ok(())
             count = self.newline()
             if count == 0:
-                return Ok(())
+                return Err(TomlFault.UnexpectedByte)
             self.at += count
-        Ok(())
+            Ok(())
+
+    # Whitespace, comments, and newlines between array elements.
+    def array_space(self: &mut Parser) -> Result[(), TomlFault]:
+        # newline() reports only bytes present in src; at + count <= src.len().
+        unchecked:
+            while True:
+                self.blank()
+                if self.peek(0) == 35:
+                    self.comment()?
+                count = self.newline()
+                if count == 0:
+                    return Ok(())
+                self.at += count
+            Ok(())
 
     def document(self: &mut Parser) -> Result[(), TomlFault]:
         while True:
@@ -392,37 +444,47 @@ class Parser:
         faulted(self.scratch.to_text())
 
     def key_path(self: &mut Parser) -> Result[list[str], TomlFault]:
-        mut parts = reserved(list[str]())?
-        while True:
-            self.blank()
-            part = self.key_part()?
-            reserved(parts.append(part))?
-            self.blank()
-            if self.peek(0) != 46:
-                break
-            self.at += 1
-        Ok(parts)
+        # Each increment follows an observed dot, so at + 1 <= src.len().
+        unchecked:
+            mut parts = reserved(list[str]())?
+            while True:
+                self.blank()
+                part = self.key_part()?
+                reserved(parts.append(part))?
+                self.blank()
+                if self.peek(0) != 46:
+                    break
+                self.at += 1
+            Ok(parts)
 
     # `[a.b]` or `[[a.b]]`. Intermediate names may be new, implicit, header,
     # or dotted tables; an array of tables continues through its last table.
     def header(self: &mut Parser) -> Result[(), TomlFault]:
+        # Advances consume observed brackets. key_path returns at least one
+        # component; an array-of-tables node always has a successfully added child.
+        # Thus both last-index subtractions use positive allocated lengths.
         start = self.at
-        self.at += 1
+        unchecked:
+            self.at += 1
         array = self.peek(0) == 91
         if array:
-            self.at += 1
+            unchecked:
+                self.at += 1
         parts = self.key_path()?
         if self.peek(0) != 93:
             return Err(self.unexpected())
-        self.at += 1
+        unchecked:
+            self.at += 1
         if array:
             if self.peek(0) != 93:
                 return Err(self.unexpected())
-            self.at += 1
+            unchecked:
+                self.at += 1
         end = self.at
         self.at = start
         mut parent = 0
-        last = len(parts) - 1
+        last = unchecked:
+            len(parts) - 1
         for position in range(last):
             part = parts[position]
             match self.index.get((parent, part)):
@@ -430,7 +492,8 @@ class Parser:
                     kind = self.nodes[found].kind
                     if kind == kind_tables:
                         count = len(self.nodes[found].children)
-                        parent = self.nodes[found].children[count - 1]
+                        parent = unchecked:
+                            self.nodes[found].children[count - 1]
                     elif kind == kind_table and self.nodes[found].origin != origin_inline:
                         parent = found
                     else:
@@ -465,16 +528,20 @@ class Parser:
     # `key = value` within `table`. Dotted keys create or continue tables
     # that other dotted keys made; they never reopen a header or inline table.
     def entry(self: &mut Parser, table: i64) -> Result[i64, TomlFault]:
+        # The observed = bounds the cursor increment. key_path is nonempty,
+        # so its final component index is nonnegative and representable.
         start = self.at
         parts = self.key_path()?
         if self.peek(0) != 61:
             return Err(self.unexpected())
-        self.at += 1
+        unchecked:
+            self.at += 1
         self.blank()
         value_at = self.at
         self.at = start
         mut parent = table
-        last = len(parts) - 1
+        last = unchecked:
+            len(parts) - 1
         for position in range(last):
             part = parts[position]
             match self.index.get((parent, part)):
@@ -510,20 +577,26 @@ class Parser:
         Ok(())
 
     def array(self: &mut Parser, parent: i64, name: str, named: bool) -> Result[(), TomlFault]:
+        # Opening/closing brackets and commas are observed before advancing;
+        # every cursor sum is at most src.len().
         node = self.add(parent, name, kind_array, origin_none, named)?
-        self.at += 1
+        unchecked:
+            self.at += 1
         while True:
             self.array_space()?
             if self.peek(0) == 93:
-                self.at += 1
+                unchecked:
+                    self.at += 1
                 return Ok(())
             self.value(node, "", False)?
             self.array_space()?
             byte = self.peek(0)
             if byte == 44:
-                self.at += 1
+                unchecked:
+                    self.at += 1
             elif byte == 93:
-                self.at += 1
+                unchecked:
+                    self.at += 1
                 return Ok(())
             else:
                 return Err(self.unexpected())
@@ -531,20 +604,26 @@ class Parser:
 
     # One line, no trailing comma, and closed to later extension.
     def inline_table(self: &mut Parser, parent: i64, name: str, named: bool) -> Result[(), TomlFault]:
+        # Opening/closing braces and commas are observed before advancing;
+        # every cursor sum is at most src.len().
         node = self.add(parent, name, kind_table, origin_inline, named)?
-        self.at += 1
+        unchecked:
+            self.at += 1
         self.blank()
         if self.peek(0) == 125:
-            self.at += 1
+            unchecked:
+                self.at += 1
             return Ok(())
         while True:
             drop(self.entry(node)?)
             self.blank()
             byte = self.peek(0)
             if byte == 44:
-                self.at += 1
+                unchecked:
+                    self.at += 1
             elif byte == 125:
-                self.at += 1
+                unchecked:
+                    self.at += 1
                 return Ok(())
             else:
                 return Err(self.unexpected())
@@ -567,20 +646,28 @@ class Parser:
         Err(self.unexpected())
 
     def word(self: &mut Parser, text: &str, flag: bool) -> Result[Toml, TomlFault]:
+        # matches_text proved the complete token fits at this input position.
         if not self.src.matches_text(self.at, text):
             return Err(TomlFault.UnexpectedByte)
-        self.at += text.byte_len()
+        unchecked:
+            self.at += text.byte_len()
         Ok(Toml.Bool(flag))
 
     # A basic (`quote` 34) or literal (39) string, single- or multi-line.
     # Plain content is found by one scan and copied in one step.
     def quoted(self: &mut Parser, quote: i64, multi: bool) -> Result[str, TomlFault]:
+        # Opening quotes were validated by scalar/key_part. Runs count at most
+        # six quotes, keep 0..2, and advance only over observed bytes. newline()
+        # likewise bounds every cursor/slice endpoint by src.len().
         self.scratch.clear()
         if multi:
-            self.at += 3
-            self.at += self.newline()
+            unchecked:
+                self.at += 3
+            unchecked:
+                self.at += self.newline()
         else:
-            self.at += 1
+            unchecked:
+                self.at += 1
         stop = self.src.len()
         while True:
             mut end = stop
@@ -595,22 +682,27 @@ class Parser:
                 return Err(TomlFault.UnexpectedEnd)
             if byte == quote:
                 if not multi:
-                    self.at += 1
+                    unchecked:
+                        self.at += 1
                     break
                 # One or two quotes are content; three end the string, and
                 # up to two more before them still belong to it.
                 mut run = 1
                 while run < 6 and self.peek(run) == quote:
-                    run += 1
+                    unchecked:
+                        run += 1
                 if run == 6:
-                    self.at += 5
+                    unchecked:
+                        self.at += 5
                     return Err(TomlFault.UnexpectedByte)
                 mut kept = run
                 if run >= 3:
-                    kept = run - 3
+                    kept = unchecked:
+                        run - 3
                 for _ in range(kept):
                     push_byte(&mut self.scratch, quote)?
-                self.at += run
+                unchecked:
+                    self.at += run
                 if run >= 3:
                     break
             elif byte == 92:
@@ -619,11 +711,17 @@ class Parser:
                 count = self.newline()
                 if not multi or count == 0:
                     return Err(TomlFault.ControlCharacter)
-                reserved(self.scratch.extend(&self.src[self.at:self.at + count]))?
-                self.at += count
+                unchecked:
+                    reserved(self.scratch.extend(&self.src[self.at:self.at + count]))?
+                unchecked:
+                    self.at += count
         faulted(self.scratch.to_text())
 
     def escape(self: &mut Parser, multi: bool) -> Result[(), TomlFault]:
+        # At most eight hex digits produce <= u32.MAX in i64; widths are 4/8.
+        # Cursor advances follow validated escape bytes. Whitespace lookahead
+        # increments only while a byte exists; a CR lookahead + 1 is at most EOF.
+        # Thus ahead and all consumed spans fit within src.len().
         code = self.peek(1)
         mut plain = -1
         if code == 98:
@@ -640,7 +738,8 @@ class Parser:
             plain = code
         if plain >= 0:
             push_byte(&mut self.scratch, plain)?
-            self.at += 2
+            unchecked:
+                self.at += 2
             return Ok(())
         if code == 117 or code == 85:
             mut width = 4
@@ -648,31 +747,40 @@ class Parser:
                 width = 8
             mut value = 0
             for position in range(width):
-                digit = hex_value(self.peek(2 + position))
+                digit = unchecked:
+                    hex_value(self.peek(2 + position))
                 if digit < 0:
                     return Err(TomlFault.InvalidEscape)
-                value = value * 16 + digit
+                value = unchecked:
+                    value * 16 + digit
             if (value >= 55296 and value <= 57343) or value > 1114111:
                 return Err(TomlFault.InvalidEscape)
             push_scalar(&mut self.scratch, value)?
-            self.at += 2 + width
+            unchecked:
+                self.at += 2 + width
             return Ok(())
         if multi:
             # A backslash that ends a line removes it and all whitespace and
             # newlines up to the next other character.
             mut ahead = 1
             while self.peek(ahead) == 32 or self.peek(ahead) == 9:
-                ahead += 1
+                unchecked:
+                    ahead += 1
             after = self.peek(ahead)
-            if after == 10 or (after == 13 and self.peek(ahead + 1) == 10):
-                self.at += ahead
+            joins_line = unchecked:
+                after == 10 or (after == 13 and self.peek(ahead + 1) == 10)
+            if joins_line:
+                unchecked:
+                    self.at += ahead
                 while True:
                     byte = self.peek(0)
                     count = self.newline()
                     if byte == 32 or byte == 9:
-                        self.at += 1
+                        unchecked:
+                            self.at += 1
                     elif count > 0:
-                        self.at += count
+                        unchecked:
+                            self.at += count
                     else:
                         break
                 return Ok(())
@@ -689,12 +797,18 @@ class Parser:
         Ok(value)
 
     def numeral(self: &mut Parser, start: i64, end: i64) -> Result[Toml, TomlFault]:
+        # start <= at/index <= end <= src.len(). Each increment consumes an
+        # observed sign, decimal point or exponent byte. The radix prefix proves
+        # two bytes exist before at + 2; end - at avoids unchecked lookahead sums.
         mut at = start
         first = self.byte_at(at)
         signed = first == 43 or first == 45
         if signed:
-            at += 1
-        if at + 3 == end:
+            unchecked:
+                at += 1
+        remaining = unchecked:
+            end - at
+        if remaining == 3:
             if self.src.matches_text(at, "inf"):
                 if first == 45:
                     return Ok(Toml.Float(-f64.INF))
@@ -702,13 +816,17 @@ class Parser:
             if self.src.matches_text(at, "nan"):
                 return Ok(Toml.Float(f64.NAN))
         if not signed and self.byte_at(at) == 48:
-            prefix = self.byte_at(at + 1)
+            prefix = unchecked:
+                self.byte_at(at + 1)
             if prefix == 120:
-                return self.radix(at + 2, end, 16)
+                unchecked:
+                    return self.radix(at + 2, end, 16)
             if prefix == 111:
-                return self.radix(at + 2, end, 8)
+                unchecked:
+                    return self.radix(at + 2, end, 8)
             if prefix == 98:
-                return self.radix(at + 2, end, 2)
+                unchecked:
+                    return self.radix(at + 2, end, 2)
         self.scratch.clear()
         if signed:
             push_byte(&mut self.scratch, first)?
@@ -717,15 +835,18 @@ class Parser:
         if index < end and self.byte_at(index) == 46:
             float = True
             push_byte(&mut self.scratch, 46)?
-            index = self.digits(index + 1, end, False)?
+            index = unchecked:
+                self.digits(index + 1, end, False)?
         if index < end and (self.byte_at(index) == 101 or self.byte_at(index) == 69):
             float = True
             push_byte(&mut self.scratch, 101)?
-            index += 1
+            unchecked:
+                index += 1
             sign = self.byte_at(index)
             if index < end and (sign == 43 or sign == 45):
                 push_byte(&mut self.scratch, sign)?
-                index += 1
+                unchecked:
+                    index += 1
             index = self.digits(index, end, False)?
         if index != end:
             return Err(TomlFault.InvalidNumber)
@@ -753,50 +874,55 @@ class Parser:
     # Decimal digits from `start`, each `_` between two digits, copied to the
     # scratch buffer without the underscores. The index after them.
     def digits(self: &mut Parser, start: i64, end: i64, whole: bool) -> Result[i64, TomlFault]:
-        mut index = start
-        mut count = 0
-        mut after_underscore = True
-        while index < end:
-            byte = self.byte_at(index)
-            if byte >= 48 and byte <= 57:
-                push_byte(&mut self.scratch, byte)?
-                count += 1
-                after_underscore = False
-            elif byte == 95:
-                if after_underscore:
-                    return Err(TomlFault.InvalidNumber)
-                after_underscore = True
-            else:
-                break
-            index += 1
-        if count == 0 or after_underscore:
-            return Err(TomlFault.InvalidNumber)
-        if whole and count > 1 and self.byte_at(start) == 48:
-            return Err(TomlFault.InvalidNumber)
-        Ok(index)
+        # index increments only below end; digit count is at most end - start.
+        unchecked:
+            mut index = start
+            mut count = 0
+            mut after_underscore = True
+            while index < end:
+                byte = self.byte_at(index)
+                if byte >= 48 and byte <= 57:
+                    push_byte(&mut self.scratch, byte)?
+                    count += 1
+                    after_underscore = False
+                elif byte == 95:
+                    if after_underscore:
+                        return Err(TomlFault.InvalidNumber)
+                    after_underscore = True
+                else:
+                    break
+                index += 1
+            if count == 0 or after_underscore:
+                return Err(TomlFault.InvalidNumber)
+            if whole and count > 1 and self.byte_at(start) == 48:
+                return Err(TomlFault.InvalidNumber)
+            Ok(index)
 
     def radix(self: &mut Parser, start: i64, end: i64, base: i64) -> Result[Toml, TomlFault]:
-        mut value = 0
-        mut count = 0
-        mut after_underscore = True
-        for index in range(start, end):
-            byte = self.byte_at(index)
-            if byte == 95:
-                if after_underscore:
-                    return Err(TomlFault.InvalidNumber)
-                after_underscore = True
-            else:
-                digit = hex_value(byte)
-                if digit < 0 or digit >= base:
-                    return Err(TomlFault.InvalidNumber)
-                if value > (i64.MAX - digit) // base:
-                    return Err(TomlFault.NumberOutOfRange)
-                value = value * base + digit
-                count += 1
-                after_underscore = False
-        if count == 0 or after_underscore:
-            return Err(TomlFault.InvalidNumber)
-        Ok(Toml.Int(value))
+        # base is 2, 8 or 16, digit is 0..base-1. The guard proves multiply/add
+        # fits i64.MAX; digit count is bounded by the held token length.
+        unchecked:
+            mut value = 0
+            mut count = 0
+            mut after_underscore = True
+            for index in range(start, end):
+                byte = self.byte_at(index)
+                if byte == 95:
+                    if after_underscore:
+                        return Err(TomlFault.InvalidNumber)
+                    after_underscore = True
+                else:
+                    digit = hex_value(byte)
+                    if digit < 0 or digit >= base:
+                        return Err(TomlFault.InvalidNumber)
+                    if value > (i64.MAX - digit) // base:
+                        return Err(TomlFault.NumberOutOfRange)
+                    value = value * base + digit
+                    count += 1
+                    after_underscore = False
+            if count == 0 or after_underscore:
+                return Err(TomlFault.InvalidNumber)
+            Ok(Toml.Int(value))
 
     # A date, time, or both. A fault is placed at the value's first byte.
     def moment(self: &mut Parser) -> Result[Toml, TomlFault]:
@@ -811,6 +937,8 @@ class Parser:
                 Err(fault)
 
     def moment_fields(self: &mut Parser, stamp: &mut DateTime) -> Result[(), TomlFault]:
+        # Cursor advances follow observed separators. fixed(2) gives 0..99;
+        # validated zone hours <= 23 and minutes <= 59 yield +/-1439 at most.
         if self.peek(4) != 45:
             self.clock(stamp)?
             stamp.kind = DateTimeKind.LocalTime
@@ -828,67 +956,87 @@ class Parser:
         spaced = delimiter == 32 and self.is_digit(1) and self.is_digit(2) and self.peek(3) == 58
         if delimiter != 84 and delimiter != 116 and not spaced:
             return Ok(())
-        self.at += 1
+        unchecked:
+            self.at += 1
         self.clock(stamp)?
         stamp.kind = DateTimeKind.LocalDateTime
         sign = self.peek(0)
         if sign == 90 or sign == 122:
-            self.at += 1
+            unchecked:
+                self.at += 1
             stamp.kind = DateTimeKind.OffsetDateTime
         elif sign == 43 or sign == 45:
-            self.at += 1
+            unchecked:
+                self.at += 1
             hours = self.fixed(2)?
             self.expect(58)?
             minutes = self.fixed(2)?
             if hours > 23 or minutes > 59:
                 return Err(TomlFault.InvalidDateTime)
-            stamp.offset_minutes = hours * 60 + minutes
+            stamp.offset_minutes = unchecked:
+                hours * 60 + minutes
             if sign == 45:
-                stamp.offset_minutes = -stamp.offset_minutes
+                stamp.offset_minutes = unchecked:
+                    -stamp.offset_minutes
             stamp.kind = DateTimeKind.OffsetDateTime
         Ok(())
 
     # `HH:MM:SS` with optional fractional seconds. Digits past nanoseconds are
     # truncated, as TOML requires of an implementation with less precision.
     def clock(self: &mut Parser, stamp: &mut DateTime) -> Result[(), TomlFault]:
+        # Digit count and cursor are bounded by the held input. Only the first
+        # nine digits enter nanos (<= 999999999); padding stops at nine. ASCII
+        # bias intermediates stay <= 1000000047, well within i64.
         stamp.hour = self.fixed(2)?
         self.expect(58)?
         stamp.minute = self.fixed(2)?
         self.expect(58)?
         stamp.second = self.fixed(2)?
         if self.peek(0) == 46:
-            self.at += 1
+            unchecked:
+                self.at += 1
             mut count = 0
             mut nanos = 0
             while self.is_digit(0):
                 if count < 9:
-                    nanos = nanos * 10 + self.peek(0) - 48
-                count += 1
-                self.at += 1
+                    nanos = unchecked:
+                        nanos * 10 + self.peek(0) - 48
+                unchecked:
+                    count += 1
+                unchecked:
+                    self.at += 1
             if count == 0:
                 return Err(TomlFault.InvalidDateTime)
             while count < 9:
-                nanos *= 10
-                count += 1
+                unchecked:
+                    nanos *= 10
+                unchecked:
+                    count += 1
             stamp.nanosecond = nanos
         if not valid_time(stamp.hour, stamp.minute, stamp.second, stamp.nanosecond):
             return Err(TomlFault.InvalidDateTime)
         Ok(())
 
     def fixed(self: &mut Parser, count: i64) -> Result[i64, TomlFault]:
+        # Called only with 2 or 4 digits. Accumulator intermediates fit below
+        # 10047; every cursor increment consumes an observed ASCII digit.
         mut value = 0
         for _ in range(count):
             if not self.is_digit(0):
                 return Err(TomlFault.InvalidDateTime)
-            value = value * 10 + self.peek(0) - 48
-            self.at += 1
+            value = unchecked:
+                value * 10 + self.peek(0) - 48
+            unchecked:
+                self.at += 1
         Ok(value)
 
     def expect(self: &mut Parser, byte: i64) -> Result[(), TomlFault]:
-        if self.peek(0) != byte:
-            return Err(TomlFault.InvalidDateTime)
-        self.at += 1
-        Ok(())
+        # The requested separator byte was observed within src.
+        unchecked:
+            if self.peek(0) != byte:
+                return Err(TomlFault.InvalidDateTime)
+            self.at += 1
+            Ok(())
 
     # Recursion depth is the node's level, which `add` bounds.
     def build(self: &mut Parser, node: i64) -> Result[Toml, TomlFault]:
@@ -967,22 +1115,25 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
     mut data = unplaced(reserved(std.bytes.empty()))?
     while True:
         have = data.len()
-        mut room = bounds.max_input.get() - have
-        if room < read_chunk:
-            room += 1
-        else:
-            room = read_chunk
-        match reserved(data.resize(have + room, 0u8)):
+        extent = match read_extent(have, bounds.max_input.get()):
+            case Ok(pair):
+                pair
+            case Err(fault):
+                return Err(TomlError(fault, have, 0, 0))
+        room, stop = extent
+        match reserved(data.resize(stop, 0u8)):
             case Ok(_):
                 pass
             case Err(fault):
                 return Err(TomlError(fault, have, 0, 0))
-        outcome = reader.read(&mut data, have, have + room)
+        outcome = reader.read(&mut data, have, stop)
         match outcome:
             case Ok(count):
                 if count < 0 or count > room:
                     return Err(TomlError(TomlFault.Stream(StreamError.InvalidProgress), have, 0, 0))
-                data.truncate(have + count)
+                # Validated count <= room; have + room was preflighted above.
+                unchecked:
+                    data.truncate(have + count)
                 if count == 0:
                     break
                 if data.len() > bounds.max_input.get():
@@ -1092,46 +1243,67 @@ class Emitter:
         push_byte(&mut self.out, byte)
 
     def extend(self: &mut Emitter, source: &[u8], start: i64, stop: i64) -> Result[(), TomlFault]:
-        if stop - start > self.max_output - self.out.len():
-            return Err(TomlFault.OutputTooLarge)
-        reserved(self.out.extend(&source[start:stop]))
+        # start/stop are ordered offsets in a held source/spelling buffer;
+        # 0 <= out.len() <= max_output, so both length differences fit i64.
+        unchecked:
+            if stop - start > self.max_output - self.out.len():
+                return Err(TomlFault.OutputTooLarge)
+            reserved(self.out.extend(&source[start:stop]))
 
     def raw(self: &mut Emitter, token: bytes) -> Result[(), TomlFault]:
-        if token.len() > self.max_output - self.out.len():
-            return Err(TomlFault.OutputTooLarge)
-        reserved(self.out.extend(&token))
+        # 0 <= out.len() <= max_output; subtracting the remaining budget fits.
+        unchecked:
+            if token.len() > self.max_output - self.out.len():
+                return Err(TomlFault.OutputTooLarge)
+            reserved(self.out.extend(&token))
 
     def spelled(self: &mut Emitter, start: i64, stop: i64) -> Result[(), TomlFault]:
-        if stop - start > self.max_output - self.out.len():
-            return Err(TomlFault.OutputTooLarge)
-        reserved(self.out.extend(&self.spelling[start:stop]))
+        # start/stop are ordered offsets in a held source/spelling buffer;
+        # 0 <= out.len() <= max_output, so both length differences fit i64.
+        unchecked:
+            if stop - start > self.max_output - self.out.len():
+                return Err(TomlFault.OutputTooLarge)
+            reserved(self.out.extend(&self.spelling[start:stop]))
 
     def number(self: &mut Emitter, value: i64, width: i64) -> Result[(), TomlFault]:
-        mut divisor = 1
-        for _ in range(width - 1):
-            divisor *= 10
-        while divisor > 0:
-            self.put(48 + (value // divisor) % 10)?
-            divisor //= 10
-        Ok(())
+        # Only validated date/time fields call this: width is 1..9 and value
+        # is 0..999999999. Divisor grows at most to 10^8; divisions use positive
+        # divisors, digits are 0..9, and divisor decreases to zero.
+        unchecked:
+            mut divisor = 1
+            for _ in range(width - 1):
+                divisor *= 10
+            while divisor > 0:
+                self.put(48 + (value // divisor) % 10)?
+                divisor //= 10
+            Ok(())
 
     # Digits come from the negated value, right to left, so `i64.MIN` needs no
     # special case. `//` and `%` floor, hence the digit arithmetic.
     def integer(self: &mut Emitter, value: i64) -> Result[(), TomlFault]:
+        # rest stays nonpositive. Remainders are 0..9; digit 0..9 makes
+        # rest + digit <= 0, including i64.MIN. Positive divisors cannot fail.
+        # An i64 has at most 19 digits plus sign, within the 32-byte spelling.
         mut rest = value
         if rest > 0:
-            rest = -rest
+            rest = unchecked:
+                -rest
         stop = self.spelling.len()
         mut at = stop
         while True:
-            digit = (10 - rest % 10) % 10
-            at -= 1
-            self.spelling.set(at, u8(48 + digit))
-            rest = (rest + digit) // 10
+            digit = unchecked:
+                (10 - rest % 10) % 10
+            unchecked:
+                at -= 1
+            unchecked:
+                self.spelling.set(at, u8(48 + digit))
+            rest = unchecked:
+                (rest + digit) // 10
             if rest == 0:
                 break
         if value < 0:
-            at -= 1
+            unchecked:
+                at -= 1
             self.spelling.set(at, u8(45))
         self.spelled(at, stop)
 
@@ -1139,6 +1311,8 @@ class Emitter:
     # other scalar is written as UTF-8. The copy of `text` lets each unescaped
     # run be written at once; see the costs in book/src/design/stdlib/toml.md.
     def quote(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
+        # Escaped byte is 0..31 or DEL (127): division/modulo by positive 16
+        # and ASCII digit biases fit. index < count bounds run = index + 1.
         source = reserved(std.bytes.from_text(text))?
         count = source.len()
         self.put(34)?
@@ -1162,13 +1336,18 @@ class Emitter:
                 self.put(114)?
             else:
                 self.raw(b"u00")?
-                self.put(48 + byte // 16)?
-                digit = byte % 16
+                unchecked:
+                    self.put(48 + byte // 16)?
+                digit = unchecked:
+                    byte % 16
                 if digit < 10:
-                    self.put(48 + digit)?
+                    unchecked:
+                        self.put(48 + digit)?
                 else:
-                    self.put(55 + digit)?
-            run = index + 1
+                    unchecked:
+                        self.put(55 + digit)?
+            run = unchecked:
+                index + 1
             index = run_end(source.find_in(&self.escaped, run, count), count)
         self.extend(&source, run, count)?
         self.put(34)
@@ -1183,11 +1362,13 @@ class Emitter:
 
     # ASCII text, all or none.
     def ascii(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
-        if text.byte_len() > self.max_output - self.out.len():
-            return Err(TomlFault.OutputTooLarge)
-        for character in text:
-            push_byte(&mut self.out, i64(ord(character).unwrap()))?
-        Ok(())
+        # 0 <= out.len() <= max_output; subtracting the remaining budget fits.
+        unchecked:
+            if text.byte_len() > self.max_output - self.out.len():
+                return Err(TomlFault.OutputTooLarge)
+            for character in text:
+                push_byte(&mut self.out, i64(ord(character).unwrap()))?
+            Ok(())
 
     def decimal(self: &mut Emitter, value: f64) -> Result[(), TomlFault]:
         if value != value:
@@ -1203,6 +1384,9 @@ class Emitter:
         self.raw(b".0")
 
     def moment(self: &mut Emitter, stamp: &DateTime) -> Result[(), TomlFault]:
+        # date_text_ok validated nanos 0..999999999 and zone +/-1439.
+        # Trailing-zero removal stops at a nonzero digit (width stays 1..9);
+        # negation and positive-constant divisions of the zone fit i64.
         if not date_text_ok(stamp):
             return Err(TomlFault.InvalidDateTime)
         mut dated = True
@@ -1232,31 +1416,38 @@ class Emitter:
             self.put(58)?
             self.number(stamp.second, 2)?
             if stamp.nanosecond > 0:
-                mut digits = stamp.nanosecond
-                mut width = 9
-                while digits % 10 == 0:
-                    digits //= 10
-                    width -= 1
-                self.put(46)?
-                self.number(digits, width)?
+                unchecked:
+                    mut digits = stamp.nanosecond
+                    mut width = 9
+                    while digits % 10 == 0:
+                        digits //= 10
+                        width -= 1
+                    self.put(46)?
+                    self.number(digits, width)?
         if offset:
-            mut minutes = stamp.offset_minutes
-            if minutes == 0:
-                return self.put(90)
-            if minutes < 0:
-                self.put(45)?
-                minutes = -minutes
-            else:
-                self.put(43)?
-            self.number(minutes // 60, 2)?
-            self.put(58)?
-            self.number(minutes % 60, 2)?
+            unchecked:
+                mut minutes = stamp.offset_minutes
+                if minutes == 0:
+                    return self.put(90)
+                if minutes < 0:
+                    self.put(45)?
+                    minutes = -minutes
+                else:
+                    self.put(43)?
+                self.number(minutes // 60, 2)?
+                self.put(58)?
+                self.number(minutes % 60, 2)?
         Ok(())
 
-    def deeper(self, level: i64) -> Result[(), TomlFault]:
+    def deeper(self, level: i64, extra: i64) -> Result[i64, TomlFault]:
         if level > self.max_depth:
             return Err(TomlFault.DepthExceeded)
-        Ok(())
+        # level is nonnegative; extra is 1 or 2. Subtract before adding so
+        # even an enormous edit path reports DepthExceeded, not overflow.
+        unchecked:
+            if extra > self.max_depth - level:
+                return Err(TomlFault.DepthExceeded)
+            Ok(level + extra)
 
     # A value on one line. `level` counts the containers around it.
     def inline(self: &mut Emitter, value: &Toml, level: i64) -> Result[(), TomlFault]:
@@ -1275,17 +1466,17 @@ class Emitter:
             case Toml.DateTime(stamp):
                 self.moment(stamp)
             case Toml.Array(items):
-                self.deeper(level + 1)?
+                child_level = self.deeper(level, 1)?
                 self.put(91)?
                 mut first = True
                 for item in items:
                     if not first:
                         self.raw(b", ")?
                     first = False
-                    self.inline(item, level + 1)?
+                    self.inline(item, child_level)?
                 self.put(93)
             case Toml.Table(entries):
-                self.deeper(level + 1)?
+                child_level = self.deeper(level, 1)?
                 unique(entries)?
                 if len(entries) == 0:
                     return self.raw(b"{}")
@@ -1297,7 +1488,7 @@ class Emitter:
                     first = False
                     self.key(&entry.key)?
                     self.raw(b" = ")?
-                    self.inline(&entry.value, level + 1)?
+                    self.inline(&entry.value, child_level)?
                 self.raw(b" }")
 
     def heading(self: &mut Emitter, array: bool) -> Result[(), TomlFault]:
@@ -1328,21 +1519,21 @@ class Emitter:
         for entry in entries:
             match &entry.value:
                 case Toml.Table(inner):
-                    self.deeper(level + 1)?
+                    child_level = self.deeper(level, 1)?
                     reserved(self.path.append(entry.key))?
                     if headed(inner):
                         self.heading(False)?
-                    self.body(inner, level + 1)?
+                    self.body(inner, child_level)?
                     drop(self.path.pop())
                 case Toml.Array(items):
                     if sectioned(&entry.value):
-                        self.deeper(level + 2)?
+                        child_level = self.deeper(level, 2)?
                         reserved(self.path.append(entry.key))?
                         for item in items:
                             match item:
                                 case Toml.Table(inner):
                                     self.heading(True)?
-                                    self.body(inner, level + 2)?
+                                    self.body(inner, child_level)?
                                 case _:
                                     pass
                         drop(self.path.pop())
@@ -1438,6 +1629,9 @@ pub class Document:
     def change(self: &mut Document, path: &list[str], value: &Toml, insert_only: bool) -> Result[(), TomlError]:
         if len(path) == 0:
             return Err(TomlError(TomlFault.KeyConflict, 0, 0, 0))
+        # path is nonempty; subtracting one is representable.
+        last = unchecked:
+            len(path) - 1
         found = unplaced(document_node(&self.state, path))?
         match found:
             case Some(node):
@@ -1483,7 +1677,7 @@ pub class Document:
                 unplaced(target.heading(False))?
                 unplaced(target.body(entries, len(path)))?
             case _:
-                parent_path = unplaced(reserved(path.slice(0, len(path) - 1)))?
+                parent_path = unplaced(reserved(path.slice(0, last)))?
                 mut parent = 0
                 match unplaced(document_node(&self.state, &parent_path))?:
                     case Some(node):
@@ -1495,10 +1689,12 @@ pub class Document:
                 # Dotted-key tables belong to the nearest enclosing section;
                 # qualify the new key relative to that section, not the root.
                 mut section = parent
-                mut relative_start = len(path) - 1
+                mut relative_start = last
                 while self.state.nodes[section].origin == origin_dotted:
                     section = self.state.nodes[section].parent
-                    relative_start -= 1
+                    # Each dotted ancestor consumes one component of parent_path.
+                    unchecked:
+                        relative_start -= 1
                 mut at = self.state.src.len()
                 mut active = section == 0
                 mut located = active
@@ -1518,14 +1714,14 @@ pub class Document:
                 else:
                     unplaced(target.extend(&self.state.src, 0, at))?
                     unplaced(document_newline(&mut target))?
-                    for position in range(relative_start, len(path) - 1):
+                    for position in range(relative_start, last):
                         part = path[position]
                         unplaced(target.key(&part))?
                         unplaced(target.put(46))?
-                name = path[len(path) - 1]
+                name = path[last]
                 unplaced(target.key(&name))?
                 unplaced(target.raw(b" = "))?
-                unplaced(target.inline(value, len(path) - 1))?
+                unplaced(target.inline(value, last))?
                 unplaced(target.put(10))?
                 if located:
                     unplaced(target.extend(&self.state.src, at, self.state.src.len()))?
@@ -1534,10 +1730,12 @@ pub class Document:
         Ok(())
 
 def document_newline(target: &mut Emitter) -> Result[(), TomlFault]:
-    count = target.out.len()
-    if count > 0 and target.out.get(count - 1) != 10u8:
-        target.put(10)?
-    Ok(())
+    # Short-circuit count > 0 guards the last-byte subtraction.
+    unchecked:
+        count = target.out.len()
+        if count > 0 and target.out.get(count - 1) != 10u8:
+            target.put(10)?
+        Ok(())
 
 # Paths address decoded table keys. Arrays (including arrays of tables) are
 # atomic values: traversing one is ambiguous without an explicit row index.

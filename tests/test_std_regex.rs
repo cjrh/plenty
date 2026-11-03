@@ -65,7 +65,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.regex.RegexError | std.bytes.BytesError | RangeError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -446,7 +446,7 @@ other = std.regex.compile("b", &limits)?
 mut foreign = other.cursor()?
 print(shown(any.next_match(text, &mut foreign))?)?
 m = any.find_at(text, 4)?.unwrap()
-print(m.start, m.end, m.len(), m.is_empty(), m.text(text)?)?
+print(m.start, m.end, m.len()?, m.is_empty(), m.text(text)?)?
 print(shown(Match(1, 2).text(text))?)?
 print(shown(Match(0, 99).text(text))?)?
 print(any.instructions() > 0)?
@@ -771,4 +771,177 @@ print(found.bytes(&frame[:3]).is_err())?
 "#,
         "0-3,3-6 True\n3-6 ab2\nTrue",
     );
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    run_output(&executable, &[], source)
+}
+
+#[test]
+fn regex_representation_helpers_check_repetition_memory_and_output_without_allocating() {
+    let library = include_str!("../stdlib/std/regex.plenty");
+    let helpers =
+        &library[library.find("def repeat_digit(").unwrap()..library.find("def zeros(").unwrap()];
+    let source = format!(
+        r#"{HEADER}
+{helpers}
+def capacity(result: Result[(i64, i64, i64), RegexError]) -> bool:
+    match result:
+        case Err(RegexError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    repeat = repeat_digit(922337203685477580, 7, i64.MAX).unwrap() == i64.MAX
+    excessive = repeat_digit(922337203685477580, 8, i64.MAX).is_err() and repeat_digit(922337203685477580, 7, 9223372036854775806).is_err()
+    slot = capture_slot(4611686018427387903, 1).unwrap() == i64.MAX
+    slot_over = capture_slot(4611686018427387904, 0).is_err()
+    words = matcher_words(1, 1).unwrap() == 23
+    memory = matcher_words(i64.MAX, 1).is_err() and matcher_words(1, i64.MAX).is_err()
+    extents = machine_extents(3074457345618258601, 0).unwrap()
+    capacities = capacity(machine_extents(3074457345618258602, 0)) and capacity(machine_extents(1, i64.MAX))
+    output = output_extent(i64.MAX, 0, i64.MAX).unwrap() == i64.MAX
+    too_big = output_extent(i64.MAX, 1, i64.MAX).is_err()
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(repeat, excessive, slot, slot_over, words, memory)?
+    print(extents, capacities, output, too_big)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True\n(6148914691236517202, 0, 9223372036854775807) True True True"
+        );
+    }
+}
+
+#[test]
+fn match_length_is_fallible_without_changing_range_validation_or_negative_lengths() {
+    let source = program(
+        r#"
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+a = Match(0, i64.MAX).len().unwrap() == i64.MAX
+b = Match(0, i64.MIN).len().unwrap() == i64.MIN
+c = Match(i64.MAX, 0).len().unwrap() == -9223372036854775807
+d = Match(i64.MIN, 0).len().is_err()
+e = Match(0, -1).len().unwrap() == -1
+f = Match(i64.MIN, i64.MAX).len().is_err()
+print("__test_restore_allocations__")?
+print("__test_end_no_allocations__")?
+print(a, b, c, d, e, f)?
+print(shown(Match(-1, 0).text(""))?)?
+print(shown(Match(1, 0).bytes(b"x"))?)?
+regex = std.regex.compile("(a)", &std.regex.limits())?
+caps = regex.captures("a")?.unwrap()
+print(caps.get(i64.MAX).is_none(), caps.get(i64.MIN).is_none(), caps.get(2).is_none(), caps.get(1).unwrap().len()?)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True\nOutOfRange\nOutOfRange\nTrue True True 1"
+        );
+    }
+}
+
+#[test]
+fn maximal_regex_budgets_preserve_protocol_limits_and_error_precedence() {
+    let source = program(
+        r#"
+mut bounds = std.regex.limits()
+bounds.max_repeat = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_memory = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_work = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_instructions = 10
+print(shown(std.regex.compile("a{9223372036854775807}", &bounds))?)?
+print(shown(std.regex.compile("a{9223372036854775808}", &bounds))?)?
+print(shown(std.regex.compile("a{999999999999999999999999999999999999}", &bounds))?)?
+regex = std.regex.compile("a", &bounds)?
+print(regex.replace_all("aba", "z", i64.MAX)?)?
+print(shown(regex.split("aba", i64.MIN))?)?
+print(shown(regex.replace_all("a", "${999999999999999999999999999999999999x}", i64.MAX))?)?
+print(shown(regex.replace_all("a", "${999999999999999999999999999999999999}", i64.MAX))?)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "LimitExceeded(Instructions)\nLimitExceeded(Repetition)\nLimitExceeded(Repetition)\nzbz\nLimitExceeded(Matches)\nSyntax(SyntaxError(offset=0, message=\"invalid group reference\"))\nSyntax(SyntaxError(offset=0, message=\"unknown group\"))"
+        );
+    }
+}
+
+#[test]
+fn vm_add_work_budget_checks_before_increment_at_i64_max() {
+    let library = include_str!("../stdlib/std/regex.plenty");
+    let constants = &library[library.find("const op_char:").unwrap()
+        ..library.find("const assert_text_start:").unwrap()];
+    let vm = &library[library.find("class Vm:").unwrap()
+        ..library
+            .find("    # Finds the leftmost-first match")
+            .unwrap()];
+    let zeros =
+        &library[library.find("def held[").unwrap()..library.find("def integers(").unwrap()];
+    let source = format!(
+        r#"import std.bytes
+from std.bytes import Bytes
+from std.regex import RegexError, Limit
+{constants}
+{zeros}
+class Regex:
+    _op: list[i64]
+    _x: list[i64]
+    _y: list[i64]
+
+    def holds(self, kind: i64, at: i64, text: &str, data: &[u8], textual: bool) -> bool:
+        False
+
+{vm}
+def work_error(result: Result[(), RegexError]) -> bool:
+    match result:
+        case Err(RegexError.LimitExceeded(Limit.Work)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError | RegexError]:
+    program = Regex([op_match]?, [0]?, [0]?)
+    mut vm = Vm(1, 0, zeros(2)?, zeros(2)?, zeros(2)?, zeros(0)?, zeros(7)?, zeros(1)?, zeros(1)?, 9223372036854775806, i64.MAX)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    success = vm.add(&program, 0, 0, 0, "", b"", False).is_ok()
+    exact = vm._work == i64.MAX
+    exhausted = work_error(vm.add(&program, 1, 0, 0, "", b"", False))
+    unchanged = vm._work == i64.MAX
+    # A thread already in set 0 consumes no additional work.
+    visited = vm.add(&program, 0, 0, 0, "", b"", False).is_ok()
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(success, exact, exhausted, unchanged, visited)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True"
+        );
+    }
 }
