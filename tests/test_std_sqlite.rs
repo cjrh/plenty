@@ -35,7 +35,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.db.sqlite.DbError | std.bytes.BytesError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -746,4 +746,146 @@ report(db.set_busy_timeout(&std.time.milliseconds(0u32)))?
 "#,
         "ok\nok\nOutOfRange\nok",
     );
+}
+
+#[test]
+fn sqlite_primary_preserves_modulo_and_native_errors_in_both_modes() {
+    let source = program(
+        r#"
+for code in [i64.MIN, -257, -256, -1, 0, 7, 256, 275, i64.MAX]?:
+    cause = std.db.sqlite.SqliteError(code, "")
+    print(cause.primary())?
+mut db = std.db.sqlite.memory(4096)?
+report(db.execute("SELECT * FROM missing"))?
+report(db.prepare(""))?
+report(db.prepare("SELECT 1; SELECT 2"))?
+db.close()?
+report(db.execute("SELECT 1"))?
+"#,
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(
+            &lines[..9],
+            ["0", "255", "0", "255", "0", "7", "0", "19", "255"]
+        );
+        assert!(lines[9].starts_with("Sqlite 1 1 "), "{text}");
+        assert_eq!(
+            &lines[10..],
+            [
+                "std.db.sqlite.DbError.EmptySql",
+                "std.db.sqlite.DbError.TrailingSql",
+                "std.db.sqlite.DbError.Closed"
+            ]
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn sqlite_native_sentinel_decoding_is_allocation_free_in_both_modes() {
+    // Extract the actual Plenty classification, without invoking native state.
+    // Only its fallback message source is stubbed; real engine tests cover it.
+    let module = include_str!("../stdlib/std/db/sqlite.plenty");
+    let declarations = module
+        .split_once("pub enum Mode:")
+        .unwrap()
+        .1
+        .split_once("# Primary result codes")
+        .unwrap()
+        .0;
+    let failure = module
+        .split_once("def failure(")
+        .unwrap()
+        .1
+        .split_once("def status(")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"pub enum Mode:{declarations}
+def message() -> str:
+    return "native message"
+
+def failure({failure}
+def expected(code: i64) -> bool:
+    match failure(code):
+        case DbError.TrailingSql:
+            code == -1
+        case DbError.EmptySql:
+            code == -2
+        case DbError.TransactionActive:
+            code == -3
+        case DbError.InvalidUtf8:
+            code == -4
+        case DbError.InUse:
+            code == -5
+        case DbError.Closed:
+            code == -6
+        case DbError.TransactionFinished:
+            code == -7
+        case DbError.InvalidPath:
+            code == -8
+        case DbError.InvalidExtensionEntry:
+            code == -9
+        case DbError.Allocation(AllocError.OutOfMemory):
+            code == 7
+        case DbError.TooLarge:
+            code == 18
+        case DbError.OutOfRange:
+            code == 25
+        case _:
+            False
+
+def main() -> Result[(), IoError | AllocError]:
+    for code in [-1, -2, -3, -4, -5, -6, -7, -8, -9, 7, 18, 25]?:
+        print("__test_begin_no_allocations__")?
+        correct = expected(code)
+        print("__test_end_no_allocations__")?
+        print(correct)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "__test_begin_no_allocations__\n__test_end_no_allocations__\nTrue\n".repeat(12)
+        );
+    }
 }

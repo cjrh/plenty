@@ -111,6 +111,9 @@ the [Linux inotify contract](https://man7.org/linux/man-pages/man7/inotify.7.htm
 `Allocation(AllocError)`. Native operations preserve `IoError` including its
 allocation errors; facade buffer/filename allocations use `Allocation`.
 Kernel resource limits, missing paths and denied access remain native errors.
+Record offsets are bounded by the validated 65536-byte maximum batch and each
+complete header/payload; malformed lengths remain `InvalidData`, not arithmetic
+errors. Native signed watch IDs, including the overflow sentinel -1, are preserved.
 No wrapped crate introduces infallible heap allocation. Watchers can move into
 worker tasks; their mutable methods require exclusive borrowing.
 

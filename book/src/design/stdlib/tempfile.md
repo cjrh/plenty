@@ -41,7 +41,9 @@ causes construction to fail, rather than silently falling back elsewhere.
 
 Named resources use 16 random bytes encoded as 32 hexadecimal characters, between
 the prefix and suffix. Prefix and suffix together may occupy at most 200 UTF-8
-bytes and must contain neither `/` nor NUL. Directories accept only a prefix.
+bytes and must contain neither `/` nor NUL. These are byte limits, not scalar
+counts; invalid components or a combined length above 200 return
+`FsError.InvalidInput` before creating a resource. Directories accept only a prefix.
 Creation retries up to 16 name collisions. Files are created with owner-only
 permissions, directories with owner-only access (subject to the process umask).
 No API returns an uncreated, supposedly unique filename.

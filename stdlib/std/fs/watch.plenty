@@ -36,8 +36,11 @@ if const target.endian != "little":
 # One of inotify_event's four native-endian 32-bit fields.
 def word(buffer: &Bytes, at: i64) -> u32:
     mut value = 0u32
+    # Callers prove a complete four-byte field: 0 <= at <= len(buffer)-4.
+    # With offset in 0..3, at+3-offset stays within that field and fits i64.
     for offset in range(4):
-        value = (value << 8u32) | u32(buffer[at + 3 - offset])
+        unchecked:
+            value = (value << 8u32) | u32(buffer[at + 3 - offset])
     value
 
 pub class Event:
@@ -113,19 +116,24 @@ pub class Watcher:
                 return Ok(0)
             case Err(error):
                 return Err(WatchError.Io(error))
-        mut at = 0
-        while at < used:
-            if used - at < 16:
-                self._offsets.clear()
-                return Err(WatchError.InvalidData)
-            size = i64(word(&self._buffer, at + 12))
-            if size > used - at - 16:
-                self._offsets.clear()
-                return Err(WatchError.InvalidData)
-            # Constructor reserved at least one slot per possible header;
-            # appending within that capacity performs no allocation.
-            allocated(self._offsets.append(at))?
-            at += 16 + size
+        # read_file returns 0..buffer.len(), and construction caps that at
+        # 65536. Each complete header leaves nonnegative used-at-16 bytes;
+        # its validated u32 size makes the next cursor at+16+size <= used.
+        # Thus every cursor/subtraction/intermediate sum below fits i64.
+        unchecked:
+            mut at = 0
+            while at < used:
+                if used - at < 16:
+                    self._offsets.clear()
+                    return Err(WatchError.InvalidData)
+                size = i64(word(&self._buffer, at + 12))
+                if size > used - at - 16:
+                    self._offsets.clear()
+                    return Err(WatchError.InvalidData)
+                # Constructor reserved at least one slot per possible header;
+                # appending within that capacity performs no allocation.
+                allocated(self._offsets.append(at))?
+                at += 16 + size
         Ok(len(self._offsets))
 
     # A ready event wins over an expired deadline; cancellation requested
@@ -153,18 +161,23 @@ pub class Watcher:
     pub def event(self, index: i64) -> Result[Event, WatchError]:
         if index < 0 or index >= len(self._offsets):
             return Err(WatchError.OutOfRange)
-        at = self._offsets[index]
-        size = i64(word(&self._buffer, at + 12))
-        start = at + 16
-        mut end = start
-        while end < start + size and self._buffer[end] != 0u8:
-            end += 1
-        if size > 0 and end == start + size:
-            return Err(WatchError.InvalidData)
-        mut name = allocated(list[u8].with_capacity(end - start))?
-        for offset in range(start, end):
-            allocated(name.append(self._buffer[offset]))?
-        Ok(Event(i32.wrapping_from(word(&self._buffer, at)), word(&self._buffer, at + 8), std.path.from_bytes(name), word(&self._buffer, at + 4)))
+        # poll stored only validated complete records in this private batch.
+        # 0 <= at <= used-16 <= 65520, start=at+16 and start+size <= used.
+        # end advances within [start, start+size], so end-start is nonnegative
+        # and every offset, field access and intermediate sum fits i64.
+        unchecked:
+            at = self._offsets[index]
+            size = i64(word(&self._buffer, at + 12))
+            start = at + 16
+            mut end = start
+            while end < start + size and self._buffer[end] != 0u8:
+                end += 1
+            if size > 0 and end == start + size:
+                return Err(WatchError.InvalidData)
+            mut name = allocated(list[u8].with_capacity(end - start))?
+            for offset in range(start, end):
+                allocated(name.append(self._buffer[offset]))?
+            Ok(Event(i32.wrapping_from(word(&self._buffer, at)), word(&self._buffer, at + 8), std.path.from_bytes(name), word(&self._buffer, at + 4)))
 
     # Register once, then poll after the selector reports `key` readable.
     pub def register(self, selector: &mut Selector, key: u64) -> Result[(), WaitError]:
@@ -185,6 +198,9 @@ pub def watcher(batch_bytes: i64 = 4096) -> Result[Watcher, WatchError]:
         return Err(WatchError.OutOfRange)
     mut buffer = allocated(std.bytes.with_capacity(batch_bytes))?
     allocated(buffer.resize(batch_bytes, 0u8))?
-    offsets = allocated(list[i64].with_capacity(batch_bytes // 16))?
+    # 272 <= batch_bytes <= 65536 and the divisor is positive sixteen.
+    slots = unchecked:
+        batch_bytes // 16
+    offsets = allocated(list[i64].with_capacity(slots))?
     file = io(__fs_watch_open())?
     Ok(Watcher(file, buffer, offsets))

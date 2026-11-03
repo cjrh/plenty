@@ -22,6 +22,10 @@ pub enum ValueType:
     Blob
     Null
 
+# The fixed nonzero divisor keeps primary-code extraction infallible across
+# the full public i64 code domain. failure decodes native sentinels first.
+const primary_divisor: NonZero[i64] = 256
+
 # A failure SQLite reported: its extended result code and message.
 pub class SqliteError:
     pub code: i64
@@ -29,7 +33,7 @@ pub class SqliteError:
 
     # The primary result code, such as `busy` or `constraint`.
     pub def primary(self) -> i64:
-        self.code % 256
+        self.code % primary_divisor
 
 pub enum DbError:
     Sqlite(SqliteError)
@@ -93,7 +97,7 @@ def failure(code: i64) -> DbError:
         case -9:
             DbError.InvalidExtensionEntry
         case _:
-            match code % 256:
+            match code % primary_divisor:
                 case 7:
                     DbError.Allocation(AllocError.OutOfMemory)
                 case 18:

@@ -215,7 +215,11 @@ pub enum DbError:
 | `Allocation(cause)` | The runtime or SQLite could not allocate |
 
 `SqliteError.primary()` is the primary result code, the extended code modulo
-256. The module names the common ones as constants: `error` (1), `busy` (5),
+256, using Plenty modulo with a positive divisor (for example, a manually
+constructed `SqliteError` with code -1 has primary 255). Internal negative
+native sentinel codes are decoded into
+their existing `DbError` variants before primary-code classification.
+The module names the common ones as constants: `error` (1), `busy` (5),
 `locked` (6), `read_only` (8), `cant_open` (14), `constraint` (19), and
 `mismatch` (20). For example, a NOT NULL violation has code 1299 and primary
 code 19. SQLite's own `nomem`, `toobig`, and `range` codes become
