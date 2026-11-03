@@ -1370,7 +1370,9 @@ fn writable_referent<'a>(reference: &'a Ty, target: &Expr) -> Result<&'a Ty> {
             .at
             .error("assignment requires an exclusive reference"));
     };
-    if matches!(&**ty, Ty::Class(_)) {
+    // Quantity is a reserved builtin with copyable numeric storage. Replacing
+    // it preserves the referent's layout and never owns a destructor.
+    if matches!(&**ty, Ty::Class(t) if !t.name.starts_with("Quantity[")) {
         return Err(target
             .at
             .error("cannot replace a whole class through a reference; assign its fields instead"));

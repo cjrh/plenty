@@ -687,5 +687,21 @@ mod test_worker_callables;
 #[path = "test_domain_types.rs"]
 mod test_domain_types;
 
+#[path = "test_dimensions.rs"]
+mod test_dimensions;
+#[path = "test_quantities.rs"]
+mod test_quantities;
 #[path = "test_std_ceilings.rs"]
 mod test_std_ceilings;
+
+#[path = "test_quantity_formatting.rs"]
+mod test_quantity_formatting;
+
+#[path = "test_quantity_constants.rs"]
+mod test_quantity_constants;
+
+#[path = "test_dimension_diagnostics.rs"]
+mod test_dimension_diagnostics;
+
+#[path = "test_quantity_erasure.rs"]
+mod test_quantity_erasure;

@@ -84,6 +84,10 @@ are errors: build text with an f-string, then convert it to bytes.
 around it, then its value. Without a conversion or a spec the value is written
 as with `!r`, so `{name=}` gives `name="Ada"`.
 
+[Quantity fields](../03-types/quantities.md#formatting) apply numeric specs to
+the stored number and append the coherent-unit symbol. Use `!s` to pad the
+whole display text, or `!r` for `Quantity[T, D](value)` debug output.
+
 ## Values and conversions
 
 Without a conversion, a field is written as `print` writes it, including its

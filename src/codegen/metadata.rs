@@ -101,7 +101,7 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 104];
+    let mut bytes = vec![0; 120];
     // The formatting adapters belong to the type as written: a newtype's
     // methods are its own, not its field's.
     let formats: Vec<(u32, FuncId)> = [(88, false), (96, true)]
@@ -164,6 +164,19 @@ fn define_type(
     bytes[3] = u8::from(ty.has_inline_range());
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
+    if let Some((class, _)) = &newtype
+        && let Some(dimension) = &class.get().quantity
+    {
+        let symbol = dimension.symbol();
+        word(&mut bytes, 112, symbol.len());
+        // Even a dimensionless quantity needs a non-null Some("") pointer.
+        let data = if symbol.is_empty() {
+            vec![0]
+        } else {
+            symbol.into_bytes()
+        };
+        links.push((104, blob(module, data, &[])?));
+    }
     match ty {
         Ty::View(t, _) if **t == Ty::Text => {}
         Ty::List(t)
@@ -281,6 +294,7 @@ fn define_type(
 /// `NonZero`, newtype, or atomic by the type whose layout it shares.
 fn kind_code(ty: &Ty) -> u8 {
     match ty {
+        Ty::Dimension(_) => unreachable!("dimensions have no runtime representation"),
         Ty::I8 => b'1',
         Ty::Callable(_) | Ty::Task(_) => b'c',
         Ty::Channel(_, true) => b'X',

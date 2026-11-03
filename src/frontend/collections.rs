@@ -317,6 +317,32 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let (ty, loan) = self.returned_reference(target, call, ops)?;
+        if self.aliases.quantity(&ty).is_some() {
+            let reference = Ty::Ref(Arc::new(ty), true);
+            let slot = self.slot(reference.clone(), &target.at)?;
+            ops.push(Op::StoreLocal(slot));
+            self.bind_reference(slot, loan, false, ops);
+            let name = format!("$quantity_destination{slot}");
+            self.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty: reference,
+                    mutable: false,
+                },
+            );
+            let held = Expr {
+                at: target.at.clone(),
+                kind: Expression::Name(name),
+            };
+            let destination = Expr {
+                at: target.at.clone(),
+                kind: Expression::Unary("*".into(), Box::new(held.clone())),
+            };
+            self.quantity_augment(&destination, op, value, ops)?;
+            self.release_operator_operand(&held, Some(loan), ops);
+            return Ok(());
+        }
         if !ty.is_numeric() {
             return Err(target
                 .at
@@ -3329,6 +3355,9 @@ impl Lower<'_> {
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
+            if let Some(result) = self.quantity_static(&ty, name, args, &base.at, ops)? {
+                return Ok(result);
+            }
             if let Some((domain, element)) = ty.integer_domain() {
                 if name == "try_from" {
                     return self.domain_try_from(domain, Some(element), args, &base.at, ops);
@@ -4837,6 +4866,26 @@ impl Lower<'_> {
                 return Err(at.error("type nesting exceeds the implementation limit of 64"));
             }
             modules::check_member(self.access, &class.name, "__new__", at)?;
+            if let Some(storage) = ty.quantity_storage() {
+                let [value] = args else {
+                    return Err(at.error("Quantity construction takes one coherent value"));
+                };
+                let value = match &value.kind {
+                    Expression::NamedArgument(name, value) if name == "value" => value,
+                    Expression::NamedArgument(name, _) => {
+                        return Err(value.at.error(format!(
+                            "unknown Quantity argument `{name}`; expected `value`"
+                        )));
+                    }
+                    _ => value,
+                };
+                let actual = self.expr_expected(value, Some(storage.clone()), ops)?;
+                self.same(actual, Some(storage), &value.at)?;
+                ops.push(Op::Class(crate::record::ClassOp::WrapQuantity(
+                    class.clone(),
+                )));
+                return Ok(ty);
+            }
             return self
                 .call_named(&crate::record::method(&class.name, "new"), args, at, ops)?
                 .ok_or_else(|| at.error("class constructor must return Result"));

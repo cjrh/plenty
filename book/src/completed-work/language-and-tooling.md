@@ -5,6 +5,53 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## B97 compile-time dimensions
+
+[Dimension declarations and algebra](../design/language/03-types/dimensions.md)
+provide nominal bases, transparent derived aliases, `One`, normalized products
+and quotients, integer powers, and exact roots. Dimensions are interned types
+without values and are admitted by the `Dimension` generic constraint.
+Generic input expressions remain structurally inferable; output/body expressions
+are checked per instance. Tests compare random expressions against a dense
+reference evaluator and cover exponent boundaries, imports, privacy and generic
+diagnostics.
+
+The second stage of issue #701 adds [Quantity core](../design/language/03-types/quantities.md):
+coherent-value construction, `get`, float `to`/`from`, domain `try_from`,
+dimension-aware operators and compound assignments. Numeric widths, domain
+preservation/erasure and checked failures use existing arithmetic rules.
+Tests cover storage/result dimensions, rejection rules, evaluation order,
+collection/reference destinations and allocation denial.
+
+The third stage adds coherent-unit display and numeric format specs, normalized
+quantity debug output in aggregates, and writer methods through `std.fmt`.
+Unit spellings are static metadata, with no per-value dimension tag. Tests cover
+numeric widths and domains, normalized symbols, conversions, nested specs,
+writer limits and allocation denial.
+
+The fourth stage adds compile-time Quantity module constants: construction,
+quantity arithmetic, coherent-value extraction and float unit conversion.
+Dimensions and storage domains survive evaluation; overflow and invalid
+constant expressions are compile errors. Imports, forward references, static
+assertions and skipped branches follow the existing constant rules.
+
+The fifth stage adds scoped dimension-alias notes to type mismatches, quantity
+operators, constant checks, generic inference and dimension errors. Notes select
+the first visible matching alias in declaration/import order, respecting import
+bindings, visibility and generic-parameter shadowing. Canonical type identity and
+runtime formatting remain unchanged; tests cover nested types, defining-module
+scope, editor checks and concurrent compilations.
+
+The sixth stage completes issue #701's native erasure: Quantity parameters and
+results use their storage type's ABI, construction/projection are direct, and
+unit constants substitute folded values. The x86-64 release probe produces
+identical instructions to plain `f32`/`f64` for addition, multiplication and
+conversion by a parameter or constant unit. Tests cover numeric bits across
+calls, references, aggregates, closures, generators and workers in both modes.
+Domain-backed quantity aliases also resolve safely before storage definitions
+are finalized. [B97](../backlog.md#units-of-measure) retains `std.units` and
+measured sharing of bodies that differ only in dimension.
+
 ## Unicode trie example
 
 The [runnable trie](../design/examples/data-structures/trie.md) stores exact
@@ -394,6 +441,8 @@ conversion, fallible run-time conversion, private construction, `.get()`,
 domain-preserving arithmetic with checked overflow, ordinary comparisons,
 copying, scalar formatting and hashing. Explicit `NonZero.from(positive)` and
 `NonNegative.from(positive)` widen without failure or allocation.
+Invalid element diagnostics suggest `NonZero[uN]` or `uN` only for unsigned
+integers, not floats or other unsupported types (issue #700).
 
 See [integer domains](../design/language/03-types/numbers.md#positive-and-non-negative-integers).
 Plain integer dividends accept `NonZero[T]` and `Positive[T]` divisors for

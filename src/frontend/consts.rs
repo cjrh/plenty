@@ -1,6 +1,6 @@
 //! Compile-time evaluation of module constants and static assertions.
 //!
-//! After name resolution each constant is a getter whose body is its
+//! After name and type resolution each constant is a getter whose body is its
 //! initializer, with references to other constants resolved to getter calls.
 //! [`fold`] evaluates every initializer, replaces it with the literal it
 //! denotes, and removes static assertions. Codegen then substitutes the
@@ -11,6 +11,8 @@
 use super::*;
 use crate::op::IntegerDomain;
 use std::rc::Rc;
+
+mod quantities;
 
 /// The parse-time name prefix of a static assertion's getter.
 pub(super) const ASSERT: &str = "$assert";
@@ -25,6 +27,7 @@ const MAX_TEXT: usize = 1 << 24;
 
 #[derive(Clone)]
 enum Value {
+    Quantity(Box<Value>, Ty),
     Int(i128, Ty),
     Float(f64, Ty),
     Bool(bool),
@@ -35,7 +38,7 @@ enum Value {
 impl Value {
     fn ty(&self) -> Ty {
         match self {
-            Value::Int(_, t) | Value::Float(_, t) => t.clone(),
+            Value::Int(_, t) | Value::Float(_, t) | Value::Quantity(_, t) => t.clone(),
             Value::Bool(_) => Ty::Bool,
             Value::Str(_) => Ty::Str,
             Value::Bytes(_) => Ty::ByteStr,
@@ -44,6 +47,7 @@ impl Value {
 }
 
 struct Folder<'a> {
+    aliases: &'a TypeAliases,
     getters: HashMap<&'a str, &'a Function>,
     values: HashMap<String, Value>,
     active: Vec<String>,
@@ -59,11 +63,17 @@ struct Folder<'a> {
 
 /// Evaluates every constant and static assertion in `functions`, replacing
 /// each constant's initializer with its value and removing the assertions.
-pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
+pub(super) fn fold(functions: &mut Vec<Function>, aliases: &TypeAliases) -> Result<()> {
+    for f in functions.iter_mut().filter(|f| f.name.starts_with(GETTER)) {
+        if f.output.name.as_deref() == Some("Quantity") {
+            f.output.concrete = f.output.resolve(aliases)?.map(Box::new);
+        }
+    }
     let ide = super::ide::active();
     let mut folded = Vec::new();
     {
         let mut folder = Folder {
+            aliases,
             getters: functions
                 .iter()
                 .filter(|f| f.name.starts_with(GETTER))
@@ -116,13 +126,18 @@ pub(super) fn fold(functions: &mut Vec<Function>) -> Result<()> {
 
 /// Speculative evaluation for std ceiling diagnostics. A dynamic expression or
 /// one this evaluator cannot prove remains subject to the std runtime guard.
-pub(super) fn known_integer(e: &Expr, constants: &HashMap<String, Arc<Function>>) -> Option<i128> {
+pub(super) fn known_integer(
+    e: &Expr,
+    constants: &HashMap<String, Arc<Function>>,
+    aliases: &TypeAliases,
+) -> Option<i128> {
     // Most std calls forward a local domain value. It is dynamic, and needs
     // neither a constants table nor speculative evaluation.
     if matches!(ungroup(e).kind, Expression::Name(_)) {
         return None;
     }
     let mut folder = Folder {
+        aliases,
         getters: constants
             .iter()
             .map(|(n, f)| (n.as_str(), f.as_ref()))
@@ -167,6 +182,13 @@ fn declared(f: &Function) -> (Ty, Option<IntegerDomain>) {
 }
 
 fn default(ty: &Ty, domain: Option<IntegerDomain>) -> Value {
+    if let Ty::Class(class) = ty
+        && class.get().quantity.is_some()
+    {
+        let storage = &class.get().fields[0].1;
+        let value = default(storage, storage.integer_domain().map(|(domain, _)| domain));
+        return Value::Quantity(Box::new(value), ty.clone());
+    }
     match ty {
         Ty::Bool => Value::Bool(false),
         Ty::Str => Value::Str("".into()),
@@ -198,6 +220,10 @@ fn literal(value: &Value, domain: bool, at: &Token) -> Expr {
     };
     let negate = |inner: Expr| expr(Expression::Unary("-".into(), Box::new(inner)));
     match value {
+        Value::Quantity(value, ty) => expr(Expression::Constructor(
+            Box::new(generics::type_ref(ty, at)),
+            vec![literal(value, value.ty().integer_domain().is_some(), at)],
+        )),
         Value::Int(n, ty) => {
             let suffix = if domain {
                 String::new()
@@ -340,7 +366,11 @@ impl<'a> Folder<'a> {
         let value = self.eval(e, Some(ty))?;
         let got = value.ty();
         if got != *ty {
-            return Err(e.at.error(format!("expected {ty}, got {got}")));
+            return Err(self.aliases.dimension_error(
+                &e.at,
+                format!("expected {ty}, got {got}"),
+                [ty, &got],
+            ));
         }
         Ok(value)
     }
@@ -348,6 +378,9 @@ impl<'a> Folder<'a> {
     /// The type `e` has regardless of context, or None when an unsuffixed
     /// literal decides it.
     fn natural(&self, e: &Expr) -> Option<Ty> {
+        if let Some(Ok((ty, _))) = self.constructor(e) {
+            return Some(ty);
+        }
         match &e.kind {
             Expression::Group(inner) => self.natural(inner),
             Expression::Number(text) => {
@@ -364,19 +397,60 @@ impl<'a> Folder<'a> {
                 .filter(|(_, domain)| domain.is_none())
                 .map(|(ty, _)| ty),
             Expression::Method(base, method, args, _) if method == "get" && args.is_empty() => {
-                self.domain_read(base).map(|f| declared(f).0)
+                if let Some(ty) = self.natural(base) {
+                    self.aliases
+                        .quantity(&ty)
+                        .map(|(storage, _, _)| storage)
+                        .or_else(|| ty.domain_element())
+                } else {
+                    self.domain_read(base).map(|f| declared(f).0)
+                }
             }
+            Expression::Method(base, method, args, _) if method == "to" && args.len() == 1 => self
+                .aliases
+                .quantity(&self.natural(base)?)
+                .map(|(storage, _, _)| storage),
             Expression::Call(name, _) => named_type(name).filter(|t| t.is_int() || t.is_float()),
             Expression::Member(base, _, _) => match &base.kind {
                 Expression::Name(n) => named_type(n),
                 _ => None,
             },
-            Expression::Unary(op, inner) if op != "not" => self.natural(inner),
+            Expression::Unary(op, inner) if op != "not" => {
+                let ty = self.natural(inner)?;
+                if let Some((storage, dimension, _)) = self.aliases.quantity(&ty) {
+                    let storage = if op == "-" {
+                        storage.domain_element().unwrap_or(storage)
+                    } else {
+                        storage
+                    };
+                    self.quantity_type(&storage, (*dimension).clone(), &e.at)
+                        .ok()
+                } else if op == "-" {
+                    Some(ty.domain_element().unwrap_or(ty))
+                } else {
+                    Some(ty)
+                }
+            }
             Expression::Unary(..) => Some(Ty::Bool),
             Expression::Binary(op, a, b) => match op.as_str() {
                 "==" | "!=" | "<" | "<=" | ">" | ">=" | "and" | "or" => Some(Ty::Bool),
                 "<<" | ">>" => self.natural(a),
-                _ => self.natural(a).or_else(|| self.natural(b)),
+                _ => {
+                    let an = self.natural(a);
+                    let bn = self.natural(b);
+                    let storage = self.storage_context(an.as_ref(), bn.as_ref());
+                    if let Some(storage) = storage {
+                        self.wrapped_result(
+                            op,
+                            &self.operand_type(a, an, &storage),
+                            &self.operand_type(b, bn, &storage),
+                            &e.at,
+                        )
+                        .ok()
+                    } else {
+                        an.or(bn)
+                    }
+                }
             },
             Expression::Conditional { yes, no, .. } => {
                 self.natural(yes).or_else(|| self.natural(no))
@@ -386,6 +460,9 @@ impl<'a> Folder<'a> {
     }
 
     fn eval(&mut self, e: &Expr, expected: Option<&Ty>) -> Result<Value> {
+        if let Some(value) = self.quantity_eval(e, expected) {
+            return value;
+        }
         match &e.kind {
             Expression::Group(inner) => self.eval(inner, expected),
             Expression::Number(text) => number(text, false, expected, &e.at),
@@ -487,6 +564,9 @@ impl<'a> Folder<'a> {
         let source = self.natural(operand);
         let value = self.eval(operand, source.as_ref())?;
         let at = &operand.at;
+        if value.ty().integer_domain().is_some() {
+            return Err(at.error("numeric casts require a number; read the domain with `.get()`"));
+        }
         match value {
             Value::Int(n, _) if target.is_int() => {
                 int(n, target, at, "integer cast out of range for", self.spare())
@@ -527,6 +607,7 @@ impl<'a> Folder<'a> {
         let value = self.eval(inner, expected)?;
         match (op, value) {
             ("-", Value::Int(n, ty)) => {
+                let ty = ty.domain_element().unwrap_or(ty);
                 if !matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64) {
                     return Err(e.at.error(format!("cannot negate unsigned {ty}")));
                 }
@@ -539,6 +620,12 @@ impl<'a> Folder<'a> {
                 )
             }
             ("-", Value::Float(x, ty)) => Ok(Value::Float(-x, ty)),
+            ("~", Value::Int(_, ty)) if ty.integer_domain().is_some() => {
+                Err(e.at.error(nonzero::unsupported(op, &ty)))
+            }
+            ("+", value) if value.ty().is_numeric() || value.ty().integer_domain().is_some() => {
+                Ok(value)
+            }
             ("~", Value::Int(n, ty)) => {
                 let (min, end) = ty.int_range().unwrap();
                 Ok(Value::Int(if min < 0 { !n } else { end - 1 - n }, ty))
@@ -558,6 +645,9 @@ impl<'a> Folder<'a> {
         b: &Expr,
         expected: Option<&Ty>,
     ) -> Result<Value> {
+        if let Some(value) = self.wrapped_binary(e, op, a, b) {
+            return value;
+        }
         let at = &e.at;
         match op {
             "and" | "or" => {
@@ -595,6 +685,13 @@ impl<'a> Folder<'a> {
             _ => operand,
         };
         let right = self.eval(b, count.as_ref())?;
+        self.combine(op, left, right, at)
+    }
+
+    fn combine(&self, op: &str, left: Value, right: Value, at: &Token) -> Result<Value> {
+        if let Some(value) = self.domain_combine(op, &left, &right, at) {
+            return value;
+        }
         if left.ty() != right.ty() {
             return Err(at.error(format!(
                 "cannot combine {} with {} in a constant",

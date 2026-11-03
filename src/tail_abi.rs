@@ -48,6 +48,9 @@ impl fmt::Display for TailCallRejection {
 }
 
 pub(crate) fn native_type(ty: &Ty) -> Type {
+    if let Some(storage) = ty.quantity_storage() {
+        return native_type(&storage);
+    }
     if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
         return types::I128;
     }

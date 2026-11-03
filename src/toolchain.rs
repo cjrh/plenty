@@ -51,6 +51,28 @@ pub struct RuntimeArtifacts {
     pub link_args: Vec<OsString>,
 }
 
+/// The bundled archive is needed only if linking runs. Its bytes are already
+/// covered by the compiler identity used by the executable cache.
+pub(crate) enum RuntimeInput<'a> {
+    Existing(&'a Path),
+    Bundled(&'a Path),
+}
+
+impl RuntimeInput<'_> {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Existing(path) | Self::Bundled(path) => path,
+        }
+    }
+
+    fn prepare(&self) -> std::io::Result<()> {
+        if let Self::Bundled(path) = self {
+            std::fs::write(path, crate::codegen::RUNTIME_ARCHIVE)?;
+        }
+        Ok(())
+    }
+}
+
 /// Extract the packaged runtime for external linking. The directory is created
 /// if necessary; the archive and `link-args.txt` (one argument per line) are
 /// replaced. Use the runtime from the same compiler build as the object.
@@ -353,7 +375,7 @@ fn linker_command(options: &CompileOptions) -> Command {
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(crate) fn link(
     object: &Path,
-    runtime: &Path,
+    runtime: RuntimeInput<'_>,
     native_args: &str,
     output: &Path,
     options: &CompileOptions,
@@ -383,7 +405,7 @@ pub(crate) fn link(
     }
     command
         .arg(object)
-        .arg(runtime)
+        .arg(runtime.path())
         .args(extra_args)
         .args(&options.link_args)
         .args(trailing_args)
@@ -409,7 +431,7 @@ pub(crate) fn link(
         command.arg("-o").arg(output);
     }
     let mut executable_cache =
-        crate::cache::Executable::new(options, &command, object, runtime, &engines);
+        crate::cache::Executable::new(options, &command, object, runtime.path(), &engines);
     if let Some(cache) = &executable_cache {
         if cache.load(output) {
             if options.cache_stats {
@@ -434,6 +456,7 @@ pub(crate) fn link(
     if options.verbose {
         eprintln!("link: {command:?}");
     }
+    runtime.prepare()?;
     let result = command.output().map_err(|error| {
         // Release users have no Rust toolchain, so name what to install.
         let hint = if error.kind() == std::io::ErrorKind::NotFound {

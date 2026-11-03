@@ -34,6 +34,7 @@ pub(super) fn builtin_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
         Some("IntType") => Some(Ty::is_int),
         Some("FloatType") => Some(Ty::is_float),
         Some("CopyType") => Some(copies),
+        Some("Dimension") => Some(dimensions::is_dimension),
         _ => None,
     }
 }
@@ -42,7 +43,7 @@ pub(super) fn builtin_bound(bound: &TypeRef) -> Option<fn(&Ty) -> bool> {
 /// arguments are never references, so this is the value rule alone; see
 /// book/src/design/language/05-ownership/01-bindings-moves-and-copies.md.
 fn copies(ty: &Ty) -> bool {
-    !ty.affine()
+    !dimensions::is_dimension(ty) && !ty.affine()
 }
 
 /// The diagnostic for a type argument `ty` that fails the built-in `bound`.
@@ -236,10 +237,10 @@ pub(super) fn prepare(
             engine.validate_template(&f, aliases)?;
             engine.record_defaults(&f);
             engine.retention.template(&f);
-            // The builtin `OverflowError[T]` factory calls nothing generic, so
-            // it adds no depth; counting it would change every program's
-            // reported limit.
-            if f.name != "OverflowError" {
+            // These builtin factories only construct concrete fields; they
+            // add no generic dependency depth. Counting Quantity would change
+            // the reported limit even in programs that never use dimensions.
+            if !matches!(f.name.as_str(), "OverflowError" | "Quantity") {
                 engine.specializable += 1;
             }
             engine.templates.insert(f.name.clone(), Arc::new(f));
@@ -648,7 +649,7 @@ impl FromIterator<(String, TypeRef)> for Substitution {
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
-        Ty::Closure(_) | Ty::BoxedCallable(_) | Ty::Iter(..) => {
+        Ty::Dimension(_) | Ty::Closure(_) | Ty::BoxedCallable(_) | Ty::Iter(..) => {
             return TypeRef {
                 at: at.clone(),
                 concrete: Some(Box::new(ty.clone())),
@@ -734,12 +735,22 @@ fn infer(
 }
 
 /// Check an argument against a parameter type that mentions no type parameter.
-fn check_expected(expected: &Ty, actual: &Ty, coercible: bool, at: &Token) -> Result<()> {
+fn check_expected(
+    expected: &Ty,
+    actual: &Ty,
+    coercible: bool,
+    at: &Token,
+    aliases: &TypeAliases,
+) -> Result<()> {
     if crate::generator::refine(expected, actual).is_none()
         && !(coercible && crate::sum::accepts(expected, actual))
     {
         let hint = callables::mismatch_hint(expected, actual).unwrap_or_default();
-        return Err(at.error(format!("expected {expected}, got {actual}{hint}")));
+        return Err(aliases.dimension_error(
+            at,
+            format!("expected {expected}, got {actual}{hint}"),
+            [expected, actual],
+        ));
     }
     Ok(())
 }
@@ -754,7 +765,7 @@ fn infer_inner(
     coercible: bool,
 ) -> Result<()> {
     if let Some(expected) = &pattern.concrete {
-        return check_expected(expected, actual, coercible, at);
+        return check_expected(expected, actual, coercible, at, aliases);
     }
     if let Some(name) = pattern
         .name
@@ -768,7 +779,7 @@ fn infer_inner(
         }
         if let Some(previous) = inferred.get(name) {
             if previous != actual {
-                return Err(at.error(format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name)));
+                return Err(aliases.dimension_error(at, format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name), [previous, actual]));
             }
         } else {
             inferred.insert(name.clone(), actual.clone());
@@ -776,8 +787,8 @@ fn infer_inner(
         return Ok(());
     }
     if !mentions_parameter(pattern, template) {
-        let expected = pattern.resolve(aliases)?.unwrap_or(Ty::Unit);
-        return check_expected(&expected, actual, coercible, at);
+        let expected = pattern.resolve_argument(aliases)?.unwrap_or(Ty::Unit);
+        return check_expected(&expected, actual, coercible, at, aliases);
     }
     if pattern.name.as_deref() == Some("|") {
         let mut candidates = vec![inferred.clone()];
@@ -1036,7 +1047,14 @@ impl Lower<'_> {
                 self.sigs,
             );
             self.aliases.data.attribute(outer);
-            registered?;
+            registered.map_err(|error| -> Box<dyn Error> {
+                let error = Diagnostic::from_boxed(error);
+                if error.attributed {
+                    error
+                } else {
+                    Box::new(required.report(error.position.as_ref(), &error.message))
+                }
+            })?;
             if self.sigs[&symbol]
                 .inputs
                 .iter()
@@ -1091,7 +1109,7 @@ impl Lower<'_> {
         if let Some(types) = types {
             let actual = types
                 .iter()
-                .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
+                .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<_>>()?;
             let symbol = self.specialize(name, actual, at)?;
             return self.call_named_with_receiver(&symbol, args, at, method, ops);
@@ -1510,7 +1528,7 @@ impl Engine {
                     )));
                 }
             } else if builtin_bound(bound).is_none() || !bound.args.is_empty() {
-                return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, Callable, OnceCallable, or a declared protocol"));
+                return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, Dimension, Callable, OnceCallable, or a declared protocol"));
             }
         }
         Ok(())
@@ -1607,6 +1625,11 @@ impl Engine {
             .collect();
         let mut demanded = Vec::new();
         for ((_, bound), ty) in template.type_params.iter().zip(actual) {
+            if dimensions::is_dimension(ty) && !bound.as_ref().is_some_and(dimensions::bound) {
+                return Err(
+                    at.error("dimension arguments require a parameter constrained by Dimension")
+                );
+            }
             if ty.dictionary_view() {
                 return Err(at.error("dictionary key views are local-only and cannot be user-function type arguments; materialise keys_snapshot() or to_set()"));
             }

@@ -23,6 +23,11 @@ Option and printable aggregates containing Results are allowed. Their Results
 must be handled or explicitly dropped, following the
 [error rules](../../language/08-errors/index.md).
 
+[Quantities](../../language/03-types/quantities.md#formatting) display their
+coherent number and unit at the top level. Debug output, including in
+aggregates, uses `Quantity[T, D](value)`. These builtin spellings keep the
+ordinary `print` and `str.repr` error types.
+
 ## User formatting methods
 
 `print`, `str.repr` and f-strings share one formatting path. A class or enum

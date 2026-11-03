@@ -211,7 +211,7 @@ pub fn compile_file_to_library(
             ];
             crate::toolchain::link(
                 &object,
-                &runtime,
+                crate::toolchain::RuntimeInput::Existing(&runtime),
                 NATIVE_ARGS,
                 &built,
                 &options.compile,

@@ -21,6 +21,7 @@ static NUMBER: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
 };
 
 fn release(value: u128) {
@@ -130,6 +131,7 @@ fn receiving_copies_inline_ranges_before_reusing_the_slot() {
         transparent: false,
         debug: None,
         display: None,
+        quantity: None,
     };
     let (sender, receiver) = create(&RANGE, 1).unwrap();
     let first = ranges::Range::new(5, 9, 1, true);

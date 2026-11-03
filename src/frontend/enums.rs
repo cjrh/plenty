@@ -211,6 +211,7 @@ pub(super) fn resolve_types(
     aliases: &[TypeAlias],
     enums: &[EnumDecl],
     classes: &[classes::ClassDecl],
+    dimension_names: dimension_diagnostics::Names,
 ) -> Result<TypeAliases> {
     enum Decl<'a> {
         Alias(&'a TypeAlias),
@@ -254,7 +255,12 @@ pub(super) fn resolve_types(
         if builtin(name)
             && !matches!(
                 name,
-                "OverflowError" | "ZeroDivisionError" | "NonZero" | "Positive" | "NonNegative"
+                "OverflowError"
+                    | "ZeroDivisionError"
+                    | "NonZero"
+                    | "Positive"
+                    | "NonNegative"
+                    | "Quantity"
             )
         {
             return Err(declaration
@@ -268,6 +274,7 @@ pub(super) fn resolve_types(
         }
     }
     let mut resolved = TypeAliases::with_data(enums, classes)?;
+    resolved.dimension_names = Arc::new(dimension_names);
     for declaration in &declarations {
         let generic = match declaration {
             Decl::Alias(_) => continue,
@@ -306,7 +313,11 @@ pub(super) fn resolve_types(
                 let Decl::Alias(alias) = declaration else {
                     unreachable!()
                 };
-                let ty = alias.target.resolve(&resolved)?;
+                let ty = if alias.dimension {
+                    Some(alias.target.resolve_dimension(&resolved)?)
+                } else {
+                    alias.target.resolve(&resolved)?
+                };
                 if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
                     return Err(declaration
                         .at()

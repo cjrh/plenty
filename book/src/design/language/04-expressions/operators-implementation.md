@@ -27,7 +27,8 @@ a scalar output, no locals, no calls or writes, and at most 24 non-marker typed
 operations. Tail calls to eligible leaves also substitute their body when the
 caller has no managed locals to clean up before the call. This
 benefits ordinary named methods as well as operator hooks. Managed aggregates,
-matrix allocation, and result-producing class constructors remain ordinary calls.
+matrix allocation, and result-producing ordinary class constructors remain ordinary calls.
+Quantity values use their storage type's scalar eligibility.
 
 The regression probe compares `a + b`, `a.__add__(b)`, and `a.x + b.x` for a
 class containing one `f64`. Operator and named calls have identical native
@@ -37,6 +38,31 @@ inliner extension, both call spellings added a five-instruction tail-call wrappe
 This is code-generation evidence, not a claim about matrix-kernel throughput.
 Separate tests disable heap allocation across owned class addition and in-place
 updates, and check destructor and failure paths.
+
+## Quantity erasure
+
+The builtin [Quantity](../03-types/quantities.md) carries its storage type's native
+ABI. Its constructor and numeric projection lower directly, with no call,
+allocation, dimension tag, or constructor state. Direct `get` and float `to`
+retain argument validation and receiver loans while avoiding addressable
+receiver temporaries for named numeric values. Module unit constants substitute
+their folded storage literal and type retag at each read.
+
+`tests/test_quantity_erasure.rs` compares complete release instruction listings
+for Quantity and plain `f32`/`f64` functions: `a + b`, `a * b`, `q.to(unit)`,
+and `q.to(km)` with a constant coherent value of `1000.0`. On x86-64 the paired
+listings are identical, including parameter/result registers, with no Quantity
+constructor, method, constant-getter or caller-context calls. The test uses the
+host backend; native ARM execution remains part of ARM qualification rather
+than evidence from this x86-64 run.
+
+Other tests exercise every numeric width and representative integer domains
+through direct/indirect and tail calls, references, aggregates, collections,
+closures and generators in both build modes. Signed zero, NaN, infinity and
+worker transfers retain their numeric payloads. Existing allocation-denial,
+checked-arithmetic, formatting and diagnostic tests cover the language
+contracts. This evidence does not imply identical instructions for arbitrary
+programs or shared bodies for different dimension instances.
 
 ## Design sources
 

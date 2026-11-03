@@ -399,6 +399,35 @@ there is no automatic `+=` fallback. Equality remains structural. Other
 [rejected](../language/04-expressions/operators.md#reserved-method-names):
 write `display`/`debug` for formatting and named methods for the rest.
 
+## Compile-time dimensions
+
+Use `dimension` for a base or a derived dimension, and `D: Dimension` for an
+argument that carries no runtime value:
+
+```plenty
+dimension Length("m")
+dimension Time("s")
+dimension Velocity = Length / Time
+const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+
+def main() -> Result[(), IoError]:
+    distance = 12.0 * metre
+    elapsed = Quantity[f64, Time](4.0)
+    speed: Quantity[f64, Velocity] = distance / elapsed
+    print(speed)?
+    Ok(())
+```
+```output
+3.0 m/s
+```
+
+Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer
+exponents and exact roots. `One` is dimensionless. A dimension cannot be a value
+type. `Quantity[T, D]` checks dimensions in arithmetic and `.get()` reads its
+stored number. For floats, `.to(unit)` divides by a quantity of the same type.
+See [dimensions](../language/03-types/dimensions.md) and
+[quantities](../language/03-types/quantities.md).
+
 ## Option, Result, and errors
 
 ```plenty
@@ -568,7 +597,7 @@ def main() -> Result[(), IoError]:
 | `d[k] += 1` | `d.insert(k, d.get(k, 0) + 1)?`, or `*v += 1` on `Some(v)` from `d.get_mut(k)` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
-| Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
+| Global variables | Pass values as parameters; `const` holds a number, quantity, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
 | A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `name = if condition:` (or `name = match value:`), or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
 | `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |

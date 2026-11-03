@@ -16,6 +16,8 @@ const MAX_DATA_INSTANCES: usize = 65_536;
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    pub(super) dimension_names: Arc<dimension_diagnostics::Names>,
+    pub(super) dimensions: Rc<RefCell<crate::dimension::Interner>>,
     /// Checking state of one compilation's frontend; it never leaves its thread.
     pub(super) data: Rc<DataTypes>,
 }
@@ -351,6 +353,8 @@ impl TypeAliases {
         let mut shapes = self.data.shapes.borrow_mut();
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
+            dimensions: self.dimensions.clone(),
+            dimension_names: Arc::clone(&self.dimension_names),
             data: Rc::new(DataTypes {
                 enums: self.data.enums.clone(),
                 classes: self.data.classes.clone(),
@@ -400,6 +404,8 @@ impl TypeAliases {
         data.deferred.set(true);
         Ok(Self {
             named: HashMap::default(),
+            dimensions: Rc::default(),
+            dimension_names: Arc::default(),
             data: Rc::new(data),
         })
     }
@@ -420,7 +426,11 @@ impl TypeAliases {
         let actual = application
             .args
             .iter()
-            .map(|t| {
+            .zip(params)
+            .map(|(t, (_, bound))| {
+                if bound.as_ref().is_some_and(dimensions::bound) {
+                    return t.resolve_dimension(self);
+                }
                 let ty = t
                     .resolve(self)?
                     .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
@@ -435,14 +445,30 @@ impl TypeAliases {
             && let [element] = actual.as_slice()
             && !matches!(element, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
         {
-            let suggestion = if domain == crate::op::IntegerDomain::Positive {
-                format!("NonZero[{element}]")
-            } else {
-                element.to_string()
-            };
-            return Err(application.at.error(format!(
-                "`{name}` requires a signed integer type; for `{element}`, use `{suggestion}`"
-            )));
+            let mut message = format!("`{name}` requires a signed integer type");
+            if matches!(element, Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64) {
+                let suggestion = if domain == crate::op::IntegerDomain::Positive {
+                    format!("NonZero[{element}]")
+                } else {
+                    element.to_string()
+                };
+                message.push_str(&format!("; for `{element}`, use `{suggestion}`"));
+            }
+            return Err(application.at.error(message));
+        }
+        // Alias discovery can resolve storage before its class definition is
+        // finalized. The declaration identifies a builtin domain at this phase;
+        // its own instantiation validates the integer argument.
+        if name == "Quantity"
+            && !actual[0].is_numeric()
+            && !self
+                .data
+                .origin_class(&actual[0])
+                .is_some_and(|(declaration, _)| {
+                    crate::op::IntegerDomain::named(&declaration.name).is_some()
+                })
+        {
+            return Err(application.at.error("Quantity storage must be an integer, float, or integer domain; put the domain inside Quantity"));
         }
         let key = (name.clone(), actual.clone());
         if let Some(ty) = self.data.instances.borrow().get(&key) {
@@ -709,7 +735,15 @@ impl TypeAliases {
                 })();
                 let (definition, class): (Ty, Option<classes::ClassDecl>) = result?;
                 match (&ty, definition) {
-                    (Ty::Class(t), Ty::Class(value)) => t.define((*value.get()).clone()),
+                    (Ty::Class(t), Ty::Class(value)) => {
+                        let mut definition = (*value.get()).clone();
+                        if name == "Quantity"
+                            && let [_, Ty::Dimension(dimension)] = actual.as_slice()
+                        {
+                            definition.quantity = Some(dimension.clone());
+                        }
+                        t.define(definition);
+                    }
                     (Ty::Enum(t), Ty::Enum(value)) => t.define((*value.get()).clone()),
                     _ => unreachable!(),
                 }
@@ -854,7 +888,7 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
             || generics::callable_bound(bound))
         {
             return Err(bound.at.error(
-                "generic data constraints currently require IntType, FloatType, CopyType, Callable, or OnceCallable",
+                "generic data constraints currently require IntType, FloatType, CopyType, Dimension, Callable, or OnceCallable",
             ));
         }
     }

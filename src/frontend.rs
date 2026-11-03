@@ -36,6 +36,8 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod dimension_diagnostics;
+mod dimensions;
 mod divisors;
 mod enums;
 mod executors;
@@ -58,6 +60,7 @@ mod patterns;
 mod pipelines;
 mod protocols;
 mod provenance;
+mod quantities;
 mod references;
 mod retention;
 mod shared;
@@ -111,6 +114,9 @@ impl TypeRef {
         };
         let args: Vec<String> = self.args.iter().map(TypeRef::spelling).collect();
         match name.as_str() {
+            "$Pow" | "$Root" => format!("{}[{}]", &name[1..], args.join(", ")),
+            "*" | "/" => format!("({} {name} {})", args[0], args[1]),
+            _ if name.starts_with("$exponent:") => name[10..].into(),
             "|" => args.join(" | "),
             "&" | "&mut" => format!("{name}{}", args.concat()),
             _ if args.is_empty() => name.clone(),
@@ -118,6 +124,17 @@ impl TypeRef {
         }
     }
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
+        let ty = self.resolve_argument(aliases)?;
+        if let Some(Ty::Dimension(d)) = &ty {
+            return Err(aliases.dimension_error(
+                &self.at,
+                format!("dimension `{d}` has no values; use it only as a dimension argument"),
+                ty.iter(),
+            ));
+        }
+        Ok(ty)
+    }
+    fn resolve_argument(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
         if ty == Some(Ty::Text) {
             return Err(self.at.error(
@@ -138,6 +155,9 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == "One" || dimensions::expression(name) {
+            return self.dimension_expression(aliases);
+        }
         if name == "|" {
             let members = self
                 .args
@@ -642,6 +662,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "AppendError"
                 | "OverflowError"
                 | "ZeroDivisionError"
+                | "Quantity"
                 | "NonZero"
                 | "Positive"
                 | "NonNegative"
@@ -677,6 +698,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "FloatType"
                 | "CopyType"
+                | "Dimension"
+                | "One"
                 | "next"
                 | "copy"
                 | "drop"
@@ -715,6 +738,7 @@ keywords!(
         | "try"
         | "with"
         | "type"
+        | "dimension"
         | "const"
         | "return"
         | "if"
@@ -1241,11 +1265,14 @@ impl Lower<'_> {
                     .and_then(|(expected, got)| callables::mismatch_hint(expected, got))
                     .unwrap_or_default()
             };
-            Err(at.error(format!(
+            let message = format!(
                 "expected {}, got {}{hint}",
-                type_name(expected),
-                type_name(got),
-            )))
+                type_name(expected.clone()),
+                type_name(got.clone())
+            );
+            Err(self
+                .aliases
+                .dimension_error(at, message, expected.iter().chain(&got)))
         }
     }
     /// Success type of a Result that `?` can propagate in this function.
@@ -1470,6 +1497,19 @@ impl Lower<'_> {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
         let ty = match &e.kind {
+            Expression::Name(name) | Expression::Call(name, _)
+                if !self.names.contains_key(name)
+                    && !self.captures.contains(name)
+                    && (name == "One"
+                        || matches!(
+                            lookup_type(name, self.aliases),
+                            Some(Some(Ty::Dimension(_)))
+                        )) =>
+            {
+                return Err(e.at.error(format!(
+                    "dimension `{name}` has no values; use it only as a dimension argument"
+                )));
+            }
             Expression::NamedArgument(..) => {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
@@ -1501,7 +1541,7 @@ impl Lower<'_> {
                 }
                 let actual = types
                     .iter()
-                    .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
+                    .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<_>>()?;
                 let symbol = self.specialize(name, actual, &e.at)?;
                 Some(self.function_value(&symbol, &e.at, ops)?)
@@ -1641,6 +1681,9 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
+                if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
+                    return result;
+                }
                 if name == "format"
                     && let Some(ty) = self.format_method(base, args, &e.at, ops)
                 {
@@ -4695,11 +4738,13 @@ fn lower(
         protocols,
         access,
         public_api,
+        dimension_names,
         at,
         require_main,
         inputs,
     } = resolved;
-    let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    let aliases = enums::resolve_types(&declarations, &enums, &classes, dimension_names)?;
+    consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =
         enums.into_iter().partition(|e| e.type_params.is_empty());

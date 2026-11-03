@@ -12,7 +12,7 @@
     // Reserved words, except the reserved literals below.
     const KEYWORDS = [
         "and", "as", "async", "await", "break", "case", "class", "const",
-        "continue", "def", "elif", "else", "enum", "export", "extern", "for",
+        "continue", "def", "dimension", "elif", "else", "enum", "export", "extern", "for",
         "from", "if", "import", "in", "lambda", "match", "mut", "not",
         "opaque", "or", "pass", "protocol", "pub", "return", "struct", "trait",
         "try", "type", "while", "with", "yield",
@@ -145,7 +145,7 @@
                 string("'", false),
                 annotation,
                 declaration("def", new RegExp("\\b(?!once\\b)" + IDENT)),
-                declaration("class enum protocol type", new RegExp(IDENT)),
+                declaration("class enum protocol type dimension", new RegExp(IDENT)),
                 number,
                 member,
                 type,

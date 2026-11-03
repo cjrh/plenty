@@ -322,6 +322,7 @@ impl Ty {
 impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
+            Self::Dimension(d) => Self::Dimension(d.clone()),
             Self::Iter(t, id) => Self::Iter(t.clone(), *id),
             Self::Task(t) => Self::Task(t.clone()),
             Self::Channel(t, sender) => Self::Channel(Self::clone_child(t), *sender),
@@ -394,6 +395,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -426,6 +428,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -452,6 +455,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

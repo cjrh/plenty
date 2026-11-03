@@ -43,7 +43,7 @@ Names follow [lexical scope and prelude rules](names.md). Modules use
 A keyword cannot name a binding, parameter, field, function, type, or module.
 These keywords have a meaning in Plenty:
 
-`and`, `as`, `break`, `case`, `class`, `const`, `continue`, `def`, `elif`,
+`and`, `as`, `break`, `case`, `class`, `const`, `continue`, `def`, `dimension`, `elif`,
 `else`, `enum`, `export`, `extern`, `False`, `for`, `from`, `if`, `import`,
 `in`, `match`, `mut`, `not`, `opaque`, `or`, `pass`, `protocol`, `pub`,
 `return`, `True`, `type`, `while`, `with`, `yield`

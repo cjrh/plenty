@@ -4,6 +4,10 @@ Use arithmetic operators when their meaning is natural for your type. A method
 named `__add__` defines `+`, and `__neg__` defines unary `-`. These are statically
 compiled calls, so using the operator does not introduce runtime method lookup.
 
+The distance wrappers here demonstrate hook and forwarding mechanics. For physical
+calculations, use [quantities](../09-generics/dimensions.md): they also check the
+dimensions of products and quotients, which these wrappers do not.
+
 ```plenty
 class Distance:
     metres: i64
@@ -42,21 +46,21 @@ exclusive access and updates `walk` in place. It returns `()`, and the binding
 must be mutable.
 
 For operations that may fail, return `Result` and handle it at the call site.
-Here a domain check prevents negative combined quantities:
+Here a domain check prevents negative combined stock:
 
 ```plenty
-class Quantity:
+class Stock:
     amount: i64
 
-    def __add__(self, other: &Quantity) -> Result[Quantity, str]:
+    def __add__(self, other: &Stock) -> Result[Stock, str]:
         total = self.amount + other.amount
         if total < 0:
-            return Err("negative quantity")
-        Ok(Quantity(total))
+            return Err("negative stock")
+        Ok(Stock(total))
 
 def main() -> Result[(), IoError | str]:
-    a = Quantity(5)
-    b = Quantity(3)
+    a = Stock(5)
+    b = Stock(3)
     combined = (a + b)?
     print(combined.amount)?
     Ok(())
