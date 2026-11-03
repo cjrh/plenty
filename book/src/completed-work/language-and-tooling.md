@@ -182,19 +182,28 @@ affine callback arithmetic errors reach the parent without leaking actor heaps.
 Combined targeted runtime-check validation reports 733 passes, two failures in
 still-unmigrated HTTP body/cookie dependencies and one pre-existing ignored test.
 Full crypto, JWT, HTTPS, standalone server/client and actor TLS tests now pass
-together. Two optional native-engine linalg bodies, broad documentation examples,
-remaining modules and full acceptance measurements are still outstanding.
+together. The optional native-engine linalg bodies were initially unrun;
+broad documentation examples, remaining modules and full acceptance measurements
+remain outstanding.
 
 Reviewed CLI/progress arithmetic now preserves exact work counts and output-failure
 state; the countbytes example exposes its aggregate overflow contract. Dataframe
 extents retain allocation-capacity causes, and plot counts/layout/rendering have
 explicit bounds without changing numerical aggregates. All 48 plot tests pass;
-13 dataframe native-engine tests self-skip and are not native acceptance.
+the initial 13 dataframe native-engine self-skips were later replaced by real
+engine execution: all 17 dataframe and nine linalg tests pass, including native
+relocation and allocation cleanup after fixture-only arithmetic fixes.
 HTTP body/cookie helpers preserve semantic TooLarge errors and multipart/upload
 ownership. Actor HTTP has equivalent bounded lingering state without clamping
 actual consumed bytes; its 26 TCP/TLS/control/error tests pass. Remaining HTTP
-helper/core failures reach proxy/websocket dependencies; those consumers and
-broader utility/format migration remain outstanding.
+core failures still reach websocket. A reviewed proxy/helper checkpoint restores
+all 19 helper tests, preserving descriptor/cancellation/RFC/bulk-scan assertions.
+XML/CSV arithmetic preserves exact positions and explicit pending-output flushing
+at representation exhaustion. Temporary/system/watch/SQLite wrappers and
+compression retain their domain errors and resource/progress contracts; real
+procfs/inotify/SQLite and gzip/Brotli interop tests run. Actor HTTP interop retains
+curl and all 600 corpus mutations. Optional sqlite-vec and Docker cases remain
+unrun; archive, remaining HTTP consumers and other std adoption remain outstanding.
 
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).

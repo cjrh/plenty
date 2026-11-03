@@ -27,7 +27,9 @@ The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 and `std.http.client`, plus `std.json`, `std.unicode`, `std.complex`, `std.stat`,
 `std.linalg`, `std.simd`, `std.log`, `std.crypto`, `std.tls`, `std.uuid`,
 `std.jwt`, `std.http.server`, `std.toml`, `std.regex`, `std.cli`, CLI progress,
-`std.dataframe`, `std.plot`, HTTP body/cookie helpers, and actor core/TCP/TLS/HTTP-server adapters.
+`std.dataframe`, `std.plot`, HTTP body/cookie/proxy helpers, `std.xml`,
+`std.csv`, `std.tempfile`, `std.system`, `std.fs.watch`, SQLite/KV wrappers,
+`std.compress`, and actor core/TCP/TLS/HTTP-server adapters.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -63,8 +65,10 @@ and replacement validation order. Public mutable regex matches expose length
 subtraction as `Result[i64, OverflowError[i64]]`; unavailable TOML coordinates
 report InputTooLarge at the valid offset with zero line/column, following the
 user's explicit choices. Its 40 isolated-target tests pass, with six added
-boundary tests in both optimization modes. XML and CSV remain outstanding;
-this is not full formats acceptance.
+boundary tests in both optimization modes. A separately reviewed XML/CSV
+checkpoint preserves parser faults and stream ownership. CSV position exhaustion
+returns the existing stream OutOfRange error; preflight keeps offsets exact,
+record MAX valid and explicit flushing of already-finished bytes available.
 
 The reviewed numerical checkpoint preserves complex powers at `i64.MIN`, matrix
 shape/index invariants and statistical capacity causes. Ordinary integer SIMD
@@ -82,18 +86,24 @@ preserving message-prefix ordering. An affine arithmetic error reaches its
 parent with both actor heaps reclaimed. Complete actor TLS, crypto, JWT, HTTPS
 and server/client tests pass after dependency integration. Combined targeted
 validation has 733 passes, two failures in unmigrated HTTP body/cookie, and one
-pre-existing ignored test. Two native-engine linalg test bodies remain unrun.
+pre-existing ignored test. The two native-engine linalg bodies were still unrun at that checkpoint;
+the follow-up native-engine results are recorded below.
 At that checkpoint the registry still reported 29 failing module analyses; broad tutorial validation
 remains incomplete. These results are not all-features or performance acceptance.
 
 A later reviewed checkpoint adds bounded CLI parsing/progress, checked dataframe
 extents, plot arithmetic and body/cookie byte budgets. Actor HTTP keeps exact
 response accounting and equivalent bounded lingering-threshold state; complete
-TCP/TLS/control/error tests pass. Dataframe's optional native-engine cases remain
-self-skipped, not accepted native execution. The integrated registry now has
-22 failing module analyses. Remaining core HTTP/helper failures reach unmigrated
-websocket/proxy dependencies. Other HTTP consumers, utility wrappers and formats
-remain in progress.
+TCP/TLS/control/error tests pass. Initial optional-engine self-skips were followed by actual local-engine runs:
+all 17 dataframe and nine linalg tests pass, including relocation and allocation
+cleanup after fixture-only arithmetic fixes. This does not replace the native
+arithmetic audit. Reviewed proxy/helper fixtures restore descriptor, cancellation,
+RFC and bulk-scan checks; actor HTTP interop retains real curl and 600-mutation
+corpus behavior. Temporary/system/watch/SQLite wrappers and compression preserve
+existing errors and resource/progress contracts. Compression's live gzip/Brotli
+interop runs; SQLite's optional vector extension and Docker cases remain unrun.
+The registry now has 13 failing module analyses: archive, diff, remaining HTTP
+consumers, image, markup/template/MIME and sketches. These remain in progress.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining
