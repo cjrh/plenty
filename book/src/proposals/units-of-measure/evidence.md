@@ -1,9 +1,12 @@
 # Units of measure: spike evidence
 
-These programs ran on the release compiler built from `main` on 2026-11-02.
-They support the
-[units of measure proposal](../units-of-measure.md). Outputs are exact except
-that error paths are shortened to the file name.
+Spikes 1–8 ran on the release compiler built from `main` on 2026-11-02, before
+issue #701, and were rerun on `eb772202` (after issue #701) with identical
+output except spike 5. They support the
+[units of measure proposal](../units-of-measure.md). The
+[built-in quantity](#built-in-quantity-after-issue-701) section shows the same
+cases with `Quantity[T, D]`. Outputs are exact except that error paths are
+shortened to the file name.
 
 ## Spike 1: Same-dimension arithmetic
 
@@ -139,7 +142,7 @@ error: s4b.plenty:7:5: operator hooks cannot have method type parameters, defaul
 
 ## Spike 5: No float domain
 
-`Positive[f64]` is rejected. At the time of the spike the hint suggested `NonZero[f64]`, which is also rejected; issue #700, fixed by local PR #883.
+`Positive[f64]` is rejected. On 2026-11-02 the error also suggested `NonZero[f64]`, itself rejected; issue #700 removed that hint (local PR #883).
 
 ```text
 # Positive over floats?
@@ -152,7 +155,7 @@ def main() -> ():
 Output:
 
 ```text
-error: s5.plenty:2:10: `Positive` requires a signed integer type; for `f64`, use `NonZero[f64]`
+error: s5.plenty:2:10: `Positive` requires a signed integer type
 ```
 
 ## Spike 5b: `NonZero` is integer-only
@@ -259,4 +262,75 @@ Output:
 
 ```text
 Q[NonZero[i64], Count](value=-6) 1
+```
+
+## Built-in quantity after issue #701
+
+Run on `eb772202`. Spike 4b's product and spike 3's subtraction now work, and
+the proposal's opening example, with local unit constants in place of
+`std.units`, prints the output the proposal gives.
+
+```text
+dimension Length("m")
+dimension Time("s")
+dimension Velocity = Length / Time
+const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+const second: Quantity[f64, Time] = Quantity[f64, Time](1.0)
+const km: Quantity[f64, Length] = 1000.0 * metre
+const minute: Quantity[f64, Time] = 60.0 * second
+const hour: Quantity[f64, Time] = 3600.0 * second
+
+def speed(d: Quantity[f64, Length], t: Quantity[f64, Time]) -> Quantity[f64, Velocity]:
+    d / t
+
+def main() -> Result[(), IoError]:
+    d = 3.2 * km
+    t = 41.0 * minute
+    v = speed(d, t)
+    print(v, v.to(km / hour))?
+    a = Quantity[f64, Length](2.0)
+    b = Quantity[f64, Time](3.0)
+    print(a * b)?
+    p = Quantity[Positive[i64], Length](5)
+    print(p - p, p * p)?
+    Ok(())
+```
+
+Output:
+
+```text
+1.3008130081300813 m/s 4.682926829268292
+6.0 m*s
+0 m 25 m^2
+```
+
+Mixed dimensions:
+
+```text
+dimension Length("m")
+dimension Time("s")
+def main() -> Result[(), IoError]:
+    d = Quantity[f64, Length](1.0)
+    t = Quantity[f64, Time](1.0)
+    print(d + t)?
+    Ok(())
+```
+
+```text
+error: q2.plenty:6:11: quantity `+` requires equal dimensions, not `Length` and `Time`
+```
+
+`p - p` keeps the unit and drops the domain:
+
+```text
+dimension Length("m")
+def main() -> Result[(), IoError]:
+    p = Quantity[Positive[i64], Length](5)
+    q: Quantity[Positive[i64], Length] = p - p
+    print(q)?
+    Ok(())
+```
+
+```text
+error: q3.plenty:4:5: expected Quantity[Positive[i64], Length], got Quantity[i64, Length]
 ```

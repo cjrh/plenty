@@ -1,12 +1,16 @@
 # Units of measure
 
-**Status: Not implemented.** This page proposes compile-time dimensional
+**Status: Partly implemented.** This page proposes compile-time dimensional
 analysis for Plenty: quantities whose physical dimension is part of the type,
-checked by the compiler and erased before code generation. Scheduling belongs
-to [B97](../backlog.md). Companion pages record the
-[precedents](units-of-measure/precedents.md) and the
+checked by the compiler and erased before code generation. Milestone 1, the
+language, shipped through issue #701 (local PRs #885, #887–#891); see
+[dimensions](../design/language/03-types/dimensions.md),
+[quantities](../design/language/03-types/quantities.md) and
+[where the implementation differs](#implementation). `std.units` and shared
+instance bodies remain under [B97](../backlog.md#units-of-measure). Companion
+pages record the [precedents](units-of-measure/precedents.md) and the
 [spike evidence](units-of-measure/evidence.md). Researched against local
-`main` at `bd407f05` on 2026-11-03.
+`main` at `bd407f05` on 2026-11-03; reconciled with `eb772202`.
 
 ## Goal
 
@@ -15,9 +19,12 @@ velocity is expected, should fail to compile. A program that passes these
 checks should run exactly as fast as the same program written with `f64`, and
 allocate nothing more.
 
+This example needs `std.units` (milestone 2). `Quantity` is built in and
+needs no import.
+
 ```text
 import std.units as u
-from std.units import Quantity, Length, Time, Velocity
+from std.units import Length, Time, Velocity
 
 def speed(d: Quantity[f64, Length], t: Quantity[f64, Time]) -> Quantity[f64, Velocity]:
     d / t
@@ -54,13 +61,15 @@ def main() -> Result[(), IoError]:
    dimension-aware `sqrt`, `hypot` and friends.
 
 The recommendation needs no value generics, no type-level integers and no
-generic operator hooks, which Plenty lacks today; see
-[what the language can already do](#what-the-language-can-already-do).
+generic operator hooks, which Plenty lacks; see
+[what the language could do before](#what-the-language-could-do-before).
 
-## What the language can already do
+## What the language could do before
 
 The [spikes](units-of-measure/evidence.md) ran on the release compiler built
-from `main` on 2026-11-02.
+from `main` on 2026-11-02, before issue #701. Their library workarounds still
+behave as shown; the built-in `Quantity[T, D]` now covers the rows marked
+**No** and **Partly**.
 
 | Need | Today | Evidence |
 | --- | --- | --- |
@@ -138,12 +147,13 @@ Wherever a dimension is expected, the compiler accepts:
 | `Length`, `Velocity`, `D` | A base dimension, alias or dimension parameter |
 | `A * B`, `A / B` | Product and quotient, left-associative, with parentheses |
 | `Pow[A, n]` | Integer power; `n` is an integer literal, possibly negative |
-| `Root[A, n]` | `n`th root; every exponent of `A` must be divisible by `n` |
+| `Root[A, n]` | `n`th root; every exponent of `A` must be divisible by `n`; `n` is nonzero, and a negative `n` takes the reciprocal |
 | `One` | Dimensionless |
 
 The normal form is a list of (base dimension, nonzero `i8` exponent) pairs
 sorted by base identity. Two dimensions are equal exactly when their normal
-forms are equal. An exponent outside `i8` is a compile-time error.
+forms are equal. An exponent outside `i8` is a compile-time error, including
+in an intermediate result that a later factor would cancel.
 
 Exponents are integers. `Root` rejects a dimension it cannot divide exactly:
 the square root of `Pow[Length, 3]` is an error, not `Length^(3/2)`. This
@@ -191,17 +201,17 @@ dimension.
 | --- | --- |
 | `Quantity[f64, Length](3.0)` | 3 m. The constructor takes the coherent-unit value; prefer `3.0 * u.metre` in application code. |
 | `q.get()` | The stored `T`, in coherent units |
-| `q.to(unit)` | `(q / unit).get()`: `unit` is a quantity of the same dimension, such as `u.km`. Mismatched dimensions are a compile-time error. |
+| `q.to(unit)` | `(q / unit).get()`, for float storage: `unit` is a quantity of the same dimension, such as `u.km`. Mismatched dimensions are a compile-time error. |
 | `a + b`, `a - b` | Both `Quantity[T, D]`; result `Quantity[R, D]`, where `R` is the type `T + T` or `T - T` returns |
-| `a * b`, `a / b` | `Quantity[R, A * B]` and `Quantity[R, A / B]` |
+| `a * b`, `a / b` | `Quantity[R, A * B]` and `Quantity[R, A / B]`; `/` needs float storage |
 | `k * q`, `q * k`, `q / k` | A scalar `T` scales without changing the dimension |
 | `k / q` | `Quantity[R, One / D]` |
-| `a // b`, `a % b` | Where `T` supports them: `//` divides dimensions, `%` keeps `a`'s and needs equal dimensions |
+| `a // b`, `a % b` | Integer storage: `//` divides dimensions, `%` keeps `a`'s and needs equal dimensions |
 | `-q`, `+q` | As for `T`, dimension unchanged |
 | `<`, `<=`, `==`, ... | Equal dimensions; `bool` |
 | `+=`, `-=` | Equal dimensions. `*=` and `/=` take a scalar `T` only, since the dimension of a variable cannot change. |
 | `print(q)`, `f"{q}"` | The value, then the coherent unit: `1.3 m/s`, `9.81 m/s^2`. A format spec applies to the number: `f"{q:.2f}"` is `1.30 m/s`. |
-| `debug` | `Quantity[f64, Length / Time](1.3)` |
+| `debug` | `Quantity[f64, Length * Pow[Time, -1]](1.3)`, the normal form |
 
 Rules with no exceptions:
 
@@ -216,7 +226,7 @@ Rules with no exceptions:
 
 Overflow, division by zero and `checked:` behave as they do for `T`. A
 quantity operation is `T`'s operation, so a `checked:` block reports
-`OverflowError[T]`.
+`OverflowError[T]` or `ZeroDivisionError`.
 
 ### Unit constants and conversions
 
@@ -238,7 +248,8 @@ values in a non-coherent unit should declare their own dimension or keep that
 unit's integer count, as `std.time.Duration` keeps nanoseconds.
 
 Unit constants are `f64`. `f32` quantities convert with
-`Quantity[f32, D].from(q)`, which narrows the stored value as `f32(x)` does.
+`Quantity[f32, D].from(q)`, which narrows the stored value as `f32(x)` does;
+`Quantity[f64, D].from(q)` widens.
 
 ### Domain storage
 
@@ -310,6 +321,23 @@ holding π/180. A program that wants angles checked declares
 - **Compile time.** A normal form is a short sorted list, interned with other
   types. Each dimension expression is normalized once per instance.
 
+## Implementation
+
+Milestone 1 shipped as designed, with these differences. The reference pages
+are authoritative.
+
+| Topic | This design | Implemented |
+| --- | --- | --- |
+| Integer division | `a // b` where `T` supports it | `/` is float-only and `//` integer-only for quantities; integer storage has no `to`, so use `//` and `.get()` |
+| `Root` degree | Positive `n` | Nonzero `n`; negative takes the reciprocal |
+| `Pow`, `Root` | Reserved forms | Fallback names that a local declaration or import shadows |
+| Exponents | `i8` normal form | Literal `n` within `i64`; every intermediate exponent must fit `i8` |
+| Debug output | `Quantity[f64, Length / Time](1.3)` | Normal form: `Quantity[f64, Length * Pow[Time, -1]](1.3)`; alias notes appear only in diagnostics |
+| `checked:` | `OverflowError[T]` | Also `ZeroDivisionError`, as for the underlying arithmetic |
+| Constants | Literals and quantity constants | Also casts of extracted values, `.get()` and float `.to`; no user function calls |
+| Zero-cost evidence | Release instructions match `f64` | Matched for `f32` and `f64` `+`, `*` and `.to` on x86-64; not measured on other targets |
+| Instance sharing | Milestone 1 if cheap | Not done; instances that differ only in dimension have separate bodies |
+
 ## Out of scope
 
 | Feature | Reason |
@@ -324,7 +352,7 @@ holding π/180. A program that wants angles checked declares
 
 ## Milestones
 
-1. **Language.** `dimension` declarations, the `Dimension` constraint,
+1. **Language. Delivered** (issue #701). `dimension` declarations, the `Dimension` constraint,
    dimension expressions with `Pow` and `Root`, normal forms and identity, the
    parameter-type rule, built-in `Quantity[T, D]` for every number and integer
    domain storage type, operators, `get`, `to`, `try_from`, printing,
@@ -356,14 +384,13 @@ holding π/180. A program that wants angles checked declares
 
 ## Risks and open questions
 
-- **Diagnostics through aliases.** A type is shown in normal form, with a
-  matching alias in scope added, as in `Quantity[f64, Velocity]`
-  (`Length / Time`). Picking among several matching aliases needs a rule;
-  the proposal uses the first declared.
-- **Symbol spelling.** `m/s^2` or `m s⁻²`, and whether `kg m^2/s^2` should
-  print as `J`. ASCII and base symbols first; named-unit display later.
-- **The `dimension` keyword** may conflict with existing identifiers. A search
-  of `stdlib/`, `examples/` and the book shows only prose uses, but packages
-  outside the repository are unknown.
+- **Diagnostics through aliases.** Resolved: diagnostics show the normal form
+  with a note naming the first visible matching alias in declaration or import
+  order, using the importing module's spelling.
+- **Symbol spelling.** Resolved for now: ASCII base symbols in normal-form
+  order, `kg*m/s^2` and `m/(kg*s)`. Named-unit display (`J`) is later work.
+- **The `dimension` keyword** may conflict with existing identifiers outside
+  the repository. `Pow` and `Root` are not keywords: a local declaration or
+  import with either name keeps its ordinary meaning.
 - **Learner cost.** Units add a concept. The tutorial lesson should come after
   generics and teach the rules above without the algebra's internals.
