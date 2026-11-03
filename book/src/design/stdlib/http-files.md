@@ -119,7 +119,8 @@ table.
 `FilesError` is `Io(IoError)` from opening a path component with an error
 outside the refusal list under [Confinement](#confinement) or from reading
 the open file's metadata, `Stream(StreamError)` from reading it,
-`Http(HttpError)` from writing the response, `Truncated`, and `Allocation`.
+`Http(HttpError)` from response framing/writing or an unrepresentable file
+size, `Truncated`, and `Allocation`.
 A refused or missing path is not an error.
 
 ## Limits
