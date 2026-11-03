@@ -10,7 +10,7 @@ representation:
 | Collection | Representing different kinds of data |
 | --- | --- |
 | [Lists](lists.md) | Use an enum wrapper for a named interface, or `list[A | B]` for a choice of whole types. |
-| [Sets](sets.md) | Keep a separate typed set for each kind; enums and anonymous sums are not supported as members. |
+| [Sets](sets.md) | Use a named enum with supported key payloads, or keep separate typed sets. Anonymous sums are not supported as members. |
 | [Dictionaries](dictionaries.md) | Keep one supported key type and use an enum or anonymous sum for mixed values. |
 
 An **anonymous sum**, written `A | B`, holds one value of either type. It is not

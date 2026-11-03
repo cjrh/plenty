@@ -1,7 +1,9 @@
 # Associate keys with values
 
 A `dict[K, V]` maps keys of one type to values of another. Keys may be integers,
-booleans, or strings; values can include collections.
+booleans, strings, bytes, or tuples of supported keys; values can include collections.
+Named enums can also be keys when their payloads are supported key types; see
+[heterogeneous dictionaries](../heterogeneous-collections/dictionaries.md).
 The `keys()` and `values()` loops below borrow their elements: `*name` reads
 the value behind a reference. The [borrowing lesson](borrowing.md)
 explains references in detail.

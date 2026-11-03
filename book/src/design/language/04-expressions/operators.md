@@ -126,7 +126,7 @@ Equality, ordering and hashing never call user code:
 - `<`, `<=`, `>` and `>=` on a class come only from
   [newtype forwarding](#newtype-forwarding).
 - Dictionary keys and set elements use built-in structural hashing. Classes
-  and enums defined in Plenty are not keys yet.
+  are not keys yet; named enums with supported key payloads are accepted.
 
 A class, enum or protocol that declares `__eq__`, `__ne__`, `__lt__`,
 `__le__`, `__gt__`, `__ge__`, `__cmp__`, `__hash__` or `__key__` is rejected,

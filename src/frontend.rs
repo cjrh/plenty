@@ -500,7 +500,7 @@ impl TypeRef {
                 "set" => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "set elements must be integers, bool, str, or tuples of these",
+                            "set elements must be integers, bool, str, bytes, or tuples/enums containing only these key types",
                         ));
                     }
                     Ty::Set(Arc::new(args[0].clone()))
@@ -508,7 +508,7 @@ impl TypeRef {
                 _ => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "dictionary keys must be integers, bool, str, or tuples of these",
+                            "dictionary keys must be integers, bool, str, bytes, or tuples/enums containing only these key types",
                         ));
                     }
                     Ty::Dict(Arc::new(args[0].clone()), Arc::new(args[1].clone()))
@@ -698,6 +698,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "FloatType"
                 | "CopyType"
+                | "KeyType"
                 | "Dimension"
                 | "One"
                 | "next"

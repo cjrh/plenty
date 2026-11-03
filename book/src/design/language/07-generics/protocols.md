@@ -104,8 +104,8 @@ bounds, defaults, associated types, and lifecycle requirements are unsupported.
 
 Generic bodies are checked per concrete instance. Requirements express the
 minimum interface rather than a separately checked abstract body. `IntType`,
-`FloatType`, and [`CopyType`](index.md#copytype) remain separate built-in
-constraints.
+`FloatType`, [`CopyType`](index.md#copytype), and [`KeyType`](index.md#keytype)
+remain separate built-in constraints.
 
 [`std.fmt.Formattable`](../../stdlib/report.md) additionally accepts an
 anonymous sum when every normalized member satisfies its contract. The compiler

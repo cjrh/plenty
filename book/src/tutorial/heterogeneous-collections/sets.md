@@ -1,9 +1,32 @@
 # Sets and different kinds of values
 
-Sets have a narrower element contract than lists. A `set[T]` supports integers,
-`bool`, `str`, `bytes`, and tuples recursively containing those types. Neither
-an enum wrapper nor an anonymous sum is a supported set element, even when all
-its payloads would be supported separately.
+Sets accept named enums when every payload is a supported key type: integers,
+`bool`, `str`, `bytes`, or tuples and named enums of those types. The variant
+is part of the identity, so different variants with equal payloads remain distinct.
+
+```plenty
+enum Selection:
+    Account(i64)
+    Group(str)
+    All
+
+def main() -> Result[(), AllocError | IoError]:
+    mut selected: set[Selection] = set()?
+    selected.add(Selection.Account(7))?
+    selected.add(Selection.Group("7"))?
+    selected.add(Selection.Account(7))?
+    print(len(selected))?
+    print(Selection.Account(7) in selected)?
+    Ok(())
+```
+```output
+2
+True
+```
+
+This is one element type with several alternatives. Enums carrying classes,
+collections, floats or boxes cannot be set elements. Anonymous sums remain
+unsupported, even when each member is supported separately.
 
 ## Keep each kind in its own set
 
