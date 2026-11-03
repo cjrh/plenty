@@ -33,3 +33,6 @@ Data definitions may refer forward and recur through permitted
 [storage boundaries](recursive-data.md). References cannot be stored in classes,
 enums, or tuples. Generators can occur inside standard `Option` and `Result`
 wrappers, but not class fields, user enum payloads, or tuple components.
+
+[Quantities](quantities.md) combine numeric storage with a compile-time dimension
+and check that arithmetic combines those dimensions correctly.

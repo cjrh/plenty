@@ -11,7 +11,7 @@ data is an optional extension at the end.
 - [Parameterize an enum](generic-enums.md)
 - [Parameterize a protocol](generic-protocols.md)
 - [Give a method its own type parameters](generic-methods.md)
-- [Label data with a compile-time dimension](dimensions.md)
+- [Calculate with quantities](dimensions.md)
 - [Build recursive data](recursive-data.md)
 - [Use values through a box](recursive-boxes.md)
 - [Store recursive children in a list](recursive-trees.md)

@@ -2289,6 +2289,16 @@ pub class ZeroDivisionError:
 pub class OverflowError[T]:
     pub wrapped: T
 
+@copy
+pub class Quantity[T, D: Dimension]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
+
+    pub def to(self, unit: Quantity[T, D]) -> T:
+        (self / unit).get()
+
 @newtype
 @copy
 pub class NonZero[T: IntType]:
@@ -2830,6 +2840,11 @@ pub(super) fn check_member_at(
     diagnostic: &Token,
 ) -> Result<()> {
     let class = class.split('[').next().unwrap();
+    // Quantity accepts coherent values through its constructor, but keeps its
+    // representation private. The field parameter enforces the storage type.
+    if class == "Quantity" && member == "__new__" {
+        return Ok(());
+    }
     if let Some(rule) = access.members.get(&(class.into(), member.into()))
         && !rule.public
         && rule.owner != context.source()

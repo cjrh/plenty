@@ -689,5 +689,7 @@ mod test_domain_types;
 
 #[path = "test_dimensions.rs"]
 mod test_dimensions;
+#[path = "test_quantities.rs"]
+mod test_quantities;
 #[path = "test_std_ceilings.rs"]
 mod test_std_ceilings;

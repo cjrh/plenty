@@ -453,6 +453,9 @@ impl TypeAliases {
             }
             return Err(application.at.error(message));
         }
+        if name == "Quantity" && !actual[0].is_numeric() && actual[0].integer_domain().is_none() {
+            return Err(application.at.error("Quantity storage must be an integer, float, or integer domain; put the domain inside Quantity"));
+        }
         let key = (name.clone(), actual.clone());
         if let Some(ty) = self.data.instances.borrow().get(&key) {
             return Ok(ty.clone());

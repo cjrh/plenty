@@ -293,7 +293,7 @@ impl Lower<'_> {
         None
     }
 
-    fn hold_operator_operand(
+    pub(super) fn hold_operator_operand(
         &mut self,
         e: &Expr,
         ops: &mut Vec<Op>,
@@ -355,7 +355,12 @@ impl Lower<'_> {
         ))
     }
 
-    fn release_operator_operand(&mut self, e: &Expr, loan: Option<usize>, ops: &mut Vec<Op>) {
+    pub(super) fn release_operator_operand(
+        &mut self,
+        e: &Expr,
+        loan: Option<usize>,
+        ops: &mut Vec<Op>,
+    ) {
         if let Expression::Name(name) = &e.kind {
             self.names.remove(name);
         }
@@ -372,6 +377,14 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
+        // Slice views need their dedicated observation path to retain the
+        // source loan, including when reporting unsupported ordering.
+        if ordering(op) && (self.is_view(left) || self.is_view(right)) {
+            return Ok(None);
+        }
+        if let Some(result) = self.quantity_binary(op, left, right, at, ops)? {
+            return Ok(Some(result));
+        }
         if let Some(result) = self.domain_division(op, left, right, at, ops)? {
             return Ok(Some(result));
         }
@@ -428,6 +441,24 @@ impl Lower<'_> {
             )));
         }
         if ordering {
+            // Compound quantities and inferred generic calls may hide both
+            // types. Resolve the left once, then dispatch again. Holding both
+            // here would discard the numeric context the actual left type
+            // supplies to a conditional or unsuffixed literal on the right.
+            if a.is_none() && b.is_none() {
+                let (held, loan) = self.hold_operator_operand(left, ops)?;
+                let expression = Expr {
+                    at: at.clone(),
+                    kind: Expression::Binary(
+                        op.into(),
+                        Box::new(held.clone()),
+                        Box::new(right.clone()),
+                    ),
+                };
+                let result = self.expr(&expression, ops)?;
+                self.release_operator_operand(&held, loan, ops);
+                return Ok(Some(result));
+            }
             // Built-in comparisons keep their lowering. An operand of unknown
             // type beside a forwarding one is evaluated once and retried.
             let forwards = |ty: &Type| ty.as_ref().is_some_and(|ty| self.forwarding(ty).is_some());
@@ -481,7 +512,7 @@ impl Lower<'_> {
 
     /// Evaluates both operands once, in source order, and lowers the operation
     /// again with their types known.
-    fn retry_binary(
+    pub(super) fn retry_binary(
         &mut self,
         op: &str,
         left: &Expr,
@@ -756,6 +787,9 @@ impl Lower<'_> {
             self.release_operator_operand(&held, loan, ops);
             return Ok(Some(result));
         };
+        if let Some(result) = self.quantity_unary(op, value, &ty, ops)? {
+            return Ok(Some(result));
+        }
         let Some(name) = self.operator_symbol(&ty, hook, &value.at)? else {
             let Some((class, declared)) = self.forwarding(&ty) else {
                 return Ok(None);
@@ -793,6 +827,9 @@ impl Lower<'_> {
         value: &Expr,
         ops: &mut Vec<Op>,
     ) -> Result<bool> {
+        if self.quantity_augment(target, op, value, ops)? {
+            return Ok(true);
+        }
         let Some((_, _, hook)) = binary(op) else {
             return Ok(false);
         };

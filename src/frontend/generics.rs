@@ -237,10 +237,10 @@ pub(super) fn prepare(
             engine.validate_template(&f, aliases)?;
             engine.record_defaults(&f);
             engine.retention.template(&f);
-            // The builtin `OverflowError[T]` factory calls nothing generic, so
-            // it adds no depth; counting it would change every program's
-            // reported limit.
-            if f.name != "OverflowError" {
+            // These builtin factories only construct concrete fields; they
+            // add no generic dependency depth. Counting Quantity would change
+            // the reported limit even in programs that never use dimensions.
+            if !matches!(f.name.as_str(), "OverflowError" | "Quantity") {
                 engine.specializable += 1;
             }
             engine.templates.insert(f.name.clone(), Arc::new(f));
