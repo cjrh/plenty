@@ -377,6 +377,11 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
+        // Slice views need their dedicated observation path to retain the
+        // source loan, including when reporting unsupported ordering.
+        if ordering(op) && (self.is_view(left) || self.is_view(right)) {
+            return Ok(None);
+        }
         if let Some(result) = self.quantity_binary(op, left, right, at, ops)? {
             return Ok(Some(result));
         }
@@ -436,6 +441,24 @@ impl Lower<'_> {
             )));
         }
         if ordering {
+            // Compound quantities and inferred generic calls may hide both
+            // types. Resolve the left once, then dispatch again. Holding both
+            // here would discard the numeric context the actual left type
+            // supplies to a conditional or unsuffixed literal on the right.
+            if a.is_none() && b.is_none() {
+                let (held, loan) = self.hold_operator_operand(left, ops)?;
+                let expression = Expr {
+                    at: at.clone(),
+                    kind: Expression::Binary(
+                        op.into(),
+                        Box::new(held.clone()),
+                        Box::new(right.clone()),
+                    ),
+                };
+                let result = self.expr(&expression, ops)?;
+                self.release_operator_operand(&held, loan, ops);
+                return Ok(Some(result));
+            }
             // Built-in comparisons keep their lowering. An operand of unknown
             // type beside a forwarding one is evaluated once and retried.
             let forwards = |ty: &Type| ty.as_ref().is_some_and(|ty| self.forwarding(ty).is_some());

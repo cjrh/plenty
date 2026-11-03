@@ -316,3 +316,82 @@ def main() -> ():
     );
     assert!(plenty::check_source(&source).is_err(), "{source}");
 }
+
+#[test]
+fn computed_quantities_support_every_ordering() {
+    for (operator, expected) in [
+        ("<", "True"),
+        ("<=", "True"),
+        (">", "False"),
+        (">=", "False"),
+    ] {
+        assert_stdout(
+            &format!(
+                "{BASES}
+def identity[T](value: T) -> T:
+    value
+def main() -> Result[(), IoError]:
+    q = Quantity[f64, Length](1.0)
+    print((q + q) {operator} (q * 3.0))?
+    print(identity(q + q) {operator} identity(q * 3.0))?
+    p = Quantity[Positive[i32], Length](1)
+    print((p + p) {operator} (p * 3))?
+    print((p - p) {operator} (p - p))?
+    Ok(())
+"
+            ),
+            &format!(
+                "{expected}\n{expected}\n{expected}\n{}\n",
+                if matches!(operator, "<=" | ">=") {
+                    "True"
+                } else {
+                    "False"
+                }
+            ),
+        );
+        rejects(
+            &format!(
+                "    q = Quantity[f64, Length](1.0)\n    t = Quantity[f64, Time](1.0)\n    compared = (q + q) {operator} (t + t)"
+            ),
+            "requires equal dimensions",
+        );
+    }
+}
+
+#[test]
+fn computed_comparisons_evaluate_once_and_keep_numeric_context() {
+    assert_stdout(
+        &format!(
+            "{BASES}
+def identity[T](value: T) -> T:
+    value
+def traced[T](value: T, digit: i64, order: &mut i64) -> T:
+    *order = *order * 10 + digit
+    value
+def main() -> Result[(), IoError]:
+    mut order = 0
+    q = Quantity[f64, Length](1.0)
+    compared = traced(q + q, 1, &mut order) < traced(q * 3.0, 2, &mut order)
+    print(compared, order)?
+    # The RHS unsuffixed literal still gets the actual left storage type.
+    print(identity(2i32) < (3 if True else 4))?
+    print(identity(2.0f32) < (3.0 if True else 4.0))?
+    print(identity(2i32) < 3, 2 < 3i32)?
+    Ok(())
+"
+        ),
+        "True 12\nTrue\nTrue\nTrue True\n",
+    );
+}
+
+#[test]
+fn quantity_ordering_with_slice_views_reports_a_diagnostic() {
+    for expression in ["q < &xs[:]", "(q + q) < &xs[:]", "&xs[:] < (q + q)"] {
+        rejects(
+            &format!(
+                "    q = Quantity[f64, Length](1.0)\n    xs = [1.0].unwrap()\n    compared = {expression}"
+            ),
+            "slice views support `==` and `!=`, not `<`",
+        );
+    }
+}
