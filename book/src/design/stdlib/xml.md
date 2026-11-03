@@ -72,6 +72,16 @@ and at most `max_depth` retained names, plus events retained by the caller.
 These limits bound input-controlled work and storage, not elapsed time or a
 stream that repeatedly reports interruption.
 
+Input/output position sums are bounded by their remaining byte budgets before
+advancing, even when a configured budget is `i64.MAX`. Internal cursor and
+suffix arithmetic uses explicit opt-outs justified by held-buffer bounds;
+character-reference arithmetic is guarded by the Unicode scalar ceiling.
+Oversized numeric references remain `InvalidReference`, and byte/token
+exhaustion remains `InputTooLarge`, `OutputTooLarge`, or `TokenTooLarge` rather
+than exposing arithmetic errors. Partial writer progress retains the original
+transport cause and exact accepted-byte offset.
+
+
 ## Reading and writing
 
 `reader[R](inner: R, bounds: &Limits) -> Result[Reader[R], XmlError]` owns a

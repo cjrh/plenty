@@ -146,6 +146,16 @@ its own buffering, so `inner` needs no `BufReader`.
 span any number of buffer fills. After `False`, the record is empty and every
 later call returns `False` without reading the stream again.
 
+Record, line and byte positions are semantic `i64` counters, not saturating
+diagnostics. If the next position is unrepresentable, reading returns
+`Stream(StreamError.OutOfRange)`, empties the record and stops the reader.
+Record number `i64.MAX` is still processable when the preceding count is
+`i64.MAX - 1`. A failing line increment leaves the parser cursor before that
+newline; CRLF still counts as one line, inside and outside quotes. The inner
+stream may already have read ahead: parser consumption is distinct from
+transport progress. Buffer fills are capped by the remaining representable
+byte span; at zero room, a reader can refuse before an EOF probe.
+
 A `Width` error is reported after the whole record has been read: `record`
 holds it, and the next `read` continues with the following record. Every
 other error empties `record` and stops the reader; later calls
@@ -215,11 +225,20 @@ Failures leave a defined state:
   nothing; the record in progress keeps its earlier fields.
 - `Width` from `end_record` discards the record in progress. Nothing of it
   was written. With `Width.First`, the first finished record sets the count.
-- `Stream` from `end_record` means the record is finished and counted, and
+- A transport `Stream` error from `end_record` means the record is finished and counted, and
   its undelivered bytes are held. The next `field`, `end_record`, or `flush`
   delivers them first and fails again if the stream still refuses.
 - `record` and `texts` discard the record in progress on any error. A
   `Stream` error still leaves the finished record held.
+
+Position exhaustion is distinct from that ordinary transport retry: after
+record `i64.MAX` is finished, `field`, `text` and `end_record` reject an
+unrepresentable next record as `Stream(StreamError.OutOfRange)` **before**
+encoding or implicitly draining any pending output. Already-finished pending
+bytes and their count remain intact; explicit `flush` still delivers them.
+No counter wraps, saturates, or adds a public arithmetic error type. Internal
+field/content and pending-buffer arithmetic uses validated remaining budgets
+and held-buffer bounds; scan endpoints clamp room before adding it to a cursor.
 
 Nothing is written when a `Writer` is dropped. End the last record and call
 `flush`. The writer does not close `inner`; it is the public field `inner`.
