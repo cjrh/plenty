@@ -49,6 +49,11 @@ ordinary `Result`; an `unchecked:` caller does not change the method’s contrac
 reassociate. NaN comparisons, signed zero and subnormals follow the target's
 scalar rules; NaN payload identity is not promised.
 
+The integer reduction API is explicitly `wrapping_sum()`: it associates as
+`(((lane0 + lane1) + lane2) + lane3)`, wrapping each addition. There is no
+ordinary fallible integer reduction method. Float `sum_ordered(initial)` also
+folds left in lane order, without reassociation.
+
 Comparisons on 32-bit lanes produce `mask32x4`; `f64x2` produces `mask64x2`.
 Masks contain logical booleans, constructed directly with `Lanes(...)` or by
 comparison. There are no integer-mask conversions or public native bit encoding.

@@ -522,3 +522,43 @@ def main() -> Result[(), IoError]:
         assert_eq!(visible, "True (4, 4, 4, 4)");
     }
 }
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn integer_result_callbacks_keep_their_own_contract(#[case] release: bool) {
+    passes(
+        r#"import std.simd as simd
+from std.test import check
+
+def named(value: simd.i32x4) -> Result[simd.i32x4, OverflowError[i32]]:
+    value.add(simd.splat_i32x4(1i32))
+
+def invoke[F: Callable[[simd.i32x4], Result[simd.i32x4, OverflowError[i32]]]](callback: &F, value: simd.i32x4) -> Result[simd.i32x4, OverflowError[i32]]:
+    callback(value)
+
+def main() -> ():
+    callback = unchecked:
+        def(value: simd.i32x4) -> Result[simd.i32x4, OverflowError[i32]]:
+            # This primitive arithmetic belongs to the callback, not its
+            # unchecked definition or invocation context.
+            adjustment = value.lane(0).unwrap() + 1i32
+            value.add(simd.splat_i32x4(adjustment))
+    unchecked:
+        match invoke(&named, simd.splat_i32x4(i32.MAX)):
+            case Err(error):
+                check(error.wrapped == i32.MIN, "named callback payload").unwrap()
+            case Ok(_):
+                check(False, "missing named callback error").unwrap()
+        match invoke(&callback, simd.splat_i32x4(i32.MAX)):
+            case Err(error):
+                check(error.wrapped == i32.MIN, "closure callback payload").unwrap()
+            case Ok(_):
+                check(False, "missing closure callback error").unwrap()
+        check(invoke(&named, simd.splat_i32x4(1i32)).unwrap().to_tuple() == (2i32, 2i32, 2i32, 2i32), "named success").unwrap()
+        check(invoke(&callback, simd.splat_i32x4(1i32)).unwrap().to_tuple() == (3i32, 3i32, 3i32, 3i32), "closure success").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
+}
