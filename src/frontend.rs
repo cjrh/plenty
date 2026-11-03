@@ -36,6 +36,7 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod dimension_diagnostics;
 mod dimensions;
 mod divisors;
 mod enums;
@@ -125,9 +126,11 @@ impl TypeRef {
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_argument(aliases)?;
         if let Some(Ty::Dimension(d)) = &ty {
-            return Err(self.at.error(format!(
-                "dimension `{d}` has no values; use it only as a dimension argument"
-            )));
+            return Err(aliases.dimension_error(
+                &self.at,
+                format!("dimension `{d}` has no values; use it only as a dimension argument"),
+                ty.iter(),
+            ));
         }
         Ok(ty)
     }
@@ -1262,11 +1265,14 @@ impl Lower<'_> {
                     .and_then(|(expected, got)| callables::mismatch_hint(expected, got))
                     .unwrap_or_default()
             };
-            Err(at.error(format!(
+            let message = format!(
                 "expected {}, got {}{hint}",
-                type_name(expected),
-                type_name(got),
-            )))
+                type_name(expected.clone()),
+                type_name(got.clone())
+            );
+            Err(self
+                .aliases
+                .dimension_error(at, message, expected.iter().chain(&got)))
         }
     }
     /// Success type of a Result that `?` can propagate in this function.
@@ -4732,11 +4738,12 @@ fn lower(
         protocols,
         access,
         public_api,
+        dimension_names,
         at,
         require_main,
         inputs,
     } = resolved;
-    let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    let aliases = enums::resolve_types(&declarations, &enums, &classes, dimension_names)?;
     consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =

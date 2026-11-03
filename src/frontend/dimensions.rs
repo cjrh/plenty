@@ -146,7 +146,13 @@ impl TypeRef {
                 left.root(exponent)
             }
         }
-        .map_err(|error| self.at.error(format!("`{}`: {error}", self.spelling())))?;
+        .map_err(|error| {
+            aliases.dimension_error(
+                &self.at,
+                format!("`{}`: {error}", self.spelling()),
+                [&Ty::Dimension(left.clone())],
+            )
+        })?;
         Ok(Some(aliases.intern_dimension(dimension)))
     }
 }

@@ -366,7 +366,11 @@ impl<'a> Folder<'a> {
         let value = self.eval(e, Some(ty))?;
         let got = value.ty();
         if got != *ty {
-            return Err(e.at.error(format!("expected {ty}, got {got}")));
+            return Err(self.aliases.dimension_error(
+                &e.at,
+                format!("expected {ty}, got {got}"),
+                [ty, &got],
+            ));
         }
         Ok(value)
     }

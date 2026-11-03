@@ -35,10 +35,16 @@ Dimensions and storage domains survive evaluation; overflow and invalid
 constant expressions are compile errors. Imports, forward references, static
 assertions and skipped branches follow the existing constant rules.
 
+The fifth stage adds scoped dimension-alias notes to type mismatches, quantity
+operators, constant checks, generic inference and dimension errors. Notes select
+the first visible matching alias in declaration/import order, respecting import
+bindings, visibility and generic-parameter shadowing. Canonical type identity and
+runtime formatting remain unchanged; tests cover nested types, defining-module
+scope, editor checks and concurrent compilations.
+
 Native erasure is not complete: the release addition probe retains the class
 ABI and constructor/caller bookkeeping instead of the plain `f64` instructions.
-Alias-aware diagnostics and this performance work remain
-in [B97](../backlog.md#units-of-measure).
+This performance work remains in [B97](../backlog.md#units-of-measure).
 
 ## Unicode trie example
 

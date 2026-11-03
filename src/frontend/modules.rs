@@ -374,6 +374,7 @@ pub(super) struct Resolved {
     pub(super) protocols: Vec<protocols::Protocol>,
     pub(super) access: AccessMap,
     pub(super) public_api: Vec<TypeRef>,
+    pub(super) dimension_names: dimension_diagnostics::Names,
     pub(super) at: Token,
     pub(super) require_main: bool,
     /// What the program depends on outside the compiler, for the program
@@ -1579,9 +1580,30 @@ struct Scope {
     /// Type parameters in scope: a declaration has few, so a scan beats
     /// building a hash set per function (issue #436).
     type_params: Vec<String>,
+    dimension_bindings: dimension_diagnostics::Bindings,
+    dimension_shadows: Arc<std::sync::Mutex<dimension_diagnostics::Shadows>>,
 }
 
 impl Scope {
+    fn dimension_shadow(&self, at: &Token) {
+        if self.type_params.is_empty() || self.dimension_bindings.is_empty() {
+            return;
+        }
+        let hidden: Vec<_> = self
+            .dimension_bindings
+            .iter()
+            .filter(|(name, _)| self.type_param(name.split('.').next().unwrap()))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !hidden.is_empty() {
+            self.dimension_shadows
+                .lock()
+                .unwrap()
+                .entry((at.file, at.line))
+                .or_default()
+                .extend(hidden);
+        }
+    }
     fn type_param(&self, name: &str) -> bool {
         self.type_params.iter().any(|p| p == name)
     }
@@ -1652,6 +1674,7 @@ impl Scope {
             .any(|p| p.split('.').next() == Some(name))
     }
     fn ty(&self, ty: &mut TypeRef) -> Result<()> {
+        self.dimension_shadow(&ty.at);
         if ty.concrete.is_some() {
             return Ok(());
         }
@@ -1750,6 +1773,7 @@ impl Scope {
     }
     fn block(&self, body: &mut [Stmt], locals: &mut Locals) -> Result<()> {
         for stmt in body {
+            self.dimension_shadow(&stmt.at);
             match &mut stmt.kind {
                 Statement::With {
                     manager,
@@ -1888,6 +1912,7 @@ impl Scope {
         Ok(())
     }
     fn expr(&self, e: &mut Expr, locals: &Locals) -> Result<()> {
+        self.dimension_shadow(&e.at);
         fn root(e: &Expr) -> Option<&str> {
             match &e.kind {
                 Expression::Name(n)
@@ -2461,6 +2486,66 @@ fn resolve(
             }
         }
     }
+    // Capture visible alias spellings before module resolution qualifies names.
+    // Order by the declaration/import in the using module, then declaration
+    // order within a namespace import. Never depend on hash iteration order.
+    let derived: Vec<Vec<_>> = modules
+        .iter()
+        .map(|m| {
+            m.declarations
+                .iter()
+                .filter(|a| a.dimension && a.target.concrete.is_none())
+                .map(|a| (a.name.clone(), qualified(&m.name, &a.name)))
+                .collect()
+        })
+        .collect();
+    let mut dimension_names = dimension_diagnostics::Names::default();
+    let bindings: Vec<Arc<Vec<_>>> = modules
+        .iter()
+        .zip(&dependencies)
+        .map(|(m, deps)| {
+            let mut visible = Vec::new();
+            for a in &m.declarations {
+                if a.dimension && a.target.concrete.is_none() {
+                    visible.push((a.at.line, 0, a.name.clone(), qualified(&m.name, &a.name)));
+                }
+            }
+            for (import, &dependency) in m.imports.iter().zip(deps) {
+                for (order, (name, symbol)) in derived[dependency].iter().enumerate() {
+                    if exports[dependency].get(name) != Some(symbol) {
+                        continue;
+                    }
+                    let spelling = match &import.item {
+                        Some(item) if item == name => import.binding.clone(),
+                        Some(_) => continue,
+                        None => format!("{}.{name}", import.binding),
+                    };
+                    visible.push((import.at.line, order, spelling, symbol.clone()));
+                }
+            }
+            visible.sort_by_key(|(line, order, _, _)| (*line, *order));
+            let bindings: Arc<Vec<_>> =
+                Arc::new(visible.into_iter().map(|(_, _, n, s)| (n, s)).collect());
+            if let Some(at) = m
+                .declarations
+                .first()
+                .map(|a| &a.at)
+                .or_else(|| m.imports.first().map(|i| &i.at))
+            {
+                // Empty bindings (including builtin modules with no file) must
+                // not overwrite a source-string module's diagnostic scope.
+                if !bindings.is_empty() {
+                    dimension_names
+                        .bindings
+                        .insert(at.file, Arc::clone(&bindings));
+                }
+            }
+            bindings
+        })
+        .collect();
+    let dimension_shadows = Arc::new(std::sync::Mutex::new(
+        dimension_diagnostics::Shadows::default(),
+    ));
     let mut result = Resolved {
         // Like `std`, the arithmetic errors' constructors are emitted only
         // when a program uses them.
@@ -2475,6 +2560,7 @@ fn resolve(
         classes: vec![],
         access: AccessMap::default(),
         public_api: vec![],
+        dimension_names,
         at,
         require_main,
         inputs: inputs::Inputs::default(),
@@ -2493,6 +2579,8 @@ fn resolve(
             imported: Arc::default(),
             namespaces: Arc::default(),
             constants: constants.clone(),
+            dimension_bindings: Arc::clone(&bindings[i]),
+            dimension_shadows: Arc::clone(&dimension_shadows),
         };
         // Namespace imports so far, to check enclosing and nested bindings.
         let mut bound: Vec<(&Import, usize)> = Vec::new();
@@ -2819,6 +2907,7 @@ fn resolve(
         result.classes.append(&mut m.classes);
         result.protocols.append(&mut m.protocols);
     }
+    result.dimension_names.shadows = std::mem::take(&mut *dimension_shadows.lock().unwrap());
     Ok(result)
 }
 

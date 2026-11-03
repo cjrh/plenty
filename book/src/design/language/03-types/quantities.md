@@ -173,5 +173,7 @@ remain in native code; identical instructions to plain-number programs are
 not yet guaranteed.
 
 Unit spellings live in static type metadata and compiled formatting calls, not
-in each value. Alias-aware diagnostic spelling is not implemented. See the
+in each value. Type and dimension errors include
+[scoped alias notes](dimensions.md#diagnostic-alias-notes), while debug formatting
+keeps normalized dimensions. See the
 [remaining units work](../../../backlog.md#units-of-measure).

@@ -178,6 +178,7 @@ impl Folder<'_> {
             a.as_ref().map(|(_, d, _)| d.as_ref()),
             b.as_ref().map(|(_, d, _)| d.as_ref()),
             at,
+            self.aliases,
         )?;
         let left = a.map_or_else(|| left.clone(), |(storage, _, _)| storage);
         let right = b.map_or_else(|| right.clone(), |(storage, _, _)| storage);

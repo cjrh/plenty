@@ -82,9 +82,8 @@ as `FsRoot` leaves the dimension operator `Root` available.
 The normal form is a sorted list of nominal bases with nonzero `i8` exponents.
 Products commute and associate when their intermediate exponents stay in range;
 division cancels exactly. Each subexpression must fit `-128..127`: a later
-cancellation does not rescue an overflowing intermediate result. Diagnostics
-show normalized base names and `Pow` terms; derived alias spellings are not
-retained in the normal form.
+cancellation does not rescue an overflowing intermediate result. Normal forms
+use base names and `Pow` terms; aliases do not change type identity.
 
 ```plenty-error
 dimension Length("m")
@@ -95,6 +94,39 @@ def main() -> ():
 ```error
 not a whole dimension
 ```
+
+## Diagnostic alias notes
+
+Type mismatches and quantity dimension errors show the normalized dimensions.
+When a matching derived alias is visible, a note connects that normal form to
+its source spelling:
+
+```plenty-error
+dimension Length("m")
+dimension Time("s")
+dimension Velocity = Length / Time
+def main() -> ():
+    speed: Quantity[f64, Velocity] = Quantity[f64, Length](1.0)
+```
+```error
+note: dimension alias `Velocity` = `Length * Pow[Time, -1]`
+```
+
+The first matching alias in declaration/import order is used. A namespace
+import considers exported aliases in their declaration order. Notes use the
+written import binding, such as `Fast` for `from units import Velocity as Fast`
+or `u.Velocity` for `import units as u`. Private or unimported aliases from other
+modules are excluded, as are names shadowed by generic parameters. Aliases of
+`One` or of a single base work the same way.
+
+The scope belongs to the expression or type that failed. A generic body error
+can therefore explain an alias in the defining module while the diagnostic
+also identifies the call that required that instance. Nested types and module
+constants receive the same notes. Errors encountered while resolving dimension
+declarations can explain aliases that have already resolved.
+
+These notes do not change equality, specialization, coherent-unit output, or
+normalized [quantity debug formatting](quantities.md#formatting).
 
 ## Generic dimensions
 
