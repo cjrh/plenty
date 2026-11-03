@@ -10,7 +10,8 @@ from std.bytes import Bytes
 from std.io import StreamError, SeekFrom, Partial, CopyError, CloseError
 
 # Each call consumes one step: n > 0 moves at most n bytes, 0 reports no
-# progress, -1 is an interruption, -2 a failure, -3 an impossible count.
+# progress, -1 is an interruption, -2 a failure, -3 an oversized count,
+# and -4 a negative count.
 # After the script, calls move everything offered.
 pub class Fake:
     pub data: Bytes
@@ -22,38 +23,44 @@ pub class Fake:
     pub fail_flush: bool
     pub fail_close: bool
 
-    def step(self: &mut Fake) -> i64:
+    def step(self: &mut Fake) -> Result[i64, StreamError]:
         index = self.calls
-        self.calls += 1
+        self.calls = advanced(self.calls)?
         if index < len(self.steps):
-            return self.steps[index]
-        i64.MAX
+            return Ok(self.steps[index])
+        Ok(i64.MAX)
 
     pub def read(self: &mut Fake, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        step = self.step()
-        if step == -1:
-            return Err(StreamError.Interrupted)
-        if step == -2:
-            return Err(StreamError.Io(IoError.Other))
-        if step == -3:
-            return Ok(stop - start + 1)
-        mut count = stop - start
-        if count > step:
-            count = step
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # The helpers validate the offered range; at stays within data's length.
+        unchecked:
+            step = self.step()?
+            if step == -1:
+                return Err(StreamError.Interrupted)
+            if step == -2:
+                return Err(StreamError.Io(IoError.Other))
+            if step == -3:
+                return advanced(stop - start)
+            if step == -4:
+                return Ok(-1)
+            mut count = stop - start
+            if count > step:
+                count = step
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def write(self: &mut Fake, source: &[u8]) -> Result[i64, StreamError]:
-        step = self.step()
+        step = self.step()?
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(len(source) + 1)
+            return advanced(len(source))
+        if step == -4:
+            return Ok(-1)
         mut count = len(source)
         if count > step:
             count = step
@@ -65,16 +72,25 @@ pub class Fake:
         Ok(count)
 
     pub def flush(self: &mut Fake) -> Result[(), StreamError]:
-        self.flushes += 1
+        self.flushes = advanced(self.flushes)?
         if self.fail_flush:
             return Err(StreamError.Io(IoError.NotWritable))
         Ok(())
 
     pub def close(self: &mut Fake) -> Result[(), StreamError]:
-        self.closes += 1
+        self.closes = advanced(self.closes)?
         if self.fail_close:
             return Err(StreamError.Io(IoError.Other))
         Ok(())
+
+def advanced(count: i64) -> Result[i64, StreamError]:
+    result = checked:
+        count + 1
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(StreamError.OutOfRange)
 
 def fake(text: &str, steps: list[i64]) -> Result[Fake, AllocError | IoError | std.bytes.BytesError]:
     Ok(Fake(std.bytes.from_text(text)?, steps, 0, 0, 0, 0, False, False))
@@ -92,7 +108,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64] | ZeroDivisionError | std.io.StreamError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -186,6 +202,23 @@ Result[(), std.io.Partial].Err(std.io.Partial(completed=1, cause=std.io.StreamEr
 Result[(), std.io.Partial].Ok(())
 0
 "#,
+    );
+}
+
+#[test]
+fn negative_progress_is_rejected_without_advancing_offsets() {
+    native(
+        r#"
+mut reader = fake("ab", [-4]?)?
+mut buffer = blank(2)?
+print(str.repr(std.io.read_exact(&mut reader, &mut buffer, 0, 2))?)?
+print(buffer.to_text()?, reader.at)?
+mut writer = fake("", [-4]?)?
+source = std.bytes.from_text("ab")?
+print(str.repr(std.io.write_all(&mut writer, &source))?)?
+print(writer.data.len())?
+"#,
+        "Result[(), std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.InvalidProgress))\n.. 0\nResult[(), std.io.Partial].Err(std.io.Partial(completed=0, cause=std.io.StreamError.InvalidProgress))\n0",
     );
 }
 
@@ -596,6 +629,27 @@ Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 11
 Result[i64, std.io.StreamError].Ok(1)
 Result[(), std.io.StreamError].Ok(())
 "#,
+    );
+}
+
+#[test]
+fn unrepresentable_positions_return_declared_errors_without_mutation() {
+    binary_native(
+        r#"
+mut stream = std.io.cursor(std.bytes.from_text("x")?)
+drop(stream.seek(SeekFrom.Start(i64.MAX))?)
+result = unchecked:
+    stream.write(b"y")
+print(str.repr(result)?, stream.position(), stream.data.to_text()?)?
+print(str.repr(stream.write_bytes(b"z", i64.MAX))?, stream.position(), stream.data.to_text()?)?
+print(str.repr(stream.seek(SeekFrom.Current(1)))?, stream.position())?
+print(str.repr(stream.seek(SeekFrom.Current(i64.MIN)))?, stream.position())?
+mut reader = std.io.buffered_reader(std.io.cursor(std.bytes.from_text("abc")?), 4)?
+mut buffer = blank(1)?
+drop(reader.read(&mut buffer, 0, 1)?)
+print(str.repr(std.io.seek_reader(&mut reader, SeekFrom.Current(i64.MIN)))?, reader.buffered(), reader.inner.position())?
+"#,
+        "Result[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 9223372036854775807 x\nResult[(), std.io.BinaryError].Err(std.io.BinaryError.OutOfRange) 9223372036854775807 x\nResult[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 9223372036854775807\nResult[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 9223372036854775807\nResult[i64, std.io.StreamError].Err(std.io.StreamError.OutOfRange) 2 3",
     );
 }
 

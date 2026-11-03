@@ -20,13 +20,19 @@ recursion. The private callback error channel and its lifetime restrictions
 are removed; its tests are replaced by public-contract coverage. The retained
 local arithmetic suite passes.
 
-The initial library migration covers `std.math`, `std.bytes` and `std.time`.
+The initial library migration covers `std.math`, `std.bytes`, `std.time`,
+`std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env` and
+`std.secrets`.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
 key callbacks and returns `Result[(), E]`. Bounds-proven byte/time operations
 use small documented opt-outs; fallible size and time calculations retain
-their existing error contracts. No blanket `unchecked:` conversion was applied.
+their existing error contracts. Encoding expansion sizes are checked before
+allocation, stream position/total limits return their declared errors, and
+filesystem walk reservation no longer counts pending frames twice (issue #702).
+Pure capacity helpers are tested at representation limits without allocating
+huge buffers. No blanket `unchecked:` conversion was applied.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining

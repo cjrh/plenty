@@ -30,7 +30,7 @@ impl Program {
 }
 
 const DESCRIPTORS: &str = r#"
-def descriptors() -> Result[i64, AllocError | IoError]:
+def descriptors() -> Result[i64, AllocError | IoError | OverflowError[i64]]:
     root = path.from_text("/proc/self/fd")?
     mut directory = fs.read_dir(&root)?
     mut count = 0
@@ -95,7 +95,7 @@ def collect(root: &path.Path) -> Result[list[fs.DirEntry], AllocError | IoError]
             pass
     Ok(saved)
 
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -152,7 +152,7 @@ fn metadata_follows_links_only_at_the_requested_boundary() {
         r#"
 import std.fs as fs
 import std.path as path
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     link = root.join(&path.from_text("link")?)?
@@ -191,7 +191,7 @@ fn lexical_paths_keep_identity_and_report_checked_text_conversion() {
     let program = Program::new(
         r#"
 import std.path as path
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     base = path.from_text("a/link/..")?
     child = path.from_text("x")?
     joined = base.join(&child)?
@@ -233,7 +233,7 @@ fn walking_program(prune: bool, top_down: bool, inject_missing: bool) -> Program
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -334,7 +334,7 @@ fn empty_missing_nondirectory_and_denied_roots_distinguish_eof_from_errors() {
         r#"
 import std.fs as fs
 import std.path as path
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     match fs.read_dir(&root):
@@ -399,7 +399,7 @@ def failed(root: &path.Path) -> Result[(), AllocError | IoError]:
     missing = root.join(&path.from_text("missing")?)?
     drop(fs.metadata(&missing)?)
     Ok(())
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -440,7 +440,7 @@ fn large_flat_and_deep_trees_keep_directory_handles_bounded() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -473,7 +473,7 @@ fn allocation_failure_during_advance_is_terminal_and_releases_the_handle() {
 import std.fs as fs
 import std.path as path
 {DESCRIPTORS}
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
     argv = args_bytes()?
     root = path.from_bytes(copy(argv[1])?)
     before = descriptors()?
@@ -505,4 +505,50 @@ def main() -> Result[(), AllocError | IoError | fs.WalkError]:
         output
             .ends_with("IoError.Data(DataError.Allocation(AllocError.OutOfMemory))\nTrue\nTrue\n")
     );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn walk_reserves_only_additional_frames_before_scanning_a_sibling() {
+    // Issue #702: after root's four children are queued, three sibling frames
+    // fit in the existing capacity. An empty current directory needs no new
+    // reservation. A forced allocation failure must therefore happen after
+    // popping the next sibling for scanning, not before it.
+    let fixture = tempfile::tempdir().unwrap();
+    for name in ["a", "b", "c", "d"] {
+        std::fs::create_dir(fixture.path().join(name)).unwrap();
+    }
+    let source = r#"
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | fs.WalkError]:
+    argv = args_bytes()?
+    root = path.from_bytes(copy(argv[1])?)
+    for top_down in [True, False]?:
+        mut traversal = fs.walk(&root, top_down)?
+        mut count = 0
+        while traversal.next()?:
+            count += 1
+        print(count)?
+    mut walker = fs.walk(&root, True)?
+    drop(walker.next()?)
+    drop(walker.next()?)
+    print("__test_fail_allocations_after_0__")?
+    failed = walker.next()
+    print("__test_restore_allocations__")?
+    print(failed.is_err())?
+    mut remaining = 0
+    while walker.next()?:
+        remaining += 1
+    print(remaining)?
+    Ok(())
+"#;
+    let output = Program::new(source).run(fixture.path());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(visible, ["5", "5", "True", "2"], "{stdout}");
 }

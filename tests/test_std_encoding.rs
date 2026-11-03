@@ -11,7 +11,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64] | ZeroDivisionError | std.encoding.EncodingError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -78,6 +78,63 @@ fn reference_base64(data: &[u8], url: bool) -> String {
         }
     }
     text
+}
+
+#[test]
+fn encoded_sizes_check_representation_limits_without_allocating_large_buffers() {
+    // Compile the actual private pure helpers, not a second implementation.
+    // They use no std-only hooks; keeping them private avoids a public test API.
+    let embedded = include_str!("../stdlib/std/encoding.plenty");
+    let mut source = String::from("from std.encoding import EncodingError\n");
+    for name in [
+        "sized",
+        "hex_capacity",
+        "base64_capacity",
+        "mime_capacity",
+        "pem_capacity",
+    ] {
+        let prefix = format!("def {name}");
+        let start = embedded.find(&prefix).unwrap();
+        let end = embedded[start..].find("\n\n").unwrap() + start;
+        source.push_str(&embedded[start..end]);
+        source.push_str("\n\n");
+    }
+    let max = i64::MAX;
+    let groups = max / 4;
+    let boundary = groups * 3;
+    let mut low = 1i64;
+    let mut high = max;
+    while low < high {
+        let middle = low + (high - low) / 2 + 1;
+        let encoded = i128::from(middle) + 2 * i128::from((middle - 1) / 76);
+        if encoded <= i128::from(max) {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    source.push_str(&format!(r#"
+def main() -> Result[(), IoError | EncodingError]:
+    print(hex_capacity(0)?, hex_capacity(3)?, hex_capacity({half})?)?
+    print(hex_capacity({too_wide}).is_err())?
+    print(base64_capacity({boundary}, False)?, base64_capacity({next}, False).is_err())?
+    print(base64_capacity({next}, True)?, base64_capacity({last}, True)?, base64_capacity({beyond}, True).is_err())?
+    print(mime_capacity({mime})?, mime_capacity({mime_next}).is_err())?
+    print(pem_capacity(4, 1)?, pem_capacity(0, {label})?, pem_capacity(0, {label_next}).is_err())?
+    print(pem_capacity(i64.MAX, 1).is_err(), base64_capacity(i64.MAX, True).is_err())?
+    Ok(())
+"#, half=max/2, too_wide=max/2+1, next=boundary+1, last=boundary+2, beyond=boundary+3,
+        mime=low, mime_next=low+1, label=(max-32)/2, label_next=(max-32)/2+1));
+    let expected = format!(
+        "0 6 {}\nTrue\n{} True\n{} {} True\n{} True\n39 {} True\nTrue True",
+        max - 1,
+        groups * 4,
+        max - 1,
+        max,
+        i128::from(low) + 2 * i128::from((low - 1) / 76),
+        max - 1
+    );
+    assert_eq!(output(&source), expected);
 }
 
 // RFC 4648 section 10.
@@ -773,7 +830,7 @@ def exercise(data: &Bytes) -> Result[(), EncodingError]:
     drop(codec.from_text(&d)?)
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | EncodingError | OverflowError[i64] | std.fmt.FormatError]:
     data = std.bytes.from_text("a long input that exercises heap strings and MIME line wrapping across its seventy-six-column boundary")?
     mut failed = 0
     mut succeeded = 0

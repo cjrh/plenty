@@ -123,14 +123,26 @@ pub class Sink:
     calls: i64
     fail: i64
     pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
-        self.calls += 1
+        next = checked:
+            self.calls + 1
+        self.calls = match next:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(StreamError.OutOfRange)
         if self.calls == 1:
             return Err(StreamError.Interrupted)
         if self.calls == 4:
             if self.fail == 0:
                 return Ok(0)
             if self.fail == 1:
-                return Ok(len(source) + 1)
+                oversized = checked:
+                    len(source) + 1
+                return match oversized:
+                    case Ok(count):
+                        Ok(count)
+                    case Err(_):
+                        Err(StreamError.OutOfRange)
             if self.fail == 2:
                 return Err(StreamError.OutOfRange)
         Ok(1)
@@ -389,7 +401,13 @@ from std.io import StreamError
 pub class Recovering:
     calls: i64
     pub def write(self: &mut Recovering, source: &[u8]) -> Result[i64, StreamError]:
-        self.calls += 1
+        next = checked:
+            self.calls + 1
+        self.calls = match next:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(StreamError.OutOfRange)
         if self.calls == 1:
             return Err(StreamError.OutOfRange)
         Ok(len(source))

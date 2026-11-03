@@ -83,7 +83,9 @@ pub class BufReader[E, R]:
         self.buffer.len()
 
     pub def buffered(self) -> i64:
-        self.stop - self.start
+        # Private cursors satisfy 0 <= start <= stop <= buffer capacity.
+        unchecked:
+            self.stop - self.start
 
     def checked(self: &mut BufReader[E, R], result: Result[i64, StepError[E]], offered: i64) -> Result[i64, StepError[ReadFailure[E]]]:
         match result:
@@ -97,27 +99,29 @@ pub class BufReader[E, R]:
                 Err(StepError[ReadFailure[E]].Source(ReadFailure[E].Source(cause)))
 
     pub def read(self: &mut BufReader[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[ReadFailure[E]]]:
-        if not (0 <= start and start <= stop and stop <= buffer.len()):
-            __trap("read: start/stop outside buffer")
-        if start == stop:
-            return Ok(0)
-        if self.start == self.stop:
-            if stop - start >= self.buffer.len():
-                result = self.inner.read(buffer, start, stop)
-                return self.checked(result, stop - start)
-            self.start = 0
-            self.stop = 0
-            size = self.buffer.len()
-            result = self.inner.read(&mut self.buffer, 0, size)
-            self.stop = self.checked(result, size)?
-            if self.stop == 0:
+        # Validated destination bounds and checked progress keep cursors inside each buffer.
+        unchecked:
+            if not (0 <= start and start <= stop and stop <= buffer.len()):
+                __trap("read: start/stop outside buffer")
+            if start == stop:
                 return Ok(0)
-        mut count = stop - start
-        if count > self.stop - self.start:
-            count = self.stop - self.start
-        buffer.overwrite(start, &self.buffer[self.start:self.start + count])
-        self.start += count
-        Ok(count)
+            if self.start == self.stop:
+                if stop - start >= self.buffer.len():
+                    result = self.inner.read(buffer, start, stop)
+                    return self.checked(result, stop - start)
+                self.start = 0
+                self.stop = 0
+                size = self.buffer.len()
+                result = self.inner.read(&mut self.buffer, 0, size)
+                self.stop = self.checked(result, size)?
+                if self.stop == 0:
+                    return Ok(0)
+            mut count = stop - start
+            if count > self.stop - self.start:
+                count = self.stop - self.start
+            buffer.overwrite(start, &self.buffer[self.start:self.start + count])
+            self.start += count
+            Ok(count)
 
 pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: Positive[i64]) -> Result[BufReader[E, R], StreamError]:
     size = capacity.get()
@@ -142,60 +146,68 @@ pub def within(start: i64, stop: i64, size: i64) -> bool:
     start >= 0 and start <= stop and stop <= size
 
 pub def read_exact[E, R: Reader[E]](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial[ReadFailure[E]]]:
-    if not within(start, stop, buffer.len()):
-        __trap("read_exact: start/stop outside buffer")
-    mut at = start
-    while at < stop:
-        match reader.read(buffer, at, stop):
-            case Ok(count):
-                if count == 0:
-                    return Err(Partial(at - start, ReadFailure[E].UnexpectedEof))
-                if count < 0 or count > stop - at:
-                    return Err(Partial(at - start, ReadFailure[E].InvalidProgress))
-                at += count
-            case Err(StepError.Interrupted):
-                pass
-            case Err(StepError.Source(cause)):
-                return Err(Partial(at - start, ReadFailure[E].Source(cause)))
-    Ok(())
+    # Validated ranges and progress keep start <= at <= stop <= len(buffer).
+    unchecked:
+        if not within(start, stop, buffer.len()):
+            __trap("read_exact: start/stop outside buffer")
+        mut at = start
+        while at < stop:
+            match reader.read(buffer, at, stop):
+                case Ok(count):
+                    if count == 0:
+                        return Err(Partial(at - start, ReadFailure[E].UnexpectedEof))
+                    if count < 0 or count > stop - at:
+                        return Err(Partial(at - start, ReadFailure[E].InvalidProgress))
+                    at += count
+                case Err(StepError.Interrupted):
+                    pass
+                case Err(StepError.Source(cause)):
+                    return Err(Partial(at - start, ReadFailure[E].Source(cause)))
+        Ok(())
 
 pub def write_all[E, W: Writer[E]](writer: &mut W, buffer: &[u8]) -> Result[(), Partial[WriteFailure[E]]]:
-    stop = len(buffer)
-    mut at = 0
-    while at < stop:
-        match writer.write(&buffer[at:]):
-            case Ok(count):
-                if count == 0:
-                    return Err(Partial(at, WriteFailure[E].WriteZero))
-                if count < 0 or count > stop - at:
-                    return Err(Partial(at, WriteFailure[E].InvalidProgress))
-                at += count
-            case Err(StepError.Interrupted):
-                pass
-            case Err(StepError.Source(cause)):
-                return Err(Partial(at, WriteFailure[E].Source(cause)))
-    Ok(())
+    # Progress is checked before advancing, so 0 <= at <= len(buffer).
+    unchecked:
+        stop = len(buffer)
+        mut at = 0
+        while at < stop:
+            match writer.write(&buffer[at:]):
+                case Ok(count):
+                    if count == 0:
+                        return Err(Partial(at, WriteFailure[E].WriteZero))
+                    if count < 0 or count > stop - at:
+                        return Err(Partial(at, WriteFailure[E].InvalidProgress))
+                    at += count
+                case Err(StepError.Interrupted):
+                    pass
+                case Err(StepError.Source(cause)):
+                    return Err(Partial(at, WriteFailure[E].Source(cause)))
+        Ok(())
 
 # completed always counts delivery to the writer, including a partial write.
 pub def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyFailure[E, G]]:
-    size = scratch.len()
-    if size == 0:
-        return Err(CopyFailure[E, G].Read(0, ReadFailure[E].OutOfRange))
-    mut total = 0
-    while True:
-        match reader.read(scratch, 0, size):
-            case Ok(count):
-                if count == 0:
-                    return Ok(total)
-                if count < 0 or count > size or count > i64.MAX - total:
-                    return Err(CopyFailure[E, G].Read(total, ReadFailure[E].InvalidProgress))
-                match write_all[G, W](writer, &scratch[:count]):
-                    case Ok(_):
-                        total += count
-                    case Err(partial):
-                        return Err(CopyFailure[E, G].Write(total + partial.completed, partial.cause))
-            case Err(StepError.Interrupted):
-                pass
-            case Err(StepError.Source(cause)):
-                return Err(CopyFailure[E, G].Read(total, ReadFailure[E].Source(cause)))
-    Ok(total)
+    # The total-limit guard precedes delivery; partial.completed <= count bounds every sum.
+    unchecked:
+        size = scratch.len()
+        if size == 0:
+            return Err(CopyFailure[E, G].Read(0, ReadFailure[E].OutOfRange))
+        mut total = 0
+        while True:
+            match reader.read(scratch, 0, size):
+                case Ok(count):
+                    if count == 0:
+                        return Ok(total)
+                    if count < 0 or count > size:
+                        return Err(CopyFailure[E, G].Read(total, ReadFailure[E].InvalidProgress))
+                    if count > i64.MAX - total:
+                        return Err(CopyFailure[E, G].Read(total, ReadFailure[E].OutOfRange))
+                    match write_all[G, W](writer, &scratch[:count]):
+                        case Ok(_):
+                            total += count
+                        case Err(partial):
+                            return Err(CopyFailure[E, G].Write(total + partial.completed, partial.cause))
+                case Err(StepError.Interrupted):
+                    pass
+                case Err(StepError.Source(cause)):
+                    return Err(CopyFailure[E, G].Read(total, ReadFailure[E].Source(cause)))
+        Ok(total)

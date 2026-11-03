@@ -117,8 +117,13 @@ callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float
 helpers retain infallible IEEE values, serial pipeline sums return public
 results, and key sorting transports fallible callbacks' ordinary errors.
-Coordinated adoption of remaining std modules, tests/examples and documentation
-is **not complete** and remains B14.
+Encoding sizes, stream extents, formatting counters, filesystem budgets and
+entropy-source offsets now preserve their existing error contracts or use
+bounds-proven opt-outs. Filesystem walks reserve only newly appended frames
+(issue #702); an allocation-failure regression distinguishes failure before
+reservation from failure while scanning a popped sibling. Coordinated adoption
+of remaining std modules, tests/examples and documentation is **not complete**
+and remains B14.
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

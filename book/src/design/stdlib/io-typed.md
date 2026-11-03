@@ -57,7 +57,11 @@ and independent source/destination error types. Counts mean bytes delivered to
 the writer, including a short write before failure. A read chunk may already
 have been consumed when writing fails: this API does not promise resumable
 copying or retain unwritten bytes. Empty scratch is an `OutOfRange` read
-failure. Helpers allocate nothing and require caller-provided storage.
+failure. A chunk that would make the delivered total exceed `i64.MAX` is
+`Read(completed, ReadFailure.OutOfRange)` before writing that chunk; it is not
+an invalid count from the transport. Internal cursor updates use documented
+bounds-proven opt-outs, without changing the stream's declared error type.
+Helpers allocate nothing and require caller-provided storage.
 
 `buffered_reader(inner, capacity: Positive[i64])` returns
 `Result[BufReader[E, R], StreamError]` for a `Reader[E]`; construction
