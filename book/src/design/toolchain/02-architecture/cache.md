@@ -183,6 +183,13 @@ links never publish an entry; missing, damaged or unwritable entries fall back
 to linking. The program always runs again; output and runtime data are not
 cached. Streams, working directory, environment and exit status are unchanged.
 
+The bundled runtime archive is extracted only when linking runs, after this
+lookup misses or is bypassed. Its bytes are already covered by the compiler
+identity, so a hit needs no temporary runtime archive. The object and private
+executable are still restored, and toolchain/native-input checks still run.
+See the [warm startup measurements](../../../development/script-startup.md)
+for the attributed cost and reproducible comparison (issue #699).
+
 Executable reuse currently supports Linux's default GCC-based `cc` driver
 (a native ELF binary whose resolved name identifies GCC) with mold, lld or
 GNU ld when the selected linker supports `--dependency-file`. Before looking

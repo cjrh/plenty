@@ -132,6 +132,8 @@ These belong to B17 and are not scheduled implementation commitments:
 
 - Single-file script manifests, isolated dependency resolution, durable locks and
   argument forwarding are [delivered](completed-work/language-and-tooling.md#b17-tooling-and-packaging).
+  Warm executable hits also [skip runtime extraction](development/script-startup.md)
+  (issue #699).
   Broader executable-cache toolchain coverage remains B17/B18; a script test command
   would require its own entry-point/discovery design.
 - [`plenty-manager`](proposals/plenty-manager.md): a Plenty-written tool in a

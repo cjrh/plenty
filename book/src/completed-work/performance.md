@@ -49,6 +49,11 @@ only to the [backlog](../backlog.md).
 
 ## B19: Compiler scale and caching
 
+- Warm single-file executable hits skip bundled-runtime extraction (issue #699).
+  The measured no-op shebang median fell from 16.35 to 6.56 ms while preserving
+  source/toolchain/native-input checks. See the
+  [startup measurements and method](../development/script-startup.md).
+
 - Cached collection element facts (issue #6), linear declaration/large-enum
   match checking (issues #53/#71), parallel native emission and the large-function
   single-pass allocation fallback (issues #55/#56) shipped. More than 2,048
