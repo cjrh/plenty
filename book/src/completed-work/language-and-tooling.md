@@ -185,6 +185,17 @@ Full crypto, JWT, HTTPS, standalone server/client and actor TLS tests now pass
 together. Two optional native-engine linalg bodies, broad documentation examples,
 remaining modules and full acceptance measurements are still outstanding.
 
+Reviewed CLI/progress arithmetic now preserves exact work counts and output-failure
+state; the countbytes example exposes its aggregate overflow contract. Dataframe
+extents retain allocation-capacity causes, and plot counts/layout/rendering have
+explicit bounds without changing numerical aggregates. All 48 plot tests pass;
+13 dataframe native-engine tests self-skip and are not native acceptance.
+HTTP body/cookie helpers preserve semantic TooLarge errors and multipart/upload
+ownership. Actor HTTP has equivalent bounded lingering state without clamping
+actual consumed bytes; its 26 TCP/TLS/control/error tests pass. Remaining HTTP
+helper/core failures reach proxy/websocket dependencies; those consumers and
+broader utility/format migration remain outstanding.
+
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 

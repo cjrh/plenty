@@ -26,7 +26,8 @@ The initial library migration covers `std.math`, `std.bytes`, `std.time`,
 `std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
 and `std.http.client`, plus `std.json`, `std.unicode`, `std.complex`, `std.stat`,
 `std.linalg`, `std.simd`, `std.log`, `std.crypto`, `std.tls`, `std.uuid`,
-`std.jwt`, `std.http.server`, `std.toml`, `std.regex`, and actor core/TCP/TLS adapters.
+`std.jwt`, `std.http.server`, `std.toml`, `std.regex`, `std.cli`, CLI progress,
+`std.dataframe`, `std.plot`, HTTP body/cookie helpers, and actor core/TCP/TLS/HTTP-server adapters.
 Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
 separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
 returns a public result for integer items. Sorting accepts `Result[K, E]`
@@ -82,8 +83,17 @@ parent with both actor heaps reclaimed. Complete actor TLS, crypto, JWT, HTTPS
 and server/client tests pass after dependency integration. Combined targeted
 validation has 733 passes, two failures in unmigrated HTTP body/cookie, and one
 pre-existing ignored test. Two native-engine linalg test bodies remain unrun.
-The registry still reports 29 failing module analyses; broad tutorial validation
+At that checkpoint the registry still reported 29 failing module analyses; broad tutorial validation
 remains incomplete. These results are not all-features or performance acceptance.
+
+A later reviewed checkpoint adds bounded CLI parsing/progress, checked dataframe
+extents, plot arithmetic and body/cookie byte budgets. Actor HTTP keeps exact
+response accounting and equivalent bounded lingering-threshold state; complete
+TCP/TLS/control/error tests pass. Dataframe's optional native-engine cases remain
+self-skipped, not accepted native execution. The integrated registry now has
+22 failing module analyses. Remaining core HTTP/helper failures reach unmigrated
+websocket/proxy dependencies. Other HTTP consumers, utility wrappers and formats
+remain in progress.
 
 Adoption remains incomplete. Other std modules, parallel reductions and many
 tests/examples still fail to type-check. Full-suite validation, remaining
