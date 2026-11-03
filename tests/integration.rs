@@ -702,3 +702,6 @@ mod test_quantity_constants;
 
 #[path = "test_dimension_diagnostics.rs"]
 mod test_dimension_diagnostics;
+
+#[path = "test_quantity_erasure.rs"]
+mod test_quantity_erasure;

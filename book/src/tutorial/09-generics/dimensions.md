@@ -38,7 +38,10 @@ used in your program.
 
 `double` infers its dimension parameter from its argument. The same function
 works for a length, a time or a velocity. Dimension arguments add no runtime
-fields. A dimension itself has no values: `length: Length` is invalid.
+fields: a quantity uses its numeric storage type's native representation.
+Construction and `get` add no numeric conversion, and float `to` performs the
+same division as plain numbers. A dimension itself has no values:
+`length: Length` is invalid.
 
 Unit constants can be shared across functions or exported from a module with
 `pub const`. Their initializers are evaluated at compile time, including unit
