@@ -582,6 +582,8 @@ mod test_std_textwrap;
 mod test_std_tls;
 #[path = "test_std_toml.rs"]
 mod test_std_toml;
+#[path = "test_std_units.rs"]
+mod test_std_units;
 #[path = "test_std_url.rs"]
 mod test_std_url;
 #[path = "test_std_uuid.rs"]

@@ -1,0 +1,382 @@
+# SI dimensions, units and physical constants as compile-time quantities.
+# Every unit is a Quantity[f64, D] holding its value in the coherent SI unit,
+# so `3.0 * km` stores 3000.0 and `x.to(km)` divides by 1000.0. See
+# book/src/design/stdlib/units.md for contracts and sources.
+#
+# Exact values follow the SI Brochure (9th edition, 2019) and NIST SP 811
+# (2008), appendix B. Measured constants are the CODATA 2022 recommended
+# values.
+import std.math as math
+from std.math import MathError
+from std.time import Duration
+import std.time as time
+
+pub dimension Mass("kg")
+pub dimension Length("m")
+pub dimension Time("s")
+pub dimension Current("A")
+pub dimension Temperature("K")
+pub dimension Amount("mol")
+pub dimension Luminosity("cd")
+
+# Each alias names a distinct normal form. Diagnostics name the first
+# matching alias, so two aliases for one dimension (torque and energy,
+# frequency and activity) would make the second unreachable.
+pub dimension Area = Pow[Length, 2]
+pub dimension Volume = Pow[Length, 3]
+pub dimension Wavenumber = One / Length
+pub dimension Velocity = Length / Time
+pub dimension Acceleration = Length / Pow[Time, 2]
+pub dimension Frequency = One / Time
+pub dimension Force = Mass * Acceleration
+pub dimension Pressure = Force / Area
+pub dimension Energy = Force * Length
+pub dimension Power = Energy / Time
+pub dimension Momentum = Mass * Velocity
+pub dimension Action = Energy * Time
+pub dimension Density = Mass / Volume
+pub dimension MassFlowRate = Mass / Time
+pub dimension VolumeFlowRate = Volume / Time
+pub dimension DynamicViscosity = Pressure * Time
+pub dimension KinematicViscosity = Area / Time
+pub dimension SurfaceTension = Force / Length
+pub dimension HeatFlux = Power / Area
+pub dimension SpecificEnergy = Energy / Mass
+pub dimension Entropy = Energy / Temperature
+pub dimension SpecificHeatCapacity = SpecificEnergy / Temperature
+pub dimension ThermalConductivity = Power / (Length * Temperature)
+pub dimension MolarMass = Mass / Amount
+pub dimension MolarEnergy = Energy / Amount
+pub dimension MolarHeatCapacity = Entropy / Amount
+pub dimension Concentration = Amount / Volume
+pub dimension PerAmount = One / Amount
+pub dimension CatalyticActivity = Amount / Time
+pub dimension Charge = Current * Time
+pub dimension Voltage = Power / Current
+pub dimension ElectricField = Voltage / Length
+pub dimension Capacitance = Charge / Voltage
+pub dimension Permittivity = Capacitance / Length
+pub dimension Resistance = Voltage / Current
+pub dimension Conductance = Current / Voltage
+pub dimension MagneticFlux = Voltage * Time
+pub dimension MagneticFluxDensity = MagneticFlux / Area
+pub dimension Inductance = MagneticFlux / Current
+pub dimension Permeability = Inductance / Length
+pub dimension Illuminance = Luminosity / Area
+pub dimension LuminousEfficacy = Luminosity / Power
+pub dimension StefanBoltzmann = HeatFlux / Pow[Temperature, 4]
+pub dimension Gravitation = Volume / (Mass * Pow[Time, 2])
+
+# Coherent SI units.
+pub const kg: Quantity[f64, Mass] = Quantity[f64, Mass](1.0)
+pub const m: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+pub const s: Quantity[f64, Time] = Quantity[f64, Time](1.0)
+pub const A: Quantity[f64, Current] = Quantity[f64, Current](1.0)
+pub const K: Quantity[f64, Temperature] = Quantity[f64, Temperature](1.0)
+pub const mol: Quantity[f64, Amount] = Quantity[f64, Amount](1.0)
+pub const cd: Quantity[f64, Luminosity] = Quantity[f64, Luminosity](1.0)
+
+# Angles are dimensionless, as in SI.
+pub const rad: Quantity[f64, One] = Quantity[f64, One](1.0)
+pub const sr: Quantity[f64, One] = Quantity[f64, One](1.0)
+pub const degree: Quantity[f64, One] = (f64.PI / 180.0) * rad
+pub const arcminute: Quantity[f64, One] = degree / 60.0
+pub const arcsecond: Quantity[f64, One] = degree / 3600.0
+
+pub const Hz: Quantity[f64, Frequency] = 1.0 / s
+pub const N: Quantity[f64, Force] = kg * m / (s * s)
+pub const Pa: Quantity[f64, Pressure] = N / (m * m)
+pub const J: Quantity[f64, Energy] = N * m
+pub const W: Quantity[f64, Power] = J / s
+pub const C: Quantity[f64, Charge] = A * s
+pub const V: Quantity[f64, Voltage] = W / A
+pub const F: Quantity[f64, Capacitance] = C / V
+pub const ohm: Quantity[f64, Resistance] = V / A
+pub const S: Quantity[f64, Conductance] = A / V
+pub const Wb: Quantity[f64, MagneticFlux] = V * s
+pub const T: Quantity[f64, MagneticFluxDensity] = Wb / (m * m)
+pub const H: Quantity[f64, Inductance] = Wb / A
+pub const lm: Quantity[f64, Luminosity] = cd * sr
+pub const lx: Quantity[f64, Illuminance] = lm / (m * m)
+pub const Bq: Quantity[f64, Frequency] = 1.0 / s
+pub const Gy: Quantity[f64, SpecificEnergy] = J / kg
+pub const Sv: Quantity[f64, SpecificEnergy] = J / kg
+pub const kat: Quantity[f64, CatalyticActivity] = mol / s
+
+# Prefixed units. Each prefix is a literal so the stored value is the nearest
+# f64 to the exact decimal multiple.
+pub const ug: Quantity[f64, Mass] = 1e-9 * kg
+pub const mg: Quantity[f64, Mass] = 1e-6 * kg
+pub const g: Quantity[f64, Mass] = 1e-3 * kg
+
+pub const pm: Quantity[f64, Length] = 1e-12 * m
+pub const nm: Quantity[f64, Length] = 1e-9 * m
+pub const um: Quantity[f64, Length] = 1e-6 * m
+pub const mm: Quantity[f64, Length] = 1e-3 * m
+pub const cm: Quantity[f64, Length] = 1e-2 * m
+pub const km: Quantity[f64, Length] = 1e3 * m
+
+pub const ps: Quantity[f64, Time] = 1e-12 * s
+pub const ns: Quantity[f64, Time] = 1e-9 * s
+pub const us: Quantity[f64, Time] = 1e-6 * s
+pub const ms: Quantity[f64, Time] = 1e-3 * s
+
+pub const uA: Quantity[f64, Current] = 1e-6 * A
+pub const mA: Quantity[f64, Current] = 1e-3 * A
+pub const kA: Quantity[f64, Current] = 1e3 * A
+
+pub const mK: Quantity[f64, Temperature] = 1e-3 * K
+
+pub const umol: Quantity[f64, Amount] = 1e-6 * mol
+pub const mmol: Quantity[f64, Amount] = 1e-3 * mol
+pub const kmol: Quantity[f64, Amount] = 1e3 * mol
+
+pub const kHz: Quantity[f64, Frequency] = 1e3 * Hz
+pub const MHz: Quantity[f64, Frequency] = 1e6 * Hz
+pub const GHz: Quantity[f64, Frequency] = 1e9 * Hz
+
+pub const mN: Quantity[f64, Force] = 1e-3 * N
+pub const kN: Quantity[f64, Force] = 1e3 * N
+pub const MN: Quantity[f64, Force] = 1e6 * N
+
+pub const hPa: Quantity[f64, Pressure] = 1e2 * Pa
+pub const kPa: Quantity[f64, Pressure] = 1e3 * Pa
+pub const MPa: Quantity[f64, Pressure] = 1e6 * Pa
+pub const GPa: Quantity[f64, Pressure] = 1e9 * Pa
+
+pub const mJ: Quantity[f64, Energy] = 1e-3 * J
+pub const kJ: Quantity[f64, Energy] = 1e3 * J
+pub const MJ: Quantity[f64, Energy] = 1e6 * J
+pub const GJ: Quantity[f64, Energy] = 1e9 * J
+
+pub const uW: Quantity[f64, Power] = 1e-6 * W
+pub const mW: Quantity[f64, Power] = 1e-3 * W
+pub const kW: Quantity[f64, Power] = 1e3 * W
+pub const MW: Quantity[f64, Power] = 1e6 * W
+pub const GW: Quantity[f64, Power] = 1e9 * W
+
+pub const Wh: Quantity[f64, Energy] = 3600.0 * J
+pub const kWh: Quantity[f64, Energy] = 3.6e6 * J
+pub const MWh: Quantity[f64, Energy] = 3.6e9 * J
+pub const GWh: Quantity[f64, Energy] = 3.6e12 * J
+
+pub const nC: Quantity[f64, Charge] = 1e-9 * C
+pub const uC: Quantity[f64, Charge] = 1e-6 * C
+pub const mC: Quantity[f64, Charge] = 1e-3 * C
+
+pub const uV: Quantity[f64, Voltage] = 1e-6 * V
+pub const mV: Quantity[f64, Voltage] = 1e-3 * V
+pub const kV: Quantity[f64, Voltage] = 1e3 * V
+pub const MV: Quantity[f64, Voltage] = 1e6 * V
+
+pub const pF: Quantity[f64, Capacitance] = 1e-12 * F
+pub const nF: Quantity[f64, Capacitance] = 1e-9 * F
+pub const uF: Quantity[f64, Capacitance] = 1e-6 * F
+pub const mF: Quantity[f64, Capacitance] = 1e-3 * F
+
+# There is no milliohm constant: `mohm` would read as either milli or mega.
+pub const kohm: Quantity[f64, Resistance] = 1e3 * ohm
+pub const Mohm: Quantity[f64, Resistance] = 1e6 * ohm
+
+pub const uS: Quantity[f64, Conductance] = 1e-6 * S
+pub const mS: Quantity[f64, Conductance] = 1e-3 * S
+
+pub const uT: Quantity[f64, MagneticFluxDensity] = 1e-6 * T
+pub const mT: Quantity[f64, MagneticFluxDensity] = 1e-3 * T
+
+pub const nH: Quantity[f64, Inductance] = 1e-9 * H
+pub const uH: Quantity[f64, Inductance] = 1e-6 * H
+pub const mH: Quantity[f64, Inductance] = 1e-3 * H
+
+# Exact SI defining constants.
+pub const delta_nu_Cs: Quantity[f64, Frequency] = 9192631770.0 * Hz
+pub const c: Quantity[f64, Velocity] = 299792458.0 * (m / s)
+pub const h: Quantity[f64, Action] = 6.62607015e-34 * (J * s)
+pub const e: Quantity[f64, Charge] = 1.602176634e-19 * C
+pub const k_B: Quantity[f64, Entropy] = 1.380649e-23 * (J / K)
+pub const N_A: Quantity[f64, PerAmount] = 6.02214076e23 / mol
+pub const K_cd: Quantity[f64, LuminousEfficacy] = 683.0 * (lm / W)
+
+# Constants derived exactly from the defining constants; the stored values
+# carry one or two f64 roundings.
+pub const hbar: Quantity[f64, Action] = h / f64.TAU
+pub const R: Quantity[f64, MolarHeatCapacity] = N_A * k_B
+pub const sigma: Quantity[f64, StefanBoltzmann] = 5.670374419e-8 * (W / (m * m * K * K * K * K))
+
+# Exact by definition, though not SI defining constants.
+pub const g_n: Quantity[f64, Acceleration] = 9.80665 * (m / (s * s))
+pub const atm: Quantity[f64, Pressure] = 101325.0 * Pa
+
+# CODATA 2022 measured values.
+pub const G: Quantity[f64, Gravitation] = 6.67430e-11 * (m * m * m / (kg * s * s))
+pub const m_e: Quantity[f64, Mass] = 9.1093837139e-31 * kg
+pub const m_p: Quantity[f64, Mass] = 1.67262192595e-27 * kg
+pub const m_u: Quantity[f64, Mass] = 1.66053906892e-27 * kg
+pub const epsilon_0: Quantity[f64, Permittivity] = 8.8541878188e-12 * (F / m)
+pub const mu_0: Quantity[f64, Permeability] = 1.25663706127e-6 * (H / m)
+
+# Units accepted for use with the SI (SI Brochure table 8).
+pub const minute: Quantity[f64, Time] = 60.0 * s
+pub const hour: Quantity[f64, Time] = 3600.0 * s
+pub const day: Quantity[f64, Time] = 86400.0 * s
+pub const hectare: Quantity[f64, Area] = 1e4 * (m * m)
+pub const litre: Quantity[f64, Volume] = 1e-3 * (m * m * m)
+pub const millilitre: Quantity[f64, Volume] = 1e-6 * (m * m * m)
+pub const tonne: Quantity[f64, Mass] = 1e3 * kg
+pub const dalton: Quantity[f64, Mass] = m_u
+pub const eV: Quantity[f64, Energy] = e * V
+pub const keV: Quantity[f64, Energy] = 1e3 * eV
+pub const MeV: Quantity[f64, Energy] = 1e6 * eV
+pub const GeV: Quantity[f64, Energy] = 1e9 * eV
+pub const au: Quantity[f64, Length] = 149597870700.0 * m
+pub const bar: Quantity[f64, Pressure] = 1e5 * Pa
+pub const mbar: Quantity[f64, Pressure] = 1e2 * Pa
+
+# Other units, exact by definition (NIST SP 811 appendix B).
+pub const rankine: Quantity[f64, Temperature] = K * 5.0 / 9.0
+pub const inch: Quantity[f64, Length] = 0.0254 * m
+pub const foot: Quantity[f64, Length] = 0.3048 * m
+pub const yard: Quantity[f64, Length] = 0.9144 * m
+pub const mile: Quantity[f64, Length] = 1609.344 * m
+pub const nautical_mile: Quantity[f64, Length] = 1852.0 * m
+pub const light_year: Quantity[f64, Length] = 9460730472580800.0 * m
+pub const parsec: Quantity[f64, Length] = (648000.0 / f64.PI) * au
+pub const acre: Quantity[f64, Area] = 4046.8564224 * (m * m)
+pub const gallon: Quantity[f64, Volume] = 3.785411784e-3 * (m * m * m)
+pub const pound: Quantity[f64, Mass] = 0.45359237 * kg
+pub const ounce: Quantity[f64, Mass] = pound / 16.0
+pub const pound_force: Quantity[f64, Force] = 0.45359237 * 9.80665 * N
+pub const knot: Quantity[f64, Velocity] = nautical_mile / hour
+pub const psi: Quantity[f64, Pressure] = pound_force / (inch * inch)
+pub const torr: Quantity[f64, Pressure] = atm / 760.0
+pub const mmHg: Quantity[f64, Pressure] = 133.322387415 * Pa
+pub const calorie: Quantity[f64, Energy] = 4.184 * J
+pub const kilocalorie: Quantity[f64, Energy] = 4184.0 * J
+pub const btu: Quantity[f64, Energy] = 1055.05585262 * J
+pub const horsepower: Quantity[f64, Power] = 550.0 * foot * pound_force / s
+
+# Functions. Storage is f64 for those built on std.math, which is f64-only;
+# abs and clamp accept every storage type. std.math.min, max, min_all and sum
+# already accept quantities, so they are not repeated here.
+
+pub def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]:
+    Quantity[Num, D](math.abs(x.get()))
+
+# Keeps `low` when `x` is below it, then `high` when above; `low > high`
+# therefore returns `high`, as Python's `min(max(x, low), high)` does.
+pub def clamp[Num, D: Dimension](x: Quantity[Num, D], low: Quantity[Num, D], high: Quantity[Num, D]) -> Quantity[Num, D]:
+    math.min(math.max(x, low), high)
+
+# Neumaier's compensated sum, so large and small terms of one dimension
+# combine without losing the small ones.
+pub def sum[D: Dimension](items: &list[Quantity[f64, D]]) -> Quantity[f64, D]:
+    mut total = 0.0
+    mut correction = 0.0
+    for item in items:
+        x = item.get()
+        next = total + x
+        if total.fabs() >= x.fabs():
+            correction += (total - next) + x
+        else:
+            correction += (x - next) + total
+        total = next
+    Quantity[f64, D](total + correction)
+
+pub def mean[D: Dimension](items: &list[Quantity[f64, D]]) -> Option[Quantity[f64, D]]:
+    if len(items) == 0:
+        return Nothing
+    Some(sum(items) / f64(len(items)))
+
+pub def sqrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 2]], MathError]:
+    Ok(Quantity[f64, Root[D, 2]](math.sqrt(x.get())?))
+
+pub def cbrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 3]], MathError]:
+    Ok(Quantity[f64, Root[D, 3]](math.cbrt(x.get())?))
+
+# Scaled by the larger magnitude, so no intermediate square overflows or
+# underflows; an infinite side gives infinity even when the other is NaN.
+pub def hypot[D: Dimension](a: Quantity[f64, D], b: Quantity[f64, D]) -> Quantity[f64, D]:
+    x = a.get().fabs()
+    y = b.get().fabs()
+    if x == f64.INF or y == f64.INF:
+        return Quantity[f64, D](f64.INF)
+    big = x if x >= y else y
+    small = y if x >= y else x
+    if big == 0.0 or small != small:
+        return Quantity[f64, D](big + small)
+    ratio = small / big
+    Quantity[f64, D](big * (1.0 + ratio * ratio).sqrt())
+
+pub def exp(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.exp(x.get())?))
+
+pub def log(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.log(x.get())?))
+
+pub def log2(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.log2(x.get())?))
+
+pub def log10(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.log10(x.get())?))
+
+pub def sin(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.sin(angle.get())?))
+
+pub def cos(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.cos(angle.get())?))
+
+pub def tan(angle: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.tan(angle.get())?))
+
+pub def asin(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.asin(x.get())?))
+
+pub def acos(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.acos(x.get())?))
+
+pub def atan(x: Quantity[f64, One]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.atan(x.get())?))
+
+# Both sides share a dimension, so the angle of a displacement or a velocity
+# needs no conversion first.
+pub def atan2[D: Dimension](y: Quantity[f64, D], x: Quantity[f64, D]) -> Result[Quantity[f64, One], MathError]:
+    Ok(Quantity[f64, One](math.atan2(y.get(), x.get())?))
+
+# Celsius and Fahrenheit are offset scales, so they convert at the boundary
+# instead of being multiplicative units. Fahrenheit goes through Celsius so
+# that whole Celsius values, such as boiling water, stay exact.
+pub def from_celsius(degrees: f64) -> Quantity[f64, Temperature]:
+    Quantity[f64, Temperature](degrees + 273.15)
+
+pub def to_celsius(t: Quantity[f64, Temperature]) -> f64:
+    t.get() - 273.15
+
+pub def from_fahrenheit(degrees: f64) -> Quantity[f64, Temperature]:
+    Quantity[f64, Temperature]((degrees - 32.0) * 5.0 / 9.0 + 273.15)
+
+pub def to_fahrenheit(t: Quantity[f64, Temperature]) -> f64:
+    (t.get() - 273.15) * 9.0 / 5.0 + 32.0
+
+# Whole seconds and the nanosecond remainder convert separately, which avoids
+# rounding the full count to f64 before scaling it. The result still has f64
+# precision: spans above 2^53 nanoseconds (about 104 days) no longer resolve
+# single nanoseconds.
+pub def from_duration(span: &Duration) -> Quantity[f64, Time]:
+    nanos = span.as_nanoseconds()
+    Quantity[f64, Time](f64(nanos // 1_000_000_000) + f64(nanos % 1_000_000_000) * 1e-9)
+
+# Rounds to the nearest nanosecond. Negative, NaN and out-of-range spans are
+# a RangeError: Duration is an unsigned nanosecond count.
+pub def to_duration(t: Quantity[f64, Time]) -> Result[Duration, RangeError]:
+    seconds = t.get()
+    if not (seconds >= 0.0 and seconds < 18446744074.0):
+        return Err(RangeError.OutOfRange)
+    whole = u64(seconds)
+    fraction = u64(((seconds - seconds.trunc()) * 1e9).round())
+    total: Result[u64, OverflowError[u64]] = checked:
+        whole * 1_000_000_000 + fraction
+    match total:
+        case Ok(count):
+            Ok(time.nanoseconds(count))
+        case Err(_):
+            Err(RangeError.OutOfRange)

@@ -4,6 +4,9 @@
 [dimension](dimensions.md). `T` must be an integer, a float, or an integer domain
 such as `Positive[i64]`. Quantity values copy. Put domains inside the quantity:
 `Quantity[Positive[i64], Length]`, rather than `Positive[Quantity[i64, Length]]`.
+[`std.units`](../../stdlib/units.md) provides the SI dimensions, units and
+constants; the examples here declare their own dimensions to show the
+underlying rules.
 
 ```plenty
 dimension Length("m")
