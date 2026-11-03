@@ -110,8 +110,8 @@ choice with a measurement or allocation check before implementation.
 | #489 | base32 | Plenty | Same as the existing codecs |
 | #490 | Linear algebra | Native | Large engine with SIMD kernels; separate engine; check `faer` allocation first |
 | #491 | Brotli | Native | Large codec; the `brotli` crate takes an allocator, so failure is reported |
-| #492 | Optimization | Decide | Depends on #490 and #493; the algorithms may be Plenty over native linear algebra |
-| #493 | `numeris` evaluation | Decide | Its result decides whether #490 and #492 use `faer` |
+| #492 | Optimization | Plenty | Closed; replaced by the [numerics core proposal](numerics.md): solvers in Plenty over `std.linalg` |
+| #493 | `numeris` evaluation | Plenty | Closed; [not adopted](numerics/crates.md); `std.linalg` keeps faer |
 | #494 | Statistics | Plenty | Formulas over lists; sampling keeps `std.random`'s stable sequence |
 | #495 | Key-value store | Decide | Large engine with its own file format; `std.sqlite` already covers transactions and ordered keys |
 | #496 | Sketches | Plenty | Small algorithms over arrays and hashes |
