@@ -37,7 +37,9 @@ pub class AckProbe:
     pub def receive(self: &mut AckProbe, mail: Mail[Notice[i64], ServerError], context: &mut Context[Notice[i64], ServerError]) -> Result[(), ServerError]:
         match mail:
             case Mail.Message(Notice.Message(_)):
-                self.messages += 1
+                # This probe queues exactly sixteen application messages.
+                unchecked:
+                    self.messages += 1
             case Mail.Message(Notice.Completed):
                 print("acknowledged", self.messages).unwrap()
                 context.stop()

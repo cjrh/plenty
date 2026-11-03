@@ -6,7 +6,7 @@ from std.sync import CancellationToken
 
 const port: u16 = PORTu16
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
     never = CancellationToken().unwrap()
     roots = std.tls.roots_from_pem(&read_text("FIXTURES/ca.pem").unwrap()).unwrap()
     config = std.tls.client_config(&roots).unwrap()
@@ -44,3 +44,4 @@ def main() -> ():
         else:
             print(out.to_text().unwrap().endswith("home")).unwrap()
             stream.close_before(&deadline, &never).unwrap()
+    Ok(())
