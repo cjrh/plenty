@@ -301,11 +301,15 @@ def main() -> Result[(), AllocError | CliError | IoError]:
             case Ok(result):
                 if len(result.entries) != 3:
                     return Err(CliError.UnexpectedArgument(-1))
-                successes += 1
+                # One increment per iteration of the fixed forty-iteration loop.
+                unchecked:
+                    successes += 1
             case Err(error):
                 match error:
                     case CliError.Allocation(_):
-                        failures += 1
+                        # One increment per iteration of the fixed forty-iteration loop.
+                        unchecked:
+                            failures += 1
                     case _:
                         return Err(CliError.UnexpectedArgument(-1))
     print(successes > 0, failures > 0)?
