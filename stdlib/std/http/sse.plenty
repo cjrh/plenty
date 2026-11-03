@@ -78,12 +78,21 @@ def lines(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
         found = __bytes_find_in(&text[at:], b"\r\n", 1u8)
         if found < 0:
             return field(out, name, &text[at:])
-        end = at + found
+        end, next = break_positions(at, found)
         field(out, name, &text[at:end])?
-        at = end + 1
+        at = next
         if text[end] == carriage_return and at < stop and text[at] == line_feed:
-            at += 1
+            # at<stop proves the CRLF's second byte can be consumed.
+            unchecked:
+                at += 1
     Ok(())
+
+# The byte scan found a break at found>=0 inside text[at:]. Thus
+# at+found < len(text) <= i64.MAX, and its successor is at most len(text).
+def break_positions(at: i64, found: i64) -> (i64, i64):
+    unchecked:
+        end = at + found
+        (end, end + 1)
 
 # An event name or id, which must be one line.
 def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), SseError]:
@@ -250,7 +259,10 @@ pub class EventStream[T]:
                 case Ok(written):
                     if written == 0:
                         return self.failed(SseError.Disconnected)
-                    at += written
+                    # Transport writes at most size-at bytes; progress stays
+                    # within this finite output buffer, never a lifetime count.
+                    unchecked:
+                        at += written
                 case Err(NetError.TimedOut):
                     if not deadline.expired(&monotonic_now()):
                         continue

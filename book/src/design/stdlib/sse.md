@@ -9,7 +9,9 @@ sends events until it closes the stream, the client goes away, or the
 server shuts down. The module is checked Plenty in
 `stdlib/std/http/sse.plenty` and adds no runtime primitives. The tutorial
 lesson [Stream events to browsers](../../tutorial/11-concurrency/server-sent-events.md)
-shows a complete program. There is no client-side reader.
+shows a complete program. There is no client-side reader. Line-scan and write-progress offsets stay
+within their respective buffers, including the final line break; no wrapping
+or saturating lifetime byte counter is used.
 
 ```plenty
 import std.time
