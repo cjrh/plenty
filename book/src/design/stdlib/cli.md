@@ -112,6 +112,9 @@ bytes. For S schema entries and A arguments, parsing takes O(S² + A·S) compari
 plus decoding/copying input bytes. It allocates S counters, returned entries, and
 owned text/path payloads. Integer/flag payloads need no additional owned storage.
 Partial output is released on failure; all these allocation failures are typed.
+Argument indices and per-spec counts are bounded by the supplied argument list
+length; counting never wraps or saturates. The existing `CliError` contract
+therefore needs no arithmetic error variant.
 Help repeatedly concatenates, with worst-case quadratic copying in output size.
 `describe` may allocate; the allocation-error message itself is static.
 
