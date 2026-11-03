@@ -7,7 +7,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "import std.sketch as sketch\nimport std.sketch.xor as xor\nimport std.sketch.cuckoo as cuckoo\nimport std.bytes\nfrom std.bytes import BytesError\nfrom std.sketch import SketchError\ndef main() -> Result[(), AllocError | IoError | SketchError | BytesError]:\n{indented}    Ok(())\n"
+        "import std.sketch as sketch\nimport std.sketch.xor as xor\nimport std.sketch.cuckoo as cuckoo\nimport std.bytes\nfrom std.bytes import BytesError\nfrom std.sketch import SketchError\ndef main() -> Result[(), AllocError | IoError | SketchError | BytesError | OverflowError[i64] | OverflowError[u64] | ZeroDivisionError]:\n{indented}    Ok(())\n"
     )
 }
 
@@ -503,4 +503,250 @@ fn sizes_above_the_ceiling_trap() {
 fn zero_capacity_literal_is_rejected() {
     let error = support::check_file_error(&program("drop(sketch.quantiles(0))"));
     assert!(error.contains("Positive"), "{error}");
+}
+
+fn assert_both_modes(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("optimize={optimize}\n{error}\n{source}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "optimize={optimize}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let visible = stdout
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(visible.trim(), expected.trim(), "optimize={optimize}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn exact_observation_counts_at_u64_max_preserve_errors_and_state_both_modes() {
+    assert_both_modes(
+        &program(
+            r#"
+mut q = sketch.quantiles(1, 77u64)?
+q.add(3.0)?
+mut qwire = q.to_bytes()?
+mut f = sketch.frequent_items(1)?
+f.add(8u64)?
+mut fwire = f.to_bytes()?
+# Restore valid numerical states at MAX-1 without generating MAX observations.
+for at in range(12, 20):
+    qwire.set(at, 255u8)
+    fwire.set(at, 255u8)
+for at in range(36, 44):
+    fwire.set(at, 255u8)
+qwire.set(12, 254u8)
+fwire.set(12, 254u8)
+fwire.set(36, 254u8)
+mut fullq = sketch.quantiles_from_bytes(&qwire)?
+mut fullf = sketch.frequent_items_from_bytes(&fwire)?
+mut decrement = sketch.frequent_items_from_bytes(&fwire)?
+print("__test_begin_no_allocations__")?
+fullq.add(4.0)?
+fullf.add(8u64)?
+decrement.add(9u64)?
+qresult = fullq.add(5.0)
+fresult = fullf.add(8u64)
+dresult = decrement.add(9u64)
+nanresult = fullq.add(f64.NAN)
+upper = fullf.frequency(8u64).upper
+bounds = decrement.frequency(8u64)
+print("__test_end_no_allocations__")?
+print(fullq.count() == u64.MAX, fullf.count() == u64.MAX, decrement.count() == u64.MAX)?
+print(qresult == Result[(), SketchError].Err(SketchError.Limit), fresult == Result[(), SketchError].Err(SketchError.Limit), dresult == Result[(), SketchError].Err(SketchError.Limit))?
+print(nanresult == Result[(), SketchError].Err(SketchError.InvalidArgument), upper == u64.MAX, bounds.lower == u64.MAX - 2u64 and bounds.upper == u64.MAX - 1u64)?
+qbefore = fullq.to_bytes()?
+fbefore = fullf.to_bytes()?
+dbefore = decrement.to_bytes()?
+drop(fullq.add(5.0))
+drop(fullf.add(9u64))
+drop(decrement.add(9u64))
+print(fullq.to_bytes()?.to_list()? == qbefore.to_list()?, fullf.to_bytes()?.to_list()? == fbefore.to_list()?, decrement.to_bytes()?.to_list()? == dbefore.to_list()?)?
+print(fullf.candidates()?[0].upper == u64.MAX)?
+# A maximal decrement budget plus one retained count sums exactly to MAX.
+mut balanced = fbefore.copy()?
+for index in range(8):
+    balanced.set(20 + index, u8(((u64.MAX // 2u64) >> u64(index * 8)) & 255u64))
+    balanced.set(36 + index, 0u8)
+balanced.set(36, 1u8)
+restored = sketch.frequent_items_from_bytes(&balanced)?
+print(restored.count() == u64.MAX, restored.frequency(8u64).upper == u64.MAX // 2u64 + 1u64)?
+# Invalid checkpoint accounting must report InvalidData rather than wrap.
+balanced.set(36, 2u8)
+match sketch.frequent_items_from_bytes(&balanced):
+    case Err(SketchError.InvalidData):
+        print(True)?
+    case _:
+        print(False)?
+"#,
+        ),
+        "True True True\nTrue True True\nTrue True True\nTrue True True\nTrue\nTrue True\nTrue",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn malformed_maximum_filter_shapes_reject_before_allocation_both_modes() {
+    assert_both_modes(
+        &program(
+            r#"
+mut c = cuckoo.cuckoo(1, 1)?.to_bytes()?
+# initial=2^20, layers=25 has a representable geometric sum just below 2^45,
+# but exceeds the maximum permitted bucket budget (2^24).
+c.set(12, 0u8)
+c.set(15, 1u8)
+c.set(20, 0u8)
+c.set(22, 16u8)
+c.set(28, 25u8)
+keys: list[u64] = []?
+mut x = xor.build(&keys, 0)?.to_bytes()?
+# count=2^24, block=1+count//2; header is valid but storage is truncated.
+x.set(15, 1u8)
+x.set(22, 128u8)
+mut f = sketch.frequent_items(1)?.to_bytes()?
+for at in range(20, 28):
+    f.set(at, 255u8)
+print("__test_begin_no_allocations__")?
+a = cuckoo.from_bytes(&c, 1)
+b = xor.from_bytes(&x, 16777216)
+d = sketch.frequent_items_from_bytes(&f)
+print("__test_end_no_allocations__")?
+match a:
+    case Err(SketchError.InvalidData):
+        print(True)?
+    case _:
+        print(False)?
+match b:
+    case Err(SketchError.InvalidData):
+        print(True)?
+    case _:
+        print(False)?
+match d:
+    case Err(SketchError.InvalidData):
+        print(True)?
+    case _:
+        print(False)?
+"#,
+        ),
+        "True\nTrue\nTrue",
+    );
+}
+
+#[test]
+fn xor_production_positions_at_maximum_block_both_modes() {
+    // Exercise the actual multiply-high helper without allocating 25M slots.
+    let library = include_str!("../stdlib/std/sketch/xor.plenty");
+    let positions = library
+        .split_once("def positions(")
+        .unwrap()
+        .1
+        .split_once("\ndef fingerprint(")
+        .unwrap()
+        .0;
+    let body = r#"
+block = 8388609
+mut valid = True
+for hash in [0u64, 1u64, 4294967295u64, 4294967296u64, u64.MAX - 1u64, u64.MAX]?:
+    (a, b, c) = positions(hash, block)
+    valid = valid and a >= 0 and a < block and b >= block and b < block * 2 and c >= block * 2 and c < block * 3
+(a, b, c) = positions(u64.MAX, block)
+print(valid, a == block - 1 and b == block * 2 - 1 and c == block * 3 - 1)?
+(a0, b0, c0) = positions(0u64, 1)
+print(a0 == 0 and b0 == 1 and c0 == 2)?
+"#;
+    assert_both_modes(
+        &program(body).replacen(
+            "def main()",
+            &format!("def positions({positions}\ndef main()"),
+            1,
+        ),
+        "True True\nTrue",
+    );
+}
+
+#[test]
+fn sketch_reference_and_streaming_sketches_tutorial_examples_both_modes() {
+    let mut examples = 0;
+    for page in [
+        include_str!("../book/src/design/stdlib/sketch.md"),
+        include_str!("../book/src/design/stdlib/sketch-xor.md"),
+        include_str!("../book/src/design/stdlib/sketch-cuckoo.md"),
+        include_str!("../book/src/tutorial/07-modules/25-streaming-sketches.md"),
+    ] {
+        for example in page.split("```plenty\n").skip(1) {
+            let (source, rest) = example.split_once("```").unwrap();
+            let output = rest
+                .split_once("```output\n")
+                .unwrap()
+                .1
+                .split_once("```")
+                .unwrap()
+                .0;
+            assert_both_modes(source, output);
+            examples += 1;
+        }
+    }
+    assert_eq!(examples, 6);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn maximum_constructor_capacities_and_hll_rank_both_modes() {
+    assert_both_modes(
+        &program(
+            r#"
+mut h = sketch.hyperloglog(18)?
+mut q = sketch.quantiles(1048576)?
+mut f = sketch.frequent_items(65536)?
+mut c = cuckoo.cuckoo(1048576, 16777216, u64.MAX)?
+print("__test_begin_no_allocations__")?
+# This key cancels SplitMix64's additive constant, giving an all-zero hash.
+h.add(7046029254386353131u64)
+q.add(7.0)?
+f.add(u64.MAX)?
+receipt = c.insert(u64.MAX)?
+member = c.contains(u64.MAX)
+removed = c.remove(u64.MAX, receipt)?
+smallest = q.quantile(5e-324)?
+low_invalid = cuckoo.cuckoo(i64.MIN, 1)
+high_invalid = cuckoo.cuckoo(i64.MAX, 1)
+print("__test_end_no_allocations__")?
+hwire = h.to_bytes()?
+print(hwire.len() == 262164 and hwire[20] == 47u8, q.to_bytes()?.len() == 148, f.to_bytes()?.len() == 1048604)?
+print(member and removed and c.len() == 0u64, smallest == 7.0, f.frequency(u64.MAX).upper == 1u64)?
+match low_invalid:
+    case Err(SketchError.InvalidArgument):
+        print(True)?
+    case _:
+        print(False)?
+match high_invalid:
+    case Err(SketchError.InvalidArgument):
+        print(True)?
+    case _:
+        print(False)?
+"#,
+        ),
+        "True True True\nTrue True True\nTrue\nTrue",
+    );
 }

@@ -12,7 +12,7 @@ import std.sketch as sketch
 from std.sketch import SketchError
 from std.bytes import BytesError
 
-def main() -> Result[(), AllocError | IoError | SketchError | BytesError]:
+def main() -> Result[(), AllocError | IoError | SketchError | BytesError | ZeroDivisionError]:
     mut customers = sketch.hyperloglog(10)?
     mut latency = sketch.quantiles(128, seed=42u64)?
     mut frequent = sketch.frequent_items(16)?

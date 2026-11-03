@@ -4,7 +4,10 @@
 approximate-membership filter for u64 keys. Initial buckets must be a power of
 two between 1 and 1,048,576. The total bucket limit is at least that large; a
 limit above 16,777,216 traps. Each bucket has four two-byte fingerprints. Layers double
-geometrically; the caller's limit counts buckets across **all** layers.
+geometrically; the caller's limit counts buckets across **all** layers. The
+validated bucket budget bounds byte offsets and the live occurrence count
+(at most four occurrences per bucket); these sizes and counts do not wrap or
+saturate.
 
 `insert(key)` returns the **layer index** receiving that occurrence. Every call
 inserts an occurrence, including duplicates. `contains(key)` searches all

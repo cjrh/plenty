@@ -8,7 +8,7 @@ its serialized formats. Also see [xor filters](sketch-xor.md) and
 ```plenty
 from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
 
-def main() -> Result[(), SketchError | AllocError | IoError]:
+def main() -> Result[(), SketchError | AllocError | IoError | ZeroDivisionError]:
     mut users = hyperloglog()?
     mut latency = quantiles()?
     for i in range(10000):
@@ -84,7 +84,10 @@ original data can compute exact counts for these candidates.
 ## Errors and persistence
 
 `InvalidArgument` covers invalid configuration or nonfinite input. Count overflow
-returns `Limit` without accepting the update. Constructors, readers and updates
+returns `Limit` without accepting the update: these numerical counters stay exact,
+never wrap or saturate, and a rejected update leaves samples, extrema, RNG state
+and frequency bounds unchanged. Nonfinite quantile input is still
+`InvalidArgument`, even when the count is exhausted. Constructors, readers and updates
 that can also fail for another reason report allocation failure as
 `SketchError.Allocation(cause)`; `candidates()` and `to_bytes()` fail only to
 allocate and return `AllocError`. All allocation failures remain recoverable.
@@ -99,8 +102,9 @@ formats, not interchange formats with third-party sketch libraries.
 `quantiles_from_bytes(data, max_capacity: Positive[i64] = 1048576)`, and
 `frequent_items_from_bytes(data, max_capacity: Positive[i64] = 65536)` reject unknown versions,
 bad lengths, invalid state and trailing bytes. Pass a smaller caller limit when
-reading untrusted checkpoints. HLL and frequent-item readers take a
-`&[u8]` view; the quantile reader takes `Bytes` for validated float parsing.
+reading untrusted checkpoints. All three readers take a `&[u8]` view. Validated precision/capacity bounds
+keep checkpoint sizes and offsets representable; frequent-item accounting is
+validated against the serialized total before adding each counter.
 Formats are version-tagged: future incompatible formats need a new version and
 must not silently reinterpret these bytes. They contain no checksum or
 authentication; structurally valid corruption can change estimates.
