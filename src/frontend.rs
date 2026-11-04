@@ -50,6 +50,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod list_retag;
 mod mapping;
 mod modules;
 mod mutex;
@@ -638,6 +639,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__actor_run"
                 | "__actor_forget"
                 | "__report_write"
+                | list_retag::LIST_RETAG
                 | "__io_is_terminal"
                 | "flush_stdout"
                 | "flush_stderr"
@@ -1548,6 +1550,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if name == list_retag::LIST_RETAG && !self.names.contains_key(name) {
+                    return self.list_retag(types, args, &e.at, ops);
+                }
                 if name == crate::atomic::ATOMIC {
                     return self.atomic_new(Some(types), args, None, &e.at, ops);
                 }

@@ -203,10 +203,10 @@ type, because the runtime's shared printing, sorting, hashing and cleanup code
 reads the element type through it. A `list[Quantity[f64, D]]` stores plain
 8-byte `f64` rows; only its descriptor, and through it the unit symbol, differs
 from a `list[f64]`. Descriptors are static read-only data, so neither lists nor
-values allocate type information. Converting between the two list types
-without copying would therefore rewrite one header word and leave every
-element untouched. That conversion is part of the
-[remaining units work](../../../backlog.md#units-of-measure).
+values allocate type information. [`std.units.wrap_list` and
+`strip_list`](../../stdlib/units.md#lists) therefore convert between the two
+list types by rewriting one header word, leaving every element untouched. See
+the [remaining units work](../../../backlog.md#units-of-measure).
 
 Type and dimension errors include
 [scoped alias notes](dimensions.md#diagnostic-alias-notes), while debug formatting

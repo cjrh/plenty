@@ -237,6 +237,10 @@ pub enum CollectionOp {
     KeySetAlgebra(Arc<KeySetOperation>),
     KeyView(Ty),
     DictView(Ty, bool),
+    /// Consumed list -> the same list as another list type whose elements
+    /// share its row layout (a std.units quantity and its storage). Lowers to
+    /// one store of the new type descriptor in the list header.
+    ListRetag(Box<(Ty, Ty)>),
     KeyViewToSet(Ty),
     SetIsSuperset(Ty),
     SetIsDisjoint(Ty),
@@ -445,6 +449,7 @@ impl CollectionOp {
                 vec![Ty::Ref(Arc::new(t.clone()), false)],
                 Ty::DictView(Arc::new(t.clone()), *values),
             ),
+            ListRetag(types) => (vec![types.0.clone()], types.1.clone()),
             KeyView(t) => {
                 let Ty::Dict(key, _) = t else { unreachable!() };
                 (
@@ -986,6 +991,7 @@ impl CollectionOp {
             Self::SetIsSubset(_) => opcode::SET_IS_SUBSET,
             Self::KeySetRelation(op) | Self::KeySetAlgebra(op) => op.opcode,
             Self::KeyView(_) | Self::DictView(..) => unreachable!("dictionary views lower inline"),
+            Self::ListRetag(..) => unreachable!("list retags lower inline"),
             Self::KeyViewToSet(_) => opcode::KEY_VIEW_TO_SET,
             Self::SetIsSuperset(_) => opcode::SET_IS_SUPERSET,
             Self::SetIsDisjoint(_) => opcode::SET_IS_DISJOINT,

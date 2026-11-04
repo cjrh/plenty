@@ -184,6 +184,7 @@ impl CollectionOp {
             | SetIsSubset(_)
             | KeyView(_)
             | DictView(..)
+            | ListRetag(..)
             | KeyViewToSet(_)
             | KeySetRelation(..)
             | KeySetAlgebra(..)

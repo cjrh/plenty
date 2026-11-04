@@ -287,6 +287,15 @@ pub def mean[D: Dimension](items: &list[Quantity[f64, D]]) -> Option[Quantity[f6
         return Nothing
     Some(sum(items) / f64(len(items)))
 
+# Both consume the list and return it with the other element type: the rows
+# are identical, so only the list's type descriptor changes. No element is
+# read, copied or allocated.
+pub def wrap_list[D: Dimension](values: list[f64]) -> list[Quantity[f64, D]]:
+    __list_retag[list[Quantity[f64, D]]](values)
+
+pub def strip_list[D: Dimension](items: list[Quantity[f64, D]]) -> list[f64]:
+    __list_retag[list[f64]](items)
+
 pub def sqrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 2]], MathError]:
     Ok(Quantity[f64, Root[D, 2]](math.sqrt(x.get())?))
 

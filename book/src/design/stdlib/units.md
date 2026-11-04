@@ -203,6 +203,37 @@ def main() -> Result[(), IoError | AllocError | math.MathError]:
 12.0 m Option[Quantity[f64, std.units.Length]].Some(Quantity[f64, std.units.Length](4.0))
 ```
 
+## Lists
+
+| Function | Result | Contract |
+|---|---|---|
+| `wrap_list[D](values: list[f64])` | `list[Quantity[f64, D]]` | Consumes `values` and returns the same list with quantity elements |
+| `strip_list[D](items: list[Quantity[f64, D]])` | `list[f64]` | Consumes `items` and returns the same list with plain elements |
+
+Use these at the boundary with code that produces or expects plain numbers.
+Both are infallible and run in constant time: a quantity row is stored exactly
+as its `f64`, so the conversion replaces only the list's type descriptor. No
+element is read or copied, and nothing is allocated; see
+[representation](../language/03-types/quantities.md#representation-and-current-limits).
+`D` is given explicitly to `wrap_list` and inferred by `strip_list`:
+
+```plenty
+import std.units as u
+from std.units import Length, km
+
+def main() -> Result[(), IoError | AllocError]:
+    laps = u.wrap_list[Length]([400.0, 400.0, 1609.344]?)
+    total = u.sum(&laps)
+    print(f"{total.to(km):.3f} km"?)?
+    metres = u.strip_list(laps)
+    print(metres)?
+    Ok(())
+```
+```output
+2.409 km
+[400.0, 400.0, 1609.344]
+```
+
 ## Temperature and time
 
 | Function | Result | Contract |
@@ -247,9 +278,7 @@ True
 
 - Units and functions use `f64` storage. A quantity with `f32` storage
   converts with `Quantity[f32, D].from(q)`.
-- There are no list conversions between `list[f64]` and
-  `list[Quantity[f64, D]]` yet; they need compiler support to avoid copying.
-  See the [backlog](../../backlog.md#units-of-measure).
+- `wrap_list` and `strip_list` take `f64` storage only.
 - Named units are not printed: a joule prints as `kg*m^2/s^2`.
 - Generic functions that differ only in dimension compile to separate bodies.
 

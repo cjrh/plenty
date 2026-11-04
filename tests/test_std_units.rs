@@ -154,3 +154,80 @@ fn dimension_errors_name_std_units_aliases() {
     let error = check_error("    angle = u.sin(2.0 * m)?\n");
     assert!(error.contains("std.units.Length"), "{error}");
 }
+
+#[test]
+fn list_conversions_retag_the_list_in_place() {
+    let output = run(r#"    raw = [1.5, 2.0, 4.25]?
+    mut lengths = u.wrap_list[Length](raw)
+    lengths.append(3.0 * km)?
+    print(f"{lengths[0]} {lengths[3]} {u.sum(&lengths)} {len(lengths)}"?)?
+    print(f"{lengths!r}"?)?
+    back = u.strip_list(lengths)
+    print(back)?
+    empty = u.strip_list(u.wrap_list[Time](list[f64].new()?))
+    print(len(empty))?
+"#);
+    assert_eq!(
+        output,
+        "1.5 m 3000.0 m 3007.75 m 4\n\
+         [Quantity[f64, std.units.Length](1.5), Quantity[f64, std.units.Length](2.0), \
+         Quantity[f64, std.units.Length](4.25), Quantity[f64, std.units.Length](3000.0)]\n\
+         [1.5, 2.0, 4.25, 3000.0]\n\
+         0\n"
+    );
+}
+
+#[test]
+fn list_conversions_consume_their_argument() {
+    let error = check_error(
+        "    raw = [1.0].unwrap()\n    lengths = u.wrap_list[Length](raw)\n    print(raw).unwrap()\n",
+    );
+    assert!(error.contains("use of moved binding `raw`"), "{error}");
+    let error = check_error(
+        "    lengths = u.wrap_list[Length]([1.0].unwrap())\n    times: list[Quantity[f64, Time]] = u.wrap_list[Length]([1.0].unwrap())\n",
+    );
+    assert!(
+        error.contains(
+            "expected list[Quantity[f64, std.units.Time]], got list[Quantity[f64, std.units.Length]]"
+        ),
+        "{error}"
+    );
+    let error = check_error("    xs = __list_retag[list[f64]]([1.0].unwrap())\n");
+    assert!(
+        error.contains("`__list_retag` is reserved for the standard library"),
+        "{error}"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn list_conversions_allocate_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(
+        &source,
+        format!(
+            "{PRELUDE}def main() -> Result[(), AllocError | IoError]:\n    \
+             mut raw = list[f64].with_capacity(1000)?\n    \
+             for i in range(1000):\n        raw.append(f64(i))?\n    \
+             print(\"__test_begin_no_allocations__\")?\n    \
+             print(\"__test_fail_allocations_after_0__\")?\n    \
+             lengths = u.wrap_list[Length](raw)\n    \
+             back = u.strip_list(lengths)\n    \
+             print(\"__test_restore_allocations__\")?\n    \
+             print(\"__test_end_no_allocations__\")?\n    \
+             print(len(back))?\n    Ok(())\n"
+        ),
+    )
+    .unwrap();
+    let program = dir.path().join("program");
+    plenty::compile_file_to_executable(&source, &program, None).unwrap();
+    let output = Command::new(program).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.ends_with("1000\n"), "{stdout}");
+}
