@@ -46,7 +46,7 @@ protocol Sized:
         pass
 
 protocol Sink:
-    def put[S: Sized](self: &mut Sink, item: &S) -> i64:
+    def put[S: Sized](self: &mut Sink, item: &S) -> Result[i64, OverflowError[i64]]:
         pass
 
 class Crate:
@@ -69,18 +69,18 @@ enum Parcel:
 class Total:
     sum: i64
 
-    def put[T: Sized](self: &mut Total, item: &T) -> i64:
+    def put[T: Sized](self: &mut Total, item: &T) -> Result[i64, OverflowError[i64]]:
         self.sum += item.size()
-        self.sum
+        Ok(self.sum)
 
-def feed[K: Sink, S: Sized](sink: &mut K, item: &S) -> i64:
+def feed[K: Sink, S: Sized](sink: &mut K, item: &S) -> Result[i64, OverflowError[i64]]:
     sink.put(item)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut total = Total(0)
-    feed(&mut total, &Crate(3))
-    feed(&mut total, &Parcel.Letter)
-    print(feed(&mut total, &Parcel.Packet(4)))?
+    feed(&mut total, &Crate(3))?
+    feed(&mut total, &Parcel.Letter)?
+    print(feed(&mut total, &Parcel.Packet(4))?)?
     Ok(())
 ```
 ```output

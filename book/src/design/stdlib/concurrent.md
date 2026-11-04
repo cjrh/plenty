@@ -11,14 +11,14 @@ identity and add no allocation or wrapper. Supported target: x86_64 Linux GNU.
 ```plenty
 from std.concurrent import ThreadPoolExecutor, PoolError, FutureError, SubmitError
 
-def square(n: i64) -> i64:
-    n * n
+def square(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * n)
 
-def main() -> Result[(), AllocError | IoError | PoolError | FutureError | SubmitError[()]]:
+def main() -> Result[(), AllocError | IoError | PoolError | FutureError | SubmitError[()] | OverflowError[i64]]:
     with ThreadPoolExecutor(2, 4)? as pool:
         first = pool.submit(square, 7).drop_job()?
         second = pool.submit(square, 8).drop_job()?
-        print(first.result()?, second.result()?)?
+        print(first.result()??, second.result()??)?
     Ok(())
 ```
 ```output
@@ -46,6 +46,8 @@ latency. Map allocates outputs and uses a bounded work window; reduction costs
 and ordering are specified in its facility page.
 
 `Future[T].result()` consumes the future and returns `Result[T, FutureError]`.
+When a worker returns a Result, that is the success payload: the example's
+`??` handles the future error and then the worker's overflow error separately.
 Cancellation before execution yields `FutureError.Cancelled`; it never forcibly
 stops running code. `done()`, `cancel()`, and `wait_timeout_ms(timeout_ms)` observe
 the same state as the prelude methods. Use [`std.sync`](sync.md) tokens for

@@ -27,13 +27,23 @@ not found
 ```
 
 Use `Result[T, E]` when the absent result has an explanation. Its variants
-are `Ok(T)` and `Err(E)`. The return signature supplies both types:
+are `Ok(T)` and `Err(E)`. This example intentionally maps arithmetic errors
+to explanatory strings; a numeric API can instead preserve the builtin error
+types. The return signature supplies both types:
 
 ```plenty
 def divide(left: i64, right: i64) -> Result[i64, str]:
     if right == 0:
         return Err("division by zero")
-    Ok(left // right)
+    result = checked:
+        left // right
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(OverflowError(_)):
+            Err("quotient out of range")
+        case Err(ZeroDivisionError()):
+            Err("division by zero")
 
 def main() -> Result[(), AllocError | IoError]:
     for result in [divide(8, 2), divide(8, 0)]?:

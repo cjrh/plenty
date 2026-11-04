@@ -6,13 +6,13 @@ the first choice for repetition. This page explains recursion when a function
 naturally calls itself.
 
 ```plenty
-def sum_to(n: i64, total: i64) -> i64:
+def sum_to(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:
     if n <= 0:
-        return total
+        return Ok(total)
     sum_to(n - 1, total + n)
 
-def main() -> Result[(), IoError]:
-    print(sum_to(100, 0))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(sum_to(100, 0)?)?
     Ok(())
 ```
 
@@ -29,13 +29,13 @@ Returning a range also works: the result's storage belongs to the original
 caller and stays alive throughout the recursion.
 
 ```plenty
-def countdown(n: i64) -> range[i64]:
+def countdown(n: i64) -> Result[range[i64], OverflowError[i64]]:
     if n == 0:
-        return range(2, 5)
+        return Ok(range(2, 5))
     countdown(n - 1)
 
-def main() -> Result[(), IoError]:
-    print(countdown(1000))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(countdown(1000)?)?
     Ok(())
 ```
 
@@ -55,9 +55,9 @@ frame safely. For example, the following call borrows a local that needs that
 frame to stay alive:
 
 ```plenty-error
-def walk(value: &i64, remaining: i64) -> i64:
+def walk(value: &i64, remaining: i64) -> Result[i64, OverflowError[i64]]:
     if remaining == 0:
-        return *value
+        return Ok(*value)
     child = remaining - 1
     walk(child, remaining - 1)
 

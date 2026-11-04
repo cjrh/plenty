@@ -94,10 +94,11 @@ def main() -> Result[(), IoError]:
   and yields an ordinary suite value, not a `Result`. It never silently wraps.
   Keep opt-outs small and document their bounds.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
-- Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
+- Float arithmetic stays IEEE: overflow may produce infinity and division by
+  zero may produce infinity or NaN. For recoverable zero division,
+  `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
 
 See [numbers](../language/03-types/numbers.md#checked-blocks) and
-
 [assignment](../language/04-expressions/assignment.md).
 
 ## Text

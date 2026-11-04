@@ -27,7 +27,7 @@ pub def pop(xs: &mut Linked) -> Option[i64]:
         case Nothing:
             Nothing
 
-pub def bump(xs: &mut Linked) -> ():
+pub def bump(xs: &mut Linked) -> Result[(), OverflowError[i64]]:
     match &mut xs.head:
         case Some(head):
             mut cursor: &mut Node = head
@@ -40,16 +40,17 @@ pub def bump(xs: &mut Linked) -> ():
                         break
         case Nothing:
             pass
+    Ok(())
 ```
 
 ```plenty
 from linked import Linked, push, pop, bump
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = Linked(Nothing)
     for value in range(1, 4):
         push(&mut xs, value)?
-    bump(&mut xs)
+    bump(&mut xs)?
     print(pop(&mut xs))?
     print(pop(&mut xs))?
     print(pop(&mut xs))?
@@ -66,8 +67,9 @@ Option[i64].Nothing
 
 `cursor` advances by borrowing from its current referent. It does not create
 stored references or require a recursive call. Pop and this traversal allocate
-nothing. Each successful push allocates one box; its failure destroys the
-incoming value, not the existing chain.
+nothing. `bump` propagates overflow and retains increments already performed;
+it does not roll back the chain. Each successful push allocates one box; its
+failure destroys the incoming value, not the existing chain.
 
 This is a teaching module with public links, not a packaged collection that
 enforces an abstract API. Use a contiguous list for an ordinary stack unless

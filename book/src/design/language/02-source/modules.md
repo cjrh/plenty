@@ -136,7 +136,7 @@ const FIRST: Positive[i64] = PAGE
 assert PAGE.get() <= 1024
 
 def pages(size: Positive[i64] = PAGE) -> i64:
-    MAX_URL.get() // size.get()
+    MAX_URL.get() // size
 
 def main() -> Result[(), IoError]:
     print(pages(), pages(FIRST), MAX_URL)?
@@ -158,7 +158,7 @@ no code.
 const PAGE: i64 = 4096
 assert PAGE % 64 == 0, "pages hold whole cache lines"
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     print(PAGE // 64)?
     Ok(())
 ```

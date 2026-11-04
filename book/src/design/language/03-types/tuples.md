@@ -42,13 +42,14 @@ element the same way, as described under
 [iterable values](../09-iteration/01-iterables.md).
 
 ```plenty
-def bump(p: &mut (i64, str)) -> ():
+def bump(p: &mut (i64, str)) -> Result[(), OverflowError[i64]]:
     n, _ = p
     *n += 1
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut pair = (1, "one")
-    bump(&mut pair)
+    bump(&mut pair)?
     n, s = &pair
     print(*n, s)?
     Ok(())

@@ -84,19 +84,19 @@ If several members have the same arity, bind one with a typed member pattern
 before matching its components.
 
 ```plenty
-def combine(left: Option[i64], right: Option[i64]) -> i64:
+def combine(left: Option[i64], right: Option[i64]) -> Result[i64, OverflowError[i64]]:
     match (left, right):
         case (Some(a), Some(b)):
-            a + b
+            Ok(a + b)
         case (Some(a), Nothing):
-            a
+            Ok(a)
         case (Nothing, Some(b)):
-            b
+            Ok(b)
         case (Nothing, Nothing):
-            0
+            Ok(0)
 
-def main() -> Result[(), IoError]:
-    print(combine(Some(2), Some(3)))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(combine(Some(2), Some(3))?)?
     Ok(())
 ```
 ```output
@@ -122,14 +122,14 @@ class Point:
     x: i64
     y: i64
 
-def axis(p: Point) -> i64:
+def axis(p: Point) -> Result[i64, OverflowError[i64]]:
     match p:
         case Point(0, y):
-            y
+            Ok(y)
         case Point(x=x, y=0):
-            x
+            Ok(x)
         case Point(x, y):
-            x + y
+            Ok(x + y)
 ```
 
 The rules have no exceptions:
@@ -266,10 +266,10 @@ position:
 | `return match value:` | returns from the function |
 
 ```plenty fragment
-def area(shape: Shape) -> i64:
+def area(shape: Shape) -> Result[i64, OverflowError[i64]]:
     side: i64 = match shape:
         case Shape.Dot:
-            return 0
+            return Ok(0)
         case Shape.Circle(side):
             side
         case Shape.Rect(width, height):
@@ -277,7 +277,7 @@ def area(shape: Shape) -> i64:
                 width
             else:
                 height
-    side * side
+    Ok(side * side)
 ```
 
 The statement ends with the last case; nothing follows the block on its line.

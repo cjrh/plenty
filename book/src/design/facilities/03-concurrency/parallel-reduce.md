@@ -20,8 +20,12 @@ calls from different rounds can overlap in time.
 This reassociates operations rather than performing a left fold. Floating-point
 results can differ from serial accumulation; pure workers produce the same result
 for the same input and target across pool sizes. Effect order is unspecified.
-Workers must not depend on another pair being scheduled. Integer overflow and
-traps retain ordinary language behavior.
+Workers must not depend on another pair being scheduled. Workers retain their
+[own arithmetic contracts](../../language/03-types/numbers.md#function-arithmetic-contracts).
+This API requires `(T, T) -> T`, not a fallible combining callback: general
+integer addition cannot satisfy it without local recovery or a justified,
+explicit arithmetic opt-out. Fallible combining callbacks are not supported;
+a caller's `checked:` or `unchecked:` mode does not change that.
 A [parallel pipeline's](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
 `reduce` groups by chunk instead, so its result can depend on the chunk count;
 use `reduce_tree` when one grouping is needed for every pool. Unlike

@@ -46,17 +46,30 @@ variant is a mapper, as in `print(line).map_error(AppError.Io)?`. The
 changes the propagation rule.
 
 ```plenty
-def checked_first(values: &list[i64]) -> Option[i64]:
-    Some(values.get(0)? + 1)
+def first(values: &list[i64]) -> Option[i64]:
+    Some(values.get(0)?)
 
-def main() -> Result[(), AllocError | IoError]:
+def checked_first(values: &list[i64]) -> Result[Option[i64], OverflowError[i64]]:
+    match first(values):
+        case Some(value):
+            Ok(Some(value + 1))
+        case Nothing:
+            Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [3]?
-    print(checked_first(&values))?
+    print(checked_first(&values)?)?
     Ok(())
 ```
 ```output
 Option[i64].Some(4)
 ```
+
+Here `first` is a focused demonstration of Option propagation; an ordinary
+first-element lookup can simply return `values.get(0)`. Absence and arithmetic
+failure are distinct: `checked_first` returns `Ok(Nothing)` for an empty list
+and propagates overflow as `Err`, never as absence. `?` does not implicitly
+convert Option to Result.
 
 Propagation may appear in arguments, conditions, loops, and comprehensions.
 It composes with other postfix operations: `values?[0]` indexes the unwrapped

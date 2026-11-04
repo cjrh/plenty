@@ -407,7 +407,7 @@ def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
 count 1
 gone
 count 1
-service std.actor.Exit[AllocError | IoError].Stopped
+service std.actor.Exit[AllocError | IoError | OverflowError[i64]].Stopped
 1 1
 ```
 

@@ -35,9 +35,9 @@ one argument's literal width from another.
 
 Explicit casts use numeric type names, for example `u8(200)`. A cast to an
 integer type requires the target to represent the value. An integer keeps its
-mathematical value; one outside the target's range is a runtime error, as
-arithmetic overflow is. This covers narrowing, a negative value cast to an
-unsigned type, and an unsigned value above a signed type's maximum. A float is
+mathematical value; one outside the target's range traps, unlike the default
+recoverable integer arithmetic errors. This covers narrowing, a negative value
+cast to an unsigned type, and an unsigned value above a signed type's maximum. A float is
 truncated toward zero first: `u8(255.9)` is `255` and `u8(-0.9)` is `0`. A float
 whose truncated value is outside the target's range, an infinity, or NaN is the
 same runtime error. The message is `integer cast out of range`.
@@ -145,10 +145,9 @@ not range analysis. Locally handled errors do not have to appear in the
 function's error type. Generators cannot propagate function-level arithmetic
 errors: handle a local checked result or explicitly opt out.
 
-> Adoption is incomplete: the compiler implements this boundary, but the
-> coordinated std API, callback-consumer and repository example migration in
-> [B14](../../../backlog.md) is still outstanding. Some existing std
-> specializations and examples therefore fail to type-check.
+> Coordinated repository adoption under [B14](../../../backlog.md) remains in
+> progress. Public contracts are explicit: do not assume that an arbitrary
+> callback consumer accepts a Result-returning callback.
 
 ## Unchecked blocks
 
@@ -217,9 +216,9 @@ def halve_sum(a: i64, b: i64) -> i64:
         case Ok(half):
             half
         case Err(OverflowError(wrapped)):
-            # The recovery computation has its own arithmetic contract.
-            unchecked:
-                wrapped // 2
+            # A positive divisor rules out zero and MIN // -1.
+            two: Positive[i64] = 2
+            wrapped // two
         case Err(ZeroDivisionError()):
             0
 ```
@@ -246,9 +245,9 @@ being caught by the block.
 Integer [`std.math` reductions](../../stdlib/math.md) and serial pipeline
 `sum()` return public overflow results; float reductions stay infallible.
 [`sort_by_key`](../../facilities/01-builtins/lists.md) accepts ordinary
-fallible key callbacks and returns their error. Other std implementations and
-parallel reductions still require their coordinated B14 migration. Do not
-assume a call inherits local checking or that an infallible callback signature
+fallible key callbacks and returns their error. Other callback consumers
+require their own explicitly fallible contracts. Do not assume a call inherits
+local checking or that an infallible callback signature
 can accept recoverable arithmetic.
 
 Control flow is otherwise unchanged. `?` inside the block exits the function,
@@ -287,13 +286,13 @@ returns `Result[NonZero[T], RangeError]` and fails with
 integer back.
 
 ```plenty
-def per_group(total: i64, groups: NonZero[i64]) -> i64:
-    total // groups
+def per_group(total: i64, groups: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(total // groups)
 
-def main() -> Result[(), IoError | RangeError]:
+def main() -> Result[(), IoError | RangeError | OverflowError[i64]]:
     three: NonZero[i64] = 3
-    print(per_group(12, three))?
-    print(per_group(12, -4))?
+    print(per_group(12, three)?)?
+    print(per_group(12, -4)?)?
     count = 5
     five = NonZero.try_from(count)?
     print(five * three, five + three, five > three)?
@@ -365,7 +364,7 @@ domain.
 def configured(value: i64) -> Result[Positive[i64], RangeError]:
     Positive.try_from(value)
 
-def main() -> Result[(), IoError | RangeError]:
+def main() -> Result[(), IoError | RangeError | OverflowError[i64]]:
     size: Positive[i64] = 3
     limit: NonNegative[i64] = 0
     print(size + 2, size * 2, size - size, -size, limit)?

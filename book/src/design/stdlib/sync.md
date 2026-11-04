@@ -77,15 +77,17 @@ class Stats:
     count: i64
     total: i64
 
-def record(stats: &Mutex[Stats], value: i64) -> ():
+def record(stats: &Mutex[Stats], value: i64) -> Result[(), OverflowError[i64]]:
     with stats.lock() as data:
         data.count = data.count + 1
         data.total = data.total + value
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     stats = Mutex[Stats](Stats(0, 0))
-    with spawn(record, &stats, 3)?, spawn(record, &stats, 4)?:
-        pass
+    with spawn(record, &stats, 3)? as first, spawn(record, &stats, 4)? as second:
+        first.join()?
+        second.join()?
     final = stats.into_inner()
     print(final.total)?
     Ok(())
@@ -93,6 +95,10 @@ def main() -> Result[(), SpawnError[()] | IoError]:
 ```output
 7
 ```
+
+The explicit joins handle each worker's arithmetic Result; merely leaving a
+spawn scope waits for completion but does not propagate the worker's error.
+An arithmetic failure unlocks the mutex on exit, retaining earlier mutations.
 
 | Operation | Result | Effect |
 |---|---|---|

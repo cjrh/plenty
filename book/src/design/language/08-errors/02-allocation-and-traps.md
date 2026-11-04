@@ -34,12 +34,16 @@ No public allocator switching or custom-memory-manager API is exposed.
 
 `value.unwrap()` extracts a success payload without allocation, moving it
 when owned. `Err` or `Nothing` deliberately traps. Invalid indexing, absent
-dictionary keys in indexed access, integer overflow, division by zero, a
-numeric cast to an integer type that cannot represent the value, invalid range
-parameters, and an empty `split` separator are also fatal runtime errors;
-optional lookups provide recoverable absence where supported, and integer
-arithmetic written inside a [`checked:` block](../03-types/numbers.md#checked-blocks)
-returns overflow and division by zero as `Err`. Traps terminate
+dictionary keys in indexed access, a numeric cast to an integer type that
+cannot represent the value, invalid range parameters, and an empty `split`
+separator are also fatal runtime errors. Optional lookups provide recoverable
+absence where supported. Integer overflow and division by zero return `Err`
+from the [function's declared Result](../03-types/numbers.md#function-arithmetic-contracts)
+by default, or from a local [`checked:` block](../03-types/numbers.md#checked-blocks).
+Only an explicit [`unchecked:` suite](../03-types/numbers.md#unchecked-blocks)
+selects arithmetic traps for source operators. Explicitly trapping primitives
+such as [atomic fetch operations](../../stdlib/atomic.md) retain their contracts.
+Traps terminate
 the process without unwinding language scopes. They are not caught by Result
 propagation or resource scopes.
 
@@ -93,8 +97,8 @@ thread the report has no position.
 
 | Trap | Message |
 |---|---|
-| Integer overflow in `+`, `-`, `*`, `//`, `pow`, or negation, outside a `checked:` block | `integer overflow` |
-| `//` or `%` by zero, outside a `checked:` block | `division by zero` |
+| Integer overflow in `+`, `-`, `*`, `//`, `pow`, or negation, inside `unchecked:` | `integer overflow` |
+| `//` or `%` by zero, inside `unchecked:` | `division by zero` |
 | Integer `pow` with a negative exponent | `negative integer exponent` |
 | Shift count negative or not below the integer width | `shift count outside integer width` |
 | Numeric cast to an integer type that cannot represent the value | `integer cast out of range` |

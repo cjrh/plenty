@@ -25,7 +25,7 @@ A worker sums messages until the sender's scope drops it:
 from std.channel import channel, Receiver, SendError
 from std.thread import spawn, SpawnError
 
-def total(inbox: Receiver[i64]) -> i64:
+def total(inbox: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     while True:
         match inbox.recv():
@@ -33,15 +33,15 @@ def total(inbox: Receiver[i64]) -> i64:
                 sum += value
             case Err(_):
                 break
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | SendError[i64] | SpawnError[()] | IoError]:
+def main() -> Result[(), AllocError | SendError[i64] | SpawnError[()] | IoError | OverflowError[i64]]:
     sender, inbox = channel[i64](2)?
     with spawn(total, inbox).drop_job()? as task:
         with sender as outbox:
             for n in range(1, 6):
                 outbox.send(n * 10)?
-        print(task.join())?
+        print(task.join()?)?
     Ok(())
 ```
 ```output

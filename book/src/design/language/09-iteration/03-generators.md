@@ -11,7 +11,9 @@ def numbers(stop: i64) -> Generator[i64]:
     mut value = 0
     while value < stop:
         yield value
-        value = value + 1
+        # value starts at zero and value < stop <= i64.MAX.
+        unchecked:
+            value = value + 1
 
 def main() -> Result[(), IoError]:
     for value in numbers(3):
@@ -29,7 +31,11 @@ fallthrough. Yield types are exact and owned payloads transfer to the caller.
 Reference, generator, closure, and unit yields are rejected; a generator body
 cannot return a value. An ordinary factory without `yield` may return another
 frame by moving it. `?` is unsupported in a generator body; match fallible results
-explicitly.
+explicitly. Recoverable arithmetic failures cannot propagate from a generator:
+handle a
+local [`checked:` result](../03-types/numbers.md#checked-blocks), call a helper
+that returns a `Result` and yield or match it, or use a small `unchecked:` suite
+with a documented bound.
 
 `next(&mut g) -> Option[T]` borrows a mutable generator owner or reborrows an
 exclusive generator reference. `next(g)` is shorthand for named bindings and
@@ -83,7 +89,9 @@ frame follows the specialization, suspension and cleanup rules above.
 The outer source evaluates once at creation; inner sources, filters, and the
 element expression run only as the frame advances. A range outer source is
 stored in the frame and advances as a [counted loop](01-iterables.md). A sole call argument can
-omit parentheses: `list(n * n for n in range(4))`. With other arguments,
+omit parentheses: `list(n for n in range(4))`. Arithmetic in an element or
+filter follows the same generator restriction; a Result-returning helper may
+produce Result items. With other arguments,
 parenthesize the generator expression.
 
 Inputs and referenced enclosing local values copy or move into the frame at

@@ -55,7 +55,7 @@ written or computed. A nonzero integer literal converts implicitly, and a litera
 reports a zero step as `RangeError`:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64] | ZeroDivisionError]:
     xs = [0, 1, 2, 3, 4, 5]?
     step = NonZero.try_from(len(xs) // 2)?
     print(xs[::step]?)?
@@ -132,15 +132,15 @@ them exclusively (issue #581). A view copies nothing and allocates nothing, so i
 needs no `?`. Use one to pass part of a list or buffer to a function:
 
 ```plenty
-def total(values: &[i64]) -> i64:
+def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in values:
         sum += *x
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4, 5]?
-    print(total(&xs[1:4]))?
+    print(total(&xs[1:4])?)?
     tail = &mut xs[-2:]
     tail[0] = 40
     for x in &mut xs[:2]:
@@ -189,7 +189,8 @@ and before passing an exclusive view of it.
 
 ```plenty
 def even(x: &i64) -> bool:
-    *x % 2 == 0
+    two: NonZero[i64] = 2
+    *x % two == 0
 
 def main() -> Result[(), AllocError | IoError]:
     xs = [1, 2, 3, 4, 5]?
@@ -231,19 +232,19 @@ copies nothing and allocates nothing. Expected view types are parameters,
 including a generic `&[T]`, and annotated locals:
 
 ```plenty
-def total(values: &[i64]) -> i64:
+def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in values:
         sum += *x
-    sum
+    Ok(sum)
 
 def width(data: &[u8]) -> i64:
     len(data)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = [1, 2, 3]?
     whole: &[i64] = &xs
-    print(total(&xs), total(&xs[1:]), total(whole), width(b"abc"))?
+    print(total(&xs)?, total(&xs[1:])?, total(whole)?, width(b"abc"))?
     Ok(())
 ```
 
@@ -275,17 +276,17 @@ text clamp. A view therefore always starts and ends on a scalar boundary, and
 `s[a:b]? == &s[a:b]` for any `a` and `b`.
 
 ```plenty
-def vowels(text: &substr) -> i64:
+def vowels(text: &substr) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c in "aeiouéö":
             n += 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "héllo, wörld"
     word = &s[7:]
-    print(word, len(word), word.byte_len(), vowels(&s[:5]))?
+    print(word, len(word), word.byte_len(), vowels(&s[:5])?)?
     print(word == "wörld", &s[:1] < word, "ör" in word, word.find("l"))?
     for c in reversed(&word[1:3]):
         print(c)?

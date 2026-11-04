@@ -73,7 +73,7 @@ arithmetic without one hook per operator:
 class Metres:
     value: i64
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut total = Metres(3) + Metres(4)
     total *= Metres(2)
     print(total, -total, total > Metres(10))?
@@ -108,7 +108,7 @@ Reflected hooks apply only to mixed operand types, so they never compete with
 forwarding.
 
 Each operand is evaluated once, left to right, and borrowed as a hook operand
-would be; forwarding never moves or copies the wrapper. Overflow traps,
+would be; forwarding never moves or copies the wrapper. Overflow errors,
 division rules, allocation failure, and other errors are those of the wrapped
 operation. An operator the field type rejects is rejected with the field
 type's diagnostic: a `list[i64]` wrapper has no `+`, and an `f64` wrapper has
@@ -183,11 +183,13 @@ Custom truthiness, indexing, membership, assignment, dereference, `**`, and
 `@` operators are not implemented; their Python hooks are
 [reserved](#reserved-method-names).
 `and`, `or`, and `not` keep their boolean and short-circuit rules. Numeric
-operators retain their existing overflow checks and division rules. Inside a
-[`checked:` block](../03-types/numbers.md#checked-blocks), operators a newtype
-forwards to an integer field are checked like the field's own, and report
-`OverflowError` of the field type; a user-defined hook is an ordinary call and
-is not checked.
+operators retain their overflow checks and division rules. Operators a newtype
+forwards to an integer field report `OverflowError` of the field type through
+the [function's declared Result](../03-types/numbers.md#function-arithmetic-contracts)
+by default, through a local [`checked:` block](../03-types/numbers.md#checked-blocks),
+or as a trap in `unchecked:`, just like the field's own operators. A user-defined
+hook is an ordinary call with its own declared contract, independent of the
+caller's mode; a fallible hook still needs explicit Result handling.
 
 
 See the [operator tutorial](../../../tutorial/06-data/operators.md),

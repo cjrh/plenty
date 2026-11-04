@@ -41,25 +41,23 @@ The [callable contract](../../language/06-functions/index.md) defines permitted
 captures, storage, and invocation; the [generator contract](../../language/09-iteration/index.md)
 defines suspension and lifetime restrictions.
 
-## Lexical checked callbacks
+## Arithmetic boundaries and callbacks
 
-A closure created in `checked:` has its source-level callable signature and a
-private native `Result` return channel for its arithmetic failures. Concrete
-callback specializations propagate that channel without checking their own
-arithmetic. `CheckedFunction` wraps their logical return value in success;
-`CheckedUnwrap` forwards a private error to the nearest active block, using the
-same operand and local cleanup paths as checked arithmetic. A declared
-`Result` returned by a callback remains the success payload, so explicit
-errors and `?` keep their source-level meaning. Ordinary calls retain their ABI.
+Every named function and closure has an independent declared return contract.
+The frontend's `CheckedFunction` operation gives arithmetic failures a shared
+exit through that public `Result`; it does not wrap successful source returns.
+An explicit `checked:` expression instead constructs its own local `Result`.
+`unchecked:` selects trapping operators only for its lexical suite. Nested
+function definitions start their own recoverable boundary in either mode.
+See [function arithmetic contracts](../../language/03-types/numbers.md#function-arithmetic-contracts).
 
-Checked closures stay scoped; erasure and asynchronous storage are rejected.
-Pipeline literal substitution is disabled for them, so expression shape does
-not decide failure semantics. Ordinary substituted callbacks and builtin sum
-accumulation suppress the consumer's arithmetic-checking context. A plan defers
-its callback failure cleanup until consumption, so locals created after an
-adapter and terminal accumulators are included. Lending relocates the plan's
-state and binds failures to the borrower's scope; its exit guard restores lent
-state before an error returns to the lender.
+There is no private callback error channel, `CheckedUnwrap` operation, or
+checked-block lifetime restriction. Ordinary calls, generic callback consumers,
+and substituted pipeline callbacks preserve the callback's declared `Result`
+and its normal ownership rules. Consumers must handle fallible callbacks
+explicitly; a caller's arithmetic mode never changes a callee's ABI.
+Serial integer pipeline `sum()` also has a public overflow Result, rather
+than inheriting the consumer's local mode.
 
 Runtime key sorting uses one caller-owned first-error cell per invocation.
 A failed key evaluation saves its error, releases earlier keys, and returns an

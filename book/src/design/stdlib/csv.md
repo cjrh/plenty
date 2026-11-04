@@ -15,7 +15,7 @@ import std.csv
 import std.io
 from std.csv import Newline
 
-def main() -> Result[(), AllocError | IoError | ParseError | std.bytes.BytesError | std.csv.CsvError]:
+def main() -> Result[(), AllocError | IoError | ParseError | std.bytes.BytesError | std.csv.CsvError | OverflowError[i64]]:
     text = "item,price\r\npen,3\r\n\"book, large\",12\r\n"
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &std.csv.rfc4180(), 4096)?
     mut record = std.csv.record()?
