@@ -311,6 +311,10 @@ pub enum CollectionOp {
     ViewItem(Ty, bool),
     /// Two shared views of one type -> whether their elements are equal.
     ViewEqual(Ty),
+    /// Exclusive view, two indices -> (): exchanges two rows in place, as
+    /// `list.swap` does (issue #729). Both indices are checked before either
+    /// row moves; scalar rows move inline, others through the runtime.
+    ViewSwap(Ty),
     /// Internal to `.par`: first-row address, row size, in-bounds index ->
     /// the owned element, leaving an empty row so the list's drop skips it.
     /// The index is not checked.
@@ -883,6 +887,7 @@ impl CollectionOp {
                 )
             }
             ViewEqual(view) => (vec![view.clone(), view.clone()], Ty::Bool),
+            ViewSwap(view) => (vec![view.clone(), Ty::I64, Ty::I64], Ty::Unit),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -1113,6 +1118,7 @@ impl CollectionOp {
             | Self::ViewRow(..)
             | Self::ViewItem(..)
             | Self::ViewEqual(_)
+            | Self::ViewSwap(_)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {

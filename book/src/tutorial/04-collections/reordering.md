@@ -72,6 +72,25 @@ def main() -> Result[(), AllocError | IoError]:
 
 The rows are exchanged where they are. Nothing is copied.
 
+An exclusive [slice view](element-borrows.md#borrow-part-of-a-list) has the same
+`swap`, so a function can reorder part of a list. Its indices count within the
+view:
+
+```plenty
+def ends(values: &mut [i64]) -> ():
+    values.swap(0, -1)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [70, 85, 90, 65, 88]?
+    ends(&mut scores[1:4])
+    print(scores)?
+    Ok(())
+```
+
+```output
+[70, 65, 90, 85, 88]
+```
+
 ## Assign several targets at once
 
 An assignment can name several targets, separated by commas. The whole right

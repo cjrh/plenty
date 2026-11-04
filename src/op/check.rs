@@ -343,6 +343,7 @@ fn step(
                 | crate::collection::CollectionOp::ViewRow(ty, _)
                 | crate::collection::CollectionOp::ViewItem(ty, _)
                 | crate::collection::CollectionOp::ViewEqual(ty)
+                | crate::collection::CollectionOp::ViewSwap(ty)
                     if !matches!(ty, Ty::View(..)) =>
                 {
                     return Err("view operations require a slice view".into());
@@ -350,6 +351,9 @@ fn step(
                 crate::collection::CollectionOp::ViewRow(Ty::View(_, false), true)
                 | crate::collection::CollectionOp::ViewItem(Ty::View(_, false), true) => {
                     return Err("a shared slice view cannot lend a mutable row".into());
+                }
+                crate::collection::CollectionOp::ViewSwap(Ty::View(_, false)) => {
+                    return Err("swapping view rows requires an exclusive view".into());
                 }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarGetView(ty)

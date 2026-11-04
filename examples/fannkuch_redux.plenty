@@ -36,12 +36,8 @@ def flips(perm: &[i64], scratch: &mut [i64]) -> i64:
         # Reverse scratch[0..=first]; the old first element lands at `first`.
         mut lo = 1
         mut hi = first - 1
-        # Indexed assignment, not `scratch.swap`, which is a runtime call
-        # (issue #714).
         while lo < hi:
-            t = scratch[lo]
-            scratch[lo] = scratch[hi]
-            scratch[hi] = t
+            scratch.swap(lo, hi)
             lo += 1
             hi -= 1
         next = scratch[first]

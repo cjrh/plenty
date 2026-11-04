@@ -243,6 +243,89 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// Issue #729: `swap` on an exclusive view keeps `list.swap`'s contract for
+/// scalar and managed rows: indices count from the view's start or end, and
+/// equal indices leave the view unchanged.
+#[test]
+fn exclusive_views_swap_rows_in_place() {
+    support::assert_stdout(
+        r#"
+class Guard:
+    id: i64
+    def __del__(self) -> ():
+        print(self.id).unwrap()
+
+def reverse(v: &mut [i64]) -> ():
+    mut lo = 0
+    mut hi = len(v) - 1
+    while lo < hi:
+        v.swap(lo, hi)
+        lo += 1
+        hi -= 1
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4, 5, 6]?
+    reverse(&mut xs[1:5])
+    v = &mut xs[:]
+    v.swap(0, -1)
+    v.swap(-3, -3)
+    v.swap(v[5] + 1, len(v) - 1)
+    print(xs)?
+    mut ys = [1, 2, 3, 4]?
+    m = 2
+    left = &mut ys[:m]
+    right = &mut ys[m:]
+    left.swap(0, 1)
+    right.swap(-1, 0)
+    print(ys)?
+    mut small: list[u8] = [1, 2, 3]?
+    (&mut small[1:]).swap(0, 1)
+    mut halves: list[f32] = [1.5f32, -0.0f32]?
+    (&mut halves[:]).swap(0, 1)
+    mut flags = [True, False, False]?
+    (&mut flags[:2]).swap(-1, 0)
+    print(small, halves, flags)?
+    mut words = ["pear tree", "fig", ("app" + "le tree")?]?
+    w = &mut words[1:]
+    w.swap(0, 1)
+    mut pairs = [(1, "a"), (2, "b")]?
+    (&mut pairs[:]).swap(1, 0)
+    mut rows = [[1]?, [2, 3]?]?
+    (&mut rows[:]).swap(0, -1)
+    mut maybe = [Some("x"), Nothing]?
+    (&mut maybe[:]).swap(0, 1)
+    print(words, pairs, rows, maybe)?
+    mut guards = [Guard(1), Guard(2), Guard(3)]?
+    (&mut guards[:]).swap(0, 2)
+    print("swapped")?
+    drop(guards)
+    Ok(())
+"#,
+        concat!(
+            "[6, 5, 1, 3, 2, 4]\n",
+            "[2, 1, 4, 3]\n",
+            "[1, 3, 2] [-0.0, 1.5] [False, True, False]\n",
+            "[\"pear tree\", \"apple tree\", \"fig\"] [(2, \"b\"), (1, \"a\")] [[2, 3], [1]] [Option[str].Nothing, Option[str].Some(\"x\")]\n",
+            "swapped\n3\n2\n1\n",
+        ),
+    );
+}
+
+#[rstest]
+#[case("v.swap(0, 2)", "index out of bounds: index 2, length 2")]
+#[case("v.swap(-3, 0)", "index out of bounds: index -3, length 2")]
+#[case("v.swap(1, -3)", "index out of bounds: index -3, length 2")]
+#[case("w.swap(0, 2)", "index out of bounds: index 2, length 2")]
+fn view_swap_traps_on_an_index_outside_the_view(#[case] call: &str, #[case] expected: &str) {
+    let output = support::run(&format!(
+        "def main() -> Result[(), AllocError | IoError]:\n    mut xs = [1, 2, 3]?\n    mut words = [\"a\", \"b\", \"c\"]?\n    v = &mut xs[1:]\n    w = &mut words[:2]\n    {call}\n    print(xs)?\n    Ok(())\n"
+    ));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(expected), "{stderr}");
+    assert!(output.stdout.is_empty());
+}
+
 #[test]
 fn byte_views_share_one_element_type() {
     support::assert_stdout(
@@ -484,6 +567,34 @@ def main() -> Result[(), AllocError | IoError]:
     "a slice view has no method `count`"
 )]
 #[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nv.swap(0, 1)",
+    "a shared slice view is read-only, so it has no `swap`; take an exclusive view with `&mut xs[a:b]`"
+)]
+#[case(
+    "def f(v: &[str]) -> ():\n    v.swap(0, 1)",
+    "a shared slice view is read-only, so it has no `swap`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\n(&v).swap(0, 1)",
+    "a shared slice view is read-only, so it has no `swap`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.swap(0)",
+    "swap requires two i64 indices"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.swap(0, 1.0)",
+    "expected i64, got f64"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.sort()",
+    "a slice view has no method `sort`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nw = &xs[:]\nv.swap(0, 1)\nprint(w).unwrap()",
+    "conflicting borrow"
+)]
+#[case(
     "xs = [1, 2, 3].unwrap()\nv = &xs[::2]",
     "a slice view selects adjacent elements, so it takes no step"
 )]
@@ -550,6 +661,9 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
         sum += 100
     tail = &mut buffer[1:]
     tail[0] = 66
+    tail.swap(0, 0)
+    (&mut xs[2:]).swap(0, -1)
+    (&mut xs[2:]).swap(-1, 0)
     sum += i64(tail[1])
     sum += iter(&xs[1:4]).filter(even).count() + iter(&xs[:]).map(ten).sum()
     for b in &buffer:

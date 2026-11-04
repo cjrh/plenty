@@ -7,7 +7,7 @@ Linux; needs gcc, GNU objdump, perf and Rust.
 | File | Contents |
 |---|---|
 | `fannkuch.c` | The benchmark in C, with the same workers, blocks and output |
-| `kernels.plenty`, `kernels.c` | The benchmark's hot loops as standalone functions |
+| `kernels.plenty`, `kernels.c` | The benchmark's hot loops as standalone functions; `reverse_swap` has no C counterpart, compare it with `reverse` |
 | `loops.py` | Counts the instructions one pass of each innermost loop runs |
 | `harness/` | Compiles hand-written CLIF with Plenty's release flags and disassembles it |
 | `clif/reverse.clif` | The reversal loop in variants a–m, one IR shape changed in each |
@@ -51,6 +51,12 @@ Instructions per pass:
 | copy_row | 5 | 19 | 15 | 11 |
 | count_flips, inner | 8 | 31 | 14 | 14 |
 | count_flips, outer path | 10 | 29 | 21 | 21 |
+
+Since issue #729, `count_flips` and `flips` reverse with `s.swap(lo, hi)`
+through the `&mut [i64]` view. `reverse_swap` is `reverse` written that way;
+both run 14 instructions per pass, as does `count_flips`' inner loop, so the
+C comparison is unchanged. The two forms differ only in register choice and
+one fewer trap site.
 
 `reverse.clif` (a is Plenty's shape before 4d4f1545):
 

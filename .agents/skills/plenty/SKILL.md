@@ -101,6 +101,8 @@ See [workflow and packages](references/workflow.md).
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
+  A `&mut [T]` view takes `v[i] = x` and `v.swap(i, j)`; it has no other
+  list methods.
 - A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
   `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
   remains. Signed `MIN // -1` still overflows, or produces `OverflowError[T]`
