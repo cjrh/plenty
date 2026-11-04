@@ -102,12 +102,26 @@ RFC and bulk-scan checks; actor HTTP interop retains real curl and 600-mutation
 corpus behavior. Temporary/system/watch/SQLite wrappers and compression preserve
 existing errors and resource/progress contracts. Compression's live gzip/Brotli
 interop runs; SQLite's optional vector extension and Docker cases remain unrun.
-The registry now has 13 failing module analyses: archive, diff, remaining HTTP
-consumers, image, markup/template/MIME and sketches. These remain in progress.
+At that checkpoint the registry had 13 failing module analyses. The final
+reviewed std checkpoints now cover archive, diff/image, HTTP files/SSE/WebSocket,
+MIME/template/markdown and sketches. The registry/index passes both tests with
+no diagnosed modules; public mutable diff lengths return overflow Results.
+Focused HTTP files tests now execute all 11 filesystem/conditional/stream cases,
+not merely extracted size helpers. Oversized metadata returns InvalidContentLength
+before validators, following the user's explicit policy (issue #706).
+Image and Markdown preserve format/domain errors, checked extents, exact parser
+and output progress, and cleanup. Their 23 and 10 tests pass respectively;
+representation-limit probes supplement, not replace, actual codec/parser tests.
 
-Adoption remains incomplete. Other std modules, parallel reductions and many
-tests/examples still fail to type-check. Full-suite validation, remaining
-native arithmetic audits and performance measurements are still required.
+Adoption remains incomplete. Parallel reductions/generated helpers, repository-wide
+tests/examples/docs migration, full-suite validation, native arithmetic audits and
+performance measurements remain. The user selected serial-prefix parallel integer
+sum semantics with the precise first overflow payload and callbacks invoked once;
+initial mapped-value storage is acceptable pending measurement. Enumerate index
+overflow retains its explicitly documented trapping primitive contract for this
+checkpoint. Neither decision constitutes implementation or acceptance of that lane.
+Independent pre-existing archive-decimal and PNG-framing limits are recorded as
+issues #705 and #707, not silently changed by arithmetic migration.
 
 ## Reuse and limits
 

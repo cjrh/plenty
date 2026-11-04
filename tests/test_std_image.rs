@@ -1517,7 +1517,7 @@ for operation in range(4):
             case 0:
                 std.image.decode(&data, &std.image.limits())
             case 1:
-                image.convert(ColorType.Rgba)
+                image.convert(ColorType.Gray)
             case 2:
                 image.resize(7, 3, Filter.Bilinear)
             case _:

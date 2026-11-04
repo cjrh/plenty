@@ -46,9 +46,10 @@ pub enum MarkdownFault:
     Allocation(AllocError)
 
 # `offset` is the input byte at fault for `InvalidUtf8`, `max_input` for
-# `InputTooLarge`, and the start of the offending line for `DepthExceeded`,
-# whose `line` counts from one. Renderer errors carry the bytes produced so
-# far. Other errors carry zero for both.
+# an input-budget `InputTooLarge`, and the start of the offending line for
+# `DepthExceeded`, whose `line` counts from one. Tab-column representation
+# exhaustion is `InputTooLarge` with unavailable offset/line zero. Renderer
+# errors carry the bytes produced so far. Other errors carry zero for both.
 pub class MarkdownError:
     pub fault: MarkdownFault
     pub offset: i64

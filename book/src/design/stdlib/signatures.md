@@ -1146,8 +1146,8 @@ class Op
     old_end: i64
     new_start: i64
     new_end: i64
-    def old_len(self) -> i64
-    def new_len(self) -> i64
+    def old_len(self) -> Result[i64, OverflowError[i64]]
+    def new_len(self) -> Result[i64, OverflowError[i64]]
     def is_equal(self) -> bool
 def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
 def diff_bytes(old: &[u8], new: &[u8], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]

@@ -203,7 +203,23 @@ at representation exhaustion. Temporary/system/watch/SQLite wrappers and
 compression retain their domain errors and resource/progress contracts; real
 procfs/inotify/SQLite and gzip/Brotli interop tests run. Actor HTTP interop retains
 curl and all 600 corpus mutations. Optional sqlite-vec and Docker cases remain
-unrun; archive, remaining HTTP consumers and other std adoption remain outstanding.
+unrun at this checkpoint.
+
+The final reviewed std arithmetic checkpoints cover archive, HTTP files/SSE/
+WebSocket, MIME/template/markdown, sketches and diff/image. Public mutable diff
+lengths return overflow Results. File metadata above i64.MAX is rejected before
+conditional validators (issue #706); all 11 file adapter tests now pass after
+MIME integration. The combined final component selection has 143 scoped passes,
+followed by image 23, Markdown 10, math 23 and registry/index 2 passes. The index
+reports no remaining diagnosed module. New byte-ring PNG filter operations are
+explicitly wrapping; parser columns, numerical sketch totals and semantic output
+progress remain checked rather than saturated. Independent review prompted a
+Markdown source-comment correction and an image OOM fixture change to exercise
+conversion rather than copying; both were applied and validated.
+These are focused checkpoints, not full-suite/native/export/performance acceptance.
+Repository examples/docs and parallel reductions/generated helpers remain under
+adoption. Separate pre-existing archive-decimal and PNG-framing limits are recorded
+as issues #705 and #707, open and outside these arithmetic checkpoints.
 
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
