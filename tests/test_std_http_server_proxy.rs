@@ -616,54 +616,239 @@ fn proxy_port_leases_outlive_owner_cleanup() {
     assert!(PortLease::claim(&registry, [1, 2]).is_some());
 }
 
-#[test]
-fn proxy_port_leases_concurrent_handoffs_keep_outstanding_ports_unique() {
-    use std::sync::Barrier;
+// Test-only coordination: a failed worker cancels every phase, and each wait
+// has a deadline. Never hold this lock during port selection or assertions.
+#[derive(Default)]
+struct ProxyPortPhases {
+    state: Mutex<ProxyPortPhaseState>,
+    changed: std::sync::Condvar,
+}
 
+#[derive(Default)]
+struct ProxyPortPhaseState {
+    generation: usize,
+    arrived: usize,
+    aborted: bool,
+}
+
+impl ProxyPortPhases {
     const WORKERS: usize = 8;
-    let registry = PortRegistry::default();
-    let barrier = Barrier::new(WORKERS);
-    let pairs = Mutex::new([[0; 2]; WORKERS]);
+    const WAIT_BOUND: Duration = Duration::from_secs(120);
+
+    fn abort(&self) {
+        self.state.lock().unwrap().aborted = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, phase: &str) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.aborted {
+            return false;
+        }
+        let generation = state.generation;
+        state.arrived += 1;
+        if state.arrived == Self::WORKERS {
+            state.arrived = 0;
+            state.generation += 1;
+        }
+        self.changed.notify_all();
+        let (mut state, timed) = self
+            .changed
+            .wait_timeout_while(state, Self::WAIT_BOUND, |state| {
+                state.generation == generation && !state.aborted
+            })
+            .unwrap();
+        if timed.timed_out() && state.generation == generation && !state.aborted {
+            state.aborted = true;
+            self.changed.notify_all();
+            drop(state);
+            panic!("proxy port test timed out in {phase}, generation {generation}");
+        }
+        !state.aborted
+    }
+
+    // Used only to inject failure after all seven peers are waiting in phase2.
+    fn wait_for_independent_peers(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        let (mut state, timed) = self
+            .changed
+            .wait_timeout_while(state, Self::WAIT_BOUND, |state| {
+                state.arrived != Self::WORKERS - 1 && !state.aborted
+            })
+            .unwrap();
+        if timed.timed_out() && !state.aborted {
+            state.aborted = true;
+            self.changed.notify_all();
+            drop(state);
+            panic!("proxy port test timed out awaiting independent-phase peers");
+        }
+        !state.aborted
+    }
+}
+
+struct ProxyPortAbortOnDrop<'a> {
+    phases: &'a ProxyPortPhases,
+    completed: bool,
+}
+
+impl Drop for ProxyPortAbortOnDrop<'_> {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.phases.abort();
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ProxyPortFailure {
+    BeforeFirstPhase,
+    IndependentPhase,
+    PartialSpawn,
+    Parent,
+}
+
+fn run_proxy_port_handoffs(registry: &PortRegistry, failure: Option<ProxyPortFailure>) {
+    let phases = ProxyPortPhases::default();
+    let pairs = Mutex::new([[0; 2]; ProxyPortPhases::WORKERS]);
     std::thread::scope(|scope| {
-        for worker in 0..WORKERS {
-            let (registry, barrier, pairs) = (&registry, &barrier, &pairs);
-            scope.spawn(move || {
-                for _ in 0..32 {
-                    let candidate = || {
-                        (
-                            TcpListener::bind("127.0.0.1:0").unwrap(),
-                            TcpListener::bind("127.0.0.1:0").unwrap(),
-                        )
+        // Must unwind before Scope joins: covers parent panic and partial spawn.
+        let _parent_abort = ProxyPortAbortOnDrop {
+            phases: &phases,
+            completed: false,
+        };
+        let mut workers = Vec::new();
+        for worker in 0..ProxyPortPhases::WORKERS {
+            let (phases, pairs) = (&phases, &pairs);
+            let spawned = if worker == 4 && failure == Some(ProxyPortFailure::PartialSpawn) {
+                Err(io::Error::other(
+                    "injected proxy port failure: PartialSpawn",
+                ))
+            } else {
+                std::thread::Builder::new().spawn_scoped(scope, move || {
+                    let mut abort = ProxyPortAbortOnDrop {
+                        phases,
+                        completed: false,
                     };
-                    let ports = Ports::reserve_with(registry, candidate);
-                    let lease = ports.release_sockets();
-                    pairs.lock().unwrap()[worker] = lease.ports;
-                    barrier.wait();
-                    let outstanding = *pairs.lock().unwrap();
-                    assert_eq!(
-                        outstanding
-                            .into_iter()
-                            .flatten()
-                            .collect::<HashSet<_>>()
-                            .len(),
-                        WORKERS * 2
-                    );
-                    for pair in outstanding {
-                        // Every candidate is deliberately reused during the gap.
-                        assert!(PortLease::claim(registry, pair).is_none());
-                        assert!(PortLease::claim(registry, [pair[1], pair[0]]).is_none());
+                    for round in 0..32 {
+                        if worker == 0
+                            && round == 0
+                            && failure == Some(ProxyPortFailure::BeforeFirstPhase)
+                        {
+                            panic!("injected proxy port failure: BeforeFirstPhase");
+                        }
+                        let candidate = || {
+                            (
+                                TcpListener::bind("127.0.0.1:0").unwrap(),
+                                TcpListener::bind("127.0.0.1:0").unwrap(),
+                            )
+                        };
+                        let ports = Ports::reserve_with(registry, candidate);
+                        let lease = ports.release_sockets();
+                        pairs.lock().unwrap()[worker] = lease.ports;
+                        if !phases.wait("original leases") {
+                            return;
+                        }
+                        let outstanding = *pairs.lock().unwrap();
+                        assert_eq!(
+                            outstanding
+                                .into_iter()
+                                .flatten()
+                                .collect::<HashSet<_>>()
+                                .len(),
+                            ProxyPortPhases::WORKERS * 2
+                        );
+                        for pair in outstanding {
+                            // Every candidate is deliberately reused during the gap.
+                            assert!(PortLease::claim(registry, pair).is_none());
+                            assert!(PortLease::claim(registry, [pair[1], pair[0]]).is_none());
+                        }
+                        // A held lease must not serialize independent selection.
+                        let independent = Ports::reserve_with(registry, candidate);
+                        if worker == 0
+                            && round == 0
+                            && failure == Some(ProxyPortFailure::IndependentPhase)
+                        {
+                            if !phases.wait_for_independent_peers() {
+                                return;
+                            }
+                            panic!("injected proxy port failure: IndependentPhase");
+                        }
+                        if !phases.wait("independent reservations") {
+                            return;
+                        }
+                        drop(independent);
+                        drop(lease);
+                        if !phases.wait("released leases") {
+                            return;
+                        }
                     }
-                    // A held lease must not serialize independent selection.
-                    let independent = Ports::reserve_with(registry, candidate);
-                    barrier.wait();
-                    drop(independent);
-                    drop(lease);
-                    barrier.wait();
-                }
-            });
+                    abort.completed = true;
+                })
+            };
+            workers.push(spawned.unwrap_or_else(|error| {
+                panic!("cannot spawn proxy port worker {worker}: {error}")
+            }));
+        }
+        if failure == Some(ProxyPortFailure::Parent) {
+            panic!("injected proxy port failure: Parent");
+        }
+        let mut panic = None;
+        for worker in workers {
+            if let Err(payload) = worker.join() {
+                panic.get_or_insert(payload);
+            }
+        }
+        // Peers return on cancellation, leaving the original panic as the error.
+        if let Some(payload) = panic {
+            std::panic::resume_unwind(payload);
         }
     });
+}
+
+#[test]
+fn proxy_port_leases_concurrent_handoffs_keep_outstanding_ports_unique() {
+    let registry = PortRegistry::default();
+    run_proxy_port_handoffs(&registry, None);
     assert!(registry.lock().unwrap().is_empty());
+}
+
+fn assert_proxy_port_handoff_failure(failure: ProxyPortFailure) {
+    let registry = PortRegistry::default();
+    let panic = std::panic::catch_unwind(|| run_proxy_port_handoffs(&registry, Some(failure)))
+        .expect_err("injected worker/parent failure must propagate");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap();
+    let expected = if failure == ProxyPortFailure::PartialSpawn {
+        "cannot spawn proxy port worker 4: injected proxy port failure: PartialSpawn".to_owned()
+    } else {
+        format!("injected proxy port failure: {failure:?}")
+    };
+    assert_eq!(message, expected);
+    // Scope has joined every started worker before returning or propagating.
+    assert!(registry.lock().unwrap().is_empty());
+}
+
+#[test]
+fn proxy_port_handoffs_abort_on_failure_before_first_phase() {
+    assert_proxy_port_handoff_failure(ProxyPortFailure::BeforeFirstPhase);
+}
+
+#[test]
+fn proxy_port_handoffs_abort_while_peers_wait_with_independent_reservations() {
+    assert_proxy_port_handoff_failure(ProxyPortFailure::IndependentPhase);
+}
+
+#[test]
+fn proxy_port_handoffs_abort_on_partial_spawn_failure() {
+    assert_proxy_port_handoff_failure(ProxyPortFailure::PartialSpawn);
+}
+
+#[test]
+fn proxy_port_handoffs_abort_on_parent_failure() {
+    assert_proxy_port_handoff_failure(ProxyPortFailure::Parent);
 }
 
 impl Drop for Proxy {
