@@ -170,7 +170,7 @@ Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
 enums, tuples and classes without custom cleanup are supported. Floats, boxes, recursive types and
 anonymous sums remain excluded. These general key types use keyed runtime hashing. Supported finite enum and tuple domains with at
-most 64 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
+most 256 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
 
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
@@ -187,8 +187,9 @@ copies, and affine `keys_snapshot()` requires an owned temporary, matching
 
 ### Small enum sets
 
-Sets of payload-free named enums with up to 64 variants use one membership
-word, without entry/order/hash buffers or entropy reads. The collection owner
+The initial specialization used one membership word for payload-free named enums
+with up to 64 variants, without entry/order/hash buffers or entropy reads.
+The [wider implementation](#wide-enum-bitsets) extends this to 256. The collection owner
 still allocates once. Membership, length, insertion/removal, same-type set
 relationships and algebra use bit operations. Shared iteration uses immutable
 canonical enum values, while normal source loans remain enforced. Mixed
@@ -196,7 +197,8 @@ operations with dictionary key views retain their existing semantics.
 
 Allocation-failure tests cover the remaining owner allocation and allocation-free
 mutation; boundary tests cover 1, 63, 64 and 65 variants. These initial
-measurements cover payload-free enums. Benchmark reproduction is
+measurements cover payload-free enums at revision `f4aba2de`. Reproduction at
+that revision is
 `cargo build --locked --bin plenty` (without instrumentation features), then
 `python3 scripts/bench_enum_sets.py target/debug/plenty --output /tmp/enum-sets.json`:
 the same first 64 variants are exercised in a 64-variant bitset and a 65-variant
@@ -218,8 +220,8 @@ general speed guarantee.
 
 ### Finite payload enum sets
 
-Bitsets also cover named enums and tuples whose complete domains contain at most
-64 values, recursively composed of booleans and named enums/tuples.
+The finite-payload stage (`82bd5231`) extended bitsets to named enums and tuples
+whose complete domains contain at most 64 values, recursively composed of booleans and named enums/tuples.
 The compiler checks sums and products against the limit before generating
 canonical values and variant offsets. Membership encodes the active payload with
 mixed-radix indexing; algebra still operates directly on the mask. Immutable,
@@ -230,9 +232,10 @@ now carries an optional finite-domain descriptor.
 Tests cover nested multi-field enum/tuple values, every member of a 64-value
 domain, the 65-value hash fallback, singleton/Option payloads, mixed dictionary views,
 copying and iteration after source destruction, and allocation failure. The
-benchmark also supports `--payload` to compare a six-boolean variant (64 values)
+benchmark at that revision also supports `--payload` to compare a six-boolean variant (64 values)
 with the same variant plus an unused extra case (65 values). Integer/string
-payloads, classes, and larger domains keep hash storage; wider masks remain B74.
+payloads and classes keep hash storage; the [wider implementation](#wide-enum-bitsets)
+extends the finite-domain threshold to 256.
 
 On the same AMD Ryzen 7 7840HS, 200,000 rounds and medians of five runs with
 `--payload` produced the following observations. The workload counts match the
@@ -245,3 +248,94 @@ These are measurements of these workloads, not general speed guarantees.
 | Add and discard | 1.594221 | 7.373249 | 4.62× |
 | Union | 0.011405 | 4.927148 | 432.02× |
 | Copy | 0.015694 | 1.980686 | 126.21× |
+
+### Wide enum bitsets
+
+Finite enum and tuple domains select their mask width from the complete type
+domain: one 64-bit word for 1–64 values, two words for 65–128, and four words for
+129–256. Operations dispatch to the selected width, including scalar membership,
+popcount and algebra for the smallest domains. Clearing or draining preserves the
+selection; sparse membership never narrows it. All alternatives fit within the
+existing insertion-order storage, so collection owners do not grow. The canonical payload-free
+tag table grows from 64 to 256 entries (one shared 4 KiB table); finite payload
+metadata remains proportional to domain size and inline layout. Wider masks do
+not change key admission or dictionary storage. No target-specific SIMD is needed.
+
+Boundary tests cover 64/65, 128/129 and 256/257 values, including hash fallback.
+Randomized membership and mixed-end iteration tests exercise every word; native
+checks cover nested enum/tuple payloads, set algebra, dictionary views, copied
+values, owner failure and allocation-free mutation.
+
+Requested heap storage measured with the runtime's actual buffer capacities
+(excluding allocator overhead and immutable type metadata):
+
+| Members | Bitset bytes | Payload-free hash-set bytes |
+| ---: | ---: | ---: |
+| 0 | 176 | 176 |
+| 4 | 176 | 496 |
+| 64 | 176 | 4,272 |
+| 128 | 176 | 8,368 |
+| 256 | 176 | 16,560 |
+
+Both owners are 176 bytes on this x86-64 build. The hash comparison uses a
+257-variant enum and inserts the same tags without pre-reservation. Payload
+hash rows can require more storage; canonical payload data is shared per type,
+not part of these per-owner heap figures. For example, one eight-boolean variant
+emits 256 × 16-byte canonical slots plus 256 × 128-byte payload records: 36 KiB
+of shared value data, plus descriptors and alignment. This can outweigh the
+heap saving for a small number of sparse sets; the optimization trades static
+data for faster operations and smaller per-instance storage. Reproduce with
+`cargo test -p plenty-runtime wide_enum_set_storage_measurements -- --nocapture`.
+
+The benchmark accepts `--size 64|128|256`, `--payload`, `--members`, and
+`--workloads`. Without a baseline compiler it adds unused variants to force a
+257-value hash domain. `--baseline-compiler` instead compares identical programs
+against an older compiler; this also checks the existing 64-value specialization.
+Every result is checked, execution order alternates, and JSON records individual
+wall and child CPU times as well as medians.
+
+The wide-domain comparison uses the pre-change 64-value compiler, native
+`--release` compilation without runtime instrumentation, and an AMD Ryzen 7
+7840HS. Reported ratios use median user-plus-system CPU time over five runs.
+Other work was running on the host; CPU time excludes scheduling waits but
+cannot remove effects on clock speeds and caches. These are workload-specific
+observations, not speed guarantees.
+
+For the full-domain cases, 50,000 rounds each probe all values, add and remove
+all values, union two disjoint half-domain sets, or copy a half-domain set.
+Payload cases use seven or eight boolean fields. Sparse cases use four values
+spread across the 256-value domain (two per input set) and 1,000,000 rounds.
+Reproduce a full-domain case with:
+
+```sh
+cargo build --locked --bin plenty
+python3 scripts/bench_enum_sets.py target/debug/plenty \
+  --baseline-compiler /path/to/pre-change/plenty \
+  --size 256 --payload --rounds 50000 --runs 5 --output /tmp/wide-enums.json
+```
+
+Use `--members 4 --rounds 1000000` for sparse cases, and omit `--payload` for
+payload-free enums.
+
+Speedups over the older hash-backed implementation:
+
+| Domain / workload values | Lookup | Add/discard | Union | Copy |
+| --- | ---: | ---: | ---: | ---: |
+| 128, payload-free | 3.75× | 4.23× | 136.24× | 115.01× |
+| 128, boolean payload | 4.15× | 4.46× | 696.99× | 410.92× |
+| 256, payload-free | 3.56× | 4.12× | 198.95× | 192.41× |
+| 256, boolean payload | 4.38× | 4.48× | 1342.00× | 849.87× |
+| 256, four payload-free values | 2.91× | 3.64× | 4.47× | 8.90× |
+| 256, four payload values | 3.64× | 3.79× | 26.00× | 22.92× |
+
+[Raw measurements](data/enum-bitsets-256.json) retain every wall/CPU sample,
+medians, settings, compiler hashes and the 64-value comparison. The gains at
+both wider sizes and in sparse cases support the 256-value cutoff.
+
+The 64-value comparison uses seven alternating runs: 2,000,000 rounds for union
+and copy, 200,000 for lookup and mutation. Relative throughput changes against
+the old scalar implementation were lookup +0.3%, add/discard +3.5%, union +1.4%, copy +163.6%. These are measured
+medians, not guarantees of changes this small. Width is encoded once in the
+storage alternative, with scalar operations for small domains. Copying reuses
+the validated representation and allocates only the new owner, avoiding storage
+reclassification and unnecessary reservation or membership counting.

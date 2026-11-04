@@ -64,9 +64,11 @@ unsupported.
 
 ## Small enum bitsets
 
-A set of a named enum or tuple with a supported finite domain of at most 64
-distinct values uses a 64-bit membership mask instead of rows and hash buckets. This
-includes payload-free named enums and named enums or tuples composed recursively
+A set of a named enum or tuple with a supported finite domain of at most 256
+distinct values uses a size-selected membership mask instead of rows and hash
+buckets: one 64-bit word for 1–64 values, two words for 65–128, and four words for
+129–256. Selection uses the complete type domain, not the number of current
+members; clearing or draining a set preserves its selected width. This includes payload-free named enums and named enums or tuples composed recursively
 of `bool` and other such enums or tuples. Count each variant's payload
 combinations, then add the variants: `Empty` plus `Flag(bool)` has three values;
 a variant with six boolean fields has 64. `Option[bool]` also has three values.
@@ -87,10 +89,12 @@ unspecified; do not rely on the order seen with a particular representation.
 
 Dictionary key views remain borrowed hash-table views. Their mixed operations
 with bitsets work normally, and `to_set()` can produce a bitset. Dictionary
-storage itself is unchanged. Domains larger than 64, integer or string payloads,
+storage itself is unchanged. Domains larger than 256, integer or string payloads,
 and classes keep the ordinary hash-set representation. Anonymous sums and
 recursive keys remain unsupported. The compiler emits immutable canonical values
 for payload domains, including inline record storage, so borrowed iteration needs
 no allocation or temporary value cache. This adds static data proportional to the
-domain size and value layout. Wider masks remain a separate extension; no SIMD
-support is required by the 64-bit implementation.
+domain size and value layout. All three mask alternatives fit inside the
+existing owner storage; small-domain operations process only their selected words. No target-specific SIMD support is required.
+See the [measurements and storage tradeoffs](../../../completed-work/performance.md#wide-enum-bitsets)
+for the per-owner savings and shared metadata costs.

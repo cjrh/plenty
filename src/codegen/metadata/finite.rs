@@ -3,7 +3,7 @@
 //! payload domains. This is also the runtime's membership-bit numbering.
 use super::*;
 
-const LIMIT: usize = 64;
+const LIMIT: usize = 256;
 
 struct Domain {
     ty: Ty,
@@ -207,11 +207,13 @@ mod tests {
     }
 
     #[test]
-    fn cardinality_stops_at_sixty_four_before_products_overflow() {
-        let sixty_four = tuple(vec![Ty::Bool; 6]);
-        assert_eq!(Domain::of(&sixty_four).unwrap().cardinality, 64);
-        assert!(Domain::of(&option(sixty_four)).is_none());
-        assert!(Domain::of(&tuple(vec![Ty::Bool; 7])).is_none());
+    fn cardinality_stops_at_256_before_products_overflow() {
+        for bits in 6..=8 {
+            let domain = tuple(vec![Ty::Bool; bits]);
+            assert_eq!(Domain::of(&domain).unwrap().cardinality, 1 << bits);
+            assert_eq!(Domain::of(&option(domain)).is_some(), bits < 8);
+        }
+        assert!(Domain::of(&tuple(vec![Ty::Bool; 9])).is_none());
         assert!(Domain::of(&tuple(vec![Ty::Bool; usize::BITS as usize + 1])).is_none());
     }
 

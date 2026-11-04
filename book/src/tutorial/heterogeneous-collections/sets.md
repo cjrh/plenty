@@ -113,7 +113,8 @@ representation is the identity your application intends.
 ## Small enums without payloads
 
 Use ordinary sets for flags or selections too. An enum with no payloads and at
-most 64 variants automatically gets compact bitset storage:
+most 256 variants automatically gets compact bitset storage. The compiler
+selects a 64-, 128-, or 256-bit mask from the number of possible values:
 
 ```plenty
 enum Permission:
@@ -142,7 +143,7 @@ hash sets. See [small enum bitsets](../../design/facilities/01-builtins/sets.md#
 
 ## Small finite payloads
 
-Payloads can use bitsets too when the complete type has at most 64 possible
+Payloads can use bitsets too when the complete type has at most 256 possible
 values. Booleans and nested enums or tuples of these types qualify.
 Here `State` has three values: `Idle`, `Enabled(False)`, and `Enabled(True)`.
 
@@ -162,7 +163,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 The limit counts all possible payload combinations, regardless of how many
-members the set currently contains. For example, six boolean fields have 64
-combinations; adding a separate payload-free variant makes 65 and selects a
+members the set currently contains. For example, eight boolean fields have 256
+combinations; adding a separate payload-free variant makes 257 and selects a
 hash set. Integer and string payloads use hash sets. No special container or
 manual integer encoding is needed.

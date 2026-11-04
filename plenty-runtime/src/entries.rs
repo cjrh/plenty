@@ -201,9 +201,18 @@ pub(crate) struct Entries {
 enum RowOrder {
     Dense,
     Linked(Order),
-    Bits(u64),
+    Bits64(u64),
+    Bits128([u64; 2]),
+    Bits256([u64; 4]),
 }
 impl RowOrder {
+    fn from_bits(bits: enum_bits::Bits) -> Self {
+        match bits {
+            enum_bits::Bits::Small(word) => Self::Bits64(word),
+            enum_bits::Bits::Medium(words) => Self::Bits128(words),
+            enum_bits::Bits::Large(words) => Self::Bits256(words),
+        }
+    }
     fn linked(&self) -> Option<&Order> {
         match self {
             Self::Linked(order) => Some(order),
@@ -225,6 +234,7 @@ impl RowOrder {
 }
 
 const _: () = {
+    assert!(std::mem::size_of::<enum_bits::Bits>() <= std::mem::size_of::<Order>());
     assert!(std::mem::offset_of!(Entries, data) == 0);
     assert!(std::mem::offset_of!(Words, ptr) == 0);
     assert!(std::mem::offset_of!(Words, len) == 8);
@@ -262,33 +272,74 @@ impl Entries {
     pub fn enum_set(key: &'static Type) -> Self {
         debug_assert!(enum_bits::eligible(key));
         Self {
-            order: RowOrder::Bits(0),
+            order: RowOrder::from_bits(enum_bits::Bits::new(enum_bits::cardinality(key))),
             ..Self::new(key, None)
         }
     }
-    pub fn bits(&self) -> Option<u64> {
+    // Expose the storage alternatives to callers so they can dispatch once.
+    #[inline(always)]
+    pub fn bits(&self) -> Option<enum_bits::Bits> {
         match self.order {
-            RowOrder::Bits(bits) => Some(bits),
+            RowOrder::Bits64(word) => Some(enum_bits::Bits::Small(word)),
+            RowOrder::Bits128(words) => Some(enum_bits::Bits::Medium(words)),
+            RowOrder::Bits256(words) => Some(enum_bits::Bits::Large(words)),
             _ => None,
         }
     }
-    pub fn set_bits(&mut self, bits: u64) {
-        let RowOrder::Bits(current) = &mut self.order else {
-            unreachable!("enum set")
-        };
-        *current = bits;
+    /// None means ordinary row storage; Some reports membership in a bitset.
+    /// The caller supplies a valid value of this collection's key type.
+    #[inline(always)]
+    pub unsafe fn find_bitset(&self, key: u128) -> Option<Option<usize>> {
+        match &self.order {
+            RowOrder::Bits64(word) => {
+                let index = unsafe { enum_bits::index(self.key, key) };
+                Some((word & (1 << index) != 0).then_some(index))
+            }
+            RowOrder::Bits128(words) => {
+                let index = unsafe { enum_bits::index(self.key, key) };
+                Some((words[index / 64] & (1 << (index % 64)) != 0).then_some(index))
+            }
+            RowOrder::Bits256(words) => {
+                let index = unsafe { enum_bits::index(self.key, key) };
+                Some((words[index / 64] & (1 << (index % 64)) != 0).then_some(index))
+            }
+            _ => None,
+        }
+    }
+    /// Copy only mask storage. Its validated width and row metadata need no
+    /// reclassification, reservation, or canonical-value traversal.
+    pub fn copy_bitset(&self) -> Option<Self> {
+        Some(Self {
+            data: Words::new(),
+            removed: false,
+            key: self.key,
+            value: self.value,
+            stride: self.stride,
+            order: RowOrder::from_bits(self.bits()?),
+        })
+    }
+    pub fn set_bits(&mut self, bits: enum_bits::Bits) {
+        assert!(self.bits().is_some(), "enum set");
+        self.order = RowOrder::from_bits(bits);
     }
     pub fn key_ref(&mut self, index: usize) -> *const u128 {
         if let Some(bits) = self.bits() {
-            assert!(bits & (1 << index) != 0);
+            assert!(bits.contains(index));
             enum_bits::reference(self.key, index)
         } else {
             self.slot(index, false)
         }
     }
     pub fn len(&self) -> usize {
-        if let Some(bits) = self.bits() {
-            return bits.count_ones() as usize;
+        match &self.order {
+            RowOrder::Bits64(word) => return word.count_ones() as usize,
+            RowOrder::Bits128(words) => {
+                return words.iter().map(|word| word.count_ones() as usize).sum();
+            }
+            RowOrder::Bits256(words) => {
+                return words.iter().map(|word| word.count_ones() as usize).sum();
+            }
+            _ => {}
         }
         self.order.linked().map_or_else(
             || self.data.len() / self.stride - usize::from(self.removed),
@@ -307,12 +358,19 @@ impl Entries {
             .linked()
             .map_or(rows, |order| rows.min(order.capacity()))
     }
+    #[cfg(test)]
+    pub fn storage_bytes(&self) -> usize {
+        self.data.capacity()
+            + self.order.linked().map_or(0, |order| {
+                order.capacity() * 2 * std::mem::size_of::<usize>()
+            })
+    }
     pub fn row_bytes(&self) -> usize {
         self.stride
     }
     pub fn get(&self, index: usize) -> Entry {
         if let Some(bits) = self.bits() {
-            assert!(bits & (1 << index) != 0);
+            assert!(bits.contains(index));
             return Entry {
                 key: enum_bits::value(self.key, index),
                 value: 0,
@@ -357,7 +415,7 @@ impl Entries {
         EntryIndices {
             inner: dense
                 .chain(sparse)
-                .chain(enum_bits::Indices(self.bits().unwrap_or(0))),
+                .chain(enum_bits::Indices(self.bits().unwrap_or_default())),
             remaining: self.len(),
         }
     }
@@ -374,8 +432,7 @@ impl Entries {
     }
     pub fn next(&self, index: usize) -> Option<usize> {
         if let Some(bits) = self.bits() {
-            return enum_bits::Indices(bits & u64::MAX.checked_shl(index as u32 + 1).unwrap_or(0))
-                .next();
+            return enum_bits::Indices(bits.after(index)).next();
         }
         self.order.linked().expect("hash entries").next(index)
     }
@@ -499,9 +556,22 @@ impl Entries {
     }
     /// Reservation belongs to the surrounding transactional operation.
     pub unsafe fn push(&mut self, entry: Entry) {
-        if let RowOrder::Bits(bits) = &mut self.order {
-            *bits |= 1 << unsafe { enum_bits::index(self.key, entry.key) };
-            return;
+        match &mut self.order {
+            RowOrder::Bits64(word) => {
+                *word |= 1 << unsafe { enum_bits::index(self.key, entry.key) };
+                return;
+            }
+            RowOrder::Bits128(words) => {
+                let index = unsafe { enum_bits::index(self.key, entry.key) };
+                words[index / 64] |= 1 << (index % 64);
+                return;
+            }
+            RowOrder::Bits256(words) => {
+                let index = unsafe { enum_bits::index(self.key, entry.key) };
+                words[index / 64] |= 1 << (index % 64);
+                return;
+            }
+            _ => {}
         }
         assert!(self.len() < self.capacity());
         let index = self.vacant();
@@ -532,8 +602,11 @@ impl Entries {
             .extend_from_slice(&source.data[first * self.stride..(first + count) * self.stride]);
     }
     pub fn clear(&mut self) {
-        if let RowOrder::Bits(bits) = &mut self.order {
-            *bits = 0;
+        match &mut self.order {
+            RowOrder::Bits64(word) => *word = 0,
+            RowOrder::Bits128(words) => *words = [0; 2],
+            RowOrder::Bits256(words) => *words = [0; 4],
+            _ => {}
         }
         self.data.clear();
         self.removed = false;
@@ -542,9 +615,9 @@ impl Entries {
         }
     }
     pub fn drain(&mut self) -> impl Iterator<Item = Entry> + '_ {
-        let bits = self.bits().unwrap_or(0);
+        let bits = self.bits().unwrap_or_default();
         if self.bits().is_some() {
-            self.set_bits(0);
+            self.set_bits(bits.empty());
         }
         let count = self.len();
         let base = self.data.as_ptr();
@@ -583,9 +656,20 @@ impl Entries {
     /// Native callers snapshot it before releasing or mutating this collection.
     pub unsafe fn remove(&mut self, index: usize) -> Entry {
         let entry = self.get(index);
-        if let RowOrder::Bits(bits) = &mut self.order {
-            *bits &= !(1 << index);
-            return entry;
+        match &mut self.order {
+            RowOrder::Bits64(word) => {
+                *word &= !(1 << index);
+                return entry;
+            }
+            RowOrder::Bits128(words) => {
+                words[index / 64] &= !(1 << (index % 64));
+                return entry;
+            }
+            RowOrder::Bits256(words) => {
+                words[index / 64] &= !(1 << (index % 64));
+                return entry;
+            }
+            _ => {}
         }
         if let Some(order) = self.order.linked_mut() {
             order.remove(index);

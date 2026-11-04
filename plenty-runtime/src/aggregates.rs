@@ -853,9 +853,8 @@ impl Collection {
         }
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
-        if let Some(bits) = self.entries.bits() {
-            let tag = unsafe { crate::entries::enum_bits::index(self.ty().key(), key) };
-            return (bits & (1 << tag) != 0).then_some(tag);
+        if let Some(found) = unsafe { self.entries.find_bitset(key) } {
+            return found;
         }
         if self.table.is_empty() {
             None
@@ -1660,15 +1659,22 @@ unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocErr
 unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         let source = &*(value as *const Collection);
+        if let Some(entries) = source.entries.copy_bitset() {
+            let result = memory::try_allocate::<Collection, u8>(0)?;
+            result.write(Collection {
+                header: Header::new(collection_destroy),
+                ty: source.ty,
+                entries,
+                table: Vec::new(),
+                drop_entry: None,
+            });
+            return Ok(result as u128);
+        }
         let result = try_collection_new(&*source.ty, source.entries.len())?;
         let owner = OwnedValue {
             value: result as u128,
             ty,
         };
-        if let Some(bits) = source.entries.bits() {
-            (*result).entries.set_bits(bits);
-            return Ok(owner.into_value());
-        }
         for entry in source.entries.iter() {
             // Insert byte copies that still name the source, then replace them
             // in place, so inline payloads are copied into the final buffer.
@@ -2785,9 +2791,9 @@ pub(crate) unsafe fn collection_at(
                 if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
                     return match op {
                         KEY_VIEW_EQUAL => left == right,
-                        SET_IS_SUBSET => left & !right == 0,
-                        SET_IS_SUPERSET => right & !left == 0,
-                        _ => left & right == 0,
+                        SET_IS_SUBSET => (left & !right).is_empty(),
+                        SET_IS_SUPERSET => (right & !left).is_empty(),
+                        _ => (left & right).is_empty(),
                     } as u128;
                 }
                 let result = match op {
