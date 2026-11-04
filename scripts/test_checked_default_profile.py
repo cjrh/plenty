@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -15,6 +16,13 @@ import checked_default_profile as profile
 
 def encoded(value):
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+
+
+def recorded_file(path):
+    s = path.stat()
+    return {"path": str(path), "sha256": profile.digest(path.read_bytes()), "size_bytes": s.st_size,
+            "mtime_ns": s.st_mtime_ns, "inode": s.st_ino, "device": s.st_dev,
+            "mode": oct(stat.S_IMODE(s.st_mode))}
 
 
 def synthetic_report(metric="count", label="job", role="main", extra=()):
@@ -467,6 +475,10 @@ class AdapterFixture(unittest.TestCase):
             "toolchain": {"rustc_vV": "synthetic rustc version", "cargo_vV": "synthetic cargo version"},
             "native_tools": {"clang": {"version": "synthetic clang"}, "mold": {"version": "synthetic mold"}},
             "toolchain_files": [{"path": str(tool), "sha256": profile.digest(tool.read_bytes())}]}
+        for name in ("clang", "mold", "cc", "ar"):
+            path = self.root / ("native-tool-" + name)
+            path.write_bytes(b"nonexecutable synthetic native tool:" + name.encode())
+            self.records["native_tools"][name] = {"version": "synthetic " + name, "file": recorded_file(path)}
         self.write(self.records_path, self.records)
         native_rows, index = [], []
         for entry in self.inventory["entries"]:
@@ -693,6 +705,249 @@ class NativeBindingTests(AdapterFixture):
         os.link(source, self.root / "alias")
         with self.assertRaises(ValueError):
             profile.accepted_inventory()
+
+
+class NativeToolIdentityTests(AdapterFixture):
+    def tool_path(self):
+        return Path(self.records["native_tools"]["cc"]["file"]["path"])
+
+    def protected(self, records=None):
+        return profile.protected_files(self.manifest_path, self.manifest_hash,
+                                       self.records if records is None else records, self.inventory)
+
+    def test_authenticated_native_tool_alias_is_freshly_bound_and_rechecked(self):
+        tool = self.tool_path()
+        os.link(tool, self.root / "packaged-tool-alias")
+        before = self.protected()
+        identity = before[str(tool)]
+        self.assertEqual(identity["native_tool"], "cc")
+        self.assertEqual(identity["build_record_sha256"], profile.BUILD_RECORD_SHA256)
+        self.assertEqual(identity["nlink"], 2)
+        self.assertEqual(identity["ctime_ns"], tool.stat().st_ctime_ns)
+        self.assertNotIn("nlink", self.records["native_tools"]["cc"]["file"])
+        profile.check_integrity(before)
+        with self.assertRaisesRegex(ValueError, "nonaliased"):
+            profile.file_identity(tool)  # Default stays strict, even for this path.
+
+    def test_hardlinked_native_tool_passes_full_mock_pre_and_post_gates(self):
+        os.link(self.tool_path(), self.root / "packaged-tool-alias")
+        result = self.run_mock()
+        self.assertEqual(result["status"], "passed-bounded-compiler-profile-only", result)
+        captured = json.loads((self.root / "output/protected-before.json").read_text())
+        self.assertEqual(captured[str(self.tool_path())]["nlink"], 2)
+        self.assertEqual(len(result["jobs"]), 16)
+
+    def test_context_cannot_authorize_an_unrecorded_alias_or_identical_output(self):
+        tool = self.tool_path()
+        alias = self.root / "output.o"
+        os.link(tool, alias)
+        for path in (alias, self.inputs / self.inventory["entries"][0]["source"]):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "tool path mismatch"):
+                profile.file_identity(path, native_tool="cc")
+        with self.assertRaisesRegex(ValueError, "nonaliased"):
+            profile.file_identity(alias)
+
+    def test_context_requires_authenticated_tool_key_not_a_path_or_manifest_category(self):
+        for context in (str(self.tool_path()), "source", "output", True, {}):
+            with self.subTest(context=context), self.assertRaisesRegex(ValueError, "unknown authenticated"):
+                profile.file_identity(self.tool_path(), native_tool=context)
+
+    def test_forged_recheck_category_cannot_promote_source_to_tool(self):
+        source = self.inputs / self.inventory["entries"][0]["source"]
+        identity = profile.file_identity(source)
+        identity["native_tool"] = "cc"
+        os.link(source, self.root / "source-alias")
+        with self.assertRaisesRegex(ValueError, "tool path mismatch"):
+            profile.check_integrity({str(source): identity})
+
+    def test_caller_records_cannot_grant_native_tool_category(self):
+        records = copy.deepcopy(self.records)
+        records["native_tools"]["cc"]["file"] = recorded_file(self.manifest_path)
+        with self.assertRaisesRegex(ValueError, "unauthenticated native tool records"):
+            self.protected(records)
+
+    def test_native_tool_cannot_override_a_strict_protected_input(self):
+        # Synthetic pinned provenance deliberately puts the same path in both
+        # categories: protected inputs still win and may never be downgraded.
+        self.records["builds"]["main"]["inputs"].append(recorded_file(self.tool_path()))
+        self.write(self.records_path, self.records)
+        with patch.object(profile, "BUILD_RECORD_SHA256", profile.digest(self.records_path.read_bytes())):
+            with self.assertRaisesRegex(ValueError, "overlaps protected input"):
+                self.protected()
+
+    def test_native_context_reauthenticates_original_record_on_capture_and_recheck(self):
+        identity = profile.file_identity(self.tool_path(), native_tool="cc")
+        self.records_path.write_bytes(self.records_path.read_bytes() + b" ")
+        for check in (lambda: profile.file_identity(self.tool_path(), native_tool="cc"),
+                      lambda: profile.check_integrity({str(self.tool_path()): identity})):
+            with self.assertRaisesRegex(ValueError, "pinned hash mismatch"):
+                check()
+
+    def test_every_original_native_tool_file_field_is_enforced(self):
+        row = self.records["native_tools"]["cc"]["file"]
+        for field in ("sha256", "size_bytes", "mtime_ns", "inode", "device", "mode"):
+            original = row[field]
+            row[field] = "0" * 64 if field == "sha256" else "0o555" if field == "mode" else original + 1
+            self.write(self.records_path, self.records)
+            with self.subTest(field=field), patch.object(profile, "BUILD_RECORD_SHA256", profile.digest(self.records_path.read_bytes())):
+                with self.assertRaisesRegex(ValueError, "tool identity mismatch"):
+                    profile.file_identity(self.tool_path(), native_tool="cc")
+            row[field] = original
+
+    def test_native_tool_symlink_and_symlinked_parent_are_refused(self):
+        tool = self.tool_path()
+        saved = self.root / "saved-tool"
+        tool.rename(saved)
+        tool.symlink_to(saved)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            profile.file_identity(tool, native_tool="cc")
+        tool.unlink()
+        saved.rename(tool)
+        parent_alias = self.root / "parent-alias"
+        parent_alias.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            profile.file_identity(parent_alias / tool.name, native_tool="cc")
+
+    def test_native_tool_must_be_regular_and_canonical(self):
+        tool = self.tool_path()
+        with self.assertRaisesRegex(ValueError, "absolute canonical"):
+            profile.file_identity(tool.parent / ".." / tool.parent.name / tool.name, native_tool="cc")
+        tool.unlink()
+        tool.mkdir()
+        with self.assertRaisesRegex(ValueError, "regular nonaliased"):
+            profile.file_identity(tool, native_tool="cc")
+
+    def test_native_tool_mutation_and_replacement_block_before_output_or_spawn(self):
+        tool = self.tool_path()
+        raw, s = tool.read_bytes(), tool.stat()
+        for mutation in ("hash", "replacement", "mode", "mtime", "size"):
+            with self.subTest(mutation=mutation):
+                if mutation == "hash":
+                    tool.write_bytes(b"X" + raw[1:])
+                    os.utime(tool, ns=(s.st_atime_ns, s.st_mtime_ns))
+                elif mutation == "replacement":
+                    replacement = self.root / "replacement"
+                    replacement.write_bytes(raw)
+                    os.utime(replacement, ns=(s.st_atime_ns, s.st_mtime_ns))
+                    tool.rename(self.root / "original-tool")
+                    replacement.replace(tool)
+                elif mutation == "mode":
+                    tool.chmod(0o555)
+                elif mutation == "mtime":
+                    os.utime(tool, ns=(s.st_atime_ns, s.st_mtime_ns + 1000000000))
+                else:
+                    tool.write_bytes(raw + b"extra")
+                with patch.object(profile.subprocess, "Popen") as popen, self.assertRaisesRegex(ValueError, "tool identity mismatch"):
+                    profile.execute(self.manifest_path, self.manifest_hash, self.root / "output", True)
+                popen.assert_not_called()
+                self.assertFalse((self.root / "output").exists())
+                if mutation == "replacement":
+                    tool.unlink()
+                    (self.root / "original-tool").rename(tool)
+                tool.chmod(stat.S_IMODE(s.st_mode))
+                tool.write_bytes(raw)
+                os.utime(tool, ns=(s.st_atime_ns, s.st_mtime_ns))
+
+    def test_link_addition_and_removal_are_detected_by_recheck(self):
+        tool = self.tool_path()
+        alias = self.root / "tool-alias"
+        before = {str(tool): profile.file_identity(tool, native_tool="cc")}
+        os.link(tool, alias)
+        with self.assertRaisesRegex(ValueError, "integrity"):
+            profile.check_integrity(before)
+        before = {str(tool): profile.file_identity(tool, native_tool="cc")}
+        alias.unlink()
+        with self.assertRaisesRegex(ValueError, "integrity"):
+            profile.check_integrity(before)
+
+    def test_restored_content_and_mtime_still_fail_fresh_ctime_binding(self):
+        tool = self.tool_path()
+        raw, s = tool.read_bytes(), tool.stat()
+        before = {str(tool): profile.file_identity(tool, native_tool="cc")}
+        tool.write_bytes(raw + b"changed")
+        tool.write_bytes(raw)
+        os.utime(tool, ns=(s.st_atime_ns, s.st_mtime_ns))
+        if tool.stat().st_ctime_ns == s.st_ctime_ns:
+            self.skipTest("filesystem ctime resolution cannot observe rapid mutation")
+        self.assertEqual(recorded_file(tool), self.records["native_tools"]["cc"]["file"])
+        with self.assertRaisesRegex(ValueError, "integrity"):
+            profile.check_integrity(before)
+
+    def test_link_count_mutation_during_capture_is_rejected(self):
+        tool = self.tool_path()
+        read_bytes = Path.read_bytes
+        def read(path):
+            raw = read_bytes(path)
+            if path == tool:
+                os.link(tool, self.root / "new-alias")
+            return raw
+        with patch.object(Path, "read_bytes", read), self.assertRaisesRegex(ValueError, "changed during identity capture"):
+            profile.file_identity(tool, native_tool="cc")
+
+    def test_native_tool_content_mutation_during_capture_is_rejected(self):
+        tool = self.tool_path()
+        read_bytes = Path.read_bytes
+        def read(path):
+            raw = read_bytes(path)
+            if path == tool:
+                path.write_bytes(raw + b"changed")
+            return raw
+        with patch.object(Path, "read_bytes", read), self.assertRaisesRegex(ValueError, "changed during identity capture"):
+            profile.file_identity(tool, native_tool="cc")
+
+    def test_post_job_alias_change_blocks_and_final_gate_also_reports_it(self):
+        def behavior(command, kwargs):
+            os.link(self.tool_path(), self.root / "new-tool-alias")
+            return 0
+        self.behavior = behavior
+        result = self.run_mock()
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(len(result["jobs"]), 1)
+        self.assertIn("integrity", result["jobs"][0]["error"])
+        self.assertIn("integrity", result["integrity_error"])
+
+    def test_pre_job_alias_change_blocks_without_profile_process(self):
+        original = self.mock_popen
+        def mock(command, **kwargs):
+            child = original(command, **kwargs)
+            if command[0] == "/usr/bin/git" and command[3] == "ls-files" and not (self.root / "new-tool-alias").exists():
+                os.link(self.tool_path(), self.root / "new-tool-alias")
+            return child
+        with patch.object(profile.subprocess, "Popen", side_effect=mock):
+            result = profile.execute(self.manifest_path, self.manifest_hash, self.root / "output", True)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["jobs"], [])
+        self.assertIn("integrity", result["integrity_error"])
+        self.assertTrue(all(command[0] == "/usr/bin/git" for command, kwargs in self.spawned))
+
+    def test_strict_protected_categories_still_reject_hardlinks(self):
+        paths = [self.manifest_path, self.records_path, self.inputs / "inventory.json",
+                 self.native / "artifact-index.json", self.native / "corpora-proof.json", self.report_path,
+                 self.review_path, self.inputs / self.inventory["entries"][0]["source"],
+                 Path(self.records["builds"]["main"]["frozen_compiler"]["path"]),
+                 Path(self.records["builds"]["main"]["inputs"][0]["path"]),
+                 Path(self.records["builds"]["main"]["runtime_archives"][0]["path"]),
+                 Path(self.records["toolchain_files"][0]["path"])]
+        for path in paths:
+            alias = self.root / "untrusted-alias"
+            os.link(path, alias)
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "nonaliased"):
+                self.protected()
+            alias.unlink()
+
+    def test_generated_reports_objects_and_streams_still_reject_hardlinks(self):
+        for artifact in ("report", "object", "stdout", "stderr"):
+            def behavior(command, kwargs):
+                paths = {"report": Path(kwargs["env"]["HOTPATH_OUTPUT_PATH"]), "object": Path(command[-1]),
+                         "stdout": Path(kwargs["stdout"].name), "stderr": Path(kwargs["stderr"].name)}
+                os.link(paths[artifact], self.root / (artifact + "-alias"))
+                return 0
+            self.behavior = behavior
+            with self.subTest(artifact=artifact), patch.object(profile.subprocess, "Popen", side_effect=self.mock_popen):
+                result = profile.execute(self.manifest_path, self.manifest_hash, self.root / ("output-" + artifact), True)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(len(result["jobs"]), 1)
+            self.assertIn("nonaliased", json.dumps(result))
 
 
 class PlanExecutionTests(AdapterFixture):

@@ -103,13 +103,35 @@ def canonical_path(path):
     return path
 
 
-def file_identity(path):
+def file_identity(path, *, native_tool=None):
     path = canonical_path(path)
+    recorded = None
+    if native_tool is not None:
+        # The category is not a caller-supplied path allowlist. Reauthenticate
+        # the original record even on rechecks; manifests cannot grant it.
+        tools = accepted_records()["native_tools"]
+        require(type(native_tool) is str and native_tool in tools, "unknown authenticated native tool")
+        recorded = tools[native_tool]["file"]
+        require(str(path) == recorded["path"], "authenticated native tool path mismatch")
     s = path.stat()
-    require(stat.S_ISREG(s.st_mode) and s.st_nlink == 1, f"regular nonaliased file required: {path}")
-    return {"path": str(path), "sha256": digest(path.read_bytes()), "size": s.st_size,
-            "device": s.st_dev, "inode": s.st_ino, "mode": s.st_mode,
-            "mtime_ns": s.st_mtime_ns, "uid": s.st_uid}
+    require(stat.S_ISREG(s.st_mode) and (s.st_nlink == 1 or recorded is not None),
+            f"regular nonaliased file required: {path}")
+    identity = {"path": str(path), "sha256": digest(path.read_bytes()), "size": s.st_size,
+                "device": s.st_dev, "inode": s.st_ino, "mode": s.st_mode,
+                "mtime_ns": s.st_mtime_ns, "uid": s.st_uid}
+    after = canonical_path(path).stat()
+    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns", "st_uid", "st_gid", "st_nlink")
+    require(all(getattr(s, f) == getattr(after, f) for f in fields), f"file changed during identity capture: {path}")
+    if recorded is not None:
+        observed = {"path": str(path), "sha256": identity["sha256"], "size_bytes": s.st_size,
+                    "device": s.st_dev, "inode": s.st_ino, "mode": oct(stat.S_IMODE(s.st_mode)),
+                    "mtime_ns": s.st_mtime_ns}
+        require(observed == recorded, f"authenticated native tool identity mismatch: {path}")
+        # R19 has no historical nlink/ctime. Bind fresh observations, never
+        # invent old values or silently rebaseline aliases between jobs.
+        identity.update(native_tool=native_tool, build_record_sha256=BUILD_RECORD_SHA256,
+                        nlink=s.st_nlink, ctime_ns=s.st_ctime_ns)
+    return identity
 
 
 def pinned_bytes(path, sha256):
@@ -601,11 +623,17 @@ def protected_files(manifest_path, manifest_sha256, records, inventory):
         files[row["path"]] = row["sha256"]
     identities = {path: file_identity(path) for path in files}
     require(all(identities[p]["sha256"] == h for p, h in files.items()), "protected input changed")
+    require(records["native_tools"] == accepted_records()["native_tools"], "unauthenticated native tool records")
+    for name, tool in records["native_tools"].items():
+        path = tool["file"]["path"]
+        require(path not in identities, "native tool overlaps protected input")
+        identities[path] = file_identity(path, native_tool=name)
     return identities
 
 
 def check_integrity(before):
-    require(before == {p: file_identity(p) for p in before}, "post-run protected-file integrity failed")
+    require(before == {p: file_identity(p, native_tool=identity.get("native_tool"))
+                       for p, identity in before.items()}, "post-run protected-file integrity failed")
 
 
 def source_qualifiers(manifest, root, prefix):
