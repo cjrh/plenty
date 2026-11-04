@@ -74,15 +74,23 @@ Outside the loop caches below, codegen does not cache the address across source
 operations, so growth between accesses is observed.
 
 A `for` or `while` loop caches the length and first-row address of a named
-scalar list defined before it (issues #429 and #715). The frontend emits the
-header reads before the loop and lowers `xs[i]` in the loop to
+scalar list, or of a scalar-list field of a named class value
+(`self.items[i]`), defined before it (issues #429, #715 and #717). The frontend
+emits the header reads before the loop and lowers `xs[i]` in the loop to
 `ListScalarGetView` or `ListScalarSetView`, which take the cached values as
 operands. An immutable shared reference cannot change during the loop. For an
-owned list, an exclusive reference, or a retargetable binding, the frontend
-checks the finished loop's operations against a list that cannot resize or
-replace any list (arithmetic, control flow, loan bookkeeping, scalar row
-access, length queries, and no write to the binding). If any other operation
-appears, such as a call, it rewrites those accesses to `ListScalarGetRef` and
+owned list or owner, an exclusive reference, or a retargetable binding, the
+frontend checks the finished loop's operations against a list that cannot
+resize or replace any list (arithmetic, control flow, loan bookkeeping, `?`,
+scalar row access, length queries, view construction, calls, and no write to
+the binding). A direct call is allowed when none of its arguments can resize
+the list: Plenty has no globals, so a callee reaches a list only through its
+arguments. Shared borrows and `&mut` passed to a slice view cannot resize it,
+nor can `&mut` to an unrelated owned local. The loop falls back for a `&mut`
+list or class argument, including a method receiver, that reaches the cached
+list or its owner or that is borrowed from a reference parameter; for a
+by-value argument that holds references; for indirect and closure calls; and
+for any other operation. The fallback rewrites those accesses to `ListScalarGetRef` and
 `ListScalarSetRef`, which read the header at each access. The cache is held in
 ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would

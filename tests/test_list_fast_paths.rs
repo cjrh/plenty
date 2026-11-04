@@ -546,6 +546,9 @@ fn cached_exclusive_and_owned_rows_trap_out_of_bounds(#[case] index: &str, #[cas
             "def write(xs: &mut list[i64]) -> ():\n    for _ in range(2):\n        xs[{index}] = 1\nmut xs = {values}\nwrite(&mut xs)"
         ),
         format!("mut xs = {values}\nfor _ in range(2):\n    xs[{index}] += 1"),
+        format!(
+            "def size(xs: &[i64]) -> i64:\n    len(xs)\nmut xs = {values}\nmut n = 0\nfor _ in range(2):\n    n += size(&xs) + xs[{index}]\nprint(n).unwrap()"
+        ),
     ] {
         let output = support::run(&source);
         assert!(!output.status.success(), "{source}");
@@ -637,4 +640,178 @@ fn cached_rows_read_the_header_once_and_skip_normalization() {
     let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
     assert_eq!(removed.find_iter(&asm).count(), 2, "{asm}");
     assert!(!asm.contains("cmov"), "{asm}");
+}
+
+/// Loops whose calls take shared or view borrows, or an exclusive borrow of
+/// another owner, keep the row cache, for locals and field lists alike; calls
+/// that could resize the list through an exclusive list, owner or method
+/// receiver fall back (issue #717).
+const CALLS: &str = r#"
+class Bag:
+    items: list[i64]
+    total: i64
+
+    def add(self: &mut Bag, v: i64) -> ():
+        self.items.append(v).unwrap()
+
+def peek(xs: &[i64], i: i64) -> i64:
+    xs[i]
+def bump(xs: &mut [i64], i: i64) -> ():
+    xs[i] += 1
+def first(xs: &list[i64]) -> i64:
+    xs[0]
+def extend(xs: &mut list[i64]) -> ():
+    xs.append(xs[0]).unwrap()
+def refill(bag: &mut Bag) -> ():
+    bag.items.append(9).unwrap()
+def viewed(xs: &mut list[i64]) -> i64:
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i] + peek(xs, i) + first(xs)
+        bump(xs, i)
+    s
+def others(xs: &mut list[i64]) -> i64:
+    mut zs = [5].unwrap()
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i]
+        extend(&mut zs)
+    s + len(zs)
+def fields(bag: &mut Bag) -> i64:
+    mut s = 0
+    for i in range(len(bag.items)):
+        s += bag.items[i]
+        bag.items[i] = peek(&bag.items, i) * 2
+        bag.total += 1
+    s + bag.total
+def shared_fields(bag: &Bag) -> i64:
+    mut s = 0
+    for i in range(len(bag.items)):
+        s += bag.items[i] + first(&bag.items)
+    s
+def extended(xs: &mut list[i64]) -> i64:
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        extend(xs)
+    s
+def refilled(bag: &mut Bag) -> i64:
+    mut s = 0
+    for i in range(3):
+        s += bag.items[i]
+        refill(bag)
+    s
+def added(bag: &mut Bag) -> i64:
+    mut s = 0
+    mut i = 0
+    while i < 3:
+        s += bag.items[i]
+        bag.add(i)
+        i += 1
+    s
+def nested(xs: &mut list[i64]) -> i64:
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        for _ in range(2):
+            s += xs[0]
+            extend(xs)
+    s
+def owned() -> i64:
+    mut xs = [1, 2, 3].unwrap()
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        extend(&mut xs)
+    s + len(xs)
+def main() -> ():
+    mut xs = [1, 2, 3].unwrap()
+    print(viewed(&mut xs)).unwrap()
+    print(others(&mut xs)).unwrap()
+    mut bag = Bag([1, 2].unwrap(), 0)
+    print(fields(&mut bag)).unwrap()
+    print(shared_fields(&bag)).unwrap()
+    mut ys = [4].unwrap()
+    print(extended(&mut ys)).unwrap()
+    mut one = Bag([1].unwrap(), 0)
+    print(refilled(&mut one)).unwrap()
+    mut four = Bag([4].unwrap(), 0)
+    print(added(&mut four)).unwrap()
+    mut zs = [1].unwrap()
+    print(nested(&mut zs)).unwrap()
+    print(owned()).unwrap()
+"#;
+
+#[test]
+fn row_caches_survive_calls_that_cannot_resize_the_list() {
+    support::assert_visible_stdout(CALLS, "17\n13\n5\n10\n12\n19\n5\n9\n12");
+    let views = |name: &str| {
+        let ops = dump("ops", &format!("__plenty_fn_{name}"), CALLS);
+        let cached =
+            ops.matches("ListScalarGetView(").count() + ops.matches("ListScalarSetView(").count();
+        let ordinary =
+            ops.matches("ListScalarGetRef(").count() + ops.matches("ListScalarSetRef(").count();
+        (cached, ordinary)
+    };
+    for (name, accesses) in [
+        ("viewed", 1),
+        ("others", 1),
+        ("fields", 2),
+        ("shared_fields", 1),
+    ] {
+        assert_eq!(views(name), (accesses, 0), "{name}");
+    }
+    for (name, accesses) in [
+        ("extended", 1),
+        ("refilled", 1),
+        ("added", 1),
+        ("nested", 2),
+        ("owned", 1),
+    ] {
+        assert_eq!(views(name), (0, accesses), "{name}");
+    }
+}
+
+/// With a call in the loop, the list header is still read only before it
+/// (issue #717): every flag-byte read precedes the loop's head, the target of
+/// its back edge.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn cached_rows_across_a_call_read_the_header_before_the_loop() {
+    let asm = dump(
+        "asm",
+        "summed",
+        r#"
+def first(xs: &list[i64]) -> i64:
+    xs[0]
+def summed(xs: &mut list[i64]) -> i64:
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i] + first(xs)
+    s
+def main() -> ():
+    mut xs = [1, 2, 3].unwrap()
+    print(summed(&mut xs)).unwrap()
+"#,
+    );
+    let line = regex::Regex::new(r"(?m)^\s*([0-9a-f]+):\s+(\S+)\s+(\S+)").unwrap();
+    let mut header = Vec::new();
+    let mut head = usize::MAX;
+    for found in line.captures_iter(&asm) {
+        let at = usize::from_str_radix(&found[1], 16).unwrap();
+        if found[2].starts_with("movzb") && found[3].starts_with("0x30(") {
+            header.push(at);
+        } else if &found[2] == "jmp"
+            && let Some(target) = found[3].strip_prefix("0x")
+            && let Ok(target) = usize::from_str_radix(target, 16)
+            && target < at
+        {
+            head = head.min(target);
+        }
+    }
+    assert!(head != usize::MAX, "{asm}");
+    assert!(
+        !header.is_empty() && header.iter().all(|&at| at < head),
+        "{asm}"
+    );
 }
