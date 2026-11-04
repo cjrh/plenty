@@ -307,9 +307,40 @@ holding π/180. A program that wants angles checked declares
 | Library | Boundary |
 | --- | --- |
 | `std.dataframe` | `units.wrap_list[Length](frame.values_f64("x")?)` gives typed values with no copy beyond `values_f64` |
-| `std.plot` | `Column.Num(units.strip_list(qs))`. An axis label can come from the unit: `f"distance ({u.km.symbol()})"`. Automatic labels are later work. |
+| `std.plot` | `Column.Num(units.strip_list(qs))`, with a hand-written label for now. Labels from units are [open design](#plot-axis-labels). |
 | `std.numeric` ([proposal](numerics.md)) | Solvers keep `f64` callbacks. A callback strips and rewraps at its boundary. Quantity-generic solvers wait for evidence. |
 | `std.linalg` | `Matrix` stays `f64`. Elements of one matrix often have different dimensions, which a single `D` cannot express; out of scope |
+
+### Plot axis labels
+
+Open design, deferred from milestone 3 (B97). `std` cannot yet give a unit
+symbol as text, and a unit constant is only a value: `u.km` is
+`Quantity[f64, Length]` holding 1000.0, with no name. Candidate pieces:
+
+- **`symbol()` on `Quantity[T, D]`.** Returns the coherent-unit symbol that
+  printing uses (`"m/s"`) as a static string, without allocating; `""` for a
+  dimensionless quantity. This also serves hand-written labels:
+  `f"speed ({Quantity[f64, Velocity].symbol()})"`.
+- **A quantity column in `std.plot`.** For example `plot.quantity("speed", &xs)`
+  stores the values through `strip_list`, with no copy, and records the
+  dimension. With no explicit label, the axis title is `speed (m/s)`. An
+  explicit label wins.
+- **A display unit that fits the data.** Values of 2.5e6 m read better as
+  2500 km. The column would pick a unit whose scaled values are easy to read,
+  for example so the largest magnitude lies in [1, 1000), and label the axis
+  with that unit. Questions:
+  - Where candidate units come from. Unit constants carry no names, so this
+    needs a per-dimension table of (symbol, factor) pairs, from SI prefixes
+    on base symbols (`mm`, `m`, `km`), from named units in `std.units`, or
+    both. Named-unit display (`kN`, `J`) is related later work.
+  - Prefixes on compound symbols: `km/s` or `kN`, and which factor of a
+    product takes the prefix.
+  - Scaling without a copy: divide at tick and label time rather than
+    rewriting the column.
+  - Overrides: the caller fixes the display unit and its symbol, for example
+    `plot.quantity_in("distance", &xs, u.km, "km")`, since the constant has
+    no name to show.
+  - Shared axes: series on one axis must share one display unit.
 
 ### Cost
 
@@ -370,7 +401,8 @@ are authoritative.
    functions; temperature and `Duration` conversions; zero-copy list
    conversions.
 3. **Measured follow-ups.** Shared bodies for instances differing only in
-   dimension (**delivered**); plot axis labels from units; then any later
+   dimension (**delivered**); [plot axis labels](#plot-axis-labels) from units
+   (deferred, design open); then any later
    item with a use case.
 
 ## Testing and acceptance
