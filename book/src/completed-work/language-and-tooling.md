@@ -239,6 +239,14 @@ all-features acceptance remain outstanding. A complete earlier all-features
 baseline compiled successfully but reported 4,465 passes, 1,109 failures and
 eight ignores; 27 confirmed self-skips are included in the reported passes.
 That snapshot predates the generic/native follow-ups and is not a current pass.
+A newer complete gate at `ff52bd7e` compiled with 4,813 reported passes, 813
+failures and eight ignores, including the same 27 optional self-skips. No failed
+outer name is new relative to the older baseline, and no std-source diagnostic
+remains. Reviewed borrowing, tail/stack, control/trap and flow/shared fixture
+batches subsequently pass all 568 parent-run cases, including 258 identical
+failed names from that snapshot. No fresh whole-suite pass is inferred from
+these scoped results; issue #710 tracks the exposed propagated numeric-literal
+context defect without replacing its unsuffixed-literal oracle.
 
 Reviewed generalized initializer errors preserve exactly the declared E, including
 generic whole-result parameters, aliases, named defaults and constructor values.

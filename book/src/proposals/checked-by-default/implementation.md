@@ -136,13 +136,21 @@ instantiate all generic bodies; executable coverage was needed in addition to
 its two passing tests. Reviewed native export/FFI fixtures restore 23 tests
 without widening C scalar/fieldless-error signatures or weakening native oracles.
 
-Adoption remains incomplete. Fallible reduction callbacks, repository fixtures/
-examples, full-suite/native arithmetic audits and performance measurements remain.
+Adoption remains incomplete. Repository fixtures/examples, full-suite/native
+arithmetic audits and performance measurements remain.
 A complete earlier all-features baseline compiled, including experimental emitter
 and profiling features, but reported 4,465 passes, 1,109 failures and eight ignores.
 The passes include 27 confirmed optional self-skips. Most failures reject old
 fixture arithmetic contracts; some hit the generic std bodies adapted since that
-snapshot. Compilation and those counts are not whole-proposal acceptance. The user approved deterministic fallible-tree
+snapshot. A newer complete gate at `ff52bd7e` compiled successfully and reported
+4,813 passes, 813 failures and eight ignores, again including 27 optional
+self-skips. It has no newly failing outer name relative to that baseline and no
+remaining std-source diagnostic. Subsequently reviewed borrowing, tail/stack,
+control/trap and flow/shared batches pass all 568 parent-run tests, including
+258 identical failed names from that newer snapshot. This is scoped evidence,
+not a measured current-head whole-suite result or acceptance. Public Result
+adoption also exposed the contextual numeric-literal defect tracked in issue #710;
+its original unsuffixed-call-result oracle remains unwaived. The user approved deterministic fallible-tree
 errors by level then left-to-right pair, accepting level-by-level scheduling while
 infallible reducers retain their optimization. Ordinary Result[(), E] initializers now produce exactly Result[Class, E], without
 adding AllocError unless declared. Reviewed generic-output deferral preserves
