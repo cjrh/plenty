@@ -614,24 +614,80 @@ fn changing_inlined_callback_invalidates_cached_caller() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
     std::fs::write(&source, "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nfrom arithmetic import bump\ndef main() -> ():\n    print(iter(range(3)).map(bump).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())).unwrap()\n").unwrap();
+    let cache = dir.path().join("cache");
+    let executable = dir.path().join("program");
+    let cache_off = std::env::var_os("PLENTY_CACHE").is_some_and(|mode| mode == "off");
+    let compile_and_run = |label: &str, expected: &str| {
+        // Explicit compilation avoids the executable cache; disable the program
+        // cache too so a warm hit proves compiled-function reuse. Only this
+        // fixture's temporary cache is used, respecting the caller's on/off mode.
+        let compiled = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args([
+                "--release",
+                "--no-program-cache",
+                "--cache-stats",
+                "--compile",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .env("PLENTY_CACHE_DIR", &cache)
+            .env_remove("PLENTY_CACHE_LIMIT")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(compiled.stderr).unwrap();
+        assert!(compiled.status.success(), "{label}: {stderr}");
+        let stats = stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("compile cache: "))
+            .expect(&stderr);
+        let counts = if cache_off {
+            assert_eq!(stats, "off", "{label}: {stderr}");
+            None
+        } else {
+            let count = |suffix: &str| -> u64 {
+                stats
+                    .split(", ")
+                    .find_map(|part| part.strip_suffix(suffix))
+                    .expect(&stderr)
+                    .parse()
+                    .unwrap()
+            };
+            Some((count(" hits"), count(" misses")))
+        };
+        let result = std::process::Command::new(&executable).output().unwrap();
+        assert!(result.status.success(), "{label}: {result:?}");
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        assert_eq!(stdout, expected, "{label}");
+        eprintln!("{label}: stdout={stdout:?}; compile cache: {stats}");
+        (counts, stderr)
+    };
+    let mut function_count = None;
     for (delta, expected) in [(1, "6\n"), (2, "9\n")] {
         std::fs::write(
             dir.path().join("arithmetic.plenty"),
             format!("pub def bump(n: i64) -> i64:\n    # IR/cache fixture: keep the scalar operation inlined into main.\n    unchecked:\n        n + {delta}\n"),
         )
         .unwrap();
-        let result = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
-            .args(["--release", "--no-program-cache"])
-            .arg(&source)
-            .env("PLENTY_CACHE_DIR", dir.path().join("cache"))
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        assert_eq!(String::from_utf8_lossy(&result.stdout), expected);
+        let (counts, stderr) = compile_and_run(&format!("delta={delta} first"), expected);
+        if let Some((hits, misses)) = counts {
+            // Both the empty cache and the callee edit must compile new code;
+            // the inlining oracle below places bump's operation in main.
+            assert!(misses > 0, "{stderr}");
+            if let Some(previous) = function_count {
+                // The edited bump and its inlined caller miss; unrelated
+                // functions remain reusable in this same isolated cache.
+                assert!(misses >= 2, "{stderr}");
+                assert!(hits > 0, "{stderr}");
+                assert_eq!(hits + misses, previous, "{stderr}");
+            }
+            function_count = Some(hits + misses);
+        }
+        let (warm, stderr) = compile_and_run(&format!("delta={delta} unchanged"), expected);
+        if let Some((hits, misses)) = counts {
+            assert_eq!(warm, Some((hits + misses, 0)), "{stderr}");
+            assert!(stderr.contains(" 0 B written"), "{stderr}");
+        }
         let dump = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
             .args([
                 "--release",
@@ -646,10 +702,15 @@ fn changing_inlined_callback_invalidates_cached_caller() {
             .output()
             .unwrap();
         assert!(dump.status.success(), "{dump:?}");
-        assert!(
-            !String::from_utf8_lossy(&dump.stdout).contains("__plenty_fn_bump"),
-            "{dump:?}"
-        );
+        let text = String::from_utf8(dump.stdout).unwrap();
+        let (_, clif) = text.split_once("#### clif.txt\n").expect(&text);
+        let (_, main) = clif
+            .split_once("==== main  symbol=__plenty_fn_main  kind=function")
+            .expect(&text);
+        let main = main.split("\n==== ").next().unwrap();
+        assert!(main.contains("\nfunction "), "{text}");
+        assert!(!main.contains("__plenty_fn_arithmetic.bump"), "{text}");
+        eprintln!("delta={delta}: selected main CLIF present; no __plenty_fn_arithmetic.bump");
     }
 }
 
