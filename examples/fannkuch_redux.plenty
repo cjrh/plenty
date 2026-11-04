@@ -1,0 +1,134 @@
+# fannkuch-redux from the Computer Language Benchmarks Game:
+# https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/fannkuchredux.html
+#
+# For every permutation of 0..n, repeatedly reverse the first perm[0] + 1
+# elements until 0 comes first. Print the alternating sum of flip counts
+# (the checksum) and the largest flip count.
+#
+# Compile, then run: ./fannkuch_redux 12
+#
+# The n! permutations are split into equal blocks. Each worker turns its
+# block's first index into a permutation through the factorial number system,
+# then walks the rest of the block in the benchmark's required order.
+
+const WORKERS: Positive[i64] = 8
+const MAX_N: i64 = 16
+const DEFAULT_N: i64 = 7
+
+type AppError = AllocError | IoError | ParseError | ParallelError[AllocError] | PoolError
+
+def factorial(n: i64) -> i64:
+    mut result = 1
+    for i in range(2, n + 1):
+        result *= i
+    result
+
+# Count flips for one permutation, using `scratch` as working storage.
+def flips(perm: &[i64], scratch: &mut [i64]) -> i64:
+    mut first = perm[0]
+    if first == 0:
+        return 0
+    n = len(perm)
+    for i in range(n):
+        scratch[i] = perm[i]
+    mut count = 0
+    while first != 0:
+        # Reverse scratch[0..=first]; the old first element lands at `first`.
+        mut lo = 1
+        mut hi = first - 1
+        # Indexed assignment, not `scratch.swap`, which is a runtime call
+        # (issue #714).
+        while lo < hi:
+            t = scratch[lo]
+            scratch[lo] = scratch[hi]
+            scratch[hi] = t
+            lo += 1
+            hi -= 1
+        next = scratch[first]
+        scratch[first] = first
+        first = next
+        count += 1
+    count
+
+# Rotate perm[0..=last] left by one place.
+def rotate_left(perm: &mut [i64], last: i64) -> ():
+    head = perm[0]
+    for i in range(last):
+        perm[i] = perm[i + 1]
+    perm[last] = head
+
+# Return (checksum, max flips) for permutations [start, stop).
+def block(n: i64, start: i64, stop: i64) -> Result[(i64, i64), AllocError]:
+    if start >= stop:
+        return Ok((0, 0))
+    mut perm = list[i64].with_capacity(n)?
+    mut scratch = list[i64].with_capacity(n)?
+    mut count = list[i64].with_capacity(n)?
+    for i in range(n):
+        perm.append(i)?
+        scratch.append(0)?
+        count.append(0)?
+
+    # Decode `start` in the factorial number system: digit d at position i
+    # rotates perm[0..=i] left by d.
+    mut index = start
+    for i in reversed(range(1, n)):
+        place = factorial(i)
+        digit = index // place
+        index %= place
+        count[i] = digit
+        for _ in range(digit):
+            rotate_left(&mut perm, i)
+
+    mut checksum = 0
+    mut max_flips = 0
+    mut position = start
+    while True:
+        f = flips(&perm, &mut scratch)
+        if f > max_flips:
+            max_flips = f
+        checksum += f if position % 2 == 0 else -f
+        position += 1
+        if position == stop:
+            break
+        # Advance to the next permutation in the benchmark's order.
+        mut i = 1
+        while True:
+            rotate_left(&mut perm, i)
+            count[i] += 1
+            if count[i] <= i:
+                break
+            count[i] = 0
+            i += 1
+    Ok((checksum, max_flips))
+
+def parse_n() -> Result[i64, AllocError | IoError | ParseError]:
+    arguments = args()?
+    if len(arguments) < 2:
+        return Ok(DEFAULT_N)
+    Ok(i64.parse(&arguments[1])?)
+
+def main() -> Result[i32, AppError]:
+    n = parse_n()?
+    if n < 1 or n > MAX_N:
+        write_stderr(f"n must be between 1 and {MAX_N}\n"?)?
+        return Ok(2i32)
+    total = factorial(n)
+    # Many more blocks than workers keeps the pool busy while a few blocks
+    # still run long. Rounding up can leave trailing blocks empty.
+    blocks = 1 if total < WORKERS.get() * 16 else WORKERS.get() * 16
+    size = (total + blocks - 1) // blocks
+    worker = def [n, total, size](b: i64) -> Result[(i64, i64), AllocError]:
+        start = b * size
+        stop = start + size if start + size < total else total
+        block(n, start, stop)
+    mut checksum = 0
+    mut max_flips = 0
+    with ThreadPoolExecutor(WORKERS, WORKERS)? as pool:
+        for part in pool.map_result(worker, range(blocks))?:
+            checksum += part[0]
+            if part[1] > max_flips:
+                max_flips = part[1]
+    print(checksum)?
+    print(f"Pfannkuchen({n}) = {max_flips}"?)?
+    Ok(0i32)
