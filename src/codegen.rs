@@ -849,6 +849,15 @@ fn object_module(
         plan.set_entry_ops(id, &ops, heap);
     }
     out.dump = dump.map(Arc::new);
+    // Optimized builds lower these functions where they are called, so their
+    // own bodies are built only if something still refers to them.
+    let mut bodies = bodies;
+    let deferred = inline_calls::Deferred::take(
+        &mut bodies,
+        &user_fns,
+        exports,
+        build.optimize && out.dump.is_none(),
+    );
     let mut jobs: Vec<Job> = threads
         .into_iter()
         .map(|(task, id)| Job::Thread(task, id))
@@ -869,7 +878,7 @@ fn object_module(
         jobs.push(Job::Main(ops, returns_status, id));
     }
     let (fns, str_data) = (&user_fns, &str_data);
-    out.build(jobs, workers, &runtime, |job, worker| {
+    let build_job = |job, worker: &mut Worker| {
         let runtime = &runtime;
         match job {
             Job::Thread(task, id) => {
@@ -891,7 +900,9 @@ fn object_module(
                 build_main(&ops, returns_status, id, fns, str_data, runtime, worker)
             }
         }
-    })?;
+    };
+    out.build(jobs, workers, &runtime, build_job)?;
+    deferred.finish(&mut out, workers, &runtime, fns, &build_job)?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
     Ok(out)
 }
@@ -1017,6 +1028,9 @@ struct Runtime {
     /// rest of `Runtime`.
     type_data: std::sync::Mutex<HashMap<Ty, DataId>>,
     protocol_tables: std::sync::Mutex<HashMap<Vec<FuncId>, DataId>>,
+    /// Functions that placed code or data refers to; see
+    /// [`inline_calls::Deferred`].
+    referenced: std::sync::Mutex<crate::hash::HashSet<FuncId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
     list_len: FuncId,
@@ -1221,6 +1235,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
         protocol_tables: Default::default(),
+        referenced: Default::default(),
         drop_hooks: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,

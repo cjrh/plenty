@@ -774,7 +774,7 @@ fn row_caches_survive_calls_that_cannot_resize_the_list() {
 
 /// With a call in the loop, the list header is still read only before it
 /// (issue #717): every flag-byte read precedes the loop's head, the target of
-/// its back edge.
+/// its back edge. `first` is recursive so that it stays a call.
 #[cfg(target_arch = "x86_64")]
 #[test]
 fn cached_rows_across_a_call_read_the_header_before_the_loop() {
@@ -782,12 +782,14 @@ fn cached_rows_across_a_call_read_the_header_before_the_loop() {
         "asm",
         "summed",
         r#"
-def first(xs: &list[i64]) -> i64:
-    xs[0]
+def first(xs: &list[i64], n: i64) -> i64:
+    if n == 0:
+        return xs[0]
+    first(xs, n - 1)
 def summed(xs: &mut list[i64]) -> i64:
     mut s = 0
     for i in range(len(xs)):
-        s += xs[i] + first(xs)
+        s += xs[i] + first(xs, 0)
     s
 def main() -> ():
     mut xs = [1, 2, 3].unwrap()

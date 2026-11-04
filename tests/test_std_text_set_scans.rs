@@ -195,11 +195,8 @@ fn scans_call_only_the_narrow_helper() {
             .filter(|line| line.trim_start().starts_with("fn") && line.contains(" = "))
             .filter_map(|line| line.rsplit("; ").next())
             .collect();
-        assert_eq!(
-            calls,
-            ["plenty_text_find_in", "__plenty_fn_std.text.located"],
-            "{body}"
-        );
+        // `located` is lowered in the caller (issue #722).
+        assert_eq!(calls, ["plenty_text_find_in"], "{body}");
     }
     let all_bytes = functions
         .iter()

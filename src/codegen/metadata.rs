@@ -293,6 +293,7 @@ fn define_type(
         .into_iter()
         .chain(formats)
         .collect();
+    runtime.refer(functions.iter().map(|&(_, function)| function));
     define(module, id, bytes, &links, &functions)
 }
 

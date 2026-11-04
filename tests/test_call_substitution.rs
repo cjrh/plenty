@@ -219,7 +219,9 @@ fn leaf_predicates_run_in_the_caller_in_release_builds() {
     }
     let main = section(dir.path(), "asm.txt", "main").unwrap();
     assert!(!main.contains("__plenty_fn_bump\n"), "{main}");
-    for callee in ["countdown", "classify", "check"] {
+    // `check` is small enough to lower at both call sites (issue #722).
+    assert!(!main.contains("__plenty_fn_check\n"), "{main}");
+    for callee in ["countdown", "classify"] {
         assert!(
             main.contains(&format!("__plenty_fn_{callee}\n")),
             "{callee}:\n{main}"

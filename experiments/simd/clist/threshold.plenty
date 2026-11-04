@@ -11,7 +11,12 @@ def scalar_count(rows: &clist[Row], low: i32, high: i32) -> i64:
             count += 1
     count
 
+# The guard-page harness calls both counts from C, so each keeps its own
+# body: passing it as a function value refers to it.
+def run(count: Callable[[&clist[Row], i32, i32], i64], rows: &clist[Row]) -> i64:
+    count(rows, 5i32, i32.MAX)
+
 def main() -> Result[(), IoError]:
     rows = clist[Row]()
-    print(simd_count(&rows, 5i32, i32.MAX), scalar_count(&rows, 5i32, i32.MAX))?
+    print(run(simd_count, &rows), run(scalar_count, &rows))?
     Ok(())

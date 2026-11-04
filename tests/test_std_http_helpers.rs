@@ -1102,30 +1102,18 @@ fn body_and_cookie_classes_are_bulk_scans() {
         let rest = &clif[start + 5..];
         rest[..rest.find("\n==== ").unwrap_or(rest.len())].to_string()
     };
-    for (name, present, absent) in [
-        (
-            "std.http.body.parameters",
-            &["body.token_end", "body.quoted_end"][..],
-            &["token_byte"][..],
-        ),
-        (
-            "std.http.body.part_head",
-            &["body.token_end", "body.has_control"],
-            &["token_byte"],
-        ),
+    // The scan helpers (`token_end`, `quoted_end`, `has_control`, `all_in`)
+    // may be called or lowered in these callers (issue #722); either way no
+    // per-byte classifier is called.
+    for (name, absent) in [
+        ("std.http.body.parameters", &["token_byte"][..]),
+        ("std.http.body.part_head", &["token_byte"]),
         (
             "std.http.cookie.split_pairs",
-            &["cookie.all_in"],
             &["valid_name", "valid_value", "token_byte"],
         ),
     ] {
         let body = function(name);
-        for call in present {
-            assert!(
-                body.contains(&format!("; __plenty_fn_std.http.{call}\n")),
-                "{name} lacks {call}:\n{body}"
-            );
-        }
         for call in absent {
             assert!(!body.contains(call), "{name} calls {call}:\n{body}");
         }

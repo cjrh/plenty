@@ -295,6 +295,28 @@ call in the caller reports the same position and call chain as before. They
 become part of the caller's IR, so the [compiled-function cache](cache.md)
 key changes when a constant's value or a predicate's body does.
 
+## Call-site inlining
+
+In release builds, `src/codegen/inline_calls.rs` lowers some calls by
+lowering the callee's typed body in the caller (issues #548 and #722). The
+body keeps its own locals, source position, trap sites and cleanup, so traps
+and `?` failures behave as the call would; only its final return becomes a
+jump. A callee is inlined when it is not recursive, not a generator, has no
+tail call and defines no function, and its operations, counting the callees
+inlined into it, stay within a bound:
+
+| Callee | Bound |
+|---|---|
+| A class's `new` or `__init__` | 64 operations |
+| Any function with one direct call site | 160 operations |
+| Any other function | 16 operations |
+
+An inlined function's own body is built only if placed code or data still
+refers to it, for example a call from a generator, a function value, a
+protocol table or a thread adapter; exported functions are always built.
+Otherwise the copy at its call site is its only code, so inlining a function
+called once costs no extra compile time. `--dump` builds keep every body.
+
 ## Last-use moves
 
 After substitution, `src/codegen/last_use.rs` turns the last read of a local
