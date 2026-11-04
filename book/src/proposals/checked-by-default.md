@@ -1,11 +1,12 @@
 # Checked arithmetic by default
 
-> **Status: Compiler core implemented; coordinated adoption incomplete.**
-> Function-level arithmetic boundaries, lexical `unchecked:`, and independent
-> closure contracts are implemented on this branch. Std APIs, callback consumers,
-> existing tests/examples, remaining documentation and acceptance measurements
-> still need coordinated migration under **B14** in the [backlog](../backlog.md).
-> This is not yet a complete implementation of the proposal.
+> **Status: Core and repository adoption implemented; acceptance incomplete.**
+> Function-level arithmetic boundaries, lexical `unchecked:`, independent closure
+> contracts, std/callback APIs, fixtures, shipped examples and teaching/reference
+> changes are implemented on this branch. Compiler benchmark templates, a complete
+> post-repair host gate and final native/performance measurements remain under
+> **B14** in the [backlog](../backlog.md). The [implementation record](checked-by-default/implementation.md)
+> distinguishes completed validation from those outstanding acceptance gates.
 
 ## Recommendation
 
