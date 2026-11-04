@@ -38,15 +38,17 @@ fn rejects_native_reference_signature_at_source() {
 
 #[test]
 fn stable_source_and_locations_across_compilations() {
+    // Recursing only when x > 0 proves x - 1 cannot overflow. The emitter
+    // deliberately accepts only scalar returns, not Result values.
     with_source(
-        "def entry(x: i64) -> i64:\n    if x == 0:\n        return 1\n    entry(x - 1)\n",
+        "def entry(x: i64) -> i64:\n    if x <= 0:\n        return 1\n    unchecked:\n        entry(x - 1)\n",
         |path| {
             let a = emit_file(path, &options()).unwrap();
             let b = emit_file(path, &options()).unwrap();
             assert_eq!(a.source, b.source);
             assert_eq!(a.locations, b.locations);
             assert!(a.source.contains("continue 'tail"));
-            assert!(a.locations.values().any(|p| p.contains("input.plenty:4:")));
+            assert!(a.locations.values().any(|p| p.contains("input.plenty:5:")));
         },
     );
 }

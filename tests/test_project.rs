@@ -85,6 +85,23 @@ fn new_application_runs_and_library_checks() {
     succeeds(&lib, &["check"]);
     succeeds(&lib, &["build"]);
     fails(&lib, &["run"], "has no executable target");
+    assert_eq!(
+        std::fs::read_to_string(lib.join("src/lib.plenty")).unwrap(),
+        "pub def add(left: i64, right: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(left + right)\n"
+    );
+    package(
+        dir.path(),
+        "consumer",
+        "shapes = { path = \"../shapes\" }\n",
+        &[(
+            "src/main.plenty",
+            "import shapes\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(shapes.add(2, 3)?)?\n    match shapes.add(i64.MAX, 1):\n        case Ok(value):\n            print(\"unexpected\", value)?\n        case Err(error):\n            print(error.wrapped)?\n    Ok(())\n",
+        )],
+    );
+    assert_eq!(
+        succeeds(&dir.path().join("consumer"), &["run"]),
+        "5\n-9223372036854775808\n"
+    );
 
     let named = dir.path().join("Named-Dir");
     std::fs::create_dir(&named).unwrap();
@@ -126,11 +143,11 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         &[
             (
                 "src/lib.plenty",
-                "from helper import scale\n\npub class Point:\n    pub x: i64\n\npub def make(x: i64) -> Point:\n    Point(scale(x))\n",
+                "from helper import scale\n\npub class Point:\n    pub x: i64\n\npub def make(x: i64) -> Result[Point, OverflowError[i64]]:\n    Ok(Point(scale(x)?))\n",
             ),
             (
                 "src/helper.plenty",
-                "pub def scale(x: i64) -> i64:\n    x * 10\n",
+                "pub def scale(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 10)\n",
             ),
         ],
     );
@@ -140,7 +157,7 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         "base = { path = \"../base\" }\n",
         &[(
             "src/lib.plenty",
-            "import base\n\npub class Point:\n    pub y: i64\n\npub def via(x: i64) -> i64:\n    base.make(x).x\n",
+            "import base\n\npub class Point:\n    pub y: i64\n\npub def via(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(base.make(x)?.x)\n",
         )],
     );
     // A different alias for the same package is still one package.
@@ -150,7 +167,7 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         "[dependencies.core]\npath = \"../base\"\n",
         &[(
             "src/lib.plenty",
-            "from core import make\n\npub def twice(x: i64) -> i64:\n    make(x).x * 2\n",
+            "from core import make\n\npub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(make(x)?.x * 2)\n",
         )],
     );
     package(
@@ -160,12 +177,12 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         &[
             (
                 "src/main.plenty",
-                "import left\nimport right\nfrom helper import scale\n\nclass Point:\n    z: i64\n\ndef main() -> Result[(), IoError]:\n    print(left.via(1) + right.twice(1) + left.Point(1).y + Point(2).z + scale(1))?\n    Ok(())\n",
+                "import left\nimport right\nfrom helper import scale\n\nclass Point:\n    z: i64\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(left.via(1)? + right.twice(1)? + left.Point(1).y + Point(2).z + scale(1)?)?\n    Ok(())\n",
             ),
             // The root package's own `helper` is distinct from base's.
             (
                 "src/helper.plenty",
-                "pub def scale(x: i64) -> i64:\n    x + 100\n",
+                "pub def scale(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + 100)\n",
             ),
         ],
     );
@@ -217,7 +234,7 @@ fn a_dependency_library_and_its_modules_import_together() {
             ("src/rules/dst.plenty", "pub def shift() -> i64:\n    1\n"),
             (
                 "tests/zones.plenty",
-                "import tz\nimport tz.zones\n\ndef main() -> i32:\n    if tz.base() + tz.zones.offset(tz.zones.Zone.Fixed(2)) == 102:\n        0\n    else:\n        1\n",
+                "import tz\nimport tz.zones\n\ndef main() -> Result[i32, OverflowError[i64]]:\n    if tz.base() + tz.zones.offset(tz.zones.Zone.Fixed(2)) == 102:\n        Ok(0)\n    else:\n        Ok(1)\n",
             ),
         ],
     );
@@ -230,7 +247,7 @@ fn a_dependency_library_and_its_modules_import_together() {
         "tz = { path = \"../tz\" }\n",
         &[(
             "src/main.plenty",
-            "import tz.zones\nimport tz\nimport tz.rules.dst\n\ndef local(zone: tz.zones.Zone) -> i64:\n    tz.zones.offset(zone) + tz.rules.dst.shift()\n\ndef main() -> Result[(), IoError]:\n    print(tz.base() + local(tz.zones.Zone.Fixed(3)) + tz.zones.HOURS)?\n    Ok(())\n",
+            "import tz.zones\nimport tz\nimport tz.rules.dst\n\ndef local(zone: tz.zones.Zone) -> Result[i64, OverflowError[i64]]:\n    Ok(tz.zones.offset(zone) + tz.rules.dst.shift())\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(tz.base() + local(tz.zones.Zone.Fixed(3))? + tz.zones.HOURS)?\n    Ok(())\n",
         )],
     );
     let app = dir.path().join("app");
@@ -275,7 +292,7 @@ fn a_dependency_library_and_its_modules_import_together() {
     }
     write(
         &app.join("src/main.plenty"),
-        "import tz\nimport tz.zones as zones\n\ndef main() -> Result[(), IoError]:\n    print(tz.zones() + zones.HOURS)?\n    Ok(())\n",
+        "import tz\nimport tz.zones as zones\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(tz.zones() + zones.HOURS)?\n    Ok(())\n",
     );
     assert_eq!(succeeds(&app, &["run"]), "25\n");
 }
@@ -477,19 +494,19 @@ fn profiles_tests_and_clean() {
         &[
             (
                 "src/lib.plenty",
-                "pub def add(a: i64, b: i64) -> i64:\n    a + b\n",
+                "pub def add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\n",
             ),
             (
                 "src/main.plenty",
-                "from calc import add\n\ndef main() -> Result[(), IoError]:\n    print(add(2, 3))?\n    Ok(())\n",
+                "from calc import add\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(add(2, 3)?)?\n    Ok(())\n",
             ),
             (
                 "src/calc.plenty",
-                "pub def add(a: i64, b: i64) -> i64:\n    a + b\n",
+                "pub def add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\n",
             ),
             (
                 "tests/adds.plenty",
-                "import calc\n\ndef main() -> i32:\n    if calc.add(2, 2) == 4:\n        0\n    else:\n        1\n",
+                "import calc\n\ndef main() -> Result[i32, OverflowError[i64]]:\n    if calc.add(2, 2)? == 4:\n        Ok(0)\n    else:\n        Ok(1)\n",
             ),
             ("tests/broken.plenty", "def main() -> i32:\n    3\n"),
             (
@@ -638,7 +655,7 @@ fn twice_application(root: &Path, dependency: &str) -> std::path::PathBuf {
         dependency,
         &[(
             "src/main.plenty",
-            "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.twice(21))?\n    Ok(())\n",
+            "import util\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(util.twice(21)?)?\n    Ok(())\n",
         )],
     );
     root.join("app")
@@ -654,7 +671,7 @@ fn git_dependencies_pin_commits_in_the_lockfile() {
             ("plenty.toml", &library_manifest("util", "1.0.0", "")),
             (
                 "src/lib.plenty",
-                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+                "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
             ),
         ],
     );
@@ -686,7 +703,7 @@ fn git_dependencies_pin_commits_in_the_lockfile() {
         &repo,
         &[(
             "src/lib.plenty",
-            "pub def twice(x: i64) -> i64:\n    x * 3\n",
+            "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 3)\n",
         )],
     );
     git(&repo, &["tag", "--force", "v1"]);
@@ -769,7 +786,7 @@ fn a_locked_commit_that_upstream_deleted_is_reported() {
             ("plenty.toml", &library_manifest("util", "1.0.0", "")),
             (
                 "src/lib.plenty",
-                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+                "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
             ),
         ],
     );
@@ -778,7 +795,7 @@ fn a_locked_commit_that_upstream_deleted_is_reported() {
         &repo,
         &[(
             "src/lib.plenty",
-            "pub def twice(x: i64) -> i64:\n    x + x\n",
+            "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + x)\n",
         )],
     );
     git(&repo, &["checkout", "--quiet", "main"]);
@@ -811,7 +828,7 @@ fn a_locked_commit_that_is_not_a_full_commit_id_is_malformed() {
             ("plenty.toml", &library_manifest("util", "1.0.0", "")),
             (
                 "src/lib.plenty",
-                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+                "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
             ),
         ],
     );
@@ -833,7 +850,7 @@ fn git_subdirectories_share_one_commit_per_package() {
     let repo = dir.path().join("mono");
     let geo = (
         "geo/src/lib.plenty",
-        "pub def scale(x: i64) -> i64:\n    x * 10\n",
+        "pub def scale(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 10)\n",
     );
     commit(
         &repo,
@@ -846,7 +863,7 @@ fn git_subdirectories_share_one_commit_per_package() {
             ),
             (
                 "shapes/src/lib.plenty",
-                "import geo\n\npub def area(x: i64) -> i64:\n    geo.scale(x) * x\n",
+                "import geo\n\npub def area(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(geo.scale(x)? * x)\n",
             ),
         ],
     );
@@ -863,7 +880,7 @@ fn git_subdirectories_share_one_commit_per_package() {
         &dependencies("v1", ", version = \"1.2.0\""),
         &[(
             "src/main.plenty",
-            "import geo\nimport shapes\n\ndef main() -> Result[(), IoError]:\n    print(shapes.area(2) + geo.scale(1))?\n    Ok(())\n",
+            "import geo\nimport shapes\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(shapes.area(2)? + geo.scale(1)?)?\n    Ok(())\n",
         )],
     );
     let app = dir.path().join("app");
@@ -879,7 +896,7 @@ fn git_subdirectories_share_one_commit_per_package() {
         &repo,
         &[(
             "geo/src/lib.plenty",
-            "pub def scale(x: i64) -> i64:\n    x * 100\n",
+            "pub def scale(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 100)\n",
         )],
     );
     git(&repo, &["tag", "v2"]);
@@ -973,7 +990,7 @@ fn add_edits_the_manifest_and_lockfile() {
             ("plenty.toml", &library_manifest("util", "1.0.0", "")),
             (
                 "src/lib.plenty",
-                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+                "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
             ),
         ],
     );
@@ -1053,13 +1070,13 @@ fn builds_reuse_up_to_date_outputs() {
         "",
         &[(
             "src/lib.plenty",
-            "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
         )],
     );
     let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");
     write(
         &app.join("tests/math.plenty"),
-        "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError]:\n    std.test.equal(&util.twice(2), &5)?\n    Ok(())\n",
+        "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError | OverflowError[i64]]:\n    std.test.equal(&util.twice(2)?, &5)?\n    Ok(())\n",
     );
     assert!(status_lines(&app, &["build"]).contains("Compiling app v0.1.0 (debug)"));
     let stderr = status_lines(&app, &["build"]);
@@ -1070,7 +1087,7 @@ fn builds_reuse_up_to_date_outputs() {
     // A dependency's source is an input.
     write(
         &dir.path().join("util/src/lib.plenty"),
-        "pub def twice(x: i64) -> i64:\n    x + x + 1\n",
+        "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + x + 1)\n",
     );
     assert!(status_lines(&app, &["build"]).contains("Compiling"));
     assert_eq!(succeeds(&app, &["run"]), "43\n");
@@ -1117,11 +1134,11 @@ fn workspaces_share_a_lockfile_and_target_directory() {
         &[
             (
                 "src/lib.plenty",
-                "pub def twice(x: i64) -> i64:\n    x * 2\n",
+                "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
             ),
             (
                 "tests/unit.plenty",
-                "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError]:\n    std.test.equal(&util.twice(1), &2)?\n    Ok(())\n",
+                "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError | OverflowError[i64]]:\n    std.test.equal(&util.twice(1)?, &2)?\n    Ok(())\n",
             ),
         ],
     );
@@ -1183,7 +1200,7 @@ fn plentyc_compiles_through_a_package_graph() {
         "",
         &[(
             "src/lib.plenty",
-            "pub def twice(x: i64) -> i64:\n    x * 2\n",
+            "pub def twice(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\n",
         )],
     );
     let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");

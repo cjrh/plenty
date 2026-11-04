@@ -145,7 +145,9 @@ fn generated_loader_checks_contract_and_calls_cached_scalar_addresses() {
         &producer,
         r#"
 export def add(a: i32, b: i32) -> i32 = "calc_add":
-    a + b
+    # Scalar ABI fixture: the sole invocation is 20 + 22 = 42.
+    unchecked:
+        a + b
 export def scale(value: f32) -> f32 = "calc_scale":
     value * 2.0
 export def nothing() -> () = "calc_nothing":
@@ -185,7 +187,7 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
     // A changed return signature is refused before any exported function runs.
     std::fs::write(
         &producer,
-        "export def add(a: i32, b: i32) -> i64 = \"calc_add\":\n    i64(a + b)\n",
+        "export def add(a: i32, b: i32) -> i64 = \"calc_add\":\n    # Contract mismatch is rejected before this export can run.\n    unchecked:\n        i64(a + b)\n",
     )
     .unwrap();
     plenty::compile_file_to_library(&producer, &native, None, &options).unwrap();
@@ -259,7 +261,9 @@ fn generated_methods_preserve_result_payloads_and_scalar_borrow_updates() {
         &producer,
         r#"
 export def change(value: &mut i16, fail: i32) -> Result[f32, ParseError] = "calc_change":
-    *value = *value + 1
+    # This ABI fixture calls change twice, with value 10 then 11.
+    unchecked:
+        *value = *value + 1
     if fail != 0:
         Err(ParseError.OutOfRange)
     else:
@@ -353,7 +357,9 @@ export def create(value: i64) -> Result[Counter, AllocError] = "calc_create":
 export def read(counter: &Counter) -> i64 = "calc_read":
     counter.value
 export def bump(counter: &mut Counter) -> Result[(), i32] = "calc_bump":
-    counter.value = counter.value + 1
+    # Owner fixtures bump only once, from 20 or 10 respectively.
+    unchecked:
+        counter.value = counter.value + 1
     Err(-1)
 export def transfer(counter: Counter) -> Result[Counter, AllocError] = "calc_transfer":
     Ok(counter)
