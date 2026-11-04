@@ -107,3 +107,7 @@ Both forms store a tag and payload inline; wrapping adds no heap allocation.
 List creation and growth still return allocation results, as does constructing
 any payload that itself needs storage. See [anonymous sums](../../design/language/03-types/anonymous-sums.md)
 and [enums](../../design/language/03-types/enums.md) for the full contracts.
+
+For implementations supplied independently of a fixed list of alternatives, see
+[protocol objects](../09-generics/boxed-protocols.md). Each object uses an explicit
+heap allocation and exposes the methods of one protocol.

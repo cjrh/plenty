@@ -652,7 +652,11 @@ impl FromIterator<(String, TypeRef)> for Substitution {
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
-        Ty::Dimension(_) | Ty::Closure(_) | Ty::BoxedCallable(_) | Ty::Iter(..) => {
+        Ty::Dimension(_)
+        | Ty::Closure(_)
+        | Ty::BoxedCallable(_)
+        | Ty::BoxedProtocol(_)
+        | Ty::Iter(..) => {
             return TypeRef {
                 at: at.clone(),
                 concrete: Some(Box::new(ty.clone())),
@@ -836,6 +840,17 @@ fn infer_inner(
         && pattern.args.len() == arguments.len()
     {
         for (pattern, argument) in pattern.args.iter().zip(&arguments) {
+            infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
+        }
+        return Ok(());
+    }
+    if pattern.name.as_deref() == Some("Box")
+        && let Ty::BoxedProtocol(protocol) = actual
+        && let [interface] = pattern.args.as_slice()
+        && interface.name.as_ref() == Some(&protocol.name)
+        && interface.args.len() == protocol.arguments.len()
+    {
+        for (pattern, argument) in interface.args.iter().zip(&protocol.arguments) {
             infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
         }
         return Ok(());
@@ -1428,6 +1443,14 @@ impl Engine {
                 let Some(actual) = inferred.get(parameter).cloned() else {
                     continue;
                 };
+                if let Ty::BoxedProtocol(boxed) = &actual {
+                    if boxed.name == protocol.name && boxed.arguments.len() == bound.args.len() {
+                        for (pattern, value) in bound.args.iter().zip(&boxed.arguments) {
+                            infer(pattern, value, template, inferred, aliases, at)?;
+                        }
+                    }
+                    continue;
+                }
                 let Some(owner) = classes::method_owner(&actual) else {
                     continue;
                 };

@@ -1,8 +1,9 @@
 # Boxed protocol implementation design
 
+**Implementation note:** the [current reference](../../../design/language/07-generics/boxed-protocols.md) describes delivered behavior. This page preserves the original design and qualification plan; research-era implementation statements below are historical.
 This supports the [boxed protocol proposal](../boxed-protocols.md). The source
 map describes base `bb97038b`; representation and IR names below are suggestions,
-not implemented APIs. Scheduling belongs to B29 in the [backlog](../../backlog.md).
+not implemented APIs. Scheduling belongs to B29 in the [backlog](../../../backlog.md).
 
 ## Reuse a concrete owner with an erased call interface
 
@@ -57,7 +58,7 @@ Resolve `Box[P[Args...]]` through protocol-aware type resolution before the
 ordinary concrete `Box` path tries to resolve its content as a value type.
 Preserve imported aliases, visibility, generic substitution and canonical
 identity. A protocol name alone must not start resolving as a stored value.
-Explicit `Box[P](value)` construction also needs frontend handling; the current
+Explicit `Box[P](../../boxed-protocols/value)` construction also needs frontend handling; the current
 `Box(value)` builtin merely infers its concrete content type.
 
 Perform eligibility checking after resolving protocol arguments, while retaining
@@ -153,7 +154,7 @@ callables. Borrow-carrying output must be recognized structurally.
 
 ## Relationship to protocol bodies
 
-The [protocol-body proposal](../protocol-method-bodies.md) specifies defaults,
+The [protocol-body proposal](../../protocol-method-bodies.md) specifies defaults,
 final operations and private-hook grants. It is not a prerequisite here. The
 initial table contains concrete inherent implementations of `pass` requirements.
 

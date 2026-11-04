@@ -13,8 +13,10 @@ available on the supported x86-64 Linux GNU target.
 ## Stream contracts
 
 A stream is any `pub` class or enum whose `pub` methods match one of these protocols.
-Calls are resolved for each concrete type at compile time; there is no dynamic
-dispatch and no stream object type.
+Generic calls specialize for each concrete type. Eligible interfaces can also
+use explicit [protocol boxes](../language/07-generics/boxed-protocols.md), whose
+method calls dispatch indirectly; this does not introduce an implicit stream
+object type.
 
 | Protocol | Method | Result |
 |---|---|---|

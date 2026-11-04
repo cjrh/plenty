@@ -16,6 +16,8 @@ const MAX_DATA_INSTANCES: usize = 65_536;
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    pub(super) protocols: Arc<HashMap<String, protocols::Protocol>>,
+    pub(super) resolving_protocols: Rc<RefCell<Vec<String>>>,
     pub(super) dimension_names: Arc<dimension_diagnostics::Names>,
     pub(super) dimensions: Rc<RefCell<crate::dimension::Interner>>,
     /// Checking state of one compilation's frontend; it never leaves its thread.
@@ -193,6 +195,7 @@ impl DataTypes {
                 at: declaration.at.clone(),
                 type_params: vec![],
                 methods: vec![method],
+                arguments: vec![],
             },
         ))
     }
@@ -353,6 +356,8 @@ impl TypeAliases {
         let mut shapes = self.data.shapes.borrow_mut();
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
+            protocols: self.protocols.clone(),
+            resolving_protocols: self.resolving_protocols.clone(),
             dimensions: self.dimensions.clone(),
             dimension_names: Arc::clone(&self.dimension_names),
             data: Rc::new(DataTypes {
@@ -404,6 +409,8 @@ impl TypeAliases {
         data.deferred.set(true);
         Ok(Self {
             named: HashMap::default(),
+            protocols: Arc::default(),
+            resolving_protocols: Rc::default(),
             dimensions: Rc::default(),
             dimension_names: Arc::default(),
             data: Rc::new(data),

@@ -161,6 +161,7 @@ impl Type {
                     | b'O'
                     | b'W'
                     | b'J'
+                    | b'j'
             )
     }
     /// True when `release_next` would only clear the slot: no heap owner,
@@ -1894,6 +1895,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'c' => out.extend_from_slice(b"<function>"),
             b'H' => out.extend_from_slice(b"<closure>"),
             b'J' => out.extend_from_slice(b"<boxed callable>"),
+            b'j' => out.extend_from_slice(b"<boxed protocol>"),
             b'X' => out.extend_from_slice(b"<sender>"),
             b'Y' => out.extend_from_slice(b"<receiver>"),
             b'P' => out.extend_from_slice(b"<executor>"),

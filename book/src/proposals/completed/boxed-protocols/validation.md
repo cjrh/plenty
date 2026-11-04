@@ -1,8 +1,9 @@
 # Boxed protocol qualification criteria
 
+**Implementation note:** the [current reference](../../../design/language/07-generics/boxed-protocols.md) describes delivered behavior. This page preserves the original design and qualification plan; research-era implementation statements below are historical.
 These are acceptance criteria for the [boxed protocol design](../boxed-protocols.md),
 not a second work queue or a claim of implementation. B29 in the
-[backlog](../../backlog.md) owns scheduling. The
+[backlog](../../../backlog.md) owns scheduling. The
 [research evidence](evidence.md) records what was actually run.
 
 ## Suggested implementation sequence

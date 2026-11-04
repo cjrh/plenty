@@ -26,8 +26,9 @@ the implementing type, its accessible concrete signatures supply inference
 evidence for other parameters, including nested types and returns. Evidence must
 agree with ordinary arguments and callable constraints. A method type that no
 arguments can fit, such as `-> ()` for `-> Result[(), E]`, does not satisfy the
-protocol. A protocol parameter absent from every requirement still needs
-explicit arguments. Inference follows known signatures without searching for a
+protocol. For a concrete implementation, a protocol parameter absent from every
+requirement still needs explicit arguments. A `Box[P[Args...]]` supplies its
+fixed arguments directly. Inference follows known signatures without searching for a
 type or implementation.
 
 Visibility is checked from the bound's defining module before method signatures
@@ -95,8 +96,9 @@ the same protocol.
 A generic method cannot satisfy a requirement without type parameters, and a
 non-generic method cannot satisfy one with them.
 
-Protocols constrain class and enum arguments, and the built-in `bytes`, rather
-than defining runtime value types or existential containers. `bytes` has one
+Protocols constrain class and enum arguments, the built-in `bytes`, and an
+explicit [protocol box](boxed-protocols.md) exposing the identical protocol.
+A protocol alone is not a runtime value type. `bytes` has one
 method, `len(self) -> i64`; other built-in types have none to offer. Protocol
 parameters cannot have their own bounds; protocol arguments exclude unit,
 references, generators, and closure environments. Fields, inheritance, multiple
@@ -120,6 +122,5 @@ records the shipped foundation. [Protocol method bodies](../../../proposals/prot
 propose defaults, final methods, and explicit private-hook grants; those
 extensions are not implemented. For an existing-language solution, see
 [library-owned operations](../../../proposals/completed/library-owned-operations.md).
-The separate [boxed protocol proposal](../../../proposals/boxed-protocols.md)
-investigates explicit `Box[P]` owners and runtime method dispatch for
-heterogeneous collections; these protocol objects are not implemented.
+The [boxed protocol design](../../../proposals/completed/boxed-protocols.md) records the
+research and rationale for implemented [explicit erased owners](boxed-protocols.md).

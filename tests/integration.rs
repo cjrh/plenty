@@ -715,3 +715,6 @@ mod test_key_diagnostics;
 
 #[path = "test_cleanup_keys.rs"]
 mod test_cleanup_keys;
+
+#[path = "test_boxed_protocols.rs"]
+mod test_boxed_protocols;

@@ -212,6 +212,7 @@ pub(super) fn resolve_types(
     enums: &[EnumDecl],
     classes: &[classes::ClassDecl],
     dimension_names: dimension_diagnostics::Names,
+    protocols: &[protocols::Protocol],
 ) -> Result<TypeAliases> {
     enum Decl<'a> {
         Alias(&'a TypeAlias),
@@ -274,6 +275,12 @@ pub(super) fn resolve_types(
         }
     }
     let mut resolved = TypeAliases::with_data(enums, classes)?;
+    resolved.protocols = Arc::new(
+        protocols
+            .iter()
+            .map(|p| (p.name.clone(), p.clone()))
+            .collect(),
+    );
     resolved.dimension_names = Arc::new(dimension_names);
     for declaration in &declarations {
         let generic = match declaration {

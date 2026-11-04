@@ -79,7 +79,11 @@ fn callee(op: &Op) -> Option<&str> {
 fn calls(op: &Op) -> bool {
     matches!(
         op,
-        Op::Call(_) | Op::ClosureCall(_) | Op::CallIndirect(_) | Op::BoxedCallableCall(_)
+        Op::Call(_)
+            | Op::ClosureCall(_)
+            | Op::CallIndirect(_)
+            | Op::BoxedCallableCall(_)
+            | Op::ProtocolBoxCall(..)
     )
 }
 

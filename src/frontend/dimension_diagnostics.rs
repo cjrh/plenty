@@ -78,6 +78,7 @@ impl TypeAliases {
                     pending.extend(sig.output.iter().cloned());
                     pending.extend(sig.inputs.iter().rev().cloned());
                 }
+                Ty::BoxedProtocol(p) => pending.extend(p.types().cloned()),
                 Ty::Closure(c) => {
                     pending.extend(c.signature.output.iter().cloned());
                     pending.extend(c.signature.inputs.iter().rev().cloned());

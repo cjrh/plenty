@@ -220,7 +220,8 @@ fn body(function: &CompiledFn) -> Body<'_> {
         Op::ClosureCall(_)
         | Op::CallIndirect(_)
         | Op::TailCallIndirect(_)
-        | Op::BoxedCallableCall(_) => body.indirect = true,
+        | Op::BoxedCallableCall(_)
+        | Op::ProtocolBoxCall(..) => body.indirect = true,
         _ => {}
     });
     body

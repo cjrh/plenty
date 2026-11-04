@@ -1,5 +1,6 @@
 # Boxed protocol object contract
 
+**Implementation note:** the [current reference](../../../design/language/07-generics/boxed-protocols.md) describes delivered behavior. This page preserves the original design and qualification plan; research-era implementation statements below are historical.
 This is the proposed public contract for [boxed protocols](../boxed-protocols.md).
 It is not implemented. All new syntax in this page is illustrative.
 
@@ -10,7 +11,7 @@ Protocol identity includes its resolved declaration and fixed type arguments;
 import aliases do not create new identities. Distinct protocol declarations
 remain distinct boxed types even when their signatures match.
 
-`Box[P](value)` consumes an owned concrete value, verifies conformance, and
+`Box[P](../../boxed-protocols/value)` consumes an owned concrete value, verifies conformance, and
 returns `Result[Box[P], AllocError]`. It attempts one allocation for the box,
 including for a zero-field class or payload-free enum. Method tables are
 static compiler output, not a second allocation per instance. Construction of
@@ -22,10 +23,10 @@ the collection operation's existing ownership contract applies to that box.
 The proposal must not promise that a failed insertion returns its argument.
 Programs preserving existing state should allocate detached replacement values
 before moving state into them, as taught in
-[recursive insertion](../../tutorial/09-generics/recursive-insertion.md).
+[recursive insertion](../../../tutorial/09-generics/recursive-insertion.md).
 
 There is no implicit concrete-to-erased conversion on assignment, argument
-passing, return, or collection insertion. `Box[P](value)` is the explicit
+passing, return, or collection insertion. `Box[P](../../boxed-protocols/value)` is the explicit
 boundary. Allocation-free conversion from an existing `Box[T]` is outside the
 initial scope: do not accidentally unbox/rebox it via today's expected-type
 coercions. Initially reject boxed inputs to this constructor and suggest
@@ -53,7 +54,7 @@ that is ineligible for boxing remains valid for static generic use.
 | Ordinary owned and borrowed arguments, including slice views | Supported under existing call and storage rules; arguments are not retained by erasure. |
 | Concrete owned results, including `Result[T, E]` | Supported; exact fallibility and payload types are part of the signature. |
 | Protocol-level parameters, such as `Readable[i64]` | Supported once every argument is fixed; they determine one concrete table shape. |
-| Method-level parameters, such as `put[T](...)` | Rejected; an ordinary finite table cannot supply every future specialization. |
+| Method-level parameters, such as `put[T](../../boxed-protocols/...)` | Rejected; an ordinary finite table cannot supply every future specialization. |
 | Protocol name outside the receiver, including nested occurrences | Rejected; that name denotes the hidden implementing type under current protocol rules. |
 | Owned receiver `self: P` | Rejected initially; consuming an erased payload requires a distinct transfer/cleanup contract. |
 | Returned references or views, including `Option[&T]` and `Result[&T, E]` | Rejected initially; dispatch must retain the origin loan before these are admitted. |

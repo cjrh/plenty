@@ -396,6 +396,7 @@ fn hint_type(ty: &Ty) -> bool {
         | Ty::Future(t)
         | Ty::Channel(t, _) => hint_type(t),
         Ty::Dict(k, v) => hint_type(k) && hint_type(v),
+        Ty::BoxedProtocol(p) => p.types().all(hint_type),
         Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
             sig.inputs.iter().chain(sig.output.iter()).all(hint_type)
         }

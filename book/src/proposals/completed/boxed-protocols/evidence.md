@@ -3,7 +3,44 @@
 This records the investigation behind [boxed protocols](../boxed-protocols.md).
 The inspected baseline is local `main` at `bb97038b`, dated 2026-11-03. The
 local debug compiler reported `plenty 0.8.8 (x86_64-unknown-linux-gnu)`.
-No protocol-object implementation or performance measurement was produced.
+No protocol-object implementation or performance measurement was produced by
+that original investigation. The current implementation is described in the
+[reference](../../../design/language/07-generics/boxed-protocols.md); the harness
+now tests protocol objects by default. Use `--baseline` with the research-era
+compiler to reproduce the historical rejection below.
+
+## Implementation measurements
+
+The implementation was measured on x86_64 Linux with optimized native output
+(`--release`). The retained `scripts/probes/boxed_protocols_bench.py` constructs
+20,000 alternating one-field/two-field objects, performs 200 shared-read passes
+(4 million calls), and destroys the list. Each phase uses `std.time`; the table
+reports medians of five runs in milliseconds, excluding process startup.
+Construction includes list growth. Every representation checks the same checksum.
+
+| Representation | Construction | Shared reads | Cleanup | Executable bytes |
+| --- | ---: | ---: | ---: | ---: |
+| inline enum | 1.870 | 7.731 | 0.272 | 183,896 |
+| concrete box | 2.345 | 7.522 | 0.587 | 184,712 |
+| boxed callable | 3.501 | 22.213 | 0.903 | 186,344 |
+| boxed protocol | 2.024 | 16.210 | 0.689 | 185,112 |
+
+The protocol representation trades indirect-call cost for an interface that can
+accept independently supplied implementations. In this workload its shared-read
+phase takes about twice the inline-enum/concrete-box time, and less than the boxed
+callback adapter. These are local microbenchmarks, not general speed promises:
+payload sizes differ between representations, methods do very little work, and
+host load changes the results. Mutation performance, large method tables and
+other native targets were not measured. Native execution qualification here is
+x86_64 Linux; no macOS, Windows or AArch64 run is claimed.
+
+The harness also reports one cold compiler invocation per representation and
+linked executable size; compiler timings are not repeated measurements. Run it
+with a compiler built from this checkout:
+
+```sh
+python3 -B scripts/probes/boxed_protocols_bench.py target/debug/plenty
+```
 
 ## Reproducible compiler probes
 
@@ -16,7 +53,7 @@ From the checkout whose behavior is being investigated:
 
 ```sh
 cargo build --locked --bin plenty
-python3 -B scripts/probes/boxed_protocols.py target/debug/plenty
+python3 -B scripts/probes/boxed_protocols.py --baseline target/debug/plenty
 ```
 
 The investigation ran the harness with the existing debug compiler in the
@@ -125,19 +162,19 @@ explicit allocation, concrete descriptor retention, and deliberately excluded
 mutable/consuming/borrowed/worker-crossing modes. These numbers refer to the
 shared local `issues.db`, not remote records.
 
-The [original protocol design](../completed/protocols-generics-and-context-managers.md)
+The [original protocol design](../protocols-generics-and-context-managers.md)
 explicitly deferred existential interface values and called out method tables,
 ownership and restrictions on implementing-type/generic signatures. The
-[error-composition investigation](../completed/error-composition.md#does-an-error-protocol-solve-it)
+[error-composition investigation](../error-composition.md#does-an-error-protocol-solve-it)
 separates static bounds, finite error sums and erased error objects; allocation
 while handling allocation failure remains a particular concern.
 
-The [boxed callable reference](../../design/language/06-functions/05-boxed-callables.md)
+The [boxed callable reference](../../../design/language/06-functions/05-boxed-callables.md)
 is authoritative for the shipped erasure contract. The
-[protocol reference](../../design/language/07-generics/protocols.md) confirms
+[protocol reference](../../../design/language/07-generics/protocols.md) confirms
 that arbitrary anonymous sums do not forward user protocols, while
 `std.fmt.Formattable` has specific sum forwarding. Its writer-generic method is
-documented in [reporting](../../design/stdlib/report.md#formatting-contract).
+documented in [reporting](../../../design/stdlib/report.md#formatting-contract).
 Do not infer general protocol-object support from that special case.
 
 Semantic search was checked fresh against the primary checkout before drafting.

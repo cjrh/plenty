@@ -3237,6 +3237,9 @@ impl Lower<'_> {
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
             return self.join_thread(base, name, args, ops);
         }
+        if let Some(Ty::BoxedProtocol(protocol)) = self.place_type(base) {
+            return self.protocol_method(base, protocol, name, args, ops);
+        }
         if matches!(self.place_type(base), Some(Ty::Channel(..))) {
             return self.channel_method(base, name, args, ops);
         }
@@ -3800,6 +3803,9 @@ impl Lower<'_> {
         }
         if matches!(ty, Ty::Executor | Ty::Future(_)) {
             return self.temporary_executor_method(base, name, args, (ty, loans), ops);
+        }
+        if let Ty::BoxedProtocol(protocol) = &ty {
+            return self.temporary_protocol_method(base, protocol.clone(), name, args, loans, ops);
         }
         if ty == Ty::CancellationToken {
             return self.observed_control_method(base, name, args, (ty, loans), ops);

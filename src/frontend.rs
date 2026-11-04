@@ -335,6 +335,9 @@ impl TypeRef {
             if self.args.len() != 1 {
                 return Err(self.at.error("Box requires 1 type argument"));
             }
+            if let Some(protocol) = protocols::boxed_type(&self.args[0], aliases)? {
+                return Ok(Some(Ty::BoxedProtocol(protocol)));
+            }
             let content = self.args[0]
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("a box cannot hold unit"))?;
@@ -1552,6 +1555,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if name == "Box" {
+                    return self.protocol_box(types, args, &e.at, ops).map(Some);
+                }
                 if name == list_retag::LIST_RETAG && !self.names.contains_key(name) {
                     return self.list_retag(types, args, &e.at, ops);
                 }
@@ -4765,7 +4771,8 @@ fn lower(
         require_main,
         inputs,
     } = resolved;
-    let aliases = enums::resolve_types(&declarations, &enums, &classes, dimension_names)?;
+    let aliases =
+        enums::resolve_types(&declarations, &enums, &classes, dimension_names, &protocols)?;
     consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =

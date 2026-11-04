@@ -1,5 +1,9 @@
 # Boxes
 
+This page describes concrete `Box[T]`. Explicit `Box[P](value)?` for a protocol
+creates a [protocol object](../../language/07-generics/boxed-protocols.md) with
+indirect method dispatch and no payload extraction or copying.
+
 `Box(value) -> Result[Box[T], AllocError]` moves a value into one heap allocation.
 Failure drops the input. Boxes are affine. Moving, borrowing, extracting content,
 and destroying the box add no allocation; explicit copying and operations on its

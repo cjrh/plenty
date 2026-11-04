@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Reproduce current-language evidence for the boxed protocol proposal.
+"""Reproduce boxed-protocol behavior, or the historical pre-implementation baseline.
 
-This does not implement protocol objects. The negative probes describe the
-baseline before B29 boxed protocol support, not permanent language restrictions.
+Use --baseline only with the research-era compiler. Default probes exercise
+explicit protocol objects and preserve concrete-box and callable regressions.
 Pass a compiler built from the checkout being investigated.
 """
 
@@ -35,16 +35,22 @@ enum B:
 """
 
 
-def cases():
+def cases(baseline=False):
     yield (
-        "protocol-is-not-a-box-content-type",
-        DECLARATIONS + """
+        "protocol-box-storage",
+        DECLARATIONS + ("""
 def main() -> Result[(), AllocError]:
     items: list[Box[MyProtocol]] = []?
     Ok(())
-""",
-        None,
-        "unknown type `MyProtocol`",
+""" if baseline else """
+def main() -> Result[(), AllocError | IoError]:
+    items: list[Box[MyProtocol]] = [Box[MyProtocol](A(10))?, Box[MyProtocol](B.Value(20))?]?
+    for item in &items:
+        print(item.hey())?
+    Ok(())
+"""),
+        None if baseline else "10\n20\n",
+        "unknown type `MyProtocol`" if baseline else None,
     )
     concrete = DECLARATIONS + """
 def main() -> Result[(), AllocError | IoError]:
@@ -88,11 +94,12 @@ def main() -> Result[(), AllocError | IoError]:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("compiler", type=Path)
+    parser.add_argument("--baseline", action="store_true")
     args = parser.parse_args()
     compiler = args.compiler.resolve(strict=True)
     passed = 0
     with tempfile.TemporaryDirectory(prefix="plenty-boxed-protocol-probes-") as temp:
-        for name, source, expected, diagnostic in cases():
+        for name, source, expected, diagnostic in cases(args.baseline):
             path = Path(temp) / (name + ".plenty")
             path.write_text(textwrap.dedent(source).lstrip())
             command = [str(compiler)]
