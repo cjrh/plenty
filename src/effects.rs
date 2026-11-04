@@ -219,6 +219,7 @@ impl CollectionOp {
             | ListScalarGetView(_)
             | ListScalarSetRef(_)
             | ListScalarSetView(_)
+            | ListScalarSwapRef(_)
             | ListRowsRef(_)
             | ListRowBytesRef(_)
             | ListRowRef(..)

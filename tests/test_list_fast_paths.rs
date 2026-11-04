@@ -588,10 +588,15 @@ def grow(xs: &mut list[i64]) -> ():
     for i in range(2):
         xs[i] = 1
         xs.append(i).unwrap()
+def swap_bump(xs: &mut list[i64]) -> ():
+    for i in range(1):
+        xs.swap(i, 1)
+        xs[i] += 1
 def main() -> ():
     mut xs = [1, 2].unwrap()
     reverse(&mut xs)
     grow(&mut xs)
+    swap_bump(&mut xs)
 "#;
 
 /// A loop that cannot resize its list uses the cached accesses; one that can
@@ -614,6 +619,11 @@ fn row_caches_fall_back_when_the_loop_can_resize_the_list() {
     let grow = dump("ops", "grow", REVERSE);
     assert!(grow.contains("ListScalarSetRef("), "{grow}");
     assert!(!grow.contains("View("), "{grow}");
+    // A swap cannot resize the list, so it keeps the cache.
+    let swap = dump("ops", "swap_bump", REVERSE);
+    assert!(swap.contains("ListScalarSwapRef("), "{swap}");
+    assert!(swap.contains("ListScalarSetView("), "{swap}");
+    assert!(!swap.contains("ListScalarSetRef("), "{swap}");
 }
 
 /// The reversal loop reads the list's flag byte only for `len(xs)` and the

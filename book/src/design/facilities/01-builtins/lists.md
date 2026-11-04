@@ -72,7 +72,9 @@ contract: exclusive access, every element type, and no allocation, copy, retain,
 or drop. Negative indices count from the end, and a missing index traps. Both
 indices are evaluated before the list is borrowed, so they may read it. Equal
 indices leave the list unchanged. `swap` is the way to exchange owned elements,
-which cannot be moved out of indexed storage.
+which cannot be moved out of indexed storage. On a list of numbers or `bool`,
+`swap` compiles to inline bounds checks, loads, and stores with no runtime call;
+other element types call the runtime once.
 
 `items.sort() -> ()` orders the elements ascending, in place, without allocating.
 It requires exclusive access and one of these element types:

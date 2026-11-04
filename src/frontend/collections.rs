@@ -82,6 +82,7 @@ fn rows_stable(ops: &[Op], sources: &[u8]) -> bool {
                 | C::ListScalarGetView(_)
                 | C::ListScalarSetRef(_)
                 | C::ListScalarSetView(_)
+                | C::ListScalarSwapRef(_)
                 | C::ListLenRef(_)
                 | C::ListRowsRef(_)
                 | C::ListRowBytesRef(_)
@@ -4613,10 +4614,24 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             slots.push(slot);
         }
-        let loan = self.mutation_place(base, ops)?;
+        // Scalar rows have no drop or inline payload, so they are exchanged
+        // inline through the exclusive reference, with no retain or runtime
+        // call (issue #714). Other rows go through the runtime, which
+        // relocates inline payloads.
+        let scalar = ty
+            .element()
+            .is_some_and(|element| element.is_numeric() || element == Ty::Bool);
+        let (operation, loan) = if scalar {
+            let (reference, loan) = self.borrow(base, true, ops)?;
+            self.unbox_reference(reference, ops);
+            (CollectionOp::ListScalarSwapRef(ty), loan)
+        } else {
+            let loan = self.mutation_place(base, ops)?;
+            (CollectionOp::ListSwap(ty), loan)
+        };
         ops.extend(slots.into_iter().map(Op::MoveLocal));
         self.mark(&base.at, ops);
-        ops.push(Op::Collection(CollectionOp::ListSwap(ty)));
+        ops.push(Op::Collection(operation));
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
         Ok(None)

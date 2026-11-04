@@ -210,6 +210,8 @@ mod test_fallible_displays;
 mod test_fallible_format;
 #[path = "test_fallible_text.rs"]
 mod test_fallible_text;
+#[path = "test_fannkuch_redux.rs"]
+mod test_fannkuch_redux;
 #[path = "test_ffi.rs"]
 mod test_ffi;
 #[path = "test_field_indexing.rs"]

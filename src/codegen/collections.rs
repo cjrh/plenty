@@ -734,6 +734,40 @@ impl Lowerer<'_, '_> {
             self.stack.push((unit, Ty::Unit));
             return Ok(());
         }
+        if let CollectionOp::ListScalarSwapRef(ty) = operation {
+            let element = ty.element().unwrap();
+            let (second, _) = self.pop_typed(Ty::I64)?;
+            let (first, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
+            let owner = self.reference_word(receiver);
+            // The header is read once for both rows, and both indices are
+            // checked before either row is written, so a trap leaves the list
+            // unchanged. Rows move as raw bits of their declared width; equal
+            // indices store each value back.
+            let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+            let rows = self
+                .bcx
+                .ins()
+                .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
+            let length = self.scalar_list_len(owner, &element);
+            let shift = clif_type(element.clone()).bytes().ilog2() as i64;
+            let mut addresses = [first, second];
+            for address in &mut addresses {
+                let normalized = self.list_index(*address, length)?;
+                let offset = self.bcx.ins().ishl_imm_u(normalized, shift);
+                *address = self.bcx.ins().iadd(rows, offset);
+            }
+            let [first, second] = addresses;
+            let width = types::Type::int(clif_type(element).bits() as u16).unwrap();
+            let a = self.bcx.ins().load(width, flags, first, 0);
+            let b = self.bcx.ins().load(width, flags, second, 0);
+            self.bcx.ins().store(flags, b, first, 0);
+            self.bcx.ins().store(flags, a, second, 0);
+            let unit = self.bcx.ins().iconst(types::I64, 0);
+            let unit = self.unpack(unit, &Ty::Unit);
+            self.stack.push((unit, Ty::Unit));
+            return Ok(());
+        }
         if let CollectionOp::ListSortBy(sort) = operation {
             let (descending, _) = self.pop_typed(Ty::Bool)?;
             let (callback, _) = self.pop_typed(sort.callback.clone())?;
