@@ -1,4 +1,4 @@
-//! Canonical read-only slots for payload-free enum set members. Membership
+//! Canonical read-only slots and dense ordinals for small finite enum domains. Membership
 //! lives in the owner; these slots give borrowed iteration stable `&Enum`s.
 use crate::aggregates::Type;
 
@@ -16,16 +16,51 @@ pub(crate) fn eligible(key: &Type) -> bool {
     key.kind == b'B'
         && !key.affine
         && key.wrapper.is_none()
-        && (1..=64).contains(&key.variants.len())
-        && key.variants.iter().all(|variant| variant.fields.is_empty())
+        && (key.finite.is_some()
+            || ((1..=64).contains(&key.variants.len())
+                && key.variants.iter().all(|variant| variant.fields.is_empty())))
 }
 
-pub(super) fn value(index: usize) -> u128 {
-    VALUES[index]
+pub(crate) fn cardinality(key: &Type) -> usize {
+    match key.kind {
+        b'b' => 2,
+        _ => key
+            .finite
+            .map_or(key.variants.len(), |finite| finite.values.len()),
+    }
 }
 
-pub(super) fn reference(index: usize) -> *const u128 {
-    &VALUES[index]
+/// Dense ordinal in the compiler's variant/declaration-order Cartesian product.
+/// The caller supplies a valid value of a compiler-proven finite type. Record
+/// pointers may address either ordinary inline storage or canonical metadata.
+pub(crate) unsafe fn index(key: &Type, value: u128) -> usize {
+    match key.kind {
+        b'b' => value as usize,
+        _ => {
+            let tag = key.tag(value);
+            let Some(finite) = key.finite else { return tag };
+            let mut ordinal = 0;
+            if let Some(record) = key.record(value) {
+                for (field, ty) in record.slots() {
+                    // SAFETY: the caller supplies a valid record and the compiler
+                    // bounded every field's domain before emitting this metadata.
+                    ordinal = ordinal * cardinality(ty) + unsafe { index(ty, field.read()) };
+                }
+            } else if let Some(ty) = key.payload(value) {
+                // SAFETY: unpack preserves the sole field's native representation.
+                ordinal = unsafe { index(ty, key.unpack(value)) };
+            }
+            usize::from(finite.offsets[tag]) + ordinal
+        }
+    }
+}
+
+pub(super) fn value(key: &Type, index: usize) -> u128 {
+    key.finite.map_or(&VALUES[..], |finite| finite.values)[index]
+}
+
+pub(super) fn reference(key: &Type, index: usize) -> *const u128 {
+    &key.finite.map_or(&VALUES[..], |finite| finite.values)[index]
 }
 
 #[derive(Clone)]

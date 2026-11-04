@@ -64,24 +64,33 @@ unsupported.
 
 ## Small enum bitsets
 
-A set whose element type is a payload-free named enum with at most 64 variants
-uses a 64-bit membership mask instead of rows and hash buckets. This is automatic:
+A set of a named enum or tuple with a supported finite domain of at most 64
+distinct values uses a 64-bit membership mask instead of rows and hash buckets. This
+includes payload-free named enums and named enums or tuples composed recursively
+of `bool` and other such enums or tuples. Count each variant's payload
+combinations, then add the variants: `Empty` plus `Flag(bool)` has three values;
+a variant with six boolean fields has 64. `Option[bool]` also has three values.
+This is automatic:
 write `set[Permission]`, with the same methods and Result handling as any set.
 The owner still allocates once; construction, copying and algebra can therefore
 return `AllocError`. Adding members, valid reservation, removal and in-place
 updates need no further allocations. Invalid capacity requests still return
 `CapacityOverflow`.
 
-Membership, insertion, removal, length and relationships between two such sets
-use bit operations. Their union, intersection, difference and symmetric
+Membership, insertion and removal encode the payload into a dense index and
+operate on its bit. Encoding visits the active payload's fields; length and
+relationships between two such sets use bit operations. Their union, intersection, difference and symmetric
 difference use word operations plus the result-owner allocation. Iteration visits
-present variants; borrowed iteration still yields shared references, and the
+present values; borrowed iteration still yields shared references, and the
 borrow checker still protects the source owner. Set iteration order remains
 unspecified; do not rely on the order seen with a particular representation.
 
 Dictionary key views remain borrowed hash-table views. Their mixed operations
 with bitsets work normally, and `to_set()` can produce a bitset. Dictionary
-storage itself is unchanged. Enums with payloads, enums with more than 64
-variants, and classes keep the ordinary hash-set representation, even when their
-domain might be finite. Wider bitsets and finite-payload encoding are separate
-extensions; no SIMD support is required by the 64-bit implementation.
+storage itself is unchanged. Domains larger than 64, integer or string payloads,
+and classes keep the ordinary hash-set representation. Anonymous sums and
+recursive keys remain unsupported. The compiler emits immutable canonical values
+for payload domains, including inline record storage, so borrowed iteration needs
+no allocation or temporary value cache. This adds static data proportional to the
+domain size and value layout. Wider masks remain a separate extension; no SIMD
+support is required by the 64-bit implementation.

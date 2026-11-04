@@ -281,7 +281,7 @@ impl Entries {
     pub fn key_ref(&mut self, index: usize) -> *const u128 {
         if let Some(bits) = self.bits() {
             assert!(bits & (1 << index) != 0);
-            enum_bits::reference(index)
+            enum_bits::reference(self.key, index)
         } else {
             self.slot(index, false)
         }
@@ -300,7 +300,7 @@ impl Entries {
     }
     pub fn capacity(&self) -> usize {
         if self.bits().is_some() {
-            return self.key.variants.len();
+            return enum_bits::cardinality(self.key);
         }
         let rows = self.data.capacity() / self.stride;
         self.order
@@ -314,7 +314,7 @@ impl Entries {
         if let Some(bits) = self.bits() {
             assert!(bits & (1 << index) != 0);
             return Entry {
-                key: enum_bits::value(index),
+                key: enum_bits::value(self.key, index),
                 value: 0,
             };
         }
@@ -500,7 +500,7 @@ impl Entries {
     /// Reservation belongs to the surrounding transactional operation.
     pub unsafe fn push(&mut self, entry: Entry) {
         if let RowOrder::Bits(bits) = &mut self.order {
-            *bits |= 1 << self.key.tag(entry.key);
+            *bits |= 1 << unsafe { enum_bits::index(self.key, entry.key) };
             return;
         }
         assert!(self.len() < self.capacity());
@@ -566,8 +566,8 @@ impl Entries {
         dense
             .chain(sparse)
             .map(move |i| unsafe { read_row(base.add(i * stride), key, value, packed) })
-            .chain(enum_bits::Indices(bits).map(|i| Entry {
-                key: enum_bits::value(i),
+            .chain(enum_bits::Indices(bits).map(move |i| Entry {
+                key: enum_bits::value(key, i),
                 value: 0,
             }))
     }

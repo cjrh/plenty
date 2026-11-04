@@ -1,6 +1,8 @@
 //! Immutable native type metadata. No runtime parsing or metadata allocation.
 use super::*;
 
+mod finite;
+
 fn blob(module: &mut ObjectModule, bytes: Vec<u8>, links: &[(usize, DataId)]) -> Result<DataId> {
     let id = module.declare_anonymous_data(false, false)?;
     define(module, id, bytes, links, &[])?;
@@ -101,7 +103,8 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 120];
+    let mut bytes = vec![0; 128];
+    let finite = finite::emit(module, ty)?;
     // The formatting adapters belong to the type as written: a newtype's
     // methods are its own, not its field's.
     let formats: Vec<(u32, FuncId)> = [(88, false), (96, true)]
@@ -164,6 +167,9 @@ fn define_type(
     bytes[3] = u8::from(ty.has_inline_range());
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
+    if let Some(finite) = finite {
+        links.push((120, finite));
+    }
     if let Some((class, _)) = &newtype
         && let Some(dimension) = &class.get().quantity
     {

@@ -169,8 +169,8 @@ which remains partly implemented for its public allocator design.
 Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
 enums, tuples and classes without custom cleanup are supported. Floats, boxes, recursive types and
-anonymous sums remain excluded. These general key types use keyed runtime hashing. Payload-free enums with at
-most 64 variants use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
+anonymous sums remain excluded. These general key types use keyed runtime hashing. Supported finite enum and tuple domains with at
+most 64 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
 
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
@@ -195,8 +195,8 @@ canonical enum values, while normal source loans remain enforced. Mixed
 operations with dictionary key views retain their existing semantics.
 
 Allocation-failure tests cover the remaining owner allocation and allocation-free
-mutation; boundary tests cover 1, 63, 64 and 65 variants. Payload-carrying enums
-and larger enums retain hash storage. Benchmark reproduction is
+mutation; boundary tests cover 1, 63, 64 and 65 variants. These initial
+measurements cover payload-free enums. Benchmark reproduction is
 `cargo build --locked --bin plenty` (without instrumentation features), then
 `python3 scripts/bench_enum_sets.py target/debug/plenty --output /tmp/enum-sets.json`:
 the same first 64 variants are exercised in a 64-variant bitset and a 65-variant
@@ -215,3 +215,33 @@ general speed guarantee.
 | Add and discard | 0.339045 | 1.598463 | 4.71× |
 | Union | 0.012670 | 1.210755 | 95.56× |
 | Copy | 0.013672 | 0.461085 | 33.72× |
+
+### Finite payload enum sets
+
+Bitsets also cover named enums and tuples whose complete domains contain at most
+64 values, recursively composed of booleans and named enums/tuples.
+The compiler checks sums and products against the limit before generating
+canonical values and variant offsets. Membership encodes the active payload with
+mixed-radix indexing; algebra still operates directly on the mask. Immutable,
+16-byte-aligned metadata includes nested inline records, preserving stable shared
+references without runtime caches or allocations. The runtime type descriptor
+now carries an optional finite-domain descriptor.
+
+Tests cover nested multi-field enum/tuple values, every member of a 64-value
+domain, the 65-value hash fallback, singleton/Option payloads, mixed dictionary views,
+copying and iteration after source destruction, and allocation failure. The
+benchmark also supports `--payload` to compare a six-boolean variant (64 values)
+with the same variant plus an unused extra case (65 values). Integer/string
+payloads, classes, and larger domains keep hash storage; wider masks remain B74.
+
+On the same AMD Ryzen 7 7840HS, 200,000 rounds and medians of five runs with
+`--payload` produced the following observations. The workload counts match the
+[payload-free benchmark](#small-enum-sets), but each key now carries six boolean fields.
+These are measurements of these workloads, not general speed guarantees.
+
+| Workload | Finite bitset (seconds) | Hash fallback (seconds) | Speedup |
+| --- | ---: | ---: | ---: |
+| Lookup | 0.584369 | 1.961403 | 3.36× |
+| Add and discard | 1.594221 | 7.373249 | 4.62× |
+| Union | 0.011405 | 4.927148 | 432.02× |
+| Copy | 0.015694 | 1.980686 | 126.21× |

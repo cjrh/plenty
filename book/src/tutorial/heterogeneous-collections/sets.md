@@ -137,5 +137,32 @@ False
 
 Keep the usual `?` handling: constructing a set still allocates its owner.
 Adding members to this representation needs no further allocation. The same
-programming style works for larger enums and payload-carrying enums, which use
+programming style works for larger enums and other payload types, which use
 hash sets. See [small enum bitsets](../../design/facilities/01-builtins/sets.md#small-enum-bitsets).
+
+## Small finite payloads
+
+Payloads can use bitsets too when the complete type has at most 64 possible
+values. Booleans and nested enums or tuples of these types qualify.
+Here `State` has three values: `Idle`, `Enabled(False)`, and `Enabled(True)`.
+
+```plenty
+enum State:
+    Idle
+    Enabled(bool)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut allowed = {State.Idle, State.Enabled(False)}?
+    allowed.add(State.Enabled(True))?
+    print(len(allowed), State.Enabled(True) in allowed)?
+    Ok(())
+```
+```output
+3 True
+```
+
+The limit counts all possible payload combinations, regardless of how many
+members the set currently contains. For example, six boolean fields have 64
+combinations; adding a separate payload-free variant makes 65 and selects a
+hash set. Integer and string payloads use hash sets. No special container or
+manual integer encoding is needed.
