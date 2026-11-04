@@ -94,10 +94,12 @@ and floating `.to(unit)`. The compiler evaluates them before generating code.
 ```plenty
 dimension Length("m")
 dimension Time("s")
+
 const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
 const kilometre: Quantity[f64, Length] = 1000.0 * metre
 const minute: Quantity[f64, Time] = 60.0 * Quantity[f64, Time](1.0)
 const speed: Quantity[f64, Length / Time] = kilometre / minute
+
 assert kilometre.to(metre) == 1000.0
 
 def main() -> Result[(), IoError | AllocError]:
