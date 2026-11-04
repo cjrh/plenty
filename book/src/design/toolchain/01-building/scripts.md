@@ -46,7 +46,8 @@ change the working directory. Child exit codes and Unix signal status follow
 
 `--check` and `--compile -o OUT` resolve the same dependencies and preserve source
 diagnostics, but reject program arguments and never run the application.
-`--release` enables optimization; debug is the default. `--offline`, `--locked`,
+Scripts optimize by default; `--fast-compile` skips optimization for shorter
+edit-run cycles. `--release` remains a compatibility alias for the default. `--offline`, `--locked`,
 `--verbose`, `--no-strip` and `--no-cache` retain their ordinary meanings.
 `--cache-stats` reports artifact reuse. Build status goes to stderr; a fresh cached
 run is quiet unless reporting was requested.

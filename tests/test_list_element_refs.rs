@@ -193,7 +193,10 @@ def check_{ty}() -> Result[(), AllocError | IoError]:
     source.push_str("    Ok(())\n");
     let dir = setup(&source);
     let expected = "True True True\n".repeat(cases.len() * 7);
-    for args in [&["refs.plenty"][..], &["--release", "refs.plenty"]] {
+    for args in [
+        &["--fast-compile", "refs.plenty"][..],
+        &["--release", "refs.plenty"],
+    ] {
         assert_eq!(stdout(dir.path(), args), expected);
     }
 }
@@ -216,7 +219,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     Ok(())
 "#;
     let dir = setup(source);
-    for args in [&["refs.plenty"][..], &["--release", "refs.plenty"]] {
+    for args in [
+        &["--fast-compile", "refs.plenty"][..],
+        &["--release", "refs.plenty"],
+    ] {
         assert_eq!(
             stdout(dir.path(), args),
             "[11, 22, 33, 44]\n[1.5, 2.5, 3.5, 4.5]\n[11, 22, 33, 44]\n"
@@ -247,7 +253,10 @@ fn out_of_bounds_references_keep_the_diagnostic_and_site() {
     ];
     for (source, expected_stdout, expected_stderr) in cases {
         let dir = setup(source);
-        for args in [&["refs.plenty"][..], &["--release", "refs.plenty"]] {
+        for args in [
+            &["--fast-compile", "refs.plenty"][..],
+            &["--release", "refs.plenty"],
+        ] {
             let output = plenty(dir.path(), args);
             assert!(!output.status.success(), "{source}");
             assert_eq!(String::from_utf8_lossy(&output.stdout), expected_stdout);

@@ -31,7 +31,7 @@ pub enum DumpStage {
     Ops,
     /// Cranelift IR as the code generator built it.
     Clif,
-    /// Cranelift IR after Cranelift's own passes: optimized with `--release`.
+    /// Cranelift IR after Cranelift's own passes: optimized unless `--fast-compile` is selected.
     ClifOpt,
     /// Machine code, with resolved symbol names.
     Asm,

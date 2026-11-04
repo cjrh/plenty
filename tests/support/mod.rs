@@ -88,11 +88,24 @@ pub fn check_all_methods(source: &str) -> Result<(), Box<dyn std::error::Error>>
     plenty::check_source_with_options(&program(source), &options)
 }
 
+/// General language fixtures retain their unoptimized baseline. Optimization
+/// regressions and CLI defaults are exercised explicitly by their own tests.
+fn fixture_compile_options() -> plenty::CompileOptions {
+    plenty::CompileOptions {
+        optimize: false,
+        ..Default::default()
+    }
+}
+
 pub fn compile_source_to_executable(
     source: &str,
     output: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    plenty::compile_source_to_executable(&program(source), output)
+    plenty::compile_source_to_executable_with_options(
+        &program(source),
+        output,
+        &fixture_compile_options(),
+    )
 }
 
 pub fn run(source: &str) -> Output {
@@ -240,8 +253,13 @@ pub fn compile_file(dir: &Path, source: &str) -> std::path::PathBuf {
     let path = dir.join("main.plenty");
     let executable = dir.join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{error}\n{source}"));
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &fixture_compile_options(),
+    )
+    .unwrap_or_else(|error| panic!("{error}\n{source}"));
     executable
 }
 
@@ -252,8 +270,13 @@ pub fn build_file(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &fixture_compile_options(),
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
     (dir, executable)
 }
 
@@ -262,7 +285,7 @@ pub fn build_file(source: &str) -> (tempfile::TempDir, std::path::PathBuf) {
 pub fn compile_unstripped(path: &Path, executable: &Path) {
     let options = plenty::CompileOptions {
         strip: false,
-        ..Default::default()
+        ..fixture_compile_options()
     };
     plenty::compile_file_to_executable_with_options(path, executable, None, &options)
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
@@ -320,8 +343,13 @@ pub fn http_program_output(source: &str) -> String {
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &fixture_compile_options(),
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable)
         .stdin(std::process::Stdio::null())
         .output()

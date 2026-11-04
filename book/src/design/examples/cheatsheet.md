@@ -6,6 +6,11 @@ section links to the reference, which remains authoritative. The
 [tutorial](../../tutorial/index.md) teaches the same material in order, and the
 [signature index](../stdlib/signatures.md) lists the standard library.
 
+Builds optimize by default. Use `plenty --fast-compile FILE`,
+`plenty script --fast-compile FILE`, or `plenty run --fast-compile` for shorter
+edit-run cycles in large projects; runtime checks stay enabled. Package output
+is in `target/optimized/` by default or `target/fast-compile/` with that flag.
+
 ## Programs and printing
 
 ```plenty

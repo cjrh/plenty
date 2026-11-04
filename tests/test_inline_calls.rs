@@ -1,6 +1,6 @@
 //! Optimized builds lower small, non-recursive functions at their call sites
 //! (issue #722). An inlined function keeps its own body only while something
-//! other than an inlined call refers to it. Only `--release` builds inline,
+//! other than an inlined call refers to it. Only optimized builds inline,
 //! so these tests run the command-line compiler both ways.
 mod support;
 
@@ -89,7 +89,7 @@ const EXPECTED: &str = "[0, 2, 4] 8 10\n9 16 3\n8\nfailed AllocError.CapacityOve
 
 #[test]
 fn inlined_functions_keep_results_failures_and_traps() {
-    let debug = run(PROGRAM, &[]);
+    let debug = run(PROGRAM, &["--fast-compile"]);
     let release = run(PROGRAM, &["--release"]);
     assert_eq!(debug.1, EXPECTED, "{}", debug.2);
     assert_eq!(debug.0, Some(1));

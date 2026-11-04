@@ -1665,7 +1665,7 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     let summary = "{\"column\":\"count\",\"rows\":3,\"total\":17}";
     assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{summary}\n"));
 
-    let built = app.join("target/debug");
+    let built = app.join("target/optimized");
     let tally = |args: &[&std::ffi::OsStr]| {
         Command::new(built.join("tally"))
             .args(args)

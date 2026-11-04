@@ -110,7 +110,7 @@ fn plenty(dir: &std::path::Path, args: &[&str]) -> String {
 fn float_negation_keeps_results() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("neg.plenty"), PROGRAM).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("neg.plenty");
         assert_eq!(plenty(dir.path(), &args), EXPECTED, "{mode:?}");

@@ -11,7 +11,8 @@ plenty --fuzz main.plenty -o fuzzer
 ./fuzzer crash-1060186d20321afe84b2d22eeca505a577c686c6   # replay one input
 ```
 
-`--release` before `--fuzz` optimizes the generated code. `--libfuzzer PATH`
+Fuzz targets optimize by default. `--fast-compile` before `--fuzz` skips
+optimization when compilation latency matters more than fuzz throughput. `--libfuzzer PATH`
 names libFuzzer's archive. Discovery asks `clang
 -print-file-name=libclang_rt.fuzzer_no_main.a` first, then the native target's
 suffixed name (`libclang_rt.fuzzer_no_main-aarch64.a` or

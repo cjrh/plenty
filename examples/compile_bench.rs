@@ -23,7 +23,7 @@ static ALLOCATOR: hotpath::CountingAllocator<mimalloc::MiMalloc> =
     hotpath::CountingAllocator::with(mimalloc::MiMalloc);
 
 const USAGE: &str = "Usage: compile_bench [UNITS] [REPETITIONS] [--aot]\n\
-    [--workload check|scale|aot|check-and-scale|all] [--no-warmup]\n\n\
+    [--workload check|scale|aot|check-and-scale|all] [--no-warmup] [--fast-compile]\n\n\
 Default: check UNITS and 4*UNITS, with one warm-up per workload.\n\
 --aot also compiles and links UNITS (equivalent to --workload all).\n\
 --workload scale checks only 4*UNITS; check and aot use UNITS.\n\
@@ -68,6 +68,7 @@ struct Options {
     repetitions: usize,
     workload: Workload,
     warmup: bool,
+    fast_compile: bool,
 }
 
 impl Options {
@@ -77,6 +78,7 @@ impl Options {
             repetitions: 10,
             workload: Workload::CheckAndScale,
             warmup: true,
+            fast_compile: false,
         };
         let mut args = args.into_iter();
         let mut positional = 0;
@@ -105,6 +107,7 @@ impl Options {
                     };
                 }
                 "--no-warmup" => options.warmup = false,
+                "--fast-compile" => options.fast_compile = true,
                 _ if arg.starts_with('-') => return Err(format!("unknown option: {arg}").into()),
                 _ => {
                     match positional {
@@ -220,7 +223,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let source = workload(count);
     println!(
-        "profile={} target={}-{} requested_units={} units={} lines={} bytes={} repetitions={} workload={} warmup={}",
+        "profile={} target={}-{} requested_units={} units={} lines={} bytes={} repetitions={} workload={} warmup={} codegen={}",
         if cfg!(debug_assertions) {
             "debug"
         } else {
@@ -234,7 +237,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         source.len(),
         options.repetitions,
         options.workload.name(),
-        options.warmup
+        options.warmup,
+        if options.fast_compile {
+            "fast-compile"
+        } else {
+            "optimized"
+        }
     );
     let checking = if options.workload.check() {
         let checking = measure(
@@ -278,6 +286,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // without compiling anything; the function cache stays as configured.
         let compile = plenty::CompileOptions {
             program_cache: false,
+            optimize: !options.fast_compile,
             ..Default::default()
         };
         let native = measure(
@@ -307,6 +316,8 @@ mod tests {
         assert_eq!((default.units, default.repetitions), (1000, 10));
         assert_eq!(default.workload, Workload::CheckAndScale);
         assert!(default.warmup);
+        assert!(!default.fast_compile);
+        assert!(options(&["--fast-compile"]).fast_compile);
         assert_eq!(options(&["2", "3", "--aot"]).workload, Workload::All);
     }
 

@@ -14,6 +14,11 @@ This skill describes the Plenty compiler in this repository. Run `plenty --versi
 compiler differs, install the matching skill release, and trust the compiler's
 diagnostics over this text.
 
+Builds optimize by default. Use `plenty --fast-compile FILE`,
+`plenty script --fast-compile FILE`, or `plenty run --fast-compile` for shorter
+edit-run cycles in large projects; runtime checks stay enabled. Package output
+is in `target/optimized/` by default or `target/fast-compile/` with that flag.
+
 ## Workflow
 
 1. Before writing code, read [the cheat sheet](../../../book/src/design/examples/cheatsheet.md) and, for

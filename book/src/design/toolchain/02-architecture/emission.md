@@ -64,7 +64,7 @@ imports only they need. COFF resolves undefined symbols even in sections its
 linker will discard, so section garbage collection alone cannot do this. A
 reached foreign call keeps its real import; no fallback definition is generated.
 All bodies still receive frontend and ownership checks. This applies in both
-debug and optimized executable builds, so an unreachable user function has no
+fast-compile and optimized executable builds, so an unreachable user function has no
 executable symbol or breakpoint location on Windows. Explicit `--emit-object`,
 library objects and `--dump` preserve their existing user-definition and generator
 roots for inspection and external linking. External COFF consumers of such an
@@ -277,7 +277,7 @@ call with the callee's operations (issue #363):
   its literal and the domain's constructor call, as a literal argument
   lowers. This happens in every build, and the constant has no function in
   the object.
-- **Leaf predicates**, in release builds only. A function whose parameters
+- **Leaf predicates**, in optimized builds only. A function whose parameters
   and result are numbers or `bool`, with no locals, and whose body is at most
   12 operations drawn from parameter reads, literals, constants, comparisons,
   `not`, `and`, `or`, and matches on `bool` or integer literals. Nothing in
@@ -297,7 +297,7 @@ key changes when a constant's value or a predicate's body does.
 
 ## Call-site inlining
 
-In release builds, `src/codegen/inline_calls.rs` lowers some calls by
+In optimized builds, `src/codegen/inline_calls.rs` lowers some calls by
 lowering the callee's typed body in the caller (issues #548 and #722). The
 body keeps its own locals, source position, trap sites and cleanup, so traps
 and `?` failures behave as the call would; only its final return becomes a
@@ -310,6 +310,11 @@ inlined into it, stay within a bound:
 | A class's `new` or `__init__` | 64 operations |
 | Any function with one direct call site | 160 operations |
 | Any other function | 16 operations |
+
+A tail call is inlined only when the caller has no managed locals or has just
+one tail-call site; otherwise it retains the shared tail-exit cleanup, keeping
+code growth linear in the number of owned locals and exits. C string adapter failures also return through
+the inlined callee's exit, so the caller can handle the error.
 
 An inlined function's own body is built only if placed code or data still
 refers to it, for example a call from a generator, a function value, a
@@ -360,7 +365,7 @@ after the ownership checker, so diagnostics are unchanged.
 
 ## Constants in loops
 
-In release builds Cranelift rematerializes an integer or float constant in each
+In optimized builds Cranelift rematerializes an integer or float constant in each
 block that uses it rather than keeping it in a register across a loop: this
 saves a register for the loop's lifetime at the cost of one instruction per use.
 On x86-64 a constant that is the right operand of a float operation is read from

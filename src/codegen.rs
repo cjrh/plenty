@@ -1932,7 +1932,7 @@ fn build_user_function(
             portable_simd,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
-            exits: Some(Default::default()),
+            exits: Some(exits::Exits::for_body(body)),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
@@ -3684,6 +3684,11 @@ impl Lowerer<'_, '_> {
         let caller_standard = self.in_standard_library();
         let cleanup_free = !self.locals.iter().any(|(_, ty)| ty.managed());
         let in_generator = self.generator.is_some();
+        let inline_cleanup = cleanup_free
+            || self
+                .exits
+                .as_ref()
+                .is_some_and(|exits| exits.single_tail_call);
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
@@ -3703,10 +3708,11 @@ impl Lowerer<'_, '_> {
             self.leave_call(saved);
             return self.lower(&Op::Return);
         }
-        // A constructor lowered in its callers keeps a real tail call's order:
-        // the caller's locals are released before the callee's body runs, and
-        // the return's shared exit then finds only empty slots.
+        // Keep repeated cleanup in the shared tail-call exits. A single
+        // tail-call site can inline its cleanup without duplicating it;
+        // with many sites and owned locals that would grow quadratically.
         if let Some(body) = decl.inline_body.clone()
+            && inline_cleanup
             && !in_generator
         {
             self.release_locals();

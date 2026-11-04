@@ -562,3 +562,14 @@ name class fields, enum variants and one-based payload/tuple positions; custom
 cleanup and anonymous sums have specific explanations. Key admission remains
 unchanged. See [the generic constraint reference](../design/language/07-generics/index.md#finding-an-unsupported-key-field)
 and [B74](../backlog.md#stdlib-driven-language-ergonomics) for remaining key design decisions.
+
+## Optimized builds by default (issue #723)
+
+All compilation entry points now optimize generated code by default. The
+[fast-compile profile](../design/toolchain/01-building/packages.md#profiles)
+trades runtime optimization for shorter compilation without changing language
+checks. Package output uses `target/optimized/` and `target/fast-compile/`;
+`--release` remains an alias for the default. Profile-separated cache reuse and
+explicit two-profile regression tests accompany the change. Integration with
+call-site inlining preserves caller handling of C string conversion errors
+(issue #724) and shared cleanup for tail calls with managed locals (issue #725).

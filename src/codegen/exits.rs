@@ -49,6 +49,8 @@ use std::ops::Range;
 
 #[derive(Default)]
 pub(super) struct Exits {
+    /// One tail-call site may inline its cleanup without duplicating it.
+    pub(super) single_tail_call: bool,
     /// Trap and caller records of the exit being taken.
     sites: Option<(Variable, Variable)>,
     /// Records of the position a [`Step::Restore`] returns to.
@@ -68,6 +70,19 @@ pub(super) struct Exits {
 }
 
 impl Exits {
+    pub(super) fn for_body(body: &[Op]) -> Self {
+        let mut tail_calls = 0;
+        crate::threading::walk(body, &mut |op| {
+            if matches!(op, Op::TailCall(_) | Op::TailCallIndirect(_)) {
+                tail_calls += 1;
+            }
+        });
+        Self {
+            single_tail_call: tail_calls == 1,
+            ..Default::default()
+        }
+    }
+
     /// Exits of a body lowered into its caller, returning to `block`.
     pub(super) fn returning_to(block: Block) -> Self {
         Self {

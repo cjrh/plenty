@@ -111,7 +111,7 @@ compare these paths with the initial implementation.
 
 ## Automatic SIMD counts
 
-With `--release`, a column of `i32` or `u32` followed by one `filter` and
+With the default optimized profile, a column of `i32` or `u32` followed by one `filter` and
 `count()` uses four-lane SIMD when the predicate compares its borrowed argument
 against a constant or immutable by-value capture of the same type
 (`==`, `!=`, `<`, `<=`, `>`, `>=`). Either operand order is recognized. The
@@ -121,7 +121,7 @@ retains its own snapshot. This bounded pattern accepts at most two captures,
 both of the column's scalar type. Named functions and closures are recognized.
 For example:
 `items.column(T.score).filter(def(x: &i32) -> bool: *x > 5i32).count()`.
-The ordinary scalar program remains valid without `--release`.
+The ordinary scalar program remains valid with `--fast-compile`.
 
 The compiler proves this small pattern from the checked operations; it requires
 no user annotation, temporary collection, allocation, aligned column start or

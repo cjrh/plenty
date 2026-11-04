@@ -67,8 +67,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --no-strip: keep the symbol table and debug sections in --compile and
   --shared-library output (stripped by default; --fuzz never strips).
 --target TRIPLE: require this target to match the supported packaged runtime.
---release: optimize generated code for FILE, --compile, or --fuzz (slower
-  compilation).
+--fast-compile: skip optimization for faster compilation (optimized by default).
+--release: compatibility alias for the optimized default.
 --test-hooks: enable std.test failure injection for FILE or --compile.
   Intended for testing ordinary programs; omitted builds contain no hooks.
 --no-cache: compile/link without cached functions, objects or executables
@@ -255,9 +255,16 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         dump.filter = Some(args.remove(index));
         dump_options = true;
     }
+    let profile_flag = args
+        .iter()
+        .find(|a| a.as_str() == "--release" || a.as_str() == "--fast-compile")
+        .cloned();
+    if let Some(index) = args.iter().position(|a| a == "--fast-compile") {
+        args.remove(index);
+        options.optimize = false;
+    }
     if let Some(index) = args.iter().position(|a| a == "--release") {
         args.remove(index);
-        options.optimize = true;
     }
     if let Some(index) = args.iter().position(|a| a == "--no-strip") {
         args.remove(index);
@@ -274,14 +281,21 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         // entry; checking is where a library author asks for this.
         return Err("--check-all-methods requires --check or --check-module".into());
     }
-    if options.optimize {
+    if let Some(flag) = profile_flag {
         let compiles = match args.as_slice() {
             [source] => !source.starts_with('-'),
-            [flag, ..] => flag == "--compile" || flag == "--fuzz" || flag == "--dump",
+            [flag, ..] => {
+                flag == "--compile"
+                    || flag == "--fuzz"
+                    || flag == "--dump"
+                    || flag == "--emit-object"
+                    || flag == "--shared-library"
+                    || flag == "--static-library"
+            }
             [] => false,
         };
         if !compiles {
-            return Err("--release requires FILE, --compile, --fuzz, or --dump".into());
+            return Err(format!("{flag} requires a compilation mode").into());
         }
     }
     if !options.strip

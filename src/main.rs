@@ -27,9 +27,9 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
        plenty check [--locked] [--offline] [--check-all-methods]
-       plenty build [--release] [--no-strip] [--locked] [--offline]
-       plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]
-       plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list]
+       plenty build [--fast-compile] [--no-strip] [--locked] [--offline]
+       plenty run [--fast-compile] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]
+       plenty test [--fast-compile] [--locked] [--offline] [--no-capture] [--seed N] [--list]
                    [--jobs N] [--timeout SECONDS] [FILTER...]
        plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
                   [--version REQ] [--offline]
@@ -42,8 +42,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
 check: type-check every target; --check-all-methods also checks every method
-of every generic instance, including methods nothing calls. build: compile executables into target/debug,
-or target/release with --release. run: build one executable and run it with
+of every generic instance, including methods nothing calls. build: compile executables into target/optimized,
+or target/fast-compile with --fast-compile. run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main; a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
@@ -244,7 +244,8 @@ fn test_options(args: &[String]) -> Result<TestOptions, String> {
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--release" => options.build.profile = Profile::Release,
+            "--release" => {}
+            "--fast-compile" => options.build.profile = Profile::FastCompile,
             "--locked" => options.build.locked = true,
             "--offline" => options.build.offline = true,
             "--no-capture" => options.no_capture = true,
@@ -295,7 +296,8 @@ fn build_options(
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--release" if profiles => options.profile = Profile::Release,
+            "--release" if profiles => {}
+            "--fast-compile" if profiles => options.profile = Profile::FastCompile,
             "--no-strip" if profiles => options.compile.strip = false,
             "--test-hooks" if profiles => options.compile.test_hooks = true,
             "--locked" => options.locked = true,

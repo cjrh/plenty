@@ -941,7 +941,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
         );
         String::from_utf8(output.stdout).unwrap()
     };
-    for mode in [&[][..], &["--release"]] {
+    for mode in [&["--fast-compile"][..], &["--release"]] {
         let args = [mode, &["threads.plenty"]].concat();
         assert_eq!(plenty(&args), "53009\n504\n438\n9\n", "{mode:?}");
     }
