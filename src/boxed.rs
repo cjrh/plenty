@@ -118,6 +118,7 @@ impl BoxOp {
 }
 
 /// These owners carry obligations that must remain visible to static analysis.
+/// Channel endpoints must also remain visible to join/result/shutdown checks.
 /// An already-erased callback could conceal the same owners in its captures.
 pub fn erasure_barrier(source: &Ty) -> bool {
     let mut pending = vec![source.clone()];
@@ -126,7 +127,10 @@ pub fn erasure_barrier(source: &Ty) -> bool {
         if seen.contains(&ty) {
             continue;
         }
-        if matches!(ty, Ty::Executor | Ty::Future(_) | Ty::BoxedCallable(_)) {
+        if matches!(
+            ty,
+            Ty::Executor | Ty::Future(_) | Ty::BoxedCallable(_) | Ty::Channel(..)
+        ) {
             return true;
         }
         crate::threading::contained(&ty, &mut pending);

@@ -63,11 +63,17 @@ Automatic formatting writes `<boxed protocol>` without inspecting the payload.
 These restrictions apply through containing aggregates too.
 
 Native worker/channel transfer is rejected, including through nested containers.
-A protocol box cannot conceal executors, futures, or erased callback captures;
+A protocol box cannot conceal executors, futures, channel endpoints, or erased callback captures;
 these would hide ownership obligations from static checks. `Shared` owners
 cannot contain protocol boxes, because their erased payloads could conceal
 ownership cycles or owners whose destruction waits. Indirect calls retain the
 compiler's conservative effect checks.
+
+The channel restriction includes `Sender[T]` and `Receiver[T]` nested in classes,
+enums or containers. Hiding an endpoint would prevent the compiler from checking
+whether it can block a worker during a join, result wait or pool shutdown. Keep
+such payloads in concrete owners such as `Box[T]`, and drop the relevant endpoint
+holder before waiting.
 
 See the [tutorial](../../../tutorial/09-generics/boxed-protocols.md),
 [concrete boxes](../../facilities/01-builtins/boxes.md), and

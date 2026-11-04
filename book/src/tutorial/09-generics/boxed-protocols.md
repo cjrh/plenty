@@ -104,6 +104,8 @@ A box exposes only its protocol's methods. This initial interface supports
 shared and mutable receivers, fixed protocol arguments, ordinary parameters,
 and owned results. Methods with their own type parameters, consuming receivers,
 or returned borrows cannot be boxed. Protocol boxes cannot be copied, used as
-set elements or dictionary keys, or transferred to worker threads. See the
+set elements or dictionary keys, or transferred to worker threads. Payloads
+containing channel senders or receivers also need concrete owners: erasing them
+would hide endpoints from the compiler's checks for waits that could deadlock. See the
 [reference](../../design/language/07-generics/boxed-protocols.md) for the complete
 limits.

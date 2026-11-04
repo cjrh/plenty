@@ -546,3 +546,125 @@ def erase(value: Hidden) -> Result[Box[Id], AllocError]:
         );
     }
 }
+
+#[test]
+fn erasure_rejects_nested_channel_endpoints() {
+    for endpoint in ["Sender[i64]", "Receiver[i64]"] {
+        for payload in [
+            endpoint.to_owned(),
+            format!("list[{endpoint}]"),
+            format!("dict[str, Box[{endpoint}]]"),
+            format!("Option[{endpoint}]"),
+            "Nested".to_owned(),
+            "Wrapped".to_owned(),
+        ] {
+            check_error(
+                &format!(
+                    r#"
+protocol Id:
+    def id(self) -> i64:
+        pass
+class Nested:
+    endpoint: {endpoint}
+enum Wrapped:
+    Empty
+    Held(Nested)
+class Hidden:
+    payload: {payload}
+    def id(self) -> i64:
+        1
+def erase(value: Hidden) -> Result[Box[Id], AllocError]:
+    Box[Id](value)
+"#
+                ),
+                "channel endpoints",
+            );
+        }
+        check_error(
+            &format!(
+                r#"
+protocol Id:
+    def id(self) -> i64:
+        pass
+enum Hidden:
+    Empty
+    Held({endpoint})
+    def id(self) -> i64:
+        1
+def erase(value: Hidden) -> Result[Box[Id], AllocError]:
+    Box[Id](value)
+"#
+            ),
+            "channel endpoints",
+        );
+    }
+}
+
+const ENDPOINT_HOLDER: &str = r#"
+protocol Id:
+    def id(self) -> i64:
+        pass
+class Kept:
+    endpoint: Receiver[i64]
+    def id(self) -> i64:
+        1
+def produce(sender: Sender[i64]) -> ():
+    for n in range(3):
+        match sender.send(n):
+            case Ok(_):
+                pass
+            case Err(_):
+                return
+"#;
+
+#[test]
+fn endpoint_erasure_cannot_bypass_any_pool_wait() {
+    for wait in [
+        "future.result().unwrap()",
+        "pool.shutdown()",
+        "drop(future)",
+    ] {
+        let source = format!(
+            r#"{ENDPOINT_HOLDER}
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    kept = Box[Id](Kept(receiver)).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(produce, sender).unwrap()
+        {wait}
+    drop(kept)
+"#
+        );
+        check_error(&source, "channel endpoints");
+        // The concrete representation continues to expose the live endpoint.
+        check_error(
+            &source.replace("Box[Id](Kept(receiver))", "Box(Kept(receiver))"),
+            "could block the job's send",
+        );
+    }
+}
+
+#[test]
+fn concrete_endpoint_holder_can_be_dropped_before_waiting() {
+    for wait in [
+        "future.result().unwrap()",
+        "pool.shutdown()",
+        "drop(future)",
+    ] {
+        run(
+            &format!(
+                r#"{ENDPOINT_HOLDER}
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    kept = Box(Kept(receiver)).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(produce, sender).unwrap()
+        drop(kept)
+        {wait}
+    print("done").unwrap()
+"#
+            ),
+            "done\n",
+        );
+    }
+}

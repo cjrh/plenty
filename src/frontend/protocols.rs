@@ -586,7 +586,7 @@ impl Lower<'_> {
         }
         if crate::boxed::erasure_barrier(&source) {
             return Err(at.error(
-                "protocol boxes cannot conceal executors, futures, or erased callback captures",
+                "protocol boxes cannot conceal executors, futures, channel endpoints, or erased callback captures",
             ));
         }
         self.sync_data()?;

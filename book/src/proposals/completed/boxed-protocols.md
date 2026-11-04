@@ -5,7 +5,7 @@ owners support shared/mutable dispatch, fixed protocol arguments and generic
 consumers of the same protocol. The [implemented contract](../../design/language/07-generics/boxed-protocols.md)
 is authoritative. This proposal retains the research and design rationale.
 `Shared` cannot contain protocol objects, and construction rejects payloads
-concealing executors, futures or erased callbacks. Returned borrows, consuming
+concealing executors, futures, channel endpoints or erased callbacks. Returned borrows, consuming
 requirements, method-local generics and native transfer remain unsupported.
 Generator-frame/concrete-closure signature types and recursive boxed interface
 signatures are also rejected. See the retained [measurements](boxed-protocols/evidence.md#implementation-measurements).

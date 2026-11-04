@@ -361,7 +361,7 @@ method tables over one concrete payload, fixed protocol argument inference,
 identical-protocol generic bounds, aggregate storage and descriptor-driven
 cleanup. Executable lessons cover heterogeneous lists and dictionary values.
 Borrowed outputs, consuming or generic requirements, copying, keys and native
-transfer remain unsupported. `Shared` contents and hidden executor/future or
+transfer remain unsupported. `Shared` contents and hidden executor/future, channel-endpoint or
 erased-callback payloads are conservatively rejected. See the
 [implemented contract](../design/language/07-generics/boxed-protocols.md).
 
