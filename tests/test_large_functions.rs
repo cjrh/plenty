@@ -10,7 +10,8 @@ use support::run_stdout as stdout;
 #[test]
 fn conditional_assignments_keep_their_values() {
     const STEPS: i64 = 1500;
-    let mut source = String::from("def big(x: i64) -> i64:\n    mut y = x\n");
+    let mut source =
+        String::from("def big(x: i64) -> Result[i64, OverflowError[i64]]:\n    mut y = x\n");
     for i in 0..STEPS {
         source.push_str(&format!(
             "    y = y + {i}\n    if y > {}:\n        y = y - 3\n",
@@ -18,12 +19,12 @@ fn conditional_assignments_keep_their_values() {
         ));
     }
     source.push_str(
-        "    y
+        "    Ok(y)
 
-def main() -> Result[(), IoError]:
-    print(big(0))?
-    print(big(-2000000))?
-    print(big(5000))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(big(0)?)?
+    print(big(-2000000)?)?
+    print(big(5000)?)?
     Ok(())
 ",
     );
@@ -54,7 +55,7 @@ fn list_initializer_keeps_every_element() {
     xs = [{}]?
     Ok(xs)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = big()?
     mut total = 0
     for x in xs:

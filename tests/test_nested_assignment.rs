@@ -38,9 +38,11 @@ print(rows).unwrap()
 fn index_expressions_can_read_the_destination_before_its_exclusive_loan() {
     expect(
         r#"
-mut rows = [[1, 2].unwrap()].unwrap()
-rows[len(rows) - 1][len(rows[0]) - 1] = 9
-print(rows).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut rows = [[1, 2].unwrap()].unwrap()
+    rows[len(rows) - 1][len(rows[0]) - 1] = 9
+    print(rows).unwrap()
+    Ok(())
 "#,
         "[[1, 9]]\n",
     );

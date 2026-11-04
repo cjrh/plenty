@@ -10,11 +10,11 @@ fn list_displays_reserve_once_before_evaluating_elements() {
         native(
             &format!(
                 r#"
-def item(n: i64, calls: &mut i64) -> i64:
+def item(n: i64, calls: &mut i64) -> Result[i64, OverflowError[i64]]:
     *calls += 1
-    n
-def build(calls: &mut i64) -> Result[list[i64], AllocError]:
-    Ok([item(1, &mut *calls), item(2, &mut *calls), item(3, &mut *calls), item(4, &mut *calls), item(5, &mut *calls), item(6, &mut *calls), item(7, &mut *calls), item(8, &mut *calls), item(9, &mut *calls)]?)
+    Ok(n)
+def build(calls: &mut i64) -> Result[list[i64], AllocError | OverflowError[i64]]:
+    Ok([item(1, &mut *calls)?, item(2, &mut *calls)?, item(3, &mut *calls)?, item(4, &mut *calls)?, item(5, &mut *calls)?, item(6, &mut *calls)?, item(7, &mut *calls)?, item(8, &mut *calls)?, item(9, &mut *calls)?]?)
 mut calls = 0
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = build(&mut calls)
@@ -114,7 +114,9 @@ def build() -> Result[{ty}, AllocError]:
     mut n = 0
     while n < {capacity}:
         {insert}?
-        n = n + 1
+        # n starts at 0; capacity is 0 or 8, so n + 1 is at most 8.
+        unchecked:
+            n = n + 1
     Ok(values)
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = build()

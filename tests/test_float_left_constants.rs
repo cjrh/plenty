@@ -79,7 +79,9 @@ def sum_l(n: i64, x0: f64) -> f64:
     while i < n:
         s = s + (1.5 - x) + 2.5 / x
         x = x + 0.25
-        i = i + 1
+        # 0 <= i < n <= i64.MAX, so the integer increment fits.
+        unchecked:
+            i = i + 1
     s
 
 def sum_p(n: i64, x0: f64, a: f64, b: f64) -> f64:
@@ -89,7 +91,9 @@ def sum_p(n: i64, x0: f64, a: f64, b: f64) -> f64:
     while i < n:
         s = s + (a - x) + b / x
         x = x + 0.25
-        i = i + 1
+        # 0 <= i < n <= i64.MAX, so the integer increment fits.
+        unchecked:
+            i = i + 1
     s
 
 def main() -> Result[(), AllocError | IoError]:

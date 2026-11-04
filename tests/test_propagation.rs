@@ -24,7 +24,9 @@ fn result_and_option_success_failure_and_changed_success_type() {
 def number(ok: bool) -> Result[i64, str]:
     Ok(21) if ok else Err("failed")
 def doubled(ok: bool) -> Result[str, str]:
-    n = number(ok)? * 2
+    # number has only Ok(21) or Err; the successful product is exactly 42.
+    n = unchecked:
+        number(ok)? * 2
     print(n).unwrap()
     Ok("done")
 def optional(ok: bool) -> Option[i64]:
@@ -55,9 +57,9 @@ def done(ok: bool) -> Result[(), str]:
 def unit(ok: bool) -> Result[i64, str]:
     done(ok)?
     Ok(9)
-def item(n: i64) -> Result[i64, str]:
+def item(n: i64) -> Result[i64, str | OverflowError[i64]]:
     Ok(n * n) if n < 3 else Err("large")
-def collect(n: i64) -> Result[list[i64], str]:
+def collect(n: i64) -> Result[list[i64], str | OverflowError[i64]]:
     Ok([item(i)? for i in range(n)].unwrap())
 def field() -> Option[i64]:
     Some(Some(Point(7))?.x)
@@ -68,7 +70,7 @@ print(str.repr(collect(3)).unwrap()).unwrap()
 print(str.repr(collect(5)).unwrap()).unwrap()
 print(field()).unwrap()
 "#,
-        "Option[i64].Some(5)\nResult[i64, str].Ok(9)\nResult[i64, str].Err(\"stop\")\nResult[list[i64], str].Ok([0, 1, 4])\nResult[list[i64], str].Err(\"large\")\nOption[i64].Some(7)\n",
+        "Option[i64].Some(5)\nResult[i64, str].Ok(9)\nResult[i64, str].Err(\"stop\")\nResult[list[i64], OverflowError[i64] | str].Ok([0, 1, 4])\nResult[list[i64], OverflowError[i64] | str].Err(\"large\")\nOption[i64].Some(7)\n",
     );
 }
 
@@ -85,12 +87,12 @@ def fail() -> Result[i64, Guard]:
 def later() -> i64:
     print("must not run").unwrap()
     3
-def consume(g: Guard, a: i64, b: i64) -> i64:
-    a + b
-def work() -> Result[i64, Guard]:
+def consume(g: Guard, a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def work() -> Result[i64, Guard | OverflowError[i64]]:
     first = Guard("first")
     second = Guard("second")
-    Ok(consume(Guard("argument"), fail()?, later()))
+    Ok(consume(Guard("argument"), fail()?, later())?)
 match work():
     case Ok(_):
         pass
@@ -233,7 +235,11 @@ def absent() -> Option[u64]:
 def recurse(n: i64, value: Result[Option[u64], i64]) -> Result[Option[u64], i64]:
     if n == 0:
         return value
-    recurse(n - 1, value)
+    # Only main's recurse(10000, nested(True)) and this recursive call invoke
+    # recurse. The zero base case bounds every decrement to 1..10000; keep
+    # the Copy sum ABI and the implicit-copy match oracle below.
+    unchecked:
+        recurse(n - 1, value)
 print("__test_begin_no_allocations__").unwrap()
 good = recurse(10000, nested(True))
 bad = nested(False)

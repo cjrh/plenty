@@ -46,7 +46,9 @@ def neg_loop(n: i64, x0: f64, a: f64) -> f64:
     while i < n:
         s = s + -(x * a)
         x = -x + 0.25
-        i = i + 1
+        # 0 <= i < n <= i64.MAX; only the integer loop increment opts out.
+        unchecked:
+            i = i + 1
     s
 
 def main() -> Result[(), AllocError | IoError]:

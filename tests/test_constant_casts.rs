@@ -65,7 +65,9 @@ const FLOATS: [&str; 9] = [
 /// Every integer conversion of each constant: the bare cast where the value
 /// fits and `wrapping_from` always, then the float conversions.
 fn program() -> (String, String) {
-    let mut source = String::from("def main() -> Result[(), AllocError | IoError]:\n");
+    let mut source = String::from(
+        "def main() -> Result[(), AllocError | IoError | ZeroDivisionError | OverflowError[i8] | OverflowError[i16] | OverflowError[i32] | OverflowError[i64]]:\n",
+    );
     let mut expected = String::new();
     for (from, from_bits, from_signed) in TYPES {
         for (text, value) in values(from, from_bits, from_signed) {

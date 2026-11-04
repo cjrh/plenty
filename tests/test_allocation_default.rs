@@ -6,7 +6,7 @@ fn literals_propagate_with_context_and_no_prefix() {
         r#"
 def build() -> Result[list[list[u8]], AllocError]:
     [[1, 2]?, [3]?]
-def main() -> Result[(), AllocError]:
+def main() -> Result[(), AllocError | OverflowError[u8]]:
     values: list[list[u8]] = build()?
     print(values).unwrap()
     squares: list[u8] = [n * n for n in range(6)]?
@@ -81,7 +81,7 @@ fn old_prefixes_are_rejected() {
 fn ranges_text_index_and_iteration_succeed_without_allocation() {
     let output = support::run(
         r#"
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     print("__test_fail_allocations_after_0__").unwrap()
     sequence = range[u8](4)
     character = "é🙂"[1]
@@ -93,6 +93,7 @@ def main() -> ():
     print(sequence).unwrap()
     print(character).unwrap()
     print(count).unwrap()
+    Ok(())
 "#,
     );
     assert!(

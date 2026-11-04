@@ -25,7 +25,7 @@ use support::run;
     "[[\"ab\"]]\n[[\"new\"]]\nxy\n"
 )]
 #[case(
-    "def repeat(n: i64, s: str) -> str:\n    if n == 0:\n        s\n    else:\n        repeat(n - 1, (s + '').unwrap())\nprint(repeat(10_000, 'ok')).unwrap()",
+    "def repeat(n: i64, s: str) -> Result[str, OverflowError[i64]]:\n    if n == 0:\n        Ok(s)\n    else:\n        repeat(n - 1, (s + '').unwrap())\ndef main() -> Result[(), OverflowError[i64]]:\n    print(repeat(10_000, 'ok')?).unwrap()\n    Ok(())",
     "ok\n"
 )]
 #[case(
@@ -65,7 +65,7 @@ use support::run;
     "yes\n99\n"
 )]
 #[case(
-    "type O = Option[str]\ndef f(n: i64, o: O) -> str:\n    match o:\n        case O.Nothing:\n            'empty'\n        case O.Some(s):\n            if n == 0:\n                s\n            else:\n                f(n - 1, O.Some((s + '').unwrap()))\nprint(f(10_000, O.Some('ok'))).unwrap()",
+    "type O = Option[str]\ndef f(n: i64, o: O) -> Result[str, OverflowError[i64]]:\n    match o:\n        case O.Nothing:\n            Ok('empty')\n        case O.Some(s):\n            if n == 0:\n                Ok(s)\n            else:\n                f(n - 1, O.Some((s + '').unwrap()))\ndef main() -> Result[(), OverflowError[i64]]:\n    print(f(10_000, O.Some('ok'))?).unwrap()\n    Ok(())",
     "ok\n"
 )]
 #[case(
