@@ -103,7 +103,7 @@ def canonical_path(path):
     return path
 
 
-def file_identity(path, *, native_tool=None):
+def _capture_file(path, *, native_tool=None):
     path = canonical_path(path)
     recorded = None
     if native_tool is not None:
@@ -116,7 +116,8 @@ def file_identity(path, *, native_tool=None):
     s = path.stat()
     require(stat.S_ISREG(s.st_mode) and (s.st_nlink == 1 or recorded is not None),
             f"regular nonaliased file required: {path}")
-    identity = {"path": str(path), "sha256": digest(path.read_bytes()), "size": s.st_size,
+    raw = path.read_bytes()
+    identity = {"path": str(path), "sha256": digest(raw), "size": s.st_size,
                 "device": s.st_dev, "inode": s.st_ino, "mode": s.st_mode,
                 "mtime_ns": s.st_mtime_ns, "uid": s.st_uid}
     after = canonical_path(path).stat()
@@ -131,13 +132,20 @@ def file_identity(path, *, native_tool=None):
         # invent old values or silently rebaseline aliases between jobs.
         identity.update(native_tool=native_tool, build_record_sha256=BUILD_RECORD_SHA256,
                         nlink=s.st_nlink, ctime_ns=s.st_ctime_ns)
+    return identity, raw
+
+
+def file_identity(path, *, native_tool=None):
+    identity, _ = _capture_file(path, native_tool=native_tool)
     return identity
 
 
 def pinned_bytes(path, sha256):
-    identity = file_identity(path)
+    identity, raw = _capture_file(path)
     require(identity["sha256"] == sha256, f"pinned hash mismatch: {path}")
-    return Path(path).read_bytes()
+    # Authorization must consume the captured, bracketed bytes, not reread a
+    # path that could have changed after its identity/hash was verified.
+    return raw
 
 
 def machine_snapshot():

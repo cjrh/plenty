@@ -783,6 +783,60 @@ class NativeToolIdentityTests(AdapterFixture):
             with self.assertRaisesRegex(ValueError, "pinned hash mismatch"):
                 check()
 
+    def test_record_swap_after_verified_capture_cannot_authorize_unrecorded_hardlink(self):
+        unrecorded = self.root / "unrecorded-tool"
+        unrecorded.write_bytes(b"synthetic unrecorded tool")
+        os.link(unrecorded, self.root / "unrecorded-tool-alias")
+        forged = copy.deepcopy(self.records)
+        forged["native_tools"]["cc"]["file"] = recorded_file(unrecorded)
+        pin = profile.BUILD_RECORD_SHA256
+        original_require, original_read = profile.require, Path.read_bytes
+        reads, swaps = [], []
+        def read(path):
+            if path == self.records_path:
+                reads.append(str(path))
+            return original_read(path)
+        def require_and_swap(condition, message):
+            original_require(condition, message)
+            if message == f"pinned hash mismatch: {self.records_path}":
+                # The strict capture and hash check have finished. Mutate the
+                # real file only now, in the old unchecked consumption gap.
+                self.write(self.records_path, forged)
+                swaps.append(message)
+        with patch.object(Path, "read_bytes", read), patch.object(profile, "require", require_and_swap):
+            with self.assertRaisesRegex(ValueError, "authenticated native tool path mismatch"):
+                profile.file_identity(unrecorded, native_tool="cc")
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(swaps), 1)
+        self.assertEqual(profile.BUILD_RECORD_SHA256, pin)
+        self.assertNotEqual(profile.digest(self.records_path.read_bytes()), pin)
+        self.assertEqual(json.loads(self.records_path.read_bytes()), forged)
+
+    def test_pinned_bytes_returns_exact_single_capture_despite_post_verification_swap(self):
+        original = self.records_path.read_bytes()
+        forged = copy.deepcopy(self.records)
+        forged["native_tools"]["cc"]["file"] = recorded_file(self.manifest_path)
+        pin = profile.BUILD_RECORD_SHA256
+        original_require, original_read = profile.require, Path.read_bytes
+        reads, swaps = [], []
+        def read(path):
+            if path == self.records_path:
+                reads.append(str(path))
+            return original_read(path)
+        def require_and_swap(condition, message):
+            original_require(condition, message)
+            if message == f"pinned hash mismatch: {self.records_path}":
+                self.write(self.records_path, forged)
+                swaps.append(message)
+        with patch.object(Path, "read_bytes", read), patch.object(profile, "require", require_and_swap):
+            returned = profile.pinned_bytes(self.records_path, pin)
+        self.assertEqual(returned, original)
+        self.assertEqual(profile.digest(returned), pin)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(len(swaps), 1)
+        self.assertEqual(profile.BUILD_RECORD_SHA256, pin)
+        self.assertEqual(json.loads(self.records_path.read_bytes()), forged)
+
     def test_every_original_native_tool_file_field_is_enforced(self):
         row = self.records["native_tools"]["cc"]["file"]
         for field in ("sha256", "size_bytes", "mtime_ns", "inode", "device", "mode"):
