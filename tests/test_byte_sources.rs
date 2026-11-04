@@ -145,7 +145,9 @@ pub class Upper:
         for index in range(len(source)):
             mut byte = source[index]
             if byte >= 97u8 and byte <= 122u8:
-                byte -= 32u8
+                # The ASCII guard proves 97 <= byte <= 122, hence 65..90.
+                unchecked:
+                    byte -= 32u8
             match self.data.push(byte):
                 case Ok(_):
                     pass
@@ -184,7 +186,13 @@ pub class Old:
     pub data: Bytes
 
     pub def write(self: &mut Old, source: &Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        Ok(stop - start)
+        distance = checked:
+            stop - start
+        match distance:
+            case Ok(value):
+                Ok(value)
+            case Err(_):
+                Err(StreamError.OutOfRange)
 
     pub def flush(self: &mut Old) -> Result[(), StreamError]:
         Ok(())
@@ -278,13 +286,13 @@ protocol Other:
     def size(self) -> i64:
         pass
 protocol Sink:
-    def put[S: Sized](self: &mut Sink, item: &S) -> i64:
+    def put[S: Sized](self: &mut Sink, item: &S) -> Result[i64, OverflowError[i64]]:
         pass
 class Item:
     width: i64
     def size(self) -> i64:
         self.width
-def feed[K: Sink](sink: &mut K) -> i64:
+def feed[K: Sink](sink: &mut K) -> Result[i64, OverflowError[i64]]:
     sink.put(&Item(2))
 ";
 
@@ -293,18 +301,18 @@ fn requirements_take_protocol_constrained_type_parameters() {
     let output = support::run(&format!(
         "{SINK}class Total:
     sum: i64
-    def put[Thing: Sized](self: &mut Total, item: &Thing) -> i64:
+    def put[Thing: Sized](self: &mut Total, item: &Thing) -> Result[i64, OverflowError[i64]]:
         self.sum += item.size()
-        self.sum
+        Ok(self.sum)
 class Twice[T]:
     inner: T
-    def put[S: Sized](self: &mut Twice[T], item: &S) -> i64:
-        2 * item.size()
-def main() -> Result[(), AllocError | IoError]:
+    def put[S: Sized](self: &mut Twice[T], item: &S) -> Result[i64, OverflowError[i64]]:
+        Ok(2 * item.size())
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut total = Total(1)
-    feed(&mut total)
+    feed(&mut total)?
     mut twice = Twice(0u8)
-    print(feed(&mut total), feed(&mut twice))?
+    print(feed(&mut total)?, feed(&mut twice)?)?
     Ok(())
 "
     ));
@@ -321,27 +329,27 @@ fn implementations_must_declare_the_requirement_parameters() {
     let mismatch = "signature of `put` does not match";
     for (method, expected) in [
         (
-            "    def put(self: &mut Bad, item: &Item) -> i64:\n        1\n",
+            "    def put(self: &mut Bad, item: &Item) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
-            "    def put[S](self: &mut Bad, item: &S) -> i64:\n        1\n",
+            "    def put[S](self: &mut Bad, item: &S) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
-            "    def put[S: Other](self: &mut Bad, item: &S) -> i64:\n        1\n",
+            "    def put[S: Other](self: &mut Bad, item: &S) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
-            "    def put[S: Sized, U](self: &mut Bad, item: &S) -> i64:\n        1\n",
+            "    def put[S: Sized, U](self: &mut Bad, item: &S) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
-            "    def put[S: Sized](self: &mut Bad, item: &Item) -> i64:\n        1\n",
+            "    def put[S: Sized](self: &mut Bad, item: &Item) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
-            "    def put[S: Sized](self: &mut Bad, item: S) -> i64:\n        1\n",
+            "    def put[S: Sized](self: &mut Bad, item: S) -> Result[i64, OverflowError[i64]]:\n        Ok(1)\n",
             mismatch,
         ),
         (
@@ -396,13 +404,13 @@ import std.bytes
 import std.io
 
 
-def tally(source: &[u8]) -> i64:
+def tally(source: &[u8]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for byte in source:
         total += i64(*byte)
-    total + len(source)
+    Ok(total + len(source))
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Partial | OverflowError[i64]]:
     mut head = std.bytes.from_bytes(b"GET / HTTP/1.1\r\n\r\n")?
     mut out = std.bytes.with_capacity(64)?
     crlf = std.bytes.from_text("\r\n")?
@@ -418,7 +426,7 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.Pa
     head.overwrite(0, b"PUT")
     std.io.write_all(&mut stdout, b"written\n")?
     std.io.write_all(&mut memory, b"memory")?
-    sums = tally(b"\x01\x02") + tally(&crlf)
+    sums = tally(b"\x01\x02")? + tally(&crlf)?
     print("__test_end_no_allocations__")?
     print(found, also, spaces, same, out.len(), sums)?
     Ok(())

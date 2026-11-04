@@ -59,15 +59,15 @@ fn assignment_arguments_and_returns_copy() {
     runs(
         &format!(
             r#"{POINT}
-def shifted(p: Point) -> Point:
+def shifted(p: Point) -> Result[Point, OverflowError[i64]]:
     mut q = p
     q.x = q.x + 10
-    q
-def main() -> Result[(), AllocError | IoError]:
+    Ok(q)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     p = Point(1, 2)
     mut q = p
     q.y = 9
-    r = shifted(p)
+    r = shifted(p)?
     print(p, q, r)?
     print(p == Point(1, 2), copy(p)? == p)?
     Ok(())
@@ -110,7 +110,7 @@ fn collections_closures_and_enums_copy_their_elements() {
 enum Shape:
     Dot(Point)
     Line(Point, Point)
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     p = Point(1, 2)
     mut points = [p, p]?
     points[0].x = 5
@@ -118,15 +118,15 @@ def main() -> Result[(), AllocError | IoError]:
     for point in &points:
         print(point)?
     by_name = {{"p": p}}?
-    get = def [p]() -> i64:
-        p.x + p.y
+    get = def [p]() -> Result[i64, OverflowError[i64]]:
+        Ok(p.x + p.y)
     line = Shape.Line(p, first)
     match &line:
         case Shape.Line(a, b):
             print(a, b)?
         case Shape.Dot(a):
             print(a)?
-    print(p, first, get(), len(by_name))?
+    print(p, first, get()?, len(by_name))?
     Ok(())
 "#
         ),
@@ -140,13 +140,13 @@ fn owned_receivers_and_generic_parameters_copy() {
     runs(
         &format!(
             r#"{POINT}
-    def sum(self: Point) -> i64:
-        self.x + self.y
+    def sum(self: Point) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x + self.y)
 def both[T](value: T) -> (T, T):
     (value, value)
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     p = Point(3, 4)
-    print(p.sum(), both(p), p)?
+    print(p.sum()?, both(p), p)?
     Ok(())
 "#
         ),

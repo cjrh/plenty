@@ -53,12 +53,12 @@ def success[T, E](value: Result[T, E]) -> Result[T, E]:
     Ok(value?)
 def optional[T](value: Option[T]) -> Option[T]:
     Some(value?)
-def count[T: IntType](values: range[T]) -> T:
+def count[T: IntType](values: range[T]) -> Result[T, OverflowError[T]]:
     mut total: T = 0
     for n in values:
         total = total + n
-    total
-def main() -> Result[(), AllocError | IoError]:
+    Ok(total)
+def main() -> Result[(), AllocError | IoError | OverflowError[u8]]:
     n: Count = 42
     print(identity(identity(n)))?
     values = identity([1, 2]?)
@@ -70,7 +70,7 @@ def main() -> Result[(), AllocError | IoError]:
     r: Result[u64, str] = Ok(18446744073709551615u64)
     print(str.repr(success(r)).unwrap())?
     print(optional(Some(1u8)))?
-    print(count(range[u8](4)))?
+    print(count(range[u8](4))?)?
     print(identity(2.5))?
     print(1 + identity[u8](2))?
     Ok(())
@@ -83,9 +83,9 @@ def main() -> Result[(), AllocError | IoError]:
 fn recursive_specializations_generators_and_scoped_bindings() {
     native(
         r#"
-def down[T: IntType](n: T) -> T:
+def down[T: IntType](n: T) -> Result[T, OverflowError[T]]:
     if n == 0:
-        return n
+        return Ok(n)
     down(n - 1)
 def once[T](value: T) -> Generator[T]:
     yield value
@@ -93,8 +93,8 @@ def collect[T](source: Generator[T]) -> Result[list[T], AllocError]:
     [item for item in source]
 def identity[T](x: T) -> T:
     x
-def main() -> Result[(), AllocError | IoError]:
-    print(down(10000i32))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i32]]:
+    print(down(10000i32)?)?
     print(collect(once(8u8))?)?
     values = [Some(2u8), Nothing]?
     for value in values:

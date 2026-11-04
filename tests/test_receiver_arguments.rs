@@ -25,15 +25,16 @@ class Cell:
         &self.value
     def set(self: &mut Cell, value: i64) -> ():
         self.value = value
-    def add[T: IntType](self: &mut Cell, value: T) -> ():
+    def add[T: IntType](self: &mut Cell, value: T) -> Result[(), OverflowError[i64]]:
         self.value = self.value + i64(value)
+        Ok(())
     def from_ref(self: &mut Cell, value: &i64) -> ():
         self.value = *value
     def from_ref_generic[T](self: &mut Cell, value: &i64, ignored: T) -> ():
         self.value = *value
-    def bump(self: &mut Cell) -> i64:
+    def bump(self: &mut Cell) -> Result[i64, OverflowError[i64]]:
         self.value += 1
-        self.value
+        Ok(self.value)
 "#;
 
 #[test]
@@ -59,17 +60,19 @@ fn owned_reborrowed_and_generic_receivers_allow_completed_reads() {
     run(
         &format!(
             r#"{CELL}
-def twice(cell: &mut Cell) -> ():
+def twice(cell: &mut Cell) -> Result[(), OverflowError[i64]]:
     alias = &mut cell
     alias.set(alias.read() + alias.read())
-def main() -> ():
+    Ok(())
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut cell = Cell(2)
     cell.set(cell.read() + 1)
-    cell.add(cell.read())
-    cell.add[i64](cell.read())
+    cell.add(cell.read())?
+    cell.add[i64](cell.read())?
     cell.set(*cell.view())
-    twice(&mut cell)
-    print(cell.value).unwrap()
+    twice(&mut cell)?
+    print(cell.value)?
+    Ok(())
 "#
         ),
         "24\n",
@@ -84,16 +87,18 @@ class Cell:
     value: i64
     def __del__(self) -> ():
         print("drop").unwrap()
-    def set(self: &mut Cell, a: i64, b: i64) -> ():
-        print(a * 10 + b).unwrap()
+    def set(self: &mut Cell, a: i64, b: i64) -> Result[(), IoError | OverflowError[i64]]:
+        print(a * 10 + b)?
+        Ok(())
 def receiver() -> Cell:
     print("receiver").unwrap()
     Cell(0)
 def argument(n: i64) -> i64:
     print(n).unwrap()
     n
-def main() -> ():
-    receiver().set(argument(1), argument(2))
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    receiver().set(argument(1), argument(2))?
+    Ok(())
 "#,
         "receiver\n1\n2\n12\ndrop\n",
     );
@@ -109,11 +114,12 @@ class Pair:
     second: Cell
 def identity(n: i64) -> i64:
     n
-def main() -> ():
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut pair = Pair(Cell(4), Cell(9))
     pair.first.set(identity(pair.first.read()))
-    pair.first.set(pair.second.bump())
-    print(pair.first.value).unwrap()
+    pair.first.set(pair.second.bump()?)
+    print(pair.first.value)?
+    Ok(())
 "#
         ),
         "10\n",
@@ -128,17 +134,19 @@ fn boxed_and_borrowed_field_receivers_support_generic_arguments() {
 class Pair:
     first: Cell
     second: Cell
-def update(pair: &mut Pair) -> ():
-    pair.first.add(pair.first.read())
-    pair.first.add[i64](pair.first.read())
-def main() -> ():
-    mut cell = Box(Cell(3)).unwrap()
+def update(pair: &mut Pair) -> Result[(), OverflowError[i64]]:
+    pair.first.add(pair.first.read())?
+    pair.first.add[i64](pair.first.read())?
+    Ok(())
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut cell = Box(Cell(3))?
     cell.set(cell.read() + 1)
-    cell.add(cell.read())
-    cell.add[i64](cell.read())
+    cell.add(cell.read())?
+    cell.add[i64](cell.read())?
     mut pair = Pair(Cell(2), Cell(0))
-    update(&mut pair)
-    print(cell.value, pair.first.value).unwrap()
+    update(&mut pair)?
+    print(cell.value, pair.first.value)?
+    Ok(())
 "#
         ),
         "16 8\n",
@@ -153,16 +161,18 @@ class Cell:
     value: i64
     def read(self) -> i64:
         self.value
-    def add[T: IntType](self: &mut Cell, values: Generator[i64], extra: T) -> ():
+    def add[T: IntType](self: &mut Cell, values: Generator[i64], extra: T) -> Result[(), OverflowError[i64]]:
         for value in values:
             self.value += value
         self.value += i64(extra)
+        Ok(())
 def values() -> Generator[i64]:
     yield 2
-def main() -> ():
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut cell = Cell(3)
-    cell.add[i64](values(), cell.read())
-    print(cell.value).unwrap()
+    cell.add[i64](values(), cell.read())?
+    print(cell.value)?
+    Ok(())
 "#,
         "8\n",
     );
@@ -175,11 +185,13 @@ fn argument_references_and_mutations_cannot_overlap_receiver() {
         "cell.from_ref(&cell.value)",
         "cell.from_ref_generic(cell.view(), 0)",
         "cell.from_ref_generic[i64](cell.view(), 0)",
-        "cell.set(cell.bump())",
-        "cell.add(cell.bump())",
-        "cell.add[i64](cell.bump())",
+        "cell.set(cell.bump()?)",
+        "cell.add(cell.bump()?)?",
+        "cell.add[i64](cell.bump()?)?",
     ] {
-        let source = format!("{CELL}\ndef main() -> ():\n    mut cell = Cell(1)\n    {call}\n");
+        let source = format!(
+            "{CELL}\ndef main() -> Result[(), OverflowError[i64]]:\n    mut cell = Cell(1)\n    {call}\n    Ok(())\n"
+        );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains("conflicting borrow"), "{call}: {error}");
     }

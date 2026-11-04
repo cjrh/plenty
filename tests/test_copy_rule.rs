@@ -73,8 +73,8 @@ class Point:
 class Cell[T: IntType]:
     value: T
 
-def increment(x: i64) -> i64:
-    x + 1
+def increment(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + 1)
 
 def take[T](value: T) -> ():
     pass
@@ -135,8 +135,8 @@ fn other_values_move() {
             "{source}\n{error}"
         );
     }
-    let closure = "def take[F: Callable[[i64], i64]](f: F) -> ():\n    pass\n\n\
-        def main() -> ():\n    n = 1\n    add = def [n](y: i64) -> i64:\n        y + n\n    \
+    let closure = "def take[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: F) -> ():\n    pass\n\n\
+        def main() -> ():\n    n = 1\n    add = def [n](y: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(y + n)\n    \
         take(add)\n    take(add)\n";
     let error = check_error(closure);
     assert!(error.contains("use of moved binding `add`"), "{error}");
@@ -168,8 +168,8 @@ class Pair[T]:
     left: T
     right: T
 
-def increment(x: i64) -> i64:
-    x + 1
+def increment(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + 1)
 
 def need[T: CopyType](value: T) -> (T, T):
     (value, value)
@@ -243,7 +243,7 @@ fn copy_type_rejects_values_that_move() {
         "{error}"
     );
     let closure = "def need[T: CopyType](value: T) -> ():\n    pass\n\n\
-        def main() -> ():\n    n = 1\n    add = def [n](y: i64) -> i64:\n        y + n\n    \
+        def main() -> ():\n    n = 1\n    add = def [n](y: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(y + n)\n    \
         need(add)\n";
     let error = check_error(closure);
     assert!(error.contains("does not satisfy CopyType"), "{error}");

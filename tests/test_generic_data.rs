@@ -404,12 +404,12 @@ def main() -> Result[(), AllocError]:
     Empty
     Value(T)
 
-    def total(self, other: T) -> T:
+    def total(self, other: T) -> Result[T, OverflowError[T]]:
         match self:
             case Choice.Value(v):
-                v + other
+                Ok(v + other)
             case Choice.Empty:
-                other
+                Ok(other)
 
 def main() -> ():
     a = Choice[i64].Empty
@@ -420,25 +420,25 @@ def main() -> ():
         check_all_methods(choice).unwrap_err().to_string(),
         format!(
             "14:9: `Choice[bool].total` applies `+` to `T`, but `bool` does not support `+`
-  8:17: note: in instantiation `Choice[bool].total`: operator `+` does not accept bool{}",
+  8:20: note: in instantiation `Choice[bool].total`: operator `+` does not accept bool{}",
             unused("Choice[bool].total")
         )
     );
     // An unused method's own requirements are attributed to the use that
     // required its type. A generic type without instances is not checked:
     // its body has no type arguments to check with.
-    let nested = "def twice[T](value: T) -> T:
-    value + value
+    let nested = "def twice[T](value: T) -> Result[T, OverflowError[T]]:
+    Ok(value + value)
 
 class Holder[T]:
     value: T
-    def doubled(self) -> T:
+    def doubled(self) -> Result[T, OverflowError[T]]:
         twice(self.value)
 
 class Never[T]:
     value: T
-    def bad(self) -> T:
-        self.value + 1
+    def bad(self) -> Result[T, OverflowError[T]]:
+        Ok(self.value + 1)
 
 def make[T](value: T) -> Holder[T]:
     Holder(value)
@@ -453,7 +453,7 @@ def main() -> ():
         format!(
             "19:9: `make[bool]` requires `twice[bool]`, which applies `+` to `T`, \
              but `bool` does not support `+`
-  2:5: note: in instantiation `twice[bool]`: operator `+` does not accept bool{}",
+  2:8: note: in instantiation `twice[bool]`: operator `+` does not accept bool{}",
             unused("Holder[bool].doubled")
         )
     );

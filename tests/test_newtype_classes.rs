@@ -47,8 +47,9 @@ class Twice:
 class Budget:
     remaining: i64
 
-    def spend(self: &mut Budget) -> ():
+    def spend(self: &mut Budget) -> Result[(), OverflowError[i64]]:
         self.remaining -= 1
+        Ok(())
 
 class Boxed[T]:
     item: T
@@ -56,7 +57,7 @@ class Boxed[T]:
 def take(w: Wrap) -> i64:
     w.x
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     w = Wrap(1)
     print(w)?
     print(take(w))?
@@ -76,8 +77,8 @@ def main() -> Result[(), AllocError | IoError]:
     t = Twice(Wrap(9))
     print(t, t.w.x)?
     mut budget = Budget(3)
-    budget.spend()
-    budget.spend()
+    budget.spend()?
+    budget.spend()?
     print(budget.remaining)?
     xs = [Wrap(1), Wrap(2)]?
     print(xs, Wrap(1) == Wrap(1), Wrap(1) == Wrap(2))?
@@ -226,7 +227,12 @@ def repeated(count: i64) -> Result[str, AllocError]:
 export def create(count: i64) -> Result[Label, AllocError] = "calc_create":
     Ok(Label(repeated(count)?))
 export def length(a: &Label, b: &Label) -> i64 = "calc_length":
-    len(a.text) + len(b.text)
+    # Preserve this scalar C ABI with intentional trapping arithmetic. All callers
+    # are C/C++ create(4), rename(2), and the Plenty create(4)/rename(2) path:
+    # each length is 4 or 2, so the sums are 8 or 4. create(7) only destroys.
+    # Arbitrary external Label lengths are not asserted overflow-free.
+    unchecked:
+        len(a.text) + len(b.text)
 export def rename(owner: &mut Label, count: i64) -> Result[(), AllocError] = "calc_rename":
     owner.text = repeated(count)?
     Ok(())
