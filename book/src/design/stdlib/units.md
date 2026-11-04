@@ -30,8 +30,8 @@ conversion between two non-coherent units divides two rounded values, so it
 can round: `u.foot.to(u.inch)` is `12.000000000000002`. The stored values
 themselves are the nearest `f64` to each exact definition.
 
-Printing shows the coherent value and SI symbols. Symbols are ordered by base
-dimension name, so a newton prints as `m*kg/s^2`; see
+Printing shows the coherent value and SI symbols in SI order (kg, m, s, A, K,
+mol, cd), so a newton prints as `kg*m/s^2`; see
 [formatting](../language/03-types/quantities.md#formatting).
 
 ## Dimensions
@@ -250,7 +250,7 @@ True
 - There are no list conversions between `list[f64]` and
   `list[Quantity[f64, D]]` yet; they need compiler support to avoid copying.
   See the [backlog](../../backlog.md#units-of-measure).
-- Named units are not printed: a joule prints as `m^2*kg/s^2`.
+- Named units are not printed: a joule prints as `kg*m^2/s^2`.
 - Generic functions that differ only in dimension compile to separate bodies.
 
 ## Acknowledgements

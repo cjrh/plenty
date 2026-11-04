@@ -78,7 +78,11 @@ impl Parser {
                 format!("{module}.{name}")
             };
             generics::type_ref(
-                &Ty::Dimension(Arc::new(Dimension::base(qualified, symbol.to_string()))),
+                &Ty::Dimension(Arc::new(Dimension::base(
+                    qualified,
+                    symbol.to_string(),
+                    at.line,
+                ))),
                 &at,
             )
         };

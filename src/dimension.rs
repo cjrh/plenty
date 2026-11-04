@@ -1,6 +1,7 @@
 //! Compile-time dimension algebra. Normal forms contain only nonzero i8
 //! exponents, ordered by nominal base identity. They never describe a value's
-//! storage or emit runtime operations.
+//! storage or emit runtime operations. Coherent symbols use a separate
+//! display order: see [`Dimension::symbol`].
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -10,6 +11,8 @@ pub struct Base {
     pub name: Arc<str>,
     /// The coherent unit's symbol is presentation metadata, not identity.
     pub symbol: Arc<str>,
+    /// Declaration line within its module; orders symbols, not identity.
+    pub line: u32,
 }
 
 impl fmt::Debug for Base {
@@ -17,6 +20,7 @@ impl fmt::Debug for Base {
         f.debug_struct("Base")
             .field("name", &self.name)
             .field("symbol", &self.symbol)
+            .field("line", &self.line)
             .finish()
     }
 }
@@ -84,13 +88,25 @@ impl fmt::Display for Error {
     }
 }
 
+impl Base {
+    /// Bases print in declaration order within a module, and modules in
+    /// name order, so a module controls its spelling: `std.units` declares
+    /// SI's kg, m, s, A, K, mol, cd order.
+    fn display_key(&self) -> (&str, u32) {
+        let module = self.name.rsplit_once('.').map_or("", |(module, _)| module);
+        (module, self.line)
+    }
+}
+
 impl Dimension {
     /// Coherent symbols are presentation only. Group a multi-factor divisor
     /// so the spelling stays unambiguous, including at exponent -128.
     pub fn symbol(&self) -> String {
+        let mut terms: Vec<_> = self.0.iter().collect();
+        terms.sort_by(|(a, _), (b, _)| a.display_key().cmp(&b.display_key()));
         let mut numerator = Vec::new();
         let mut denominator = Vec::new();
-        for (base, exponent) in &self.0 {
+        for (base, exponent) in terms {
             let power = exponent.unsigned_abs();
             let term = if power == 1 {
                 base.symbol.to_string()
@@ -122,11 +138,12 @@ impl Dimension {
     pub fn bases(&self) -> impl Iterator<Item = &Base> {
         self.0.iter().map(|(base, _)| base.as_ref())
     }
-    pub fn base(name: String, symbol: String) -> Self {
+    pub fn base(name: String, symbol: String, line: u32) -> Self {
         Self(vec![(
             Arc::new(Base {
                 name: name.into(),
                 symbol: symbol.into(),
+                line,
             }),
             1,
         )])
@@ -245,7 +262,7 @@ mod tests {
     use super::*;
 
     fn base(i: usize) -> Dimension {
-        Dimension::base(format!("base{i}"), format!("u{i}"))
+        Dimension::base(format!("base{i}"), format!("u{i}"), 1 + i as u32)
     }
 
     #[test]
@@ -264,7 +281,7 @@ mod tests {
             "u0*u1*u2"
         );
         assert_eq!(base(0).product(&base(0), true).unwrap().symbol(), "");
-        let same_symbol = Dimension::base("other".into(), "u0".into());
+        let same_symbol = Dimension::base("other".into(), "u0".into(), 9);
         assert_eq!(
             base(0).product(&same_symbol, true).unwrap().symbol(),
             "u0/u0"
@@ -272,12 +289,35 @@ mod tests {
     }
 
     #[test]
+    fn symbols_follow_declaration_order_then_module_name() {
+        // Identity sorts `si.Length` before `si.Mass`; display keeps the
+        // declaration lines, so mass prints first as SI writes it.
+        let mass = Dimension::base("si.Mass".into(), "kg".into(), 3);
+        let length = Dimension::base("si.Length".into(), "m".into(), 4);
+        let time = Dimension::base("si.Time".into(), "s".into(), 5);
+        let force = mass
+            .product(&length, false)
+            .unwrap()
+            .product(&time.power(2).unwrap(), true)
+            .unwrap();
+        assert_eq!(force.symbol(), "kg*m/s^2");
+        let local = Dimension::base("Pixel".into(), "px".into(), 40);
+        let other = Dimension::base("art.Ink".into(), "ink".into(), 1);
+        let mixed = force
+            .product(&local, false)
+            .unwrap()
+            .product(&other, false)
+            .unwrap();
+        assert_eq!(mixed.symbol(), "px*ink*kg*m/s^2");
+    }
+
+    #[test]
     fn identity_is_nominal_and_not_the_unit_symbol() {
-        let a = Dimension::base("a.Length".into(), "m".into());
-        let b = Dimension::base("b.Length".into(), "m".into());
+        let a = Dimension::base("a.Length".into(), "m".into(), 1);
+        let b = Dimension::base("b.Length".into(), "m".into(), 1);
         assert_ne!(a, b);
         assert_ne!(a.identity_name(), b.identity_name());
-        assert_eq!(a, Dimension::base("a.Length".into(), "metre".into()));
+        assert_eq!(a, Dimension::base("a.Length".into(), "metre".into(), 2));
         assert_eq!(a.bases().next().unwrap().symbol.as_ref(), "m");
     }
 

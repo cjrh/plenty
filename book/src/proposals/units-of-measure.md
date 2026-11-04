@@ -343,7 +343,7 @@ are authoritative.
 | `std.units` storage | Unstated | Units, constants and the `std.math`-based functions use `f64`; `abs` and `clamp` accept any storage |
 | `min`, `max` | In `std.units` | Not repeated: the generic `std.math.min` and `max` already accept quantities |
 | `mean` | Unstated | Returns `Option`, `Nothing` for an empty list, as `std.math.min_all` does |
-| Symbol order | SI order, `kg*m/s^2` | Sorted by qualified base name: a newton prints `m*kg/s^2` |
+| Symbol order | SI order, `kg*m/s^2` | Declaration order within a module, modules by name; `std.units` declares SI order |
 
 ## Out of scope
 
@@ -395,10 +395,10 @@ are authoritative.
 - **Diagnostics through aliases.** Resolved: diagnostics show the normal form
   with a note naming the first visible matching alias in declaration or import
   order, using the importing module's spelling.
-- **Symbol spelling.** Resolved for now: ASCII base symbols in normal-form
-  order, which sorts by qualified base name. A newton prints `m*kg/s^2`, not
-  the conventional `kg*m/s^2`. SI order and named-unit display (`J`) are later
-  work.
+- **Symbol spelling.** Resolved: ASCII base symbols in declaration order
+  within a module, with modules ordered by name. `std.units` declares SI
+  order, so a newton prints `kg*m/s^2`. Debug spellings keep the normal form,
+  sorted by qualified base name. Named-unit display (`J`) is later work.
 - **The `dimension` keyword** may conflict with existing identifiers outside
   the repository. `Pow` and `Root` are not keywords: a local declaration or
   import with either name keeps its ordinary meaning.
