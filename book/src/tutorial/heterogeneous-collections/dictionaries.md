@@ -3,7 +3,10 @@
 A dictionary has one key type and one value type. The value type can be an enum
 wrapper or an anonymous sum, so a string key can select any of several kinds of
 stored data. Keys retain the narrower [key-type contract](../../design/facilities/01-builtins/collections.md):
-integers, `bool`, `str`, `bytes`, or tuples recursively containing those types.
+integers, `bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums
+recursively containing those types. Keys with custom cleanup can be borrowed through `keys()` or
+transferred into an owned list with `into_keys()`; they cannot be copied with
+`keys().to_set()`. See [cleanup-bearing keys](sets.md#keys-with-custom-cleanup).
 
 ## Give mixed values a named wrapper
 
@@ -78,16 +81,16 @@ use separate named enum variants instead: `i64 | i64` is just `i64`.
 
 ## Different kinds of keys
 
-A sum is not a supported dictionary key, even when its members are individually
-supported:
+An anonymous sum can combine supported key types without merging their identities:
 
-```plenty-error
-def main() -> Result[(), AllocError]:
-    labels: dict[i64 | str, str] = {}?
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    labels: dict[i64 | str, str] = {7: "numeric account", "7": "named account"}?
+    print(labels[7], labels["7"])?
     Ok(())
 ```
-```error
-dictionary keys must be
+```output
+numeric account named account
 ```
 
 A named enum can represent these distinct key domains while preserving their
@@ -130,28 +133,20 @@ Do not merge distinct identities by converting every key to a string.
 
 ## Different kinds on both sides
 
-`dict[i64 | str, i64 | str]` is rejected for its key type too. You can keep the
-key domains separate while sharing a mixed value type:
+Keys and values can independently use sums. Only the key alternatives must
+satisfy the key-type contract:
 
 ```plenty
-enum Value:
-    Count(i64)
-    Text(str)
-
 def main() -> Result[(), AllocError | IoError]:
-    mut by_id: dict[i64, Value] = {}?
-    mut by_name: dict[str, Value] = {}?
-    by_id.insert(7, Value.Count(3))?
-    by_id.insert(8, Value.Text("paused"))?
-    by_name.insert("editors", Value.Count(2))?
-    by_name.insert("guests", Value.Text("read only"))?
-    print(by_id.get(7).unwrap(), by_name.get("guests").unwrap())?
+    mut settings: dict[i64 | str, i64 | str] = {7: "paused", "retries": 3}?
+    settings.insert("mode", "careful")?
+    print(settings[7], settings["retries"], settings["mode"])?
     Ok(())
 ```
 ```output
-Value.Count(3) Value.Text("read only")
+"paused" 3 "careful"
 ```
 
-`Value` is copyable because both payload types copy, so `get` works here.
-Each dictionary accepts every `Value` variant. A class can group the two
-dictionaries when callers need to pass them around as one registry.
+The annotations provide the expected types for insertion and lookup. The
+integer key `7` remains distinct from the string key `"7"`. Use a named enum
+when domain-specific variant names make the meaning clearer.

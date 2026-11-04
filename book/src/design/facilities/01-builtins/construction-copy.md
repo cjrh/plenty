@@ -58,7 +58,9 @@ Growth reserves all required storage before mutation. Failure preserves contents
 order, and lookup behavior; capacity may change. Negative or impossible counts
 return `CapacityOverflow`. A successful reserve permits the specified number of
 subsequent insertions without storage allocation. Existing-key replacement and
-duplicate set insertion do not grow storage.
+duplicate set insertion do not grow storage. An equal incoming key is destroyed;
+the existing key owner is retained. This can run custom cleanup even when the
+collection length does not change.
 
 Insertion consumes its arguments on both outcomes; failure drops owned inputs.
 Reserve before moving an input that must survive a storage failure. The Result

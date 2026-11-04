@@ -28,9 +28,9 @@ body is checked for each instance. Callable capabilities follow [functions](../0
 
 `KeyType` accepts exactly the [supported dictionary keys and set members](../../facilities/01-builtins/collections.md):
 integers and their supported domains, `bool`, `str`, `bytes`, and tuples,
-classes or named enums whose every field or payload is a supported key type.
-Floats, collections, boxes, recursive types, anonymous sums and classes with
-custom cleanup remain excluded. It is a built-in constraint, not a protocol or a stored value type;
+classes, enums or anonymous sums whose every field, payload or member is a supported key type.
+Floats, collections, boxes and recursive types remain excluded. Custom cleanup
+is allowed, but copying operations still reject such keys. It is a built-in constraint, not a protocol or a stored value type;
 no `__hash__` method is needed or accepted.
 
 Functions, methods, classes and enums can declare `K: KeyType`. Explicit and
@@ -41,23 +41,24 @@ Generic bodies remain checked per concrete instance: an unconstrained `K`
 can still be used with collections when its concrete type is valid.
 
 ```plenty
-def distinct[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
+def distinct[K: KeyType](values: list[K]) -> Result[set[K], AllocError]:
     mut result: set[K] = set()?
     for value in values:
-        result.add(copy(value)?)?
+        result.add(value)?
     Ok(result)
 
 def main() -> Result[(), AllocError | IoError]:
-    print(len(distinct(&["red", "blue", "red"]?)?))?
+    print(len(distinct(["red", "blue", "red"]?)?))?
     Ok(())
 ```
 ```output
 2
 ```
 
-`KeyType` does not imply `CopyType`: ordinary class keys move. The borrowed
-loop explicitly copies each key, so it also works for move-only keys. Consuming
-an owned input list instead would let the loop move each key into the set.
+`KeyType` implies neither `CopyType` nor eligibility for explicit `copy()`.
+The loop consumes its input and transfers each key, so it also works for keys
+with custom cleanup. A generic body that copies keys or calls non-mutating set
+algebra is rejected when specialized with such a key type.
 
 ```plenty-error
 def accept[K: KeyType](value: K) -> ():
@@ -77,8 +78,8 @@ diagnostic follows the first unsupported component in declaration order.
 It names class fields, enum variants and payload positions, and tuple element
 positions. Positions start at one. For example, a class field `sample` whose
 second tuple element is `f64` reports `field sample -> tuple element 2: f64 is
-not a supported key type`. Nested custom cleanup and anonymous sums receive
-specific reasons too. This applies to type annotations, inferred collection
+not a supported key type`. Unsupported sum members
+are named in the diagnostic path. This applies to type annotations, inferred collection
 literals and conversions, and explicit or inferred generic arguments.
 
 ## CopyType

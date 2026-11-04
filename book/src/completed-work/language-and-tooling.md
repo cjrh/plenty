@@ -80,10 +80,11 @@ separate module so its 768 constants cost compile time only where imported.
 
 The [heterogeneous collections section](../tutorial/heterogeneous-collections/index.md)
 follows classes and enums. Runnable lessons teach enum wrappers with shared
-methods and anonymous-sum lists, enum and sum dictionary values, and separate
-typed sets/dictionaries for distinct key domains. Checked rejection examples
-make the current set-member and dictionary-key limits explicit. This adds
-teaching coverage, not new key types; B74 retains user-defined hashing work.
+methods and anonymous-sum lists, sets, and dictionary keys and values. The
+lessons show mixed keys, mixed values, and both together, while preserving
+distinct member identities. Separate typed collections remain an alternative
+for independent lookup domains. Lessons also cover [custom-cleanup keys](../tutorial/heterogeneous-collections/sets.md#keys-with-custom-cleanup),
+transferring keys and borrowing views without duplicating cleanup obligations.
 
 ## Unicode trie example
 

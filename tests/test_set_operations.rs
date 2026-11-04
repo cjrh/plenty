@@ -443,12 +443,11 @@ print(options[empty], options[Some(2)]).unwrap()
 
 #[test]
 fn unsupported_enum_payloads_remain_rejected_as_keys() {
-    // Anonymous sums remain a separate B74 design decision.
     for declaration in [
         "enum Key:\n    Value(f64)\n",
         "enum Key:\n    Value(list[i64])\n",
         "enum Key:\n    End\n    Next(Box[Key])\n",
-        "type Key = i64 | str\n",
+        "type Key = i64 | f64\n",
     ] {
         let source = format!(
             "{declaration}\ndef main() -> Result[(), AllocError]:\n    keys: set[Key] = set()?\n    Ok(())\n"
@@ -519,12 +518,11 @@ print(Key("same", 1) in intersection, Key("left", 2) in difference, Key("right",
 }
 
 #[test]
-fn structural_class_keys_reject_ineligible_fields_and_cleanup() {
+fn structural_class_keys_reject_ineligible_fields() {
     for declaration in [
         "class Key:\n    value: f64\n",
         "class Key:\n    value: list[i64]\n",
         "class Key:\n    value: Box[i64]\n",
-        "class Key:\n    value: i64\n    def __del__(self: &mut Key) -> ():\n        pass\n",
     ] {
         let source = format!(
             "{declaration}\ndef main() -> Result[(), AllocError]:\n    keys: set[Key] = set()?\n    Ok(())\n"
@@ -944,5 +942,124 @@ print(E.Extra127 in members, collected[0] == E.Extra127).unwrap()
 "#
         ),
         "True True",
+    );
+}
+
+#[test]
+fn anonymous_sum_keys_preserve_member_identity_and_normalize() {
+    native(
+        r#"
+type Key = i64 | str | bool | i8
+def distinct[K: KeyType](items: list[K]) -> Result[set[K], AllocError]:
+    {item for item in items}
+mut keys: set[Key] = {1, "1", True, 1i8}.unwrap()
+keys.add(("" + "1").unwrap()).unwrap()
+for n in range(200):
+    keys.add(n).unwrap()
+print(len(keys), 1 in keys, True in keys, 1i8 in keys).unwrap()
+keys.discard(1)
+print(1 in keys, True in keys, 1i8 in keys).unwrap()
+other: set[bool | str | i8 | i64 | str] = {True, "1", 1i8}.unwrap()
+print(keys.intersection(other).unwrap() == other).unwrap()
+print(len(keys.difference(other).unwrap()), len(keys.union(other).unwrap())).unwrap()
+items: list[Key] = [1, "1", 1].unwrap()
+print(len(distinct(items).unwrap())).unwrap()
+"#,
+        "203 True True True\nFalse True True\nTrue\n199 202\n2\n",
+    );
+}
+
+#[test]
+fn anonymous_sum_class_keys_copy_and_borrow_independent_owners() {
+    native(
+        r#"
+class Account:
+    id: i64
+class Group:
+    id: i64
+type Key = Account | Group | str
+mut keys: set[Key] = {Account(7), Group(7), ("edit" + "ors").unwrap()}.unwrap()
+probe: Key = Account(7)
+print(&probe in keys, len(keys)).unwrap()
+other: set[Key] = {Group(7)}.unwrap()
+saved = keys.union(other).unwrap()
+keys.clear()
+print(&probe in saved, len(saved), len(keys)).unwrap()
+for key in saved:
+    match key:
+        case account: Account:
+            print(account.id).unwrap()
+        case group: Group:
+            print(group.id).unwrap()
+        case text: str:
+            print(text).unwrap()
+"#,
+        "True 3\nTrue 3 0\n7\n7\neditors\n",
+    );
+}
+
+#[test]
+fn anonymous_sum_keys_work_inside_structural_keys() {
+    native(
+        r#"
+enum Wrapped:
+    Value(i64 | str)
+class Key:
+    value: i64 | str
+keys = {Wrapped.Value(1), Wrapped.Value("1")}.unwrap()
+data = {Key(1): 10, Key("1"): 20}.unwrap()
+pairs: set[(i64 | str, bool)] = {(1, True), ("1", True)}.unwrap()
+print(len(keys), data[Key(1)], data[Key("1")], len(pairs)).unwrap()
+"#,
+        "2 10 20 2\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn anonymous_sum_keys_allocation_failure_preserves_sources() {
+    for budget in 0..=5 {
+        native(
+            &format!(
+                r#"
+class Key:
+    text: str
+type Mixed = Key | str
+left: set[Mixed] = {{Key(("left" + "").unwrap()), "same"}}.unwrap()
+right: set[Mixed] = {{Key(("right" + "").unwrap()), "same"}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = left.union(&right)
+print("__test_restore_allocations__").unwrap()
+print(len(left), len(right), "same" in left, "same" in right).unwrap()
+drop(left)
+drop(right)
+match result:
+    case Ok(keys):
+        print(len(keys) == 3, "same" in keys).unwrap()
+    case Err(error):
+        print(True, True).unwrap()
+"#
+            ),
+            "2 2 True True\nTrue True\n",
+        );
+    }
+}
+
+#[test]
+fn anonymous_sum_enum_keys_keep_nominal_types_distinct() {
+    native(
+        r#"
+enum First:
+    Value(bool)
+enum Second:
+    Value(bool)
+type Key = First | Second
+mut keys: set[Key] = {First.Value(False), Second.Value(False)}.unwrap()
+keys.add(First.Value(True)).unwrap()
+print(len(keys), Second.Value(True) in keys).unwrap()
+keys.discard(First.Value(False))
+print(Second.Value(False) in keys, First.Value(False) in keys).unwrap()
+"#,
+        "3 False\nTrue False\n",
     );
 }

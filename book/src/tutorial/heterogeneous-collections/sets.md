@@ -1,7 +1,7 @@
 # Sets and different kinds of values
 
 Sets accept named enums when every payload is a supported key type: integers,
-`bool`, `str`, `bytes`, or tuples, classes and named enums of those types, without custom cleanup. The variant
+`bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums of those types. The variant
 is part of the identity, so different variants with equal payloads remain distinct.
 
 ```plenty
@@ -25,8 +25,7 @@ True
 ```
 
 This is one element type with several alternatives. Enums carrying collections,
-floats, boxes or classes with custom cleanup cannot be set elements. Anonymous sums remain
-unsupported, even when each member is supported separately.
+floats or boxes cannot be set elements. Anonymous sums qualify when every member is a supported key type.
 
 ## Class payloads
 
@@ -61,7 +60,7 @@ editors
 ```
 
 The lookup compares fields rather than object addresses. Borrowed iteration
-keeps the stored keys immutable. Set algebra creates independent key copies;
+keeps the stored keys immutable. For keys without custom cleanup, set algebra creates independent key copies;
 its result can outlive either input. See [sets](../../design/facilities/01-builtins/sets.md).
 
 ## Keep each kind in its own set
@@ -91,24 +90,26 @@ its own duplicates and supports the ordinary
 [set operations](../../design/facilities/01-builtins/sets.md).
 Group the two sets in a class if they need to travel together.
 
-## A sum does not make a set key
+## Use an anonymous sum
 
-This list-style annotation is rejected:
+When the types themselves express the alternatives, no wrapper is needed:
 
-```plenty-error
-def main() -> Result[(), AllocError]:
-    values: set[i64 | str] = set()?
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut selected: set[i64 | str] = {7, "editors"}?
+    selected.add("7")?
+    selected.add(7)?
+    print(len(selected), 7 in selected, "7" in selected)?
     Ok(())
 ```
-```error
-set elements must be
+```output
+3 True True
 ```
 
-If you need one ordered sequence of mixed values, use a
-[list with a wrapper enum or anonymous sum](lists.md). A list preserves
-duplicates; it does not acquire set semantics just because its element type is
-a sum. Avoid converting unrelated kinds to one string type unless that text
-representation is the identity your application intends.
+The member type is part of each key's identity. Every member must support
+structural hashing; `set[i64 | f64]` is rejected because floats are not keys.
+Use a named enum when alternatives need different meanings despite sharing a
+payload type. Anonymous sums use hash sets, including sums of finite enums.
 
 ## Small enums without payloads
 
@@ -167,3 +168,51 @@ members the set currently contains. For example, eight boolean fields have 256
 combinations; adding a separate payload-free variant makes 257 and selects a
 hash set. Integer and string payloads use hash sets. No special container or
 manual integer encoding is needed.
+
+## Keys with custom cleanup
+
+A key may define `__del__`, or contain a value that does. Its fields must still
+be supported key types. The collection owns the inserted key and runs cleanup
+when that owner is removed or destroyed. Borrow keys for lookup and inspection;
+transfer them when a second owner cannot be created.
+
+This example logs cleanup to make ownership visible. It unwraps diagnostic
+printing inside the destructor because cleanup cannot return an error:
+
+```plenty
+class Ticket:
+    id: i64
+
+    def __del__(self) -> ():
+        print("released", self.id).unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut selected = {Ticket(7)}?
+    additional = {Ticket(8)}?
+    selected.update(additional)?
+    print(len(selected))?
+    for ticket in &selected:
+        print(ticket.id)?
+    # Transfer the owners out of the set before destroying them.
+    for ticket in selected:
+        drop(ticket)
+    Ok(())
+```
+```output
+2
+7
+8
+released 7
+released 8
+```
+
+Iteration order is unspecified. `update` consumes the source set; an equal
+incoming key is destroyed while the stored owner is retained. Use
+`intersection_update` and `difference_update` to filter in place, and relationship
+checks such as `issubset` to compare without copying.
+
+`union`, `intersection`, `difference`, `symmetric_difference`, `copy(selected)`
+and dictionary `keys().to_set()` require independent key copies, so they reject
+custom cleanup, including cleanup nested inside an enum or anonymous sum.
+A borrowed `keys()` view still works. To keep dictionary keys after consuming
+the dictionary, use `into_keys()`; see [dictionary snapshots and views](../../design/facilities/01-builtins/dictionaries.md#snapshots-and-views).

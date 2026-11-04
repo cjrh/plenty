@@ -73,7 +73,8 @@ collisions can make it linear.
 without allocating. A view can be bound to a local, iterated, and used with
 builtin set operations. Iteration yields `&K` in insertion order; use
 `[copy(key)? for key in dictionary.keys()]?` to collect owned keys explicitly,
-including move-only class keys.
+including move-only class keys without custom cleanup. Keys containing `__del__`
+can be borrowed here but cannot be copied; use `into_keys()` to transfer them.
 `len(view)` is O(1), and `key in view` / `not in` use dictionary lookup.
 The value holds a borrowed owner handle with a compiler-known key projection;
 the owner retains its row descriptor and each loop keeps its own cursor.
@@ -90,7 +91,9 @@ and disjoint from every operand.
 same operands and return `Result[set[K], AllocError]`. `to_set()` materialises
 the keys as that result type. Algebra reserves its result before inserting
 keys and leaves both sources unchanged on failure. Move-only keys are copied
-into independent result storage. Result order is unspecified.
+into independent result storage. All four algebra methods and `to_set()` reject
+keys containing custom cleanup, because those keys cannot be copied.
+Relationship checks remain available. Result order is unspecified.
 Operators such as `|`, `&`, and `<=` are not part of the view API.
 Set relationship and algebra methods accept mixed set/view operands in either
 receiver order. `set.intersection_update(view)` and

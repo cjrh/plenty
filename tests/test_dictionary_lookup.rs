@@ -308,3 +308,58 @@ print(values).unwrap()
         "2\n1 2\n[1, 2]\n",
     );
 }
+
+#[test]
+fn anonymous_sum_keys_support_lookup_views_and_mixed_values() {
+    support::assert_stdout(
+        r#"
+type Key = i64 | str
+mut data: dict[Key, i64 | str] = {7: "numeric", "7": 42}.unwrap()
+data.insert(7, "updated").unwrap()
+print(data[7], data.get("7").unwrap()).unwrap()
+match data.get_mut("7"):
+    case Some(value):
+        *value = "text"
+    case Nothing:
+        pass
+keys = data.keys().to_set().unwrap()
+print(7 in data.keys(), "7" in keys, len(keys)).unwrap()
+for key, value in data.items():
+    print(*key, *value).unwrap()
+print(data.pop(7).unwrap(), len(data)).unwrap()
+snapshot = data.keys_snapshot().unwrap()
+print(snapshot).unwrap()
+"#,
+        "\"updated\" 42\nTrue True 2\n7 \"updated\"\n\"7\" \"text\"\n\"updated\" 1\n[\"7\"]\n",
+    );
+}
+
+#[test]
+fn anonymous_sum_key_probes_borrow_members_and_preserve_evaluation_order() {
+    support::assert_stdout(
+        r#"
+class Account:
+    id: i64
+type Key = Account | str
+def probe() -> str:
+    print("probe").unwrap()
+    ("na" + "me").unwrap()
+def container() -> dict[Key, i64]:
+    print("container").unwrap()
+    {"name": 10}.unwrap()
+print(probe() in container()).unwrap()
+mut data: dict[Key, i64] = {Account(7): 42, "name": 10}.unwrap()
+account = Account(7)
+name = ("na" + "me").unwrap()
+print(account in data, &account in data, data[account], data.get(&account).unwrap()).unwrap()
+print(data[name], data.get(name).unwrap()).unwrap()
+match data.get_mut(account):
+    case Some(value):
+        *value = 43
+    case Nothing:
+        pass
+print(data.pop(account).unwrap(), account.id, name).unwrap()
+"#,
+        "probe\ncontainer\nTrue\nTrue True 42 42\n10 10\n43 7 name\n",
+    );
+}

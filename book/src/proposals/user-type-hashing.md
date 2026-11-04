@@ -1,10 +1,10 @@
 # User-defined dictionary keys and set members
 
-**Status: Partly implemented.** Named enums whose payloads are supported key
+**Status: Structural-key policy implemented.** Named enums whose payloads are supported key
 types now work as dictionary keys and set members, including nested enums.
 Classes whose fields are supported keys, including move-only classes and enums
-containing them, and the `KeyType` constraint are also implemented. Custom-cleanup
-keys and anonymous sums remain future work under [B74](../backlog.md).
+containing them, and the `KeyType` constraint are also implemented. Anonymous sums with supported key members are implemented. Custom-cleanup
+keys are admitted for borrowing and ownership transfer; copying operations reject them.
 Named enum and tuple sets with supported finite domains through 256 values now use
 [bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
 boolean and nested enum/tuple payloads. The
@@ -249,7 +249,7 @@ new storage need the same treatment affine *values* already have:
 | Borrowed iteration, `items()` | Already yield `&K` |
 | `keys()` | Shared `KeyView[K]`, iterating `&K`, without copying |
 | `keys_snapshot()`, `into_keys()` | Transfer affine keys from an owned temporary; use `copy(d)?.keys_snapshot()` to preserve the source |
-| `union`, `intersection`, `difference`, `symmetric_difference`, key-view `to_set()` | Copy members into independent result storage; sources remain unchanged on success or failure |
+| `union`, `intersection`, `difference`, `symmetric_difference`, key-view `to_set()` | Copy members into independent result storage; reject keys containing custom cleanup; sources remain unchanged on success or failure |
 | Set and dict comprehensions | Move keys in as for `insert` |
 
 Copyable enums (payloads of copyable key types) avoid this table entirely, which
@@ -267,7 +267,7 @@ hashing. Unconstrained generic bodies remain checked per concrete instance;
 Diagnostics now name the first unsupported component in declaration order,
 including class field names, enum variants and payload positions, and tuple
 element positions. The path ends with the rejected type or a specific reason
-such as custom cleanup or an anonymous sum; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
+such as an unsupported anonymous-sum member; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 
@@ -379,13 +379,15 @@ of the fields their `__cmp__` compares.
 ## Open questions
 
 1. Name: `KeyType`, `Hashable`, or `Key`. `KeyType` matches `IntType`.
-2. Classes with `__del__` remain excluded, including nested cleanup. Their
-   structural equality would allow hashing, but they cannot be copied for set
-   algebra or key-view materialization; admitting them needs a separate policy.
-   Ordinary borrowed key views would not themselves require copying.
+2. **Resolved:** classes with `__del__`, including nested cleanup, are keys
+   when their fields are keys. Hashability does not imply duplicability.
+   Non-mutating set algebra and key-view `to_set()` require explicit-copy
+   eligibility, while insertion, borrowed views, relationships, in-place updates
+   and owned extraction work without copying. Equal incoming keys are destroyed;
+   existing key owners remain in the collection. No user-defined clone hook is added.
 3. Private fields: structural hashing reads them, as equality already does.
    Confirm that is acceptable for public key types across modules.
-4. Whether `std.report`-style anonymous sums should be key types when every
+4. **Resolved:** anonymous sums are key types when every
    member is.
 5. Whether to cache hashes, after measurement.
 

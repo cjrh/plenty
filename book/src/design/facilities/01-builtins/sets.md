@@ -6,7 +6,7 @@ and algebra methods. Their operations accept `&set[K]` or `&KeyView[K]`;
 equality also compares a key view and a set in either operand order.
 
 Sets use the [common collection rules](collections.md); members are integers,
-booleans, strings, `bytes`, or tuples, classes and named enums recursively containing those types, without custom cleanup.
+booleans, strings, `bytes`, or tuples, classes, enums and anonymous sums recursively containing those types.
 Iteration order is unspecified. `add` and `reserve` follow
 the [recoverable growth contract](construction-copy.md).
 
@@ -53,6 +53,13 @@ results use four allocations when nonempty, one for an empty owner. Small enum
 bitsets use one owner allocation regardless of membership. Arithmetic operator overloads and iterable conversions
 are not implied.
 
+Keys containing `__del__` cannot be duplicated, so all four non-mutating
+algebra methods reject them, even for empty sets or a currently cleanup-free
+variant. `copy(set)` is also rejected. Use consuming `update` to combine owners,
+and `intersection_update` or `difference_update` to filter in place. These
+operations preserve each retained key's ownership and destroy removed or
+incoming duplicate owners. Relationship checks only borrow and remain available.
+
 ## Relationships
 
 `issubset(other)`, `issuperset(other)`, and `isdisjoint(other)` return `bool`.
@@ -90,8 +97,8 @@ unspecified; do not rely on the order seen with a particular representation.
 Dictionary key views remain borrowed hash-table views. Their mixed operations
 with bitsets work normally, and `to_set()` can produce a bitset. Dictionary
 storage itself is unchanged. Domains larger than 256, integer or string payloads,
-and classes keep the ordinary hash-set representation. Anonymous sums and
-recursive keys remain unsupported. The compiler emits immutable canonical values
+and classes keep the ordinary hash-set representation. Anonymous sums also use hash sets, even when their members have finite domains.
+Recursive keys remain unsupported. The compiler emits immutable canonical values
 for payload domains, including inline record storage, so borrowed iteration needs
 no allocation or temporary value cache. This adds static data proportional to the
 domain size and value layout. All three mask alternatives fit inside the
