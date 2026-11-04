@@ -1571,6 +1571,10 @@ impl Lower<'_> {
                     }
                     .resolve(self.aliases)?
                     .unwrap();
+                    if ty.quantity_storage().is_some() {
+                        // A retag of the storage value, not a constructor call.
+                        return self.construct(ty, args, &e.at, ops).map(Some);
+                    }
                     let Ty::Class(t) = ty else {
                         return Err(e.at.error("select a variant to construct an enum"));
                     };

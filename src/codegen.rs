@@ -84,6 +84,7 @@ mod enums;
 mod executors;
 mod exits;
 mod exports;
+mod folding;
 mod foreign;
 mod formatting;
 mod generators;
@@ -770,6 +771,13 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    crate::threading::walk(&ops, &mut |op| {
+        if let Op::FunctionAddress(name, _) = op
+            && let Some(function) = user_fns.get(name)
+        {
+            out.address_taken(function.id);
+        }
+    });
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
         inline_calls::prepare(&bodies, &mut user_fns);

@@ -236,12 +236,8 @@ def main() -> Result[(), IoError]:
     );
     let assembly = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
     let section = |name: &str| -> Vec<&str> {
-        assembly
-            .split("==== ")
-            .find(|part| part.starts_with(&format!("{name} ")))
-            .unwrap_or_else(|| panic!("missing assembly for {name}"))
+        support::asm_body(&assembly, name)
             .lines()
-            .skip(1)
             // Direct calls carry the callee's symbol as a disassembly comment.
             // Compare the instruction stream and each callee body separately.
             .map(|line| line.split('#').next().unwrap().trim_end())

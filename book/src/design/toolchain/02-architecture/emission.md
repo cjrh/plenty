@@ -244,6 +244,28 @@ other function uses it. The choice depends on the function alone, so it is the
 same for every core count. `tests/test_large_functions.rs` runs functions over
 the limit.
 
+## Identical code folding
+
+A local function whose placed code equals an earlier function's shares that
+function's code instead of getting its own copy. Code is equal when its bytes,
+relocations, requested symbols, trap-site records and checks are equal; calls
+compare by callee after folding, so a caller of folded functions folds too
+when its callees were placed first. Quantity instances that differ only in
+dimension are the common case, since
+[dimensions are erased](../../language/03-types/quantities.md#representation-and-current-limits):
+`sum[Length]` and `sum[Time]` in [`std.units`](../../stdlib/units.md) compile
+to one body. An instance that formats a value or builds a collection keeps its
+own body, because its type descriptor names the dimension.
+
+A folded function is defined empty, and once the object module is finished its
+symbol is moved to the shared code, so every call and table entry reaches it.
+On Mach-O the moved symbol is marked `N_ALT_ENTRY`, keeping the code one
+linker atom. Exported functions and coverage builds keep every body. So does
+every function used as a value: [function values](../../language/06-functions/02-function-values.md)
+compare code addresses, so two distinct functions never compare equal. Other
+functions may still fold into one. In `--dump asm`, a folded function lists
+`; shares the code of SYMBOL` instead of instructions.
+
 ## Call-site substitution
 
 Before any body is lowered, `src/codegen/small_calls.rs` replaces two kinds of

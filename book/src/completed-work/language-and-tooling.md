@@ -60,8 +60,16 @@ rejects negative, NaN and out-of-range times. Symbols print in declaration
 order within a module, so `std.units` quantities read `kg*m/s^2`.
 `wrap_list` and `strip_list` convert between `list[f64]` and
 `list[Quantity[f64, D]]` by replacing the list header's type descriptor, with
-no copy or allocation. [B97](../backlog.md#units-of-measure) retains measured
-sharing of bodies that differ only in dimension.
+no copy or allocation.
+
+Instances that differ only in dimension
+[share one body](../design/toolchain/02-architecture/emission.md#identical-code-folding):
+the object places identical code once, for any function not used as a value.
+`Quantity[T, D](x)` written with explicit type arguments, as generic bodies
+must, now retags its value as other constructions do, instead of calling the
+constructor; that made `std.units` generic bodies such as `sum` and `hypot`
+identical across dimensions. [B97](../backlog.md#units-of-measure) retains plot
+axis labels from units.
 
 ## Heterogeneous collections tutorial
 

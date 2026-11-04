@@ -436,3 +436,27 @@ pub fn native_call(line: &str) -> bool {
         .split_whitespace()
         .any(|field| field == mnemonic)
 }
+
+/// The listing of `name` in a `--dump asm` file, without its header line. A
+/// function that shares another's code lists only that function's symbol;
+/// this returns the listing of the code it runs.
+pub fn asm_body<'a>(asm: &'a str, name: &str) -> &'a str {
+    let header =
+        |part: &&str, matches: &dyn Fn(&str) -> bool| part.lines().next().is_some_and(matches);
+    let mut body = asm
+        .split("==== ")
+        .find(|part| header(part, &|line| line.starts_with(&format!("{name} "))))
+        .unwrap_or_else(|| panic!("missing assembly for {name}"));
+    loop {
+        let code = body.split_once('\n').map_or("", |(_, code)| code);
+        let Some(symbol) = code.trim_start().strip_prefix("; shares the code of ") else {
+            return code;
+        };
+        let symbol = symbol.lines().next().unwrap().trim();
+        let key = format!(" symbol={symbol} ");
+        body = asm
+            .split("==== ")
+            .find(|part| header(part, &|line| line.contains(&key)))
+            .unwrap_or_else(|| panic!("missing assembly for {symbol}"));
+    }
+}
