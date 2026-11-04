@@ -52,20 +52,21 @@ const QUERIES: &str = r#"
 import std.bytes as by
 from std.bytes import Bytes, BytesError
 
-def count_spaces(data: &Bytes) -> i64:
+def count_spaces(data: &Bytes) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     mut i = 0
     while i < data.len():
         if data[i] == 32u8:
             n += 1
         i += 1
-    n
+    Ok(n)
 
-def bump(data: &mut Bytes, i: i64) -> ():
+def bump(data: &mut Bytes, i: i64) -> Result[(), OverflowError[u8]]:
     data[i] = data[i] + 1u8
+    Ok(())
 
-def sizes(s: &str) -> i64:
-    len(s) * 100 + s.byte_len()
+def sizes(s: &str) -> Result[i64, OverflowError[i64]]:
+    Ok(len(s) * 100 + s.byte_len())
 
 def ascii(s: &str) -> bool:
     s.isascii()
@@ -73,27 +74,27 @@ def ascii(s: &str) -> bool:
 def at(s: &str, i: i64) -> str:
     s[i]
 
-def commas(s: &str) -> i64:
+def commas(s: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for scalar in s:
         if scalar == ",":
             n += 1
-    n
+    Ok(n)
 
-def backwards(s: str) -> i64:
+def backwards(s: str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for scalar in reversed(s):
         if scalar == ",":
             n += 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError | BytesError]:
+def main() -> Result[(), AllocError | IoError | BytesError | OverflowError[i64] | OverflowError[u8]]:
     mut data = by.from_text("a b c")?
-    bump(&mut data, -1)
+    bump(&mut data, -1)?
     heap = "a,b,c,é,🙂,long enough to live on the heap"
-    print(count_spaces(&data), data[-1], sizes("héllo"), sizes(heap))?
+    print(count_spaces(&data)?, data[-1], sizes("héllo")?, sizes(heap)?)?
     print(ascii("abc"), ascii(heap), at(heap, -1), at(heap, 8), at("ab", 0))?
-    print(commas(heap), backwards(heap), commas(""), backwards(""))?
+    print(commas(heap)?, backwards(heap)?, commas("")?, backwards("")?)?
     Ok(())
 "#;
 
@@ -169,13 +170,13 @@ fn writable_references_answer_shared_queries() {
 import std.bytes as by
 from std.bytes import Bytes, BytesError
 
-def grow(text: &mut str, data: &mut Bytes) -> i64:
-    len(text) * 100 + text.byte_len() * 10 + data.len()
+def grow(text: &mut str, data: &mut Bytes) -> Result[i64, OverflowError[i64]]:
+    Ok(len(text) * 100 + text.byte_len() * 10 + data.len())
 
-def main() -> Result[(), AllocError | IoError | BytesError]:
+def main() -> Result[(), AllocError | IoError | BytesError | OverflowError[i64]]:
     mut text = "héllo"
     mut data = by.from_text("abc")?
-    print(grow(&mut text, &mut data), text.isascii())?
+    print(grow(&mut text, &mut data)?, text.isascii())?
     Ok(())
 "#,
         "563 False\n",
@@ -186,17 +187,17 @@ const OWNED: &str = r#"
 def code(s: &str) -> Result[u32, ParseError]:
     ord(s)
 
-def sizes(s: str) -> i64:
+def sizes(s: str) -> Result[i64, OverflowError[i64]]:
     n = len(s) * 1000 + s.byte_len() * 10
     if s.isascii():
-        return n + 1
-    n
+        return Ok(n + 1)
+    Ok(n)
 
 def local_code(s: &str) -> Result[u32, ParseError]:
     t = (s + "").unwrap()
     ord(t)
 
-def scalars(s: &str) -> Result[u64, ParseError]:
+def scalars(s: &str) -> Result[u64, ParseError | OverflowError[u64]]:
     mut total = 0u64
     for c in s:
         total += u64(ord(c)?)
@@ -208,19 +209,22 @@ def temporary(s: &str) -> Result[i64, AllocError]:
 def literal(i: i64) -> u8:
     b"az\xff"[i]
 
-def literal_sum() -> u64:
+def literal_sum() -> Result[u64, OverflowError[u64]]:
     mut total = 0u64
     for b in b"az\xff":
         total += u64(b)
-    total + u64(b"az\xff".len())
+    Ok(total + u64(b"az\xff".len()))
 
-def main() -> Result[(), AllocError | IoError | ParseError]:
+def main() -> Result[(), AllocError | IoError | ParseError | OverflowError[i64] | OverflowError[u64]]:
     heap = "a heap string, long enough to be counted"
     for text in ["a", "é", "🙂", "", "ab", heap]?:
         print(str.repr(code(text))?, str.repr(local_code(text))?)?
-    print(ord("x")?, ord(("é" + "")?)?, sizes(heap), sizes(("é" + heap)?))?
-    print(scalars(heap)?, str.repr(scalars(""))?, temporary(heap)?)?
-    print(literal(0), literal(-1), literal_sum(), heap)?
+    print(ord("x")?, ord(("é" + "")?)?, sizes(heap)?, sizes(("é" + heap)?)?)?
+    heap_total = scalars(heap)?
+    # Preserve the original displayed ParseError result type after propagation.
+    empty: Result[u64, ParseError] = Ok(scalars("")?)
+    print(heap_total, str.repr(empty)?, temporary(heap)?)?
+    print(literal(0), literal(-1), literal_sum()?, heap)?
     Ok(())
 "#;
 
@@ -302,18 +306,18 @@ from std.bytes import Bytes, BytesError
 class Holder:
     data: Bytes
 
-def fill(data: &mut Bytes, count: i64) -> Result[(), AllocError]:
+def fill(data: &mut Bytes, count: i64) -> Result[(), AllocError | ZeroDivisionError]:
     for i in range(count):
         data.push(u8.try_from(i % 256).unwrap())?
     Ok(())
 
-def total(data: &Bytes) -> i64:
+def total(data: &Bytes) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for i in range(data.len()):
         sum += i64(data[i])
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | IoError | BytesError]:
+def main() -> Result[(), AllocError | IoError | BytesError | OverflowError[i64] | ZeroDivisionError]:
     mut local = by.empty()?
     fill(&mut local, 1000)?
     mut held = Holder(by.with_capacity(2)?)
@@ -322,7 +326,7 @@ def main() -> Result[(), AllocError | IoError | BytesError]:
     held.data.push(9u8)?
     mut items = [by.from_text("ab")?]?
     items[0].push(99u8)?
-    print(local.len(), total(&local), local[255], local[256], local[-1], local.capacity() >= 1000)?
+    print(local.len(), total(&local)?, local[255], local[256], local[-1], local.capacity() >= 1000)?
     print(held.data.len(), held.data[2], items[0].len(), items[0][2])?
     Ok(())
 "#;
@@ -530,8 +534,8 @@ def finds(t: str) -> Option[i64]:
 def rfinds(t: &str, needle: &str) -> Option[i64]:
     t.rfind(needle)
 
-def counts(t: str) -> i64:
-    t.count("a") + len(t) * 0
+def counts(t: str) -> Result[i64, OverflowError[i64]]:
+    Ok(t.count("a") + len(t) * 0)
 
 def has(t: str) -> bool:
     "lo" in t and len(t) > 0
@@ -554,16 +558,16 @@ def replaced(t: str) -> Result[str, AllocError]:
         return Ok("")
     out
 
-def compared(a: str, b: str) -> bool:
-    a < b and len(a) + len(b) > 0
+def compared(a: str, b: str) -> Result[bool, OverflowError[i64]]:
+    Ok(a < b and len(a) + len(b) > 0)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     heap = ("abcé, long enough for the heap, " + "lo")?
     print(starts(heap), starts("xab"), ends(&heap, "lo"), ends(&heap, ("l" + "")?))?
     print(finds(heap), finds("abc"), rfinds(&heap, "o"), rfinds(&heap, ""), rfinds(&heap, "zz"))?
-    print(counts(heap), counts(""), has(heap), has("abc"), itself(heap), itself(""))?
+    print(counts(heap)?, counts("")?, has(heap), has("abc"), itself(heap), itself(""))?
     print(choose(heap, True), choose(heap, False), titled(&Doc(("The " + "end")?)))?
-    print(replaced(heap)?, compared(heap, "b"), compared("b", heap))?
+    print(replaced(heap)?, compared(heap, "b")?, compared("b", heap)?)?
     mut total = 0
     for word in ["alpha", "beta", "gamma", "alphabet"]?:
         if word.startswith("al") and word.find("ph") == Some(2):

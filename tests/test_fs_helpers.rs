@@ -12,11 +12,14 @@ struct Program {
 }
 impl Program {
     fn new(declarations: &str, body: &str) -> Self {
+        Self::with_main_errors(declarations, body, "")
+    }
+    fn with_main_errors(declarations: &str, body: &str, errors: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
         let executable = directory.path().join("program");
         let source = format!(
-            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), AllocError | IoError]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), AllocError | IoError | fs.FsError]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
+            "import std.fs as fs\nimport std.path as path\nimport std.io as io\nimport std.bytes\nfrom std.sync import CancellationToken\ndef show[T, E](value: Result[T, E]) -> Result[(), AllocError | IoError]:\n    match value:\n        case Ok(_):\n            print(\"Ok\")?\n        case Err(error):\n            print(error)?\n    Ok(())\n{declarations}\ndef main() -> Result[(), AllocError | IoError | fs.FsError{errors}]:\n    argv = args_bytes()?\n    location = path.from_bytes(copy(argv[1])?)\n    parent = fs.root(&location)?\n{body}\n    Ok(())\n"
         );
         std::fs::write(&entry, &source).unwrap();
         plenty::compile_file_to_executable(&entry, &executable, None)
@@ -81,7 +84,10 @@ pub class Source:
     calls: i64
     cancel: bool
     pub def read(self: &mut Source, target: &mut std.bytes.Bytes, start: i64, stop: i64) -> Result[i64, io.StreamError]:
-        self.calls += 1
+        # Each authored copy_from starts at 0, reads one byte, then cancels
+        # or returns UnexpectedEof on call 2; neither path calls again.
+        unchecked:
+            self.calls += 1
         if self.calls == 1:
             target.set(start, 42u8)
             return Ok(1)
@@ -325,7 +331,7 @@ fn nofollow_file_open_resists_concurrent_symlink_replacement() {
 fn temporary_creation_failure_never_leaves_a_name_or_handle() {
     let fixture = tempfile::tempdir().unwrap();
     let declarations = r#"
-def descriptors() -> Result[i64, AllocError | IoError]:
+def descriptors() -> Result[i64, AllocError | IoError | OverflowError[i64]]:
     location = path.from_text("/proc/self/fd")?
     mut directory = fs.read_dir(&location)?
     mut count = 0
@@ -337,7 +343,7 @@ def descriptors() -> Result[i64, AllocError | IoError]:
                 return Ok(count)
     Ok(count)
 
-def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), AllocError | IoError]:
+def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), AllocError | IoError | OverflowError[i64]]:
     before = descriptors()?
     print(marker).unwrap()
     result = fs.temporary_dir_named(parent, name)
@@ -362,7 +368,7 @@ def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), AllocE
             "    probe(&parent, &name, \"__test_fail_allocations_after_{budget}__\")?\n"
         ));
     }
-    Program::new(declarations, &body).run(fixture.path());
+    Program::with_main_errors(declarations, &body, " | OverflowError[i64]").run(fixture.path());
     assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 0);
 }
 
@@ -676,7 +682,7 @@ fn copy_failures_release_descriptors_and_leave_only_documented_outputs() {
     std::fs::write(fixture.path().join("source/file"), b"complete").unwrap();
     std::fs::write(fixture.path().join("file"), b"complete").unwrap();
     let declarations = r#"
-def descriptors() -> Result[i64, AllocError | IoError]:
+def descriptors() -> Result[i64, AllocError | IoError | OverflowError[i64]]:
     location = path.from_text("/proc/self/fd")?
     mut directory = fs.read_dir(&location)?
     mut count = 0
@@ -688,7 +694,7 @@ def descriptors() -> Result[i64, AllocError | IoError]:
                 return Ok(count)
     Ok(count)
 
-def probe(parent: &fs.Root, source: &path.Path, file: &path.Path, destination: &path.Path, cancel: &CancellationToken, limits: &fs.CopyLimits, marker: &str, tree: bool) -> Result[(), AllocError | IoError | fs.FsError]:
+def probe(parent: &fs.Root, source: &path.Path, file: &path.Path, destination: &path.Path, cancel: &CancellationToken, limits: &fs.CopyLimits, marker: &str, tree: bool) -> Result[(), AllocError | IoError | fs.FsError | OverflowError[i64]]:
     before = descriptors()?
     print(marker).unwrap()
     if tree:
@@ -732,7 +738,7 @@ def probe(parent: &fs.Root, source: &path.Path, file: &path.Path, destination: &
             body.push_str(&format!("    probe(&parent, &source, &file, &destination, &cancel, &limits, \"__test_fail_allocations_after_{budget}__\", {tree})?\n"));
         }
     }
-    Program::new(declarations, &body).run(fixture.path());
+    Program::with_main_errors(declarations, &body, " | OverflowError[i64]").run(fixture.path());
     assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 2);
 }
 

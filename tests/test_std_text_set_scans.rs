@@ -224,13 +224,13 @@ def mark[T, E](result: Result[T, E]) -> str:
         case Err(_):
             "-"
 
-def scalar(index: i64) -> str:
+def scalar(index: i64) -> Result[str, OverflowError[i64]]:
     codes = [233u32, 8364u32, 128512u32, 128u32, 255u32].unwrap()
     if index < 128:
-        return chr(u32(index)).unwrap()
-    chr(codes[index - 128]).unwrap()
+        return Ok(chr(u32(index)).unwrap())
+    Ok(chr(codes[index - 128]).unwrap())
 
-def main() -> Result[(), std.http.cookie.CookieError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.http.cookie.CookieError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut names = ""
     mut values = ""
     mut paths = ""
@@ -238,7 +238,7 @@ def main() -> Result[(), std.http.cookie.CookieError | std.http.server.ServerErr
     mut methods = ""
     mut routes = ""
     for index in range(133):
-        c = scalar(index)
+        c = scalar(index)?
         names = names.concat(mark(std.http.cookie.set_cookie(&"a".concat(&c)?.concat("b")?, "v")))?
         values = values.concat(mark(std.http.cookie.set_cookie("a", &"v".concat(&c)?.concat("w")?)))?
         mut cookie = std.http.cookie.set_cookie("a", "v")?

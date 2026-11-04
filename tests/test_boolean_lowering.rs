@@ -7,9 +7,9 @@ const PROGRAM: &str = r#"import std.fmt
 class Log:
     pub calls: i64
 
-def note(log: &mut Log, value: bool) -> bool:
+def note(log: &mut Log, value: bool) -> Result[bool, OverflowError[i64]]:
     log.calls += 1
-    value
+    Ok(value)
 
 def digit(code: i64) -> bool:
     code >= 48 and code <= 57
@@ -52,8 +52,8 @@ def either(value: bool) -> i64:
         case True | False:
             50
 
-def safe_div(a: i64, b: i64) -> bool:
-    b != 0 and a // b > 1
+def safe_div(a: i64, b: i64) -> Result[bool, OverflowError[i64] | ZeroDivisionError]:
+    Ok(b != 0 and a // b > 1)
 
 def first_long(words: &list[str]) -> bool:
     len(words) > 0 and len(words[0]) > 3
@@ -68,20 +68,20 @@ def early(a: bool, b: bool) -> i64:
         return 2
     3
 
-def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | OverflowError[i64] | ZeroDivisionError]:
     mut log = Log(calls=0)
     for a in [False, True]?:
         for b in [False, True]?:
             for c in [False, True]?:
-                and_or = (note(&mut log, a) and note(&mut log, b)) or note(&mut log, c)
-                or_and = note(&mut log, a) or (note(&mut log, b) and note(&mut log, c))
+                and_or = (note(&mut log, a)? and note(&mut log, b)?) or note(&mut log, c)?
+                or_and = note(&mut log, a)? or (note(&mut log, b)? and note(&mut log, c)?)
                 negated = not (a and b) or not c
                 print(f"{a} {b} {c}: {and_or} {or_and} {negated} {early(a, b)} calls={log.calls}"?)?
     for code in [-9223372036854775807 - 1, -1, 0, 47, 48, 57, 58, 255, 9223372036854775807]?:
         print(f"{code} {digit(code)}"?)?
     for value in [False, True]?:
         print(f"{name(value)} {flipped(value)} {wild_true(value)} {wild_false(value)} {either(value)}"?)?
-    print(f"{safe_div(7, 0)} {safe_div(7, 2)} {safe_div(1, 2)}"?)?
+    print(f"{safe_div(7, 0)?} {safe_div(7, 2)?} {safe_div(1, 2)?}"?)?
     words = ["plenty", "of", "bools"]?
     print(f"{first_long(&words)}"?)?
     empty: list[str] = []?
@@ -147,6 +147,21 @@ fn boolean_short_circuits_keep_their_semantics() {
     let dir = write_program();
     assert_eq!(plenty(dir.path(), &["bools.plenty"]), EXPECTED);
     assert_eq!(plenty(dir.path(), &["--release", "bools.plenty"]), EXPECTED);
+}
+
+#[test]
+fn arithmetic_errors_preserve_short_circuiting_and_failed_assignment() {
+    let declarations = PROGRAM.split("\ndef main(").next().unwrap();
+    let source = format!(
+        r#"{declarations}
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+    mut log = Log(calls=i64.MAX)
+    print(note(&mut log, True).is_err(), log.calls == i64.MAX)?
+    print(safe_div(i64.MIN, -1).is_err(), safe_div(7, 0)?, safe_div(7, 2)?)?
+    Ok(())
+"#
+    );
+    support::assert_stdout(&source, "True True\nTrue False True\n");
 }
 
 #[test]

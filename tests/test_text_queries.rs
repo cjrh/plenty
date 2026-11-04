@@ -199,9 +199,15 @@ fn searches_return_optional_scalar_positions(
 fn search_references_propagation_and_inherent_methods() {
     native(
         r#"
-def last(text: &str, needle: &str) -> Option[i64]:
+def found(text: &str, needle: &str) -> Option[i64]:
     index = text.rfind(needle)?
-    Some(index + 1)
+    Some(index)
+def last(text: &str, needle: &str) -> Result[Option[i64], OverflowError[i64]]:
+    match found(text, needle):
+        case Some(index):
+            Ok(Some(index + 1))
+        case Nothing:
+            Ok(Nothing)
 class Custom:
     def find(self) -> i64:
         42
@@ -211,15 +217,19 @@ def source() -> str:
 def needle() -> str:
     print("argument").unwrap()
     return "a"
-text = ("é" + "🙂").unwrap()
-part = "🙂"
-print(last(&text, &part)).unwrap()
-print(last(&text, &text)).unwrap()
-print(text.find("missing")).unwrap()
-print(source().find(needle())).unwrap()
-print(Custom().find()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    text = ("é" + "🙂").unwrap()
+    part = "🙂"
+    print(last(&text, &part)?).unwrap()
+    print(last(&text, &text)?).unwrap()
+    print(last(&text, "missing")?).unwrap()
+    print(last(&text, "")?).unwrap()
+    print(text.find("missing")).unwrap()
+    print(source().find(needle())).unwrap()
+    print(Custom().find()).unwrap()
+    Ok(())
 "#,
-        "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42",
+        "Option[i64].Some(2)\nOption[i64].Some(1)\nOption[i64].Nothing\nOption[i64].Some(3)\nOption[i64].Nothing\nreceiver\nargument\nOption[i64].Some(0)\n42",
     );
 }
 
