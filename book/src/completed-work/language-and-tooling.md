@@ -309,6 +309,15 @@ The separate uninterrupted post-#712 run completes both zero-test doctest packag
 but fails one Caddy readiness assertion: concurrent fixtures selected the same
 HTTP port. Its 5,658 passes, one failure and eight ignores remain a failed gate;
 issue #719 tracks a separate fixture fix, not an established arithmetic regression.
+A later user-approved isolated fork applies only that reviewed Rust fixture patch,
+leaving production compiler/runtime/std and native Plenty fixtures unchanged.
+Its uninterrupted host gate passes 5,669 tests with zero failures and eight normal
+ignores, including all 27 optional bodies and ten added fixture helpers; both
+actual zero-test doctest packages complete. Independent review accepts this bounded
+host qualification. Neither PR branch is merged or rewritten, and the earlier
+failed run is not relabelled. Missing wrapper classifications, sampled-process
+limits, older compatible engines and the disclosed non-test pre-clean observation
+gap remain explicit limits.
 Reviewed measurement/profile preparation and a 40-mock-test two-job smoke driver
 remain unexecuted. No timing, profiling or whole-proposal acceptance is claimed.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded

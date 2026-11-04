@@ -264,11 +264,28 @@ regression is established by that failure. All ten observed containers had
 completed exact-ID removals; foreign container and image identities were unchanged.
 Missing final wrapper classifications remain unknown, not Docker success.
 
+The user then approved applying only the reviewed Rust fixture patch to an
+isolated validation fork. Its entire proxy-test file equals the separately
+reviewed fix; all compiler, runtime, std, Cargo and native Plenty fixture files
+remain byte-identical to production revision `830763c9`. On validation revision
+`8ca6fc5a`, one uninterrupted gate passes **5,669 tests, zero failures and eight
+normal ignores**, including all 27 required optional bodies and ten new fixture
+helpers. Both actual zero-test doctest packages complete. Independent evidence
+review accepts this isolated host-gate result, not either unchanged PR branch or
+a merge. The earlier failed run remains failed evidence.
+
+All ten real proxy containers have authenticated same-ID removals and subsequent
+absence; foreign container and image identities are unchanged. Missing wrapper
+classifications stay unknown. Critical compiler/runtime/test build freshness is
+verified; ten non-test example paths' pre-clean absence remains unobserved.
+Existing external engines remain older compatible builds, not fresh source builds.
+Process sampling is not exhaustive tracing or a controlled performance baseline.
+
 The guarded measurement manifests and fixed two-job profiling smoke driver have
 independent preparation reviews; the latter passes 40 external mock tests. No
-real smoke, timing or profiling ran. Complete host acceptance and measurement
-collection remain blocked; the separate fixture fix must not be silently applied
-to this validation source or merged.
+real smoke, timing or profiling ran. Controlled collection and its acceptance
+remain outstanding. Neither PR is merged; the fixture patch is present only in
+the explicitly approved isolated validation fork.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
