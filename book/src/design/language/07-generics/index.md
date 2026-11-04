@@ -28,8 +28,8 @@ body is checked for each instance. Callable capabilities follow [functions](../0
 
 `KeyType` accepts exactly the [supported dictionary keys and set members](../../facilities/01-builtins/collections.md):
 integers and their supported domains, `bool`, `str`, `bytes`, and tuples,
-classes or named enums whose every field or payload is a supported key type.
-Floats, collections, boxes, recursive types, anonymous sums and classes with
+classes, enums or anonymous sums whose every field, payload or member is a supported key type.
+Floats, collections, boxes, recursive types and classes with
 custom cleanup remain excluded. It is a built-in constraint, not a protocol or a stored value type;
 no `__hash__` method is needed or accepted.
 
@@ -77,8 +77,8 @@ diagnostic follows the first unsupported component in declaration order.
 It names class fields, enum variants and payload positions, and tuple element
 positions. Positions start at one. For example, a class field `sample` whose
 second tuple element is `f64` reports `field sample -> tuple element 2: f64 is
-not a supported key type`. Nested custom cleanup and anonymous sums receive
-specific reasons too. This applies to type annotations, inferred collection
+not a supported key type`. Nested custom cleanup receives a specific reason; unsupported sum members
+are named in the diagnostic path. This applies to type annotations, inferred collection
 literals and conversions, and explicit or inferred generic arguments.
 
 ## CopyType

@@ -104,3 +104,18 @@ sums, forward arbitrary member methods or protocols, or erase errors. See
 The [anonymous-sum proposal](../../../proposals/completed/error-sets.md) records the
 design rationale and migration boundary. The [composition overview](../../../proposals/completed/error-composition.md)
 distinguishes sums from deliberate error mapping and typed stream APIs.
+
+## Collection keys
+
+A sum satisfies `KeyType` when every member is a [supported key type](../../facilities/01-builtins/collections.md).
+Use `set[i64 | str]` or `dict[i64 | str, V]` directly. Hashing and equality
+include the active member type and its structural value: `1`, `1i8`, `True`
+and `"1"` stay distinct in a sum that admits them. Normalized aliases and
+member order do not change identity. Keys with an unsupported member are
+rejected even if that member is never inserted.
+
+Insertion and lookup use the ordinary expected-type injection rules. Observed member values can be injected for lookup without moving them; their
+source remains borrowed through the operation. This does not make reference
+types covariant. Sums containing move-only classes keep their ownership rules, and
+stored keys are only exposed through shared borrows. Anonymous sums use the
+hash-table representation, including sums with finite members.

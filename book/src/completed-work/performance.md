@@ -168,15 +168,15 @@ which remains partly implemented for its public allocator design.
 
 Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
-enums, tuples and classes without custom cleanup are supported. Floats, boxes, recursive types and
-anonymous sums remain excluded. These general key types use keyed runtime hashing. Supported finite enum and tuple domains with at
+enums, tuples and classes without custom cleanup are supported. Anonymous sums with supported members also qualify; their active member tag
+and structural value define identity. Floats, boxes and recursive types remain excluded. These general key types use keyed runtime hashing. Supported finite enum and tuple domains with at
 most 256 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
 
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
 traversal performs linear field-offset work per pass (issue #330). The built-in `KeyType` constraint now exposes the same key admission rule on
 functions, methods, classes and enums; see [generics](../design/language/07-generics/index.md#keytype).
-Anonymous-sum and custom-cleanup admission remain under
+Custom-cleanup admission remains under
 **B74** in the [backlog](../backlog.md).
 
 Class keys hash their fields rather than their addresses. Move-only class keys,

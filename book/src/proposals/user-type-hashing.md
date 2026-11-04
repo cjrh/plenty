@@ -3,8 +3,8 @@
 **Status: Partly implemented.** Named enums whose payloads are supported key
 types now work as dictionary keys and set members, including nested enums.
 Classes whose fields are supported keys, including move-only classes and enums
-containing them, and the `KeyType` constraint are also implemented. Custom-cleanup
-keys and anonymous sums remain future work under [B74](../backlog.md).
+containing them, and the `KeyType` constraint are also implemented. Anonymous sums with supported key members are implemented. Custom-cleanup
+keys remain future work under [B74](../backlog.md).
 Named enum and tuple sets with supported finite domains through 256 values now use
 [bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
 boolean and nested enum/tuple payloads. The
@@ -267,7 +267,7 @@ hashing. Unconstrained generic bodies remain checked per concrete instance;
 Diagnostics now name the first unsupported component in declaration order,
 including class field names, enum variants and payload positions, and tuple
 element positions. The path ends with the rejected type or a specific reason
-such as custom cleanup or an anonymous sum; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
+such as custom cleanup or an unsupported anonymous-sum member; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 
@@ -385,7 +385,7 @@ of the fields their `__cmp__` compares.
    Ordinary borrowed key views would not themselves require copying.
 3. Private fields: structural hashing reads them, as equality already does.
    Confirm that is acceptable for public key types across modules.
-4. Whether `std.report`-style anonymous sums should be key types when every
+4. **Resolved:** anonymous sums are key types when every
    member is.
 5. Whether to cache hashes, after measurement.
 
