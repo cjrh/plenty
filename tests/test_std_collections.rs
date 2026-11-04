@@ -20,7 +20,11 @@ def naturals() -> Generator[i64]:
     mut n = 0
     while True:
         yield n
-        n += 1
+        if n == i64.MAX:
+            return
+        # The terminal value returned above; the nonnegative increment fits.
+        unchecked:
+            n += 1
 
 def larger(a: &Guard, b: &Guard) -> bool:
     a.n > b.n
@@ -39,16 +43,21 @@ def number(guard: Guard) -> i64:
     guard.n
 
 def odd(guard: &Guard) -> bool:
-    guard.n % 2 == 1
+    two: Positive[i64] = 2
+    guard.n % two == 1
 
 def even(n: &i64) -> bool:
-    *n % 2 == 0
+    two: Positive[i64] = 2
+    *n % two == 0
 
-def square(n: i64) -> i64:
-    n * n
+def square(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * n)
 
-def add(total: i64, n: i64) -> i64:
-    total + n
+def add(total: i64, n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(total + n)
+
+def add_result(total: i64, n: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    Ok(total + n?)
 
 def counted(a: &i64, b: &i64) -> bool:
     print("compare").unwrap()
@@ -59,7 +68,7 @@ def keep(items: list[i64], n: i64) -> Result[list[i64], AllocError]:
     out.append(n)?
     Ok(out)
 
-def below_three(total: i64, guard: Guard) -> Result[i64, str]:
+def below_three(total: i64, guard: Guard) -> Result[i64, OverflowError[i64] | str]:
     if guard.n >= 3:
         return Err("too large")
     Ok(total + guard.n)
@@ -72,18 +81,29 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}{DECLARATIONS}\ndef main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
+        "{HEADER}{DECLARATIONS}\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 
 fn execute(body: &str) -> std::process::Output {
-    let source = program(body);
+    execute_source(&program(body), false)
+}
+
+fn execute_source(source: &str, optimize: bool) -> std::process::Output {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
-    std::fs::write(&path, &source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
     std::process::Command::new(executable).output().unwrap()
 }
 
@@ -328,22 +348,22 @@ print(guards.peek_ref().is_some())?
 fn generator_pipelines_compose_lazily_and_keep_callback_state() {
     native(
         r#"
-print(naturals().take(10).filter(even).map(square).fold(0, add))?
+print(naturals().take(10).filter(even).map(square).try_fold(0, add_result)?)?
 offset = 100
-shifted = (n for n in [1, 2, 3]?).map(def [offset](n: i64) -> i64: n + offset)
-print([n for n in shifted]?)?
+shifted = (n for n in [1, 2, 3]?).map(def [offset](n: i64) -> Result[i64, OverflowError[i64]]: Ok(n + offset))
+print([n? for n in shifted]?)?
 mut seen = 0
-numbered = def [mut seen](n: i64) -> (i64, i64):
+numbered = def [mut seen](n: i64) -> Result[(i64, i64), OverflowError[i64]]:
     seen += 1
-    (seen, n)
+    Ok((seen, n))
 for pair in naturals().map(numbered).take(2):
-    print(pair)?
+    print(pair?)?
 print(naturals().take(4).try_fold(list[i64].new()?, keep)?)?
-print(naturals().take(0).fold(7, add), naturals().take(-3).fold(7, add))?
+print(naturals().take(0).try_fold(7, add)?, naturals().take(-3).try_fold(7, add)?)?
 mut heap = Heap[i64]()?
 for n in [6, 1, 4, 3]?:
     heap.push(n)?
-print(drain(heap).filter(even).fold(0, add))?
+print(drain(heap).filter(even).try_fold(0, add)?)?
 "#,
         r#"
 120
@@ -366,7 +386,7 @@ for n in guards(5).filter(odd).map(number):
     break
 print("stopped")?
 print(str.repr(guards(9).try_fold(0, below_three))?)?
-print(guards(9).take(1).fold(10, def(total: i64, guard: Guard) -> i64: total + guard.n))?
+print(guards(9).take(1).try_fold(10, def(total: i64, guard: Guard) -> Result[i64, OverflowError[i64]]: Ok(total + guard.n))?)?
 unused = guards(3).map(number)
 print("unused")?
 "#,
@@ -385,7 +405,7 @@ make 2
 drop 2
 make 3
 drop 3
-Result[i64, str].Err("too large")
+Result[i64, OverflowError[i64] | str].Err("too large")
 make 0
 drop 0
 10
@@ -411,7 +431,7 @@ first = heap.pop().unwrap()
 jobs.push(Quiet(1)).unwrap()
 jobs.push(Quiet(2)).unwrap()
 top = jobs.pop().unwrap().n
-total = drain(heap).take(5).filter(even).map(square).fold(0, add)
+total = drain(heap).take(5).filter(even).map(square).try_fold(0, add_result)?
 print("__test_restore_allocations__")?
 print("__test_end_no_allocations__")?
 print(least, first, top, total)?
@@ -475,7 +495,7 @@ fn unsupported_orders_sources_and_escaping_borrows_are_rejected() {
     );
     assert!(loan.contains("conflicting borrow"), "{loan}");
     let stored = rejected(
-        "limit = [1]?\nmut heap = HeapBy(def [&limit](a: &i64, b: &i64) -> bool: *a + limit[0] < *b)?",
+        "limit = [1]?\nmut heap = HeapBy(def [&limit](a: &i64, b: &i64) -> bool: *a < *b and limit[0] == 1)?",
     );
     assert!(
         stored.contains("closures with borrowed captures cannot be stored in generic data"),
@@ -500,5 +520,174 @@ for value in drain(heap):
     print(value)?
 "#,
         "(1, \"a\")\n(1, \"a\")\n(1, \"a\")\n(1, \"z\")\n(2, \"a\")",
+    );
+}
+
+/// Exercise the exact private arithmetic used by production without allocating
+/// impossible containers. Only the pre-class helper declarations are included.
+#[test]
+fn production_ring_heap_and_cache_extent_boundaries_in_both_modes() {
+    let helpers = [
+        include_str!("../stdlib/std/deque.plenty"),
+        include_str!("../stdlib/std/collections.plenty"),
+        include_str!("../stdlib/std/cache/lru.plenty"),
+    ]
+    .map(|source| source.split_once("pub class").unwrap().0)
+    .join("\n");
+    let source = format!(
+        r#"{helpers}
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
+    print(grown_capacity(0)?, grown_capacity(8)?, grown_capacity(i64.MAX // 2)?)?
+    print(grown_capacity(-1).is_err(), grown_capacity(i64.MAX // 2 + 1).is_err())?
+    print(ring_position(i64.MAX, i64.MAX - 1, 0), ring_position(i64.MAX, i64.MAX - 1, 1), ring_position(i64.MAX, i64.MAX - 1, i64.MAX - 1))?
+    print(first_child(0, 0), first_child(0, 1), first_child(0, 2))?
+    print(first_child(i64.MAX // 2 - 1, i64.MAX), first_child(i64.MAX // 2, i64.MAX))?
+    print(cache_slots(0)?, cache_slots(i64.MAX - 1)?, cache_slots(-1).is_err(), cache_slots(i64.MAX).is_err())?
+    Ok(())
+"#
+    );
+    let expected = "8 16 9223372036854775806\nTrue True\n9223372036854775806 0 9223372036854775805\nOption[i64].Nothing Option[i64].Nothing Option[i64].Some(1)\nOption[i64].Some(9223372036854775805) Option[i64].Nothing\n1 9223372036854775807 True True\n";
+    for optimize in [false, true] {
+        let output = execute_source(&source, optimize);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    }
+}
+
+#[test]
+fn generic_containers_keep_their_public_contracts_in_both_modes() {
+    let source = r#"
+from std.deque import Deque
+from std.collections import Heap, HeapBy, drain, drain_by
+from std.graph import DiGraph
+from std.cache.lru import LruCache
+
+def main() -> Result[(), AllocError | IoError]:
+    mut queue = Deque[i64]()?
+    for n in range(40):
+        queue.append(n)?
+    for n in range(20):
+        drop(queue.popleft())
+    for n in range(40, 80):
+        queue.append(n)?
+    queue.appendleft(99)?
+    print(queue.popleft(), queue.pop(), queue.len())?
+    mut heap = Heap[i64]()?
+    mut reverse = HeapBy(def(a: &i64, b: &i64) -> bool: *a > *b)?
+    for n in [3, 1, 2]?:
+        heap.push(n)?
+        reverse.push(n)?
+    print(list(drain(heap))?, list(drain_by(reverse))?)?
+    mut graph = DiGraph[i64, f64]()?
+    a = graph.add_node(1)?
+    b = graph.add_node(2)?
+    drop(graph.add_edge(a, b, 1.0)?)
+    print(graph.bfs(a)?, graph.toposort().is_ok())?
+    drop(graph.remove_node(b))
+    print(graph.node_count(), graph.edge_count(), graph.add_node(3)?)?
+    mut cache = LruCache[i64, i64](2)?
+    drop(cache.put(1, 10)?)
+    drop(cache.put(2, 20)?)
+    drop(cache.get(&1))
+    print(cache.put(3, 30)?, cache.pop_lru(), cache.pop_lru())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let output = execute_source(source, optimize);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "Option[i64].Some(99) Option[i64].Some(79) 59\n[1, 2, 3] [3, 2, 1]\n[0, 1] True\n1 0 2\nOption[tuple[i64, i64]].Some((2, 20)) Option[tuple[i64, i64]].Some((1, 10)) Option[tuple[i64, i64]].Some((3, 30))\n"
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn deque_wrapped_growth_failure_preserves_owned_rows_and_allows_reuse() {
+    for optimize in [false, true] {
+        // Use the existing affine fixture; marker output is filtered below.
+        let body = r#"
+mut failures = 0
+mut successes = 0
+for limit in range(3):
+    mut queue = Deque[Quiet]()?
+    for n in range(8):
+        queue.append(Quiet(n))?
+    for n in range(3):
+        drop(queue.popleft())
+    for n in range(8, 11):
+        queue.append(Quiet(n))?
+    marker = ("__test_fail_allocations_after_" + str.from(limit)?)?
+    print((marker + "__")?)?
+    result = queue.appendleft(Quiet(99))
+    print("__test_restore_allocations__")?
+    match result:
+        case Err(error):
+            print(error, queue.len(), queue.popleft().unwrap().n, queue.pop().unwrap().n)?
+            failures += 1
+        case Ok(_):
+            print(queue.len(), queue.popleft().unwrap().n, queue.pop().unwrap().n)?
+            successes += 1
+    queue.clear()
+    queue.append(Quiet(100))?
+    print(queue.pop().unwrap().n, queue.is_empty())?
+print(failures > 0, successes > 0)?
+"#;
+        let source = format!("from std.deque import Deque\n{}", program(body));
+        let output = execute_source(&source, optimize);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines = text
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines.iter().filter(|line| **line == "dropped").count(),
+            39,
+            "{text}"
+        );
+        let states = lines
+            .into_iter()
+            .filter(|line| *line != "dropped")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            states,
+            [
+                "AllocError.OutOfMemory 8 3 10",
+                "100 True",
+                "AllocError.OutOfMemory 8 3 10",
+                "100 True",
+                "9 99 10",
+                "100 True",
+                "True True"
+            ]
+        );
+    }
+}
+
+#[test]
+fn fallible_fixture_callbacks_keep_overflow_and_drain_cleanup_observable() {
+    native(
+        r#"
+print(square(i64.MAX).is_err(), add(i64.MAX, 1).is_err())?
+mut heap = HeapBy(def(a: &Guard, b: &Guard) -> bool: a.n < b.n)?
+for n in [4, 2, 1, 3]?:
+    heap.push(Guard(n))?
+print(str.repr(drain_by(heap).try_fold(0, below_three))?)?
+"#,
+        "True True\ndrop 1\ndrop 2\ndrop 3\ndrop 4\nResult[i64, OverflowError[i64] | str].Err(\"too large\")",
     );
 }

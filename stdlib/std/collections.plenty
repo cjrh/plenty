@@ -1,3 +1,12 @@
+# No child exists in the upper half of a heap. Test this before doubling:
+# even for bound == i64.MAX, the returned index is at most bound - 1.
+def first_child(parent: i64, bound: i64) -> Option[i64]:
+    two: Positive[i64] = 2
+    if parent < 0 or parent >= bound // two:
+        return Nothing
+    unchecked:
+        Some(2 * parent + 1)
+
 # Binary heaps over a private list. Sifting exchanges rows with `swap`, so
 # elements are never copied or dropped while the heap is reordered.
 pub class Heap[T]:
@@ -33,9 +42,13 @@ pub class Heap[T]:
 
     pub def push(self: &mut Heap[T], value: T) -> Result[(), AllocError]:
         self._items.append(value)?
-        mut child = len(self._items) - 1
+        # append succeeded, so the held list is nonempty.
+        mut child = unchecked:
+            len(self._items) - 1
         while child > 0:
-            parent = (child - 1) // 2
+            # child > 0 bounds the subtraction; the divisor is positive.
+            parent = unchecked:
+                (child - 1) // 2
             if not (self._items[child] < self._items[parent]):
                 break
             self._items.swap(child, parent)
@@ -43,7 +56,9 @@ pub class Heap[T]:
         Ok(())
 
     pub def pop(self: &mut Heap[T]) -> Option[T]:
-        last = len(self._items) - 1
+        # List lengths are in 0..=i64.MAX; the empty sentinel is -1.
+        last = unchecked:
+            len(self._items) - 1
         if last < 0:
             return Nothing
         self._items.swap(0, last)
@@ -51,8 +66,14 @@ pub class Heap[T]:
         mut parent = 0
         while True:
             mut first = parent
-            left = 2 * parent + 1
-            right = left + 1
+            left = match first_child(parent, last):
+                case Some(index):
+                    index
+                case Nothing:
+                    break
+            # left < last <= i64.MAX - 1, so the right sentinel fits too.
+            right = unchecked:
+                left + 1
             if left < last and self._items[left] < self._items[first]:
                 first = left
             if right < last and self._items[right] < self._items[first]:
@@ -101,9 +122,13 @@ pub class HeapBy[T, F: Callable[[&T, &T], bool]]:
 
     pub def push(self: &mut HeapBy[T, F], value: T) -> Result[(), AllocError]:
         self._items.append(value)?
-        mut child = len(self._items) - 1
+        # append succeeded, so the held list is nonempty.
+        mut child = unchecked:
+            len(self._items) - 1
         while child > 0:
-            parent = (child - 1) // 2
+            # child > 0 bounds the subtraction; the divisor is positive.
+            parent = unchecked:
+                (child - 1) // 2
             if not (self._before(&self._items[child], &self._items[parent])):
                 break
             self._items.swap(child, parent)
@@ -111,7 +136,9 @@ pub class HeapBy[T, F: Callable[[&T, &T], bool]]:
         Ok(())
 
     pub def pop(self: &mut HeapBy[T, F]) -> Option[T]:
-        last = len(self._items) - 1
+        # List lengths are in 0..=i64.MAX; the empty sentinel is -1.
+        last = unchecked:
+            len(self._items) - 1
         if last < 0:
             return Nothing
         self._items.swap(0, last)
@@ -119,8 +146,14 @@ pub class HeapBy[T, F: Callable[[&T, &T], bool]]:
         mut parent = 0
         while True:
             mut first = parent
-            left = 2 * parent + 1
-            right = left + 1
+            left = match first_child(parent, last):
+                case Some(index):
+                    index
+                case Nothing:
+                    break
+            # left < last <= i64.MAX - 1, so the right sentinel fits too.
+            right = unchecked:
+                left + 1
             if left < last and self._before(&self._items[left], &self._items[first]):
                 first = left
             if right < last and self._before(&self._items[right], &self._items[first]):
