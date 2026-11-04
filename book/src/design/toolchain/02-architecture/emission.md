@@ -64,7 +64,7 @@ imports only they need. COFF resolves undefined symbols even in sections its
 linker will discard, so section garbage collection alone cannot do this. A
 reached foreign call keeps its real import; no fallback definition is generated.
 All bodies still receive frontend and ownership checks. This applies in both
-debug and optimized executable builds, so an unreachable user function has no
+fast-compile and optimized executable builds, so an unreachable user function has no
 executable symbol or breakpoint location on Windows. Explicit `--emit-object`,
 library objects and `--dump` preserve their existing user-definition and generator
 roots for inspection and external linking. External COFF consumers of such an
@@ -277,7 +277,7 @@ call with the callee's operations (issue #363):
   its literal and the domain's constructor call, as a literal argument
   lowers. This happens in every build, and the constant has no function in
   the object.
-- **Leaf predicates**, in release builds only. A function whose parameters
+- **Leaf predicates**, in optimized builds only. A function whose parameters
   and result are numbers or `bool`, with no locals, and whose body is at most
   12 operations drawn from parameter reads, literals, constants, comparisons,
   `not`, `and`, `or`, and matches on `bool` or integer literals. Nothing in
@@ -335,7 +335,7 @@ after the ownership checker, so diagnostics are unchanged.
 
 ## Constants in loops
 
-In release builds Cranelift rematerializes an integer or float constant in each
+In optimized builds Cranelift rematerializes an integer or float constant in each
 block that uses it rather than keeping it in a register across a loop: this
 saves a register for the loop's lifetime at the cost of one instruction per use.
 On x86-64 a constant that is the right operand of a float operation is read from

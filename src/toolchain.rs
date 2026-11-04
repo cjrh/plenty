@@ -119,8 +119,8 @@ pub struct CompileOptions {
     pub dataframe_engine: Option<PathBuf>,
     /// Optional faer engine, consulted only for reachable std.linalg calls.
     pub linalg_engine: Option<PathBuf>,
-    /// Ask Cranelift to optimize generated code for speed (the release
-    /// profile). Off by default, which favors compilation speed.
+    /// Optimize generated code for speed. Enabled by default; disabling it
+    /// selects the fast-compile profile.
     pub optimize: bool,
     /// Where compiled functions are cached between compilations.
     pub cache: crate::cache::CacheMode,
@@ -165,7 +165,7 @@ impl Default for CompileOptions {
             link_args: Vec::new(),
             dataframe_engine: None,
             linalg_engine: None,
-            optimize: false,
+            optimize: true,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
             executable_cache: false,

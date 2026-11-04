@@ -74,7 +74,7 @@ fn constants_keep_their_values_types_and_bindings_without_getters() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("limits.plenty"), LIMITS).unwrap();
     std::fs::write(dir.path().join("main.plenty"), MAIN).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("main.plenty");
         assert_eq!(stdout(plenty(dir.path(), &args)), EXPECTED, "{mode:?}");
@@ -124,7 +124,7 @@ def main() -> Result[(), IoError]:
 ",
     )
     .unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("main.plenty");
         assert_eq!(
@@ -190,7 +190,7 @@ def main() -> Result[(), IoError]:
 fn leaf_predicates_run_in_the_caller_in_release_builds() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("p.plenty"), PREDICATES).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("p.plenty");
         let output = plenty(dir.path(), &args);
@@ -207,7 +207,7 @@ fn leaf_predicates_run_in_the_caller_in_release_builds() {
             "{mode:?}"
         );
     }
-    dump(dir.path(), &[], "p.plenty");
+    dump(dir.path(), &["--fast-compile"], "p.plenty");
     let classify = section(dir.path(), "asm.txt", "classify").unwrap();
     assert!(classify.contains("__plenty_fn_digit"), "{classify}");
 
@@ -248,7 +248,7 @@ def main() -> Result[(), IoError]:
 ",
     )
     .unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("s.plenty");
         assert_eq!(stdout(plenty(dir.path(), &args)), "12.566370614359172\n");

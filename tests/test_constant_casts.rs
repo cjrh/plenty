@@ -111,7 +111,7 @@ fn constant_casts_match_run_time_conversions() {
     let dir = tempfile::tempdir().unwrap();
     let (source, expected) = program();
     std::fs::write(dir.path().join("casts.plenty"), source).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("casts.plenty");
         assert_eq!(stdout(plenty(dir.path(), &args)), expected, "{mode:?}");
@@ -200,7 +200,7 @@ fn constant_casts_lower_like_their_literals() {
     let names = [
         "widen", "narrow", "signed", "to_float", "demote", "truncate",
     ];
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.extend(["--dump", "clif,clif-opt", "shapes.plenty", "-o", "out"]);
         stdout(plenty(dir.path(), &args));
@@ -220,9 +220,12 @@ fn constant_casts_lower_like_their_literals() {
                 }
             }
         }
-        // Without `--release` the operand's unused constant stays in the
+        // With `--fast-compile` the operand's unused constant stays in the
         // CLIF; instruction selection emits no code for it.
-        for name in names.into_iter().filter(|_| !mode.is_empty()) {
+        for name in names
+            .into_iter()
+            .filter(|_| !mode.contains(&"--fast-compile"))
+        {
             let body = section(dir.path(), "clif-opt.txt", name);
             let literal = section(dir.path(), "clif-opt.txt", &format!("{name}_literal"));
             assert_eq!(
@@ -255,7 +258,7 @@ fn constants_out_of_range_still_trap() {
              def main() -> Result[(), IoError]:\n    print(over())?\n    Ok(())\n"
         );
         std::fs::write(dir.path().join(&file), source).unwrap();
-        for mode in [&[][..], &["--release"][..]] {
+        for mode in [&["--fast-compile"][..], &["--release"][..]] {
             let mut args = mode.to_vec();
             args.push(&file);
             let output = plenty(dir.path(), &args);

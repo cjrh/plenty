@@ -23,8 +23,8 @@ fn compile(
     std::fs::write(&path, source).unwrap();
     let mut command = Command::new(support::plenty_bin());
     command.env("PLENTY_CACHE", cache);
-    if release {
-        command.arg("--release");
+    if !release {
+        command.arg("--fast-compile");
     }
     let output = command
         .arg("--compile")

@@ -15,7 +15,7 @@ const USAGE: &str = "Usage: plenty script [OPTIONS] [--] FILE [ARGS...]\n\
 Options precede FILE; everything after FILE is passed unchanged to the program.\n\
   --check              Type-check without running\n\
   --compile -o OUT     Write a native executable without running\n\
-  --release            Optimize generated code\n\
+  --fast-compile       Skip optimization for faster compilation\n\
   --offline            Use only cached dependency sources\n\
   --locked             Refuse to create or change the dependency lock\n\
   --lockfile PATH      Use a durable lock (relative to the caller)\n\
@@ -170,7 +170,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
             }
             "--check" => options.check = true,
             "--compile" => options.compile = true,
-            "--release" => options.build.optimize = true,
+            "--release" => {}
+            "--fast-compile" => options.build.optimize = false,
             "--offline" => options.resolve.offline = true,
             "--locked" => options.resolve.locked = true,
             "--verbose" => options.build.verbose = true,

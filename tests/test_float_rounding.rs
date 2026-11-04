@@ -181,7 +181,7 @@ fn check(line: &str) {
 fn rounding_matches_rust_bit_for_bit() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("round.plenty"), program()).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("round.plenty");
         let out = plenty(dir.path(), &args);

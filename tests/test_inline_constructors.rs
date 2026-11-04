@@ -1,6 +1,6 @@
 //! Optimized builds lower small constructors, a class's `new` and its
 //! `__init__`, at their call sites, and a field's first assignment in
-//! `__init__` releases no old value (issue #548). Only `--release` builds
+//! `__init__` releases no old value (issue #548). Only optimized builds
 //! inline, so these tests run the command-line compiler both ways.
 mod support;
 
@@ -135,7 +135,7 @@ make cell\ncell 7\n5\n22\n";
 
 #[test]
 fn inlined_constructors_keep_cleanup_order_and_traps() {
-    let debug = run(PROGRAM, &[]);
+    let debug = run(PROGRAM, &["--fast-compile"]);
     let release = run(PROGRAM, &["--release"]);
     assert_eq!(debug.1, EXPECTED, "{}", debug.2);
     assert_eq!(debug.0, Some(1));

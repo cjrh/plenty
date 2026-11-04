@@ -633,18 +633,18 @@ fn release_and_no_strip_are_order_independent() {
     )
     .unwrap();
     let permutations = [
-        ["--release", "--no-strip", "--compile", "main.plenty"],
-        ["--no-strip", "--release", "--compile", "main.plenty"],
-        ["--release", "--compile", "--no-strip", "main.plenty"],
-        ["--no-strip", "--compile", "--release", "main.plenty"],
-        ["--release", "--compile", "main.plenty", "--no-strip"],
-        ["--no-strip", "--compile", "main.plenty", "--release"],
-        ["--compile", "--release", "--no-strip", "main.plenty"],
-        ["--compile", "--no-strip", "--release", "main.plenty"],
-        ["--compile", "--release", "main.plenty", "--no-strip"],
-        ["--compile", "--no-strip", "main.plenty", "--release"],
-        ["--compile", "main.plenty", "--release", "--no-strip"],
-        ["--compile", "main.plenty", "--no-strip", "--release"],
+        ["--fast-compile", "--no-strip", "--compile", "main.plenty"],
+        ["--no-strip", "--fast-compile", "--compile", "main.plenty"],
+        ["--fast-compile", "--compile", "--no-strip", "main.plenty"],
+        ["--no-strip", "--compile", "--fast-compile", "main.plenty"],
+        ["--fast-compile", "--compile", "main.plenty", "--no-strip"],
+        ["--no-strip", "--compile", "main.plenty", "--fast-compile"],
+        ["--compile", "--fast-compile", "--no-strip", "main.plenty"],
+        ["--compile", "--no-strip", "--fast-compile", "main.plenty"],
+        ["--compile", "--fast-compile", "main.plenty", "--no-strip"],
+        ["--compile", "--no-strip", "main.plenty", "--fast-compile"],
+        ["--compile", "main.plenty", "--fast-compile", "--no-strip"],
+        ["--compile", "main.plenty", "--no-strip", "--fast-compile"],
     ];
     for binary in [env!("CARGO_BIN_EXE_plenty"), env!("CARGO_BIN_EXE_plentyc")] {
         for args in permutations {
@@ -664,15 +664,15 @@ fn release_and_no_strip_are_order_independent() {
             std::fs::remove_file(program).unwrap();
         }
         // Normalization must not weaken either flag's mode restrictions.
-        for flags in [["--release", "--no-strip"], ["--no-strip", "--release"]] {
+        for flags in [
+            ["--fast-compile", "--no-strip"],
+            ["--no-strip", "--fast-compile"],
+        ] {
             for (mode, diagnostic) in [
+                ("--check", "--fast-compile requires a compilation mode"),
                 (
-                    "--check",
-                    "--release requires FILE, --compile, --fuzz, or --dump",
-                ),
-                (
-                    "--shared-library",
-                    "--release requires FILE, --compile, --fuzz, or --dump",
+                    "--check-module",
+                    "--fast-compile requires a compilation mode",
                 ),
                 (
                     "--dump",

@@ -114,7 +114,7 @@ fn plenty(dir: &std::path::Path, args: &[&str]) -> String {
 fn rewritten_operations_match_plain_arithmetic() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("floats.plenty"), PROGRAM).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("floats.plenty");
         let out = plenty(dir.path(), &args);

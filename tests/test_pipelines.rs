@@ -275,8 +275,8 @@ def main() -> ():
     std::fs::write(&path, source).unwrap();
     for optimize in [false, true] {
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
-        if optimize {
-            command.arg("--release");
+        if !optimize {
+            command.arg("--fast-compile");
         }
         let result = command.arg("--no-cache").arg(&path).output().unwrap();
         assert!(
@@ -546,8 +546,8 @@ fn optimized_callbacks_preserve_imported_and_caller_trap_sites() {
         .unwrap();
         for optimize in [false, true] {
             let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
-            if optimize {
-                command.arg("--release");
+            if !optimize {
+                command.arg("--fast-compile");
             }
             let compiled = command
                 .args(["--no-cache", "--compile"])

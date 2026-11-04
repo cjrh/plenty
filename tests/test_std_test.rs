@@ -466,7 +466,7 @@ test result: FAILED. 4 passed; 2 failed
     // Only files with selected tests are compiled.
     std::fs::remove_dir_all(root.join("target")).unwrap();
     assert!(plenty(root, &["test", "program"]).status.success());
-    assert!(!root.join("target/debug/tests/arithmetic").exists());
+    assert!(!root.join("target/optimized/tests/arithmetic").exists());
 }
 
 #[test]
@@ -850,7 +850,7 @@ fn only_test_builds_link_the_hooks() {
 
     let output = plenty(root, &["test"]);
     assert!(output.status.success(), "{}", stderr(&output));
-    let tested = symbols(&root.join("target/debug/tests/calc/faults"));
+    let tested = symbols(&root.join("target/optimized/tests/calc/faults"));
     for hook in ["plenty_test_fault", "__wrap_malloc", "__wrap_read"] {
         assert!(tested.contains(hook), "{hook} missing from a test build");
     }
@@ -911,7 +911,7 @@ fn project_rebuilds_when_test_hooks_change() {
         };
         let output = plenty(root, &args);
         assert!(output.status.success(), "{}", stderr(&output));
-        let executable = root.join("target/debug/calc");
+        let executable = root.join("target/optimized/calc");
         assert_eq!(symbols(&executable).contains("__wrap_malloc"), instrumented);
         let output = Command::new(executable).output().unwrap();
         assert_eq!(output.status.success(), instrumented, "{}", stderr(&output));

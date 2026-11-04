@@ -6,7 +6,7 @@ program as `--emit-object` would, with no object written and nothing linked.
 
 ```text
 plenty --dump all app.plenty -o dump/
-plenty --release --dump clif-opt,asm --dump-filter parse app.plenty -o dump/
+plenty --fast-compile --dump clif-opt,asm --dump-filter parse app.plenty -o dump/
 plenty --dump asm --dump-std app.plenty -o - | less
 ```
 
@@ -15,7 +15,7 @@ plenty --dump asm --dump-std app.plenty -o - | less
 | `STAGES` | `all`, or a comma list of `ops`, `clif`, `clif-opt`, `asm` |
 | `-o DIR` | Write `index.txt` and one `STAGE.txt` per stage into `DIR`, creating it; stage files from an earlier dump that this one does not write are removed |
 | `-o -` | Print the files to standard output, each after a `#### NAME` line |
-| `--release` | Dump the code a release build produces |
+| `--fast-compile` | Dump unoptimized code; the default dump uses the optimized profile |
 | `--dump-std` | Include retained standard-library functions; unreachable standard definitions are omitted before native emission. By default only the program's own modules are dumped |
 | `--dump-filter TEXT` | Dump only functions whose name or symbol contains `TEXT` |
 | `--module-root DIR` | Resolve imports as for the other file commands |
@@ -29,7 +29,7 @@ plenty --dump asm --dump-std app.plenty -o - | less
 | `clif-opt` | Cranelift IR after its passes, as compiled to machine code |
 | `asm` | Final machine code with byte offsets: x86-64 AT&T syntax or AArch64 instructions |
 
-Without `--release`, Cranelift runs at `opt_level=none`, so `clif-opt` shows
+With `--fast-compile`, Cranelift runs at `opt_level=none`, so `clif-opt` shows
 legalized rather than optimized IR; the [native emission](emission.md) page
 describes what optimization does. Operations are printed with the compiler's
 own debug form and change with it; they are for comparison, not parsing.

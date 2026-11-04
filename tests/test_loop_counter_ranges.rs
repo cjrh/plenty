@@ -290,7 +290,7 @@ fn unproven_loop_checks_still_trap(
     );
     let dir = write(&source);
     for args in [
-        &["counters.plenty"][..],
+        &["--fast-compile", "counters.plenty"][..],
         &["--release", "counters.plenty"][..],
     ] {
         let output = plenty_output(dir.path(), args);
