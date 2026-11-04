@@ -66,7 +66,14 @@ pub class App:
                     exchange.write(&self.piece)?
             case Route.Huge:
                 mut head = std.http.response(200, "OK")?
-                head.add("Content-Length", str.from(1024 * self.piece.len())?)?
+                length = checked:
+                    1024 * self.piece.len()
+                match length:
+                    case Ok(size):
+                        head.add("Content-Length", str.from(size)?)?
+                    case Err(_):
+                        # The public piece can exceed the representable body extent.
+                        return Err(std.http.HttpError.BodyTooLarge)
                 exchange.start(head)?
                 for index in range(1024):
                     exchange.write(&self.piece)?
@@ -113,7 +120,7 @@ pub def send(stream: &mut TcpStream, raw: &str) -> Result[(), NetError]:
 
 # Reads until the text ends with `marker`, or to the end when it is empty.
 # Responses here are never pipelined, so a read cannot run past one.
-pub def until(stream: &mut TcpStream, marker: &str) -> Result[str, NetError]:
+pub def until(stream: &mut TcpStream, marker: &str) -> Result[str, NetError | OverflowError[i64]]:
     never = CancellationToken().unwrap()
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32)).unwrap()
     mut out = std.bytes.empty().unwrap()
@@ -128,15 +135,16 @@ pub def until(stream: &mut TcpStream, marker: &str) -> Result[str, NetError]:
             break
     Ok(out.to_text().unwrap().replace("\r\n", "|").unwrap())
 
-pub def fetch(port: u16, raw: &str) -> Result[str, NetError]:
+pub def fetch(port: u16, raw: &str) -> Result[str, NetError | OverflowError[i64]]:
     mut stream = connect_to(port, raw)?
     until(&mut stream, "")
 
 pub def millis_since(start: &std.time.Instant) -> u64:
-    std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // 1000000u64
+    per_millisecond: NonZero[u64] = 1000000
+    std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // per_millisecond
 
 # Open descriptors, counted through /proc. Measure with no other thread running.
-pub def descriptors() -> Result[i64, IoError]:
+pub def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
         entry?
@@ -240,7 +248,7 @@ fn replay(inputs: &[&[u8]], step: usize) -> Vec<(String, String)> {
         blob.push_str("ff");
     }
     let source = format!(
-        "{SCRIPTED}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n"
+        "{SCRIPTED}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:\n    replay(\"{blob}\", {step})?\n    Ok(())\n"
     );
     let text = output(&source);
     let cases: Vec<(String, String)> = text
@@ -292,6 +300,70 @@ fn corpus_requests_get_their_recorded_answers() {
                 String::from_utf8_lossy(input)
             );
         }
+    }
+}
+
+/// Exercise the actual public Script transport, including hostile mutable fields,
+/// without replacing the corpus or socket qualification with a helper model.
+#[test]
+fn scripted_transport_bounds_progress_and_cancellation_in_both_build_modes() {
+    let source = format!(
+        r#"{SCRIPTED}
+import std.time
+
+def out_of_range(result: Result[i64, NetError]) -> bool:
+    match result:
+        case Err(NetError.Stream(std.io.StreamError.OutOfRange)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError | NetError]:
+    never = CancellationToken()?
+    deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
+    mut stream = Script(std.bytes.from_text("abc")?, 0, 2)
+    mut buffer = std.bytes.from_text("-----")?
+    first = stream.read_before(&mut buffer, 1, 5, &deadline, &never)? == 2 and stream.at == 2 and buffer.to_text()? == "-ab--"
+    mut invalid = True
+    for position in [i64.MIN, -1, 4, i64.MAX]?:
+        stream.at = position
+        invalid = invalid and out_of_range(stream.read_before(&mut buffer, 0, 5, &deadline, &never)) and stream.at == position and buffer.to_text()? == "-ab--"
+    stream.at = 2
+    for step in [i64.MIN, -1, 0]?:
+        stream.step = step
+        invalid = invalid and out_of_range(stream.read_before(&mut buffer, 0, 5, &deadline, &never)) and stream.at == 2 and buffer.to_text()? == "-ab--"
+    stream.step = i64.MAX
+    for start, stop in [(i64.MIN, 5), (-1, 5), (3, 2), (0, 6), (0, i64.MAX)]?:
+        invalid = invalid and out_of_range(stream.read_before(&mut buffer, start, stop, &deadline, &never)) and stream.at == 2 and buffer.to_text()? == "-ab--"
+    empty = stream.read_before(&mut buffer, 3, 3, &deadline, &never)? == 0 and stream.at == 2
+    cancelled = CancellationToken()?
+    cancelled.cancel()
+    cancellation = match stream.read_before(&mut buffer, 3, 5, &deadline, &cancelled):
+        case Err(NetError.Cancelled):
+            stream.at == 2 and buffer.to_text()? == "-ab--"
+        case _:
+            False
+    last = stream.read_before(&mut buffer, 3, 5, &deadline, &never)? == 1 and stream.at == 3 and buffer.to_text()? == "-abc-"
+    end = stream.read_before(&mut buffer, 0, 5, &deadline, &never)? == 0 and stream.at == 3 and buffer.to_text()? == "-abc-"
+    print(first, invalid, empty, cancellation, last, end)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let binary = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &binary, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let ran = Command::new(binary).output().unwrap();
+        assert!(ran.status.success(), "{optimize}: {ran:?}");
+        assert_eq!(ran.stdout, b"True True True True True True\n", "{optimize}");
+        assert!(ran.stderr.is_empty(), "{optimize}: {ran:?}");
     }
 }
 
@@ -633,8 +705,9 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
             print(home.status, home.body.to_text()?)?
         mut payload = std.bytes.with_capacity(300000)?
         payload.resize(300000, 0u8)?
+        modulus: Positive[i64] = 251
         for index in range(300000):
-            payload[index] = u8(index % 251)
+            payload[index] = u8(index % modulus)
         expected = payload.copy()?
         mut source = std.io.cursor(payload)
         post = std.http.client.request("POST", &base.concat("/echo")?)?
@@ -861,7 +934,7 @@ pub class Secure:
         exchange.send_text(200, "secure")?
         Ok(())
 
-def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.tls.TlsError | AllocError | IoError]:
+def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError | std.net.NetError | RangeError | std.tls.TlsError | AllocError | IoError | OverflowError[i64]]:
     with stop.cancel_on_exit():
         never = CancellationToken()?
         deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?
@@ -891,7 +964,7 @@ def visit(port: u16, stop: CancellationToken) -> Result[(), std.bytes.BytesError
             print(answer.to_text()?.startswith("HTTP/1.1 431 "), ending)?
     Ok(())
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | std.tls.TlsError | AllocError | IoError | std.bytes.BytesError | RangeError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | std.tls.TlsError | AllocError | IoError | std.bytes.BytesError | RangeError | OverflowError[i64]]:
     table = routes()?
     stop = CancellationToken()?
     tls = std.tls.server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
@@ -920,7 +993,7 @@ fn shutdown_under_sustained_load_loses_no_response_or_resource() {
     let main = r##"
 # `late` counts whole responses read after the stop signal: requests were
 # still in flight when shutdown began.
-def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64, i64]:
+def hammer(port: u16, stop: CancellationToken) -> Result[tuple[i64, i64, i64], OverflowError[i64]]:
     mut whole = 0
     mut broken = 0
     mut late = 0
@@ -932,8 +1005,12 @@ def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64, i64]:
                     text = match until(&mut conn, "home"):
                         case Ok(found):
                             found
-                        case Err(_):
-                            ""
+                        case Err(error):
+                            match error:
+                                case overflow: OverflowError[i64]:
+                                    return Err(overflow)
+                                case _:
+                                    ""
                     # The last response on a connection adds `Connection: close`.
                     if text.startswith("HTTP/1.1 200 OK|") and text.endswith("||home"):
                         whole += 1
@@ -948,7 +1025,7 @@ def hammer(port: u16, stop: CancellationToken) -> tuple[i64, i64, i64]:
                         break
             case Err(_):
                 break
-    (whole, broken, late)
+    Ok((whole, broken, late))
 
 def stopper(stop: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(500u32))
@@ -966,7 +1043,7 @@ def faults(port: u16, stop: CancellationToken) -> ():
     std.time.sleep(&std.time.milliseconds(400u32))
     stop.cancel()
 
-def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     table = routes()?
     mut config = std.http.server.config()
     config.drain_timeout = std.time.milliseconds(2000u32)
@@ -987,7 +1064,7 @@ def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.htt
         # Stop comes at 500 ms; the drain deadline is 2 s after that.
         prompt = millis_since(&start) < 3000u64
         for pair in [a.join(), b.join(), c.join(), d.join(), e.join(), f.join()]?:
-            (got, lost, after) = pair
+            (got, lost, after) = pair?
             whole += got
             broken += lost
             late += after
@@ -997,7 +1074,7 @@ def load_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.htt
     print(summary)?
     Ok(())
 
-def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError | OverflowError[u64]]:
     table = routes()?
     mut config = std.http.server.config()
     config.idle_connections = 2
@@ -1019,7 +1096,7 @@ def fault_round() -> Result[(), std.bytes.BytesError | std.net.NetError | std.ht
 
 # Each round's values are dropped when it returns, so the heap checkpoint
 # after it sees only what the round leaked.
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError | OverflowError[i64] | OverflowError[u64]]:
     before = descriptors()?
     load_round()?
     print(descriptors()? - before)?
@@ -1030,6 +1107,7 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
     Ok(())
 "##;
     let text = output(&format!("{LOOPBACK}{main}"));
+    eprintln!("shutdown/load qualification:\n{text}");
     let lines: Vec<&str> = text.lines().collect();
     let load: Vec<&str> = lines[0].split(' ').collect();
     assert_eq!(&load[..2], ["True", "0"], "{text}");
@@ -1159,7 +1237,7 @@ def tag(result: &Result[Report, ServerError]) -> str:
         case Err(_):
             "other"
 
-def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     mut table = std.http.server.router[Route]()?
     table.add("GET", "/", Route.Home)?
     mut config = std.http.server.config()
@@ -1183,8 +1261,12 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnE
         answer = match until(&mut client, ""):
             case Ok(text):
                 text
-            case Err(_):
-                ""
+            case Err(error):
+                match error:
+                    case overflow: OverflowError[i64]:
+                        return Err(overflow)
+                    case _:
+                        ""
         served = answer.startswith("HTTP/1.1 200 OK|")
         print(tag(&outcome), served)?
         if served:
@@ -1196,6 +1278,10 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnE
 "##;
     let text = output(&format!("{LOOPBACK}{main}"));
     let lines: Vec<&str> = text.lines().collect();
+    eprintln!(
+        "accepting-thread allocation qualification: {} attempts",
+        lines.len()
+    );
     assert!(lines.len() > 20 && lines.len() < 3000, "{text}");
     assert_eq!(lines[0], "alloc False");
     assert!(
@@ -1358,6 +1444,7 @@ pub enum SummaryError:
     Open(StreamError)
     Csv(CsvError)
     Count(i64, ParseError)
+    Arithmetic(i64, OverflowError[i64])
     Allocation(AllocError)
 
 def opened[T](result: Result[T, StreamError]) -> Result[T, SummaryError]:
@@ -1394,10 +1481,16 @@ pub def summarize(path: &str, column: i64) -> Result[Json, SummaryError]:
     while csv(input.read(&mut record))?:
         match i64.parse(&csv(record.text(column))?):
             case Ok(count):
-                total += count
+                next_values = checked:
+                    (total + count, rows + 1)
+                match next_values:
+                    case Ok((next_total, next_rows)):
+                        total = next_total
+                        rows = next_rows
+                    case Err(cause):
+                        return Err(SummaryError.Arithmetic(record.number(), cause))
             case Err(cause):
                 return Err(SummaryError.Count(record.number(), cause))
-        rows += 1
     members = grown([
         Member("column", Json.Text(name)),
         Member("rows", Json.Int(rows)),
@@ -1525,14 +1618,14 @@ def run() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.
         print("requests", report.requests, "handler errors", report.handler_errors, "protocol errors", report.protocol_errors)?
     Ok(())
 
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     for entry in std.fs.entries(std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?):
         entry?
         count += 1
     Ok(count)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.http.server.ServerError | std.net.NetError | RangeError | std.bytes.BytesError | std.http.client.ClientError | OverflowError[i64]]:
     before = descriptors()?
     run()?
     print("descriptor delta", descriptors()? - before)?
@@ -1707,6 +1800,22 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
         format!(
             "error: summarize {:?}: stock::lib.SummaryError.Csv(std.csv.CsvError.Width(2, 2, 3))\n",
             malformed.display().to_string()
+        )
+    );
+    let overflow = dir.path().join("overflow.csv");
+    std::fs::write(&overflow, "item,count\npen,9223372036854775807\nbook,1\n").unwrap();
+    let overflow_output = tally(&["--column".as_ref(), "1".as_ref(), overflow.as_os_str()]);
+    assert_eq!(
+        overflow_output.status.code(),
+        Some(1),
+        "{overflow_output:?}"
+    );
+    assert!(overflow_output.stdout.is_empty(), "{overflow_output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&overflow_output.stderr),
+        format!(
+            "error: summarize {:?}: stock::lib.SummaryError.Arithmetic(3, OverflowError[i64](wrapped=-9223372036854775808))\n",
+            overflow.display().to_string()
         )
     );
     let missing = dir.path().join("missing.csv");
