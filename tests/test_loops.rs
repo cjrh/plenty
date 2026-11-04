@@ -3,10 +3,19 @@ mod support;
 use rstest::rstest;
 use std::process::Command;
 
+// Only the fragment entrypoint gains an arithmetic contract; declarations retain
+// their independent signatures and the shared fragment splitter stays unchanged.
+fn arithmetic_program(source: &str) -> String {
+    support::program(source).replace(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+    ) + "    Ok(())\n"
+}
+
 fn run(source: &str) -> std::process::Output {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    support::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(&arithmetic_program(source), &executable)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     Command::new(executable).output().unwrap()
 }
@@ -75,7 +84,7 @@ fn run(source: &str) -> std::process::Output {
     "after\n"
 )]
 #[case(
-    "def find(limit: i64) -> i64:\n    mut n = 0\n    while n < limit:\n        n = n + 1\n        if n == 3:\n            return n\n    -1\nprint(find(5)).unwrap()\nprint(find(0)).unwrap()",
+    "def find(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut n = 0\n    while n < limit:\n        n = n + 1\n        if n == 3:\n            return Ok(n)\n    Ok(-1)\nprint(find(5)?).unwrap()\nprint(find(0)?).unwrap()",
     "3\n-1\n"
 )]
 #[case(
@@ -83,7 +92,7 @@ fn run(source: &str) -> std::process::Output {
     "42\n7\n"
 )]
 #[case(
-    "def f(n: i64) -> i64:\n    while n > 0:\n        return f(n - 1)\n    42\nprint(f(100_000)).unwrap()",
+    "def f(n: i64) -> Result[i64, OverflowError[i64]]:\n    while n > 0:\n        return f(n - 1)\n    Ok(42)\nprint(f(100_000)?).unwrap()",
     "42\n"
 )]
 #[case(

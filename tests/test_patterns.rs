@@ -3,7 +3,21 @@
 //! strings, and booleans (issue #36). `_ as name` binds the whole matched value
 //! (issue #114).
 mod support;
-use support::{assert_stdout as runs, check_diagnostic as diagnostic};
+use support::check_diagnostic as diagnostic;
+
+// Give only fragment entrypoints an arithmetic contract. Each declaration is
+// still checked against its own public signature.
+fn runs(source: &str, expected: &str) {
+    let source = if source.lines().any(|line| line.starts_with("def main(")) {
+        source.to_owned()
+    } else {
+        support::program(source).replace(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64]]:",
+        ) + "    Ok(())\n"
+    };
+    support::assert_stdout(&source, expected);
+}
 
 const DECLARATIONS: &str = "enum Choice[T]:
     Empty
@@ -172,18 +186,18 @@ enum Message:
     Quit
     Text(str, list[i64])
     Wrapped(Option[str])
-def area(shape: Result[Option[Shape], str]) -> i64:
+def area(shape: Result[Option[Shape], str]) -> Result[i64, OverflowError[i64]]:
     match shape:
         case Ok(Some(Shape.Circle(radius))):
-            radius * radius * 3
+            Ok(radius * radius * 3)
         case Ok(Some(Shape.Rect(width, height))):
-            width * height
+            Ok(width * height)
         case Ok(Some(Shape.Dot)):
-            0
+            Ok(0)
         case Ok(Nothing):
-            -1
+            Ok(-1)
         case Err(_):
-            -2
+            Ok(-2)
 def text(message: Option[Message]) -> str:
     match message:
         case Some(Message.Text(body, _)):
@@ -196,12 +210,12 @@ def text(message: Option[Message]) -> str:
             "quit"
         case Nothing:
             "no message"
-def main() -> Result[(), AllocError | IoError]:
-    print(area(Ok(Some(Shape.Circle(2)))))?
-    print(area(Ok(Some(Shape.Rect(3, 4)))))?
-    print(area(Ok(Some(Shape.Dot))))?
-    print(area(Ok(Nothing)))?
-    print(area(Err("a long error message")))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(area(Ok(Some(Shape.Circle(2))))?)?
+    print(area(Ok(Some(Shape.Rect(3, 4))))?)?
+    print(area(Ok(Some(Shape.Dot)))?)?
+    print(area(Ok(Nothing))?)?
+    print(area(Err("a long error message"))?)?
     print(text(Some(Message.Text("a long message body", [1, 2, 3]?))))?
     print(text(Some(Message.Wrapped(Some("a long wrapped body")))))?
     print(text(Some(Message.Wrapped(Nothing))))?
@@ -222,16 +236,16 @@ fn unbound_parts_of_a_consumed_value_are_released_once() {
 enum Pair:
     Both(list[str], Option[list[str]])
     Neither
-def first(pair: Result[Pair, list[str]]) -> i64:
+def first(pair: Result[Pair, list[str]]) -> Result[i64, OverflowError[i64]]:
     match pair:
         case Ok(Pair.Both(_, Some(second))):
-            len(second)
+            Ok(len(second))
         case Ok(Pair.Both(first, Nothing)):
-            len(first) + 10
+            Ok(len(first) + 10)
         case Ok(Pair.Neither):
-            -1
+            Ok(-1)
         case Err(_):
-            -2
+            Ok(-2)
 def ignore(pair: Result[Pair, list[str]]) -> i64:
     match pair:
         case Ok(Pair.Both(_, Some(_))):
@@ -240,15 +254,15 @@ def ignore(pair: Result[Pair, list[str]]) -> i64:
             2
         case _:
             3
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     for round in range(3):
         a = ["one long string", "two long strings"]?
         b = ["three long strings"]?
-        print(first(Ok(Pair.Both(a, Some(b)))))?
+        print(first(Ok(Pair.Both(a, Some(b))))?)?
         c = ["four long strings", "five long strings", "six"]?
-        print(first(Ok(Pair.Both(c, Nothing))))?
-        print(first(Ok(Pair.Neither)))?
-        print(first(Err(["seven long strings"]?)))?
+        print(first(Ok(Pair.Both(c, Nothing)))?)?
+        print(first(Ok(Pair.Neither))?)?
+        print(first(Err(["seven long strings"]?))?)?
         d = ["eight long strings"]?
         e = ["nine long strings"]?
         print(ignore(Ok(Pair.Both(d, Some(e)))))?
@@ -267,40 +281,42 @@ fn a_variant_pattern_matches_through_a_box() {
 enum Tree:
     Leaf(i64)
     Node(Box[Tree], Box[Tree])
-def leftmost(tree: &Tree) -> i64:
+def leftmost(tree: &Tree) -> Result[i64, OverflowError[i64]]:
     match tree:
         case Tree.Leaf(value):
-            *value
+            Ok(*value)
         case Tree.Node(Tree.Leaf(value), _):
-            *value + 100
+            Ok(*value + 100)
         case Tree.Node(Tree.Node(left, _), _):
-            leftmost(left) + 1000
-def total(tree: Tree) -> i64:
+            Ok(leftmost(left)? + 1000)
+def total(tree: Tree) -> Result[i64, OverflowError[i64]]:
     match tree:
         case Tree.Leaf(value):
-            value
+            Ok(value)
         case Tree.Node(Tree.Leaf(left), Tree.Leaf(right)):
-            left * right
+            Ok(left * right)
         case Tree.Node(left, right):
-            total(left) + total(right)
-def grow(tree: &mut Tree) -> ():
+            Ok(total(left)? + total(right)?)
+def grow(tree: &mut Tree) -> Result[(), OverflowError[i64]]:
     match tree:
         case Tree.Node(Tree.Leaf(value), _):
             *value = *value + 1
+            Ok(())
         case Tree.Node(left, _):
             grow(left)
         case Tree.Leaf(value):
             *value = *value + 50
-def main() -> Result[(), AllocError | IoError]:
+            Ok(())
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut deep = Tree.Node(Box(Tree.Node(Box(Tree.Leaf(1))?, Box(Tree.Leaf(2))?))?, Box(Tree.Leaf(3))?)
-    print(leftmost(&deep))?
-    grow(&mut deep)
-    print(leftmost(&deep))?
-    print(total(deep))?
+    print(leftmost(&deep)?)?
+    grow(&mut deep)?
+    print(leftmost(&deep)?)?
+    print(total(deep)?)?
     mut flat = Tree.Node(Box(Tree.Leaf(5))?, Box(Tree.Leaf(6))?)
-    grow(&mut flat)
-    print(leftmost(&flat))?
-    print(total(flat))?
+    grow(&mut flat)?
+    print(leftmost(&flat)?)?
+    print(total(flat)?)?
     Ok(())
 "#,
         "1001\n1002\n7\n106\n36\n",
@@ -323,15 +339,15 @@ def writable(value: &mut Result[Result[i64, i64], i64]) -> &mut i64:
             number
 enum Pair:
     Both(Option[str], Option[list[i64]])
-def lengths(pair: &Pair) -> i64:
+def lengths(pair: &Pair) -> Result[i64, OverflowError[i64]]:
     match pair:
         case Pair.Both(Some(text), Some(numbers)):
-            len(text) + len(numbers)
+            Ok(len(text) + len(numbers))
         case Pair.Both(Some(text), Nothing):
-            len(text)
+            Ok(len(text))
         case Pair.Both(Nothing, _):
-            0
-def main() -> Result[(), AllocError | IoError]:
+            Ok(0)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut value: Result[Result[i64, i64], i64] = Ok(Err(7))
     print(*inner(&value))?
     number = writable(&mut value)
@@ -342,16 +358,16 @@ def main() -> Result[(), AllocError | IoError]:
     *other = *other + 1
     print(*inner(&value))?
     mut pair = Pair.Both(Some("a long text value"), Some([1, 2, 3]?))
-    print(lengths(&pair))?
+    print(lengths(&pair)?)?
     match &mut pair:
         case Pair.Both(Some(text), Some(numbers)):
             numbers.append(len(text))?
             *text = "short"
         case _:
             pass
-    print(lengths(&pair))?
-    print(lengths(&Pair.Both(Some("abc"), Nothing)))?
-    print(lengths(&Pair.Both(Nothing, Nothing)))?
+    print(lengths(&pair)?)?
+    print(lengths(&Pair.Both(Some("abc"), Nothing))?)?
+    print(lengths(&Pair.Both(Nothing, Nothing))?)?
     Ok(())
 "#,
         "7\n9\n4\n20\n9\n3\n0\n",
@@ -412,23 +428,23 @@ enum Level:
     High
 enum Reading:
     Both(Level, Option[i64])
-def rank(reading: Reading) -> i64:
+def rank(reading: Reading) -> Result[i64, OverflowError[i64]]:
     match reading:
         case Reading.Both(Level.Low | Level.Mid, Some(value)):
-            value
+            Ok(value)
         case Reading.Both(Level.High, Some(value)):
-            value * 10
+            Ok(value * 10)
         case Reading.Both(Level.Low | Level.High, Nothing):
-            -1
+            Ok(-1)
         case Reading.Both(Level.Mid, Nothing):
-            -2
-def main() -> Result[(), IoError]:
-    print(rank(Reading.Both(Level.Low, Some(1))))?
-    print(rank(Reading.Both(Level.Mid, Some(2))))?
-    print(rank(Reading.Both(Level.High, Some(3))))?
-    print(rank(Reading.Both(Level.Low, Nothing)))?
-    print(rank(Reading.Both(Level.Mid, Nothing)))?
-    print(rank(Reading.Both(Level.High, Nothing)))?
+            Ok(-2)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(rank(Reading.Both(Level.Low, Some(1)))?)?
+    print(rank(Reading.Both(Level.Mid, Some(2)))?)?
+    print(rank(Reading.Both(Level.High, Some(3)))?)?
+    print(rank(Reading.Both(Level.Low, Nothing))?)?
+    print(rank(Reading.Both(Level.Mid, Nothing))?)?
+    print(rank(Reading.Both(Level.High, Nothing))?)?
     Ok(())
 "#,
         "1\n2\n30\n-1\n-2\n-1\n",
@@ -444,24 +460,24 @@ enum Level:
     High(i64)
 enum Two:
     Both(Level, Level)
-def rank(pair: Two) -> i64:
+def rank(pair: Two) -> Result[i64, OverflowError[i64]]:
     match pair:
         case Two.Both(Level.Low(_), Level.Low(_)):
-            0
+            Ok(0)
         case Two.Both(Level.Low(a) | Level.High(a), Level.Low(b) | Level.High(b)):
-            a * 10 + b
-def view(pair: &Two) -> i64:
+            Ok(a * 10 + b)
+def view(pair: &Two) -> Result[i64, OverflowError[i64]]:
     match pair:
         case Two.Both(Level.Low(_), Level.Low(_)):
-            0
+            Ok(0)
         case Two.Both(Level.Low(a) | Level.High(a), Level.Low(b) | Level.High(b)):
-            *a * 10 + *b
-def main() -> Result[(), AllocError | IoError]:
+            Ok(*a * 10 + *b)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     pairs = [Two.Both(Level.Low(1), Level.Low(2)), Two.Both(Level.Low(1), Level.High(2)), Two.Both(Level.High(3), Level.Low(4)), Two.Both(Level.High(5), Level.High(6))]?
     for pair in &pairs:
-        print(view(pair))?
+        print(view(pair)?)?
     for pair in pairs:
-        print(rank(pair))?
+        print(rank(pair)?)?
     Ok(())
 "#,
         "0\n12\n34\n56\n0\n12\n34\n56\n",
@@ -477,33 +493,33 @@ enum Job[F]:
     Later(i64, F)
     Named(str, list[str])
     Skip
-def run[F: OnceCallable[[], i64]](job: Option[Job[F]]) -> i64:
+def run[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](job: Option[Job[F]]) -> Result[i64, OverflowError[i64]]:
     match job:
         case Some(Job.Now(work) | Job.Later(_, work)):
             work()
         case Some(Job.Named(_, names)):
-            len(names)
+            Ok(len(names))
         case Some(Job.Skip) | Nothing:
-            -1
-def now[F: OnceCallable[[], i64]](work: F) -> i64:
+            Ok(-1)
+def now[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](work: F) -> Result[i64, OverflowError[i64]]:
     run(Some(Job[F].Now(work)))
-def later[F: OnceCallable[[], i64]](work: F) -> i64:
+def later[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](work: F) -> Result[i64, OverflowError[i64]]:
     run(Some(Job[F].Later(0, work)))
-def unused[F: OnceCallable[[], i64]](work: F, names: list[str]) -> i64:
+def unused[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](work: F, names: list[str]) -> Result[i64, OverflowError[i64]]:
     nothing: Option[Job[F]] = Nothing
-    run(Some(Job[F].Named("a long job name", names))) * 100 + run(Some(Job[F].Skip)) * 10 + run(nothing)
-def main() -> Result[(), AllocError | IoError]:
+    Ok(run(Some(Job[F].Named("a long job name", names)))? * 100 + run(Some(Job[F].Skip))? * 10 + run(nothing)?)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     base = 40
     names = ["a long first name", "b"]?
-    first = def once [base]() -> i64:
-        base + 2
-    second = def once [base]() -> i64:
-        base - 2
-    third = def once [base]() -> i64:
-        base
-    print(now(first))?
-    print(later(second))?
-    print(unused(third, names))?
+    first = def once [base]() -> Result[i64, OverflowError[i64]]:
+        Ok(base + 2)
+    second = def once [base]() -> Result[i64, OverflowError[i64]]:
+        Ok(base - 2)
+    third = def once [base]() -> Result[i64, OverflowError[i64]]:
+        Ok(base)
+    print(now(first)?)?
+    print(later(second)?)?
+    print(unused(third, names)?)?
     Ok(())
 "#,
         "42\n38\n189\n",
@@ -517,23 +533,25 @@ fn nested_matches_work_in_loops_generators_and_tail_calls() {
 enum Step:
     Go(Option[i64])
     Stop
-def descend(state: Option[Option[i64]], depth: i64) -> i64:
+def descend(state: Option[Option[i64]], depth: i64) -> Result[i64, OverflowError[i64]]:
     match state:
         case Some(Some(value)):
             if value == 0:
-                return depth
+                return Ok(depth)
             descend(Some(Some(value - 1)), depth + 1)
         case Some(Nothing) | Nothing:
-            -1
-def steps(items: list[Step]) -> Generator[i64]:
+            Ok(-1)
+def steps(items: list[Step]) -> Generator[Result[i64, OverflowError[i64]]]:
     for item in items:
         match item:
             case Step.Go(Some(value)):
-                yield value
-                yield value * 2
+                yield Ok(value)
+                doubled: Result[i64, OverflowError[i64]] = checked:
+                    value * 2
+                yield doubled
             case Step.Go(Nothing) | Step.Stop:
-                yield -1
-def count(items: &list[Option[Step]]) -> i64:
+                yield Ok(-1)
+def count(items: &list[Option[Step]]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for item in items:
         match item:
@@ -545,12 +563,12 @@ def count(items: &list[Option[Step]]) -> i64:
                 continue
             case Some(Step.Stop) | Nothing:
                 total = total + 100
-    total
-def main() -> Result[(), AllocError | IoError]:
-    print(descend(Some(Some(2000000)), 0))?
+    Ok(total)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(descend(Some(Some(2000000)), 0)?)?
     for value in steps([Step.Go(Some(3)), Step.Stop, Step.Go(Nothing), Step.Go(Some(4))]?):
-        print(value)?
-    print(count(&[Some(Step.Go(Some(1))), Some(Step.Go(Nothing)), Nothing, Some(Step.Stop), Some(Step.Go(Some(11))), Nothing]?))?
+        print(value?)?
+    print(count(&[Some(Step.Go(Some(1))), Some(Step.Go(Nothing)), Nothing, Some(Step.Stop), Some(Step.Go(Some(11))), Nothing]?)?)?
     Ok(())
 "#,
         "2000000\n3\n6\n-1\n-1\n4\n8\n201\n",
@@ -564,7 +582,7 @@ fn nested_exclusive_matches_change_payloads_in_place() {
 class Counter:
     count: i64
     last: Option[Result[str, i64]]
-    def record(self: &mut Counter) -> i64:
+    def record(self: &mut Counter) -> Result[i64, OverflowError[i64]]:
         match &mut self.last:
             case Some(Ok(text)):
                 *text = "replaced text value"
@@ -573,8 +591,8 @@ class Counter:
                 *code = *code + 1
             case Nothing:
                 pass
-        self.count
-def fill(nested: &mut Option[Option[Option[i64]]]) -> ():
+        Ok(self.count)
+def fill(nested: &mut Option[Option[Option[i64]]]) -> Result[(), OverflowError[i64]]:
     match nested:
         case Some(Some(Some(value))):
             *value = *value + 1
@@ -584,16 +602,17 @@ def fill(nested: &mut Option[Option[Option[i64]]]) -> ():
             *outer = Some(Nothing)
         case Nothing:
             pass
-def main() -> Result[(), IoError]:
+    Ok(())
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut counter = Counter(0, Some(Ok("original text value")))
-    print(counter.record())?
+    print(counter.record()?)?
     print(counter.last)?
     counter.last = Some(Err(4))
-    print(counter.record())?
+    print(counter.record()?)?
     print(counter.last)?
     mut nested: Option[Option[Option[i64]]] = Some(Nothing)
     for round in range(3):
-        fill(&mut nested)
+        fill(&mut nested)?
         print(nested)?
     Ok(())
 "#,
@@ -888,18 +907,18 @@ def borrowed(t: &Token) -> i64:
         case _:
             0
 
-def area(shape: Option[Shape]) -> i64:
+def area(shape: Option[Shape]) -> Result[i64, OverflowError[i64]]:
     match shape:
         case Some(Shape.Rect(0, _) | Shape.Rect(_, 0)):
-            0
+            Ok(0)
         case Some(Shape.Rect(w, h)):
-            w * h
+            Ok(w * h)
         case Some(Shape.Circle(1)):
-            3
+            Ok(3)
         case Some(Shape.Circle(r)):
-            3 * r * r
+            Ok(3 * r * r)
         case Some(Shape.Dot) | Nothing:
-            -1
+            Ok(-1)
 
 def by_ref(n: &i64, s: &str) -> i64:
     match n:
@@ -912,7 +931,7 @@ def by_ref(n: &i64, s: &str) -> i64:
         case _:
             0
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(op("cpy"))?
     print(op("dec"))?
     print(op("zzz"))?
@@ -937,12 +956,12 @@ def main() -> Result[(), AllocError | IoError]:
     print(borrowed(&w))?
     print(borrowed(&Token.Word("if")))?
     print(borrowed(&Token.Number(3u8)))?
-    print(area(Some(Shape.Rect(0, 4))))?
-    print(area(Some(Shape.Rect(4, 0))))?
-    print(area(Some(Shape.Rect(4, 5))))?
-    print(area(Some(Shape.Circle(1))))?
-    print(area(Some(Shape.Circle(2))))?
-    print(area(Nothing))?
+    print(area(Some(Shape.Rect(0, 4)))?)?
+    print(area(Some(Shape.Rect(4, 0)))?)?
+    print(area(Some(Shape.Rect(4, 5)))?)?
+    print(area(Some(Shape.Circle(1)))?)?
+    print(area(Some(Shape.Circle(2)))?)?
+    print(area(Nothing)?)?
     five = 5
     name = "five"
     print(by_ref(&five, &name))?
@@ -998,7 +1017,7 @@ class Machine:
     mode: str
     count: u16
 
-def run(program: &list[Instr]) -> Result[i64, AllocError]:
+def run(program: &list[Instr]) -> Result[i64, AllocError | OverflowError[i64]]:
     mut stack: list[i64] = []?
     mut total = 0
     for instr in program:
@@ -1023,7 +1042,7 @@ def run(program: &list[Instr]) -> Result[i64, AllocError]:
                 total = total + len(label) + *n
     Ok(total + len(stack))
 
-def bump(instr: &mut Instr) -> ():
+def bump(instr: &mut Instr) -> Result[(), OverflowError[i64]]:
     match instr:
         case Instr.Push(0):
             pass
@@ -1033,8 +1052,9 @@ def bump(instr: &mut Instr) -> ():
             *n = 0
         case _:
             pass
+    Ok(())
 
-def consume(instr: Instr) -> Result[i64, AllocError]:
+def consume(instr: Instr) -> Result[i64, AllocError | OverflowError[i64]]:
     match instr:
         case Instr.Pair(1, items):
             Ok(len(items))
@@ -1069,7 +1089,7 @@ def classify(xs: &list[i64]) -> str:
                 case False:
                     "differ"
 
-def words(text: str) -> Result[i64, AllocError]:
+def words(text: str) -> Result[i64, AllocError | OverflowError[i64]]:
     mut n = 0
     mut i = 0
     while i < 1000:
@@ -1083,19 +1103,19 @@ def words(text: str) -> Result[i64, AllocError]:
         i = i + 1
     Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     program = [Instr.Push(0), Instr.Push(5), Instr.Op("add"), Instr.Op("other"), Instr.Pair(1, [1, 2, 3]?), Instr.Pair(2, [1]?), Instr.Jump("abc", 4), Instr.Op("stop"), Instr.Op("add")]?
     print(run(&program)?)?
     early = [Instr.Jump("stop", 9)]?
     print(run(&early)?)?
     mut a = Instr.Push(1)
-    bump(&mut a)
+    bump(&mut a)?
     print(a)?
     mut b = Instr.Jump("a", 7)
-    bump(&mut b)
+    bump(&mut b)?
     print(b)?
     mut c = Instr.Push(0)
-    bump(&mut c)
+    bump(&mut c)?
     print(c)?
     print(consume(Instr.Pair(1, [1, 2]?))?)?
     print(consume(Instr.Pair(3, [1, 2]?))?)?
@@ -1229,7 +1249,7 @@ def c(n: &Box[str]) -> i64:
         case _:
             0
 
-def d(xs: &list[str]) -> Result[i64, AllocError]:
+def d(xs: &list[str]) -> Result[i64, AllocError | OverflowError[i64]]:
     mut total = 0
     for x in xs:
         match x:
@@ -1239,7 +1259,7 @@ def d(xs: &list[str]) -> Result[i64, AllocError]:
                 total = total + 10
     Ok(total)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut n = 1
     print(a(&mut n))?
     print(n)?
@@ -1416,7 +1436,7 @@ fn a_literal_takes_the_type_of_the_value_it_matches() {
         "13:19: a string pattern cannot match a value of type i64"
     );
     runs(
-        "def f(value: i64) -> i64:\n    match value:\n        case -9223372036854775808 | 0i64 | 9223372036854775807:\n            0\n        case _:\n            1\ndef main() -> Result[(), IoError]:\n    print((f(-9223372036854775807 - 1), f(5)))?\n    Ok(())\n",
+        "def f(value: i64) -> i64:\n    match value:\n        case -9223372036854775808 | 0i64 | 9223372036854775807:\n            0\n        case _:\n            1\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print((f(-9223372036854775807 - 1), f(5)))?\n    Ok(())\n",
         "(0, 1)\n",
     );
 }
@@ -1482,22 +1502,22 @@ fn case_for(variant: usize) -> String {
 fn a_large_enum_matches_each_variant_by_name() {
     // Cases in reverse order, so neither declaration order nor name order
     // is the order the cases name the variants in.
-    let mut source = many_kinds();
+    let mut source = many_kinds().replace("-> i64:", "-> Result[i64, OverflowError[i64]]:");
     for variant in (0..MANY).rev() {
         source.push_str(&if variant % 2 == 1 {
-            format!("        case Kind.V{variant}(n):\n            n * 100 + {variant}\n")
+            format!("        case Kind.V{variant}(n):\n            Ok(n * 100 + {variant})\n")
         } else {
-            format!("        case Kind.V{variant}:\n            {variant}\n")
+            format!("        case Kind.V{variant}:\n            Ok({variant})\n")
         });
     }
     source.push_str(
-        "def main() -> Result[(), IoError]:
-    print(pick(Kind.V0))?
-    print(pick(Kind.V2))?
-    print(pick(Kind.V10))?
-    print(pick(Kind.V17(5)))?
-    print(pick(Kind.V38))?
-    print(pick(Kind.V39(2)))?
+        "def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(pick(Kind.V0)?)?
+    print(pick(Kind.V2)?)?
+    print(pick(Kind.V10)?)?
+    print(pick(Kind.V17(5))?)?
+    print(pick(Kind.V38)?)?
+    print(pick(Kind.V39(2))?)?
     Ok(())
 ",
     );
@@ -1639,19 +1659,19 @@ def keep(item: Item) -> Item:
             Item.Empty
         case _ as rest:
             rest
-def number(value: i64) -> i64:
+def number(value: i64) -> Result[i64, OverflowError[i64]]:
     match value:
         case 0:
-            100
+            Ok(100)
         case _ as other:
-            other + 1
+            Ok(other + 1)
 def word(value: str) -> str:
     match value:
         case "a long string to compare":
             "first"
         case _ as other:
             other
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     for round in range(3):
         print(forward(Item.Empty))?
         print(forward(Item.Count(4)))?
@@ -1664,8 +1684,8 @@ def main() -> Result[(), AllocError | IoError]:
         print(nested(Nothing))?
         print(keep(Item.Names(["five long strings"]?)))?
         print(keep(Item.Count(1)))?
-        print(number(0))?
-        print(number(5))?
+        print(number(0)?)?
+        print(number(5)?)?
         print(word("a long string to compare"))?
         print(word("another long string value"))?
     Ok(())
@@ -1813,16 +1833,16 @@ fn a_whole_value_binding_is_explicit_and_stands_alone() {
 fn tuple_patterns_match_nested_products_and_prove_product_coverage() {
     runs(
         r#"
-def pair(left: Option[i64], right: Option[i64]) -> i64:
+def pair(left: Option[i64], right: Option[i64]) -> Result[i64, OverflowError[i64]]:
     match (left, right):
         case (Some(a), Some(b)):
-            a + b
+            Ok(a + b)
         case (Some(a), Nothing):
-            a
+            Ok(a)
         case (Nothing, Some(b)):
-            b
+            Ok(b)
         case (Nothing, Nothing):
-            0
+            Ok(0)
 def nested(value: Option[((i64, bool),)]) -> i64:
     match value:
         case Some((((n), True),)):
@@ -1831,8 +1851,8 @@ def nested(value: Option[((i64, bool),)]) -> i64:
             0
         case Nothing:
             -1
-print(pair(Some(3), Some(4))).unwrap()
-print(pair(Nothing, Some(4))).unwrap()
+print(pair(Some(3), Some(4))?).unwrap()
+print(pair(Nothing, Some(4))?).unwrap()
 print(nested(Some(((8, True),)))).unwrap()
 "#,
         "7\n4\n8\n",
@@ -1857,11 +1877,12 @@ class Resource:
     id: i64
     def __del__(self: &mut Resource) -> ():
         print(self.id).unwrap()
-def consume(value: (Resource, (Resource, Resource))) -> ():
+def consume(value: (Resource, (Resource, Resource))) -> Result[(), OverflowError[i64]]:
     match value:
         case (a, (_, c)):
             print(a.id + c.id).unwrap()
-consume((Resource(1), (Resource(2), Resource(3))))
+    Ok(())
+consume((Resource(1), (Resource(2), Resource(3))))?
 mut value = ((1, 2), 3)
 match &mut value:
     case ((a, b), c):

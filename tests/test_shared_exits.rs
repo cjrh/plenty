@@ -188,17 +188,26 @@ def run(fail: i64) -> Option[i64]:
         with Scope("inner"):
             d = Guard("d")
             w = step(3, fail)?
-            print(z + w).unwrap()
+            # step returns its first argument: these successful values are 2 and 3.
+            total = unchecked:
+                z + w
+            print(total).unwrap()
             if fail == 4:
                 return Some(-1)
         e = Guard("e")
         v = step(5, fail)?
-        print(v + len(c.name) + len(e.name)).unwrap()
+        # v is step(5); both immutable guard names contain one scalar.
+        total = unchecked:
+            v + len(c.name) + len(e.name)
+        print(total).unwrap()
     moved = Guard("moved")
     keep(moved)
     f = Guard("f")
     u = step(6, fail)?
-    Some(x + y + u + len(a.name) + len(b.name) + len(f.name))
+    # Successful steps fix x=0, y=1, u=6; the three names have length one.
+    total = unchecked:
+        x + y + u + len(a.name) + len(b.name) + len(f.name)
+    Some(total)
 
 def main() -> ():
     for fail in range(8):
@@ -282,7 +291,7 @@ def returns(stop: i64) -> i64:
         return 5
     6
 
-def breaks(stop: i64) -> i64:
+def breaks(stop: i64) -> Result[i64, OverflowError[i64]]:
     a = Guard("a")
     mut n = 0
     for i in range(3):
@@ -306,7 +315,7 @@ def breaks(stop: i64) -> i64:
             break
         n += 1
     f = Guard("f")
-    n
+    Ok(n)
 
 def finish(n: i64) -> i64:
     print("finish", n).unwrap()
@@ -326,16 +335,17 @@ def tails(stop: i64) -> i64:
         return finish(2)
     finish(3)
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     for stop in range(7):
         print("returns", stop).unwrap()
         print("result", returns(stop)).unwrap()
     for stop in [0, 10, 21, 100, 111, 99].unwrap():
         print("breaks", stop).unwrap()
-        print("result", breaks(stop)).unwrap()
+        print("result", breaks(stop)?).unwrap()
     for stop in range(4):
         print("tails", stop).unwrap()
         print("result", tails(stop)).unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -393,7 +403,7 @@ def show(g: &Guard) -> ():
 def keep(g: Guard) -> ():
     print("keep", g.name).unwrap()
 
-def continues(stop: i64) -> i64:
+def continues(stop: i64) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for i in range(2):
         a = Guard("a")
@@ -414,7 +424,7 @@ def continues(stop: i64) -> i64:
                 show(&e)
             n += 1
         n += 10
-    n
+    Ok(n)
 
 def zero(n: i64) -> i64:
     print("zero", n).unwrap()
@@ -438,13 +448,14 @@ def tails(stop: i64) -> i64:
         return zero(2)
     one(3)
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     for stop in [0, 1, 10, 101, 99].unwrap():
         print("continues", stop).unwrap()
-        print("result", continues(stop)).unwrap()
+        print("result", continues(stop)?).unwrap()
     for stop in range(4):
         print("tails", stop).unwrap()
         print("result", tails(stop)).unwrap()
+    Ok(())
 "#,
     );
     assert!(
