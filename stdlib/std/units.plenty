@@ -222,6 +222,7 @@ pub const day: Quantity[f64, Time] = 86400.0 * s
 pub const hectare: Quantity[f64, Area] = 1e4 * (m * m)
 pub const litre: Quantity[f64, Volume] = 1e-3 * (m * m * m)
 pub const millilitre: Quantity[f64, Volume] = 1e-6 * (m * m * m)
+pub const cubic_metre: Quantity[f64, Volume] = m * m * m
 pub const tonne: Quantity[f64, Mass] = 1e3 * kg
 pub const dalton: Quantity[f64, Mass] = m_u
 pub const eV: Quantity[f64, Energy] = e * V
@@ -239,6 +240,7 @@ pub const foot: Quantity[f64, Length] = 0.3048 * m
 pub const yard: Quantity[f64, Length] = 0.9144 * m
 pub const mile: Quantity[f64, Length] = 1609.344 * m
 pub const nautical_mile: Quantity[f64, Length] = 1852.0 * m
+pub const angstrom: Quantity[f64, Length] = 1e-10 * m
 pub const light_year: Quantity[f64, Length] = 9460730472580800.0 * m
 pub const parsec: Quantity[f64, Length] = (648000.0 / f64.PI) * au
 pub const acre: Quantity[f64, Area] = 4046.8564224 * (m * m)
@@ -247,6 +249,8 @@ pub const pound: Quantity[f64, Mass] = 0.45359237 * kg
 pub const ounce: Quantity[f64, Mass] = pound / 16.0
 pub const pound_force: Quantity[f64, Force] = 0.45359237 * 9.80665 * N
 pub const knot: Quantity[f64, Velocity] = nautical_mile / hour
+pub const km_per_hour: Quantity[f64, Velocity] = km / hour
+pub const mph: Quantity[f64, Velocity] = mile / hour
 pub const psi: Quantity[f64, Pressure] = pound_force / (inch * inch)
 pub const torr: Quantity[f64, Pressure] = atm / 760.0
 pub const mmHg: Quantity[f64, Pressure] = 133.322387415 * Pa
@@ -254,6 +258,9 @@ pub const calorie: Quantity[f64, Energy] = 4.184 * J
 pub const kilocalorie: Quantity[f64, Energy] = 4184.0 * J
 pub const btu: Quantity[f64, Energy] = 1055.05585262 * J
 pub const horsepower: Quantity[f64, Power] = 550.0 * foot * pound_force / s
+pub const week: Quantity[f64, Time] = 7.0 * day
+# The 365-day calendar year of SP 811, not the Julian year of light_year.
+pub const year: Quantity[f64, Time] = 365.0 * day
 
 # Functions. Storage is f64 for those built on std.math, which is f64-only;
 # abs and clamp accept every storage type. std.math.min, max, min_all and sum

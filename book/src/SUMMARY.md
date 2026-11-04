@@ -489,6 +489,7 @@
         - [`std.xml`](design/stdlib/xml.md)
         - [`std.unicode`](design/stdlib/unicode.md)
         - [`std.units`](design/stdlib/units.md)
+            - [`std.units.catalogue`](design/stdlib/units-catalogue.md)
         - [`std.url`](design/stdlib/url.md)
         - [`std.uuid`](design/stdlib/uuid.md)
     - [Toolchain and implementation](design/toolchain/index.md)

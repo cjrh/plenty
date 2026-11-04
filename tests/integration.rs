@@ -584,6 +584,8 @@ mod test_std_tls;
 mod test_std_toml;
 #[path = "test_std_units.rs"]
 mod test_std_units;
+#[path = "test_std_units_catalogue.rs"]
+mod test_std_units_catalogue;
 #[path = "test_std_url.rs"]
 mod test_std_url;
 #[path = "test_std_uuid.rs"]

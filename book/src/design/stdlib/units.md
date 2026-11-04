@@ -72,15 +72,15 @@ use names. Micro is written `u`: `um`, `us`, `uF`.
 | Dimension | Units |
 |---|---|
 | `Mass` | `ug`, `mg`, `g`, `kg`, `tonne`, `dalton`, `pound`, `ounce` |
-| `Length` | `pm`, `nm`, `um`, `mm`, `cm`, `m`, `km`, `inch`, `foot`, `yard`, `mile`, `nautical_mile`, `au`, `light_year`, `parsec` |
-| `Time` | `ps`, `ns`, `us`, `ms`, `s`, `minute`, `hour`, `day` |
+| `Length` | `pm`, `nm`, `um`, `mm`, `cm`, `m`, `km`, `inch`, `foot`, `yard`, `mile`, `nautical_mile`, `angstrom`, `au`, `light_year`, `parsec` |
+| `Time` | `ps`, `ns`, `us`, `ms`, `s`, `minute`, `hour`, `day`, `week`, `year` |
 | `Current` | `uA`, `mA`, `A`, `kA` |
 | `Temperature` | `mK`, `K`, `rankine` |
 | `Amount` | `umol`, `mmol`, `mol`, `kmol` |
 | `Luminosity` | `cd`, `lm` |
 | `One` | `rad`, `sr`, `degree`, `arcminute`, `arcsecond` |
-| `Area`, `Volume` | `hectare`, `acre`; `litre`, `millilitre`, `gallon` (US liquid) |
-| `Velocity` | `knot` |
+| `Area`, `Volume` | `hectare`, `acre`; `litre`, `millilitre`, `cubic_metre`, `gallon` (US liquid) |
+| `Velocity` | `km_per_hour`, `mph`, `knot` |
 | `Frequency` | `Hz`, `kHz`, `MHz`, `GHz`, `Bq` |
 | `Force` | `mN`, `N`, `kN`, `MN`, `pound_force` |
 | `Pressure` | `Pa`, `hPa`, `kPa`, `MPa`, `GPa`, `mbar`, `bar`, `atm`, `torr`, `mmHg`, `psi` |
@@ -97,9 +97,13 @@ There is no milliohm constant, because `mohm` could be read as milli or mega;
 write `1e-3 * u.ohm`. Angles are dimensionless, as in SI, so `u.degree` is
 `Quantity[f64, One]` holding π/180. `calorie` is the thermochemical calorie
 (4.184 J), `btu` the International Table BTU, `horsepower` the mechanical
-horsepower (550 ft·lbf/s) and `mmHg` the conventional millimetre of mercury.
-Celsius and Fahrenheit are not units here; see
+horsepower (550 ft·lbf/s), `mmHg` the conventional millimetre of mercury and
+`year` 365 days. Celsius and Fahrenheit are not units here; see
 [temperature](#temperature-and-time).
+
+[`std.units.catalogue`](units-catalogue.md) adds every SI prefix on every SI
+unit and the other named units of NIST SP 811. It is a separate module so that
+only programs importing it pay for its 768 constants.
 
 ## Constants
 
@@ -280,7 +284,6 @@ True
   converts with `Quantity[f32, D].from(q)`.
 - `wrap_list` and `strip_list` take `f64` storage only.
 - Named units are not printed: a joule prints as `kg*m^2/s^2`.
-- Generic functions that differ only in dimension compile to separate bodies.
 
 ## Acknowledgements
 

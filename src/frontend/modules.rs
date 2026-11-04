@@ -35,6 +35,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/complex.plenty"),
     ),
     ("std.units", include_str!("../../stdlib/std/units.plenty")),
+    (
+        "std.units.catalogue",
+        include_str!("../../stdlib/std/units/catalogue.plenty"),
+    ),
     ("std.plot", include_str!("../../stdlib/std/plot.plenty")),
     ("std.actor", include_str!("../../stdlib/std/actor.plenty")),
     (
