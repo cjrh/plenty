@@ -4,7 +4,7 @@ Use `while` when a condition determines how long to repeat. The condition must
 be `bool`, and it is checked before every iteration, including the first:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut remaining = 3
     while remaining > 0:
         print(remaining)?
@@ -23,7 +23,7 @@ go
 `continue` skips the rest of the current iteration. `break` exits the loop:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     mut n = 0
     while True:
         n = n + 1

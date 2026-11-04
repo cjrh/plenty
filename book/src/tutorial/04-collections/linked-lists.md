@@ -41,7 +41,7 @@ pub def pop(xs: &mut Linked) -> Option[i64]:
         case Nothing:
             Nothing
 
-pub def bump(xs: &mut Linked) -> ():
+pub def bump(xs: &mut Linked) -> Result[(), OverflowError[i64]]:
     match &mut xs.head:
         case Some(head):
             mut cursor: &mut Node = head
@@ -54,6 +54,7 @@ pub def bump(xs: &mut Linked) -> ():
                         break
         case Nothing:
             pass
+    Ok(())
 ```
 
 `replace(place, replacement)` installs a new value and returns the old one.
@@ -68,17 +69,19 @@ back to the list before the removed node is destroyed.
 
 In `bump`, matching `&mut` borrows rather than consumes each link. A borrowed
 box converts to a reference to its contents, so `cursor` can advance from one
-node to its successor without copying or recursion. This is a preview of
+node to its successor without copying or recursion. Incrementing a value can
+overflow, so `bump` returns a `Result`. Earlier nodes remain changed if a later
+node fails; this traversal is not transactional. This is a preview of
 [borrowed matching](../06-data/08-borrowed-matching.md).
 
 ```plenty
 from singly import Linked, push, pop, bump
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = Linked(Nothing)
     for value in range(1, 4):
         push(&mut xs, value)?
-    bump(&mut xs)
+    bump(&mut xs)?
     print(pop(&mut xs))?
     print(pop(&mut xs))?
     print(pop(&mut xs))?

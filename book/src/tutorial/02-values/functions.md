@@ -3,12 +3,12 @@
 Every parameter and return type must be declared:
 
 ```plenty
-def double(value: i64) -> i64:
+def double(value: i64) -> Result[i64, OverflowError[i64]]:
     """Return twice the supplied value."""
-    value * 2
+    Ok(value * 2)
 
-def main() -> Result[(), IoError]:
-    print(double(21))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(double(21)?)?
     Ok(())
 ```
 
@@ -16,9 +16,13 @@ def main() -> Result[(), IoError]:
 42
 ```
 
-`value: i64` declares the parameter type; `-> i64` declares the return type.
-The final expression supplies the result, or you can write an explicit
-`return value * 2`. Parameters are immutable.
+`value: i64` declares the parameter type. The return type
+`Result[i64, OverflowError[i64]]` describes either a doubled integer or overflow.
+`Ok(value * 2)` supplies success; the multiplication returns an error from
+`double` if it cannot fit. You can also write `return Ok(value * 2)`.
+The caller uses `double(21)?` to obtain the successful integer or pass the error
+onward. Parameters are immutable. See [recoverable errors](../03-absence/result.md)
+for handling either outcome explicitly.
 
 Indent statements in the same block equally, using spaces. Tabs are rejected.
 
@@ -30,12 +34,12 @@ Functions are known throughout the file, so one function may call a function
 declared later. Name arguments when that makes their meaning clearer:
 
 ```plenty
-def rectangle(width: i64, height: i64 = 2) -> i64:
-    width * height
+def rectangle(width: i64, height: i64 = 2) -> Result[i64, OverflowError[i64]]:
+    Ok(width * height)
 
-def main() -> Result[(), IoError]:
-    print(rectangle(height=3, width=4))?
-    print(rectangle(4))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(rectangle(height=3, width=4)?)?
+    print(rectangle(4)?)?
     Ok(())
 ```
 

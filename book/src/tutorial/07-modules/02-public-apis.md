@@ -13,8 +13,9 @@ pub class Counter:
     pub def __init__(self, start: i64) -> ():
         self.value = start
 
-    pub def increment(self: &mut Counter) -> ():
+    pub def increment(self: &mut Counter) -> Result[(), OverflowError[i64]]:
         self.value = self.value + 1
+        Ok(())
 
     pub def read(self) -> i64:
         self.value
@@ -28,9 +29,9 @@ Application:
 ```plenty
 from counter import Counter
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut count = Counter(41)
-    count.increment()
+    count.increment()?
     print(count.read())?
     Ok(())
 ```

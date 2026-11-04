@@ -34,7 +34,7 @@ List construction, copying, and growth return allocation
 Collections can nest. Update an inner list directly through its indices:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut rows = [[1, 2]?, [3]?]?
     rows[0][-1] += 7
     print(rows)?

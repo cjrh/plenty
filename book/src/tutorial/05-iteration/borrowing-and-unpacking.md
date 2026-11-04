@@ -3,19 +3,19 @@
 Borrow a list when a helper needs to inspect or mutate it without taking ownership:
 
 ```plenty
-def total(values: &list[i64]) -> i64:
+def total(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for value in values:
         result = result + value
-    result
+    Ok(result)
 
 def add(values: &mut list[i64], value: i64) -> Result[(), AllocError]:
     values.append(value)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut numbers = [1, 2]?
-    print(total(numbers))?
+    print(total(numbers)?)?
     add(&mut numbers, 3)?
     print(numbers)?
     Ok(())
@@ -56,7 +56,7 @@ and `word` a `&str`. Over `&mut pairs`, the names are `&mut` references, so
 the loop can change the tuples:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut pairs = [(1, "one"), (2, "two")]?
     for number, _ in &mut pairs:
         *number *= 10
@@ -95,7 +95,7 @@ Tuple targets can nest. Each name still borrows its own component when the
 source is borrowed:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut rows = [((1, 2), "point")]?
     x = 99
     for (x, y), _ in &mut rows:

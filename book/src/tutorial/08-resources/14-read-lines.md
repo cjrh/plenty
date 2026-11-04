@@ -7,7 +7,7 @@ terminating newline. Unlike `input()`, line reading retains that terminator.
 Run this in a scratch directory: it replaces `plenty-lines.txt`.
 
 ```plenty
-def count_lines() -> Result[i64, IoError]:
+def count_lines() -> Result[i64, IoError | OverflowError[i64]]:
     write_text("plenty-lines.txt", "first\r\n\rfinal")?
     mut count = 0
     with open("plenty-lines.txt")? as file:
@@ -18,7 +18,7 @@ def count_lines() -> Result[i64, IoError]:
             count = count + 1
     Ok(count)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(count_lines()?)?
     Ok(())
 ```

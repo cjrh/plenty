@@ -24,7 +24,7 @@ Two list elements written as different number literals are different places, so
 both can be borrowed at once:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [10, 20, 30]?
     first = &mut scores[0]
     last = &mut scores[2]
@@ -41,7 +41,7 @@ The compiler proves only this literal case. Any other index, such as `i` or
 `-1`, may name the same element, so its loan covers the whole list:
 
 ```plenty-error
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [10, 20, 30]?
     i = 2
     first = &mut scores[0]
@@ -61,17 +61,17 @@ Printing and comparison inspect those references directly. Use `*` when a
 function takes a value or a new collection needs the element itself:
 
 ```plenty
-def count_eq[T](values: &list[T], target: &T) -> i64:
+def count_eq[T](values: &list[T], target: &T) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     for value in values:
         if value == target:
             count = count + 1
-    count
+    Ok(count)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [1, 2, 1]?
     target = 1
-    print(count_eq(&values, &target))?
+    print(count_eq(&values, &target)?)?
     for value in &values:
         print(*value)?
     Ok(())
@@ -95,19 +95,19 @@ nothing, so unlike a [copying slice](slices.md) it needs no `?`. A function
 takes a view as `&[T]`, or as `&mut [T]` to change the elements:
 
 ```plenty
-def total(values: &[i64]) -> i64:
+def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in values:
         sum += *value
-    sum
+    Ok(sum)
 
 def reset(values: &mut [i64]) -> ():
     for value in values:
         *value = 0
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [70, 85, 90, 65, 88]?
-    print(total(&scores), total(&scores[1:]))?
+    print(total(&scores)?, total(&scores[1:])?)?
     reset(&mut scores[:2])
     print(scores)?
     Ok(())
@@ -126,7 +126,7 @@ run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | ZeroDivisionError | OverflowError[i64]]:
     mut scores = [70, 85, 90, 65, 88]?
     half = len(scores) // 2
     low = &mut scores[:half]
@@ -153,18 +153,18 @@ its positions count characters, as a [copying string slice](slices.md#text)'s
 do. Loop over it, compare it with a string, or search it without copying:
 
 ```plenty
-def count(text: &substr, letter: &str) -> i64:
+def count(text: &substr, letter: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == letter:
             n += 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     line = "name: Ada Lovelace"
     value = &line[6:]
     print(value, len(value))?
-    print(&line[:4] == "name", "Love" in value, count(&line, "a"))?
+    print(&line[:4] == "name", "Love" in value, count(&line, "a")?)?
     first = value[:3]?
     print(first)?
     Ok(())

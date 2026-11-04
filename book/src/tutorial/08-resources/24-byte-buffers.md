@@ -9,20 +9,20 @@ use its ordinary list operations and element references when those suit the task
 import std.bytes
 from std.bytes import Bytes, BytesError
 
-def checksum(view: &Bytes, start: i64, stop: i64) -> i64:
+def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for index in range(start, stop):
         total += i64(view.get(index))
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | IoError | BytesError]:
+def main() -> Result[(), AllocError | IoError | BytesError | OverflowError[i64]]:
     mut frame = std.bytes.with_capacity(8)?
     frame.push(2u8)?
     frame.extend(&std.bytes.from_text("hi")?)?
     frame.push(0u8)?
     frame.push(255u8)?
     print(frame.len(), frame.capacity(), frame)?
-    print(checksum(&frame, 1, 3))?
+    print(checksum(&frame, 1, 3)?)?
     payload = frame.slice(1, 3)?
     print(payload.to_text()?)?
     print(str.repr(frame.to_text())?)?
@@ -96,7 +96,7 @@ end of a run, and `matches_text` compares in place without copying.
 ```plenty
 import std.bytes
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64]]:
     line = std.bytes.from_text("name=Ada;  role=engineer")?
     stops = std.bytes.from_text("=;")?
     blank = std.bytes.from_text(" ")?
@@ -130,7 +130,7 @@ without consuming the buffer:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[u8] | OverflowError[i64]]:
     mut word = std.bytes.from_text("plenty")?
     word[0] = 80u8
     word[-1] -= 32u8
@@ -167,7 +167,7 @@ iteration:
 ```plenty
 import std.bytes
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     magic = b"\x89PNG"
     print(magic, len(magic), magic[1])?
     mut total = 0

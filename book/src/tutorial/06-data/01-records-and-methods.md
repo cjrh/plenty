@@ -8,17 +8,20 @@ class Point:
     x: i64
     y: i64
 
-    def squared_length(self) -> i64:
-        self.x * self.x + self.y * self.y
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y)
 
-    def shift(self: &mut Point, amount: i64) -> ():
-        self.x = self.x + amount
-        self.y = self.y + amount
+    def shift(self: &mut Point, amount: i64) -> Result[(), OverflowError[i64]]:
+        x = self.x + amount
+        y = self.y + amount
+        self.x = x
+        self.y = y
+        Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut point = Point(y=4, x=3)
-    print(point.squared_length())?
-    point.shift(amount=1)
+    print(point.squared_length()?)?
+    point.shift(amount=1)?
     mut changed = copy(point)?
     changed.x = 20
     print(point)?
@@ -34,7 +37,9 @@ Point(x=20, y=5)
 
 Ordinary methods borrow `self` read-only by default: `self` is shorthand for
 `self: &Point` here. A method that changes fields declares `self: &mut Point`.
-Calling it requires a `mut` binding or an exclusive reference.
+Calling it requires a `mut` binding or an exclusive reference. `shift` calculates
+both coordinates before changing either, so overflow leaves the point unchanged.
+Arithmetic failure does not undo earlier assignments automatically.
 An explicit `self: Point` instead takes ownership; see
 [consuming methods](consuming-methods.md) for state transitions and finalization.
 
@@ -45,12 +50,12 @@ own method, including its parameter and return types:
 class Counter:
     total: i64
 
-    def wrapping_add(self: &Counter, other: i64) -> i64:
-        self.total + other
+    def wrapping_add(self: &Counter, other: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.total + other)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     counter = Counter(1)
-    print(counter.wrapping_add(2))?
+    print(counter.wrapping_add(2)?)?
     Ok(())
 ```
 
@@ -65,8 +70,9 @@ If you forget the receiver annotation, the error names the required signature:
 ```plenty-error
 class Counter:
     value: i64
-    def increment(self) -> ():
+    def increment(self) -> Result[(), OverflowError[i64]]:
         self.value = self.value + 1
+        Ok(())
 
 def main() -> ():
     pass
@@ -101,13 +107,13 @@ class Money:
     cents: i64
     currency: str
 
-def add(a: Money, b: Money) -> Money:
-    Money(a.cents + b.cents, a.currency)
+def add(a: Money, b: Money) -> Result[Money, OverflowError[i64]]:
+    Ok(Money(a.cents + b.cents, a.currency))
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     price = Money(250, "EUR")
     tax = Money(50, "EUR")
-    paid = add(price, tax)
+    paid = add(price, tax)?
     mut discounted = price
     discounted.cents = 200
     print(price, paid, discounted)?

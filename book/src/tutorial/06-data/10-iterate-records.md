@@ -7,7 +7,7 @@ mutable references. The list cannot grow, shrink, or move during either loop:
 class Score:
     value: i64
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [Score(2), Score(5)]?
     for score in &mut scores:
         score.value = score.value + 1

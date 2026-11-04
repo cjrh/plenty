@@ -83,7 +83,7 @@ from std.compress import Format
 
 type CompressedStreamError = std.io.StreamError | std.io.Partial | std.compress.CompressError | std.bytes.BytesError
 
-def main() -> Result[(), IoError | AllocError | CompressedStreamError]:
+def main() -> Result[(), IoError | AllocError | CompressedStreamError | OverflowError[i64]]:
     line = std.bytes.from_text("one line of a log\n")?
     mut writer = std.compress.compressor(Format.Gzip, std.io.cursor(std.bytes.empty()?), 6)?
     for _ in range(0, 1000):
@@ -125,7 +125,7 @@ import std.compress
 import std.io
 from std.compress import Format
 
-def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std.bytes.BytesError | OverflowError[i64] | OverflowError[u8]]:
     data = std.bytes.from_text("checked at the end")?
     mut packed = std.compress.compress(Format.Gzip, &data, 6)?
     last = packed.len() - 1

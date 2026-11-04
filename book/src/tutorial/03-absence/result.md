@@ -5,9 +5,17 @@ success data of type `T`; `Err(error)` carries a cause of type `E`.
 
 ```plenty
 def divide(left: i64, right: i64) -> Result[i64, str]:
-    if right == 0:
-        return Err("division by zero")
-    Ok(left // right)
+    outcome = checked:
+        left // right
+    match outcome:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case ZeroDivisionError():
+                    Err("division by zero")
+                case OverflowError(_):
+                    Err("division overflow")
 
 def show(left: i64, right: i64) -> Result[(), IoError]:
     match divide(left, right):
@@ -27,6 +35,12 @@ def main() -> Result[(), IoError]:
 4
 division by zero
 ```
+
+The [local `checked:` block](../02-values/numeric-operations.md#recover-from-overflow)
+collects division failures. Matching the error distinguishes division by zero
+from signed overflow (`i64.MIN // -1`), then gives each a message. This small
+example deliberately uses strings as its error API; applications can preserve
+those distinct [typed errors](anonymous-sums.md) instead.
 
 The caller can recover and continue, as `show` does here. A result does not
 implicitly unwrap itself or raise an exception.
@@ -66,9 +80,17 @@ its payload. They borrow the result, so it can still be matched or returned.
 
 ```plenty
 def divide(left: i64, right: i64) -> Result[i64, str]:
-    if right == 0:
-        return Err("division by zero")
-    Ok(left // right)
+    outcome = checked:
+        left // right
+    match outcome:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case ZeroDivisionError():
+                    Err("division by zero")
+                case OverflowError(_):
+                    Err("division overflow")
 
 def main() -> Result[(), IoError]:
     outcome = divide(8, 0)

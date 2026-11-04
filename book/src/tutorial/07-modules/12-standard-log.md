@@ -48,13 +48,13 @@ sink lets each caller pick the destination:
 import std.log
 from std.log import Level, Clock, Logger
 
-def connect[S](log: &mut Logger[S], attempts: i64) -> Result[(), AllocError | std.log.LogError]:
+def connect[S](log: &mut Logger[S], attempts: i64) -> Result[(), AllocError | std.log.LogError | OverflowError[i64]]:
     for attempt in range(attempts):
         log.warn("retrying", [std.log.integer("attempt", attempt + 1)]?)?
     log.info("connected", []?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | std.log.LogError]:
+def main() -> Result[(), AllocError | IoError | std.log.LogError | AllocError | OverflowError[i64]]:
     mut log = std.log.logger(std.log.memory_sink(10)?, Level.Trace, Clock.Off)
     connect(&mut log, 2)?
     for event in &log.sink.events:

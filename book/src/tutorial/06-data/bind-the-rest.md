@@ -47,17 +47,18 @@ the name; matching `&value` or `&mut value` binds a shared or exclusive
 reference to it:
 
 ```plenty
-def bump(count: &mut Option[i64]) -> ():
+def bump(count: &mut Option[i64]) -> Result[(), OverflowError[i64]]:
     match count:
         case Some(number):
             *number = *number + 1
         case _ as empty:
             *empty = Some(1)
+    Ok(())
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut count: Option[i64] = Nothing
-    bump(&mut count)
-    bump(&mut count)
+    bump(&mut count)?
+    bump(&mut count)?
     print(count)?
     Ok(())
 ```

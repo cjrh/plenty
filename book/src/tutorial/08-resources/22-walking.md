@@ -18,7 +18,7 @@ With a top-down walker, edit its directory list before asking for another row:
 import std.fs as fs
 import std.path as path
 
-def main() -> Result[(), AllocError | IoError | fs.WalkError]:
+def main() -> Result[(), AllocError | IoError | fs.WalkError | OverflowError[i64]]:
     root = path.from_text("../tree")?
     mut walker = fs.walk(&root, True)?
     while walker.next()?:

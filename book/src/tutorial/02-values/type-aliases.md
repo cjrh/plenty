@@ -5,11 +5,11 @@ There is no built-in `int`. If you want that name, choose its meaning explicitly
 ```plenty
 type int = i32
 
-def increment(value: int) -> int:
-    value + int(1)
+def increment(value: int) -> Result[int, OverflowError[int]]:
+    Ok(value + int(1))
 
-def main() -> Result[(), IoError]:
-    answer: int = increment(int(41))
+def main() -> Result[(), IoError | OverflowError[i32]]:
+    answer: int = increment(int(41))?
     print(answer)?
     Ok(())
 ```
@@ -29,11 +29,11 @@ Aliases can describe a value's purpose and refer to other aliases:
 type Count = u32
 type ItemCount = Count
 
-def add_one(count: ItemCount) -> ItemCount:
-    count + 1u32
+def add_one(count: ItemCount) -> Result[ItemCount, OverflowError[ItemCount]]:
+    Ok(count + 1u32)
 
-def main() -> Result[(), IoError]:
-    print(add_one(41u32))?
+def main() -> Result[(), IoError | OverflowError[u32]]:
+    print(add_one(41u32)?)?
     Ok(())
 ```
 

@@ -20,14 +20,19 @@ pub class Trickle:
     pub def read(self: &mut Trickle, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         if start < 0 or start > stop or stop > buffer.len():
             return Err(StreamError.OutOfRange)
-        mut count = stop - start
-        if count > 3:
-            count = 3
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        if self.at < 0 or self.at > self.data.len():
+            return Err(StreamError.OutOfRange)
+        # Valid ranges give nonnegative differences <= i64.MAX.
+        # count <= stop-start and <= data.len()-at, so both ends stay in range.
+        unchecked:
+            mut count = stop - start
+            if count > 3:
+                count = 3
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
 def main() -> Result[(), AllocError | IoError | StreamError | std.bytes.BytesError]:
     mut source = Trickle(std.bytes.from_text("0123456789")?, 0)
@@ -62,7 +67,7 @@ small writes in a fixed-size buffer and passes them on in larger pieces:
 import std.bytes
 import std.io
 
-def main() -> Result[(), IoError | AllocError | std.io.Partial | std.io.StreamError | std.bytes.BytesError]:
+def main() -> Result[(), IoError | AllocError | std.io.Partial | std.io.StreamError | std.bytes.BytesError | OverflowError[i64]]:
     mut input = std.io.buffered_reader(std.io.cursor(std.bytes.from_text("red\ngreen\nblue")?), 4)?
     mut output = std.io.buffered_writer(std.io.stdout(), 16)?
     mut line = std.bytes.empty()?

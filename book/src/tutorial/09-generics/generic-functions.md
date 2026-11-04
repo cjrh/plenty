@@ -27,7 +27,7 @@ argument and result types the same.
 def identity[T](value: T) -> T:
     value
 
-def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
+def sum_to[T: IntType](stop: T) -> Result[T, OverflowError[T]]:
     mut total: T = 0
     for n in range[T](stop):
         total = total + n
@@ -36,7 +36,7 @@ def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
 def first[T](values: &list[T]) -> &T:
     &values[0]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[u16]]:
     print(sum_to(5u16)?)?
     values = identity([3, 4]?)
     print(first(&values))?

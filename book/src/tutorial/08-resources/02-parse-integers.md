@@ -25,7 +25,16 @@ calculation, and narrowing in a function returning `ParseError`:
 
 ```plenty
 def shade(percent: &str) -> Result[u8, ParseError]:
-    scaled = i64.parse(percent)? * 255 // 100
+    number = i64.parse(percent)?
+    scaled_result = checked:
+        number * 255
+    product = match scaled_result:
+        case Ok(value):
+            value
+        case Err(_):
+            return Err(ParseError.OutOfRange)
+    hundred: Positive[i64] = 100
+    scaled = product // hundred
     match u8.try_from(scaled):
         case Ok(value):
             Ok(value)
@@ -45,3 +54,7 @@ Result[u8, ParseError].Ok(127)
 Result[u8, ParseError].Err(ParseError.OutOfRange)
 Result[u8, ParseError].Err(ParseError.Invalid)
 ```
+
+The local checked multiplication maps overflow to `ParseError.OutOfRange`,
+keeping this conversion helper's public error contract. The positive divisor
+proves division cannot fail. No unchecked arithmetic or lossy cast is needed.

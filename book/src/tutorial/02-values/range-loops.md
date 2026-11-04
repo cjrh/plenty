@@ -3,7 +3,7 @@
 A `for` loop repeats its body for each integer in a range:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut total = 0
     for n in range(1, 5):
         total = total + n

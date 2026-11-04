@@ -8,17 +8,18 @@ class Span:
     start: i64
     end: i64
 
-    def __init__(self, start: i64, length: i64) -> ():
+    def __init__(self, start: i64, end: i64) -> ():
         self.start = start
-        self.end = self.start + length
+        self.end = end
 
-    def length(self) -> i64:
-        self.end - self.start
+    def length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.end - self.start)
 
-def main() -> Result[(), IoError]:
-    span = Span(10, 5)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    end = 10 + 5
+    span = Span(10, end)
     print(span)?
-    print(span.length())?
+    print(span.length()?)?
     Ok(())
 ```
 
@@ -26,6 +27,11 @@ def main() -> Result[(), IoError]:
 Span(start=10, end=15)
 5
 ```
+
+The application calculates the endpoint before construction, so overflow can
+propagate through `main`. This initializer only assigns endpoints. Initializers
+currently return only `()` or `Result[(), AllocError]`, not arithmetic errors;
+see [constructor contracts](../../design/language/03-types/classes.md).
 
 Every field must be initialized on every path out of the constructor. You may
 read a field already initialized, but cannot pass the whole unfinished `self` to

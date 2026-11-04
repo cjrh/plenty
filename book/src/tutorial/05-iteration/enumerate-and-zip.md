@@ -5,7 +5,7 @@ element. Supply a second argument to choose the first index. Use
 `zip(left, right)` to pair elements until the shorter input ends.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     for index, letter in enumerate("ab", 10):
         print((index, letter))?
     for number, letter in zip(range(3), "xy"):
@@ -26,7 +26,7 @@ An owned list transfers its elements. Borrow a list to preserve it; its
 elements retain their reference types. Borrow mutably to edit them.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut values = [10, 20]?
     for index, value in enumerate(&mut values):
         *value += index

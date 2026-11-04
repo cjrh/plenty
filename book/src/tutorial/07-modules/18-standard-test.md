@@ -20,21 +20,21 @@ from std.bytes import from_text
 from std.io import Writer, Partial, write_all
 from std.bytes import BytesError
 
-pub def total(values: &list[i64]) -> i64:
+pub def total(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in values:
         sum += *value
-    sum
+    Ok(sum)
 
-pub def mean(values: &list[i64]) -> f64:
-    f64(total(values)) / f64(len(values))
+pub def mean(values: &list[i64]) -> Result[f64, OverflowError[i64]]:
+    Ok(f64(total(values)?) / f64(len(values)))
 
-pub def save(path: &str, values: &list[i64]) -> Result[(), AllocError | IoError]:
-    write_text(path, &str.from(total(values))?)?
+pub def save(path: &str, values: &list[i64]) -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    write_text(path, &str.from(total(values)?)?)?
     Ok(())
 
-pub def report[W: Writer](out: &mut W, values: &list[i64]) -> Result[(), AllocError | BytesError | Partial]:
-    line = from_text(&str.from(total(values))?)?
+pub def report[W: Writer](out: &mut W, values: &list[i64]) -> Result[(), AllocError | BytesError | Partial | OverflowError[i64]]:
+    line = from_text(&str.from(total(values)?)?)?
     write_all(out, &line)?
     Ok(())
 ```
@@ -49,19 +49,19 @@ import std.test
 import std.io
 from stats import mean, report, save, total
 
-def test_total() -> Result[(), AllocError | IoError | std.test.TestError]:
+def test_total() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:
     values = [1, 2, 3]?
-    std.test.equal(&total(&values), &6)?
+    std.test.equal(&total(&values)?, &6)?
     empty: list[i64] = []?
-    std.test.equal(&total(&empty), &0)?
+    std.test.equal(&total(&empty)?, &0)?
     Ok(())
 
-def test_mean() -> Result[(), AllocError | IoError | std.test.TestError]:
+def test_mean() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:
     values = [1, 2]?
-    std.test.close(mean(&values), 1.5, 0.000001)?
+    std.test.close(mean(&values)?, 1.5, 0.000001)?
     Ok(())
 
-def test_save() -> Result[(), AllocError | IoError | std.test.TestError]:
+def test_save() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:
     scratch = std.test.scratch()?
     path = scratch.file("total.txt")?
     values = [4, 5]?
@@ -69,14 +69,14 @@ def test_save() -> Result[(), AllocError | IoError | std.test.TestError]:
     std.test.equal(&read_text(&path)?, &"9")?
     Ok(())
 
-def test_order_does_not_matter() -> Result[(), AllocError | IoError | std.test.TestError]:
+def test_order_does_not_matter() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:
     mut rng = std.test.rng()?
     mut values = [1, 2, 3, 4, 5]?
     rng.shuffle(&mut values)
-    std.test.equal(&total(&values), &15)?
+    std.test.equal(&total(&values)?, &15)?
     Ok(())
 
-def test_report_survives_short_writes() -> Result[(), AllocError | std.bytes.BytesError | std.io.Partial | std.test.TestError]:
+def test_report_survives_short_writes() -> Result[(), AllocError | std.bytes.BytesError | std.io.Partial | std.test.TestError | OverflowError[i64]]:
     mut out = std.test.fake_stream(std.bytes.empty()?)?
     out.limit(1)
     values = [9, 10]?
@@ -84,7 +84,7 @@ def test_report_survives_short_writes() -> Result[(), AllocError | std.bytes.Byt
     std.test.equal(&out.output.to_text()?, &"19")?
     Ok(())
 
-def test_save_reports_a_full_disk() -> Result[(), AllocError | IoError | std.test.TestError]:
+def test_save_reports_a_full_disk() -> Result[(), AllocError | IoError | std.test.TestError | OverflowError[i64]]:
     scratch = std.test.scratch()?
     path = scratch.file("total.txt")?
     values = [4, 5]?

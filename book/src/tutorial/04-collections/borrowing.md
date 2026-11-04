@@ -38,7 +38,7 @@ not reassigning the reference binding. Use `*reference` to read or replace a
 scalar target:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut score = 10
     reference = &mut score
     *reference = *reference + 5

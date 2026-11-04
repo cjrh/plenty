@@ -31,7 +31,7 @@ Nested tuples can be unpacked in one statement. Match each tuple's shape,
 using `_` for a component you do not need:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     ((x, y), label) = ((3, 4), "point")
     print(label, x + y)?
     Ok(())
