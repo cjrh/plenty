@@ -1,8 +1,9 @@
-//! Checked addition and subtraction trap exactly when the mathematical result
-//! leaves the type's range, for every integer width, with variable and
-//! constant operands, in debug and release builds. Debug code tests most of
-//! these with an `icmp` on the wrapped result rather than an overflow flag
-//! (issue #425), so the boundaries are checked against exact arithmetic.
+//! Deliberately trapping addition and subtraction (`unchecked:`) trap exactly
+//! when the mathematical result leaves the type's range, for every integer
+//! width, with variable and constant operands, in debug and release builds.
+//! Unlike the public Result default, these fixtures exercise primitive trap
+//! guards. Debug code tests most with an `icmp` on the wrapped result rather
+//! than an overflow flag (issue #425), so boundaries use exact arithmetic.
 mod support;
 use rstest::rstest;
 use std::fmt::Write as _;
@@ -58,8 +59,8 @@ const TYPES: [Int; 8] = [
     },
 ];
 
-/// A checked function of one or two operands: its name suffix, Plenty body
-/// and the exact result.
+/// A deliberately trapping function of one or two operands: its name suffix,
+/// Plenty body and the exact result.
 struct Function {
     suffix: String,
     body: String,
@@ -151,7 +152,7 @@ fn program() -> String {
             };
             writeln!(
                 source,
-                "def {name}({parameters}) -> {t}:\n    {}\n",
+                "def {name}({parameters}) -> {t}:\n    unchecked:\n        {}\n",
                 function.body
             )
             .unwrap();
@@ -251,7 +252,7 @@ fn constant_add_compares_instead_of_materializing_the_flag() {
     let source = dir.path().join("constant.plenty");
     std::fs::write(
         &source,
-        "def step(x: i64) -> i64:\n    x + 7\n\ndef main() -> i32:\n    i32(step(3))\n",
+        "def step(x: i64) -> i64:\n    unchecked:\n        x + 7\n\ndef main() -> i32:\n    i32(step(3))\n",
     )
     .unwrap();
     let output = Command::new(support::plenty_bin())
