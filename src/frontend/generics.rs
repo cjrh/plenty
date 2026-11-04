@@ -58,6 +58,8 @@ pub(super) fn unsatisfied_builtin(bound: &TypeRef, ty: &Ty) -> String {
             _ => "",
         };
         format!("{ty} does not satisfy CopyType: it moves on ordinary use{help}")
+    } else if name == "KeyType" {
+        ty.key_type_error(&format!("{ty} does not satisfy KeyType"))
     } else {
         format!("{ty} does not satisfy {name}")
     }
