@@ -20,7 +20,10 @@ All profiler data and mock tests are diagnostics, never build-cfg-derived totals
 
 import argparse
 import base64
+import calendar
+from datetime import datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 import json
 import math
 import os
@@ -329,9 +332,90 @@ def byte_interval(value):
     return max(Decimal(0), nominal - radius), nominal + radius
 
 
+def rounded_integer_bounds(nominal, radius, factor, division_rounds=False):
+    """Conservative u64 bounds, not an inverse of hotpath's display formatter.
+
+    output.rs casts u64 to f64, scales, then rounds to a display step. Each
+    nearest-even binary cast/division contributes at most half an ULP; scaling
+    bytes by powers of two is exact. First bound the possible input magnitude
+    with the global u64 error, then use its local ULPs (not a global tolerance).
+    Decimal formatting ties stay inclusive; integer division below is strict.
+    """
+    maximum = (1 << 64) - 1
+    nominal, radius = Fraction(nominal), Fraction(radius)
+    def binary_error(upper):
+        converted = float(upper)
+        cast_error = Fraction.from_float(math.ulp(converted)) / 2
+        division_error = (Fraction.from_float(math.ulp(converted / factor)) * factor / 2
+                          if division_rounds else 0)
+        return cast_error + division_error
+    upper = min(maximum, nominal + radius + binary_error(maximum))
+    error = binary_error(upper)
+    lo = max(0, math.ceil(nominal - radius - error))
+    hi = min(maximum, math.floor(nominal + radius + error))
+    require(lo <= hi, "display outside producer u64 range")
+    return lo, hi
+
+
+def byte_integer_bounds(value):
+    lo, hi = byte_interval(value)
+    if value.endswith(" B"):
+        return int(lo), int(hi)
+    factor = 1024 ** ("B", "KB", "MB", "GB", "TB").index(value.split()[1])
+    return rounded_integer_bounds((lo + hi) / 2, (hi - lo) / 2, factor)
+
+
 def duration_value(value):
-    require(isinstance(value, str) and re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)? (?:ns|µs|ms|s)", value),
+    # output.rs: exact integer ns below 1000, otherwise two decimal places.
+    require(isinstance(value, str) and re.fullmatch(r"(?:0|[1-9][0-9]*)(?: ns|\.[0-9]{2} (?:µs|ms|s))", value),
             "invalid profiling duration")
+    amount, unit = value.split()
+    if unit == "ns":
+        require(int(amount) < 1000, "non-display exact duration form refused")
+        return int(amount), int(amount)
+    factor = {"µs": 1000, "ms": 1000000, "s": 1000000000}[unit]
+    lo, hi = rounded_integer_bounds(Decimal(amount) * factor, Decimal("0.005") * factor,
+                                    factor, division_rounds=True)
+    # Unit selection happens BEFORE decimal rounding: 1000.00 µs can be real.
+    lo = max(lo, factor)
+    hi = min(hi, factor * 1000 - 1) if unit != "s" else hi
+    require(lo <= hi, "duration outside producer display band")
+    return lo, hi
+
+
+def require_integer_average(total_bounds, average_bounds, samples, message):
+    # alloc/state.rs: avg_bytes/avg_duration_ns truncate an integer total/count.
+    # There must be an integer total T and average A with A*n <= T < (A+1)*n.
+    total_lo, total_hi = total_bounds
+    avg_lo, avg_hi = average_bounds
+    require(total_hi >= avg_lo * samples and total_lo <= (avg_hi + 1) * samples - 1, message)
+
+
+def validate_meta(meta):
+    require(isinstance(meta, dict), "missing report meta")
+    require(isinstance(meta.get("rustc"), str) and isinstance(meta.get("os"), str),
+            "meta rustc/os must be strings")
+    value = meta.get("created_at")
+    require(isinstance(value, str), "meta created_at must be RFC3339 string")
+    match = re.fullmatch(r"([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})", value)
+    require(match is not None, "invalid meta created_at RFC3339 timestamp")
+    year, month, day, hour, minute, second = map(int, match.groups()[:6])
+    offset = match[7]
+    offset_hour, offset_minute = (0, 0) if offset in ("Z", "z") else (int(offset[1:3]), int(offset[4:6]))
+    require(offset_hour < 24 and offset_minute < 60 and second <= 60,
+            "invalid meta created_at RFC3339 component")
+    # A Gregorian 400-year cycle also validates RFC3339 year0000, which Python's
+    # datetime cannot represent. Optional metadata and the timestamp stay raw.
+    try:
+        local = datetime(400 + year % 400, month, day, hour, minute, min(second, 59))
+    except ValueError as error:
+        raise ValueError("invalid meta created_at RFC3339 calendar/time") from error
+    if second == 60:
+        # time0.3.55 RFC3339 parsing permits leap seconds only at UTC month end.
+        sign = -1 if offset.startswith("-") else 1
+        utc = local - timedelta(minutes=sign * (offset_hour * 60 + offset_minute))
+        require((utc.hour, utc.minute) == (23, 59) and utc.day == calendar.monthrange(utc.year, utc.month)[1],
+                "invalid meta created_at RFC3339 leap second")
 
 
 def phase_locations(role):
@@ -347,7 +431,7 @@ def parse_report(raw, metric, label, minimum_phases=MINIMUM_PHASES, expected_loc
     require(isinstance(report, dict), "report must be JSON object")
     require(report.get("type") == "hotpath_report" and report.get("version") == "0.28.6", "wrong hotpath type/version")
     require(report.get("label") == label, "wrong report label")
-    require(isinstance(report.get("meta"), dict), "missing report meta")
+    validate_meta(report.get("meta"))
     rates = report.get("time_sampling")
     require(rates is None or (isinstance(rates, dict) and all(type(v) in (int, float) and v == 1 for v in rates.values())),
             "sampled profile not supported")
@@ -392,14 +476,14 @@ def parse_report(raw, metric, label, minimum_phases=MINIMUM_PHASES, expected_loc
                 else:
                     converted = [byte_value(v) for v in values]
                     allocation = converted[0]
-                    total_lo, total_hi = byte_interval(row["total"])
-                    avg_lo, avg_hi = byte_interval(row["avg"])
-                    require(total_hi >= avg_lo * calls and total_lo <= (avg_hi + 1) * calls,
-                            "inconsistent approximate total/average/calls")
+                    require_integer_average(byte_integer_bounds(row["total"]), byte_integer_bounds(row["avg"]), calls,
+                                            "inconsistent approximate total/average/calls")
             else:
-                for v in values:
-                    duration_value(v)
-                allocation = {"precision": "profiling-inclusive-overhead-affected", "total_raw": row["total"]}
+                total_bounds, avg_bounds, _, _ = [duration_value(v) for v in values]
+                require_integer_average(total_bounds, avg_bounds, row["sampled_calls"],
+                                        "inconsistent profiling duration total/average/sampled_calls")
+                allocation = {"precision": "profiling-inclusive-overhead-affected", "total_raw": row["total"],
+                              "display_precision": "APPROXIMATE-rounded-duration; conservative bounds, not recovered raw timing"}
             parsed[name] = {"raw": row, "value": allocation, "calls_meaning": "phase invocations, not allocations"}
         require(set(minimum_phases) <= parsed.keys(), "missing minimum emit-object phases")
         if expected_locations is not None:
@@ -412,8 +496,8 @@ def parse_report(raw, metric, label, minimum_phases=MINIMUM_PHASES, expected_loc
                         "inconsistent exclusive count total")
             else:
                 byte_value(data.get("total_allocated"))
-                grand_lo, grand_hi = byte_interval(data["total_allocated"])
-                intervals = [byte_interval(row["raw"]["total"]) for row in parsed.values()]
+                grand_lo, grand_hi = byte_integer_bounds(data["total_allocated"])
+                intervals = [byte_integer_bounds(row["raw"]["total"]) for row in parsed.values()]
                 require(grand_hi >= sum(lo for lo, _ in intervals) and grand_lo <= sum(hi for _, hi in intervals),
                         "inconsistent approximate exclusive total")
         sections[section] = parsed

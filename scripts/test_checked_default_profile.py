@@ -44,6 +44,40 @@ def synthetic_report(metric="count", label="job", role="main", extra=()):
                 "description": "Function execution time metrics.", "data": timing}}
 
 
+def impossible_report(kind, metric="count", label="job", role="main"):
+    """Keep all five phases/calls/sections: only the reviewed defect is changed."""
+    if kind == "byte-average":
+        metric = "bytes"
+    data = synthetic_report(metric, label, role)
+    if kind == "byte-average":
+        for row in data["functions_alloc"]["data"]:
+            row.update(total="2 B", avg="0 B", p50="1 B", p95="1 B")
+        data["functions_alloc"]["total_allocated"] = "10 B"
+    elif kind == "duration-average":
+        for row in data["functions_timing"]["data"]:
+            row.update(total="0 ns", avg="999.00 s", p50="1 ns", p95="1 ns")
+    elif kind == "meta":
+        data["meta"] = {}
+    else:
+        raise AssertionError(kind)
+    return data
+
+
+def displayed_duration(ns):
+    """Synthetic mirror of output.rs format_duration; not profiler evidence."""
+    if ns < 1000:
+        return f"{ns} ns"
+    factor, unit = ((1000, "µs") if ns < 1000000 else
+                    (1000000, "ms") if ns < 1000000000 else (1000000000, "s"))
+    return f"{float(ns) / factor:.2f} {unit}"
+
+
+def displayed_bytes(value):
+    # The large-u64 tests use the producer's capped TB band, avoiding a mock
+    # logarithm-based unit-selection claim at exact power-of1024 boundaries.
+    return f"{float(value) / 1024 ** 4:.1f} TB" if value >= 1024 ** 4 else f"{value} B"
+
+
 class ReportTests(unittest.TestCase):
     def parse(self, data=None, metric="count", **kwargs):
         return profile.parse_report(encoded(data or synthetic_report(metric)), metric, "job", **kwargs)
@@ -165,6 +199,154 @@ class ReportTests(unittest.TestCase):
         data["functions_alloc"]["data"][0]["avg"] = "500.0 GB"
         with self.assertRaisesRegex(ValueError, "average/calls"):
             self.parse(data, "bytes")
+
+    def test_complete_five_phase_byte_integer_average_boundary_rejected(self):
+        data = impossible_report("byte-average")
+        self.assertEqual(len(data["functions_alloc"]["data"]), 5)
+        self.assertEqual(data["functions_alloc"]["total_allocated"], "10 B")
+        with self.assertRaisesRegex(ValueError, "approximate total/average/calls"):
+            self.parse(data, "bytes")
+
+    def test_complete_five_phase_duration_average_counterexample_rejected(self):
+        for average in ("999.00 s", "999 s"):
+            data = impossible_report("duration-average")
+            for row in data["functions_timing"]["data"]:
+                row["avg"] = average
+            with self.subTest(average=average), self.assertRaises(ValueError):
+                self.parse(data)
+        with self.assertRaisesRegex(ValueError, "duration total/average/sampled_calls"):
+            self.parse(impossible_report("duration-average"))
+
+    def test_exact_integer_average_truncation_bounds_bytes_and_nanoseconds(self):
+        for section, metric, suffix in (("functions_alloc", "bytes", "B"), ("functions_timing", "count", "ns")):
+            for total, average, valid in ((0, 0, True), (1, 0, True), (2, 0, False), (2, 1, True),
+                                          (3, 1, True), (4, 1, False), (1, 1, False)):
+                data = synthetic_report(metric)
+                for row in data[section]["data"]:
+                    row.update(total=f"{total} {suffix}", avg=f"{average} {suffix}", p50=f"1 {suffix}", p95=f"1 {suffix}")
+                if metric == "bytes":
+                    data[section]["total_allocated"] = f"{total * 5} B"
+                with self.subTest(section=section, total=total, average=average):
+                    if valid:
+                        self.parse(data, metric)
+                    else:
+                        with self.assertRaises(ValueError):
+                            self.parse(data, metric)
+
+    def test_duration_format_bands_rounding_and_integer_bounds(self):
+        # Ties, unit transitions, and large u64 rounding stay conservative.
+        for ns in (0, 1, 999, 1000, 1005, 1015, 999994, 999995, 999999,
+                   1000000, 1005000, 1015000, 999999999, 1000000000,
+                   1005000000, 1015000000, (1 << 64) - 1):
+            with self.subTest(ns=ns):
+                lo, hi = profile.duration_value(displayed_duration(ns))
+                self.assertLessEqual(lo, ns)
+                self.assertGreaterEqual(hi, ns)
+        self.assertEqual(profile.duration_value("999 ns"), (999, 999))
+        for raw in ("1000 ns", "1 µs", "1.000 ms", "0.00 s", "0.99 µs", "999 s", "NaN s"):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                profile.duration_value(raw)
+
+    def test_zero_totals_accept_clamped_timing_histograms(self):
+        for metric in ("count", "bytes"):
+            data = synthetic_report(metric)
+            for row in data["functions_alloc"]["data"]:
+                row.update(total="0" if metric == "count" else "0 B",
+                           avg="0" if metric == "count" else "0 B",
+                           p50="0" if metric == "count" else "0 B", p95="0" if metric == "count" else "0 B")
+            data["functions_alloc"]["total_allocated"] = "0" if metric == "count" else "0 B"
+            for row in data["functions_timing"]["data"]:
+                # alloc/state.rs clamps duration histogram samples to at least1,
+                # but sums the actual zero duration. Do not derive sums from HDR.
+                row.update(total="0 ns", avg="0 ns", p50="1 ns", p95="1 ns")
+            result = self.parse(data, metric)
+            self.assertIn("not recovered raw timing", result["sections"]["functions_timing"]["main"]["value"]["display_precision"])
+
+    def test_rounded_duration_average_uses_possible_raw_integer_not_display_quotient(self):
+        data = synthetic_report()
+        for row in data["functions_timing"]["data"]:
+            # Real integers: total1005ns /2 truncates to502ns. The total's
+            # displayed microseconds are rounded; percentile rounding is independent.
+            row.update(total=displayed_duration(1005), avg="502 ns", p50="503 ns", p95="503 ns")
+        self.parse(data)
+        for row in data["functions_timing"]["data"]:
+            row["avg"] = "600 ns"
+        with self.assertRaises(ValueError):
+            self.parse(data)
+
+    def test_large_u64_local_ieee_bounds_accept_real_boundary_and_reject_impossible(self):
+        maximum = (1 << 64) - 1
+        # Near a decimal half-step, f64 casting can move a large integer across
+        # the ideal Decimal interval. These are synthetic producer-format checks.
+        near_byte_tie = int(DecimalString("16777215.95") * 1024 ** 4)
+        near_time_tie = 18446744073705000001
+        for value in (maximum, near_byte_tie - 512, near_byte_tie + 512):
+            with self.subTest(bytes=value):
+                lo, hi = profile.byte_integer_bounds(displayed_bytes(value))
+                self.assertLessEqual(lo, value)
+                self.assertGreaterEqual(hi, value)
+                data = synthetic_report("bytes")
+                for row in data["functions_alloc"]["data"]:
+                    row.update(total="0 B", avg="0 B", p50="0 B", p95="0 B")
+                first = data["functions_alloc"]["data"][0]
+                first.update(total=displayed_bytes(value), avg=displayed_bytes(value // 2), p50="953.7 MB", p95="953.7 MB")
+                data["functions_alloc"]["total_allocated"] = displayed_bytes(value)
+                self.parse(data, "bytes")
+                first["avg"] = displayed_bytes(value // 2 + 1024 ** 4)
+                with self.assertRaises(ValueError):
+                    self.parse(data, "bytes")
+        for value in (maximum, near_time_tie - 1024, near_time_tie + 1024):
+            with self.subTest(nanoseconds=value):
+                data = synthetic_report()
+                for row in data["functions_timing"]["data"]:
+                    row.update(total=displayed_duration(value), avg=displayed_duration(value // 2))
+                self.parse(data)
+                for row in data["functions_timing"]["data"]:
+                    row["avg"] = displayed_duration(value // 2 + 20000000)
+                with self.assertRaises(ValueError):
+                    self.parse(data)
+        # The local IEEE bound never weakens exact small-unit checks.
+        self.assertEqual(profile.byte_integer_bounds("2 B"), (2, 2))
+        self.assertEqual(profile.duration_value("2 ns"), (2, 2))
+        self.assertEqual(profile.duration_value("1.00 µs"), (1000, 1005))
+
+    def test_meta_required_fields_and_json_types(self):
+        for meta in ({}, None, [], "metadata"):
+            data = synthetic_report()
+            data["meta"] = meta
+            with self.subTest(meta=meta), self.assertRaises(ValueError):
+                self.parse(data)
+        for key in ("rustc", "os", "created_at"):
+            for invalid in (None, 1, True, [], {}):
+                data = synthetic_report()
+                data["meta"][key] = invalid
+                with self.subTest(key=key, invalid=invalid), self.assertRaises(ValueError):
+                    self.parse(data)
+            data = synthetic_report()
+            del data["meta"][key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                self.parse(data)
+
+    def test_meta_rfc3339_calendar_time_offset_validity(self):
+        for value in ("", "not-a-time", "2000-01-01", "2000-01-01T00:00:00", "2000-01-01T00:00:00+0000",
+                      "2000-01-01T00:00:00Z trailing", "2000-01-01T00:00:00.Z", "2001-02-29T00:00:00Z",
+                      "2000-13-01T00:00:00Z", "2000-04-31T00:00:00Z", "2000-01-00T00:00:00Z",
+                      "2000-01-01T24:00:00Z", "2000-01-01T00:60:00Z", "2000-01-01T00:00:61Z",
+                      "2000-01-01T00:00:00+24:00", "2000-01-01T00:00:00+00:60", "2000-01-01T00:00:60Z"):
+            data = synthetic_report()
+            data["meta"]["created_at"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "created_at"):
+                self.parse(data)
+
+    def test_valid_meta_optional_fields_and_timestamp_retained_unchanged(self):
+        for value in ("2000-02-29T00:00:00Z", "2026-11-04T12:34:56.123456789+05:30",
+                      "2000-01-01t00:00:00z", "0000-02-29T00:00:00Z", "9999-12-31T23:59:59-00:00",
+                      "2016-12-31T23:59:60Z", "2017-01-01T00:59:60+01:00"):
+            data = synthetic_report()
+            # rustc can legitimately be empty when build-time version lookup failed.
+            data["meta"].update(rustc="", created_at=value, source_root="", optional_future={"keep": [1, None]})
+            original = copy.deepcopy(data["meta"])
+            self.assertEqual(self.parse(data)["raw"]["meta"], original)
 
     def test_cumulative_and_excluded_wrapper_rejected(self):
         data = synthetic_report()
@@ -585,6 +767,60 @@ class PlanExecutionTests(AdapterFixture):
                 self.assertEqual(len(result["jobs"]), 1)
                 self.assertEqual(result["jobs"][0]["process"]["returncode"], 0)
                 self.assertTrue((output / "result.json").exists())
+
+    def test_exit_zero_impossible_reports_block_stop_and_retain_complete_raw_evidence(self):
+        for kind in ("byte-average", "duration-average", "meta"):
+            self.spawned = []
+            invalid_raw = []
+            def behavior(command, kwargs):
+                env = kwargs["env"]
+                if kind == "byte-average" and env["HOTPATH_ALLOC_METRIC"] != "bytes":
+                    return 0
+                original = json.loads(Path(env["HOTPATH_OUTPUT_PATH"]).read_text())
+                data = impossible_report(kind, env["HOTPATH_ALLOC_METRIC"], original["label"], "main")
+                raw = encoded(data)
+                Path(env["HOTPATH_OUTPUT_PATH"]).write_bytes(raw)
+                invalid_raw.append(raw)
+                return 0
+            self.behavior = behavior
+            output = self.root / ("output-impossible-" + kind)
+            with self.subTest(kind=kind), patch.object(profile.subprocess, "Popen", side_effect=self.mock_popen):
+                result = profile.execute(self.manifest_path, self.manifest_hash, output, True)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(len(result["jobs"]), 2 if kind == "byte-average" else 1)
+            failed = result["jobs"][-1]
+            self.assertEqual(failed["status"], "blocked")
+            self.assertEqual(failed["process"]["returncode"], 0)
+            self.assertEqual(len(invalid_raw), 1)
+            self.assertEqual(base64.b64decode(failed["report_base64"]), invalid_raw[0])
+            self.assertEqual(Path(failed["report"]).read_bytes(), invalid_raw[0])
+            self.assertEqual(failed["report_identity"]["sha256"], profile.digest(invalid_raw[0]))
+            self.assertEqual(base64.b64decode(failed["process"]["stdout_base64"]), b"synthetic stdout\xff")
+            self.assertNotIn("comparisons", result)
+            self.assertEqual(sum(command[0] != "/usr/bin/git" for command, kwargs in self.spawned), len(result["jobs"]))
+            self.assertEqual(len(json.loads(invalid_raw[0])["functions_alloc"]["data"]), 5)
+            self.assertEqual(len(json.loads(invalid_raw[0])["functions_timing"]["data"]), 5)
+            retained = json.loads((output / (failed["id"] + ".record.json")).read_text())
+            self.assertEqual(retained["report_base64"], failed["report_base64"])
+
+    def test_exit_zero_invalid_meta_types_and_timestamp_block_before_comparison(self):
+        for invalid_meta in ({"rustc": "synthetic", "os": [], "created_at": "2000-01-01T00:00:00Z"},
+                             {"rustc": "synthetic", "os": "linux-x86_64", "created_at": "2001-02-29T00:00:00Z"}):
+            def behavior(command, kwargs):
+                path = Path(kwargs["env"]["HOTPATH_OUTPUT_PATH"])
+                data = json.loads(path.read_text())
+                data["meta"] = invalid_meta
+                self.write(path, data)
+                return 0
+            self.behavior = behavior
+            output = self.root / ("output-meta-" + str(len(list(self.root.glob("output-meta-*")))))
+            with patch.object(profile.subprocess, "Popen", side_effect=self.mock_popen):
+                result = profile.execute(self.manifest_path, self.manifest_hash, output, True)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(len(result["jobs"]), 1)
+            self.assertEqual(result["jobs"][0]["process"]["returncode"], 0)
+            raw = base64.b64decode(result["jobs"][0]["report_base64"])
+            self.assertEqual(json.loads(raw)["meta"], invalid_meta)
 
     def test_dirty_wrong_pin_or_staged_source_refuses_before_compiler(self):
         for bad in ("pin", "clean", "staged"):
