@@ -27,10 +27,10 @@ body is checked for each instance. Callable capabilities follow [functions](../0
 ## KeyType
 
 `KeyType` accepts exactly the [supported dictionary keys and set members](../../facilities/01-builtins/collections.md):
-integers and their supported domains, `bool`, `str`, `bytes`, and tuples or named
-enums whose every payload is a supported key type. Classes (including `@copy`
-classes), floats, collections, boxes, recursive types and anonymous sums remain
-excluded. It is a built-in constraint, not a protocol or a stored value type;
+integers and their supported domains, `bool`, `str`, `bytes`, and tuples,
+classes or named enums whose every field or payload is a supported key type.
+Floats, collections, boxes, recursive types, anonymous sums and classes with
+custom cleanup remain excluded. It is a built-in constraint, not a protocol or a stored value type;
 no `__hash__` method is needed or accepted.
 
 Functions, methods, classes and enums can declare `K: KeyType`. Explicit and
@@ -44,7 +44,7 @@ can still be used with collections when its concrete type is valid.
 def distinct[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
     mut result: set[K] = set()?
     for value in values:
-        result.add(*value)?
+        result.add(copy(value)?)?
     Ok(result)
 
 def main() -> Result[(), AllocError | IoError]:
@@ -55,9 +55,9 @@ def main() -> Result[(), AllocError | IoError]:
 2
 ```
 
-All currently admitted key types copy on ordinary use, so the borrowed loop can
-read `*value`. The constraint describes key eligibility, rather than a separate
-promise that any future affine key extension will copy.
+`KeyType` does not imply `CopyType`: ordinary class keys move. The borrowed
+loop explicitly copies each key, so it also works for move-only keys. Consuming
+an owned input list instead would let the loop move each key into the set.
 
 ```plenty-error
 def accept[K: KeyType](value: K) -> ():

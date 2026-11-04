@@ -405,6 +405,13 @@ impl Ty {
                     .iter()
                     .all(|variant| variant.fields.iter().all(Self::hashable));
         }
+        if let Self::Class(t) = self {
+            let facts = self.facts();
+            return facts.complete
+                && !facts.recursive
+                && !facts.destructor
+                && t.get().fields.iter().all(|(_, ty)| ty.hashable());
+        }
         self.is_int()
             || matches!(self, Self::Bool | Self::Str | Self::ByteStr)
             || self.domain_element().is_some()

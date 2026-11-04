@@ -495,7 +495,7 @@ print(len(labels)).unwrap()
 #[test]
 fn keytype_rejects_nonkeys_at_function_and_data_boundaries() {
     for source in [
-        "@copy\nclass Value:\n    n: i64\ndef need[K: KeyType](value: K) -> ():\n    pass\nneed(Value(1))\n",
+        "@copy\nclass Value:\n    n: f64\ndef need[K: KeyType](value: K) -> ():\n    pass\nneed(Value(1.0))\n",
         "def need[K: KeyType](value: K) -> ():\n    pass\nneed(1.0)\n",
         "def need[K: KeyType](value: K) -> ():\n    pass\nneed[list[i64]]([1].unwrap())\n",
         "class Holder[K: KeyType]:\n    value: K\nvalue = Holder(1.0)\n",

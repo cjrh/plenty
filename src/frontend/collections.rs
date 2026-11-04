@@ -260,8 +260,8 @@ impl Lower<'_> {
         }
         let mut indices = Vec::new();
         self.assignment_indices(target, &mut indices, ops)?;
-        // ElementRef consumes its key. Hashable keys are copyable, so the read
-        // and write can use separate slots without reevaluating an index.
+        // ElementRef consumes its observed key. Retained observation slots let
+        // the read and write reuse it without reevaluating an index.
         let mut read_indices = Vec::new();
         for index in &indices {
             let key = self.locals[*index as usize - self.parameters].clone();
@@ -1463,14 +1463,14 @@ impl Lower<'_> {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("dictionary keys must be integers, bool, str, bytes, or tuples/enums containing only these key types"));
+                    .error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup"));
             }
             Ty::Dict(Arc::new(k), Arc::new(v))
         } else if kind == "set" {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("set elements must be integers, bool, str, bytes, or tuples/enums containing only these key types"));
+                    .error("set elements must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup"));
             }
             Ty::Set(Arc::new(k))
         } else {
@@ -1479,7 +1479,7 @@ impl Lower<'_> {
         if let Some(expected) = ty {
             self.same(Some(inferred.clone()), Some(expected.clone()), &key.at)?;
         }
-        // Hashable keys are copyable scalars or structural tuples.
+        // Key admission already excludes every key storage barrier.
         let barrier = match &inferred {
             Ty::Dict(_, t) | Ty::List(t) | Ty::Set(t) => t.storage_barrier(),
             _ => None,
@@ -4167,7 +4167,7 @@ impl Lower<'_> {
             }
             return Ok(Some(result));
         }
-        let Ty::Dict(_, v) = &ty else {
+        let Ty::Dict(k, v) = &ty else {
             return Err(self.value_demand_error(
                 &base.at,
                 base,
@@ -4180,10 +4180,11 @@ impl Lower<'_> {
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
             }
-            if name == "values_snapshot" && v.affine() && !loans.is_empty() {
-                return Err(base.at.error(
-                    "values_snapshot with owned payloads requires an owned temporary; use copy(dictionary)?.values_snapshot() for fallible duplication",
-                ));
+            let element = if name == "keys_snapshot" { k } else { v };
+            if element.affine() && !loans.is_empty() {
+                return Err(base.at.error(format!(
+                    "{name} with owned payloads requires an owned temporary; use copy(dictionary)?.{name}() for fallible duplication",
+                )));
             }
             let operation = if name == "keys_snapshot" {
                 CollectionOp::TryKeys(ty)

@@ -1,7 +1,7 @@
 # Sets and different kinds of values
 
 Sets accept named enums when every payload is a supported key type: integers,
-`bool`, `str`, `bytes`, or tuples and named enums of those types. The variant
+`bool`, `str`, `bytes`, or tuples, classes and named enums of those types, without custom cleanup. The variant
 is part of the identity, so different variants with equal payloads remain distinct.
 
 ```plenty
@@ -24,9 +24,45 @@ def main() -> Result[(), AllocError | IoError]:
 True
 ```
 
-This is one element type with several alternatives. Enums carrying classes,
-collections, floats or boxes cannot be set elements. Anonymous sums remain
+This is one element type with several alternatives. Enums carrying collections,
+floats, boxes or classes with custom cleanup cannot be set elements. Anonymous sums remain
 unsupported, even when each member is supported separately.
+
+## Class payloads
+
+A wrapper can also carry classes whose fields are supported keys. Ordinary
+classes move into the set; use a borrowed probe to keep a lookup value:
+
+```plenty
+class Account:
+    region: str
+    number: i64
+
+enum Selection:
+    Account(Account)
+    Group(str)
+
+def main() -> Result[(), AllocError | IoError]:
+    selected = {Selection.Account(Account("eu", 7)), Selection.Group("editors") }?
+    probe = Selection.Account(Account("eu", 7))
+    print(&probe in selected)?
+    for item in &selected:
+        match item:
+            case Selection.Account(account):
+                print(account.region, account.number)?
+            case Selection.Group(group):
+                print(group)?
+    Ok(())
+```
+```output
+True
+eu 7
+editors
+```
+
+The lookup compares fields rather than object addresses. Borrowed iteration
+keeps the stored keys immutable. Set algebra creates independent key copies;
+its result can outlive either input. See [sets](../../design/facilities/01-builtins/sets.md).
 
 ## Keep each kind in its own set
 

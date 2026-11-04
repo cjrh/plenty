@@ -1307,7 +1307,7 @@ unsafe fn write_file_lines(
 }
 
 /// Count the selected unique members before allocating. Inputs stay borrowed;
-/// output members retain immutable keys only after all storage is reserved.
+/// output members gain independent ownership only after storage is reserved.
 unsafe fn try_set_from_entries(
     entries: impl Iterator<Item = Entry> + Clone,
     ty: &'static Type,
@@ -1320,7 +1320,19 @@ unsafe fn try_set_from_entries(
         };
         for entry in entries {
             // Capacity covers every selected member; this cannot grow storage.
-            (*output).try_insert(entry.key, 0)?;
+            if ty.key().affine {
+                // Copy into the destination row before duplicating its fields:
+                // affine records must never share their inline storage.
+                (*output).try_store(entry.key, 0)?;
+                let row = (*output).entries.len() - 1;
+                let slot = (*output).entries.slot(row, false);
+                let mut copy = slot.read();
+                let copied = try_copy_into(&mut copy, ty.key());
+                slot.write(copy);
+                copied?;
+            } else {
+                (*output).try_insert(entry.key, 0)?;
+            }
         }
         Ok(guard.into_value())
     }
@@ -1383,20 +1395,20 @@ unsafe fn try_dictionary_snapshot(
         while let Some(index) = cursor {
             cursor = source.entries.next(index);
             let entry = source.entries.get(index);
-            let value = if values && element.affine {
-                source.entries.set(index, true, 0);
-                entry.value
-            } else {
-                let value = if values { entry.value } else { entry.key };
+            let value = if values { entry.value } else { entry.key };
+            if !element.affine {
                 retain(value, element);
-                value
-            };
+            }
             // Reservation above guarantees push cannot allocate. No operation
             // after the first ownership transfer can fail or call user code.
             (*result).entries.push(Entry {
                 key: value,
                 value: 0,
             });
+            if element.affine {
+                // Inline record bytes must reach the result before clearing.
+                source.entries.set(index, values, 0);
+            }
         }
         Ok(result as u128)
     }

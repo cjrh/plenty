@@ -6,11 +6,14 @@ have a deliberately smaller interface than ordinary lists.
 
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
 nested collections. Dictionary keys and set members are integers, `bool`, `str`,
-`bytes`, or tuples and named enums recursively containing those types. Every
-payload of every variant must be a supported key type. Hashing includes the
-variant tag and payload contents, independently of where the value is stored.
-Floats, classes, collections, boxes, recursive types and anonymous sums are not
-supported keys. User-defined hash/equality hooks remain unsupported. See the
+`bytes`, or tuples, classes and named enums recursively containing those types.
+Every class field and every payload of every variant must be a supported key
+type. Hashing includes class fields, variant tags and payload contents,
+independently of where the value is stored. Ordinary classes move into a
+collection; `@copy` classes keep their usual copy behavior. Stored keys are
+exposed only through shared borrows, so their identity cannot change in place.
+Floats, collections, boxes, recursive types, anonymous sums and classes with
+custom `__del__` cleanup (including nested cleanup) are not supported keys. User-defined hash/equality hooks remain unsupported. See the
 [heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
 Unit elements are rejected.
 
