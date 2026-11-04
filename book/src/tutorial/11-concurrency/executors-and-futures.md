@@ -4,18 +4,18 @@ A thread pool reuses workers for many jobs. Set its worker count and queue
 capacity at construction:
 
 ```plenty
-def square(value: i64) -> i64:
-    value * value
+def square(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * value)
 
-type PoolJobError = PoolMapError | FutureError | SubmitError[()] | PoolError
+type PoolJobError = ParallelError[OverflowError[i64]] | FutureError | SubmitError[()] | PoolError
 
-def main() -> Result[(), IoError | PoolJobError]:
+def main() -> Result[(), IoError | PoolJobError | OverflowError[i64]]:
     with ThreadPoolExecutor(2, 4)? as pool:
         first = pool.submit(square, 6).drop_job()?
         second = pool.submit(square, 9).drop_job()?
-        print(first.result()?)?
-        print(second.result()?)?
-        print(pool.map(square, range(6))?)?
+        print(first.result()??)?
+        print(second.result()??)?
+        print(pool.map_result(square, range(6))?)?
     Ok(())
 ```
 
@@ -25,7 +25,9 @@ def main() -> Result[(), IoError | PoolJobError]:
 [0, 1, 4, 9, 16, 25]
 ```
 
-`submit` returns an owned `Future[i64]`; `result()` waits and consumes it.
+`submit` returns an owned `Future[Result[i64, OverflowError[i64]]]`;
+`result()` waits and consumes it. The first `?` handles the future wait,
+and the second propagates the worker's overflow error.
 A failed submission returns `SubmitError`, which owns the unstarted job.
 `drop_job()` drops that job, as for [thread starts](owned-worker-jobs.md), and
 leaves `SubmitError[()]`, which still says why submission failed.
@@ -33,18 +35,20 @@ Submit jobs before waiting for their results to let them overlap. Leaving `with`
 waits for accepted jobs and joins every worker, including on early return or
 propagated error.
 
-`map` returns a list in input order. It accepts an owned list or an integer range
+`map_result` returns successful values in input order, or the first worker
+error in input order. `map` instead keeps every returned value, including
+any `Result` wrappers. It accepts an owned list or an integer range
 and a named function or owned reusable immutable closure, keeping a bounded
 window of jobs outstanding. Job and
 result storage can fail to allocate.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | PoolMapError | PoolError]:
+def main() -> Result[(), AllocError | IoError | ParallelError[OverflowError[i64]] | PoolError]:
     with ThreadPoolExecutor(2, 2)? as pool:
         factor = 3
-        scale = def [factor](value: i64) -> i64:
-            value * factor
-        print(pool.map(scale, range(4))?)?
+        scale = def [factor](value: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(value * factor)
+        print(pool.map_result(scale, range(4))?)?
     Ok(())
 ```
 
@@ -84,4 +88,4 @@ A future may also outlive the pool's scope: shutdown finishes the job, and the
 handle retains the result until you retrieve or drop it.
 
 Keep the job instead when you want to retry it or run it locally; a
-[later lesson](submission-backpressure.md) shows how.
+[submission backpressure lesson](submission-backpressure.md) shows how.

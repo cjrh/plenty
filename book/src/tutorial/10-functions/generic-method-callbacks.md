@@ -11,7 +11,9 @@ class Cell[T]:
         Cell(transform(self.value))
 
 def double(value: u8) -> u16:
-    u16(value) * 2
+    # u8 is at most 255, so the doubled value is at most 510 in u16.
+    unchecked:
+        u16(value) * 2
 
 def main() -> Result[(), IoError]:
     original = Cell(7u8)

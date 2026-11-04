@@ -18,12 +18,12 @@ same [habits as a task](wait-habits.md). When you do not wait for its result
 inside the block, guard the receiver as the last manager of the pool's `with`:
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -31,13 +31,13 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
         pool.submit(produce, sender).drop_job()?
-        print(drain(inbox))?
+        print(drain(inbox)?)?
     Ok(())
 ```
 
@@ -49,12 +49,12 @@ That guard drops the receiver at shutdown, which is too late for a `result()`
 inside the block:
 
 ```plenty-error
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -62,13 +62,13 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()] | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
         future = pool.submit(produce, sender).drop_job()?
-        print(drain(inbox))?
+        print(drain(inbox)?)?
         future.result()??
     Ok(())
 ```
@@ -80,12 +80,12 @@ this result() waits for a job that holds `Sender[i64]` while `receiver` still ho
 To wait for the result, end the receiver's own guard first:
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -93,15 +93,15 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SendError[i64] | SubmitError[()] | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with ThreadPoolExecutor(1, 1)? as pool:
         future = pool.submit(produce, sender).drop_job()?
         mut total = 0
         with receiver as inbox:
-            total = drain(inbox)
+            total = drain(inbox)?
         future.result()??
         print(total)?
     Ok(())

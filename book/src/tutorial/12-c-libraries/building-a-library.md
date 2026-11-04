@@ -4,28 +4,48 @@ Use `export def` to name the C symbol for a function. This `calc.plenty` module
 can also be imported and called by an ordinary Plenty program:
 
 ```plenty-file calc.plenty
-pub export def add(a: i32, b: i32) -> i32 = "calc_add":
-    "Add two checked integers."
-    a + b
+pub enum CalcError:
+    Overflow
 
-pub export def increment(value: &mut i32) -> () = "calc_increment":
-    *value = *value + 1
+pub export def add(a: i32, b: i32) -> Result[i32, CalcError] = "calc_add":
+    "Add two checked integers."
+    result = checked:
+        a + b
+    result.map_error(def(error: OverflowError[i32]) -> CalcError: CalcError.Overflow)
+
+pub export def increment(value: &mut i32) -> Result[(), CalcError] = "calc_increment":
+    result = checked:
+        *value + 1
+    *value = result.map_error(def(error: OverflowError[i32]) -> CalcError: CalcError.Overflow)?
+    Ok(())
 ```
 
 ```plenty
 import calc
 
-def main() -> Result[(), IoError]:
-    print(calc.add(20, 22))?
+def main() -> Result[(), IoError | calc.CalcError]:
+    print(calc.add(20, 22)?)?
     mut value = 10i32
-    calc.increment(&mut value)
+    calc.increment(&mut value)?
     print(value)?
+    mut maximum = i32.MAX
+    match calc.increment(&mut maximum):
+        case Err(calc.CalcError.Overflow):
+            print("overflow", maximum == i32.MAX)?
+        case Ok(_):
+            print("unexpected success")?
     Ok(())
 ```
 ```output
 42
 11
+overflow True
 ```
+
+Arithmetic errors are mapped locally to a payload-free error enum supported
+by the C ABI. `increment` computes before assigning, so overflow leaves its
+borrowed value unchanged. Builtin `OverflowError[T]` carries a payload and
+cannot be exported directly. See [exported error contracts](export-result-contracts.md).
 
 `pub` makes the function accessible through source imports. `export` independently
 creates a C entry point in a library build. Libraries do not need `main`.
@@ -36,8 +56,8 @@ Save the module as `calc.plenty`, create a `build` directory, and run:
 plenty --shared-library calc.plenty --library-name calc -o build/libcalc.so
 ```
 
-The output includes `calc.h`, with a `calc_add` declaration and generated contract
-comments, and `calc.plentyi`, which Plenty consumers can import. Copy that generated
+The output includes `calc.h`, with a status-returning `calc_add` declaration
+and generated contract comments, and `calc.plentyi`, which Plenty consumers can import. Copy that generated
 interface into the consuming project's source root and link `libcalc.so` using
 `--link-arg`; it replaces the source module there. C consumers include `calc.h`
 and link the library.

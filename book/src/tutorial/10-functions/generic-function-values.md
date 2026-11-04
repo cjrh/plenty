@@ -4,14 +4,14 @@ A higher-order function can use a type parameter inside its callable signature.
 The compiler infers the type from the function value and the other arguments:
 
 ```plenty
-def increment(value: u8) -> u8:
-    value + 1
+def increment(value: u8) -> Result[u8, OverflowError[u8]]:
+    Ok(value + 1)
 
-def apply[T](operation: Callable[[T], T], value: T) -> T:
+def apply[T, U](operation: Callable[[T], U], value: T) -> U:
     operation(value)
 
-def main() -> Result[(), IoError]:
-    print(apply(increment, 41u8))?
+def main() -> Result[(), IoError | OverflowError[u8]]:
+    print(apply(increment, 41u8)?)?
     Ok(())
 ```
 ```output

@@ -3,13 +3,13 @@
 For a callback that also borrows local state, invoke it in that local scope:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut count = 0
     values = [8]?
-    take = def once [values, &mut count]() -> list[i64]:
+    take = def once [values, &mut count]() -> Result[list[i64], OverflowError[i64]]:
         count = count + 1
-        values
-    result = take()
+        Ok(values)
+    result = take()?
     print(count)?
     print(result)?
     Ok(())

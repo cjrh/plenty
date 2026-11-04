@@ -13,7 +13,7 @@ from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
 # Echoes one connection until the client stops sending.
-def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | NetError | std.bytes.BytesError]:
+def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | NetError | std.bytes.BytesError | OverflowError[i64]]:
     mut stream = listener.accept(deadline, cancel)?
     mut buffer = std.bytes.with_capacity(64)?
     buffer.resize(64, 0u8)?
@@ -28,7 +28,7 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
 
 type SocketOperationError = RangeError | NetError | std.bytes.BytesError
 
-def main() -> Result[(), SpawnError[()] | IoError | AllocError | SocketOperationError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | SocketOperationError | OverflowError[i64]]:
     cancel = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &milliseconds(5000))?
     mut listener = listen(&loopback_v4(0u16), 8)?

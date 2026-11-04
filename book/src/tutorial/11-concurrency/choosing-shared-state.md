@@ -16,15 +16,15 @@ Here each worker sums its own slice of the work and returns the result, so
 nothing is shared and nothing needs a lock:
 
 ```plenty
-def total(start: i64, end: i64) -> i64:
+def total(start: i64, end: i64) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in range(start, end):
         sum = sum + value
-    sum
+    Ok(sum)
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     with spawn(total, 0, 500).drop_job()? as low, spawn(total, 500, 1000).drop_job()? as high:
-        print(low.join() + high.join())?
+        print(low.join()? + high.join()?)?
     Ok(())
 ```
 ```output
