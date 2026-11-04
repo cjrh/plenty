@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Compare 64-value bitsets with 65-value hash sets using the same 64 values.
+"""Compare finite enum bitsets with hash-backed domains on identical workloads.
 
-Build plenty first. Both variants compile with native --release optimization;
-execute in alternating order and check results. The unused 65th variant forces
-the ordinary hash-set representation, without changing the measured workload.
-With --payload, use a six-boolean variant plus an optional unused extra case.
-Timings are observations, not pass/fail performance assertions.
+The unused variants extend the hash domain to 257 values. Native programs use
+--release; runs alternate order and check results. --members controls density,
+with values spread across the full domain to exercise every mask word.
+--baseline-compiler instead compares identical sources against an older compiler.
+JSON includes elapsed time and, where available, child user+system CPU time;
+background load can still affect clock speeds and cache behavior.
 """
 
 import argparse
@@ -18,20 +19,33 @@ import tempfile
 
 from bench_pipelines import measured
 
+try:
+    import resource
+except ImportError:
+    resource = None
 
-def source(variants, workload, rounds, payload=False):
-    declaration = "enum E:\n" + "".join(f"    V{i}\n" for i in range(variants))
-    values = ", ".join(f"E.V{i}" for i in range(64))
-    evens = ", ".join(f"E.V{i}" for i in range(0, 64, 2))
-    odds = ", ".join(f"E.V{i}" for i in range(1, 64, 2))
+
+def child_cpu_seconds():
+    if resource is None:
+        return 0.0
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
+
+
+def source(size, workload, rounds, payload=False, hashed=False, members=None):
+    count = size if members is None else members
+    indices = [n * (size - 1) // (count - 1) for n in range(count)]
+    domain = 257 if hashed else size
+    declaration = "enum E:\n" + "".join(f"    V{i}\n" for i in range(domain))
+    values = [f"E.V{i}" for i in indices]
     if payload:
-        declaration = "enum E:\n    V(bool, bool, bool, bool, bool, bool)\n"
-        if variants == 65:
-            declaration += "    Extra\n"
-        members = ["E.V(" + ", ".join("True" if n & (1 << bit) else "False" for bit in range(5, -1, -1)) + ")" for n in range(64)]
-        values = ", ".join(members)
-        evens = ", ".join(members[::2])
-        odds = ", ".join(members[1::2])
+        bits = size.bit_length() - 1
+        declaration = "enum E:\n    V(" + ", ".join(["bool"] * bits) + ")\n"
+        declaration += "".join(f"    Extra{i}\n" for i in range(domain - size))
+        values = ["E.V(" + ", ".join("True" if n & (1 << bit) else "False" for bit in range(bits - 1, -1, -1)) + ")" for n in indices]
+    evens = ", ".join(values[::2])
+    odds = ", ".join(values[1::2])
+    values = ", ".join(values)
     prefix = f"""
 def main() -> Result[(), AllocError | IoError]:
     values = [{values}]?
@@ -66,35 +80,50 @@ def main():
     parser.add_argument("--rounds", type=int, default=200_000)
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--payload", action="store_true", help="compare six-boolean payload domains of 64 and 65 values")
+    parser.add_argument("--payload", action="store_true", help="use boolean payloads rather than payload-free variants")
+    parser.add_argument("--size", type=int, choices=(64, 128, 256), default=64)
+    parser.add_argument("--members", type=int, help="even number of workload values, spread across the domain")
+    parser.add_argument("--baseline-compiler", type=Path, help="compare identical domains against another compiler instead of forcing hash storage")
+    parser.add_argument("--workloads", nargs="+", choices=("lookup", "mutation", "algebra", "copy"), default=("lookup", "mutation", "algebra", "copy"))
     args = parser.parse_args()
+    members = args.size if args.members is None else args.members
+    if members < 2 or members > args.size or members % 2:
+        parser.error("members must be even and between 2 and size")
     if min(args.rounds, args.runs) < 1:
         parser.error("rounds and runs must be positive")
     compiler = str(args.compiler.resolve())
     env = dict(os.environ, PLENTY_CACHE="off")
-    results = {"payload": args.payload, "machine": platform.machine(), "rounds": args.rounds, "runs": args.runs, "workloads": {}}
+    comparison = "baseline" if args.baseline_compiler else "hash"
+    results = {"payload": args.payload, "domain": args.size, "members": members, "comparison": comparison, "comparison_domain": args.size if args.baseline_compiler else 257, "machine": platform.machine(), "rounds": args.rounds, "runs": args.runs, "workloads": {}}
     with tempfile.TemporaryDirectory(prefix="plenty-enum-sets-") as directory:
         root = Path(directory)
-        for workload in ("lookup", "mutation", "algebra", "copy"):
+        for workload in args.workloads:
             binaries = {}
-            times = {"bitset64": [], "hash65": []}
-            expected = str(args.rounds * (64 if workload in ("mutation", "algebra") else 32)).encode()
-            for name, count in (("bitset64", 64), ("hash65", 65)):
+            times = {"bitset": [], comparison: []}
+            cpu_times = {"bitset": [], comparison: []}
+            expected = str(args.rounds * (members if workload in ("mutation", "algebra") else members // 2)).encode()
+            for name in ("bitset", comparison):
                 path = root / f"{workload}-{name}.plenty"
                 binary = path.with_suffix("")
-                path.write_text(source(count, workload, args.rounds, args.payload))
-                measured([compiler, "--release", "--compile", str(path), "-o", str(binary)], env)
+                path.write_text(source(args.size, workload, args.rounds, args.payload, name == "hash", members))
+                selected_compiler = str(args.baseline_compiler.resolve()) if name == "baseline" else compiler
+                measured([selected_compiler, "--release", "--compile", str(path), "-o", str(binary)], env)
                 binaries[name] = binary
             for run in range(args.runs):
-                order = ("bitset64", "hash65") if run % 2 == 0 else ("hash65", "bitset64")
+                order = ("bitset", comparison) if run % 2 == 0 else (comparison, "bitset")
                 for name in order:
+                    cpu_start = child_cpu_seconds()
                     elapsed, output = measured([str(binaries[name])], env)
+                    cpu_times[name].append(child_cpu_seconds() - cpu_start)
                     if output.strip() != expected:
                         raise RuntimeError(f"{workload}/{name}: unexpected output {output!r}")
                     times[name].append(elapsed)
             medians = {name: statistics.median(values) for name, values in times.items()}
-            results["workloads"][workload] = {"seconds": times, "median_seconds": medians, "speedup": medians["hash65"] / medians["bitset64"]}
-            print(f"{workload}: bitset={medians['bitset64']:.6f}s hash={medians['hash65']:.6f}s speedup={medians['hash65'] / medians['bitset64']:.2f}x", flush=True)
+            results["workloads"][workload] = {"seconds": times, "median_seconds": medians, "speedup": medians[comparison] / medians["bitset"]}
+            if resource is not None:
+                cpu_medians = {name: statistics.median(values) for name, values in cpu_times.items()}
+                results["workloads"][workload].update(cpu_seconds=cpu_times, median_cpu_seconds=cpu_medians, cpu_speedup=cpu_medians[comparison] / cpu_medians["bitset"])
+            print(f"{workload}: bitset={medians['bitset']:.6f}s {comparison}={medians[comparison]:.6f}s speedup={medians[comparison] / medians['bitset']:.2f}x", flush=True)
     if args.output:
         args.output.write_text(json.dumps(results, indent=2) + "\n")
 

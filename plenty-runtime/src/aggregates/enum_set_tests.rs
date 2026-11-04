@@ -37,7 +37,7 @@ static LARGE: Type = Type {
             name: "V",
             fields: &[],
         }
-    }; 65],
+    }; 257],
     ..ENUM
 };
 static PAYLOAD: Type = Type {
@@ -78,7 +78,12 @@ fn enum_bitset_membership_iteration_and_borrows_agree_at_every_bit() {
                 set.try_insert(key, 0).unwrap();
                 expected |= 1 << tag;
             }
-            assert_eq!(set.entries.bits(), Some(expected));
+            assert_eq!(
+                set.entries.indices().collect::<Vec<_>>(),
+                (0..64)
+                    .filter(|i| expected & (1 << i) != 0)
+                    .collect::<Vec<_>>()
+            );
             assert_eq!(set.len(), expected.count_ones() as usize);
             for tag in 0..64 {
                 assert_eq!(
@@ -136,7 +141,7 @@ fn enum_bitset_uses_one_owner_allocation_and_no_growth_allocations() {
             set.try_insert(ENUM.pack(0, tag), 0).unwrap();
         }
         set.try_reserve(1000).unwrap();
-        assert_eq!(set.entries.bits(), Some(u64::MAX));
+        assert_eq!(set.entries.len(), 64);
         for tag in 0..64 {
             assert_eq!(set.remove(ENUM.pack(0, tag)), Some(0));
         }
@@ -209,7 +214,7 @@ fn finite_enum_bitsets_encode_nested_payloads_and_keep_canonical_borrows() {
             assert_eq!(set.find(value), Some(index));
             assert_eq!(*set.entries.key_ref(index), value);
         }
-        assert_eq!(set.entries.bits(), Some(63));
+        assert_eq!(set.entries.len(), 6);
         assert_eq!(set.entries.capacity(), 6);
         assert!(set.table.is_empty());
         let borrowed = set.entries.key_ref(5);
@@ -218,5 +223,146 @@ fn finite_enum_bitsets_encode_nested_payloads_and_keep_canonical_borrows() {
         assert_eq!(set.find(saved), None);
         set.entries.clear();
         assert_eq!(*borrowed, saved);
+    }
+}
+
+static WIDE: Type = Type {
+    variants: &[const {
+        Variant {
+            name: "V",
+            fields: &[],
+        }
+    }; 256],
+    ..ENUM
+};
+static WIDE_SET: Type = Type {
+    key: Some(&WIDE),
+    ..SET
+};
+
+#[test]
+fn wide_enum_bitsets_match_an_independent_membership_model() {
+    // SAFETY: the type describes all tags used here; the guard owns the set.
+    unsafe {
+        let pointer = try_collection_new(&WIDE_SET, 0).unwrap();
+        let _owner = OwnedValue {
+            value: pointer as u128,
+            ty: &WIDE_SET,
+        };
+        let set = &mut *pointer;
+        let mut model = [false; 256];
+        let mut state = 17u64;
+        for step in 0..2048 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let tag = (state >> 32) as usize % 256;
+            let key = WIDE.pack(0, tag);
+            if step % 3 == 0 {
+                assert_eq!(set.remove(key).is_some(), model[tag]);
+                model[tag] = false;
+            } else {
+                set.try_insert(key, 0).unwrap();
+                model[tag] = true;
+            }
+            let expected: Vec<_> = (0..256).filter(|i| model[*i]).collect();
+            assert_eq!(set.len(), expected.len());
+            assert_eq!(set.entries.indices().collect::<Vec<_>>(), expected);
+            let mut cursor = set.entries.first();
+            for i in &expected {
+                assert_eq!(cursor, Some(*i));
+                assert_eq!(*set.entries.key_ref(*i), WIDE.pack(0, *i));
+                cursor = set.entries.next(*i);
+            }
+            assert_eq!(cursor, None);
+            // Alternating ends must neither duplicate nor skip any word-boundary bit.
+            let mut iter = set.entries.indices();
+            let mut deque = std::collections::VecDeque::from(expected);
+            while !deque.is_empty() {
+                assert_eq!(iter.next(), deque.pop_front());
+                assert_eq!(iter.next_back(), deque.pop_back());
+                assert_eq!(iter.len(), deque.len());
+            }
+            assert_eq!(iter.next(), None);
+            assert_eq!(iter.next_back(), None);
+            for (i, present) in model.iter().enumerate() {
+                assert_eq!(set.find(WIDE.pack(0, i)).is_some(), *present);
+            }
+        }
+        let expected: Vec<_> = set.entries.iter().map(|e| e.key).collect();
+        assert_eq!(
+            set.entries.drain().map(|e| e.key).collect::<Vec<_>>(),
+            expected
+        );
+        assert!(set.entries.is_empty());
+        assert!(set.table.is_empty());
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn wide_enum_bitsets_need_only_the_owner_allocation() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::accounting::fail_after(None);
+        }
+    }
+    let _restore = Restore;
+    crate::accounting::fail_after(Some(1));
+    let pointer = try_collection_new(&WIDE_SET, 256).unwrap();
+    // SAFETY: the guard owns the set; all 256 tags are valid.
+    unsafe {
+        let _owner = OwnedValue {
+            value: pointer as u128,
+            ty: &WIDE_SET,
+        };
+        let set = &mut *pointer;
+        for i in 0..256 {
+            set.try_insert(WIDE.pack(0, i), 0).unwrap();
+        }
+        set.try_reserve(1000).unwrap();
+        assert_eq!(set.len(), 256);
+        for i in 0..256 {
+            assert_eq!(set.remove(WIDE.pack(0, i)), Some(0));
+        }
+        assert_eq!(set.len(), 0);
+    }
+}
+
+#[test]
+fn wide_enum_set_storage_measurements() {
+    static HASH_SET: Type = Type {
+        key: Some(&LARGE),
+        ..SET
+    };
+    for members in [0, 4, 64, 128, 256] {
+        for ty in [&WIDE_SET, &HASH_SET] {
+            // SAFETY: the guard owns the collection; all inserted tags exist.
+            unsafe {
+                let pointer = try_collection_new(ty, 0).unwrap();
+                let _owner = OwnedValue {
+                    value: pointer as u128,
+                    ty,
+                };
+                let set = &mut *pointer;
+                for i in 0..members {
+                    set.try_insert(ty.key().pack(0, i), 0).unwrap();
+                }
+                let bytes = std::mem::size_of::<Collection>()
+                    + set.entries.storage_bytes()
+                    + set.table.capacity() * std::mem::size_of::<usize>();
+                println!(
+                    "{} members={members}: {bytes} requested heap bytes (owner {})",
+                    if set.entries.bits().is_some() {
+                        "bitset"
+                    } else {
+                        "hash"
+                    },
+                    std::mem::size_of::<Collection>()
+                );
+                if set.entries.bits().is_some() {
+                    assert_eq!(bytes, std::mem::size_of::<Collection>());
+                }
+            }
+        }
     }
 }

@@ -633,8 +633,8 @@ print(len(left), len(cloned)).unwrap()
 }
 
 #[test]
-fn enum_bitsets_handle_one_64_and_65_variants() {
-    for size in [1, 63, 64, 65] {
+fn enum_bitsets_handle_word_boundaries_and_hash_fallback() {
+    for size in [1, 63, 64, 65, 127, 128, 129, 255, 256, 257] {
         let variants = (0..size).map(|i| format!("    V{i}\n")).collect::<String>();
         let values = (0..size)
             .rev()
@@ -734,22 +734,26 @@ fn finite_native(source: &str, expected: &str) {
     native(&program, expected);
 }
 
-fn finite_enum_source(extra_variant: bool) -> (String, Vec<String>) {
+fn finite_enum_source(bits: usize, extra_variant: bool) -> (String, Vec<String>) {
+    let tail = ", bool".repeat(bits - 5);
     let declaration = format!(
-        "enum Pair:\n    Bits(bool, bool)\nenum E:\n    A(Pair, tuple[bool, bool], bool)\n    B(Pair, tuple[bool, bool], bool)\n{}",
+        "enum Pair:\n    Bits(bool, bool)\nenum E:\n    A(Pair, tuple[bool, bool]{tail})\n    B(Pair, tuple[bool, bool]{tail})\n{}",
         if extra_variant { "    Extra\n" } else { "" }
     );
-    let values = (0..64)
+    let values = (0..(1 << bits))
         .map(|n| {
             let flag = |bit| if n & (1 << bit) == 0 { "False" } else { "True" };
             format!(
-                "E.{}(Pair.Bits({}, {}), ({}, {}), {})",
-                if n < 32 { "A" } else { "B" },
-                flag(4),
-                flag(3),
-                flag(2),
-                flag(1),
-                flag(0)
+                "E.{}(Pair.Bits({}, {}), ({}, {}){})",
+                if n < (1 << (bits - 1)) { "A" } else { "B" },
+                flag(bits - 2),
+                flag(bits - 3),
+                flag(bits - 4),
+                flag(bits - 5),
+                (0..bits - 5)
+                    .rev()
+                    .map(|bit| format!(", {}", flag(bit)))
+                    .collect::<String>()
             )
         })
         .collect();
@@ -758,13 +762,33 @@ fn finite_enum_source(extra_variant: bool) -> (String, Vec<String>) {
 
 #[test]
 fn finite_enum_bitsets_preserve_all_payload_combinations_and_views() {
-    for extra in [false, true] {
-        let (declaration, values) = finite_enum_source(extra);
-        finite_native(
-            &format!(
-                r#"
+    for bits in 6..=8 {
+        let size = 1 << bits;
+        for extra in [false, true] {
+            let (declaration, values) = finite_enum_source(bits, extra);
+            finite_native(
+                &format!(
+                    r#"
 {declaration}
 values = [{}].unwrap()
+mut evens = {{*value for i, value in enumerate(&values) if i % 2 == 0}}.unwrap()
+thirds = {{*value for i, value in enumerate(&values) if i % 3 == 0}}.unwrap()
+u = evens.union(&thirds).unwrap()
+a = evens.intersection(&thirds).unwrap()
+d = evens.difference(&thirds).unwrap()
+x = evens.symmetric_difference(&thirds).unwrap()
+for i, value in enumerate(&values):
+    test.check((value in u) == (i % 2 == 0 or i % 3 == 0), "union").unwrap()
+    test.check((value in a) == (i % 2 == 0 and i % 3 == 0), "intersection").unwrap()
+    test.check((value in d) == (i % 2 == 0 and i % 3 != 0), "difference").unwrap()
+    test.check((value in x) == ((i % 2 == 0) != (i % 3 == 0)), "symmetric difference").unwrap()
+test.check(evens.issubset(&u) and u.issuperset(&thirds) and d.isdisjoint(&thirds), "relationships").unwrap()
+evens.intersection_update(&thirds)
+test.check(evens == a, "intersection update").unwrap()
+evens.update(copy(thirds).unwrap()).unwrap()
+test.check(evens == thirds, "update").unwrap()
+evens.difference_update(&thirds)
+test.check(len(evens) == 0, "difference update").unwrap()
 mut members = {{*value for value in &values}}.unwrap()
 print(len(members)).unwrap()
 for value in &values:
@@ -789,27 +813,28 @@ collected = [*value for value in &members].unwrap()
 owned = [value for value in copy(members).unwrap()].unwrap()
 members.clear()
 drop(members)
-test.check(len(cloned) == 64, "finite set invariant").unwrap()
-test.check(len(collected) == 64, "finite set invariant").unwrap()
-test.check(len(owned) == 64, "finite set invariant").unwrap()
+test.check(len(cloned) == {size}, "finite set invariant").unwrap()
+test.check(len(collected) == {size}, "finite set invariant").unwrap()
+test.check(len(owned) == {size}, "finite set invariant").unwrap()
 for value in &collected:
     test.check(value in cloned, "finite set invariant").unwrap()
 for value in &owned:
     test.check(value in cloned, "finite set invariant").unwrap()
 print(len(cloned), len(collected), len(owned)).unwrap()
 "#,
-                values.join(", ")
-            ),
-            "64\n64 64 64",
-        );
+                    values.join(", ")
+                ),
+                &format!("{size}\n{size} {size} {size}"),
+            );
+        }
     }
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn finite_enum_bitsets_use_one_allocation_at_64_and_hash_at_65() {
+fn finite_enum_bitsets_use_one_allocation_at_256_and_hash_at_257() {
     for extra in [false, true] {
-        let (declaration, values) = finite_enum_source(extra);
+        let (declaration, values) = finite_enum_source(8, extra);
         finite_native(
             &format!(
                 r#"
@@ -820,15 +845,15 @@ print("__test_fail_allocations_after_1__").unwrap()
 result = left.union(&right)
 print("__test_restore_allocations__").unwrap()
 print(result.is_ok()).unwrap()
-test.check(len(left) == 32 and len(right) == 32, "finite set invariant").unwrap()
+test.check(len(left) == 128 and len(right) == 128, "finite set invariant").unwrap()
 "#,
-                values[..32].join(", "),
-                values[32..].join(", ")
+                values[..128].join(", "),
+                values[128..].join(", ")
             ),
             if extra { "False" } else { "True" },
         );
     }
-    let (declaration, values) = finite_enum_source(false);
+    let (declaration, values) = finite_enum_source(8, false);
     finite_native(
         &format!(
             r#"
@@ -840,7 +865,7 @@ print("__test_begin_no_allocations__").unwrap()
 for value in &values:
     members.add(*value).unwrap()
     test.check(value in members, "finite set invariant").unwrap()
-test.check(len(members) == 64, "finite set invariant").unwrap()
+test.check(len(members) == 256, "finite set invariant").unwrap()
 members.reserve(1000).unwrap()
 for value in &values:
     test.check(members.discard(value), "finite set invariant").unwrap()
@@ -895,5 +920,29 @@ print(true_fields, len(collected)).unwrap()
 test.check((True, False) in collected, "finite set invariant").unwrap()
 "#,
         "4 4",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn finite_enum_bitsets_encode_the_last_byte_offset() {
+    let variants = (0..128)
+        .map(|i| format!("    Extra{i}\n"))
+        .collect::<String>();
+    native(
+        &format!(
+            r#"
+enum E:
+    Flags(bool, bool, bool, bool, bool, bool, bool)
+{variants}
+print("__test_fail_allocations_after_1__").unwrap()
+result = {{E.Extra127}}
+print("__test_restore_allocations__").unwrap()
+members = result.unwrap()
+collected = [*value for value in &members].unwrap()
+print(E.Extra127 in members, collected[0] == E.Extra127).unwrap()
+"#
+        ),
+        "True True",
     );
 }

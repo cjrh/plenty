@@ -201,7 +201,7 @@ pub(crate) struct Entries {
 enum RowOrder {
     Dense,
     Linked(Order),
-    Bits(u64),
+    Bits(enum_bits::Bits),
 }
 impl RowOrder {
     fn linked(&self) -> Option<&Order> {
@@ -225,6 +225,7 @@ impl RowOrder {
 }
 
 const _: () = {
+    assert!(std::mem::size_of::<enum_bits::Bits>() <= std::mem::size_of::<Order>());
     assert!(std::mem::offset_of!(Entries, data) == 0);
     assert!(std::mem::offset_of!(Words, ptr) == 0);
     assert!(std::mem::offset_of!(Words, len) == 8);
@@ -262,17 +263,17 @@ impl Entries {
     pub fn enum_set(key: &'static Type) -> Self {
         debug_assert!(enum_bits::eligible(key));
         Self {
-            order: RowOrder::Bits(0),
+            order: RowOrder::Bits(enum_bits::Bits::default()),
             ..Self::new(key, None)
         }
     }
-    pub fn bits(&self) -> Option<u64> {
-        match self.order {
+    pub fn bits(&self) -> Option<&enum_bits::Bits> {
+        match &self.order {
             RowOrder::Bits(bits) => Some(bits),
             _ => None,
         }
     }
-    pub fn set_bits(&mut self, bits: u64) {
+    pub fn set_bits(&mut self, bits: enum_bits::Bits) {
         let RowOrder::Bits(current) = &mut self.order else {
             unreachable!("enum set")
         };
@@ -280,7 +281,7 @@ impl Entries {
     }
     pub fn key_ref(&mut self, index: usize) -> *const u128 {
         if let Some(bits) = self.bits() {
-            assert!(bits & (1 << index) != 0);
+            assert!(bits.contains(index));
             enum_bits::reference(self.key, index)
         } else {
             self.slot(index, false)
@@ -288,7 +289,7 @@ impl Entries {
     }
     pub fn len(&self) -> usize {
         if let Some(bits) = self.bits() {
-            return bits.count_ones() as usize;
+            return bits.len();
         }
         self.order.linked().map_or_else(
             || self.data.len() / self.stride - usize::from(self.removed),
@@ -307,12 +308,19 @@ impl Entries {
             .linked()
             .map_or(rows, |order| rows.min(order.capacity()))
     }
+    #[cfg(test)]
+    pub fn storage_bytes(&self) -> usize {
+        self.data.capacity()
+            + self.order.linked().map_or(0, |order| {
+                order.capacity() * 2 * std::mem::size_of::<usize>()
+            })
+    }
     pub fn row_bytes(&self) -> usize {
         self.stride
     }
     pub fn get(&self, index: usize) -> Entry {
         if let Some(bits) = self.bits() {
-            assert!(bits & (1 << index) != 0);
+            assert!(bits.contains(index));
             return Entry {
                 key: enum_bits::value(self.key, index),
                 value: 0,
@@ -357,7 +365,7 @@ impl Entries {
         EntryIndices {
             inner: dense
                 .chain(sparse)
-                .chain(enum_bits::Indices(self.bits().unwrap_or(0))),
+                .chain(enum_bits::Indices(self.bits().copied().unwrap_or_default())),
             remaining: self.len(),
         }
     }
@@ -368,14 +376,13 @@ impl Entries {
     }
     pub fn first(&self) -> Option<usize> {
         if let Some(bits) = self.bits() {
-            return enum_bits::Indices(bits).next();
+            return enum_bits::Indices(*bits).next();
         }
         self.order.linked().expect("hash entries").first()
     }
     pub fn next(&self, index: usize) -> Option<usize> {
         if let Some(bits) = self.bits() {
-            return enum_bits::Indices(bits & u64::MAX.checked_shl(index as u32 + 1).unwrap_or(0))
-                .next();
+            return enum_bits::Indices(bits.after(index)).next();
         }
         self.order.linked().expect("hash entries").next(index)
     }
@@ -500,7 +507,7 @@ impl Entries {
     /// Reservation belongs to the surrounding transactional operation.
     pub unsafe fn push(&mut self, entry: Entry) {
         if let RowOrder::Bits(bits) = &mut self.order {
-            *bits |= 1 << unsafe { enum_bits::index(self.key, entry.key) };
+            bits.insert(unsafe { enum_bits::index(self.key, entry.key) });
             return;
         }
         assert!(self.len() < self.capacity());
@@ -533,7 +540,7 @@ impl Entries {
     }
     pub fn clear(&mut self) {
         if let RowOrder::Bits(bits) = &mut self.order {
-            *bits = 0;
+            *bits = enum_bits::Bits::default();
         }
         self.data.clear();
         self.removed = false;
@@ -542,9 +549,9 @@ impl Entries {
         }
     }
     pub fn drain(&mut self) -> impl Iterator<Item = Entry> + '_ {
-        let bits = self.bits().unwrap_or(0);
+        let bits = self.bits().copied().unwrap_or_default();
         if self.bits().is_some() {
-            self.set_bits(0);
+            self.set_bits(enum_bits::Bits::default());
         }
         let count = self.len();
         let base = self.data.as_ptr();
@@ -584,7 +591,7 @@ impl Entries {
     pub unsafe fn remove(&mut self, index: usize) -> Entry {
         let entry = self.get(index);
         if let RowOrder::Bits(bits) = &mut self.order {
-            *bits &= !(1 << index);
+            bits.remove(index);
             return entry;
         }
         if let Some(order) = self.order.linked_mut() {
