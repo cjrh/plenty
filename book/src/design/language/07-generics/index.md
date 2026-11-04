@@ -70,6 +70,17 @@ def main() -> ():
 f64 does not satisfy KeyType
 ```
 
+### Finding an unsupported key field
+
+When a collection or `KeyType` constraint rejects a structured key, the
+diagnostic follows the first unsupported component in declaration order.
+It names class fields, enum variants and payload positions, and tuple element
+positions. Positions start at one. For example, a class field `sample` whose
+second tuple element is `f64` reports `field sample -> tuple element 2: f64 is
+not a supported key type`. Nested custom cleanup and anonymous sums receive
+specific reasons too. This applies to type annotations, inferred collection
+literals and conversions, and explicit or inferred generic arguments.
+
 ## CopyType
 
 `CopyType` accepts every type argument that copies under the

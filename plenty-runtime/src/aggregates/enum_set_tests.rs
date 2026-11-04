@@ -23,6 +23,7 @@ static ENUM: Type = Type {
     debug: None,
     display: None,
     quantity: None,
+    finite: None,
 };
 static SET: Type = Type {
     kind: b'S',
@@ -144,5 +145,78 @@ fn enum_bitset_uses_one_owner_allocation_and_no_growth_allocations() {
             set.try_reserve(usize::MAX),
             Err(AllocError::CapacityOverflow)
         );
+    }
+}
+
+static BOOL: Type = Type {
+    kind: b'b',
+    variants: &[],
+    ..ENUM
+};
+static FINITE_ENUM: Type = Type {
+    variants: &[
+        Variant {
+            name: "Empty",
+            fields: &[],
+        },
+        Variant {
+            name: "Flag",
+            fields: &[&BOOL],
+        },
+    ],
+    finite: Some(&Finite {
+        values: &[0, 1 << 64, (1 << 64) | 1],
+        offsets: &[0, 1],
+    }),
+    ..ENUM
+};
+static NESTED: Type = Type {
+    variants: &[
+        Variant {
+            name: "First",
+            fields: &[&FINITE_ENUM],
+        },
+        Variant {
+            name: "Second",
+            fields: &[&FINITE_ENUM],
+        },
+    ],
+    finite: Some(&Finite {
+        values: &[0, 2 << 64, (2 << 64) | 1, 1 << 64, 3 << 64, (3 << 64) | 1],
+        offsets: &[0, 3],
+    }),
+    ..ENUM
+};
+
+#[test]
+fn finite_enum_bitsets_encode_nested_payloads_and_keep_canonical_borrows() {
+    static NESTED_SET: Type = Type {
+        key: Some(&NESTED),
+        ..SET
+    };
+    assert!(crate::entries::enum_bits::eligible(&NESTED));
+    // SAFETY: every canonical value has the descriptor's native representation.
+    unsafe {
+        let pointer = try_collection_new(&NESTED_SET, 6).unwrap();
+        let _owner = OwnedValue {
+            value: pointer as u128,
+            ty: &NESTED_SET,
+        };
+        let set = &mut *pointer;
+        for (index, value) in NESTED.finite.unwrap().values.iter().copied().enumerate() {
+            assert_eq!(crate::entries::enum_bits::index(&NESTED, value), index);
+            set.try_insert(value, 0).unwrap();
+            assert_eq!(set.find(value), Some(index));
+            assert_eq!(*set.entries.key_ref(index), value);
+        }
+        assert_eq!(set.entries.bits(), Some(63));
+        assert_eq!(set.entries.capacity(), 6);
+        assert!(set.table.is_empty());
+        let borrowed = set.entries.key_ref(5);
+        let saved = *borrowed;
+        assert_eq!(set.remove(saved), Some(0));
+        assert_eq!(set.find(saved), None);
+        set.entries.clear();
+        assert_eq!(*borrowed, saved);
     }
 }

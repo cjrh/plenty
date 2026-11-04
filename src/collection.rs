@@ -396,6 +396,75 @@ impl Ty {
             _ => None,
         }
     }
+    /// Explain rejected keys only; admission remains defined by `hashable`.
+    /// Walk in declaration order so nested fields have a stable, useful path.
+    pub fn key_type_error(&self, prefix: &str) -> String {
+        fn reason(ty: &Ty, path: String, ancestors: &mut Vec<Ty>) -> String {
+            if ancestors.contains(ty) {
+                return format!("{path}: recursive types are not supported as keys");
+            }
+            ancestors.push(ty.clone());
+            let detail = match ty {
+                Ty::Enum(t) if t.anonymous() => {
+                    format!("{path}: anonymous sums are not supported as keys")
+                }
+                Ty::Enum(t) => match t.try_get() {
+                    None => format!("{path}: type declaration is not complete"),
+                    Some(data) => data
+                        .variants
+                        .iter()
+                        .find_map(|variant| {
+                            variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .find_map(|(index, field)| {
+                                    (!field.hashable()).then(|| {
+                                        let field_path = if t.tuple() {
+                                            format!("{path} -> tuple element {}", index + 1)
+                                        } else {
+                                            format!(
+                                                "{path} -> variant {} payload {}",
+                                                variant.name,
+                                                index + 1
+                                            )
+                                        };
+                                        reason(field, field_path, ancestors)
+                                    })
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            format!("{path}: recursive types are not supported as keys")
+                        }),
+                },
+                Ty::Class(t) => match t.try_get() {
+                    None => format!("{path}: type declaration is not complete"),
+                    Some(data) if data.destructor.is_some() => {
+                        format!("{path}: {ty} declares custom cleanup (__del__)")
+                    }
+                    Some(data) => data
+                        .fields
+                        .iter()
+                        .find_map(|(name, field)| {
+                            (!field.hashable()).then(|| {
+                                reason(field, format!("{path} -> field {name}"), ancestors)
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            format!("{path}: recursive types are not supported as keys")
+                        }),
+                },
+                _ => format!("{path}: {ty} is not a supported key type"),
+            };
+            ancestors.pop();
+            detail
+        }
+        format!(
+            "{prefix}; {}",
+            reason(self, self.to_string(), &mut Vec::new())
+        )
+    }
+
     pub fn hashable(&self) -> bool {
         if let Self::Enum(t) = self {
             // A recursive or unfinished declaration cannot establish a finite key.

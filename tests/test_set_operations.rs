@@ -728,3 +728,172 @@ print(len(collected)).unwrap()
         "3 2\n2 True\n2",
     );
 }
+
+fn finite_native(source: &str, expected: &str) {
+    let program = format!("import std.test as test\n{}", support::program(source));
+    native(&program, expected);
+}
+
+fn finite_enum_source(extra_variant: bool) -> (String, Vec<String>) {
+    let declaration = format!(
+        "enum Pair:\n    Bits(bool, bool)\nenum E:\n    A(Pair, tuple[bool, bool], bool)\n    B(Pair, tuple[bool, bool], bool)\n{}",
+        if extra_variant { "    Extra\n" } else { "" }
+    );
+    let values = (0..64)
+        .map(|n| {
+            let flag = |bit| if n & (1 << bit) == 0 { "False" } else { "True" };
+            format!(
+                "E.{}(Pair.Bits({}, {}), ({}, {}), {})",
+                if n < 32 { "A" } else { "B" },
+                flag(4),
+                flag(3),
+                flag(2),
+                flag(1),
+                flag(0)
+            )
+        })
+        .collect();
+    (declaration, values)
+}
+
+#[test]
+fn finite_enum_bitsets_preserve_all_payload_combinations_and_views() {
+    for extra in [false, true] {
+        let (declaration, values) = finite_enum_source(extra);
+        finite_native(
+            &format!(
+                r#"
+{declaration}
+values = [{}].unwrap()
+mut members = {{*value for value in &values}}.unwrap()
+print(len(members)).unwrap()
+for value in &values:
+    test.check(value in members, "finite set invariant").unwrap()
+    test.check(members.discard(value), "finite set invariant").unwrap()
+    test.check(value not in members, "finite set invariant").unwrap()
+    members.add(*value).unwrap()
+cloned = copy(members).unwrap()
+test.check(cloned == members, "finite set invariant").unwrap()
+map = {{*value: 1 for value in &values}}.unwrap()
+view = map.keys()
+test.check(view.to_set().unwrap() == members, "finite set invariant").unwrap()
+test.check(members.intersection(&view).unwrap() == members, "finite set invariant").unwrap()
+test.check(view.union(&members).unwrap() == members, "finite set invariant").unwrap()
+test.check(len(members.symmetric_difference(&view).unwrap()) == 0, "finite set invariant").unwrap()
+mut mixed = copy(members).unwrap()
+mixed.intersection_update(&view)
+test.check(mixed == members, "finite set invariant").unwrap()
+mixed.difference_update(&view)
+test.check(len(mixed) == 0, "finite set invariant").unwrap()
+collected = [*value for value in &members].unwrap()
+owned = [value for value in copy(members).unwrap()].unwrap()
+members.clear()
+drop(members)
+test.check(len(cloned) == 64, "finite set invariant").unwrap()
+test.check(len(collected) == 64, "finite set invariant").unwrap()
+test.check(len(owned) == 64, "finite set invariant").unwrap()
+for value in &collected:
+    test.check(value in cloned, "finite set invariant").unwrap()
+for value in &owned:
+    test.check(value in cloned, "finite set invariant").unwrap()
+print(len(cloned), len(collected), len(owned)).unwrap()
+"#,
+                values.join(", ")
+            ),
+            "64\n64 64 64",
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn finite_enum_bitsets_use_one_allocation_at_64_and_hash_at_65() {
+    for extra in [false, true] {
+        let (declaration, values) = finite_enum_source(extra);
+        finite_native(
+            &format!(
+                r#"
+{declaration}
+left = {{{}}}.unwrap()
+right = {{{}}}.unwrap()
+print("__test_fail_allocations_after_1__").unwrap()
+result = left.union(&right)
+print("__test_restore_allocations__").unwrap()
+print(result.is_ok()).unwrap()
+test.check(len(left) == 32 and len(right) == 32, "finite set invariant").unwrap()
+"#,
+                values[..32].join(", "),
+                values[32..].join(", ")
+            ),
+            if extra { "False" } else { "True" },
+        );
+    }
+    let (declaration, values) = finite_enum_source(false);
+    finite_native(
+        &format!(
+            r#"
+{declaration}
+values = [{}].unwrap()
+mut members: set[E] = set().unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+for value in &values:
+    members.add(*value).unwrap()
+    test.check(value in members, "finite set invariant").unwrap()
+test.check(len(members) == 64, "finite set invariant").unwrap()
+members.reserve(1000).unwrap()
+for value in &values:
+    test.check(members.discard(value), "finite set invariant").unwrap()
+test.check(len(members) == 0, "finite set invariant").unwrap()
+members.clear()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print("ok").unwrap()
+"#,
+            values.join(", ")
+        ),
+        "ok",
+    );
+}
+
+#[test]
+fn finite_enum_bitsets_handle_singleton_and_builtin_options() {
+    finite_native(
+        r#"
+enum Singleton:
+    Only
+enum E:
+    Empty
+    One(Singleton)
+    Flag(Option[bool])
+mut members = {E.Empty, E.One(Singleton.Only), E.Flag(Nothing), E.Flag(Some(False)), E.Flag(Some(True))}.unwrap()
+test.check(len(members) == 5, "finite set invariant").unwrap()
+for member in &members:
+    test.check(member in members, "finite set invariant").unwrap()
+copy_of_members = copy(members).unwrap()
+members.clear()
+print(len(copy_of_members), E.Flag(Some(True)) in copy_of_members).unwrap()
+"#,
+        "5 True",
+    );
+}
+
+#[test]
+fn finite_tuple_bitsets_project_shared_fields_and_copy_values() {
+    finite_native(
+        r#"
+values = {(False, False), (True, False), (False, True), (True, True)}.unwrap()
+mut true_fields = 0
+for item in &values:
+    if item[0]:
+        true_fields += 1
+    if item[1]:
+        true_fields += 1
+collected = [*item for item in &values].unwrap()
+drop(values)
+print(true_fields, len(collected)).unwrap()
+test.check((True, False) in collected, "finite set invariant").unwrap()
+"#,
+        "4 4",
+    );
+}

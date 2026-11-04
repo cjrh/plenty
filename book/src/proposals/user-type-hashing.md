@@ -5,9 +5,9 @@ types now work as dictionary keys and set members, including nested enums.
 Classes whose fields are supported keys, including move-only classes and enums
 containing them, and the `KeyType` constraint are also implemented. Custom-cleanup
 keys and anonymous sums remain future work under [B74](../backlog.md).
-Payload-free named enum sets through 64 variants now use
-[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets); finite-payload
-encoding and wider masks remain future extensions. The
+Named enum and tuple sets with supported finite domains through 64 values now use
+[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
+boolean and nested enum/tuple payloads. Wider masks remain a future extension. The
 [collection reference](../design/facilities/01-builtins/collections.md) owns the
 current contract. The design and historical analysis below describe the broader
 proposal; enum/class admission and the explicit generic constraint have shipped.
@@ -264,8 +264,10 @@ reports `TYPE does not satisfy KeyType`, even if the generic body does not use
 hashing. Unconstrained generic bodies remain checked per concrete instance;
 `dict[K, V]` and `set[K]` do not independently require an explicit bound.
 
-Diagnostics could also name an offending field path, such as `Sample.ratio`
-containing `f64`. They do not yet include this detail.
+Diagnostics now name the first unsupported component in declaration order,
+including class field names, enum variants and payload positions, and tuple
+element positions. The path ends with the rejected type or a specific reason
+such as custom cleanup or an anonymous sum; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 

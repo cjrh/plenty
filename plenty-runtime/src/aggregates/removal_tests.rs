@@ -18,6 +18,7 @@ static INTEGER: Type = Type {
     debug: None,
     display: None,
     quantity: None,
+    finite: None,
 };
 static MAP: Type = Type {
     kind: b'D',

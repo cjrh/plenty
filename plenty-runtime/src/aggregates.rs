@@ -84,6 +84,14 @@ pub(crate) struct Type {
     /// Coherent unit spelling for Quantity, shared by every value of its type.
     /// Some("") denotes a dimensionless quantity; None an ordinary type.
     pub(crate) quantity: Option<&'static str>,
+    /// Canonical values and variant offsets for a compiler-proven small domain.
+    pub(crate) finite: Option<&'static Finite>,
+}
+/// Immutable finite-domain metadata emitted by `codegen::metadata::finite`.
+#[repr(C)]
+pub(crate) struct Finite {
+    pub(crate) values: &'static [u128],
+    pub(crate) offsets: &'static [u8],
 }
 /// A formatting adapter: it takes a reference to the value, as Plenty code
 /// passes one, and stores the method's `Result[str, FormatError]`.
@@ -104,7 +112,9 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 120);
+    assert!(size_of::<Type>() == 128);
+    assert!(std::mem::offset_of!(Type, finite) == 120);
+    assert!(size_of::<Finite>() == 32);
     assert!(std::mem::offset_of!(Type, quantity) == 104);
     assert!(std::mem::offset_of!(Type, debug) == 88);
     assert!(std::mem::offset_of!(Type, display) == 96);
@@ -844,7 +854,7 @@ impl Collection {
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(bits) = self.entries.bits() {
-            let tag = self.ty().key().tag(key);
+            let tag = unsafe { crate::entries::enum_bits::index(self.ty().key(), key) };
             return (bits & (1 << tag) != 0).then_some(tag);
         }
         if self.table.is_empty() {

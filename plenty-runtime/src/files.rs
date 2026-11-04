@@ -500,6 +500,7 @@ mod tests {
         debug: None,
         display: None,
         quantity: None,
+        finite: None,
     };
 
     #[test]

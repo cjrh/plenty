@@ -707,3 +707,6 @@ mod test_dimension_diagnostics;
 
 #[path = "test_quantity_erasure.rs"]
 mod test_quantity_erasure;
+
+#[path = "test_key_diagnostics.rs"]
+mod test_key_diagnostics;
