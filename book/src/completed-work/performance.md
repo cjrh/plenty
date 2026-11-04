@@ -251,10 +251,12 @@ These are measurements of these workloads, not general speed guarantees.
 
 ### Wide enum bitsets
 
-Finite enum and tuple domains through 256 values use four portable 64-bit words,
-including the 65–128 and 129–256 ranges. The mask fits within the existing
-insertion-order storage alternative, so collection owners do not grow. Small
-domains use the same storage with zero high bits. The canonical payload-free
+Finite enum and tuple domains select their mask width from the complete type
+domain: one 64-bit word for 1–64 values, two words for 65–128, and four words for
+129–256. Operations dispatch to the selected width, including scalar membership,
+popcount and algebra for the smallest domains. Clearing or draining preserves the
+selection; sparse membership never narrows it. All alternatives fit within the
+existing insertion-order storage, so collection owners do not grow. The canonical payload-free
 tag table grows from 64 to 256 entries (one shared 4 KiB table); finite payload
 metadata remains proportional to domain size and inline layout. Wider masks do
 not change key admission or dictionary storage. No target-specific SIMD is needed.
@@ -319,21 +321,21 @@ Speedups over the older hash-backed implementation:
 
 | Domain / workload values | Lookup | Add/discard | Union | Copy |
 | --- | ---: | ---: | ---: | ---: |
-| 128, payload-free | 3.57× | 3.82× | 129.13× | 47.55× |
-| 128, boolean payload | 4.23× | 4.29× | 655.49× | 250.00× |
-| 256, payload-free | 3.82× | 3.76× | 203.14× | 50.26× |
-| 256, boolean payload | 4.40× | 4.38× | 1394.89× | 485.85× |
-| 256, four payload-free values | 3.06× | 3.00× | 2.99× | 2.09× |
-| 256, four payload values | 3.39× | 3.52× | 28.09× | 11.58× |
+| 128, payload-free | 3.75× | 4.23× | 136.24× | 115.01× |
+| 128, boolean payload | 4.15× | 4.46× | 696.99× | 410.92× |
+| 256, payload-free | 3.56× | 4.12× | 198.95× | 192.41× |
+| 256, boolean payload | 4.38× | 4.48× | 1342.00× | 849.87× |
+| 256, four payload-free values | 2.91× | 3.64× | 4.47× | 8.90× |
+| 256, four payload values | 3.64× | 3.79× | 26.00× | 22.92× |
 
 [Raw measurements](data/enum-bitsets-256.json) retain every wall/CPU sample,
 medians, settings, compiler hashes and the 64-value comparison. The gains at
 both wider sizes and in sparse cases support the 256-value cutoff.
 
 The 64-value comparison uses seven alternating runs: 2,000,000 rounds for union
-and copy, 200,000 for lookup and mutation. The final four-word implementation
-was 1.8–3.4% slower in those CPU-time medians than the old scalar mask. Mask
-reads borrow their storage, and copying skips an unnecessary membership count
-for reservation; these avoid the larger regression seen in an initial version.
-The remaining small-domain cost and shared static-data cost are explicit
-tradeoffs of the wider representation.
+and copy, 200,000 for lookup and mutation. Relative throughput changes against
+the old scalar implementation were lookup +0.3%, add/discard +3.5%, union +1.4%, copy +163.6%. These are measured
+medians, not guarantees of changes this small. Width is encoded once in the
+storage alternative, with scalar operations for small domains. Copying reuses
+the validated representation and allocates only the new owner, avoiding storage
+reclassification and unnecessary reservation or membership counting.

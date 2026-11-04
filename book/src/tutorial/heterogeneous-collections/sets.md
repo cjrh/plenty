@@ -113,7 +113,8 @@ representation is the identity your application intends.
 ## Small enums without payloads
 
 Use ordinary sets for flags or selections too. An enum with no payloads and at
-most 256 variants automatically gets compact bitset storage:
+most 256 variants automatically gets compact bitset storage. The compiler
+selects a 64-, 128-, or 256-bit mask from the number of possible values:
 
 ```plenty
 enum Permission:

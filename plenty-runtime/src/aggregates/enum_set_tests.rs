@@ -366,3 +366,81 @@ fn wide_enum_set_storage_measurements() {
         }
     }
 }
+
+#[test]
+fn enum_set_width_is_selected_by_domain_and_survives_copying_and_emptying() {
+    use crate::entries::enum_bits::Bits;
+    macro_rules! check {
+        ($size:literal, $variant:ident) => {{
+            static KEY: Type = Type {
+                variants: &[const {
+                    Variant {
+                        name: "V",
+                        fields: &[],
+                    }
+                }; $size],
+                ..ENUM
+            };
+            static TY: Type = Type {
+                key: Some(&KEY),
+                ..SET
+            };
+            // SAFETY: the guard owns the set; all inserted tags belong to KEY.
+            unsafe {
+                let pointer = try_collection_new(&TY, 0).unwrap();
+                let _owner = OwnedValue {
+                    value: pointer as u128,
+                    ty: &TY,
+                };
+                let set = &mut *pointer;
+                assert!(matches!(set.entries.bits(), Some(Bits::$variant(_))));
+                let last = KEY.pack(0, $size - 1);
+                set.try_insert(last, 0).unwrap();
+                #[cfg(feature = "allocation-checks")]
+                {
+                    struct Restore;
+                    impl Drop for Restore {
+                        fn drop(&mut self) {
+                            crate::accounting::fail_after(None);
+                        }
+                    }
+                    let _restore = Restore;
+                    crate::accounting::fail_after(Some(0));
+                    assert!(try_copy_collection(pointer as u128, &TY).is_err());
+                    crate::accounting::fail_after(Some(1));
+                    let copied = try_copy_collection(pointer as u128, &TY).unwrap();
+                    let _copy_owner = OwnedValue {
+                        value: copied,
+                        ty: &TY,
+                    };
+                    let copy = &*(copied as *const Collection);
+                    assert!(matches!(copy.entries.bits(), Some(Bits::$variant(_))));
+                    assert_eq!(copy.find(last), Some($size - 1));
+                    set.remove(last);
+                    assert_eq!(copy.find(last), Some($size - 1));
+                }
+                set.entries.clear();
+                assert!(matches!(set.entries.bits(), Some(Bits::$variant(_))));
+                set.try_insert(last, 0).unwrap();
+                assert_eq!(
+                    set.entries
+                        .drain()
+                        .map(|entry| entry.key)
+                        .collect::<Vec<_>>(),
+                    [last]
+                );
+                assert!(matches!(set.entries.bits(), Some(Bits::$variant(_))));
+                set.try_insert(last, 0).unwrap();
+                assert_eq!(set.find(last), Some($size - 1));
+                assert_eq!(set.remove(last), Some(0));
+                assert!(matches!(set.entries.bits(), Some(Bits::$variant(_))));
+            }
+        }};
+    }
+    check!(1, Small);
+    check!(64, Small);
+    check!(65, Medium);
+    check!(128, Medium);
+    check!(129, Large);
+    check!(256, Large);
+}
