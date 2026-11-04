@@ -1,10 +1,24 @@
 //! Runtime traps report the source position of the failing operation.
+//! Arithmetic traps opt out at their primitive operation. Std provenance uses
+//! Bytes.get (forwarded reference, scalar native tail result) or unpack_i64
+//! (ordinary calls); integer abs now returns its public Result instead.
+//! Worker-owned buffers reach std through an ordinary call to read_tail; only
+//! read_tail -> Bytes.get claims a native tail transfer.
 use rstest::rstest;
 use std::process::Command;
 
 /// Compile `files` with `main.plenty` as the entry and its directory as the
 /// source root, and return what the program wrote to standard error.
 fn trap(files: &[(&str, &str)]) -> String {
+    trap_with_tail_calls(files, &[], None)
+}
+
+/// Tail provenance needs an actual transfer, not a call followed by cleanup.
+fn trap_with_tail_calls(
+    files: &[(&str, &str)],
+    tail_functions: &[&str],
+    expected_stdout: Option<&str>,
+) -> String {
     let dir = tempfile::tempdir().unwrap();
     for (path, source) in files {
         std::fs::create_dir_all(dir.path().join(path).parent().unwrap()).unwrap();
@@ -12,40 +26,111 @@ fn trap(files: &[(&str, &str)]) -> String {
     }
     let source = dir.path().join("main.plenty");
     let program = dir.path().join("program");
-    plenty::compile_file_to_executable(&source, &program, Some(dir.path())).unwrap();
-    let output = Command::new(&program).output().unwrap();
-    assert_eq!(output.status.code(), Some(1), "{:?}", output.status);
-    String::from_utf8(output.stderr).unwrap()
+    let mut error = None;
+    for optimize in [false, true] {
+        let options = plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        };
+        for name in tail_functions {
+            let dump = plenty::dump_file(
+                &source,
+                Some(dir.path()),
+                &options,
+                &plenty::DumpOptions {
+                    stages: vec![plenty::DumpStage::Ops, plenty::DumpStage::ClifOpt],
+                    filter: Some((*name).into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            for (stage, text) in dump.files.iter().filter(|(stage, _)| stage != "index.txt") {
+                let body = text.split(&format!("==== {name} ")).nth(1).unwrap();
+                let body = body.split("\n==== ").next().unwrap();
+                if stage == "ops.txt" {
+                    assert!(
+                        body.contains("ForwardsReferences"),
+                        "{name}, {optimize}: {body}"
+                    );
+                    assert!(
+                        body.contains("TailCall(\"__plenty_class_std.bytes.Bytes.get\")"),
+                        "{name}, {optimize}: {body}"
+                    );
+                } else {
+                    assert!(body.contains("return_call"), "{name}, {optimize}: {body}");
+                    assert!(
+                        !body.contains("plenty_caller_leave"),
+                        "{name}, {optimize}: {body}"
+                    );
+                }
+            }
+        }
+        plenty::compile_file_to_executable_with_options(
+            &source,
+            &program,
+            Some(dir.path()),
+            &options,
+        )
+        .unwrap();
+        let output = Command::new(&program).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{optimize}: {output:?}");
+        if let Some(expected) = expected_stdout {
+            assert_eq!(output.stdout, expected.as_bytes(), "{optimize}: {output:?}");
+        }
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        if let Some(previous) = &error {
+            assert_eq!(previous, &stderr, "optimized trap provenance changed");
+        }
+        error = Some(stderr);
+    }
+    error.unwrap()
 }
 
 fn main_trap(body: &str) -> String {
     trap(&[(
         "main.plenty",
-        &format!("def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"),
+        &format!(
+            "def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
+        ),
     )])
 }
 
 #[rstest]
-#[case::add("    big: i8 = 127\n    print(big + 1i8)?\n", "3:11: integer overflow")]
-#[case::subtract("    low: u8 = 0\n    print(low - 1u8)?\n", "3:11: integer overflow")]
-#[case::multiply("    big: i8 = 100\n    print(2i8 * big)?\n", "3:11: integer overflow")]
+#[case::add(
+    "    big: i8 = 127\n    unchecked:\n        print(big + 1i8)?\n",
+    "4:15: integer overflow"
+)]
+#[case::subtract(
+    "    low: u8 = 0\n    unchecked:\n        print(low - 1u8)?\n",
+    "4:15: integer overflow"
+)]
+#[case::multiply(
+    "    big: i8 = 100\n    unchecked:\n        print(2i8 * big)?\n",
+    "4:15: integer overflow"
+)]
 #[case::negate(
-    "    low: i8 = -127\n    lowest = low - 1i8\n    print(-lowest)?\n",
-    "4:11: integer overflow"
+    "    low: i8 = -127\n    lowest = unchecked:\n        low - 1i8\n    unchecked:\n        print(-lowest)?\n",
+    "6:15: integer overflow"
 )]
 #[case::divide_overflow(
-    "    low: i8 = -127\n    lowest = low - 1i8\n    print(lowest // -1i8)?\n",
-    "4:11: integer overflow"
+    "    low: i8 = -127\n    lowest = unchecked:\n        low - 1i8\n    unchecked:\n        print(lowest // -1i8)?\n",
+    "6:15: integer overflow"
 )]
 #[case::augmented(
-    "    mut total: i8 = 127\n    total += 1\n    print(total)?\n",
-    "3:5: integer overflow"
+    "    mut total: i8 = 127\n    unchecked:\n        total += 1\n    print(total)?\n",
+    "4:9: integer overflow"
 )]
-#[case::divide("    zero = 0\n    print(7 // zero)?\n", "3:11: division by zero")]
-#[case::modulo("    zero = 0\n    print(7 % zero)?\n", "3:11: division by zero")]
+#[case::divide(
+    "    zero = 0\n    unchecked:\n        print(7 // zero)?\n",
+    "4:15: division by zero"
+)]
+#[case::modulo(
+    "    zero = 0\n    unchecked:\n        print(7 % zero)?\n",
+    "4:15: division by zero"
+)]
 #[case::nested_operand(
-    "    zero = 0\n    print(1 + 2 * (7 // zero))?\n",
-    "3:20: division by zero"
+    "    zero = 0\n    unchecked:\n        print(1 + 2 * (7 // zero))?\n",
+    "4:24: division by zero"
 )]
 #[case::shift_left(
     "    count = 64\n    print(1 << count)?\n",
@@ -119,7 +204,7 @@ fn bounds_traps_print_the_index_and_length(#[case] body: &str, #[case] expected:
 )]
 fn field_element_traps_keep_their_sites(#[case] body: &str, #[case] expected: &str) {
     let source = format!(
-        "class Holder:\n    xs: list[i64]\ndef main() -> Result[(), AllocError | IoError]:\n    mut h = Holder([1, 2]?)\n{body}    Ok(())\n"
+        "class Holder:\n    xs: list[i64]\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut h = Holder([1, 2]?)\n{body}    Ok(())\n"
     );
     let error = trap(&[("main.plenty", &source)]);
     assert_eq!(error, format!("error: main.plenty:{expected}\n"));
@@ -160,7 +245,7 @@ fn output_before_a_trap_is_flushed() {
     let source = dir.path().join("main.plenty");
     std::fs::write(
         &source,
-        "def main() -> Result[(), IoError]:\n    zero = 0\n    print(\"before\")?\n    print(1 // zero)?\n    Ok(())\n",
+        "def main() -> Result[(), IoError]:\n    zero = 0\n    print(\"before\")?\n    unchecked:\n        print(1 // zero)?\n    Ok(())\n",
     )
     .unwrap();
     let program = dir.path().join("program");
@@ -170,7 +255,7 @@ fn output_before_a_trap_is_flushed() {
     assert_eq!(output.stdout, b"before\n");
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "error: main.plenty:4:11: division by zero\n"
+        "error: main.plenty:5:15: division by zero\n"
     );
 }
 
@@ -183,7 +268,7 @@ fn a_trap_names_its_file_relative_to_the_source_root() {
     std::fs::create_dir_all(dir.path().join("app/tools")).unwrap();
     std::fs::write(
         dir.path().join("app/tools/numbers.plenty"),
-        "pub def half(total: i64, parts: i64) -> i64:\n    total // parts\n",
+        "pub def half(total: i64, parts: i64) -> i64:\n    unchecked:\n        total // parts\n",
     )
     .unwrap();
     let source = dir.path().join("app/main.plenty");
@@ -197,7 +282,7 @@ fn a_trap_names_its_file_relative_to_the_source_root() {
     let output = Command::new(&program).output().unwrap();
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "error: app/tools/numbers.plenty:2:5: division by zero\n"
+        "error: app/tools/numbers.plenty:3:9: division by zero\n"
     );
 }
 
@@ -206,14 +291,14 @@ fn a_trap_in_an_imported_function_names_the_defining_file() {
     let error = trap(&[
         (
             "numbers.plenty",
-            "pub def half(total: i64, parts: i64) -> i64:\n    total // parts\n",
+            "pub def half(total: i64, parts: i64) -> i64:\n    unchecked:\n        total // parts\n",
         ),
         (
             "main.plenty",
             "import numbers\ndef main() -> Result[(), IoError]:\n    zero = 0\n    print(numbers.half(8, zero))?\n    Ok(())\n",
         ),
     ]);
-    assert_eq!(error, "error: numbers.plenty:2:5: division by zero\n");
+    assert_eq!(error, "error: numbers.plenty:3:9: division by zero\n");
 }
 
 #[test]
@@ -257,25 +342,29 @@ fn a_trap_in_a_generator_body_names_the_defining_file() {
     let error = trap(&[
         (
             "steps.plenty",
-            "pub def shares(total: i64, parts: i64) -> Generator[i64]:\n    yield total\n    yield total // parts\n",
+            "pub def shares(total: i64, parts: i64) -> Generator[i64]:\n    yield total\n    share = unchecked:\n        total // parts\n    yield share\n",
         ),
         (
             "main.plenty",
             "from steps import shares\ndef main() -> Result[(), IoError]:\n    zero = 0\n    for share in shares(8, zero):\n        print(share)?\n    Ok(())\n",
         ),
     ]);
-    assert_eq!(error, "error: steps.plenty:3:11: division by zero\n");
+    assert_eq!(error, "error: steps.plenty:4:9: division by zero\n");
 }
 
 #[test]
 fn each_trap_site_keeps_its_own_position() {
     // Two operations on one line share a marker unless each places its own.
-    let error = main_trap("    xs = [1, 2, 3]?\n    zero = 0\n    print(xs[0] // zero + xs[9])?\n");
-    assert_eq!(error, "error: main.plenty:4:11: division by zero\n");
-    let error = main_trap("    xs = [1, 2, 3]?\n    one = 1\n    print(xs[0] // one + xs[9])?\n");
+    let error = main_trap(
+        "    xs = [1, 2, 3]?\n    zero = 0\n    unchecked:\n        print(xs[0] // zero + xs[9])?\n",
+    );
+    assert_eq!(error, "error: main.plenty:5:15: division by zero\n");
+    let error = main_trap(
+        "    xs = [1, 2, 3]?\n    one = 1\n    unchecked:\n        print(xs[0] // one + xs[9])?\n",
+    );
     assert_eq!(
         error,
-        "error: main.plenty:4:26: index out of bounds: index 9, length 3\n"
+        "error: main.plenty:5:30: index out of bounds: index 9, length 3\n"
     );
 }
 
@@ -297,20 +386,23 @@ fn an_invalid_graph_handle_names_the_actual_call_not_its_first_instantiation() {
 
 #[test]
 fn standard_traps_keep_the_nearest_imported_user_caller_through_tail_calls() {
-    let error = trap(&[
-        (
-            "numbers.plenty",
-            "from std.math import abs\npub def recurse(n: i64, x: i64) -> i64:\n    if n > 0:\n        return recurse(n - 1, x)\n    abs(x)\n",
-        ),
-        (
-            "main.plenty",
-            "from numbers import recurse\ndef main() -> Result[(), IoError]:\n    print(recurse(100000, -9223372036854775808))?\n    Ok(())\n",
-        ),
-    ]);
-    assert!(error.contains("integer overflow"), "{error}");
-    assert!(
-        error.ends_with("note: called from numbers.plenty:5:5\n"),
-        "{error}"
+    let error = trap_with_tail_calls(
+        &[
+            (
+                "numbers.plenty",
+                "from std.bytes import Bytes\npub def recurse(source: &Bytes, n: i64, x: i64) -> u8:\n    if n > 0:\n        previous = unchecked:\n            n - 1\n        return recurse(source, previous, x)\n    source.get(x)\n",
+            ),
+            (
+                "main.plenty",
+                "from numbers import recurse\nfrom std.bytes import from_bytes\ndef main() -> Result[(), AllocError | IoError]:\n    source = from_bytes(b\"*\")?\n    print(recurse(source, 100000, 1))?\n    Ok(())\n",
+            ),
+        ],
+        &["numbers.recurse"],
+        None,
+    );
+    assert_eq!(
+        error,
+        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from numbers.plenty:7:5\n"
     );
 }
 
@@ -318,9 +410,14 @@ fn standard_traps_keep_the_nearest_imported_user_caller_through_tail_calls() {
 fn indirect_standard_calls_keep_the_dynamic_call_site() {
     let error = trap(&[(
         "main.plenty",
-        "from std.math import abs\ndef main() -> Result[(), IoError]:\n    f = abs[i64]\n    print(f(-9223372036854775808))?\n    Ok(())\n",
+        "from std.encoding import unpack_i64, Endian\ndef main() -> Result[(), IoError]:\n    f = unpack_i64\n    print(f(b\"12345678\", 1, Endian.Little))?\n    Ok(())\n",
     )]);
-    assert!(error.contains("integer overflow"), "{error}");
+    assert!(
+        error.starts_with(
+            "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
+        ),
+        "{error}"
+    );
     assert!(
         error.ends_with("note: called from main.plenty:4:11\n"),
         "{error}"
@@ -331,21 +428,24 @@ fn indirect_standard_calls_keep_the_dynamic_call_site() {
 fn a_user_callback_trap_keeps_its_own_position_without_a_standard_note() {
     let error = trap(&[(
         "main.plenty",
-        "from std.error import map_error\ndef divide(b: i64) -> i64:\n    1 // b\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(0), divide).is_err())?\n    Ok(())\n",
+        "from std.error import map_error\ndef divide(b: i64) -> i64:\n    unchecked:\n        1 // b\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(0), divide).is_err())?\n    Ok(())\n",
     )]);
-    assert_eq!(error, "error: main.plenty:3:5: division by zero\n");
+    assert_eq!(error, "error: main.plenty:4:9: division by zero\n");
 }
 
 #[test]
 fn a_callback_can_enter_std_again_from_a_standard_call() {
-    let error = trap(&[(
-        "main.plenty",
-        "from std.error import map_error\nfrom std.math import abs\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(-9223372036854775808), positive).is_err())?\n    Ok(())\n",
-    )]);
-    assert!(error.contains("integer overflow"), "{error}");
-    assert!(
-        error.ends_with("note: called from main.plenty:4:5\n"),
-        "{error}"
+    let error = trap_with_tail_calls(
+        &[(
+            "main.plenty",
+            "from std.error import map_error\nfrom std.bytes import Bytes, from_bytes\ndef read_tail(source: &Bytes, x: i64) -> u8:\n    source.get(x)\ndef read(x: i64) -> Result[u8, AllocError]:\n    source = from_bytes(b\"*\")?\n    Ok(read_tail(source, x))\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(1), read).is_err())?\n    Ok(())\n",
+        )],
+        &["read_tail"],
+        None,
+    );
+    assert_eq!(
+        error,
+        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
     );
 }
 
@@ -354,62 +454,98 @@ fn a_user_module_named_like_std_does_not_gain_standard_provenance() {
     let error = trap(&[
         (
             "app/std/collections.plenty",
-            "pub def fail() -> i64:\n    1 // 0\n",
+            "pub def fail() -> i64:\n    unchecked:\n        1 // 0\n",
         ),
         (
             "main.plenty",
-            "from app.std.collections import fail\nfrom std.math import abs\ndef main() -> Result[(), AllocError | IoError]:\n    print(abs(1))?\n    print(fail())?\n    Ok(())\n",
+            "from app.std.collections import fail\nfrom std.math import abs\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    print(abs(1)?)?\n    print(fail())?\n    Ok(())\n",
         ),
     ]);
     assert_eq!(
         error,
-        "error: app/std/collections.plenty:2:5: division by zero\n"
+        "error: app/std/collections.plenty:3:9: division by zero\n"
     );
 }
 
 #[test]
 fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
-    let error = trap(&[(
-        "main.plenty",
-        "from std.math import abs\nfrom std.thread import spawn\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    print(abs(1))?\n    with spawn(positive, -9223372036854775808).drop_job()? as task:\n        print(task.join())?\n    Ok(())\n",
-    )]);
-    assert!(
-        error.ends_with("note: called from main.plenty:4:5\n"),
-        "{error}"
+    let error = trap_with_tail_calls(
+        &[(
+            "main.plenty",
+            "from std.bytes import Bytes, from_bytes\nfrom std.thread import spawn\ndef read_tail(source: &Bytes, x: i64) -> u8:\n    source.get(x)\ndef read(x: i64) -> Result[u8, AllocError]:\n    source = from_bytes(b\"*\")?\n    Ok(read_tail(source, x))\ndef main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    source = from_bytes(b\"*\")?\n    print(source.get(0))?\n    with spawn(read, 1).drop_job()? as task:\n        print(task.join()?)?\n    Ok(())\n",
+        )],
+        &["read_tail"],
+        Some("42\n"),
+    );
+    assert_eq!(
+        error,
+        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
     );
 }
 
 #[test]
 fn directly_scheduled_std_jobs_do_not_inherit_an_earlier_jobs_tail_caller() {
-    let error = trap(&[(
-        "main.plenty",
-        "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef positive(x: i64) -> i64:\n    abs(x)\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(positive, 1).drop_job()?\n        print(first.result()?)?\n        second = pool.submit(abs, -9223372036854775808).drop_job()?\n        print(second.result()?)?\n    Ok(())\n",
-    )]);
-    assert!(error.contains("integer overflow"), "{error}");
-    assert!(!error.contains("note:"), "{error}");
+    let error = trap_with_tail_calls(
+        &[(
+            "main.plenty",
+            "from std.bytes import Bytes, from_bytes\nfrom std.fmt import string_formatter\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef read_tail(source: &Bytes, x: i64) -> u8:\n    source.get(x)\ndef read(x: i64) -> Result[u8, AllocError]:\n    source = from_bytes(b\"*\")?\n    Ok(read_tail(source, x))\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        first = pool.submit(read, 0).drop_job()?\n        print((first.result()?)?)?\n        depth: NonNegative[i64] = 65\n        second = pool.submit(string_formatter, 0, depth).drop_job()?\n        drop(second.result()?)\n    Ok(())\n",
+        )],
+        &["read_tail"],
+        Some("42\n"),
+    );
+    assert_eq!(
+        error,
+        "error: std/fmt.plenty:720:9: std.fmt.string_formatter: max_depth is above 64\n"
+    );
 }
 
 #[rstest]
-#[case::direct("    print(abs(-9223372036854775808 + 0))?\n", "3:11")]
+#[case::debug(false)]
+#[case::release(true)]
+fn scheduled_integer_abs_returns_its_declared_overflow(#[case] optimize: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("main.plenty");
+    std::fs::write(&source, "from std.math import abs\nfrom std.concurrent import ThreadPoolExecutor, FutureError, PoolError, SubmitError\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[()]]:\n    with ThreadPoolExecutor(1, 1)? as pool:\n        job = pool.submit(abs, i64.MIN).drop_job()?\n        match job.result()?:\n            case Ok(value):\n                print(\"unexpected success\", value)?\n            case Err(OverflowError(wrapped)):\n                print(wrapped)?\n    Ok(())\n").unwrap();
+    let executable = dir.path().join("program");
+    let options = plenty::CompileOptions {
+        optimize,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&source, &executable, None, &options).unwrap();
+    let output = Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"-9223372036854775808\n");
+    assert!(output.stderr.is_empty(), "{output:?}");
+}
+
+#[rstest]
+#[case::direct(
+    "    print(unpack_i64(b\"12345678\", 1 + 0, Endian.Little))?\n",
+    "4:11",
+    "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
+)]
 #[case::boxed(
-    "    f = BoxedCallable(abs[i64])?\n    print(f(-9223372036854775808 + 0))?\n",
-    "4:11"
+    "    f = BoxedCallable(unpack_i64)?\n    print(f(b\"12345678\", 1 + 0, Endian.Little))?\n",
+    "5:11",
+    "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
 )]
 #[case::closure(
-    "    k = 0\n    f = def [k](x: i64) -> i64:\n        abs(x + k)\n    print(f(-9223372036854775808))?\n",
-    "5:9"
+    "    source = from_bytes(b\"*\")?\n    k = 0\n    f = def [k](source: &Bytes, x: i64) -> u8:\n        offset = unchecked:\n            x + k\n        source.get(offset)\n    print(f(source, 1))?\n",
+    "9:9",
+    "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\n"
 )]
 fn caller_positions_name_the_call_after_argument_evaluation(
     #[case] body: &str,
     #[case] site: &str,
+    #[case] operation: &str,
 ) {
     let error = trap(&[(
         "main.plenty",
         &format!(
-            "from std.math import abs\ndef main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
+            "from std.encoding import unpack_i64, Endian\nfrom std.bytes import Bytes, from_bytes\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n{body}    Ok(())\n"
         ),
     )]);
-    assert!(error.contains("integer overflow"), "{error}");
+    assert!(error.starts_with(operation), "{error}");
     assert!(
         error.ends_with(&format!("note: called from main.plenty:{site}\n")),
         "{error}"
@@ -488,7 +624,7 @@ fn standard_library_code_makes_no_caller_context_calls() {
 #[test]
 fn standard_indirect_calls_still_restore_the_caller_context() {
     let calls = caller_context_calls(
-        "from std.error import map_error\nfrom std.math import abs\ndef positive(a: i64) -> i64:\n    abs(a + 1)\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(1), positive).is_err())?\n    Ok(())\n",
+        "from std.error import map_error\nfrom std.bytes import Bytes, from_bytes\ndef read_tail(source: &Bytes, x: i64) -> u8:\n    source.get(x)\ndef read(x: i64) -> Result[u8, AllocError]:\n    source = from_bytes(b\"*\")?\n    Ok(read_tail(source, x))\ndef main() -> Result[(), IoError]:\n    print(map_error(Result[i64, i64].Err(1), read).is_err())?\n    Ok(())\n",
     );
     let map_error = calls
         .iter()
@@ -504,28 +640,28 @@ fn standard_indirect_calls_still_restore_the_caller_context() {
 fn a_check_failing_in_a_worker_thread_names_its_site() {
     let error = trap(&[(
         "main.plenty",
-        "def worker(big: i8) -> i8:\n    big + 1i8\ndef main() -> Result[(), AllocError | IoError | SpawnError[()]]:\n    with spawn(worker, 127i8).drop_job()? as task:\n        print(task.join())?\n    Ok(())\n",
+        "def worker(big: i8) -> i8:\n    unchecked:\n        big + 1i8\ndef main() -> Result[(), AllocError | IoError | SpawnError[()]]:\n    with spawn(worker, 127i8).drop_job()? as task:\n        print(task.join())?\n    Ok(())\n",
     )]);
-    assert_eq!(error, "error: main.plenty:2:5: integer overflow\n");
+    assert_eq!(error, "error: main.plenty:3:9: integer overflow\n");
 }
 
 /// A function has 247 trap codes for its checks; later checks call their
 /// helper. Starting at `start`, the increment on line `line` overflows.
 #[rstest]
-#[case::last_code(-119, 249)]
-#[case::past_the_codes(-120, 250)]
+#[case::last_code(-119, 250)]
+#[case::past_the_codes(-120, 251)]
 fn checks_past_a_functions_trap_codes_still_name_their_site(
     #[case] start: i8,
     #[case] line: usize,
 ) {
-    let increments = "    t += 1i8\n".repeat(255);
+    let increments = "        t += 1i8\n".repeat(255);
     let source = format!(
-        "def climb(x: i8) -> i8:\n    mut t = x\n{increments}    t\ndef main() -> Result[(), AllocError | IoError]:\n    print(climb({start}i8))?\n    Ok(())\n"
+        "def climb(x: i8) -> i8:\n    mut t = x\n    unchecked:\n{increments}    t\ndef main() -> Result[(), AllocError | IoError]:\n    print(climb({start}i8))?\n    Ok(())\n"
     );
     let error = trap(&[("main.plenty", &source)]);
     assert_eq!(
         error,
-        format!("error: main.plenty:{line}:5: integer overflow\n")
+        format!("error: main.plenty:{line}:9: integer overflow\n")
     );
 }
 

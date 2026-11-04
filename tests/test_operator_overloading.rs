@@ -1,4 +1,7 @@
 //! Static arithmetic hooks preserve ordinary call, ownership and error contracts.
+//! In-place hooks must return `()`: narrow unchecked updates deliberately keep
+//! that API. The scalar native-trap and allocation probes also opt out only at
+//! the primitive operation, rather than changing hook dispatch or ABI.
 mod support;
 use support::assert_stdout as expect;
 
@@ -8,29 +11,32 @@ fn binary_unary_and_inplace_hooks_borrow_operands() {
         r#"
 class Vector:
     x: i64
-    def __add__(self, other: &Vector) -> Vector:
-        Vector(self.x + other.x)
-    def __sub__(self, other: &Vector) -> i64:
-        self.x - other.x
-    def __mul__(self, scale: i64) -> Vector:
-        Vector(self.x * scale)
-    def __rmul__(self, scale: i64) -> Vector:
-        Vector(scale * self.x)
-    def __neg__(self) -> Vector:
-        Vector(-self.x)
+    def __add__(self, other: &Vector) -> Result[Vector, OverflowError[i64]]:
+        Ok(Vector(self.x + other.x))
+    def __sub__(self, other: &Vector) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x - other.x)
+    def __mul__(self, scale: i64) -> Result[Vector, OverflowError[i64]]:
+        Ok(Vector(self.x * scale))
+    def __rmul__(self, scale: i64) -> Result[Vector, OverflowError[i64]]:
+        Ok(Vector(scale * self.x))
+    def __neg__(self) -> Result[Vector, OverflowError[i64]]:
+        Ok(Vector(-self.x))
     def __pos__(self) -> i64:
         self.x
     def __invert__(self) -> i64:
         ~self.x
     def __iadd__(self: &mut Vector, other: &Vector) -> ():
-        self.x += other.x
-mut a = Vector(3)
-b = Vector(4)
-print(a + b, a * 2, 2 * a, -a, +a, ~a).unwrap()
-difference: i64 = a - b
-a += b
-print(a, b, difference).unwrap()
-print((a + b) + Vector(1), -(a + b)).unwrap()
+        unchecked:
+            self.x += other.x
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    mut a = Vector(3)
+    b = Vector(4)
+    print((a + b)?, (a * 2)?, (2 * a)?, (-a)?, +a, ~a)?
+    difference: i64 = (a - b)?
+    a += b
+    print(a, b, difference)?
+    print(((a + b)? + Vector(1))?, (-(a + b)?)?)?
+    Ok(())
 "#,
         "Vector(x=7) Vector(x=6) Vector(x=6) Vector(x=-3) 3 -4\nVector(x=7) Vector(x=4) -1\nVector(x=12) Vector(x=-11)\n",
     );
@@ -42,23 +48,26 @@ fn reflected_and_inplace_operations_preserve_evaluation_order() {
         r#"
 class V:
     n: i64
-    def __rsub__(self, other: i64) -> i64:
-        other - self.n
+    def __rsub__(self, other: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(other - self.n)
     def __iadd__(self: &mut V, other: i64) -> ():
-        self.n += other
-def left() -> i64:
-    print("left").unwrap()
-    10
-def right() -> V:
-    print("right").unwrap()
-    V(3)
-def index() -> i64:
-    print("index").unwrap()
-    0
-print(left() - right()).unwrap()
-mut rows = [V(1)].unwrap()
-rows[index()] += left()
-print(rows).unwrap()
+        unchecked:
+            self.n += other
+def left() -> Result[i64, IoError]:
+    print("left")?
+    Ok(10)
+def right() -> Result[V, IoError]:
+    print("right")?
+    Ok(V(3))
+def index() -> Result[i64, IoError]:
+    print("index")?
+    Ok(0)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print((left()? - right()?)?)?
+    mut rows = [V(1)]?
+    rows[index()?] += left()?
+    print(rows)?
+    Ok(())
 "#,
         "left\nright\n7\nindex\nleft\n[V(n=11)]\n",
     );
@@ -70,7 +79,7 @@ fn fallible_hooks_propagate_and_temporaries_are_destroyed_once() {
         r#"
 class V:
     n: i64
-    def __add__(self, other: &V) -> Result[V, str]:
+    def __add__(self, other: &V) -> Result[V, str | OverflowError[i64]]:
         if other.n < 0:
             return Err("negative")
         Ok(V(self.n + other.n))
@@ -78,14 +87,14 @@ class V:
         print("drop", self.n).unwrap()
 def identity[T](value: T) -> T:
     value
-def sum() -> Result[(), str]:
+def sum() -> Result[(), str | IoError | OverflowError[i64]]:
     result = (identity(V(1)) + identity(V(2)))?
-    print(result.n).unwrap()
+    print(result.n)?
     drop((V(4) + V(-1))?)
     Ok(())
 print(str.repr(sum()).unwrap()).unwrap()
 "#,
-        "drop 2\ndrop 1\n3\ndrop -1\ndrop 4\ndrop 3\nResult[(), str].Err(\"negative\")\n",
+        "drop 2\ndrop 1\n3\ndrop -1\ndrop 4\ndrop 3\nResult[(), IoError | OverflowError[i64] | str].Err(\"negative\")\n",
     );
 }
 
@@ -95,8 +104,8 @@ fn generic_classes_enums_and_inferred_calls_dispatch_statically() {
         r#"
 class V[T]:
     n: T
-    def __add__(self, other: &V[T]) -> T:
-        self.n + other.n
+    def __add__(self, other: &V[T]) -> Result[T, OverflowError[T]]:
+        Ok(self.n + other.n)
 enum Flag:
     On
     Off
@@ -109,14 +118,19 @@ enum Flag:
 def identity[T](value: T) -> T:
     value
 def at(xs: &list[i64], index: i64) -> &i64:
-    &xs[identity(index) + 0]
-def add[T](a: &T, b: &T) -> i64:
+    # Adding zero cannot overflow, and this reference-returning helper stays scalar.
+    offset = unchecked:
+        identity(index) + 0
+    &xs[offset]
+def add[T](a: &T, b: &T) -> Result[i64, OverflowError[i64]]:
     a + b
-a = V[i64](2)
-b = V[i64](4)
-print(a + b, add(a, b), identity(V[i64](5)) + b, ~Flag.Off).unwrap()
-xs = [12].unwrap()
-print(*at(xs, 0)).unwrap()
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    a = V[i64](2)
+    b = V[i64](4)
+    print((a + b)?, add(a, b)?, (identity(V[i64](5)) + b)?, ~Flag.Off)?
+    xs = [12]?
+    print(*at(xs, 0))?
+    Ok(())
 "#,
         "6 6 9 True\n12\n",
     );
@@ -136,7 +150,7 @@ fn every_existing_arithmetic_token_reaches_its_hook() {
     ] {
         expect(
             &format!(
-                "class V:\n    n: i64\n    def __{hook}__(self, other: i64) -> i64:\n        self.n + other\n    def __r{hook}__(self, other: i64) -> i64:\n        other - self.n\n    def __i{hook}__(self: &mut V, other: i64) -> ():\n        self.n += other\nmut v = V(3)\nprint(v {op} 5, 5 {op} v).unwrap()\nv {op}= 5\nprint(v.n).unwrap()"
+                "class V:\n    n: i64\n    def __{hook}__(self, other: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(self.n + other)\n    def __r{hook}__(self, other: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(other - self.n)\n    def __i{hook}__(self: &mut V, other: i64) -> ():\n        unchecked:\n            self.n += other\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    mut v = V(3)\n    print((v {op} 5)?, (5 {op} v)?)?\n    v {op}= 5\n    print(v.n)?\n    Ok(())"
             ),
             "8 2\n8\n",
         );
@@ -219,18 +233,19 @@ fn equality_stays_structural_and_logical_operators_stay_boolean() {
 #[test]
 fn visibility_and_loans_are_not_bypassed() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("values.plenty"), "pub class V:\n    pub n: i64\n    def __add__(self, other: &V) -> i64:\n        self.n + other.n\n").unwrap();
+    std::fs::write(dir.path().join("values.plenty"), "pub class V:\n    pub n: i64\n    def __add__(self, other: &V) -> i64:\n        unchecked:\n            self.n + other.n\n").unwrap();
     std::fs::write(dir.path().join("main.plenty"), "from values import V\ndef main() -> Result[(), IoError]:\n    a = V(1)\n    b = V(2)\n    print(a + b)?\n    Ok(())\n").unwrap();
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
         .unwrap_err()
         .to_string();
     assert!(error.contains("private"), "{error}");
     for source in [
-        "class V:\n    n: i64\n    def __add__(self, other: i64) -> i64:\n        self.n + other\ndef mutate(v: &mut V) -> i64:\n    v.n = 9\n    1\nmut v = V(2)\nprint(v + mutate(&mut v)).unwrap()",
-        "class V:\n    n: i64\n    def __iadd__(self: &mut V, other: &V) -> ():\n        self.n += other.n\nmut v = V(2)\nv += v",
-        "class V:\n    n: i64\n    def __iadd__(self: &mut V, other: i64) -> ():\n        self.n += other\nmut v = V(2)\nborrow = &v\nv += 1\nprint(borrow).unwrap()",
+        "class V:\n    n: i64\n    def __add__(self, other: i64) -> i64:\n        unchecked:\n            self.n + other\ndef mutate(v: &mut V) -> i64:\n    v.n = 9\n    1\nmut v = V(2)\nprint(v + mutate(&mut v)).unwrap()",
+        "class V:\n    n: i64\n    def __iadd__(self: &mut V, other: &V) -> ():\n        unchecked:\n            self.n += other.n\nmut v = V(2)\nv += v",
+        "class V:\n    n: i64\n    def __iadd__(self: &mut V, other: i64) -> ():\n        unchecked:\n            self.n += other\nmut v = V(2)\nborrow = &v\nv += 1\nprint(borrow).unwrap()",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        let error = support::check_source(source).unwrap_err().to_string();
+        assert!(error.contains("borrow"), "{source}\n{error}");
     }
 }
 
@@ -300,7 +315,7 @@ def main() -> Result[(), IoError]:
 #[test]
 fn inlined_checked_arithmetic_keeps_trap_location_and_tail_cleanup_order() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("p.plenty"), "class V:\n    n: i64\n    def __add__(self, other: &V) -> i64:\n        self.n + other.n\nclass Guard:\n    def __del__(self: &mut Guard) -> ():\n        print(\"drop\").unwrap()\ndef wrapper(a: &V, b: &V) -> i64:\n    guard = Guard()\n    a + b\ndef main() -> ():\n    a = V(i64.MAX)\n    b = V(1)\n    print(wrapper(a, b)).unwrap()\n").unwrap();
+    std::fs::write(dir.path().join("p.plenty"), "class V:\n    n: i64\n    def __add__(self, other: &V) -> i64:\n        unchecked:\n            self.n + other.n\nclass Guard:\n    def __del__(self: &mut Guard) -> ():\n        print(\"drop\").unwrap()\ndef wrapper(a: &V, b: &V) -> i64:\n    guard = Guard()\n    a + b\ndef main() -> ():\n    a = V(i64.MAX)\n    b = V(1)\n    print(wrapper(a, b)).unwrap()\n").unwrap();
     for mode in [&[][..], &["--release"][..]] {
         let output = std::process::Command::new(support::plenty_bin())
             .current_dir(dir.path())
@@ -309,11 +324,15 @@ fn inlined_checked_arithmetic_keeps_trap_location_and_tail_cleanup_order() {
             .arg("p.plenty")
             .output()
             .unwrap();
-        assert!(!output.status.success());
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "drop\n");
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "drop\n",
+            "{output:?}"
+        );
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(
-            error.contains("p.plenty:4:") && error.contains("overflow"),
+            error == "error: p.plenty:5:13: integer overflow\n",
             "{error}"
         );
     }
@@ -327,9 +346,11 @@ fn arithmetic_dispatch_needs_no_heap_allocation() {
 class V:
     n: i64
     def __add__(self, other: &V) -> V:
-        V(self.n + other.n)
+        unchecked:
+            V(self.n + other.n)
     def __iadd__(self: &mut V, other: i64) -> ():
-        self.n += other
+        unchecked:
+            self.n += other
 mut a = V(1)
 b = V(2)
 print("__test_begin_no_allocations__").unwrap()
