@@ -2049,6 +2049,22 @@ pub(crate) unsafe extern "C" fn plenty_view_equal(
     }
 }
 
+/// Narrow ABI: exchange two rows of an exclusive slice view of `descriptor`'s
+/// type, as `list.swap` exchanges list rows (issue #729). The compiler checked
+/// both indices; the same row twice leaves it unchanged.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_swap(a: *mut u8, b: *mut u8, descriptor: *const Type) {
+    // SAFETY: the compiler holds the view's exclusive loan through the call,
+    // so both rows are live and unaliased, and passes the element's static
+    // descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        let stride =
+            crate::list_layout::row_bytes(ty.kind, ty.inline_bytes as usize, ty.has_inline_range());
+        crate::entries::exchange_rows(a, b, stride, ty);
+    }
+}
+
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
 /// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
 #[unsafe(no_mangle)]

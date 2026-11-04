@@ -1048,6 +1048,9 @@ struct Runtime {
     order_compare: FuncId,
     /// `plenty_view_equal(a_rows, a_len, b_rows, b_len, descriptor) -> bool`.
     view_equal: FuncId,
+    /// `plenty_view_swap(first_row, second_row, descriptor)`, for rows of
+    /// non-scalar views whose indices were already checked.
+    view_swap: FuncId,
     /// `plenty_byte_view_rows(owner) -> first byte address` and
     /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
     /// buffer or `bytes` literal.
@@ -1309,6 +1312,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             &[PTR_TY, types::I64, PTR_TY, types::I64, PTR_TY],
             Some(types::I64),
         )?,
+        view_swap: helper(module, "plenty_view_swap", &[PTR_TY, PTR_TY, PTR_TY], None)?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
         byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.

@@ -38,6 +38,33 @@ impl Lowerer<'_, '_> {
                 self.stack
                     .push((reference, Ty::Ref(Arc::new(element), *mutable)));
             }
+            CollectionOp::ViewSwap(view) => {
+                let element = view_element(view);
+                let (second, _) = self.pop_typed(Ty::I64)?;
+                let (first, _) = self.pop_typed(Ty::I64)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, count) = self.split_view(value);
+                let row_bytes = metadata::list_row_bytes(&element) as i64;
+                if element.is_numeric() || element == Ty::Bool {
+                    self.swap_scalar_rows(rows, count, [first, second], row_bytes, &element)?;
+                } else {
+                    // Checked inline, as for scalars; the runtime exchanges
+                    // the rows and repairs inline payload addresses, as
+                    // `list.swap` does.
+                    let first = self.checked_row(rows, count, first, row_bytes)?;
+                    let second = self.checked_row(rows, count, second, row_bytes)?;
+                    let id = self.module.metadata(&element);
+                    let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                    let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                    let helper = self
+                        .module
+                        .declare_func_in_func(self.runtime.view_swap, self.bcx.func);
+                    self.bcx.ins().call(helper, &[first, second, descriptor]);
+                }
+                let unit = self.bcx.ins().iconst(types::I64, 0);
+                let unit = self.unpack(unit, &Ty::Unit);
+                self.stack.push((unit, Ty::Unit));
+            }
             CollectionOp::ViewEqual(view) => {
                 let element = view_element(view);
                 let (b, _) = self.pop_typed(view.clone())?;

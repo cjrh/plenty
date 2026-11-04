@@ -12,6 +12,15 @@ def reverse(s: &mut [i64], first: i64) -> ():
         lo += 1
         hi -= 1
 
+# `reverse` with `s.swap`, as `flips` writes it since issue #729.
+def reverse_swap(s: &mut [i64], first: i64) -> ():
+    mut lo = 1
+    mut hi = first - 1
+    while lo < hi:
+        s.swap(lo, hi)
+        lo += 1
+        hi -= 1
+
 # Rotate perm[0..=last] left by one place.
 def rotate_left(perm: &mut [i64], last: i64) -> ():
     head = perm[0]
@@ -32,9 +41,7 @@ def count_flips(s: &mut [i64]) -> i64:
         mut lo = 1
         mut hi = first - 1
         while lo < hi:
-            t = s[lo]
-            s[lo] = s[hi]
-            s[hi] = t
+            s.swap(lo, hi)
             lo += 1
             hi -= 1
         next = s[first]
@@ -46,6 +53,8 @@ def count_flips(s: &mut [i64]) -> i64:
 def main() -> Result[(), AllocError | IoError]:
     mut a = [0, 3, 1, 4, 2, 5]?
     mut b = [0, 0, 0, 0, 0, 0]?
+    reverse(&mut a, 5)
+    reverse_swap(&mut a, 5)
     reverse(&mut a, 5)
     rotate_left(&mut a, 4)
     copy_row(&a, &mut b)

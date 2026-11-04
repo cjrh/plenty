@@ -120,7 +120,8 @@ def main() -> Result[(), AllocError | IoError]:
 
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
-elements. A `&[T]` parameter also takes a whole list as `&scores`, which is
+elements. An exclusive view also takes indexed assignment and
+[`swap`](reordering.md#exchange-two-elements). A `&[T]` parameter also takes a whole list as `&scores`, which is
 a view that copies nothing. A view borrows its
 run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:

@@ -14,8 +14,7 @@ use crate::ownership::{Bound, range_step};
 use crate::text::TextViewOp;
 
 /// The operations a view supports, for diagnostics that reject others.
-pub(super) const OPERATIONS: &str =
-    "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`";
+pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`";
 
 /// The operations a `&substr` supports, for diagnostics that reject others.
 pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte_len()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
@@ -725,6 +724,45 @@ impl Lower<'_> {
         Self::end_reads(loans, ops);
         ops.extend([Op::PushInt(Value::I64(0)), compared]);
         Ok(Some(Ty::Bool))
+    }
+
+    /// `v.swap(i, j)` on an exclusive view: exchanges two rows in place with
+    /// `list.swap`'s contract (issue #729). Both indices are evaluated before
+    /// the view is borrowed, so they may read it, as `len(v) - 1` does.
+    pub(super) fn view_swap(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let exclusive = match &ungroup(base).kind {
+            Expression::Unary(op, _) => op == "&mut",
+            _ => matches!(self.expression_type_hint(base), Some(Ty::View(_, true))),
+        };
+        if !exclusive {
+            return Err(base.at.error(
+                "a shared slice view is read-only, so it has no `swap`; take an exclusive view with `&mut xs[a:b]`",
+            ));
+        }
+        if args.len() != 2 {
+            return Err(base.at.error("swap requires two i64 indices"));
+        }
+        let mut slots = Vec::new();
+        for argument in args {
+            let (actual, loans) = self.observe_expected(argument, Some(Ty::I64), ops)?;
+            self.same(Some(actual), Some(Ty::I64), &argument.at)?;
+            let slot = self.slot(Ty::I64, &argument.at)?;
+            ops.push(Op::StoreLocal(slot));
+            Self::end_reads(loans, ops);
+            slots.push(slot);
+        }
+        let (view, loan) = self.view_source(base, ops)?;
+        ops.extend(slots.into_iter().map(Op::MoveLocal));
+        self.mark(&base.at, ops);
+        ops.push(Op::Collection(CollectionOp::ViewSwap(view)));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        Ok(None)
     }
 
     /// Reads element `index` of the view of type `view` on the stack, in

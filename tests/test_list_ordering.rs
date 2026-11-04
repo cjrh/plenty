@@ -333,6 +333,57 @@ fn scalar_swap_is_inline_without_retain_or_runtime_call() {
     );
 }
 
+/// Issue #729: an exclusive view's scalar swap reuses the inline list swap,
+/// on the view's own rows and count. Other rows call the view exchange, which
+/// relocates inline payloads as the list exchange does.
+#[test]
+fn view_swap_is_inline_for_scalar_rows() {
+    let program = |ty: &str| {
+        format!(
+            "def exchange(v: &mut [{ty}], i: i64, j: i64) -> ():\n    v.swap(i, j)\ndef main() -> ():\n    mut xs: list[{ty}] = [].unwrap()\n    exchange(&mut xs, 0, 0)\n"
+        )
+    };
+    for ty in ["i64", "u8", "f32", "bool"] {
+        let symbols = referenced_symbols(&program(ty), "exchange");
+        assert!(
+            symbols.iter().all(|name| name == "plenty_trap_list_index"),
+            "{ty}: {symbols:?}"
+        );
+    }
+    for ty in ["str", "tuple[i64, str]"] {
+        let symbols = referenced_symbols(&program(ty), "exchange");
+        assert!(
+            symbols.iter().any(|name| name == "plenty_view_swap"),
+            "{ty}: {symbols:?}"
+        );
+    }
+}
+
+#[test]
+fn view_swap_allocates_nothing_with_managed_elements() {
+    native(
+        r#"
+mut words = [("p" + "ear tree").unwrap(), "fig", ("banana" + " tree").unwrap()].unwrap()
+mut rows = [((3, ("c" + "herry tree").unwrap()), 1), ((1, "a"), 2)].unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+w = &mut words[:]
+w.swap(0, -1)
+w.swap(1, 1)
+r = &mut rows[:]
+r.swap(0, 1)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(words).unwrap()
+print(rows).unwrap()
+"#,
+        concat!(
+            "[\"banana tree\", \"fig\", \"pear tree\"]\n",
+            "[((1, \"a\"), 2), ((3, \"cherry tree\"), 1)]",
+        ),
+    );
+}
+
 #[test]
 fn swap_traps_on_a_missing_index() {
     let output = support::run("mut items = [1, 2].unwrap()\nitems.swap(0, 2)");

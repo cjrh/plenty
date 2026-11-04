@@ -156,7 +156,8 @@ impl Scan {
                     | C::ViewLen(_)
                     | C::ViewNew(..)
                     | C::ViewRow(..)
-                    | C::ViewItem(..),
+                    | C::ViewItem(..)
+                    | C::ViewSwap(_),
                 ) => true,
                 Op::Integer(_)
                 | Op::Numeric(_)
@@ -3528,6 +3529,9 @@ impl Lower<'_> {
             return self.text_view_method(base, name, args, ops);
         }
         if self.is_view(base) {
+            if name == "swap" {
+                return self.view_swap(base, args, ops);
+            }
             return Err(base.at.error(format!(
                 "a slice view has no method `{name}`; {}",
                 views::OPERATIONS

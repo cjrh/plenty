@@ -715,14 +715,7 @@ impl Entries {
         let base = self.data.as_mut_ptr();
         for row in [i, j] {
             // SAFETY: both rows are in bounds and hold live values of `key`.
-            unsafe {
-                let slot = base.add(row * self.stride).cast::<u128>();
-                match relocation {
-                    Relocation::None => {}
-                    Relocation::Flat => ranges::relocate_flat(slot),
-                    Relocation::General => ranges::relocate(slot, self.key),
-                }
-            }
+            unsafe { relocation.repair(base.add(row * self.stride).cast(), self.key) }
         }
     }
     fn exchange_bytes(&mut self, i: usize, j: usize) {
@@ -900,7 +893,38 @@ enum Relocation {
     Flat,
     General,
 }
+/// Exchange two distinct or identical dense rows of `key` in place, as
+/// [`Entries::swap`] does, for a slice view's rows (issue #729).
+///
+/// # Safety
+/// `a` and `b` address live rows of `key`'s dense layout, `stride` bytes
+/// each, in one list's storage, which the caller holds exclusively.
+pub(crate) unsafe fn exchange_rows(a: *mut u8, b: *mut u8, stride: usize, key: &Type) {
+    if a == b {
+        return;
+    }
+    let relocation = Relocation::of(key);
+    // SAFETY: distinct rows of one dense layout do not overlap.
+    unsafe {
+        std::ptr::swap_nonoverlapping(a, b, stride);
+        for row in [a, b] {
+            relocation.repair(row.cast(), key);
+        }
+    }
+}
+
 impl Relocation {
+    /// Repair the inline address of the row moved into `slot`.
+    unsafe fn repair(&self, slot: *mut u128, key: &Type) {
+        // SAFETY: the caller passes a live row of `key`.
+        unsafe {
+            match self {
+                Relocation::None => {}
+                Relocation::Flat => ranges::relocate_flat(slot),
+                Relocation::General => ranges::relocate(slot, key),
+            }
+        }
+    }
     fn of(ty: &Type) -> Self {
         if ty.payload_bytes() == 0 {
             Self::None

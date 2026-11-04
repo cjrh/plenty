@@ -215,6 +215,30 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().isub(stored, removed)
     }
 
+    /// Exchanges two scalar rows of a list or slice view in place. Both
+    /// indices are checked before either row is written, so a trap leaves the
+    /// rows unchanged. Rows move as raw bits of their declared width; equal
+    /// indices store each value back.
+    pub(super) fn swap_scalar_rows(
+        &mut self,
+        rows: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+        indices: [cranelift_codegen::ir::Value; 2],
+        row_bytes: i64,
+        element: &Ty,
+    ) -> Result<()> {
+        let [first, second] = indices;
+        let first = self.checked_row(rows, length, first, row_bytes)?;
+        let second = self.checked_row(rows, length, second, row_bytes)?;
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+        let width = types::Type::int(clif_type(element.clone()).bits() as u16).unwrap();
+        let a = self.bcx.ins().load(width, flags, first, 0);
+        let b = self.bcx.ins().load(width, flags, second, 0);
+        self.bcx.ins().store(flags, b, first, 0);
+        self.bcx.ins().store(flags, a, second, 0);
+        Ok(())
+    }
+
     /// Pops the loop's cached row-0 address and length above a cached scalar
     /// row access's other operands (`ListScalarGetView`, `ListScalarSetView`).
     fn cached_rows(
@@ -824,10 +848,7 @@ impl Lowerer<'_, '_> {
             let (first, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
             let owner = self.reference_word(receiver);
-            // The header is read once for both rows, and both indices are
-            // checked before either row is written, so a trap leaves the list
-            // unchanged. Rows move as raw bits of their declared width; equal
-            // indices store each value back.
+            // The header is read once for both rows.
             let flags = cranelift_codegen::ir::MemFlagsData::trusted();
             let rows = self
                 .bcx
@@ -835,16 +856,7 @@ impl Lowerer<'_, '_> {
                 .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
             let length = self.scalar_list_len(owner, &element);
             let row_bytes = clif_type(element.clone()).bytes() as i64;
-            let mut addresses = [first, second];
-            for address in &mut addresses {
-                *address = self.checked_row(rows, length, *address, row_bytes)?;
-            }
-            let [first, second] = addresses;
-            let width = types::Type::int(clif_type(element).bits() as u16).unwrap();
-            let a = self.bcx.ins().load(width, flags, first, 0);
-            let b = self.bcx.ins().load(width, flags, second, 0);
-            self.bcx.ins().store(flags, b, first, 0);
-            self.bcx.ins().store(flags, a, second, 0);
+            self.swap_scalar_rows(rows, length, [first, second], row_bytes, &element)?;
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
             self.stack.push((unit, Ty::Unit));
