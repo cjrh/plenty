@@ -1,7 +1,7 @@
 # Sets and different kinds of values
 
 Sets accept named enums when every payload is a supported key type: integers,
-`bool`, `str`, `bytes`, or tuples, classes and named enums of those types, without custom cleanup. The variant
+`bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums of those types, without custom cleanup. The variant
 is part of the identity, so different variants with equal payloads remain distinct.
 
 ```plenty
@@ -25,8 +25,7 @@ True
 ```
 
 This is one element type with several alternatives. Enums carrying collections,
-floats, boxes or classes with custom cleanup cannot be set elements. Anonymous sums remain
-unsupported, even when each member is supported separately.
+floats, boxes or classes with custom cleanup cannot be set elements. Anonymous sums qualify when every member is a supported key type.
 
 ## Class payloads
 
@@ -91,24 +90,26 @@ its own duplicates and supports the ordinary
 [set operations](../../design/facilities/01-builtins/sets.md).
 Group the two sets in a class if they need to travel together.
 
-## A sum does not make a set key
+## Use an anonymous sum
 
-This list-style annotation is rejected:
+When the types themselves express the alternatives, no wrapper is needed:
 
-```plenty-error
-def main() -> Result[(), AllocError]:
-    values: set[i64 | str] = set()?
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut selected: set[i64 | str] = {7, "editors"}?
+    selected.add("7")?
+    selected.add(7)?
+    print(len(selected), 7 in selected, "7" in selected)?
     Ok(())
 ```
-```error
-set elements must be
+```output
+3 True True
 ```
 
-If you need one ordered sequence of mixed values, use a
-[list with a wrapper enum or anonymous sum](lists.md). A list preserves
-duplicates; it does not acquire set semantics just because its element type is
-a sum. Avoid converting unrelated kinds to one string type unless that text
-representation is the identity your application intends.
+The member type is part of each key's identity. Every member must support
+structural hashing; `set[i64 | f64]` is rejected because floats are not keys.
+Use a named enum when alternatives need different meanings despite sharing a
+payload type. Anonymous sums use hash sets, including sums of finite enums.
 
 ## Small enums without payloads
 

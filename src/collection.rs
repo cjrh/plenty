@@ -405,9 +405,6 @@ impl Ty {
             }
             ancestors.push(ty.clone());
             let detail = match ty {
-                Ty::Enum(t) if t.anonymous() => {
-                    format!("{path}: anonymous sums are not supported as keys")
-                }
                 Ty::Enum(t) => match t.try_get() {
                     None => format!("{path}: type declaration is not complete"),
                     Some(data) => data
@@ -420,7 +417,9 @@ impl Ty {
                                 .enumerate()
                                 .find_map(|(index, field)| {
                                     (!field.hashable()).then(|| {
-                                        let field_path = if t.tuple() {
+                                        let field_path = if t.anonymous() {
+                                            format!("{path} -> sum member {field}")
+                                        } else if t.tuple() {
                                             format!("{path} -> tuple element {}", index + 1)
                                         } else {
                                             format!(
@@ -468,10 +467,8 @@ impl Ty {
     pub fn hashable(&self) -> bool {
         if let Self::Enum(t) = self {
             // A recursive or unfinished declaration cannot establish a finite key.
-            // Anonymous-sum admission remains a separate B74 design decision.
             let facts = self.facts();
-            return !t.anonymous()
-                && facts.complete
+            return facts.complete
                 && !facts.recursive
                 && t.get()
                     .variants

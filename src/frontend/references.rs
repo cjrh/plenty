@@ -963,7 +963,29 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
-        self.observe_with_context(e, expected, false, ops)
+        let (actual, loans) = self.observe_with_context(e, expected.clone(), false, ops)?;
+        let actual = match expected {
+            Some(expected) => self.inject_observed_sum(actual, &expected, ops),
+            None => actual,
+        };
+        Ok((actual, loans))
+    }
+
+    /// Retag an observed value while its source's loans/temporary remain live.
+    /// This creates no owning copy and does not widen reference types.
+    pub(super) fn inject_observed_sum(&self, actual: Ty, expected: &Ty, ops: &mut Vec<Op>) -> Ty {
+        if actual != *expected
+            && matches!(expected, Ty::Enum(sum) if sum.anonymous())
+            && crate::sum::accepts(expected, &actual)
+        {
+            ops.push(Op::Enum(crate::sum::EnumOp::Widen(
+                Box::new(actual),
+                Box::new(expected.clone()),
+            )));
+            expected.clone()
+        } else {
+            actual
+        }
     }
 
     pub(super) fn observe_method_receiver(

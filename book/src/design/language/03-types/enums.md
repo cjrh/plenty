@@ -44,7 +44,7 @@ payload parameters; use a closure for those signatures.
 Enums with permitted element types can be list elements or dictionary values;
 they can also be dictionary keys or set elements when every payload is a
 [supported key type](../../facilities/01-builtins/collections.md). Hashing includes
-the variant tag and payloads. Recursive enums and anonymous sums remain excluded.
+the variant tag and payloads. Recursive enums remain excluded. Anonymous sums qualify when every member is a supported key type.
 
 Equality compares nominal identity, variant, and payload contents, including IEEE
 float comparisons; it never calls user methods, and comparison and hashing

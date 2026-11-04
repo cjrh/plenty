@@ -1463,14 +1463,14 @@ impl Lower<'_> {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error(k.key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup")));
+                    .error(k.key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types and no custom cleanup")));
             }
             Ty::Dict(Arc::new(k), Arc::new(v))
         } else if kind == "set" {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error(k.key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup")));
+                    .error(k.key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types and no custom cleanup")));
             }
             Ty::Set(Arc::new(k))
         } else {
