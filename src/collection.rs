@@ -438,9 +438,6 @@ impl Ty {
                 },
                 Ty::Class(t) => match t.try_get() {
                     None => format!("{path}: type declaration is not complete"),
-                    Some(data) if data.destructor.is_some() => {
-                        format!("{path}: {ty} declares custom cleanup (__del__)")
-                    }
                     Some(data) => data
                         .fields
                         .iter()
@@ -479,7 +476,6 @@ impl Ty {
             let facts = self.facts();
             return facts.complete
                 && !facts.recursive
-                && !facts.destructor
                 && t.get().fields.iter().all(|(_, ty)| ty.hashable());
         }
         self.is_int()

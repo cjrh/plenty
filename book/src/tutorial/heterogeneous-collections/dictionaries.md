@@ -4,7 +4,9 @@ A dictionary has one key type and one value type. The value type can be an enum
 wrapper or an anonymous sum, so a string key can select any of several kinds of
 stored data. Keys retain the narrower [key-type contract](../../design/facilities/01-builtins/collections.md):
 integers, `bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums
-recursively containing those types, without custom cleanup.
+recursively containing those types. Keys with custom cleanup can be borrowed through `keys()` or
+transferred into an owned list with `into_keys()`; they cannot be copied with
+`keys().to_set()`. See [cleanup-bearing keys](sets.md#keys-with-custom-cleanup).
 
 ## Give mixed values a named wrapper
 

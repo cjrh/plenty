@@ -710,3 +710,6 @@ mod test_quantity_erasure;
 
 #[path = "test_key_diagnostics.rs"]
 mod test_key_diagnostics;
+
+#[path = "test_cleanup_keys.rs"]
+mod test_cleanup_keys;

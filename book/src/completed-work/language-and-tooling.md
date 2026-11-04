@@ -78,7 +78,8 @@ follows classes and enums. Runnable lessons teach enum wrappers with shared
 methods and anonymous-sum lists, sets, and dictionary keys and values. The
 lessons show mixed keys, mixed values, and both together, while preserving
 distinct member identities. Separate typed collections remain an alternative
-for independent lookup domains. [B74](../backlog.md) retains custom-cleanup key policy.
+for independent lookup domains. Lessons also cover [custom-cleanup keys](../tutorial/heterogeneous-collections/sets.md#keys-with-custom-cleanup),
+transferring keys and borrowing views without duplicating cleanup obligations.
 
 ## Unicode trie example
 

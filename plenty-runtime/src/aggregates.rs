@@ -3107,9 +3107,17 @@ pub(crate) unsafe fn collection_at(
                 .next(b as usize - 1)
                 .map_or(0, |i| i as u128 + 1),
             125 => {
-                let c = &*(a as *const Collection);
-                let key = c.entries.get(b as usize - 1).key;
-                retain(key, c.ty().key());
+                // Owned hash iteration transfers affine keys. Retaining an
+                // observation and then relocating it would duplicate cleanup
+                // state instead of transferring the destructor obligation.
+                let c = &mut *(a as *mut Collection);
+                let index = b as usize - 1;
+                let key = c.entries.get(index).key;
+                if c.ty().key().affine {
+                    c.entries.set(index, false, 0);
+                } else {
+                    retain(key, c.ty().key());
+                }
                 key
             }
             140 => {

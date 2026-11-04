@@ -2,7 +2,7 @@ use super::*;
 use crate::collection::Query;
 use crate::collection_opcodes as opcode;
 
-const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set(), dictionary.keys_snapshot(), or [*key for key in view]";
+const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set() for duplicable keys, dictionary.keys_snapshot(), or consume the dictionary with into_keys()";
 
 /// Per-loop metadata for immutable shared list references already in scope.
 /// Owned lists, exclusive references and retargetable bindings deliberately
@@ -1463,14 +1463,14 @@ impl Lower<'_> {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error(k.key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types and no custom cleanup")));
+                    .error(k.key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types")));
             }
             Ty::Dict(Arc::new(k), Arc::new(v))
         } else if kind == "set" {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error(k.key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types and no custom cleanup")));
+                    .error(k.key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types")));
             }
             Ty::Set(Arc::new(k))
         } else {
@@ -4028,6 +4028,12 @@ impl Lower<'_> {
             if !args.is_empty() {
                 return Err(base.at.error("to_set takes no arguments"));
             }
+            let key = ty.element().unwrap();
+            if !key.copy_facts().copyable {
+                return Err(base.at.error(format!(
+                    "to_set requires copying keys, but {key} contains custom cleanup (__del__); borrow keys() or consume the dictionary with into_keys()"
+                )));
+            }
             let operation = CollectionOp::KeyViewToSet(ty);
             let result = operation.signature().1;
             ops.push(Op::Collection(operation));
@@ -4049,6 +4055,18 @@ impl Lower<'_> {
             }
             if args.len() != 1 {
                 return Err(base.at.error(format!("{name} requires one set argument")));
+            }
+            // Algebra preserves both sources, so every selected member needs
+            // another owner. KeyType alone no longer promises that duplication.
+            let key = ty.element().unwrap();
+            if matches!(
+                name,
+                "union" | "intersection" | "difference" | "symmetric_difference"
+            ) && !key.copy_facts().copyable
+            {
+                return Err(base.at.error(format!(
+                    "{name} requires copying keys, but {key} contains custom cleanup (__del__); use ownership-transferring update or in-place intersection_update/difference_update"
+                )));
             }
             let argument = &args[0];
             let expected = if matches!(ty, Ty::KeyView(_)) {
@@ -4182,6 +4200,16 @@ impl Lower<'_> {
             }
             let element = if name == "keys_snapshot" { k } else { v };
             if element.affine() && !loans.is_empty() {
+                if !element.copy_facts().copyable {
+                    let transfer = if name == "keys_snapshot" {
+                        "into_keys"
+                    } else {
+                        "into_values"
+                    };
+                    return Err(base.at.error(format!(
+                        "{name} with owned payloads requires an owned temporary; {element} cannot be copied; use {transfer}() to consume the dictionary and transfer its owners"
+                    )));
+                }
                 return Err(base.at.error(format!(
                     "{name} with owned payloads requires an owned temporary; use copy(dictionary)?.{name}() for fallible duplication",
                 )));
@@ -4232,7 +4260,7 @@ impl Lower<'_> {
         let (inputs, result) = operation.signature();
         let key = inputs[1].clone();
         // Observe the key/index before borrowing the receiver exclusively. Its
-        // retained value remains valid even if derived from the same collection.
+        // observation stays borrowed until the operation finishes.
         let loans = if let Some(argument) = args.first() {
             let (actual, loans) = self.observe_expected(argument, Some(key.clone()), ops)?;
             self.same(Some(actual), Some(key.clone()), &argument.at)?;
@@ -4241,13 +4269,21 @@ impl Lower<'_> {
             ops.push(Op::PushInt(Value::I64(-1)));
             vec![]
         };
-        let slot = self.slot(key, &base.at)?;
-        ops.push(Op::StoreLocal(slot));
-        Self::end_reads(loans, ops);
+        // Copyable observations can outlive the source loan. Cleanup-bearing
+        // observations must keep the original instance alive through mutation.
+        let loans = if key.has_destructor() {
+            loans
+        } else {
+            Self::end_reads(loans, ops);
+            vec![]
+        };
+        // Keep the observed key in place: storing an inline observation in
+        // an owned local would copy its destructor's observer state.
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Swap);
         ops.push(Op::Collection(operation));
         ops.push(Op::UseLoan(loan));
+        Self::end_reads(loans, ops);
         Ok(Some(result))
     }
 
@@ -4263,16 +4299,22 @@ impl Lower<'_> {
         let (inputs, result) = operation.signature();
         let key = inputs[1].clone();
         // Observe the key before borrowing the receiver exclusively, as `pop`
-        // does: a key read from the same dictionary stays valid.
+        // does, and keep its loan through the lookup.
         let (actual, reads) = self.observe_expected(argument, Some(key.clone()), ops)?;
         self.same(Some(actual), Some(key.clone()), &argument.at)?;
-        let slot = self.slot(key, &argument.at)?;
-        ops.push(Op::StoreLocal(slot));
-        Self::end_reads(reads, ops);
+        let reads = if key.has_destructor() {
+            reads
+        } else {
+            Self::end_reads(reads, ops);
+            vec![]
+        };
+        // An observed inline key must keep its original storage until the
+        // runtime finishes the lookup and releases the observation.
         let (reference, loan) = self.borrow(base, true, ops)?;
         self.unbox_reference(reference, ops);
-        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Swap);
         ops.push(Op::Collection(operation));
+        Self::end_reads(reads, ops);
         let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
         self.loans[id].precise = false;
         if let Some(Op::Loan(fact)) = ops.last_mut() {

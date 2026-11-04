@@ -30,14 +30,7 @@ fn inferred_collections_and_bounds_explain_nested_key_fields() {
 }
 
 #[test]
-fn custom_cleanup_and_anonymous_sums_have_specific_reasons() {
-    let error = check_error(
-        "class Guard:\n    n: i64\n    def __del__(self) -> ():\n        pass\nclass Key:\n    guard: Guard\ndef accept(keys: set[Key]) -> ():\n    pass\n",
-    );
-    assert!(
-        error.contains("Key -> field guard: Guard declares custom cleanup (__del__)"),
-        "{error}"
-    );
+fn anonymous_sums_have_specific_reasons() {
     let error = check_error(
         "class Key:\n    value: i64 | f64\ndef accept(keys: set[Key]) -> ():\n    pass\n",
     );
@@ -65,11 +58,4 @@ fn anonymous_sum_keys_reject_unsupported_members_at_every_boundary() {
         ));
         assert!(error.contains("does not satisfy KeyType"), "{error}");
     }
-    let error = check_error(
-        "class Guard:\n    n: i64\n    def __del__(self) -> ():\n        pass\ndef accept(keys: set[Guard | str]) -> ():\n    pass\n",
-    );
-    assert!(
-        error.contains("sum member Guard: Guard declares custom cleanup"),
-        "{error}"
-    );
 }

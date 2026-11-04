@@ -12,8 +12,10 @@ type. Hashing includes class fields, variant tags and payload contents,
 independently of where the value is stored. Ordinary classes move into a
 collection; `@copy` classes keep their usual copy behavior. Stored keys are
 exposed only through shared borrows, so their identity cannot change in place.
-Floats, collections, boxes, recursive types and classes with
-custom `__del__` cleanup (including nested cleanup) are not supported keys. User-defined hash/equality hooks remain unsupported. See the
+Floats, collections, boxes and recursive types are not supported keys.
+Keys with custom `__del__` cleanup are supported, including nested cleanup,
+but cannot be duplicated: copying collections, non-mutating set algebra and
+key-view `to_set()` reject these keys. Borrowing and ownership transfers work normally. User-defined hash/equality hooks remain unsupported. See the
 [heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
 Unit elements are rejected. Sets of supported finite enums or tuples with at most 256 possible values
 use [bitsets](sets.md#small-enum-bitsets) instead; they do not hash or request entropy.
