@@ -136,7 +136,12 @@ impl Lowerer<'_, '_> {
 
     fn view_row(&mut self, rows: NativeValue, index: NativeValue, element: &Ty) -> NativeValue {
         let row_bytes = metadata::list_row_bytes(element) as i64;
-        let offset = self.bcx.ins().imul_imm_s(index, row_bytes);
+        // A shift lets x86-64 fold a power-of-two row size into the address.
+        let offset = if row_bytes.count_ones() == 1 {
+            self.bcx.ins().ishl_imm_u(index, row_bytes.ilog2() as i64)
+        } else {
+            self.bcx.ins().imul_imm_s(index, row_bytes)
+        };
         self.bcx.ins().iadd(rows, offset)
     }
 }

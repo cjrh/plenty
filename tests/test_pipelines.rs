@@ -1193,7 +1193,7 @@ def main() -> ():
         ] {
             assert!(!dump.contains(absent), "{function}: {absent}\n{dump}");
         }
-        assert!(dump.contains("call"), "{dump}");
+        assert!(dump.contains(&format!("__plenty_fn_{function}")), "{dump}");
     }
 }
 

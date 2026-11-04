@@ -5,11 +5,15 @@ Lists use the [common collection rules](collections.md). Growth through
 nothing and traps on a missing index. Lists have no `*` repetition; a
 comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
-Inside ordinary `for` loops, scalar indexing through immutable shared list
-references already in scope uses cached row metadata and checked direct loads.
-Each list keeps its own bounds check, including negative-index normalization;
-unrelated lists need not have equal lengths. Owned lists, exclusive or
-retargetable references, and generator bodies keep ordinary indexed access.
+Inside `for` and `while` loops, scalar indexing of a named list already in
+scope reads the list's length and row address once, before the loop, and then
+uses checked direct loads and stores. An immutable shared reference always
+qualifies. An owned list, exclusive reference, or retargetable binding
+qualifies only when the loop cannot resize, replace, or move the list: the loop
+makes no call and performs no list operation other than scalar element reads,
+writes, and length queries. Each list keeps its own bounds check, and a
+negative index is still normalized; unrelated lists need not have equal
+lengths. Generator bodies and other loops keep ordinary indexed access.
 
 ## Storage costs
 
