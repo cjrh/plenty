@@ -241,7 +241,21 @@ pair also pass preparation.
 The new baseline also executes the previously rejected original C cleanup source
 in both native modes. Profiling will report exact allocation counts and clearly
 label formatted byte totals approximate; no profiling or timing samples have yet
-been collected.
+been collected. The guarded measurement controller and separate profiling adapter
+are now independently reviewed and integrated. The combined Python suite passes
+311 tests with three existing skips; their execution paths remain mock-validated,
+not measured. Runtime timings will be whole-process costs; compiler costs cover
+checks, debug objects and AOT builds. Optimized linked-ELF sizes are distinct from
+optimized object bytes, and profiling timings are not uninstrumented latency.
+
+Checkpointed validation retains exact target/test identities on the unchanged
+verified build. Two focused live proxy cases pass with actual cleanup; a resumed
+batch stage adds 550 passing tests before an external wrapper falsely rejects
+Docker exit 137 after forced removal. Combined observed coverage is 4,243 passes
+and one ignore across stages, with 1,423 registrations still unobserved. Neither
+that aggregate nor zero completed failure rows constitutes an uninterrupted full
+gate. Successful cases are retained while the lifecycle guard is corrected;
+final complete validation and measurements remain outstanding.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
