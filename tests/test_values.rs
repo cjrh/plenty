@@ -126,7 +126,7 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
     "enum E:\n    A(i64)\nmatch E.A(1):\n    case E.A(x):\n        pass\nprint(x).unwrap()",
     "unknown binding"
 )]
-#[case("enum E:\n    A\nx: set[E] = set().unwrap()", "set elements must")]
+#[case("enum E:\n    A(f64)\nx: set[E] = set().unwrap()", "set elements must")]
 #[case("x = Option[i64, str].Nothing", "Option requires 1")]
 #[case("x = Result[i64].Ok(1)", "Result requires 2")]
 #[case("x = Result[(), str].Ok(1)", "expected (), got i64")]
