@@ -5,9 +5,9 @@ types now work as dictionary keys and set members, including nested enums.
 Classes whose fields are supported keys, including move-only classes and enums
 containing them, and the `KeyType` constraint are also implemented. Custom-cleanup
 keys and anonymous sums remain future work under [B74](../backlog.md).
-Payload-free named enum sets through 64 variants now use
-[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets); finite-payload
-encoding and wider masks remain future extensions. The
+Named enum and tuple sets with supported finite domains through 64 values now use
+[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
+boolean and nested enum/tuple payloads. Wider masks remain a future extension. The
 [collection reference](../design/facilities/01-builtins/collections.md) owns the
 current contract. The design and historical analysis below describe the broader
 proposal; enum/class admission and the explicit generic constraint have shipped.

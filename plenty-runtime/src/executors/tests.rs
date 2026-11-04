@@ -19,6 +19,7 @@ static NUMBER: Type = Type {
     debug: None,
     display: None,
     quantity: None,
+    finite: None,
 };
 
 unsafe extern "C" fn square(input: *const u128, out: *mut u128, _: *const u128) {
@@ -109,6 +110,7 @@ fn canceled_job_destructors_have_independent_caller_contexts() {
         debug: None,
         display: None,
         quantity: None,
+        finite: None,
     };
     let gate = Gate {
         started: AtomicBool::new(false),
@@ -232,6 +234,7 @@ fn cell_moves_inline_result_before_releasing_storage() {
         debug: None,
         display: None,
         quantity: None,
+        finite: None,
     };
     unsafe {
         let words = 1 + RANGE.slot_words();
@@ -383,6 +386,7 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
         debug: None,
         display: None,
         quantity: None,
+        finite: None,
     };
     static PAIR: Type = Type {
         kind: b'H',
@@ -405,6 +409,7 @@ fn pair_jobs_relocate_both_inline_captures_and_result() {
         debug: None,
         display: None,
         quantity: None,
+        finite: None,
     };
     unsafe extern "C" fn combine(input: *const u128, out: *mut u128, _: *const u128) {
         unsafe {

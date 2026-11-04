@@ -15,7 +15,7 @@ exposed only through shared borrows, so their identity cannot change in place.
 Floats, collections, boxes, recursive types, anonymous sums and classes with
 custom `__del__` cleanup (including nested cleanup) are not supported keys. User-defined hash/equality hooks remain unsupported. See the
 [heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
-Unit elements are rejected. Sets of payload-free enums with at most 64 variants
+Unit elements are rejected. Sets of supported finite enums or tuples with at most 64 possible values
 use [bitsets](sets.md#small-enum-bitsets) instead; they do not hash or request entropy.
 
 Dictionary and hash-backed set bucket selection uses SipHash-2-4 over the complete key,
