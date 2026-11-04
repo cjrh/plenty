@@ -2,6 +2,7 @@ mod support;
 
 #[test]
 fn generator_bridge_constructs_once_and_resumes_mutable_captures_lazily() {
+    // Three visits to [2,4,6] bound count by 3 and callback results by 9.
     output(
         r#"
 def source() -> list[i64]:
@@ -11,9 +12,11 @@ def callback() -> Closure[[i64], i64]:
     print("callback").unwrap()
     count = 0
     def [mut count](n: i64) -> i64:
-        count += 1
-        print("visit", n).unwrap()
-        n + count
+        result = checked:
+            count += 1
+            print("visit", n).unwrap()
+            n + count
+        result.unwrap()
 def build() -> Generator[i64]:
     p = iter(source()).map(callback())
     print("prepared").unwrap()
@@ -34,9 +37,9 @@ def main() -> ():
 fn generator_bridge_rejects_borrowed_sources_and_captures_even_after_owned_mapping() {
     for source in [
         "values = [1, 2].unwrap()\np = iter(&values).map(def(n: &i64) -> i64: *n)\ng = p.generator()\n",
-        "values = {1: 2}.unwrap()\np = iter(values.items()).map(def(k: &i64, v: &i64) -> i64: *k + *v)\ng = p.generator()\n",
-        "n = 2\np = iter(range(3)).map(def [&n](x: i64) -> i64: x + n)\ng = p.generator()\n",
-        "values = [1, 2].unwrap()\np = iter(range(2)).zip(&values).map(def(k: i64, v: &i64) -> i64: k + *v)\ng = p.generator()\n",
+        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nvalues = {1: 2}.unwrap()\np = iter(values.items()).map(def(k: &i64, v: &i64) -> i64: fixture_add(*k, *v).unwrap())\ng = p.generator()\n",
+        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nn = 2\np = iter(range(3)).map(def [&n](x: i64) -> i64: fixture_add(x, n).unwrap())\ng = p.generator()\n",
+        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nvalues = [1, 2].unwrap()\np = iter(range(2)).zip(&values).map(def(k: i64, v: &i64) -> i64: fixture_add(k, *v).unwrap())\ng = p.generator()\n",
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(
@@ -53,19 +56,19 @@ class Guard:
     n: i64
     def __del__(self) -> ():
         print("drop", self.n).unwrap()
-def build(start: i64) -> Generator[Guard]:
+def build(start: i64) -> Result[Generator[Guard], OverflowError[i64]]:
     values = [Guard(start), Guard(start + 1), Guard(start + 2)].unwrap()
     capture = Guard(start + 9)
-    iter(values).map(def [capture](g: Guard) -> Guard: g).generator()
+    Ok(iter(values).map(def [capture](g: Guard) -> Guard: g).generator())
 def main() -> ():
-    unused = build(10)
+    unused = build(10).unwrap()
     drop(unused)
     print("unstarted").unwrap()
-    mut partial = build(20)
+    mut partial = build(20).unwrap()
     drop(next(partial))
     drop(partial)
     print("partial").unwrap()
-    mut full = build(30)
+    mut full = build(30).unwrap()
     drop(next(full))
     drop(next(full))
     drop(next(full))
@@ -107,23 +110,28 @@ def main() -> ():
 
 #[test]
 fn generators_share_fluent_surface_and_owned_pipelines_cross_function_boundaries() {
+    // Keep ordinary pipeline items: stop<=6 bounds squares by 25 and doubled items by 8.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def numbers(stop: i64) -> Generator[i64]:
     for n in range(stop):
         yield n
 def squares(stop: i64) -> Generator[i64]:
-    values = iter(range(stop)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def(n: i64) -> i64: n * n)
+    values = iter(range(stop)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0).map(def(n: i64) -> i64: fixture_multiply(n, n).unwrap())
     values.generator()
-def consume(values: Generator[i64]) -> i64:
-    values.fold(0, def(a: i64, n: i64) -> i64: a + n)
+def consume(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:
+    values.try_fold(0, fixture_add)
 def main() -> ():
-    values: list[i64] = numbers(5).filter(def(n: &i64) -> bool: *n > 1).map(def(n: i64) -> i64: n * 2).collect().unwrap()
+    values: list[i64] = numbers(5).filter(def(n: &i64) -> bool: *n > 1).map(def(n: i64) -> i64: fixture_multiply(n, 2).unwrap()).collect().unwrap()
     print(values).unwrap()
-    print(consume(squares(6))).unwrap()
+    print(consume(squares(6)).unwrap()).unwrap()
     mut stream = iter(range(10)).skip(2).take(3).enumerate(5).generator()
     print(next(stream), next(stream), next(stream), next(stream), next(stream)).unwrap()
-    print(iter(range(4)).generator().map(def(n: i64) -> i64: n + 1).count()).unwrap()
+    print(iter(range(4)).generator().map(def(n: i64) -> i64: fixture_add(n, 1).unwrap()).count()).unwrap()
 "#,
         "[4, 6, 8]\n20\nOption[tuple[i64, i64]].Some((5, 2)) Option[tuple[i64, i64]].Some((6, 3)) Option[tuple[i64, i64]].Some((7, 4)) Option[tuple[i64, i64]].Nothing Option[tuple[i64, i64]].Nothing\n4\n",
     );
@@ -131,11 +139,14 @@ def main() -> ():
 
 #[test]
 fn generator_fluent_receivers_include_expressions_unwrapped_results_and_methods() {
+    // The generator expression sees range(3), so its asserted doubles are at most 4.
     output(
         r#"
 def numbers() -> Generator[i64]:
     yield 1
     yield 2
+def double(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * 2)
 def fallible() -> Result[Generator[i64], str]:
     Ok(numbers())
 def once[T](value: T) -> Generator[T]:
@@ -144,7 +155,7 @@ class Source:
     def numbers(self) -> Generator[i64]:
         numbers()
 def main() -> Result[(), str | IoError]:
-    print((n * 2 for n in range(3)).count())?
+    print((double(n).unwrap() for n in range(3)).count())?
     print(fallible()?.count(), fallible().unwrap().count())?
     source = Source()
     print(source.numbers().count())?
@@ -163,8 +174,8 @@ fn generator_bridge_preserves_nested_conversion_and_zip_filter_progress() {
 def main() -> ():
     mut nested = iter(range(4)).generator().map(def(n: i64) -> str: str.from(n).unwrap()).generator()
     print(next(nested), next(nested)).unwrap()
-    left = iter(range(8)).filter(def(n: &i64) -> bool: *n % 2 == 0)
-    right = iter(range(10, 20)).skip(1).filter(def(n: &i64) -> bool: *n % 2 == 1)
+    left = iter(range(8)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0)
+    right = iter(range(10, 20)).skip(1).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 1)
     mut pairs = left.zip(right).take_while(def(a: &i64, b: &i64) -> bool: *a < 5).generator()
     print(next(pairs), next(pairs), next(pairs), next(pairs), next(pairs)).unwrap()
 "#,
@@ -206,18 +217,21 @@ def main() -> ():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn generator_bridge_frames_and_fluent_consumers_do_not_allocate() {
+    // make receives at most 10: n+offset is at most 12; consumption itself is fallible.
     support::assert_visible_stdout(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
 def make(stop: i64) -> Generator[i64]:
     offset = 3
-    iter(range(stop)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def [offset](n: i64) -> i64: n + offset).generator()
-def consume(values: Generator[i64]) -> i64:
-    values.fold(0, def(a: i64, n: i64) -> i64: a + n)
+    iter(range(stop)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0).map(def [offset](n: i64) -> i64: fixture_add(n, offset).unwrap()).generator()
+def consume(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:
+    values.try_fold(0, fixture_add)
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
 mut values = make(6)
 drop(next(values))
-total = consume(values)
+total = consume(values).unwrap()
 unused = make(10)
 drop(unused)
 print("__test_end_no_allocations__").unwrap()
@@ -230,19 +244,25 @@ print(total).unwrap()
 
 #[test]
 fn optimized_scalar_captures_follow_copies_branches_and_loop_assignments() {
+    // exercise(7) bounds offsets by 50, arguments by 100, and fold totals by 29. Keep scalar
+    // closure copies.
     let source = r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
 def offset(n: i64) -> Closure[[i64], i64]:
     def [n](value: i64) -> i64:
-        value + n
+        result = checked:
+            value + n
+        result.unwrap()
 def replace(f: &mut Closure[[i64], i64], n: i64) -> ():
     *f = offset(n)
-def exercise(start: i64) -> ():
+def exercise(start: i64) -> Result[(), OverflowError[i64]]:
     mut f = offset(start)
     mut changing = offset(start)
     for i in range(4):
         before = f
         previous = changing
-        if i % 2 == 0:
+        if i % NonZero.try_from(2).unwrap() == 0:
             f = offset(i)
             changing = offset(i * start)
         else:
@@ -265,10 +285,13 @@ def exercise(start: i64) -> ():
     for i in range(3):
         n = i * start
         callback = def [n](value: i64) -> i64:
-            value + n
-        print(iter(range(2)).map(callback).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+            result = checked:
+                value + n
+            result.unwrap()
+        print(iter(range(2)).map(callback).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())).unwrap()
+    Ok(())
 def main() -> ():
-    exercise(7)
+    exercise(7).unwrap()
 "#;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("captures.plenty");
@@ -293,18 +316,21 @@ def main() -> ():
 
 #[test]
 fn pair_callbacks_enumerate_zip_and_dictionary_collection() {
+    // Keep infallible pair adapters: selected sums are <=4, indexed items <=9, fold total 21.
     output(
         r#"
-def total(acc: i64, i: i64, n: &i64) -> i64:
-    acc + i * *n
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def total(acc: i64, i: i64, n: &i64) -> Result[i64, OverflowError[i64]]:
+    Ok(acc + i * *n)
 def main() -> ():
     values = [10, 20, 30].unwrap()
-    print(enumerate(&values, 1).fold(0, total)).unwrap()
-    pairs: dict[i64, i64] = iter(range(4)).map(def(n: i64) -> (i64, i64): (n % 2, n)).collect().unwrap()
+    print(enumerate(&values, 1).try_fold(0, total).unwrap()).unwrap()
+    pairs: dict[i64, i64] = iter(range(4)).map(def(n: i64) -> (i64, i64): (n % NonZero.try_from(2).unwrap(), n)).collect().unwrap()
     print(pairs[0], pairs[1]).unwrap()
-    selected: list[i64] = iter(pairs.items()).filter(def(k: &i64, v: &i64) -> bool: *v > 1).map(def(k: &i64, v: &i64) -> i64: *k + *v).collect().unwrap()
+    selected: list[i64] = iter(pairs.items()).filter(def(k: &i64, v: &i64) -> bool: *v > 1).map(def(k: &i64, v: &i64) -> i64: fixture_add(*k, *v).unwrap()).collect().unwrap()
     print(len(selected)).unwrap()
-    print(iter(range(3)).enumerate(5).map(def(i: i64, n: i64) -> i64: i + n).fold(0, def(a: i64, n: i64) -> i64: a + n)).unwrap()
+    print(iter(range(3)).enumerate(5).map(def(i: i64, n: i64) -> i64: fixture_add(i, n).unwrap()).fold(0, def(a: i64, n: i64) -> i64: fixture_add(a, n).unwrap())).unwrap()
     for a, b in zip(&values, range(2)):
         print(*a, b).unwrap()
 "#,
@@ -314,8 +340,11 @@ def main() -> ():
 
 #[test]
 fn pipeline_sources_keep_user_items_methods_and_owned_nested_pairs() {
+    // The two fixed sources bound each fold by 33, including mapped key+value pairs.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
 class Source:
     def items(self: &Source) -> list[i64]:
         [4, 5].unwrap()
@@ -323,8 +352,8 @@ def numbers() -> dict[i64, i64]:
     {1: 10, 2: 20}.unwrap()
 def main() -> ():
     source = Source()
-    print(iter(source.items()).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
-    print(iter(numbers().items()).map(def(k: &i64, v: &i64) -> i64: *k + *v).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
+    print(iter(source.items()).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())).unwrap()
+    print(iter(numbers().items()).map(def(k: &i64, v: &i64) -> i64: fixture_add(*k, *v).unwrap()).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())).unwrap()
     for pair, n in iter(range(2)).enumerate().zip(range(10, 12)):
         print(pair, n).unwrap()
 "#,
@@ -364,7 +393,7 @@ def right(n: i64) -> i64:
     print("right", n).unwrap()
     n
 def main() -> ():
-    a = iter(range(5)).map(left).filter(def(n: &i64) -> bool: *n % 2 == 0)
+    a = iter(range(5)).map(left).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0)
     b = iter(range(2)).map(right)
     for x, y in a.zip(b):
         print("pair", x, y).unwrap()
@@ -378,7 +407,7 @@ fn free_adapters_in_loop_sources_pull_filtered_arms_independently() {
     output(
         r#"
 def even(n: &i64) -> bool:
-    *n % 2 == 0
+    *n % NonZero.try_from(2).unwrap() == 0
 def visit(n: i64) -> i64:
     print("left", n).unwrap()
     n
@@ -403,17 +432,17 @@ def main() -> ():
 fn fallible_pair_collection_and_tuple_accumulator() {
     output(
         r#"
-def pair(n: i64) -> Result[(i64, i64), str]:
+def pair(n: i64) -> Result[(i64, i64), str | OverflowError[i64]]:
     if n == 3:
         return Err("stop")
     Ok((n, n * n))
-def sum(acc: (i64, i64), a: i64, b: i64) -> Result[(i64, i64), str]:
+def sum(acc: (i64, i64), a: i64, b: i64) -> Result[(i64, i64), str | OverflowError[i64]]:
     Ok((acc[0] + a, acc[1] + b))
 def main() -> ():
-    values: Result[dict[i64, i64], str | AllocError] = iter(range(2)).map(pair).try_collect()
+    values: Result[dict[i64, i64], str | OverflowError[i64] | AllocError] = iter(range(2)).map(pair).try_collect()
     print(values.unwrap()[1]).unwrap()
     print(zip(range(3), range(10, 13)).try_fold((0, 0), sum).unwrap()).unwrap()
-    result: Result[dict[i64, i64], str | AllocError] = iter(range(5)).map(pair).try_collect()
+    result: Result[dict[i64, i64], str | OverflowError[i64] | AllocError] = iter(range(5)).map(pair).try_collect()
     print(result.is_err()).unwrap()
 "#,
         "1\n(3, 33)\nTrue\n",
@@ -449,10 +478,13 @@ def main() -> ():
 
 #[test]
 fn pair_predicates_and_reducers_keep_accumulator_whole() {
+    // The fixed pair reduction adds (1,10) and (2,20), yielding (3,30). Keep tuple accumulator ABI.
     output(
         r#"
 def combine(acc: (i64, i64), a: i64, b: i64) -> (i64, i64):
-    (acc[0] + a, acc[1] + b)
+    result = checked:
+        (acc[0] + a, acc[1] + b)
+    result.unwrap()
 def visit(a: i64, b: i64) -> Result[(), str]:
     if a == 1:
         return Err("stop")
@@ -486,11 +518,14 @@ fn borrowed_pairs_retain_loans_and_cannot_escape_into_collections() {
 
 #[test]
 fn mutable_pair_items_are_shared_in_predicates_and_mutable_in_mapping() {
+    // Only [10,20] is enumerated: mutation adds indices 0 and 1, yielding at most 21.
     output(
         r#"
 def bump(i: i64, n: &mut i64) -> i64:
-    *n += i
-    *n
+    result = checked:
+        *n += i
+        *n
+    result.unwrap()
 def main() -> ():
     mut values = [10, 20].unwrap()
     print(iter(&mut values).enumerate().filter(def(i: &i64, n: &i64) -> bool: *n > 0).map(bump).count()).unwrap()
@@ -510,7 +545,7 @@ fn enumerate_counts_accepted_items_and_preserves_maximum_final_index() {
     output(
         r#"
 def main() -> ():
-    for i, n in iter(range(5)).filter(def(n: &i64) -> bool: *n % 2 == 0).enumerate(start=7):
+    for i, n in iter(range(5)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0).enumerate(start=7):
         print(i, n).unwrap()
     print(iter(range(1)).enumerate(9223372036854775807).count()).unwrap()
     print(iter(range(3)).zip(range(3)).take(0).count()).unwrap()
@@ -521,10 +556,11 @@ def main() -> ():
 
 #[test]
 fn optimized_callbacks_preserve_imported_and_caller_trap_sites() {
+    // Select trapping only at the multiplication/division whose source sites are asserted.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("arithmetic.plenty"),
-        "pub def square(n: i64) -> i64:\n    n * n\n",
+        "pub def square(n: i64) -> i64:\n    unchecked:\n        n * n\n",
     )
     .unwrap();
     let source = dir.path().join("main.plenty");
@@ -532,11 +568,11 @@ fn optimized_callbacks_preserve_imported_and_caller_trap_sites() {
     for (body, expected) in [
         (
             "    print(iter(range(4000000000, 4000000001)).map(square).count()).unwrap()\n",
-            "arithmetic.plenty:2:5: integer overflow",
+            "arithmetic.plenty:3:9: integer overflow",
         ),
         (
-            "    print(iter(range(2)).map(square).count()).unwrap()\n    zero = 0\n    print(1 // zero).unwrap()\n",
-            "main.plenty:5:11: division by zero",
+            "    print(iter(range(2)).map(square).count()).unwrap()\n    zero = 0\n    unchecked:\n        print(1 // zero).unwrap()\n",
+            "main.plenty:6:15: division by zero",
         ),
     ] {
         std::fs::write(
@@ -574,13 +610,14 @@ fn optimized_callbacks_preserve_imported_and_caller_trap_sites() {
 
 #[test]
 fn changing_inlined_callback_invalidates_cached_caller() {
+    // range(3) and delta 1 or 2 bound bump by 4 and the fold by 9; retain callback item ABI.
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
-    std::fs::write(&source, "from arithmetic import bump\ndef main() -> ():\n    print(iter(range(3)).map(bump).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()\n").unwrap();
+    std::fs::write(&source, "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nfrom arithmetic import bump\ndef main() -> ():\n    print(iter(range(3)).map(bump).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())).unwrap()\n").unwrap();
     for (delta, expected) in [(1, "6\n"), (2, "9\n")] {
         std::fs::write(
             dir.path().join("arithmetic.plenty"),
-            format!("pub def bump(n: i64) -> i64:\n    n + {delta}\n"),
+            format!("pub def bump(n: i64) -> i64:\n    # IR/cache fixture: keep the scalar operation inlined into main.\n    unchecked:\n        n + {delta}\n"),
         )
         .unwrap();
         let result = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
@@ -595,16 +632,37 @@ fn changing_inlined_callback_invalidates_cached_caller() {
             String::from_utf8_lossy(&result.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&result.stdout), expected);
+        let dump = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .args([
+                "--release",
+                "--no-cache",
+                "--dump",
+                "clif",
+                "--dump-filter",
+                "main",
+            ])
+            .arg(&source)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(dump.status.success(), "{dump:?}");
+        assert!(
+            !String::from_utf8_lossy(&dump.stdout).contains("__plenty_fn_bump"),
+            "{dump:?}"
+        );
     }
 }
 
 #[test]
 fn collecting_uses_the_expected_collection_type() {
+    // range(5) bounds asserted squares by 16; keep collection-context inference on i64 items.
     output(
         r#"
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def main() -> Result[(), AllocError | IoError | ParseError]:
-    xs: list[i64] = iter(range(5)).map(def(n: i64) -> i64: n * n).collect()?
-    seen: set[i64] = iter(range(5)).map(def(n: i64) -> i64: n % 2).collect()?
+    xs: list[i64] = iter(range(5)).map(def(n: i64) -> i64: fixture_multiply(n, n).unwrap()).collect()?
+    seen: set[i64] = iter(range(5)).map(def(n: i64) -> i64: n % NonZero.try_from(2).unwrap()).collect()?
     parsed: list[i64] = iter(["1", "2", "3"]?).map(def(s: str) -> Result[i64, ParseError]: i64.parse(s)).try_collect()?
     print(xs, len(seen), parsed)?
     Ok(())
@@ -617,7 +675,7 @@ def main() -> Result[(), AllocError | IoError | ParseError]:
 fn fallible_callback_terminals_stop_at_first_error() {
     output(
         r#"
-def add(a: i64, b: i64) -> Result[i64, str]:
+def add(a: i64, b: i64) -> Result[i64, str | OverflowError[i64]]:
     if b == 3:
         return Err("stop")
     print("add", b).unwrap()
@@ -637,7 +695,7 @@ def main() -> ():
     d = iter(range(0)).try_for_each(visit)
     print(str.repr(&d).unwrap()).unwrap()
 "#,
-        "add 0\nadd 1\nadd 2\nResult[i64, str].Err(\"stop\")\nResult[i64, str].Ok(10)\nvisit 0\nvisit 1\nResult[(), str].Err(\"stop\")\nResult[(), str].Ok(())\n",
+        "add 0\nadd 1\nadd 2\nResult[i64, OverflowError[i64] | str].Err(\"stop\")\nResult[i64, OverflowError[i64] | str].Ok(10)\nvisit 0\nvisit 1\nResult[(), str].Err(\"stop\")\nResult[(), str].Ok(())\n",
     );
 }
 
@@ -712,11 +770,14 @@ def main() -> ():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn known_length_collect_reserves_once_and_reports_each_allocation_failure() {
+    // range(100) bounds each asserted double by 198; reserve/failure budgets must stay unchanged.
     for budget in 0..=2 {
         let source = format!(
             r#"
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def build() -> Result[list[i64], AllocError]:
-    iter(range(100)).map(def(n: i64) -> i64: n * 2).skip(5).take(12).collect()
+    iter(range(100)).map(def(n: i64) -> i64: fixture_multiply(n, 2).unwrap()).skip(5).take(12).collect()
 print("__test_fail_allocations_after_{budget}__").unwrap()
 result = build()
 print("__test_restore_allocations__").unwrap()
@@ -743,7 +804,7 @@ match result:
 fn fallible_non_collecting_terminals_add_no_allocation() {
     support::assert_visible_stdout(
         r#"
-def add(a: i64, b: i64) -> Result[i64, str]:
+def add(a: i64, b: i64) -> Result[i64, str | OverflowError[i64]]:
     Ok(a + b)
 def visit(n: i64) -> Result[(), str]:
     Ok(())
@@ -766,7 +827,7 @@ fn filter_value_keeps_items_equal_to_a_value() {
 def numbers() -> Generator[i64]:
     for n in [2, 7, 2].unwrap():
         yield n
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = [3, 1, 3, 2, 3]?
     print(iter(&xs).filter_value(3).count(), iter(xs).filter_value(1).count())?
     flags = [True, False, True]?
@@ -774,7 +835,7 @@ def main() -> Result[(), AllocError | IoError]:
     names = ["ada", "bob", "ada"]?
     for i, name in iter(&names).filter_value("ada").enumerate():
         print(i, name)?
-    small: list[u8] = iter(range(10)).map(def(n: i64) -> u8: u8(n % 3)).filter_value(2).collect()?
+    small: list[u8] = iter(range(10)).map(def(n: i64) -> u8: u8(n % NonZero.try_from(3).unwrap())).filter_value(2).collect()?
     print(small, iter(range(10)).filter_value(value=4).count())?
     print(numbers().filter_value(2).chain(range(5)).filter_value(2).count())?
     mut counts = [1, 2, 1]?
@@ -817,7 +878,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn filter_value_compares_borrowed_items_with_a_borrowed_value() {
     output(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     names = ["ada", "bob", "ada"]?
     wanted = copy(names[0])?
     print(iter(&names).filter_value(&wanted).count(), wanted)?
@@ -851,7 +912,7 @@ fn filter_value_keeps_a_borrowed_value_borrowed_until_the_pipeline_ends() {
             "cannot assign to `wanted` while it is borrowed",
         ),
         (
-            "mut ys = [1, 2, 1].unwrap()\nfor y in iter(&mut ys).filter_value(&ys[0]):\n    *y += 10\n",
+            "mut ys = [1, 2, 1].unwrap()\nfor y in iter(&mut ys).filter_value(&ys[0]):\n    result = checked:\n        *y += 10\n    result.unwrap()\n",
             "while `ys` is exclusively borrowed",
         ),
     ] {
@@ -951,19 +1012,27 @@ fn output(source: &str, expected: &str) {
 
 #[test]
 fn fused_range_and_borrowed_list_fold() {
+    // Both folds retain infallible callbacks: range(10) squares sum to 120; doubled [1,2,3,4] sums
+    // to 20.
     output(
         r#"
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def even(n: &i64) -> bool:
-    *n % 2 == 0
+    *n % NonZero.try_from(2).unwrap() == 0
 def square(n: i64) -> i64:
-    n * n
+    result = checked:
+        n * n
+    result.unwrap()
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def main() -> ():
     p = iter(range(10)).filter(even).map(square)
     print(p.fold(0, add)).unwrap()
     values = [1, 2, 3, 4].unwrap()
-    total = iter(&values).map(def(n: &i64) -> i64: *n * 2).fold(0, add)
+    total = iter(&values).map(def(n: &i64) -> i64: fixture_multiply(*n, 2).unwrap()).fold(0, add)
     print(total, len(values)).unwrap()
 "#,
         "120\n20 4\n",
@@ -975,7 +1044,7 @@ fn adapters_preserve_order_and_bounds() {
     output(
         r#"
 def main() -> ():
-    for n in iter(range(10)).skip(2).take(4).filter(def(n: &i64) -> bool: *n % 2 == 1):
+    for n in iter(range(10)).skip(2).take(4).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 1):
         print(n).unwrap()
     print(iter(range(10)).take_while(def(n: &i64) -> bool: *n < 3).count()).unwrap()
     print(iter(range(10)).take(0).count(), iter(range(10)).skip(-1).count()).unwrap()
@@ -1017,8 +1086,11 @@ def main() -> ():
 
 #[test]
 fn callbacks_and_owned_sources_are_released_on_break_and_drop() {
+    // Guard values 1..3 and capture 9 bound mapped additions by 12. Preserve owner/drop order.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
 class Guard:
     n: i64
     def __del__(self) -> ():
@@ -1026,7 +1098,7 @@ class Guard:
 def main() -> ():
     values = [Guard(1), Guard(2), Guard(3)].unwrap()
     capture = Guard(9)
-    p = iter(values).map(def [capture](g: Guard) -> i64: g.n + capture.n)
+    p = iter(values).map(def [capture](g: Guard) -> i64: fixture_add(g.n, capture.n).unwrap())
     for n in p:
         print(n).unwrap()
         break
@@ -1041,10 +1113,14 @@ def main() -> ():
 
 #[test]
 fn terminal_short_circuit_and_empty_reduction() {
+    // range(5) bounds the infallible reduce accumulator by 10; preserve Option and empty reduction
+    // ABI.
     output(
         r#"
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def main() -> ():
     print(iter(range(5)).reduce(add), iter(range(0)).reduce(add)).unwrap()
     print(iter(range(5)).any(def(n: &i64) -> bool: *n == 2)).unwrap()
@@ -1058,13 +1134,17 @@ def main() -> ():
 
 #[test]
 fn captured_mutable_borrow_is_retained_until_consumption() {
+    // Only two range(5) items are visited: seen<=2 and doubled item<=8; keep the borrowed callback
+    // ABI.
     output(
         r#"
 def main() -> ():
     mut seen = 0
     visit = def [&mut seen](n: i64) -> i64:
-        seen += 1
-        n * 2
+        result = checked:
+            seen += 1
+            n * 2
+        result.unwrap()
     p = iter(range(5)).map(visit)
     print(p.take(2).count(), seen).unwrap()
 "#,
@@ -1084,10 +1164,10 @@ def main() -> ():
     );
     output(
         r#"
-def iter(n: i64) -> i64:
-    n + 1
+def iter(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n + 1)
 def main() -> ():
-    print(iter(3)).unwrap()
+    print(iter(3).unwrap()).unwrap()
 "#,
         "4\n",
     );
@@ -1132,10 +1212,14 @@ def main() -> ():
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn non_collecting_terminals_do_not_allocate() {
+    // The fixed [1,2,3] fold totals 6 and range(3) reduction totals 3. Keep infallible scalar
+    // callbacks.
     output(
         r#"
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def visit(n: i64) -> ():
     pass
 def main() -> ():
@@ -1159,13 +1243,18 @@ def main() -> ():
 
 #[test]
 fn fused_range_and_borrowed_list_have_no_adapter_dispatch() {
+    // range_total(10) bounds asserted squares by 81; the scalar add is selected explicitly below.
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("pipeline.plenty");
     std::fs::write(&source, r#"
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def add(a: i64, b: i64) -> i64:
-    a + b
+    # IR fixture: inspect the scalar add, not Result-wrapper lowering.
+    unchecked:
+        a + b
 def range_total(n: i64) -> i64:
-    iter(range(n)).filter(def(n: &i64) -> bool: *n % 2 == 0).map(def(n: i64) -> i64: n * n).fold(0, add)
+    iter(range(n)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0).map(def(n: i64) -> i64: fixture_multiply(n, n).unwrap()).fold(0, add)
 def borrowed_total(values: &list[i64]) -> i64:
     iter(values).map(def(n: &i64) -> i64: *n).fold(0, add)
 def main() -> ():
@@ -1205,9 +1294,13 @@ fn converted_range_has_one_fused_frame_and_no_adapter_resume_dispatch() {
         &source,
         r#"
 def even(n: &i64) -> bool:
-    *n % 2 == 0
+    # The literal divisor is nonzero for every possible dividend.
+    unchecked:
+        *n % 2 == 0
 def square(n: i64) -> i64:
-    n * n
+    # IR fixture: inspect the scalar square in the single resume frame.
+    unchecked:
+        n * n
 def build(stop: i64) -> Generator[i64]:
     iter(range(stop)).filter(even).map(square).generator()
 def main() -> ():
@@ -1249,10 +1342,13 @@ def main() -> ():
 
 #[test]
 fn chain_yields_both_sides_in_order() {
+    // The fixed chain sums to 24; keep its infallible callback and serial split-loop behavior.
     output(
         r#"
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def small(n: &i64) -> bool:
     *n < 3
 def main() -> Result[(), AllocError | IoError]:
@@ -1263,7 +1359,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(iter(range(3)).chain(range(10, 12)).fold(0, add))?
     for n in iter(range(10)).take_while(small).chain(range(100, 102)).take(4):
         print(n)?
-    for n in iter(range(6)).filter(def(n: &i64) -> bool: *n % 2 == 1).chain(range(0)):
+    for n in iter(range(6)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 1).chain(range(0)):
         print(n)?
     print(iter(range(0)).chain(range(0)).count())?
     Ok(())
@@ -1274,9 +1370,12 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn chain_pairs_borrows_and_mutable_references() {
+    // The mapped chain is range(3) then range(7,9): asserted successors are at most 9.
     output(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2]?
     mut ys = [3]?
     for x in iter(&mut xs).chain(&mut ys):
@@ -1288,7 +1387,7 @@ def main() -> Result[(), AllocError | IoError]:
         print(i, s)?
     for a, b in zip(iter(range(2)).chain(range(7, 9)), iter(&names).chain(&more)):
         print(a, b)?
-    counted: list[i64] = iter(range(3)).chain(range(7, 9)).map(def(n: i64) -> i64: n + 1).collect()?
+    counted: list[i64] = iter(range(3)).chain(range(7, 9)).map(def(n: i64) -> i64: fixture_add(n, 1).unwrap()).collect()?
     print(counted)?
     bounded: list[i64] = iter(range(9223372036854775807)).chain(range(10)).take(3).collect()?
     print(bounded)?
@@ -1331,13 +1430,19 @@ def main() -> ():
 
 #[test]
 fn flat_map_yields_each_inner_source_in_order() {
+    // twice sees n<=20 (including nested calls), and numbers sees n<=4: products are <=200 and
+    // <=300.
     output(
         r#"
 def twice(n: i64) -> list[i64]:
-    [n, n * 10].unwrap()
+    result = checked:
+        [n, n * 10].unwrap()
+    result.unwrap()
 def numbers(n: i64) -> Generator[i64]:
     for i in range(n):
-        yield i * 100
+        result = checked:
+            i * 100
+        yield result.unwrap()
 def words(n: i64) -> list[str]:
     mut out = list[str]().unwrap()
     for i in range(n):
@@ -1349,7 +1454,7 @@ def main() -> Result[(), AllocError | IoError]:
     for n in iter(range(4)).flat_map(def(n: i64) -> range[i64]: range(n)).take(4):
         print(n)?
     print(iter(range(4)).flat_map(numbers).count())?
-    print(iter(range(5)).filter(def(n: &i64) -> bool: *n % 2 == 0).flat_map(words).count())?
+    print(iter(range(5)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(2).unwrap() == 0).flat_map(words).count())?
     for i, s in enumerate(iter(range(3)).flat_map(words).chain(["end"]?)):
         print(i, s)?
     for a, b in zip(iter(range(3)).flat_map(twice), iter(range(2)).flat_map(twice).skip(1)):
@@ -1364,6 +1469,7 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn flat_map_releases_inner_sources_on_exhaustion_break_and_drop() {
+    // guards sees n=1..3 and i=0..1: encoded labels are 10..31. Keep the owned flat-map source ABI.
     output(
         r#"
 class Guard:
@@ -1373,7 +1479,9 @@ class Guard:
 def guards(n: i64) -> list[Guard]:
     mut out = list[Guard]().unwrap()
     for i in range(2):
-        out.append(Guard(n * 10 + i)).unwrap()
+        result = checked:
+            n * 10 + i
+        out.append(Guard(result.unwrap())).unwrap()
     out
 def main() -> ():
     for g in iter(range(1, 4)).flat_map(guards):
@@ -1428,10 +1536,13 @@ def main() -> Result[(), AllocError | IoError]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn chain_and_flat_map_terminals_do_not_allocate() {
+    // The fixed borrowed chain sums to 10; flattened range(4) sums to 4. Keep infallible fold ABI.
     output(
         r#"
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def main() -> ():
     values = [1, 2, 3].unwrap()
     more = [4].unwrap()
@@ -1456,7 +1567,9 @@ fn chain_and_flat_map_have_no_adapter_dispatch() {
         &source,
         r#"
 def add(a: i64, b: i64) -> i64:
-    a + b
+    # IR fixture: inspect the scalar add, not Result-wrapper lowering.
+    unchecked:
+        a + b
 def spread(n: i64) -> range[i64]:
     range(n)
 def chained(values: &list[i64], n: i64) -> i64:
@@ -1495,12 +1608,20 @@ def main() -> ():
 
 #[test]
 fn chain_terminals_split_per_side_and_keep_early_exits() {
+    // All chains are fixed: the largest encoded item is 306 and largest sum 612. Keep reduce/fold
+    // scalar ABI.
     // A terminal runs one loop per chain side; an early exit in the first
     // loop must skip the second.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def add(a: i64, b: i64) -> i64:
-    a + b
+    result = checked:
+        a + b
+    result.unwrap()
 def small(n: &i64) -> bool:
     *n < 3
 def check(n: i64) -> Result[(), str]:
@@ -1517,7 +1638,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(iter(range(3)).chain(range(10, 13)).take(4).fold(0, add))?
     print(iter(range(3)).chain(range(10, 13)).take(2).count())?
     print(iter(range(2)).chain(range(5, 7)).chain(range(20, 22)).fold(0, add))?
-    print(iter(range(2)).chain(range(5, 7)).enumerate().map(def(i: i64, n: i64) -> i64: i * 100 + n).fold(0, add))?
+    print(iter(range(2)).chain(range(5, 7)).enumerate().map(def(i: i64, n: i64) -> i64: fixture_add(fixture_multiply(i, 100).unwrap(), n).unwrap()).fold(0, add))?
     words = ["a", "bb"]?
     more = ["ccc"]?
     print(iter(words).chain(more).map(def(s: str) -> i64: s.byte_len()).fold(0, add))?
@@ -1532,27 +1653,33 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn spliced_closure_literals_keep_call_semantics() {
+    // Captured scales are 3 or 10 with n<=2; totals<=9 and mapped values<=20. Keep spliced callback
+    // ABI.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def show(tag: str, n: i64) -> i64:
     print(tag, n).unwrap()
     n
 def main() -> Result[(), AllocError | IoError]:
     mut k = 3
-    scaled = iter(range(3)).map(def [k](n: i64) -> i64: n * k)
+    scaled = iter(range(3)).map(def [k](n: i64) -> i64: fixture_multiply(n, k).unwrap())
     k = 10
-    print(scaled.fold(0, def(a: i64, b: i64) -> i64: a + b), k)?
-    picked: list[i64] = iter(range(4)).filter(def(n: &i64) -> bool: show("test", *n) % 2 == 0).map(def(n: i64) -> i64: show("map", n) * 10).collect()?
+    print(scaled.fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap()), k)?
+    picked: list[i64] = iter(range(4)).filter(def(n: &i64) -> bool: show("test", *n) % NonZero.try_from(2).unwrap() == 0).map(def(n: i64) -> i64: fixture_multiply(show("map", n), 10).unwrap()).collect()?
     print(picked)?
     seen: list[i64] = []?
-    kept: list[i64] = iter(range(5)).filter(def [mut seen](n: &i64) -> bool: seen.append(*n).is_ok() and len(seen) % 2 == 0).collect()?
+    kept: list[i64] = iter(range(5)).filter(def [mut seen](n: &i64) -> bool: seen.append(*n).is_ok() and len(seen) % NonZero.try_from(2).unwrap() == 0).collect()?
     print(kept)?
     words = ["a", "bb"]?
     sizes: list[i64] = iter(range(2)).map(def [&words](i: i64) -> i64: len(words[i])).collect()?
     print(sizes, len(words))?
     print(iter(range(10)).find(def(n: &i64) -> bool: show("find", *n) > 1))?
     print(iter(range(10)).take_while(def(n: &i64) -> bool: show("while", *n) < 2).count())?
-    nested: list[i64] = iter(range(3)).flat_map(def [k](n: i64) -> list[i64]: [n, n * k].unwrap()).collect()?
+    nested: list[i64] = iter(range(3)).flat_map(def [k](n: i64) -> list[i64]: [n, fixture_multiply(n, k).unwrap()].unwrap()).collect()?
     print(nested)?
     Ok(())
 "#,
@@ -1568,7 +1695,7 @@ fn spliced_closure_literals_keep_borrow_and_capture_diagnostics() {
             "cannot modify or exclusively borrow `xs[0]` while `xs` is borrowed",
         ),
         (
-            "n = 2\nprint(iter(range(3)).map(def(x: i64) -> i64: x + n).count()).unwrap()\n",
+            "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nn = 2\nprint(iter(range(3)).map(def(x: i64) -> i64: fixture_add(x, n).unwrap()).count()).unwrap()\n",
             "anonymous functions cannot capture `n`",
         ),
         (
@@ -1576,7 +1703,7 @@ fn spliced_closure_literals_keep_borrow_and_capture_diagnostics() {
             "cannot move out of a closure capture",
         ),
         (
-            "s = [1].unwrap()\np = iter(range(2)).map(def [s](i: i64) -> i64: len(s) + i)\nprint(len(s)).unwrap()\nprint(p.count()).unwrap()\n",
+            "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\ns = [1].unwrap()\np = iter(range(2)).map(def [s](i: i64) -> i64: fixture_add(len(s), i).unwrap())\nprint(len(s)).unwrap()\nprint(p.count()).unwrap()\n",
             "use of moved binding `s`",
         ),
     ] {
@@ -1645,9 +1772,15 @@ fn dump_ops(source: &str, function: &str) -> String {
 
 #[test]
 fn closure_literals_in_a_chain_lower_into_the_fused_loop() {
+    // scaled([1,2,3],2) yields <=6 and sums to 10; stored(2,3) multiplies at most 1*3. Preserve
+    // splicing oracles.
     let source = r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 def scaled(values: &list[i64], k: i64) -> i64:
-    iter(values).map(def [k](n: &i64) -> i64: *n * k).filter(def(n: &i64) -> bool: *n > 2).fold(0, def(a: i64, b: i64) -> i64: a + b)
+    iter(values).map(def [k](n: &i64) -> i64: fixture_multiply(*n, k).unwrap()).filter(def(n: &i64) -> bool: *n > 2).fold(0, def(a: i64, b: i64) -> i64: fixture_add(a, b).unwrap())
 def reductions(n: i64) -> bool:
     iter(range(n)).any(def(x: &i64) -> bool: *x == 7) and iter(range(n)).all(def(x: &i64) -> bool: *x < 9) and iter(range(n)).take_while(def(x: &i64) -> bool: *x < 3).find(def(x: &i64) -> bool: *x > 1).is_some()
 def visit(n: i64) -> ():
@@ -1656,10 +1789,12 @@ def nested(n: i64) -> i64:
     iter(range(n)).flat_map(def(x: i64) -> list[i64]: [x, x].unwrap()).count()
 def stored(n: i64, k: i64) -> i64:
     f = def [k](x: i64) -> i64:
-        x * k
+        result = checked:
+            x * k
+        result.unwrap()
     iter(range(n)).map(f).count()
-def fallible(n: i64) -> Result[i64, AllocError]:
-    iter(range(n)).try_fold(0, def(a: i64, x: i64) -> Result[i64, AllocError]: Ok(a + len([x]?)))
+def fallible(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    iter(range(n)).try_fold(0, def(a: i64, x: i64) -> Result[i64, AllocError | OverflowError[i64]]: Ok(a + len([x]?)))
 def main() -> ():
     values = [1, 2, 3].unwrap()
     print(scaled(&values, 2), reductions(10), nested(2)).unwrap()
@@ -1681,11 +1816,15 @@ def main() -> ():
 
 #[test]
 fn comprehensions_lower_to_the_same_ops_as_pipelines() {
+    // Both equivalent sources receive n=10: twice produces 0..18. Keep the same infallible mapping
+    // in each.
     let source = r#"
 def keep(x: &i64) -> bool:
-    *x % 3 != 0
+    *x % NonZero.try_from(3).unwrap() != 0
 def twice(x: i64) -> i64:
-    x * 2
+    result = checked:
+        x * 2
+    result.unwrap()
 def comprehension(n: i64) -> Result[list[i64], AllocError]:
     [twice(x) for x in range(n) if keep(&x)]
 def pipeline(n: i64) -> Result[list[i64], AllocError]:
@@ -1712,18 +1851,21 @@ def main() -> ():
 
 #[test]
 fn sum_min_and_max_reduce_numbers_and_text() {
+    // numbers(5) bounds 10-n to 6..10; range(3) bounds the asserted u8 sum to 3.
     output(
         r#"
+def fixture_subtract(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a - b)
 def numbers(n: i64) -> Generator[i64]:
     for i in range(n):
         yield i
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [3, -1, 7, -1]?
-    print(iter(&xs).sum(), iter(&xs).min(), iter(&mut xs).max())?
-    print(iter(range(0)).sum(), iter(range(0)).min(), iter(range(0)).max())?
-    print(numbers(5).sum(), numbers(5).map(def(n: i64) -> i64: 10 - n).min())?
-    print(iter(&xs).chain(&xs).sum(), iter(range(10)).filter(def(n: &i64) -> bool: *n % 3 == 0).sum())?
-    small: u8 = iter(range(3)).map(def(n: i64) -> u8: u8(n)).sum()
+    print(iter(&xs).sum()?, iter(&xs).min(), iter(&mut xs).max())?
+    print(iter(range(0)).sum()?, iter(range(0)).min(), iter(range(0)).max())?
+    print(numbers(5).sum()?, numbers(5).map(def(n: i64) -> i64: fixture_subtract(10, n).unwrap()).min())?
+    print(iter(&xs).chain(&xs).sum()?, iter(range(10)).filter(def(n: &i64) -> bool: *n % NonZero.try_from(3).unwrap() == 0).sum()?)?
+    small: u8 = iter(range(3)).map(def(n: i64) -> u8: u8(n)).sum().unwrap()
     halves = iter(range(3)).map(def(n: i64) -> f32: f32(n) / 2.0).sum()
     print(small, halves, iter(range(0)).map(def(n: i64) -> f64: f64(n)).sum())?
     names = ["bob", "ada", "cy"]?
@@ -1731,7 +1873,7 @@ def main() -> Result[(), AllocError | IoError]:
     scores = {"a": 3, "b": 9}?
     print(scores.items().map(def(k: &str, v: &i64) -> i64: *v).max())?
     p = iter(range(4)).skip(1)
-    print(p.sum())?
+    print(p.sum()?)?
     Ok(())
 "#,
         "8 Option[i64].Some(-1) Option[i64].Some(7)\n0 Option[i64].Nothing Option[i64].Nothing\n10 Option[i64].Some(6)\n16 18\n3 1.5 0.0\nOption[str].Some(\"ada\") Option[str].Some(\"cy\")\nOption[i64].Some(9)\n6\n",
@@ -1811,7 +1953,7 @@ def same(a: Option[f64], b: Option[f64]) -> bool:
                     False
         case Nothing:
             b.is_none()
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     neg = math.copysign(f64.NAN, -1.0)
     cases = [
         list[f64]()?, [1.5]?, [0.0, -0.0]?, [-0.0, 0.0]?, [3.0, 1.0, 1.0, 3.0]?,
@@ -1840,14 +1982,43 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
-fn sum_overflow_traps_like_addition() {
-    let result = support::run(
-        "def main() -> ():\n    values = [i64.MAX, 1].unwrap()\n    print(iter(&values).sum()).unwrap()\n",
-    );
-    assert_eq!(result.status.code(), Some(1));
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("integer overflow"), "{stderr}");
-    assert!(result.stdout.is_empty());
+fn integer_sum_reports_the_first_precise_overflow_in_both_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("sum.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    values = [i64.MAX, 1, -1]?
+    print(iter(range(0)).sum()?)?
+    print(iter([i64.MAX]?).sum()?)?
+    print(iter(&values).sum()?)?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for optimize in [false, true] {
+        let executable = dir.path().join("program");
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
+        if optimize {
+            command.arg("--release");
+        }
+        let compiled = command
+            .args(["--no-cache", "--compile"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(compiled.status.success(), "{compiled:?}");
+        let result = std::process::Command::new(&executable).output().unwrap();
+        assert_eq!(result.status.code(), Some(1), "{result:?}");
+        assert_eq!(result.stdout, b"0\n9223372036854775807\n");
+        assert_eq!(
+            String::from_utf8_lossy(&result.stderr),
+            "error: main returned OverflowError[i64](wrapped=-9223372036854775808)\n"
+        );
+    }
 }
 
 #[test]
@@ -1882,16 +2053,19 @@ fn sum_min_and_max_reject_unsupported_items() {
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn sum_min_and_max_do_not_allocate() {
+    // range(10) bounds doubles by 18 and integer sum by 45; handling Results must allocate nothing.
     support::assert_visible_stdout(
         r#"
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 values = [2.5, 1.0].unwrap()
 names = ["bob", "ada"].unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 print("__test_begin_no_allocations__").unwrap()
-a = iter(range(10)).sum()
+a = iter(range(10)).sum().unwrap()
 b = iter(&values).min()
 c = iter(&names).max()
-d = iter(range(10)).map(def(n: i64) -> i64: n * 2).max()
+d = iter(range(10)).map(def(n: i64) -> i64: fixture_multiply(n, 2).unwrap()).max()
 print("__test_end_no_allocations__").unwrap()
 print("__test_restore_allocations__").unwrap()
 print(a, b, c, d).unwrap()
@@ -1902,14 +2076,19 @@ print(a, b, c, d).unwrap()
 
 #[test]
 fn next_resumes_pipelines_in_their_creating_scope() {
+    // Fixed dictionary values <=3 bound doubles by 6; enumerated names bound i+len(s) by 4.
     output(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = ["a", "bb", "", "ccc", "dd"]?
     mut p = iter(xs).filter(def(s: &str) -> bool: s != "").map(def(s: &str) -> i64: len(s))
     print(next(p))?
     print(next(&mut p))?
-    print(p.sum())?
+    print(p.sum()?)?
     mut c = iter(range(2)).chain(range(10, 13))
     print(next(c))?
     print(next(c))?
@@ -1920,7 +2099,7 @@ def main() -> Result[(), AllocError | IoError]:
     for i, x in e:
         print(i + x)?
     d: dict[i64, i64] = {1: 10, 2: 20, 3: 30}?
-    mut k = iter(d.keys()).map(def(x: &i64) -> i64: *x * 2)
+    mut k = iter(d.keys()).map(def(x: &i64) -> i64: fixture_multiply(*x, 2).unwrap())
     print(next(k))?
     rest: list[i64] = k.collect()?
     print(rest)?
@@ -1935,7 +2114,7 @@ def main() -> Result[(), AllocError | IoError]:
                 break
     print(n, next(f))?
     names = ["ada", "bob", "ada"]?
-    mut v = iter(&names).filter_value("ada").enumerate().map(def(i: i64, s: &str) -> i64: i + len(s))
+    mut v = iter(&names).filter_value("ada").enumerate().map(def(i: i64, s: &str) -> i64: fixture_add(i, len(s)).unwrap())
     print(next(v))?
     print(v.count())?
     Ok(())
@@ -2062,23 +2241,30 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn lent_pipelines_resume_in_the_lender() {
+    // The mapped lender yields values below 15; asserted *10 items are below 150. Borrower totals
+    // are fallible.
     output(
         r#"
+def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def fixture_multiply(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a * b)
 class Reader:
     seen: i64
-    def skip(self: &mut Reader, p: &mut Iter[i64]) -> ():
+    def skip(self: &mut Reader, p: &mut Iter[i64]) -> Result[(), OverflowError[i64]]:
         _ = next(p)
         self.seen += 1
+        Ok(())
 
 def first[T](p: &mut Iter[T]) -> Option[T]:
     next(p)
 
-def drain(p: &mut Iter[i64]) -> i64:
+def drain(p: &mut Iter[i64]) -> Result[i64, OverflowError[i64]]:
     match next(p):
         case Some(x):
-            return x + drain(p)
+            return Ok(x + drain(p)?)
         case Nothing:
-            return 0
+            return Ok(0)
 
 def pairs(p: &mut Iter[i64]) -> Result[(), AllocError | IoError]:
     for a, b in zip(p, range(100, 102)):
@@ -2086,31 +2272,31 @@ def pairs(p: &mut Iter[i64]) -> Result[(), AllocError | IoError]:
     Ok(())
 
 def mapped(p: &mut Iter[i64]) -> Result[(), AllocError | IoError]:
-    mut q = p.map(def(x: i64) -> i64: x * 10)
+    mut q = p.map(def(x: i64) -> i64: fixture_multiply(x, 10).unwrap())
     print(next(q))?
     print(next(p))?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     lim = 3
     mut p = iter(range(20)).filter(def [lim](x: &i64) -> bool: *x != lim).take_while(def(x: &i64) -> bool: *x < 15)
     mut r = Reader(0)
-    r.skip(&mut p)
+    r.skip(&mut p)?
     print(r.seen)?
     print(first(&mut p))?
     pairs(&mut p)?
     mapped(&mut p)?
-    print(drain(&mut p))?
+    print(drain(&mut p)?)?
     print(next(p))?
     names = ["ada", "bob", "ada", "cy", "ada"]?
     mut v = iter(&names).filter_value("ada").map(def(s: &str) -> i64: len(s))
     print(first(&mut v))?
     print(v.count())?
     mut c = iter(range(2)).chain(range(5, 8))
-    print(drain(&mut c))?
-    mut f = iter(range(3)).flat_map(def(x: i64) -> list[i64]: [x, x + 10].unwrap())
+    print(drain(&mut c)?)?
+    mut f = iter(range(3)).flat_map(def(x: i64) -> list[i64]: [x, fixture_add(x, 10).unwrap()].unwrap())
     print(first(&mut f), first(&mut f), first(&mut f))?
-    print(drain(&mut f))?
+    print(drain(&mut f)?)?
     Ok(())
 "#,
         "1\nOption[i64].Some(1)\n2 100\n4 101\nOption[i64].Some(60)\nOption[i64].Some(7)\n77\n\
@@ -2136,7 +2322,7 @@ def check(g: &Guard) -> Result[i64, Bad]:
         return Err(Bad.Two)
     Ok(g.n)
 
-def total(p: &mut Iter[Guard]) -> Result[i64, Bad]:
+def total(p: &mut Iter[Guard]) -> Result[i64, Bad | OverflowError[i64]]:
     mut t = 0
     for g in p:
         t += check(&g)?
@@ -2287,7 +2473,7 @@ print(p.count()).unwrap()
 fn lent_pipelines_of_reference_items() {
     output(
         r#"
-def show(p: &mut Iter[&str]) -> Result[i64, IoError]:
+def show(p: &mut Iter[&str]) -> Result[i64, IoError | OverflowError[i64]]:
     mut n = 0
     for name in p:
         print(name)?
@@ -2296,55 +2482,56 @@ def show(p: &mut Iter[&str]) -> Result[i64, IoError]:
             break
     Ok(n)
 
-def total(p: &mut Iter[&i64]) -> i64:
+def total(p: &mut Iter[&i64]) -> Result[i64, OverflowError[i64]]:
     mut t = 0
     for x in p:
         t += *x
-    t
+    Ok(t)
 
-def bump(p: &mut Iter[&mut i64]) -> ():
+def bump(p: &mut Iter[&mut i64]) -> Result[(), OverflowError[i64]]:
     for x in p:
         *x += 10
         break
+    Ok(())
 
-def inner(p: &mut Iter[&str]) -> Result[i64, IoError]:
+def inner(p: &mut Iter[&str]) -> Result[i64, IoError | OverflowError[i64]]:
     mut n = 0
     for x in p:
         print("inner", x)?
         n += len(x)
     Ok(n)
 
-def outer(p: &mut Iter[&str]) -> Result[i64, IoError]:
+def outer(p: &mut Iter[&str]) -> Result[i64, IoError | OverflowError[i64]]:
     for x in p:
         print("outer", x)?
         break
     inner(p)
 
-def scaled(p: &mut Iter[&i64]) -> i64:
+def scaled(p: &mut Iter[&i64]) -> Result[i64, OverflowError[i64]]:
     mut t = 0
     for x in p:
-        times = def [&x](k: i64) -> i64:
-            x * k
-        t += times(10)
-    t
+        times = def [&x](k: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(x * k)
+        t += times(10)?
+    Ok(t)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     names = ["ada", "bob", "ada", "cal", "ada"]?
     mut p = iter(&names).filter_value("ada")
     print(show(&mut p)?)?
     print(p.count())?
     mut xs = [1, 2, 3, 4]?
     mut q = iter(&xs).skip(1)
-    print(total(&mut q))?
+    print(total(&mut q)?)?
     xs.append(5)?
     mut r = iter(&mut xs)
-    bump(&mut r)
-    bump(&mut r)
+    bump(&mut r)?
+    bump(&mut r)?
     print(xs)?
     mut s = iter(&names).filter(def(n: &str) -> bool: n != "bob")
     print(outer(&mut s)?)?
     mut t = iter(&xs).take(2)
-    print(scaled(&mut t))?
+    print(scaled(&mut t)?)?
     text = "abc"
     mut chars = iter(&text)
     print(show(&mut chars)?, chars.count())?
@@ -2421,7 +2608,7 @@ def check(s: &str) -> Result[i64, Bad]:
     if len(s) == 0:
         return Err(Bad.Empty)
     Ok(len(s))
-def total(p: &mut Iter[str]) -> Result[i64, Bad]:
+def total(p: &mut Iter[str]) -> Result[i64, Bad | OverflowError[i64]]:
     mut t = 0
     for s in p:
         t += check(&s)?
@@ -2449,7 +2636,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn lent_pipeline_resumes_after_allocation_failure_in_borrower() {
     support::assert_visible_stdout(
         r#"
-def take_three(p: &mut Iter[str], out: &mut list[str]) -> Result[(), AllocError]:
+def take_three(p: &mut Iter[str], out: &mut list[str]) -> Result[(), AllocError | OverflowError[i64]]:
     mut n = 0
     for s in p:
         out.append(s)?

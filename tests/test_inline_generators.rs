@@ -7,7 +7,10 @@ fn suspended_frames_move_through_factories_and_consumers() {
         r#"
 def numbers(n: i64) -> Generator[i64]:
     yield n
-    yield n + 1
+    # make(7) is the only caller: the second suspended value is 8.
+    value = checked:
+        n + 1
+    yield value.unwrap()
 def make(n: i64) -> Generator[i64]:
     numbers(n)
 def forward(g: Generator[i64]) -> Generator[i64]:
@@ -91,7 +94,10 @@ def numbers(n: i64) -> Generator[i64]:
         yield value
 def outer(source: Generator[i64]) -> Generator[i64]:
     for value in source:
-        yield value + 1
+        # numbers(4) yields 0..3, so the asserted increment is 1..4.
+        incremented = checked:
+            value + 1
+        yield incremented.unwrap()
 def make() -> Result[Generator[i64], AllocError]:
     Ok(outer(numbers(4)))
 def forward(source: Option[Generator[i64]]) -> Option[Generator[i64]]:
@@ -101,13 +107,16 @@ print("__test_fail_allocations_after_0__").unwrap()
 mut source = forward(Some(make().unwrap())).unwrap()
 first = next(source).unwrap()
 mut moved = source
-mut total = first
-for value in moved:
-    total = total + value
+# The fixed frame yields 1..4, so the asserted total is 10.
+total = checked:
+    mut sum = first
+    for value in moved:
+        sum = sum + value
+    sum
 drop(make())
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
-print(total).unwrap()
+print(total.unwrap()).unwrap()
 "#,
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n",
     );
@@ -125,20 +134,20 @@ def pair() -> Generator[i64]:
     yield 20
 def forward(source: Source) -> Source:
     source
-def total(source: Source) -> i64:
+def total(source: Source) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in source:
         sum = sum + value
-    sum
-def generic_total[T: IntType](source: Generator[T], start: T) -> T:
+    Ok(sum)
+def generic_total[T: IntType](source: Generator[T], start: T) -> Result[T, OverflowError[T]]:
     mut sum = start
     for value in source:
         sum = sum + value
-    sum
-print(total(forward(once(7)))).unwrap()
-print(total(forward(pair()))).unwrap()
-print(generic_total(once(5u8), 2u8)).unwrap()
-print(generic_total[u8](once[u8](6), 2u8)).unwrap()
+    Ok(sum)
+print(total(forward(once(7))).unwrap()).unwrap()
+print(total(forward(pair())).unwrap()).unwrap()
+print(generic_total(once(5u8), 2u8).unwrap()).unwrap()
+print(generic_total[u8](once[u8](6), 2u8).unwrap()).unwrap()
 "#,
         "7\n30\n7\n8\n",
     );
@@ -153,7 +162,10 @@ class Resource:
     def __del__(self: &mut Resource) -> ():
         print(self.n).unwrap()
 def values(resource: Resource) -> Generator[i64]:
-    local = Resource(resource.n + 10)
+    # Resources 1..4 bound the suspended local to 11..14.
+    value = checked:
+        resource.n + 10
+    local = Resource(value.unwrap())
     yield resource.n
     yield local.n
 drop(values(Resource(1)))
@@ -280,27 +292,27 @@ def alternative(flag: bool) -> Result[Generator[i64], Generator[i64]]:
     if flag:
         return Err(long())
     Ok(short())
-def total(source: Generator[i64]) -> i64:
+def total(source: Generator[i64]) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for value in source:
         n = n + value
-    n
-def use_nested(flag: bool) -> i64:
+    Ok(n)
+def use_nested(flag: bool) -> Result[i64, OverflowError[i64]]:
     match nested(flag).unwrap():
         case Some(source):
             return total(source)
         case Nothing:
-            return -1
-def use_alternative(flag: bool) -> i64:
+            return Ok(-1)
+def use_alternative(flag: bool) -> Result[i64, OverflowError[i64]]:
     match alternative(flag):
         case Ok(source):
             return total(source)
         case Err(source):
             return total(source)
-print(use_nested(True)).unwrap()
-print(use_nested(False)).unwrap()
-print(use_alternative(True)).unwrap()
-print(use_alternative(False)).unwrap()
+print(use_nested(True).unwrap()).unwrap()
+print(use_nested(False).unwrap()).unwrap()
+print(use_alternative(True).unwrap()).unwrap()
+print(use_alternative(False).unwrap()).unwrap()
 "#,
         "-1\n3\n3\n1\n",
     );
@@ -317,17 +329,17 @@ def either(flag: bool) -> Result[range[i64], Generator[i64]]:
     if flag:
         return Ok(range(4))
     Err(values())
-def consume(flag: bool) -> i64:
+def consume(flag: bool) -> Result[i64, OverflowError[i64]]:
     match either(flag):
         case Ok(r):
-            return len(r)
+            return Ok(len(r))
         case Err(g):
             mut total = 0
             for n in g:
                 total = total + n
-            return total
-print(consume(True)).unwrap()
-print(consume(False)).unwrap()
+            return Ok(total)
+print(consume(True).unwrap()).unwrap()
+print(consume(False).unwrap()).unwrap()
 drop(either(False))
 "#,
         "4\n3\n",
@@ -366,7 +378,10 @@ fn generator_construction_snapshots_moves_before_later_arguments_mutate_locals()
         r#"
 def values(start: i64) -> Generator[i64]:
     yield start
-    yield start + 1
+    # Starts 1, 10 and 20 bound the second value by 21.
+    value = checked:
+        start + 1
+    yield value.unwrap()
 def advance(source: &mut Generator[i64]) -> i64:
     next(source).unwrap()
 def choose(a: Generator[i64], b: Generator[i64], n: i64) -> Generator[i64]:
