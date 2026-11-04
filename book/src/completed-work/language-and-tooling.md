@@ -530,3 +530,12 @@ sources. Set observations, algebra, and filter mutations accept dictionary
 key views. Views keep their dictionary borrowed and remain local-only; mutable
 value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
 and the [remaining B91 scope](../backlog.md).
+
+## Structural key diagnostics
+
+Rejected dictionary keys, set members, key views and `KeyType` arguments now
+identify the first unsupported nested component in declaration order. Paths
+name class fields, enum variants and one-based payload/tuple positions; custom
+cleanup and anonymous sums have specific explanations. Key admission remains
+unchanged. See [the generic constraint reference](../design/language/07-generics/index.md#finding-an-unsupported-key-field)
+and [B74](../backlog.md#stdlib-driven-language-ergonomics) for remaining key design decisions.

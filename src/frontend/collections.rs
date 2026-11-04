@@ -1463,14 +1463,14 @@ impl Lower<'_> {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup"));
+                    .error(k.key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup")));
             }
             Ty::Dict(Arc::new(k), Arc::new(v))
         } else if kind == "set" {
             if !k.hashable() {
                 return Err(key
                     .at
-                    .error("set elements must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup"));
+                    .error(k.key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums containing only these key types and no custom cleanup")));
             }
             Ty::Set(Arc::new(k))
         } else {
@@ -4838,7 +4838,7 @@ impl Lower<'_> {
                 return Ok(Ty::Enum(result));
             }
             "dict" => return Err(at.error("dict conversion requires a dictionary")),
-            _ => return Err(at.error("set elements must be hashable")),
+            _ => return Err(at.error(element.key_type_error("set elements must be hashable"))),
         };
         self.try_collect_on_stack(ty, out, at, ops)
     }

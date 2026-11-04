@@ -264,8 +264,10 @@ reports `TYPE does not satisfy KeyType`, even if the generic body does not use
 hashing. Unconstrained generic bodies remain checked per concrete instance;
 `dict[K, V]` and `set[K]` do not independently require an explicit bound.
 
-Diagnostics could also name an offending field path, such as `Sample.ratio`
-containing `f64`. They do not yet include this detail.
+Diagnostics now name the first unsupported component in declaration order,
+including class field names, enum variants and payload positions, and tuple
+element positions. The path ends with the rejected type or a specific reason
+such as custom cleanup or an anonymous sum; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 
