@@ -72,6 +72,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `book/src/tutorial/` | Learn Plenty: runnable lessons, checked by tests |
 | `book/src/design/examples/cheatsheet.md` | Syntax cheat sheet: read before writing Plenty |
 | `book/src/backlog.md` | The only list of future work and priorities |
+| `book/src/development/emitted-code.md` | Procedure for speeding up generated code: compare small kernels with C and attribute every extra instruction; use the [emitted-code skill](.agents/skills/emitted-code/SKILL.md) |
 | `book/src/proposals/` | Design rationale and alternatives (may contain old syntax) |
 | `src/` | Compiler: frontend (parse, check) and Cranelift codegen |
 | `plenty-runtime/` | Rust runtime crate, embedded in the compiler and linked into programs |

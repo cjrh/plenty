@@ -741,6 +741,7 @@
     - [Documentation versions](development/documentation-versions.md)
     - [Local semantic search trial](development/semantic-search.md)
     - [Search the repository](development/semantic-search-corpus.md)
+- [Analyzing emitted code](development/emitted-code.md)
 - [Profiling the compiler](development/profiling.md)
   - [Function storage and list-row measurements](development/profiling-allocation-results.md)
   - [Match dispatch measurements](development/profiling-match-results.md)
