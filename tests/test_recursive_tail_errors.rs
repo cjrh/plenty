@@ -10,11 +10,11 @@ fn rejects(source: &str, expected: &[&str]) {
 #[test]
 fn local_reference_recursion_reports_call_and_binding() {
     rejects(
-        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return walk(child, n - 1)\n",
+        "def walk(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(*value)\n    child = n - 1\n    return walk(child, n - 1)\n",
         &["5:12:", "recursive call to `walk`", "local `child`"],
     );
     rejects(
-        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    walk(n - 1, n - 1)\n",
+        "def walk(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(*value)\n    walk(n - 1, n - 1)\n",
         &["recursive call to `walk`", "temporary"],
     );
 }
@@ -22,7 +22,7 @@ fn local_reference_recursion_reports_call_and_binding() {
 #[test]
 fn mutual_cycles_include_non_tail_back_edges() {
     rejects(
-        "def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n",
+        "def first(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(*value)\n    Ok(1 + first(value, n - 1)?)\n",
         &[
             "recursive call to `second`",
             "cycle as `first`",
@@ -41,12 +41,12 @@ fn candidates_are_validated_among_functions_without_any() {
     // (issue #57). The first offender in source order is still the one reported.
     let walk = |name: &str| {
         format!(
-            "def {name}(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    child = n - 1\n    return {name}(child, n - 1)\n"
+            "def {name}(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(*value)\n    child = n - 1\n    return {name}(child, n - 1)\n"
         )
     };
-    let quiet = "def quiet(n: i64) -> i64:\n    n + 1\n";
+    let quiet = "def quiet(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n + 1)\n";
     let source = format!(
-        "{quiet}{}def other(n: i64) -> i64:\n    1 + quiet(n)\n{}",
+        "{quiet}{}def other(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(1 + quiet(n)?)\n{}",
         walk("early"),
         walk("late")
     );
@@ -57,7 +57,7 @@ fn candidates_are_validated_among_functions_without_any() {
     // A cycle closed only through a call outside tail position still counts.
     rejects(
         &format!(
-            "{quiet}def first(value: &i64, n: i64) -> i64:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return *value\n    1 + first(value, n - 1)\n"
+            "{quiet}def first(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    child = n\n    second(child, n)\ndef second(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(*value)\n    Ok(1 + first(value, n - 1)?)\n"
         ),
         &[
             "recursive call to `second`",
@@ -66,7 +66,7 @@ fn candidates_are_validated_among_functions_without_any() {
         ],
     );
     support::check_source(&format!(
-        "{quiet}def other(n: i64) -> i64:\n    1 + quiet(n)\n"
+        "{quiet}def other(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(1 + quiet(n)?)\n"
     ))
     .unwrap();
 }
@@ -74,12 +74,14 @@ fn candidates_are_validated_among_functions_without_any() {
 #[test]
 fn nested_branches_and_conditional_expressions_retain_candidates() {
     for tail in [
-        "if n > 1:\n        if n > 2:\n            return walk(child, n - 1)\n        return 0\n    return 0",
-        "match Some(n):\n        case Some(_):\n            walk(child, n - 1)\n        case Nothing:\n            0",
-        "walk(child, n - 1) if n > 0 else 0",
+        "if n > 1:\n        if n > 2:\n            return walk(child, n - 1)\n        return Ok(0)\n    return Ok(0)",
+        "match Some(n):\n        case Some(_):\n            walk(child, n - 1)\n        case Nothing:\n            Ok(0)",
+        "walk(child, n - 1) if n > 0 else Ok(0)",
     ] {
         rejects(
-            &format!("def walk(value: &i64, n: i64) -> i64:\n    child = n\n    {tail}\n"),
+            &format!(
+                "def walk(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    child = n\n    {tail}\n"
+            ),
             &["recursive call to `walk`", "local `child`"],
         );
     }
@@ -94,9 +96,9 @@ class Manager:
         pass
     def __exit__(self: &mut Manager) -> ():
         pass
-def walk(n: i64) -> i64:
+def walk(n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return 0
+        return Ok(0)
     with Manager():
         return walk(n - 1)
 "#,
@@ -111,7 +113,7 @@ def walk(n: i64) -> i64:
 #[test]
 fn owned_inline_argument_has_an_abi_reason() {
     rejects(
-        "def walk(values: range, n: i64) -> i64:\n    if n == 0:\n        return 0\n    walk(values, n - 1)\n",
+        "def walk(values: range, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    walk(values, n - 1)\n",
         &["recursive call to `walk`", "inline"],
     );
 }
@@ -120,9 +122,9 @@ fn owned_inline_argument_has_an_abi_reason() {
 fn ordinary_nonrecursive_and_non_tail_calls_remain_legal() {
     for source in [
         "def done(value: &i64) -> i64:\n    *value\ndef start() -> i64:\n    child = 3\n    done(child)\n",
-        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return 0\n    child = n\n    1 + walk(child, n - 1)\n",
-        "def walk(n: i64) -> Option[i64]:\n    if n == 0:\n        return Nothing\n    Some(walk(n - 1)?)\n",
-        "def walk(value: &i64, n: i64) -> i64:\n    if n == 0:\n        return 0\n    child = n\n    callback = walk\n    callback(child, n - 1)\n",
+        "def walk(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    child = n\n    Ok(1 + walk(child, n - 1)?)\n",
+        "def walk(n: i64) -> Option[i64]:\n    if n == 0:\n        return Nothing\n    # Keep Option propagation as the non-tail ABI subject; only the primitive decrement traps.\n    remaining = unchecked:\n        n - 1\n    Some(walk(remaining)?)\n",
+        "def walk(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    child = n\n    callback = walk\n    callback(child, n - 1)\n",
     ] {
         support::check_source(source).unwrap_or_else(|error| panic!("{source}\n{error}"));
     }
@@ -132,7 +134,7 @@ fn ordinary_nonrecursive_and_non_tail_calls_remain_legal() {
 fn distinct_generic_instances_are_not_a_recursion_cycle() {
     support::check_source("def choose[T](value: T) -> i64:\n    child = 1\n    choose_ref[i64](child)\ndef choose_ref[T](value: &T) -> i64:\n    0\nchoose[bool](True)\nchoose[i64](1)\n").unwrap();
     rejects(
-        "def walk[T](value: &T, n: i64) -> i64:\n    if n == 0:\n        return 0\n    child = n\n    walk[i64](child, n - 1)\nwalk[bool](True, 2)\n",
+        "def walk[T](value: &T, n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    child = n\n    walk[i64](child, n - 1)\ndrop(walk[bool](True, 2))\n",
         &["recursive call to", "local `child`"],
     );
     support::check_source(
@@ -156,9 +158,9 @@ fn concrete_method_recursion_preserves_the_receiver_name() {
     rejects(
         r#"
 class Walker:
-    def walk(self, n: i64) -> i64:
+    def walk(self, n: i64) -> Result[i64, OverflowError[i64]]:
         if n == 0:
-            return 0
+            return Ok(0)
         child = Walker()
         child.walk(n - 1)
 "#,
@@ -169,7 +171,7 @@ class Walker:
 #[test]
 fn generator_construction_is_outside_the_synchronous_tail_guarantee() {
     support::check_source(
-        "def values(n: i64) -> Generator[i64]:\n    yield n\n    values(n - 1)\n",
+        "def values(n: i64) -> Generator[Result[i64, OverflowError[i64]]]:\n    yield Ok(n)\n    remaining = checked:\n        n - 1\n    match remaining:\n        case Ok(value):\n            values(value)\n        case Err(error):\n            yield Err(error)\n",
     )
     .unwrap();
 }
@@ -177,31 +179,34 @@ fn generator_construction_is_outside_the_synchronous_tail_guarantee() {
 #[test]
 fn short_circuit_result_branches_are_tail_positions() {
     for expression in [
-        "n == 0 or walk(child, n - 1)",
-        "n > 0 and walk(child, n - 1)",
-        "n > 0 and (n == 1 or walk(child, n - 1))",
+        "n == 0 or walk(child, previous(n))",
+        "n > 0 and walk(child, previous(n))",
+        "n > 0 and (n == 1 or walk(child, previous(n)))",
     ] {
         rejects(
-            &format!("def walk(value: &i64, n: i64) -> bool:\n    child = n\n    {expression}\n"),
+            &format!(
+                "def previous(n: i64) -> i64:\n    # Keep boolean short-circuit tail/non-tail ABI oracles; only the primitive decrement traps.\n    unchecked:\n        n - 1\ndef walk(value: &i64, n: i64) -> bool:\n    child = n\n    {expression}\n"
+            ),
             &["recursive call to `walk`", "local `child`"],
         );
     }
-    support::check_source("def walk(value: &i64, n: i64) -> bool:\n    if n == 0:\n        return True\n    child = n\n    walk(child, n - 1) and n > 0\n").unwrap();
-    support::check_source("def walk(n: i64) -> bool:\n    n == 0 or walk(n - 1)\n").unwrap();
+    support::check_source("def previous(n: i64) -> i64:\n    # Keep boolean short-circuit tail/non-tail ABI oracles; only the primitive decrement traps.\n    unchecked:\n        n - 1\ndef walk(value: &i64, n: i64) -> bool:\n    if n == 0:\n        return True\n    child = n\n    walk(child, previous(n)) and n > 0\n").unwrap();
+    support::check_source("def previous(n: i64) -> i64:\n    # Keep boolean short-circuit tail/non-tail ABI oracles; only the primitive decrement traps.\n    unchecked:\n        n - 1\ndef walk(n: i64) -> bool:\n    n == 0 or walk(previous(n))\n").unwrap();
 }
 
 #[test]
 fn deep_scalar_and_external_reference_cycles_run_on_a_bounded_stack() {
     let source = r#"
-def first(value: &i64, n: i64) -> i64:
+def first(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return *value
+        return Ok(*value)
     second(value, n - 1)
-def second(value: &i64, n: i64) -> i64:
+def second(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:
     first(value, n)
-def main() -> ():
+def main() -> Result[(), IoError | OverflowError[i64]]:
     value = 7
-    print(first(value, 300000)).unwrap()
+    print(first(value, 300000)?)?
+    Ok(())
 "#;
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("program");

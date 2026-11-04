@@ -1,7 +1,20 @@
 //! `@newtype` classes forward their field's operators (issue #555). Typing
 //! stays nominal, explicit hooks win, and `@newtype` is independent of `@copy`.
 mod support;
-use support::assert_stdout as expect;
+fn program(source: &str) -> String {
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    format!("{}    Ok(())\n", &source[..end])
+}
+
+fn expect(source: &str, expected: &str) {
+    support::assert_stdout(&program(source), expected);
+}
 
 const WRAPPERS: &str = r#"
 @newtype
@@ -104,17 +117,19 @@ fn explicit_hooks_override_forwarding_per_operator() {
 @newtype
 class Price:
     cents: i64
-    def __add__(self, other: &Price) -> Price:
-        Price(self.cents + other.cents + 1000)
-    def __sub__(self, other: &Price) -> i64:
-        self.cents - other.cents
-    def __mul__(self, scale: i64) -> Price:
-        Price(self.cents * scale)
+    def __add__(self, other: &Price) -> Result[Price, OverflowError[i64]]:
+        Ok(Price(self.cents + other.cents + 1000))
+    def __sub__(self, other: &Price) -> Result[i64, OverflowError[i64]]:
+        Ok(self.cents - other.cents)
+    def __mul__(self, scale: i64) -> Result[Price, OverflowError[i64]]:
+        Ok(Price(self.cents * scale))
     def __iadd__(self: &mut Price, other: i64) -> ():
-        self.cents += other
-mut p = Price(1) + Price(2)
+        # The sole in-place-hook call adds 5 to 1003; keep its required unit ABI.
+        unchecked:
+            self.cents += other
+mut p = (Price(1) + Price(2))?
 p += 5
-print(p, Price(5) - Price(2), Price(3) * 4, Price(9) // Price(2)).unwrap()
+print(p, (Price(5) - Price(2))?, (Price(3) * 4)?, Price(9) // Price(2)).unwrap()
 "#,
         "Price(cents=1008) 3 Price(cents=12) Price(cents=4)\n",
     );
@@ -126,7 +141,9 @@ fn overflow_and_division_traps_come_from_the_wrapped_operation() {
         ("print(B(i64.MAX) + B(1)).unwrap()", "overflow"),
         ("print(B(1) // B(0)).unwrap()", "division by zero"),
     ] {
-        let output = support::run(&format!("{WRAPPERS}{body}"));
+        // These two fixtures intentionally test primitive forwarded trap diagnostics.
+        let source = format!("{WRAPPERS}def main() -> ():\n    unchecked:\n        {body}\n");
+        let output = support::run(&source);
         assert!(!output.status.success(), "{body}");
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(error.contains(message), "{body}\n{error}");
@@ -156,7 +173,7 @@ fn typing_stays_nominal() {
         ("mut x = B(1)\nx -= C(1)", "declare `__isub__`"),
         ("x: i64 = B(1) + B(2)", "expected i64"),
     ] {
-        let error = support::check_source(&format!("{WRAPPERS}{body}"))
+        let error = support::check_source(&program(&format!("{WRAPPERS}{body}")))
             .unwrap_err()
             .to_string();
         assert!(error.contains(message), "{body}\n{error}");
@@ -202,10 +219,11 @@ print(a, b, -a).unwrap()
 "#,
         "B(value=6) B(value=7) True\nB(value=3) B(value=4) B(value=-3)\n",
     );
-    let error =
-        support::check_source("@newtype\nclass B:\n    value: i64\na = B(1)\nb = a\nc = a + B(1)")
-            .unwrap_err()
-            .to_string();
+    let error = support::check_source(&program(
+        "@newtype\nclass B:\n    value: i64\na = B(1)\nb = a\nc = a + B(1)",
+    ))
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("moved"), "{error}");
 }
 
@@ -237,7 +255,7 @@ fn private_fields_forward_across_modules() {
     .unwrap();
     std::fs::write(
         dir.path().join("main.plenty"),
-        "from units import Secret, secret, reveal\n\ndef main() -> Result[(), IoError]:\n    total = secret(4) + secret(5)\n    print(reveal(&total), secret(1) < secret(2))?\n    Ok(())\n",
+        "from units import Secret, secret, reveal\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    total = secret(4) + secret(5)\n    print(reveal(&total), secret(1) < secret(2))?\n    Ok(())\n",
     )
     .unwrap();
     let output = std::process::Command::new(support::plenty_bin())

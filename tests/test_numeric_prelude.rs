@@ -3,6 +3,13 @@ mod support;
 use rstest::rstest;
 use std::process::Command;
 
+fn program(source: &str) -> String {
+    let source = support::program(source);
+    let source = source.replacen("def main() -> ():", "def main() -> Result[(), OverflowError[i64] | OverflowError[i32] | OverflowError[i16] | OverflowError[i8]]:", 1);
+    let end = source.rfind("    pass\n").unwrap();
+    format!("{}    Ok(())\n", &source[..end])
+}
+
 #[test]
 fn decimal_forms_unit_payloads_and_prelude_shadowing() {
     native(
@@ -29,7 +36,7 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
     "3.0\n1.5\n"
 )]
 #[case(
-    "def count(n: i64, x: f64) -> f64:\n    if n == 0:\n        x\n    else:\n        count(n - 1, x + 0.5)\nprint(count(10000, 0.0)).unwrap()",
+    "def count(n: i64, x: f64) -> Result[f64, OverflowError[i64]]:\n    if n == 0:\n        Ok(x)\n    else:\n        count(n - 1, x + 0.5)\nprint(count(10000, 0.0)?).unwrap()",
     "5000.0\n"
 )]
 #[case(
@@ -67,7 +74,7 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
 fn native(#[case] source: &str, #[case] expected: &str) {
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
-    support::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(&program(source), &executable)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -225,8 +232,8 @@ fn checked_conversions_cover_every_width_and_signedness() {
     "True\nResult[u8, RangeError].Ok(1)\nResult[u8, RangeError].Err(RangeError.OutOfRange)\nResult[u8, RangeError].Err(RangeError.OutOfRange)\n"
 )]
 #[case(
-    "def negate(value: u64) -> Result[i64, RangeError]:\n    Ok(-i64.try_from(value)?)\nprint(str.repr(negate(5u64)).unwrap()).unwrap()\nprint(str.repr(negate(18446744073709551615u64)).unwrap()).unwrap()\na = 3u8\nb = 3u16\nc = 3u32\nprint(-i16(a)).unwrap()\nprint(-i32(b)).unwrap()\nprint(-i64(c)).unwrap()",
-    "Result[i64, RangeError].Ok(-5)\nResult[i64, RangeError].Err(RangeError.OutOfRange)\n-3\n-3\n-3\n"
+    "def negate(value: u64) -> Result[i64, RangeError | OverflowError[i64]]:\n    Ok(-i64.try_from(value)?)\nprint(str.repr(negate(5u64)).unwrap()).unwrap()\nprint(str.repr(negate(18446744073709551615u64)).unwrap()).unwrap()\na = 3u8\nb = 3u16\nc = 3u32\nprint(-i16(a)).unwrap()\nprint(-i32(b)).unwrap()\nprint(-i64(c)).unwrap()",
+    "Result[i64, OverflowError[i64] | RangeError].Ok(-5)\nResult[i64, OverflowError[i64] | RangeError].Err(RangeError.OutOfRange)\n-3\n-3\n-3\n"
 )]
 #[case(
     "a = -128i8\nb = 5i64\nc = 1.5\nprint(-(a + 1i8)).unwrap()\nprint(-b).unwrap()\nprint(-c).unwrap()\nzero: u8 = 0\nprint(zero).unwrap()\nprint(0u8).unwrap()",

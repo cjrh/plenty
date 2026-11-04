@@ -13,7 +13,9 @@ fn assert_result(source: &str, expression: &str, printed: &str) {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    let source = format!("{source}\nprint({expression}).unwrap()\n");
+    let source = format!(
+        "{source}\ndef main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:\n    print({expression})?\n    Ok(())\n"
+    );
     compile_source_to_executable(&source, &path).unwrap_or_else(|e| panic!("{source}\n{e}"));
     let result = Command::new(&path).output();
     let _ = std::fs::remove_file(&path);
@@ -27,12 +29,12 @@ fn assert_result(source: &str, expression: &str, printed: &str) {
 }
 
 #[rstest]
-#[case("f(0)", "42\n")]
-#[case("f(2)", "12\n")]
-#[case("f(-2)", "8\n")]
+#[case("f(0)?", "42\n")]
+#[case("f(2)?", "12\n")]
+#[case("f(-2)?", "8\n")]
 fn guard_return_and_implicit_tail(#[case] expression: &str, #[case] printed: &str) {
     assert_result(
-        "def f(n: i64) -> i64:\n    if n == 0:\n        return 42\n    n + 10",
+        "def f(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(42)\n    Ok(n + 10)",
         expression,
         printed,
     );
@@ -52,11 +54,11 @@ fn nested_and_sibling_return_branches(#[case] expression: &str, #[case] printed:
 }
 
 #[rstest]
-#[case("f(True)", "42\n")]
-#[case("f(False)", "10\n")]
+#[case("f(True)?", "42\n")]
+#[case("f(False)?", "10\n")]
 fn mutation_survives_only_on_continuing_path(#[case] expression: &str, #[case] printed: &str) {
     assert_result(
-        "def f(flag: bool) -> i64:\n    mut x = 1\n    if flag:\n        x = 40\n    else:\n        return x + 9\n    return x + 2",
+        "def f(flag: bool) -> Result[i64, OverflowError[i64]]:\n    mut x = 1\n    if flag:\n        x = 40\n    else:\n        return Ok(x + 9)\n    return Ok(x + 2)",
         expression,
         printed,
     );
@@ -90,8 +92,8 @@ fn discarded_branch_value_does_not_join_with_a_return(
 #[test]
 fn nested_calls_preserve_caller_operands_and_locals() {
     assert_result(
-        "def early(n: i64) -> i64:\n    if n > 0:\n        return n + 1\n    0\ndef caller(n: i64) -> i64:\n    local = 100\n    n + early(1) * early(2) + local",
-        "caller(7)",
+        "def early(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n > 0:\n        return Ok(n + 1)\n    Ok(0)\ndef caller(n: i64) -> Result[i64, OverflowError[i64]]:\n    local = 100\n    Ok(n + early(1)? * early(2)? + local)",
+        "caller(7)?",
         "113\n",
     );
 }
@@ -99,8 +101,8 @@ fn nested_calls_preserve_caller_operands_and_locals() {
 #[test]
 fn explicit_return_operands_evaluate_once_in_order() {
     assert_result(
-        "def value(n: i64) -> i64:\n    print(n).unwrap()\n    return n\ndef caller(flag: bool) -> i64:\n    if flag:\n        return value(1) + value(2)\n    return 0",
-        "caller(True)",
+        "def value(n: i64) -> i64:\n    print(n).unwrap()\n    return n\ndef caller(flag: bool) -> Result[i64, OverflowError[i64]]:\n    if flag:\n        return Ok(value(1) + value(2))\n    return Ok(0)",
+        "caller(True)?",
         "1\n2\n3\n",
     );
 }
@@ -117,8 +119,8 @@ fn returned_strings_survive_frame_cleanup() {
 #[test]
 fn return_skips_runtime_errors_on_later_paths() {
     assert_result(
-        "def safe(flag: bool) -> i64:\n    if flag:\n        return 42\n    return 1 // 0",
-        "safe(True)",
+        "def safe(flag: bool) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:\n    if flag:\n        return Ok(42)\n    return Ok(1 // 0)",
+        "safe(True)?",
         "42\n",
     );
 }
@@ -126,7 +128,7 @@ fn return_skips_runtime_errors_on_later_paths() {
 #[test]
 fn unit_guard_returns_to_the_caller() {
     assert_result(
-        "def stop(flag: bool) -> ():\n    if flag:\n        return\n    1 // 0\n    ()\ndef caller() -> i64:\n    stop(True)\n    42",
+        "def stop(flag: bool) -> ():\n    if flag:\n        return\n    # The unreachable arithmetic deliberately traps; retain the unit-return ABI.\n    unchecked:\n        1 // 0\n    ()\ndef caller() -> i64:\n    stop(True)\n    42",
         "caller()",
         "42\n",
     );
@@ -135,8 +137,8 @@ fn unit_guard_returns_to_the_caller() {
 #[test]
 fn explicit_early_tail_calls_use_bounded_stack_space() {
     assert_result(
-        "def count(n: i64, total: i64) -> i64:\n    if n > 0:\n        return count(n - 1, total + 1)\n    return total",
-        "count(100_000, 0)",
+        "def count(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:\n    if n > 0:\n        return count(n - 1, total + 1)\n    return Ok(total)",
+        "count(100_000, 0)?",
         "100000\n",
     );
 }
@@ -144,8 +146,8 @@ fn explicit_early_tail_calls_use_bounded_stack_space() {
 #[test]
 fn returned_conditional_preserves_mutual_tail_calls() {
     assert_result(
-        "def even(n: i64) -> bool:\n    return True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    return False if n == 0 else even(n - 1)",
-        "even(100_000)",
+        "def even(n: i64) -> Result[bool, OverflowError[i64]]:\n    return Ok(True) if n == 0 else odd(n - 1)\ndef odd(n: i64) -> Result[bool, OverflowError[i64]]:\n    return Ok(False) if n == 0 else even(n - 1)",
+        "even(100_000)?",
         "True\n",
     );
 }
@@ -153,7 +155,7 @@ fn returned_conditional_preserves_mutual_tail_calls() {
 #[test]
 fn unit_early_tail_calls_use_bounded_stack_space() {
     assert_result(
-        "def stop(n: i64) -> ():\n    if n > 0:\n        return stop(n - 1)\n    return\ndef caller() -> i64:\n    stop(100_000)\n    42",
+        "def stop(n: i64) -> ():\n    if n > 0:\n        # n > 0 proves decrement fits; retain the unit tail-call ABI.\n        remaining = unchecked:\n            n - 1\n        return stop(remaining)\n    return\ndef caller() -> i64:\n    stop(100_000)\n    42",
         "caller()",
         "42\n",
     );

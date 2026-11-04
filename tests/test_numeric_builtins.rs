@@ -16,8 +16,18 @@ const INTEGERS: [(&str, i128, i128); 8] = [
 
 /// Print each expression on its own line and compare the lines.
 fn assert_lines(declarations: &str, setup: &str, cases: &[(&str, &str)]) {
-    let mut source =
-        format!("{declarations}def main() -> Result[(), AllocError | IoError]:\n{setup}");
+    assert_arithmetic_lines(declarations, setup, cases, "");
+}
+
+fn assert_arithmetic_lines(declarations: &str, setup: &str, cases: &[(&str, &str)], errors: &str) {
+    let mut source = format!(
+        "{declarations}def main() -> Result[(), AllocError | IoError{}]:\n{setup}",
+        if errors.is_empty() {
+            String::new()
+        } else {
+            format!(" | {errors}")
+        }
+    );
     let mut expected = String::new();
     for (expression, value) in cases {
         source.push_str(&format!("    print({expression})?\n"));
@@ -45,8 +55,9 @@ fn rejection(body: &str) -> String {
 
 /// What a program that must trap writes to standard error.
 fn trap(body: &str) -> String {
+    let (setup, expression) = body.trim_end().rsplit_once('\n').unwrap();
     let output = support::run(&format!(
-        "def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
+        "def main() -> Result[(), AllocError | IoError]:\n{setup}\n    # This fixture deliberately checks primitive arithmetic trap diagnostics.\n    unchecked:\n    {expression}\n    Ok(())\n"
     ));
     assert_eq!(output.status.code(), Some(1), "{body}");
     assert!(output.stdout.is_empty(), "{body}");
@@ -78,15 +89,15 @@ fn every_integer_type_names_its_limits() {
 
 #[test]
 fn constants_are_values_of_their_type() {
-    assert_lines(
-        "type Byte = u8\ndef headroom[T: IntType](x: T) -> T:\n    T.MAX - x\n",
+    assert_arithmetic_lines(
+        "type Byte = u8\ndef headroom[T: IntType](x: T) -> Result[T, OverflowError[T]]:\n    Ok(T.MAX - x)\n",
         "    small: u8 = 7\n",
         &[
             ("u8.MAX - small", "248"),
             ("i8.MAX + 0", "127"),
             ("Byte.MAX", "255"),
-            ("headroom(100i8)", "27"),
-            ("headroom(1u16)", "65534"),
+            ("headroom(100i8)?", "27"),
+            ("headroom(1u16)?", "65534"),
             ("f64.PI", "3.141592653589793"),
             ("f64.E", "2.718281828459045"),
             ("f32.PI", "3.1415927"),
@@ -94,6 +105,7 @@ fn constants_are_values_of_their_type() {
             ("2.0 * f64.PI", "6.283185307179586"),
             ("2.0f32 * f32.PI", "6.2831855"),
         ],
+        "OverflowError[u8] | OverflowError[i8] | OverflowError[u16]",
     );
 }
 
@@ -117,10 +129,11 @@ fn unknown_constants_are_rejected(#[case] body: &str, #[case] expected: &str) {
 
 #[test]
 fn a_literal_exponent_takes_the_receiver_type() {
-    assert_lines(
+    assert_arithmetic_lines(
         "",
         "    n = 3u8\n    square: u8 = n.pow(2)\n    below = u8.MAX - 5\n",
         &[("square", "9"), ("below", "250"), ("1u8 + n.pow(2)", "10")],
+        "OverflowError[u8]",
     );
 }
 
@@ -206,8 +219,8 @@ fn extended_float_primitives_preserve_f32_and_generic_types() {
 
 #[test]
 fn integer_pow_is_exact_within_the_type() {
-    assert_lines(
-        "def cube[T: IntType](x: T) -> T:\n    x.pow(3)\n",
+    assert_arithmetic_lines(
+        "def cube[T: IntType](x: T) -> Result[T, OverflowError[T]]:\n    Ok(x.pow(3))\n",
         "    n = 3\n    two = 2u8\n",
         &[
             ("n.pow(4)", "81"),
@@ -225,9 +238,10 @@ fn integer_pow_is_exact_within_the_type() {
             ("two.pow(two)", "4"),
             ("2u8.pow(7)", "128"),
             ("1 + n.pow(2) * 2", "19"),
-            ("cube(4u8)", "64"),
-            ("cube(-4)", "-64"),
+            ("cube(4u8)?", "64"),
+            ("cube(-4)?", "-64"),
         ],
+        "OverflowError[i64] | OverflowError[u64] | OverflowError[i8] | OverflowError[u8] | OverflowError[u16]",
     );
 }
 
@@ -272,12 +286,12 @@ fn numeric_methods_reject_other_operands(#[case] body: &str, #[case] expected: &
 }
 
 #[rstest]
-#[case::pow("    n = 2\n    print(1 + n.pow(63))?\n", "3:15: integer overflow")]
-#[case::unsigned_pow("    n = 16u8\n    print(n.pow(2))?\n", "3:11: integer overflow")]
-#[case::pow_below_the_minimum("    n = -2i8\n    print(n.pow(8))?\n", "3:11: integer overflow")]
+#[case::pow("    n = 2\n    print(1 + n.pow(63))?\n", "5:19: integer overflow")]
+#[case::unsigned_pow("    n = 16u8\n    print(n.pow(2))?\n", "5:15: integer overflow")]
+#[case::pow_below_the_minimum("    n = -2i8\n    print(n.pow(8))?\n", "5:15: integer overflow")]
 #[case::negative_exponent(
     "    n = 2\n    print(n.pow(0 - 1))?\n",
-    "3:11: negative integer exponent"
+    "5:15: negative integer exponent"
 )]
 fn integer_results_outside_the_type_trap(#[case] body: &str, #[case] expected: &str) {
     assert_eq!(trap(body), expected);
@@ -285,10 +299,11 @@ fn integer_results_outside_the_type_trap(#[case] body: &str, #[case] expected: &
 
 #[test]
 fn class_methods_may_reuse_the_method_names() {
-    assert_lines(
-        "class Account:\n    total: i64\n    def pow(self, n: i64) -> i64:\n        self.total * n\n    def sqrt(self) -> i64:\n        0\n",
+    assert_arithmetic_lines(
+        "class Account:\n    total: i64\n    def pow(self, n: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(self.total * n)\n    def sqrt(self) -> i64:\n        0\n",
         "    account = Account(4)\n",
-        &[("account.pow(3)", "12"), ("account.sqrt()", "0")],
+        &[("account.pow(3)?", "12"), ("account.sqrt()", "0")],
+        "OverflowError[i64]",
     );
 }
 
@@ -296,16 +311,17 @@ fn class_methods_may_reuse_the_method_names() {
 /// them.
 #[test]
 fn programs_may_define_abs_min_max_and_sum() {
-    assert_lines(
-        "def abs(x: i64) -> i64:\n    if x < 0:\n        return 0 - x\n    x\ndef min(a: i64, b: i64) -> i64:\n    if a < b:\n        return a\n    b\ndef max(a: i64, b: i64) -> i64:\n    if a > b:\n        return a\n    b\ndef sum(xs: &list[i64]) -> i64:\n    mut total = 0\n    for x in xs:\n        total = total + *x\n    total\n",
+    assert_arithmetic_lines(
+        "def abs(x: i64) -> Result[i64, OverflowError[i64]]:\n    if x < 0:\n        return Ok(0 - x)\n    Ok(x)\ndef min(a: i64, b: i64) -> i64:\n    if a < b:\n        return a\n    b\ndef max(a: i64, b: i64) -> i64:\n    if a > b:\n        return a\n    b\ndef sum(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for x in xs:\n        total = total + *x\n    Ok(total)\n",
         "    xs = [3, -4, 5]?\n",
         &[
-            ("abs(-7)", "7"),
+            ("abs(-7)?", "7"),
             ("min(3, -4)", "-4"),
             ("max(3, -4)", "3"),
-            ("sum(&xs)", "4"),
-            ("max(abs(min(-9, 2)), sum(&xs))", "9"),
+            ("sum(&xs)?", "4"),
+            ("max(abs(min(-9, 2))?, sum(&xs)?)", "9"),
         ],
+        "OverflowError[i64]",
     );
 }
 

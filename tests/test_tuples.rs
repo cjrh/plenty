@@ -1,9 +1,23 @@
 mod support;
 
+/// Only the fixture entrypoint owns fragment arithmetic; declarations retain their own contracts.
+fn program(source: &str) -> String {
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        return source.to_owned();
+    }
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    format!("{}    Ok(())\n", &source[..end])
+}
+
 #[test]
 fn loops_and_comprehensions_unpack_tuples_and_borrow_dictionary_items() {
-    let out = support::run(
-        r#"
+    let out = run(r#"
 class Point:
     x: i64
 mut points = {"a": Point(1), "b": Point(2)}.unwrap()
@@ -22,8 +36,7 @@ print([x + y for x, y in [(1, 2), (3, 4)].unwrap()].unwrap()).unwrap()
 for x, y in [(5, 6)].unwrap():
     print(x + y).unwrap()
 print(x).unwrap()
-"#,
-    );
+"#);
     assert!(
         out.status.success(),
         "{}",
@@ -43,15 +56,14 @@ fn item_loans_reject_invalidation_and_illegal_moves() {
         "mut d = {1: [2].unwrap()}.unwrap()\nfor k, v in (&mut d).items():\n    d.pop(k)\n    print(v).unwrap()",
         "d = {1: 2}.unwrap()\nfor k, v in (&mut d).items():\n    print(v).unwrap()",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn tuples_move_owned_components_without_allocating() {
-    let out = support::run(
-        r#"
+    let out = run(r#"
 class Resource:
     id: i64
     def __del__(self: &mut Resource) -> ():
@@ -64,8 +76,7 @@ result = (a, b)
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(result).unwrap()
-"#,
-    );
+"#);
     assert!(
         out.status.success(),
         "{}",
@@ -81,8 +92,7 @@ print(result).unwrap()
 
 #[test]
 fn tuple_values_support_signatures_indexing_and_comparison() {
-    let out = support::run(
-        r#"
+    let out = run(r#"
 def pair(x: i64) -> (i64, str):
     (x, "answer")
 p: tuple[i64, str] = pair(42)
@@ -93,8 +103,7 @@ print((1,)).unwrap()
 print(p == (42, "answer")).unwrap()
 print((1, "two")).unwrap()
 print([(1, "one"), (2, "two")].unwrap()).unwrap()
-"#,
-    );
+"#);
     assert!(
         out.status.success(),
         "{}",
@@ -116,15 +125,13 @@ fn tuple_shape_and_storage_errors_are_static() {
         "x = 1\ny = (&x, 2)",
         "print(((), 1)[0]).unwrap()",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
 #[test]
 fn unit_tuple_components_remain_unit_expressions() {
-    let out = support::run(
-        "def unit() -> ():\n    ((), 1)[0]\nunit()\n_, n = ((), 3)\nprint(n).unwrap()",
-    );
+    let out = run("def unit() -> ():\n    ((), 1)[0]\nunit()\n_, n = ((), 3)\nprint(n).unwrap()");
     assert!(
         out.status.success(),
         "{}",
@@ -136,7 +143,7 @@ fn unit_tuple_components_remain_unit_expressions() {
 #[test]
 fn annotated_unit_tuple_components_push_one_unit() {
     // Issue #207: an annotated unit field pushed its unit twice.
-    let out = support::run(
+    let out = run(
         "t: tuple[(), i64] = ((), 7)\nprint(t[1]).unwrap()\nu: ((), (), i64) = ((), (), 8)\nprint(u[2]).unwrap()",
     );
     assert!(
@@ -149,8 +156,7 @@ fn annotated_unit_tuple_components_push_one_unit() {
 
 #[test]
 fn unpacking_moves_owned_components_and_cleans_discarded_fields() {
-    let out = support::run(
-        r#"
+    let out = run(r#"
 class Resource:
     id: i64
     def __del__(self: &mut Resource) -> ():
@@ -164,8 +170,7 @@ print((x, y)).unwrap()
 for number, text in [(1, "one"), (2, "two")].unwrap():
     print(number).unwrap()
     print(text).unwrap()
-"#,
-    );
+"#);
     assert!(
         out.status.success(),
         "{}",
@@ -180,7 +185,7 @@ for number, text in [(1, "one"), (2, "two")].unwrap():
         "x, y = (1, 2, 3)",
         "x, x = (1, 2)",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
@@ -188,7 +193,7 @@ for number, text in [(1, "one"), (2, "two")].unwrap():
 fn negative_tuple_indices_count_from_the_end() {
     // Issue #583: `t[-k]` resolves at compile time to `t[len - k]`, and
     // `t[-0]` is `t[0]` as in Python.
-    support::assert_stdout(
+    expect(
         r#"
 t = (1, "two", 3.5)
 print(t[-1], t[-2], t[-3], t[-0], t[(-1)]).unwrap()
@@ -211,13 +216,13 @@ print(m, len(m[-1])).unwrap()
 fn negative_tuple_index_loans_name_the_resolved_component() {
     // `m[-1]` and `m[1]` are the same component of a pair; `m[-1]` and `m[0]`
     // are distinct.
-    support::assert_stdout(
+    expect(
         "mut m = ([1].unwrap(), [2].unwrap())\na = &mut m[-1]\nb = &mut m[0]\na.append(3).unwrap()\nb.append(4).unwrap()\nprint(m).unwrap()",
         "([1, 4], [2, 3])\n",
     );
-    let error = support::check_error(
+    let error = support::check_error(&program(
         "mut m = ([1].unwrap(), [2].unwrap())\na = &mut m[-1]\nb = &mut m[1]\na.append(3).unwrap()\nb.append(4).unwrap()",
-    );
+    ));
     assert!(error.contains("borrow"), "{error}");
 }
 
@@ -249,14 +254,14 @@ fn tuple_index_errors_state_the_length() {
             "tuple index -3 is out of range for a tuple of length 2",
         ),
     ] {
-        let error = support::check_error(source);
+        let error = support::check_error(&program(source));
         assert!(error.contains(expected), "{source}\n{error}");
     }
 }
 
 #[test]
 fn nested_unpacking_binds_assigns_and_iterates_structural_components() {
-    support::assert_stdout(
+    expect(
         r#"
 ((x, y), z) = ((1, 2), 3)
 print(x + y + z).unwrap()
@@ -293,13 +298,13 @@ fn nested_unpacking_rejects_duplicate_names_shapes_and_illegal_reference_rebindi
         "owner = ((1, 2), 3)\na = 1\n((a, b), c) = &owner",
         "for (a, b), a in [((1, 2), 3)].unwrap():\n    pass",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
 #[test]
 fn nested_unpacking_preserves_destination_order_and_owned_cleanup() {
-    support::assert_stdout(
+    expect(
         r#"
 class Resource:
     id: i64
@@ -320,7 +325,7 @@ for (x, y), z in (((1, 2), 3) for _ in range(1)):
 
 #[test]
 fn nested_borrowed_unpacking_keeps_precise_component_loans_and_ends_them_at_last_use() {
-    support::assert_stdout(
+    expect(
         r#"
 mut owner = ((1, 2), 3)
 ((first, second), _) = &mut owner
@@ -336,22 +341,30 @@ print(owner).unwrap()
         "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner[0][0]).unwrap()\n*first += 1\n*second += 1",
         "mut owner = ((1, 2), 3)\n((first, second), _) = &mut owner\nprint(owner).unwrap()\n*first += 1\n*second += 1",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
 #[test]
 fn nested_comprehension_and_generator_targets_bind_before_filters_and_inner_sources() {
-    support::assert_stdout(
+    expect(
         r#"
+def next_value(values: &mut Generator[Result[i64, OverflowError[i64]]]) -> Result[Option[i64], OverflowError[i64]]:
+    match next(values):
+        case Some(value):
+            Ok(Some(value?))
+        case Nothing:
+            Ok(Nothing)
 rows = [((1, 2), 3), ((4, 5), 6)].unwrap()
 print([x + y + z for (x, y), z in &rows if *x > 1].unwrap()).unwrap()
 print([x + y + z + n for (x, y), z in &rows for n in range(*x) if n == 0].unwrap()).unwrap()
 mut owned = [((1, 2), 3)].unwrap()
 print([(*x, *y, *z) for (x, y), z in &mut owned].unwrap()).unwrap()
-mut values = (x + y + z for (x, y), z in rows if x > 1)
-print(next(&mut values)).unwrap()
-print(next(&mut values)).unwrap()
+add = def(x: i64, y: i64, z: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + y + z)
+mut values = (add(x, y, z) for (x, y), z in rows if x > 1)
+print(next_value(&mut values)?).unwrap()
+print(next_value(&mut values)?).unwrap()
 "#,
         "[15]\n[6, 15]\n[(1, 2, 3)]\nOption[i64].Some(15)\nOption[i64].Nothing\n",
     );
@@ -359,17 +372,25 @@ print(next(&mut values)).unwrap()
 
 #[test]
 fn nested_generator_targets_are_lazy_and_generic_comprehensions_move_fields() {
-    support::assert_stdout(
+    expect(
         r#"
+def next_value(values: &mut Generator[Result[i64, OverflowError[i64]]]) -> Result[Option[i64], OverflowError[i64]]:
+    match next(values):
+        case Some(value):
+            Ok(Some(value?))
+        case Nothing:
+            Ok(Nothing)
 def keep(n: i64) -> bool:
     print(n).unwrap()
     n > 1
 def firsts[T](rows: list[((T, T), i64)]) -> Result[list[T], AllocError]:
     [first for (first, _), _ in rows]
-mut pending = (x + y for (x, y), _ in [((1, 2), 0), ((3, 4), 0)].unwrap() if keep(x))
+add = def(x: i64, y: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + y)
+mut pending = (add(x, y) for (x, y), _ in [((1, 2), 0), ((3, 4), 0)].unwrap() if keep(x))
 print("created").unwrap()
-print(next(pending)).unwrap()
-print(next(pending)).unwrap()
+print(next_value(&mut pending)?).unwrap()
+print(next_value(&mut pending)?).unwrap()
 print(firsts([(([1].unwrap(), [2].unwrap()), 0)].unwrap()).unwrap()).unwrap()
 "#,
         "created\n1\n3\nOption[i64].Some(7)\nOption[i64].Nothing\n[[1]]\n",
@@ -378,7 +399,7 @@ print(firsts([(([1].unwrap(), [2].unwrap()), 0)].unwrap()).unwrap()).unwrap()
 
 #[test]
 fn nested_target_grouping_is_distinct_from_singleton_tuple_structure() {
-    support::assert_stdout(
+    expect(
         r#"
 class Resource:
     id: i64
@@ -430,7 +451,7 @@ fn nested_loop_bindings_shadow_outer_names_for_each_source_kind() {
                 "&mut rows",
                 "iter(&mut rows)",
             ] {
-                support::assert_stdout(
+                expect(
                     &format!(
                         r#"
 mut rows = [((1, 2), 3)].unwrap()
@@ -454,7 +475,7 @@ fn flat_pipeline_unpacking_also_creates_fresh_loop_bindings() {
     for declaration in ["a = 99", "mut a = 99"] {
         for target in ["a, b, c", "(a, b, c)"] {
             for source in ["iter([(1, 2, 3)].unwrap())", "iter(&rows)"] {
-                support::assert_stdout(
+                expect(
                     &format!(
                         r#"
 rows = [(1, 2, 3)].unwrap()
@@ -476,14 +497,16 @@ print(a, b, c).unwrap()
 #[test]
 fn nested_comprehensions_and_generators_shadow_after_evaluating_their_sources() {
     for declaration in ["a = 99", "mut a = 99"] {
-        support::assert_stdout(
+        expect(
             &format!(
                 r#"
-def values() -> Generator[i64]:
+def increment(a: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + 1)
+def values() -> Generator[Result[i64, OverflowError[i64]]]:
     mut a = 99
-    for (a, b), c in [((a + 1, 2), 3)].unwrap():
+    for (a, b), c in [((increment(a), 2), 3)].unwrap():
         yield a
-    yield a
+    yield Ok(a)
 {declaration}
 b = 88
 c = 77
@@ -491,15 +514,17 @@ for (a, b), c in [((a + 1, 2), 3)].unwrap():
     print(a, b, c).unwrap()
 print([a + b + c for (a, b), c in [((a + 1, 2), 3)].unwrap() if a > 0].unwrap()).unwrap()
 print([a for a in range(2) for (a, b), c in [((a + 7, 8), 9)].unwrap() for n in range(1)].unwrap()).unwrap()
-print(list(a for a in range(2) for (a, b), c in [((a + 7, 8), 9)].unwrap()).unwrap()).unwrap()
-print(list(values()).unwrap()).unwrap()
+offset = def(a: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + 7)
+print([value? for value in (a for a in range(2) for (a, b), c in [((offset(a), 8), 9)].unwrap())].unwrap()).unwrap()
+print([value? for value in values()].unwrap()).unwrap()
 print(a, b, c).unwrap()
 "#
             ),
             "100 2 3\n[105]\n[7, 8]\n[7, 8]\n[100, 99]\n99 88 77\n",
         );
     }
-    support::assert_stdout(
+    expect(
         r#"
 mut a = 99
 (a, b), c = ((1, 2), 3)
@@ -517,7 +542,7 @@ fn nested_loop_shadowing_preserves_affine_outer_owners() {
             "[((Resource(1), Resource(2)), 3)].unwrap()",
             "iter([((Resource(1), Resource(2)), 3)].unwrap())",
         ] {
-            support::assert_stdout(
+            expect(
                 &format!(
                     r#"
 class Resource:
@@ -533,7 +558,7 @@ print("outer", item.id).unwrap()
                 "drop 2\ninner 1\ndrop 1\nouter 90\ndrop 90\n",
             );
         }
-        support::assert_stdout(
+        expect(
             &format!(
                 r#"
 class Resource:
@@ -560,7 +585,7 @@ print("outer", item.id).unwrap()
 
 #[test]
 fn mutable_nested_declarations_preserve_the_outer_comma_shape() {
-    support::assert_stdout(
+    expect(
         r#"
 mut (a, b), c = ((1, 2), 3)
 a += 10
@@ -585,13 +610,13 @@ print(m, n).unwrap()
         "mut (((a, b), c)), d = ((1, 2, 3), 4)",
         "mut (a, b), a = ((1, 2), 3)",
     ] {
-        assert!(support::check_source(source).is_err(), "{source}");
+        assert!(support::check_source(&program(source)).is_err(), "{source}");
     }
 }
 
 #[test]
 fn parenthesized_pair_targets_bind_borrowed_adapter_components_directly() {
-    support::assert_stdout(
+    expect(
         r#"
 x = 99
 y = 88
@@ -622,16 +647,18 @@ print(x, y, z).unwrap()
 "#,
         "1 2 3\n1 2 3\n[(1, 2, 3)]\n[(1, 2, 3)]\n[(11, 22)] [33]\n1 2 3\n[(1, 2, 3)]\n[(1, 2, 3)]\n{1: (12, 23)}\n99 88 77\n",
     );
-    support::assert_stdout(
+    expect(
         r#"
-def values() -> Generator[i64]:
+def values() -> Generator[Result[i64, OverflowError[i64]]]:
     rows = [(1, 2)].unwrap()
     labels = [3].unwrap()
-    mut total = 0
-    for ((x, y), z) in zip(&rows, &labels):
-        total += *x + *y + *z
+    total = checked:
+        mut sum = 0
+        for ((x, y), z) in zip(&rows, &labels):
+            sum += *x + *y + *z
+        sum
     yield total
-print(list(values()).unwrap()).unwrap()
+print([value? for value in values()].unwrap()).unwrap()
 d = {1: 2}.unwrap()
 for (k, v) in d.items():
     print(*k, *v).unwrap()
@@ -640,9 +667,9 @@ print([(*k, *v) for (k, v) in d.items()].unwrap()).unwrap()
         "[6]\n1 2\n[(1, 2)]\n",
     );
     for target in ["(x, y), z", "((x, y), z)"] {
-        let diagnostic = support::check_diagnostic(&format!(
-            "def values() -> Generator[i64]:\n    rows = [(1, 2)].unwrap()\n    labels = [3].unwrap()\n    for {target} in zip(&rows, &labels):\n        yield *x + *y + *z\nprint(list(values()).unwrap()).unwrap()"
-        ));
+        let diagnostic = support::check_diagnostic(&program(&format!(
+            "def values() -> Generator[Result[i64, OverflowError[i64]]]:\n    rows = [(1, 2)].unwrap()\n    labels = [3].unwrap()\n    for {target} in zip(&rows, &labels):\n        value = checked:\n            *x + *y + *z\n        yield value\nprint([value? for value in values()].unwrap()).unwrap()"
+        )));
         assert!(
             diagnostic.contains("cannot remain live across yield"),
             "{diagnostic}"
@@ -652,7 +679,7 @@ print([(*k, *v) for (k, v) in d.items()].unwrap()).unwrap()
 
 #[test]
 fn nested_comprehension_and_generator_bindings_preserve_affine_outer_owners() {
-    support::assert_stdout(
+    expect(
         r#"
 class Resource:
     id: i64
@@ -668,4 +695,12 @@ print("outer", item.id).unwrap()
 "#,
         "drop 2\ndrop 1\n[1]\nouter 90\ndrop 4\nOption[i64].Some(3)\ndrop 3\nouter 90\ndrop 90\n",
     );
+}
+
+fn run(source: &str) -> std::process::Output {
+    support::run(&program(source))
+}
+
+fn expect(source: &str, expected: &str) {
+    support::assert_stdout(&program(source), expected);
 }

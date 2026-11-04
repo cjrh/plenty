@@ -41,7 +41,7 @@ fn calls(source: &str, function: &str) -> Vec<String> {
 #[test]
 fn counted_loops_call_the_runtime_only_to_report_an_invalid_range() {
     let source = r#"
-def total(n: i64, step: NonZero[i64]) -> i64:
+def total(n: i64, step: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for i in range(n):
         sum += i
@@ -49,9 +49,10 @@ def total(n: i64, step: NonZero[i64]) -> i64:
         sum += i
     for i, j in zip(range(3u8, 9u8), range(n)):
         sum += i64(i) * j
-    sum
-def main() -> ():
-    print(total(10, -2)).unwrap()
+    Ok(sum)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(total(10, -2)?)?
+    Ok(())
 "#;
     let calls = calls(source, "total");
     let runtime: Vec<_> = calls
@@ -67,7 +68,7 @@ def main() -> ():
 fn counted_loops_keep_range_semantics() {
     expect(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut a: list[i64] = []?
     for i in range(5):
         a.append(i)?
@@ -120,7 +121,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn counted_loops_reach_the_ends_of_every_integer_type() {
     expect(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut c: list[i64] = []?
     for v in range(250u8, 255u8):
         c.append(i64(v))?
@@ -158,7 +159,7 @@ fn stored_range_loops_never_call_the_runtime() {
     let source = r#"
 class Span:
     r: range
-def total(r: range, s: range[u8], span: &Span) -> i64:
+def total(r: range, s: range[u8], span: &Span) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for i in r:
         sum += i
@@ -170,9 +171,10 @@ def total(r: range, s: range[u8], span: &Span) -> i64:
         sum += i64(i) * j
     for k, i in enumerate(span.r):
         sum += k * i
-    sum
-def main() -> ():
-    print(total(range(10, 0, -2), range(3u8, 9u8), &Span(range(4)))).unwrap()
+    Ok(sum)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(total(range(10, 0, -2), range(3u8, 9u8), &Span(range(4)))?)?
+    Ok(())
 "#;
     // Copying a range for a loop or a parameter slot also needs no call.
     let calls = calls(source, "_total");
@@ -188,14 +190,20 @@ def main() -> ():
 #[test]
 fn generator_expression_range_sources_are_counted_loops() {
     let source = r#"
-def main() -> Result[(), IoError]:
+def triple(n: i64) -> i64:
+    # Only called for n={10,7,4,1,-2,-5,-8}: products fit in [-24,30].
+    # Retain the generator-expression resume's exact no-runtime-call oracle.
+    unchecked:
+        n * 3
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut total: i64 = 0
-    for v in (n * 3 for n in range(10, -10, -3)):
+    for v in (triple(n) for n in range(10, -10, -3)):
         total += v
     print(total)?
     Ok(())
 "#;
-    let calls = calls(source, "__plenty_resume___plenty_genexpr_main_4_14");
+    let calls = calls(source, "__plenty_resume___plenty_genexpr_main_10_14");
     // The frame calls the runtime once, when it finishes.
     let runtime: Vec<_> = calls
         .iter()
@@ -211,14 +219,14 @@ fn stored_range_loops_keep_range_semantics() {
         r#"
 class Span:
     r: range
-    def total(self: &Span) -> i64:
+    def total(self: &Span) -> Result[i64, OverflowError[i64]]:
         mut t = 0
         for i in self.r:
             t += i
-        t
+        Ok(t)
 def make(n: i64) -> range:
     range(n, 0, -2)
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut a: list[i64] = []?
     # The loop copies the range when it starts.
     mut r = range(10, -10, -3)
@@ -245,10 +253,10 @@ def main() -> Result[(), AllocError | IoError]:
         b.append(x * 100 + y)?
     for i in make(7):
         b.append(i)?
-    b.append(Span(range(4)).total())?
+    b.append(Span(range(4)).total()?)?
     print(b)?
     print([i * i for i in s]?)?
-    print(list(n * 2 for n in range(10, 0, -3))?)?
+    print([value? for value in ((def(n: i64) -> Result[i64, OverflowError[i64]]: Ok(n * 2))(n) for n in range(10, 0, -3))]?)?
     print(list(n for n in reversed(range(3)))?)?
     print(list(n for n in range(5, 5))?)?
     print((i == 4 for i in range(250u8, 255u8)).any())?
@@ -268,7 +276,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn stored_range_loops_reach_the_ends_of_every_integer_type() {
     expect(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut c: list[i64] = []?
     for v in (x for x in range(250u8, 255u8)):
         c.append(i64(v))?
@@ -305,24 +313,28 @@ enum Problem:
     Limit(i64)
 class Meter:
     work: i64
-    def charge(self: &mut Meter) -> Result[(), Problem]:
+    def charge(self: &mut Meter) -> Result[(), Problem | OverflowError[i64]]:
         self.work += 1
         if self.work == 3:
             return Err(Problem.Syntax("a message longer than inline storage"))
         Ok(())
-def run(m: &mut Meter) -> Result[i64, Problem]:
+def run(m: &mut Meter) -> Result[i64, Problem | OverflowError[i64]]:
     for _ in range(5):
         m.charge()?
     Ok(m.work)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut m = Meter(0)
     match run(&mut m):
         case Ok(n):
             print(n)?
-        case Err(Problem.Syntax(message)):
-            print(message)?
-        case Err(Problem.Limit(n)):
-            print(n)?
+        case Err(error):
+            match error:
+                case Problem.Syntax(message):
+                    print(message)?
+                case Problem.Limit(n):
+                    print(n)?
+                case overflow: OverflowError[i64]:
+                    return Err(overflow)
     m.work = 10
     match run(&mut m):
         case Ok(n):
