@@ -120,9 +120,16 @@ def tight_source(mode):
             + parsed_main(mode, "kernel", ("n", "start", "step")))
 
 
+def affine_leaf(mode):
+    # A live product is the first stage of this affine transform. Its local
+    # also excludes scalar leaf substitution; native call retention is gated
+    # separately, never inferred from this source shape or compiler policy.
+    return function(mode, "leaf", "value: i64, factor: i64, bias: i64", "i64", OVERFLOW,
+                    "product = value * factor\n", "product + bias")
+
+
 def calls_source(mode):
-    leaf = function(mode, "leaf", "value: i64, factor: i64, bias: i64", "i64", OVERFLOW,
-                    "", "value * factor + bias")
+    leaf = affine_leaf(mode)
     propagate = "?" if mode in ("C", "I") else ""
     body = f"mut total = 0\nfor i in range(n):\n    total += leaf(base + i, factor, bias){propagate}\n"
     return ((report() if propagate else "") + leaf
@@ -132,8 +139,7 @@ def calls_source(mode):
 
 
 def recovery_source(mode):
-    return (function(mode, "leaf", "value: i64, factor: i64, bias: i64", "i64", OVERFLOW,
-                     "", "value * factor + bias") + """def main() -> Result[(), AllocError | ParseError | IoError]:
+    return (affine_leaf(mode) + """def main() -> Result[(), AllocError | ParseError | IoError]:
     options = args()?
     repetitions = i64.parse(&options[1])?
     mut errors = 0
@@ -208,10 +214,16 @@ def cleanup_source(mode):
         print("drop", self.id).unwrap()
 
 """ + function(mode, "cleanup", "n: &mut i64", "()", f"AllocError | {OVERFLOW}", body, "()", public=True)
+            + function(mode, "cleanup_after_mutation", "n: &mut i64", "()", f"AllocError | {OVERFLOW}",
+                       body.replace("*n += i64.MAX", "*n += 1\n*n += i64.MAX"), "()", public=True)
             + """def main() -> Result[(), AllocError | ParseError | IoError]:
     options = args()?
     mut n = i64.parse(&options[1])?
-    match cleanup(&mut n):
+    result = if len(options) > 2 and options[2] == "no-rollback":
+        cleanup_after_mutation(&mut n)
+    else:
+        cleanup(&mut n)
+    match result:
         case Ok(_):
             print("ok")?
         case Err(error):
@@ -348,6 +360,9 @@ def generate(output, repo=REPO, units=(1000, 4000), allocations=False):
         cleanup_cases = [case("success", (0,), f"drop 10\nok\nafter {MAX}\n")]
         cleanup_cases.append(case("skipped-write", (1,), f"drop 10\noverflow {MIN}\nafter 1\n", classification="handled-error")
                              if mode in ("C", "I") else case("skipped-write", (1,), trap=True))
+        cleanup_cases.append(case("earlier-mutation-retained", (0, "no-rollback"),
+                                  f"drop 10\noverflow {MIN}\nafter 1\n", classification="handled-error")
+                             if mode in ("C", "I") else case("earlier-mutation-retained", (0, "no-rollback"), trap=True))
         add(mode, "cleanup", cleanup_source(mode), cleanup_cases)
         for signed in (True, False):
             for bits in (8, 16, 32, 64):
@@ -489,7 +504,25 @@ def execute(command, env, timeout):
             "stdout_base64": base64.b64encode(out).decode(), "stderr_base64": base64.b64encode(err).decode()}
 
 
-def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None, modes=None):
+def retained_calls(disassembly, caller, callee="__plenty_fn_leaf"):
+    """Count actual direct call instructions in the requested native function.
+
+    Symbol declarations, comments, tail jumps and offset/interior targets are
+    not evidence. Unrecognized tool output fails closed, not a guessed pass.
+    """
+    active = False
+    sites = []
+    for line in disassembly.splitlines():
+        header = re.fullmatch(r"[0-9a-fA-F]+ <([^>]+)>:", line.strip())
+        if header:
+            active = header[1] == caller
+        elif active and re.fullmatch(r"\s*[0-9a-fA-F]+:\s+(?:callq?|bl)\s+(?:0x)?[0-9a-fA-F]+\s+<"
+                                     + re.escape(callee) + r">\s*", line):
+            sites.append(line)
+    return sites
+
+
+def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None, modes=None, objdump="objdump"):
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     inputs = Path(inputs).resolve()
@@ -515,7 +548,8 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
     write_json(root / "validation.json", {"purpose": "syntax-correctness-only-not-performance", "dry_run": dry_run,
                "inputs": str(inputs), "inventory_sha256": digest((inputs / "inventory.json").read_bytes()),
                "selected_modes": [mode for mode in MODES if any(entry["mode"] == mode for entry in entries)],
-               "selected_sources": [entry["source"] for entry in entries], "unimplemented": NOT_IMPLEMENTED})
+               "selected_sources": [entry["source"] for entry in entries], "objdump": objdump,
+               "unimplemented": NOT_IMPLEMENTED})
     passed = True
     env = dict(os.environ, PLENTY_CACHE="off", PLENTY_CACHE_DIR=str(root / "cache"))
     for key in list(env):
@@ -552,6 +586,24 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                         break  # A rejected compile is never a fast runtime sample.
                 if not ready:
                     continue
+                family = Path(source).stem
+                if profile == "release" and family in ("calls", "recovered-errors"):
+                    caller = "__plenty_fn_calls" if family == "calls" else "__plenty_fn_main"
+                    command = [objdump, "-drw", "--no-show-raw-insn", "--disassemble=" + caller, str(executable)]
+                    row = {"mode": entry["mode"], "source": entry["source"], "profile": profile,
+                           "phase": "retention", "caller": caller, "callee": "__plenty_fn_leaf"}
+                    if dry_run:
+                        record(dict(row, command=command, classification="not-run"))
+                    else:
+                        result = execute(command, env, timeout)
+                        sites = retained_calls(result["stdout"], caller)
+                        qualified = result["returncode"] == 0 and not result["timeout"] and len(sites) == 1
+                        record(dict(row, **result, static_call_sites=sites,
+                                    executable_sha256=digest(executable.read_bytes()) if executable.is_file() else None,
+                                    classification="retained-call" if qualified else "retention-blocked"))
+                        if not qualified:
+                            passed = False
+                            continue  # Never qualify optimized call-heavy cases from values alone.
                 for expected in entry["cases"]:
                     command = [str(executable), *expected["args"]]
                     row = {"mode": entry["mode"], "source": entry["source"], "profile": profile,
@@ -582,6 +634,7 @@ def main(argv=None):
     check.add_argument("--timeout", type=int, default=120)
     check.add_argument("--family", action="append", help="exact source stem; repeat to select several")
     check.add_argument("--mode", choices=MODES, action="append", help="validate only selected modes; repeat to select several")
+    check.add_argument("--objdump", default="objdump", help="native disassembler for mandatory optimized call-retention gates")
     measure = phases.add_parser("measure", help="reserved; explicitly unavailable in this MVP")
     measure.add_argument("--allow-measurements", action="store_true")
     measure.add_argument("--build-manifest", required=True, type=Path)
@@ -591,7 +644,7 @@ def main(argv=None):
             generate(args.output, allocations=args.allocation_probes)
         elif args.phase == "validate":
             return 0 if validate(args.inputs, args.build_manifest, args.output, args.dry_run,
-                                 args.timeout, args.family, args.mode) else 1
+                                 args.timeout, args.family, args.mode, args.objdump) else 1
         else:
             if not args.allow_measurements:
                 raise ValueError("measurement requires --allow-measurements; no timings performed")

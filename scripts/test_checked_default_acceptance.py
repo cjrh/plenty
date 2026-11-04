@@ -81,7 +81,9 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
     def test_arithmetic_helpers_have_independent_modes(self):
         for mode in acceptance.MODES:
             calls = acceptance.calls_source(mode)
-            self.assertEqual(calls.count("value * factor + bias"), 1)
+            self.assertEqual(calls.count("product = value * factor"), 1)
+            self.assertEqual(calls.count("product + bias"), 1)
+            self.assertLess(calls.index("product = value * factor"), calls.index("product + bias"))
             self.assertEqual(calls.count("base + i"), 1)
             if mode in ("C", "U"):
                 keyword = "checked:" if mode == "C" else "unchecked:"
@@ -92,10 +94,10 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
             else:
                 self.assertIn("def leaf(value: i64, factor: i64, bias: i64) -> i64:", calls)
             if mode == "I":
-                self.assertIn("Ok(value * factor + bias)", calls)
+                self.assertIn("Ok(product + bias)", calls)
                 self.assertIn("Ok(total)", calls)
             if mode == "C":
-                self.assertIn("checked:\n        value * factor + bias", calls)
+                self.assertIn("checked:\n        product = value * factor\n        product + bias", calls)
 
     def test_parsing_and_setup_precede_kernel_calls(self):
         source = acceptance.tight_source("I")
@@ -156,6 +158,43 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         self.assertIn("    owner = Owner(10)", implicit)
         self.assertIn("*n += i64.MAX", implicit)
         self.assertIn('print("after", n)?', implicit)
+
+    def test_cleanup_adds_no_rollback_without_changing_original_cases_or_helper(self):
+        inventory = self.generate()
+        for mode in acceptance.MODES:
+            source = acceptance.cleanup_source(mode)
+            original = acceptance.function(mode, "cleanup", "n: &mut i64", "()",
+                "AllocError | OverflowError[i64]", "owner = Owner(10)\nitems = [1, 2, 3]?\n*n += i64.MAX\ndrop(owner)\ndrop(items)\n",
+                "()", public=True)
+            self.assertIn(original, source)
+            additional = source[source.index("def cleanup_after_mutation"):source.index("def main")]
+            for before, after in (("owner = Owner(10)", "items = [1, 2, 3]?"),
+                                  ("items = [1, 2, 3]?", "*n += 1"),
+                                  ("*n += 1", "*n += i64.MAX"), ("*n += i64.MAX", "drop(owner)")):
+                self.assertLess(additional.index(before), additional.index(after))
+            self.assertIn("-> Result[(), AllocError | OverflowError[i64]]:", additional)
+            self.assertTrue(additional.rstrip().endswith("()" if mode == "C" else "Ok(())"))  # No nonunit sentinel for #712.
+            entry = next(e for e in inventory["entries"] if e["source"] == f"sources/{mode}/cleanup.plenty")
+            self.assertEqual([c["name"] for c in entry["cases"]], ["success", "skipped-write", "earlier-mutation-retained"])
+            self.assertEqual(entry["cases"][0]["stdout"], f"drop 10\nok\nafter {acceptance.MAX}\n")
+            expected = entry["cases"][2]
+            self.assertEqual(expected["args"], ["0", "no-rollback"])
+            if mode in ("C", "I"):
+                self.assertEqual(entry["cases"][1]["stdout"], f"drop 10\noverflow {acceptance.MIN}\nafter 1\n")
+                self.assertEqual(expected["stdout"], entry["cases"][1]["stdout"])
+            else:
+                self.assertEqual(entry["cases"][1]["expected"], "arithmetic-trap")
+                self.assertEqual(expected["expected"], "arithmetic-trap")
+
+    def test_affine_helper_uses_live_product_for_calls_and_recovery(self):
+        for mode in acceptance.MODES:
+            leaf = acceptance.affine_leaf(mode)
+            self.assertEqual(leaf.count("value * factor"), 1)
+            self.assertEqual(leaf.count("product + bias"), 1)
+            self.assertNotIn("wrapping_", leaf)
+            self.assertIn(leaf, acceptance.calls_source(mode))
+            if mode in ("C", "I"):
+                self.assertIn(leaf, acceptance.recovery_source(mode))
 
     def test_marker_probes_are_opt_in_and_have_allocating_control(self):
         self.assertFalse(any(e["requires_runtime_checks"] for e in self.generate()["entries"]))
@@ -367,9 +406,108 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         rows = [json.loads(line) for line in (self.root / "validation/results.jsonl").read_text().splitlines()]
         self.assertEqual(set(row["profile"] for row in rows), {"debug", "release"})
         self.assertEqual(set(row["classification"] for row in rows), {"not-run"})
-        self.assertEqual(len(rows), 48)
+        self.assertEqual(len(rows), 52)
+        self.assertEqual(sum(row["phase"] == "retention" for row in rows), 4)
         self.assertFalse(json.loads((self.root / "validation/result.json").read_text())["performance_evidence"])
         self.assertFalse(any("--release" in row["command"] and "--emit-object" in row["command"] for row in rows))
+
+    def test_retention_parser_requires_actual_exact_direct_call_in_caller(self):
+        caller = "__plenty_fn_calls"
+        valid = "00000000001000 <__plenty_fn_calls>:\n  1000:\tcall   1100 <__plenty_fn_leaf>\n"
+        self.assertEqual(len(acceptance.retained_calls(valid, caller)), 1)
+        self.assertEqual(len(acceptance.retained_calls(valid.replace("call   ", "callq  ", 1), caller)), 1)
+        self.assertEqual(len(acceptance.retained_calls(valid.replace("call   ", "bl     "), caller)), 1)
+        for wrong in (valid.replace("call   ", "jmp    "), valid.replace("<__plenty_fn_leaf>", "<__plenty_fn_leaf+0x1>"),
+                      valid.replace("<__plenty_fn_calls>:", "<other>:"), valid.replace("call   ", "# call "),
+                      "00000000001100 <__plenty_fn_leaf>:\n  1100: ret\n", "symbol=__plenty_fn_leaf; call fn0"):
+            with self.subTest(wrong=wrong):
+                self.assertEqual(acceptance.retained_calls(wrong, caller), [])
+        self.assertEqual(acceptance.retained_calls(valid + "00000000001200 <other>:\n  1200: call 1100 <__plenty_fn_leaf>\n", caller),
+                         acceptance.retained_calls(valid, caller))
+
+    def test_native_retention_gate_blocks_unqualified_runtime_and_preserves_raw_evidence(self):
+        self.generate()
+        _, manifest = self.manifest()
+        def run(command, env, timeout):
+            if command[0] == "/owned/objdump":
+                return dict(command=command, returncode=0, timeout=False,
+                            stdout="00000000001000 <__plenty_fn_calls>:\n  1000: imul %rsi,%rax\n", stderr="")
+            self.assertTrue("--check" in command or "--compile" in command)
+            return dict(command=command, returncode=0 if "--release" in command else 1,
+                        timeout=False, stdout="", stderr="check failed" if "--check" in command else "")
+        # Force only debug builds to fail; checks must succeed independently.
+        def command_result(command, env, timeout):
+            if "--check" in command:
+                return dict(command=command, returncode=0, timeout=False, stdout="", stderr="")
+            return run(command, env, timeout)
+        with patch.object(acceptance, "execute", side_effect=command_result):
+            self.assertFalse(self.validate(manifest, families=["calls"], objdump="/owned/objdump"))
+        rows = [json.loads(line) for line in (self.root / "validation/results.jsonl").read_text().splitlines()]
+        gates = [row for row in rows if row["phase"] == "retention"]
+        self.assertEqual(len(gates), 4)
+        self.assertTrue(all(row["classification"] == "retention-blocked" for row in gates))
+        self.assertTrue(all(row["static_call_sites"] == [] for row in gates))
+        self.assertTrue(all("imul" in row["stdout"] for row in gates))
+        self.assertFalse(any(row["phase"] == "runtime" for row in rows))
+
+    def test_native_retention_gate_passes_only_with_one_call_and_successful_tool(self):
+        self.generate()
+        _, manifest = self.manifest()
+        for family in ("calls", "recovered-errors"):
+            target = self.root / ("validation-" + family)
+            def run(command, env, timeout):
+                if "--compile" in command:
+                    Path(command[-1]).write_bytes(b"native bytes")
+                if command[0] == "objdump":
+                    caller = command[-2].split("=", 1)[1]
+                    stdout = f"00000000001000 <{caller}>:\n  1000: call 1100 <__plenty_fn_leaf>\n"
+                else:
+                    self.assertTrue("--check" in command or "--compile" in command)
+                    stdout = ""
+                return dict(command=command, returncode=0, timeout=False, stdout=stdout, stderr="")
+            # No native program executes in this mock; omit cases to isolate the gate.
+            inventory = acceptance.load_inventory(self.inputs)
+            for entry in inventory["entries"]:
+                entry["cases"] = []
+            acceptance.write_json(self.inputs / "inventory.json", inventory)
+            with patch.object(acceptance, "execute", side_effect=run), \
+                 patch.object(acceptance, "load_manifest", return_value=manifest):
+                self.assertTrue(acceptance.validate(self.inputs, self.root / "unused", target, families=[family]))
+            gates = [json.loads(line) for line in (target / "results.jsonl").read_text().splitlines()
+                     if json.loads(line)["phase"] == "retention"]
+            self.assertEqual(len(gates), 4 if family == "calls" else 2)
+            self.assertTrue(all(row["classification"] == "retained-call" for row in gates))
+            self.assertTrue(all(row["executable_sha256"] == acceptance.digest(b"native bytes") for row in gates))
+
+    def test_retention_gate_rejects_failed_timed_out_missing_and_multiple_call_extractions(self):
+        inventory = self.generate()
+        for entry in inventory["entries"]:
+            entry["cases"] = []  # Isolate extraction, not a native semantic proof.
+        acceptance.write_json(self.inputs / "inventory.json", inventory)
+        _, manifest = self.manifest()
+        assembly = "00000000001000 <__plenty_fn_calls>:\n  1000: call 1100 <__plenty_fn_leaf>\n"
+        failures = [(1, False, None, assembly), (0, True, None, assembly),
+                    (None, False, "missing objdump", ""),
+                    (0, False, None, assembly + "  1005: call 1100 <__plenty_fn_leaf>\n")]
+        for index, (code, timeout, spawn, stdout) in enumerate(failures):
+            output = self.root / f"blocked-{index}"
+            def run(command, env, limit):
+                if command[0] == "objdump":
+                    return dict(command=command, returncode=code, timeout=timeout, spawn_error=spawn,
+                                stdout=stdout, stderr="inspection failure" if code else "")
+                if "--compile" in command:
+                    Path(command[-1]).write_bytes(b"native bytes")
+                return dict(command=command, returncode=0, timeout=False, stdout="", stderr="")
+            with self.subTest(index=index), patch.object(acceptance, "execute", side_effect=run), \
+                 patch.object(acceptance, "load_manifest", return_value=manifest):
+                self.assertFalse(acceptance.validate(self.inputs, self.root / "unused", output,
+                                                    families=["calls"], modes=["I"]))
+            rows = [json.loads(line) for line in (output / "results.jsonl").read_text().splitlines()]
+            gates = [row for row in rows if row["phase"] == "retention"]
+            self.assertEqual(len(gates), 1)
+            self.assertEqual(gates[0]["classification"], "retention-blocked")
+            self.assertEqual(gates[0]["stdout"], stdout)
+            self.assertFalse(json.loads((output / "result.json").read_text())["passed"])
 
     def test_failed_build_never_runs_or_retries_and_retains_every_failure(self):
         self.generate()
