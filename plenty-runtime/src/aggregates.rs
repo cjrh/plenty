@@ -249,8 +249,8 @@ struct Collection {
     drop_entry: Option<usize>,
 }
 const _: () = {
-    use crate::list_layout::{BYTES, REMOVED, ROWS};
-    assert!(std::mem::offset_of!(Collection, ty) == 16);
+    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
+    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
     // `Entries` checks its own field offsets; these add the owner header.
     assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
     assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);

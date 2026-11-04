@@ -100,10 +100,10 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.tls`](#stdtls): 3576-3658
 - [`std.toml`](#stdtoml): 3660-3709
 - [`std.unicode`](#stdunicode): 3711-3723
-- [`std.units`](#stdunits): 3725-3953
-- [`std.url`](#stdurl): 3955-3983
-- [`std.uuid`](#stduuid): 3985-4008
-- [`std.xml`](#stdxml): 4010-4043
+- [`std.units`](#stdunits): 3725-3955
+- [`std.url`](#stdurl): 3957-3985
+- [`std.uuid`](#stduuid): 3987-4010
+- [`std.xml`](#stdxml): 4012-4045
 
 ## `std.actor`
 
@@ -3930,6 +3930,8 @@ def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]
 def clamp[Num, D: Dimension](x: Quantity[Num, D], low: Quantity[Num, D], high: Quantity[Num, D]) -> Quantity[Num, D]
 def sum[D: Dimension](items: &list[Quantity[f64, D]]) -> Quantity[f64, D]
 def mean[D: Dimension](items: &list[Quantity[f64, D]]) -> Option[Quantity[f64, D]]
+def wrap_list[D: Dimension](values: list[f64]) -> list[Quantity[f64, D]]
+def strip_list[D: Dimension](items: list[Quantity[f64, D]]) -> list[f64]
 def sqrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 2]], MathError]
 def cbrt[D: Dimension](x: Quantity[f64, D]) -> Result[Quantity[f64, Root[D, 3]], MathError]
 def hypot[D: Dimension](a: Quantity[f64, D], b: Quantity[f64, D]) -> Quantity[f64, D]

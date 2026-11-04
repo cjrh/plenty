@@ -494,6 +494,23 @@ impl Lowerer<'_, '_> {
         if self.lower_view(operation)? {
             return Ok(());
         }
+        if let CollectionOp::ListRetag(types) = operation {
+            let (from, to) = &**types;
+            // The rows already have the target layout; only the header's
+            // descriptor, which runtime formatting and cleanup read, changes.
+            let (list, _) = self.pop_typed(from.clone())?;
+            let id = self.module.metadata(to);
+            let gv = self.module.declare_data_in_func(id, self.bcx.func);
+            let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                descriptor,
+                list,
+                crate::list_layout::DESCRIPTOR,
+            );
+            self.stack.push((list, to.clone()));
+            return Ok(());
+        }
         if let CollectionOp::DictView(owner, _) = operation {
             let (reference, _) = self.pop_typed(Ty::Ref(Arc::new(owner.clone()), false))?;
             self.stack.push((reference, operation.signature().1));
