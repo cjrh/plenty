@@ -296,6 +296,13 @@ baseline fork contains the identical production repair, explicitly labelled
 “main + #712 fix”; final common-fix build and full-gate validation remain separate.
 Reviewed call-retention probes preserve their arithmetic and error oracles and
 require actual optimized native leaf calls, not source-policy inference.
+Independent final-pin untimed review accepts all 124 check/native-build
+configurations, 284 exact runtime cases and six optimized native call gates on
+the common-fix baseline/candidate pair. The full 1000/4000-unit corpora compile
+and execute their designated checksum entrypoints in all four modes and both
+generated profiles. All 24 cleanup outcomes pass; four C/I zero-allocation
+intervals have four genuinely allocating controls. These bounded calling-thread
+checks do not establish allocation totals, timing, size or whole-suite acceptance.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

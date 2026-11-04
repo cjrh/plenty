@@ -222,10 +222,17 @@ the bias, preserving operations and error payloads while retaining a genuine lea
 call. All four optimized modes and both recovery variants pass actual native
 call-site extraction on the historical syntax pair. The controller fails closed
 when extraction cannot qualify a call; an additional I-side cleanup case proves
-no rollback after an earlier successful mutation. These are not final-pin or
-performance results: matching common-fix rebuilds and full corrected corpus,
-cleanup and allocation reruns remain required. Both matching perf/check build
-pairs and the genuine allocation-profiling build pair now pass preparation.
+no rollback after an earlier successful mutation. These historical results are now supplemented by independently reviewed final-pin
+untimed validation on the common-fix baseline and candidate: all 124 source/profile
+configurations pass checks and native builds, all 284 runtime cases pass their
+exact oracles, and all six optimized executable call-retention gates pass. Both
+full corpus sizes execute their designated checksum entrypoints in all four modes
+and both generated profiles. All 24 cleanup cases pass, including C's formerly
+blocked Unit/no-rollback cases. Four C/I allocation-free intervals and four real
+allocating controls prove active calling-thread successful-allocation checks,
+not a process-wide allocation census. No timing or size acceptance is inferred.
+Both matching perf/check build pairs and the genuine allocation-profiling build
+pair also pass preparation.
 The new baseline also executes the previously rejected original C cleanup source
 in both native modes. Profiling will report exact allocation counts and clearly
 label formatted byte totals approximate; no profiling or timing samples have yet
