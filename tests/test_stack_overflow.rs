@@ -15,10 +15,10 @@ const SIGSEGV: i32 = 11;
 const REPORT: &str = "error: stack overflow\n";
 
 const DEPTH: &str = r#"
-def depth(n: i64) -> i64:
+def depth(n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return 0
-    1 + depth(n - 1)
+        return Ok(0)
+    Ok(1 + depth(n - 1)?)
 "#;
 
 /// Each `depth` frame holds twenty 800-byte values, so it spans many pages.
@@ -33,25 +33,25 @@ fn wide_depth() -> String {
         .collect::<Vec<_>>()
         .join(" + ");
     format!(
-        "class Wide:\n{fields}\ndef depth(n: i64) -> i64:\n    if n == 0:\n        return 0\n{locals}    below = depth(n - 1)\n    below + {sum}\n"
+        "class Wide:\n{fields}\ndef depth(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n{locals}    below = depth(n - 1)?\n    Ok(below + {sum})\n"
     )
 }
 
 fn on_main(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), AllocError | IoError]:\n    print(depth({depth}))?\n    Ok(())\n"
+        "def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    print(depth({depth})?)?\n    Ok(())\n"
     )
 }
 
 fn on_scoped_worker(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), AllocError | SpawnError[()] | IoError]:\n    with spawn(depth, {depth}).drop_job()? as worker:\n        print(worker.join())?\n    Ok(())\n"
+        "def main() -> Result[(), AllocError | SpawnError[()] | IoError | OverflowError[i64]]:\n    with spawn(depth, {depth}).drop_job()? as worker:\n        print(worker.join()?)?\n    Ok(())\n"
     )
 }
 
 fn on_pool_worker(depth: i64) -> String {
     format!(
-        "def main() -> Result[(), PoolError | SubmitError[OnceClosure[[], i64]] | FutureError | IoError]:\n    with ThreadPoolExecutor(2, 4)? as pool:\n        print(pool.submit(depth, {depth})?.result()?)?\n    Ok(())\n"
+        "def main() -> Result[(), PoolError | SubmitError[OnceClosure[[], Result[i64, OverflowError[i64]]]] | FutureError | IoError | OverflowError[i64]]:\n    with ThreadPoolExecutor(2, 4)? as pool:\n        print(pool.submit(depth, {depth})?.result()??)?\n    Ok(())\n"
     )
 }
 
@@ -94,19 +94,19 @@ class Node:
     value: i64
     next: Option[Box[Node]]
 
-def length(node: &Node) -> i64:
+def length(node: &Node) -> Result[i64, OverflowError[i64]]:
     match &node.next:
         case Some(next):
-            1 + length(next)
+            Ok(1 + length(next)?)
         case Nothing:
-            1
+            Ok(1)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = Node(1, Nothing)
     for value in range(2, 1000001):
         head = Node(value, Some(Box(head)?))
     print("built")?
-    print(length(&head))?
+    print(length(&head)?)?
     Ok(())
 "#,
         Some(256),
