@@ -405,6 +405,227 @@ def main() -> Result[(), AllocError | IoError]:
     assert!(output.ends_with("True [1, 2, 3]\nTrue\n"), "{output}");
 }
 
+/// Exercise the native adapter, not only frontend IR, in both backend modes.
+fn key_sort_runs_in_both_modes(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sort.plenty");
+        let executable = directory.path().join("sort");
+        std::fs::write(&path, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("optimize={optimize}: {error}\n{source}"));
+        let output = support::output_within(
+            &mut std::process::Command::new(executable),
+            b"",
+            std::time::Duration::from_secs(15),
+        );
+        assert!(
+            output.status.success(),
+            "optimize={optimize}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "optimize={optimize}"
+        );
+    }
+}
+
+#[test]
+fn fallible_key_sort_relocates_range_and_nested_sum_errors() {
+    key_sort_runs_in_both_modes(
+        r#"
+enum SortError:
+    Span(Option[range[i64]])
+    Message(str)
+def span(value: &i64) -> Result[i64, range[i64]]:
+    print("span", *value).unwrap()
+    Err(range(123, 456))
+def nested(value: &i64) -> Result[str, SortError]:
+    print("nested", *value).unwrap()
+    if *value == 1:
+        return Err(SortError.Span(Some(range(123, 456))))
+    Ok("a prebuilt owned key longer than seven bytes")
+def main() -> Result[(), AllocError | IoError]:
+    mut values = [0, 1, 2, 3, 4, 5, 6, 7]?
+    match values.sort_by_key(span):
+        case Err(interval):
+            print(interval)?
+        case Ok(_):
+            print("missed error")?
+    result = unchecked:
+        values.sort_by_key(nested)
+    match result:
+        case Err(SortError.Span(Some(interval))):
+            print(interval)?
+        case _:
+            print("wrong nested error")?
+    print(values)?
+    good = values.sort_by_key(def(value: &i64) -> Result[i64, OverflowError[i64]]: Ok(*value + 1), True)
+    print(good.is_ok(), values)?
+    overflow = values.sort_by_key(def(value: &i64) -> Result[i64, OverflowError[i64]]: Ok(i64.MAX + *value))
+    match overflow:
+        case Err(error):
+            print(error.wrapped)?
+        case Ok(_):
+            print("missed overflow")?
+    text = "heap error ".repeat(8)?
+    heap = def [&text](value: &i64) -> Result[i64, str]:
+        Err(text)
+    match values.sort_by_key(heap):
+        case Err(error):
+            print(error == text)?
+        case Ok(_):
+            print("missed heap error")?
+    Ok(())
+"#,
+        "span 0\nrange(123, 456, 1)\nnested 0\nnested 1\nrange(123, 456, 1)\n[0, 1, 2, 3, 4, 5, 6, 7]\nTrue [7, 6, 5, 4, 3, 2, 1, 0]\n-9223372036854775802\nTrue\n",
+    );
+}
+
+#[test]
+fn fallible_key_sort_relocates_managed_record_errors_and_drops_each_owner_once() {
+    for (error_type, error_value, pattern) in [
+        ("Problem", "problem", "problem"),
+        (
+            "SortError",
+            "SortError.Record(problem)",
+            "SortError.Record(problem)",
+        ),
+    ] {
+        for fail_at in [0, 1] {
+            let source = format!(
+                r#"
+from std.atomic import Atomic, Ordering
+class Owner:
+    text: str
+    drops: Shared[Atomic[i64]]
+    def __del__(self) -> ():
+        drop(self.drops.fetch_add(1, Ordering.Relaxed))
+class Problem:
+    owner: Owner
+    interval: range[i64]
+    drops: Shared[Atomic[i64]]
+    def __del__(self) -> ():
+        drop(self.drops.fetch_add(1, Ordering.Relaxed))
+enum SortError:
+    Record(Problem)
+    Span(range[i64])
+    Message(str)
+def main() -> Result[(), AllocError | IoError]:
+    owner_drops = Shared(Atomic[i64](0))?
+    error_drops = Shared(Atomic[i64](0))?
+    calls = Atomic[i64](0)
+    sequence = Atomic[i64](0)
+    text = "owned payload ".repeat(8)?
+    key_text = "owned first key ".repeat(8)?
+    mut values = [0, 1, 2, 3, 4, 5, 6, 7]?
+    key = def [&calls, &sequence, &text, &key_text, &owner_drops, &error_drops](value: &i64) -> Result[str, {error_type}]:
+        call = calls.fetch_add(1, Ordering.Relaxed)
+        if call == 0:
+            sequence.store(*value, Ordering.Relaxed)
+        else:
+            sequence.store(sequence.load(Ordering.Relaxed).wrapping_mul(10).wrapping_add(*value), Ordering.Relaxed)
+        if call == {fail_at}:
+            problem = Problem(Owner(text, owner_drops.share()), range(123, 456), error_drops.share())
+            return Err({error_value})
+        Ok(key_text)
+    print("__test_begin_no_allocations__").unwrap()
+    result = unchecked:
+        values.sort_by_key(key)
+    print("__test_end_no_allocations__").unwrap()
+    drop(key)
+    drop(key_text)
+    drop(text)
+    print(calls.load(Ordering.Relaxed), sequence.load(Ordering.Relaxed), owner_drops.load(Ordering.Relaxed), error_drops.load(Ordering.Relaxed))?
+    match result:
+        case Err({pattern}):
+            print(problem.owner.text, problem.interval)?
+            drop(problem)
+        case _:
+            print("wrong error")?
+    print(owner_drops.load(Ordering.Relaxed), error_drops.load(Ordering.Relaxed))?
+    print(values)?
+    Ok(())
+"#
+            );
+            let payload = "owned payload ".repeat(8);
+            key_sort_runs_in_both_modes(
+                &source,
+                &format!(
+                    "__test_begin_no_allocations__\n__test_end_no_allocations__\n{} {fail_at} 0 0\n{payload} range(123, 456, 1)\n1 1\n[0, 1, 2, 3, 4, 5, 6, 7]\n",
+                    fail_at + 1
+                ),
+            );
+        }
+    }
+}
+
+#[test]
+fn fallible_key_sort_context_reserves_typed_inline_error_storage() {
+    // Native output can accidentally survive expired comparator stack storage.
+    // This layout oracle distinguishes that old implementation independently.
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("sort.plenty"),
+        r#"
+def key(value: &i64) -> Result[i64, range[i64]]:
+    Err(range(123, 456))
+def main() -> Result[(), AllocError]:
+    mut values = [3, 1, 2]?
+    drop(values.sort_by_key(key))
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for release in [false, true] {
+        let mut compiler = std::process::Command::new(support::plenty_bin());
+        compiler
+            .current_dir(directory.path())
+            .env("PLENTY_CACHE", "off");
+        if release {
+            compiler.arg("--release");
+        }
+        support::assert_success(
+            compiler
+                .args(["--dump", "clif", "sort.plenty", "-o", "out"])
+                .output()
+                .unwrap(),
+        );
+        let ir = std::fs::read_to_string(directory.path().join("out/clif.txt")).unwrap();
+        let sort = ir
+            .split("\n==== ")
+            .find(|section| section.lines().next().unwrap().contains("_sort "))
+            .unwrap();
+        // Callback word + Result[(), range[i64]] word + four range words.
+        assert!(sort.contains("explicit_slot 64, align = 16"), "{sort}");
+        let adapter = ir
+            .split("\n==== ")
+            .find(|section| section.lines().next().unwrap().contains("_order "))
+            .unwrap();
+        // Each key's failure path copies the entire four-word range before
+        // returning, rather than publishing its comparator-local address.
+        assert_eq!(
+            adapter
+                .lines()
+                .filter(|line| line.contains("store notrap aligned") && line.ends_with("+24"))
+                .count(),
+            2,
+            "{adapter}"
+        );
+    }
+}
+
 #[test]
 fn closure_errors_cross_workers_without_lexical_effects() {
     assert_eq!(
