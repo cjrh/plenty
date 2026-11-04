@@ -509,6 +509,9 @@ impl Lowerer<'_, '_> {
         };
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
+        if !narrow {
+            self.counters.ranges.push((length, start, step));
+        }
         // A narrow range, or an i64 range stepping up from a nonnegative
         // start, is shorter than `i64::MAX`: fold its check (issue #721).
         let short = narrow
@@ -1423,6 +1426,30 @@ impl Lowerer<'_, '_> {
         if let Some(counter) = &nonnegative {
             self.counters.nonnegative_locals.push(counter.local);
         }
+        let range = super::induction::analyze_range(condition, body).filter(|range| {
+            let slots = [range.target, range.remaining, range.advance];
+            slots.iter().all(|&slot| self.local_address(slot).is_none()) && {
+                let entry = (
+                    self.read_local(range.remaining),
+                    self.read_local(range.target),
+                    self.read_local(range.advance),
+                );
+                self.counters.ranges.contains(&entry)
+                    && super::known::known_signed(&self.bcx.func.dfg, entry.2) == Some(1)
+            }
+        });
+        let unit_steps = range
+            .as_ref()
+            .map_or(&[][..], |range| &range.unit_steps[..]);
+        let range_nonnegative = range.as_ref().filter(|range| {
+            super::is_signed(types[range.target as usize].clone()) && {
+                let first = self.read_local(range.target);
+                self.nonnegative_operand(first)
+            }
+        });
+        if let Some(range) = range_nonnegative {
+            self.counters.nonnegative_locals.push(range.target);
+        }
         let header = self.bcx.create_block();
         let iteration = self.bcx.create_block();
         let exit = self.bcx.create_block();
@@ -1441,7 +1468,10 @@ impl Lowerer<'_, '_> {
             if self.terminated {
                 break;
             }
-            if (Some(index) == proven_step || Some(index) == bound_step) && !self.gathering() {
+            let proven = Some(index) == proven_step
+                || Some(index) == bound_step
+                || unit_steps.contains(&index);
+            if proven && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;
@@ -1453,6 +1483,9 @@ impl Lowerer<'_, '_> {
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
+        if range_nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
         if nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
         }

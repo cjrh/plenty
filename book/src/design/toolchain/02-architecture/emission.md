@@ -476,8 +476,17 @@ whose condition compares it with another local or a literal, as in
   division, with no floor correction or `MIN // -1` check. The zero-divisor
   check stays.
 
+A `for` loop over a `range(start, stop)` call with step 1 and an `i64` or
+`u64` element gets both facts from the range instead of a condition: every
+value of the loop variable `i` is below `stop`, so a top-level `i + 1` in the
+body is a plain add, and a nonnegative `start` keeps `i` nonnegative. The
+lowerer accepts the loop only when its hidden counters start from that
+range's computed length, start, and step, and nothing in the body writes them
+except the loop's own step before `continue`. Reversed ranges, other steps,
+narrower elements, and range values in locals keep every check.
+
 Counters in memory, borrowed locals and generator frames, are not analyzed.
-`for` loops over ranges already step with wrapping arithmetic. A range over
+`for` loops over ranges step with wrapping arithmetic. A range over
 an integer type narrower than `i64`, or one with a positive literal step and
 a start known nonnegative, cannot have more than `i64.MAX` elements, so its
 length needs no overflow check (issue #721).

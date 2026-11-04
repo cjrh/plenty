@@ -11,6 +11,9 @@
 //!   division by a nonnegative divisor then need no sign correction; see
 //!   [`Facts`].
 //!
+//! A counted `for i in range(...)` loop gets the same two facts by a different
+//! argument; see [`RangeLoop`].
+//!
 //! The analysis matches operations structurally and gives up on anything it
 //! does not recognize. It applies only to counters held in CLIF variables, so
 //! no reference can write them behind the operations' back.
@@ -40,6 +43,9 @@ pub(super) struct Facts {
     /// Signed counter locals of the loops being lowered whose every value is
     /// nonnegative, one entry per loop that established it.
     pub nonnegative_locals: Vec<u8>,
+    /// The length, first element, and step of each 64-bit `range` whose
+    /// length this function computed; see [`RangeLoop`].
+    pub ranges: Vec<(Value, Value, Value)>,
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
@@ -151,6 +157,129 @@ impl Checked {
         }
         self.splits.push((view, split));
     }
+}
+
+/// The slots of a counted `range` loop, as `counted_iteration` in
+/// `frontend/collections.rs` builds it: the loop runs while `remaining > 0`,
+/// and each pass ends by decrementing `remaining` and adding `advance` to
+/// `target`, the loop variable.
+///
+/// When the loop starts at a range's first element with `remaining` its
+/// length and `advance` its step, and that step is 1, every value of `target`
+/// in the body is an element of the range, so `target + 1` is at most the
+/// range's stop and cannot overflow; the value after the last pass is the
+/// stop. A nonnegative start then keeps `target` nonnegative. Both hold only
+/// if nothing else writes these slots: [`analyze_range`] accepts no write to
+/// them except the step itself, at the end of the body or followed by
+/// `continue`.
+pub(super) struct RangeLoop {
+    pub target: u8,
+    pub remaining: u8,
+    pub advance: u8,
+    /// Body indices of top-level `target + 1` additions.
+    pub unit_steps: Vec<usize>,
+}
+
+/// Match a counted `range` loop; [`RangeLoop`] states what the caller must
+/// still check about the slots' values on entry.
+pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> {
+    use crate::op::IntegerOp;
+    use crate::value::Value as V;
+    let [Op::LoadLocal(remaining), Op::PushInt(V::I64(0)), Op::Gt] = condition else {
+        return None;
+    };
+    let remaining = *remaining;
+    let [
+        Op::LoadLocal(r),
+        Op::PushInt(V::I64(1)),
+        Op::Integer(IntegerOp::WrappingSub),
+        Op::StoreLocal(r2),
+        Op::LoadLocal(target),
+        Op::LoadLocal(advance),
+        Op::Integer(IntegerOp::WrappingAdd),
+        Op::StoreLocal(t2),
+    ] = body.get(body.len().checked_sub(STEP_OPS)?..)?
+    else {
+        return None;
+    };
+    let (target, advance) = (*target, *advance);
+    if *r != remaining || *r2 != remaining || *t2 != target {
+        return None;
+    }
+    let slots = [target, remaining, advance];
+    if target == advance || target == remaining || advance == remaining {
+        return None;
+    }
+    let step = &body[body.len() - STEP_OPS..];
+    if !only_steps(&body[..body.len() - STEP_OPS], &slots, step) {
+        return None;
+    }
+    let unit_steps = (0..body.len() - STEP_OPS)
+        .filter(|&index| {
+            let mut before = body[..index].iter().rev().filter(|op| !transparent(op));
+            matches!(
+                (&body[index], before.next(), before.next()),
+                (Op::Add, Some(Op::PushInt(k)), Some(Op::LoadLocal(i)))
+                    | (Op::Add, Some(Op::LoadLocal(i)), Some(Op::PushInt(k)))
+                    if *i == target && literal(*k) == 1
+            )
+        })
+        .collect();
+    Some(RangeLoop {
+        target,
+        remaining,
+        advance,
+        unit_steps,
+    })
+}
+
+const STEP_OPS: usize = 8;
+
+/// Whether `ops` and their nested bodies write none of `slots`, except by a
+/// copy of `step` that `continue` follows.
+fn only_steps(ops: &[Op], slots: &[u8], step: &[Op]) -> bool {
+    let mut index = 0;
+    while index < ops.len() {
+        if ops[index..].starts_with(step) {
+            index += step.len();
+            if !matches!(ops.get(index), Some(Op::Continue)) {
+                return false;
+            }
+            continue;
+        }
+        let nested = |ops: &[Op]| only_steps(ops, slots, step);
+        let ok = match &ops[index] {
+            Op::StoreLocal(i)
+            | Op::BorrowLocal(i, _)
+            | Op::MoveLocal(i)
+            | Op::DropLocal(i)
+            | Op::EmptyLocal(i)
+            | Op::Next(i) => !slots.contains(i),
+            Op::Loop { condition, body } => nested(condition) && nested(body),
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                nested(then)
+                    && elifs
+                        .iter()
+                        .all(|arm| nested(&arm.condition) && nested(&arm.body))
+                    && nested(otherwise)
+            }
+            Op::Match(arms) => arms.iter().all(|arm| nested(&arm.body)),
+            Op::Try { cleanup, .. }
+            | Op::CheckedArith { cleanup, .. }
+            | Op::CheckedUnwrap { cleanup, .. } => nested(cleanup),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => nested(body),
+            _ => true,
+        };
+        if !ok {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
 
 /// Operations that emit no code and so cannot separate a matched sequence.
