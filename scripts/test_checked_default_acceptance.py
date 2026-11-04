@@ -1051,21 +1051,30 @@ class CheckedDefaultMeasurementTests(unittest.TestCase):
                         row = self.raw([str(exe), *expected["args"]], stdout=expected["stdout"])
                     rows.append(dict(row, **common, phase="runtime", case=expected["name"], classification="unit fixture; reclassification required"))
         (root / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+        self.pin_checks(root)
         return root, checks
+
+    def pin_checks(self, root):
+        self.evidence_index = self.root / "artifact-index.json"
+        records = [{"path": str(p), "sha256": acceptance.digest(p.read_bytes()), "size_bytes": p.stat().st_size}
+                   for p in root.rglob("*") if p.is_file()]
+        acceptance.write_json(self.evidence_index, records)
+        self.evidence_pin = acceptance.digest(self.evidence_index.read_bytes())  # Synthetic parent approval only.
 
     def test_allocation_import_requires_both_modes_profiles_and_positive_controls(self):
         inventory, _, manifest, pin = self.fixture(allocations=True)
         root, checks = self.checks_fixture(inventory, manifest, pin)
         with patch.object(acceptance, "load_manifest", return_value=checks):
-            evidence = acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+            evidence = acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, self.evidence_pin)
         self.assertEqual(evidence["status"], "qualified")
         self.assertEqual(len(evidence["executable_hashes"]), 8)
         self.assertIn("not absolute totals", evidence["scope"])
         self.assertNotIn("allocation_count", evidence)
         rows = (root / "results.jsonl").read_text().splitlines()
         (root / "results.jsonl").write_text("\n".join(row for row in rows if json.loads(row)["mode"] == "I") + "\n")
+        self.pin_checks(root)  # Approve the intentionally incomplete fixture, not an unpinned mutation.
         with patch.object(acceptance, "load_manifest", return_value=checks), self.assertRaisesRegex(ValueError, "allocation matrix"):
-            acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+            acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, self.evidence_pin)
 
     def test_allocation_import_rejects_old_pins_inert_controls_raw_tampering_and_mismatched_inventory(self):
         inventory, _, manifest, pin = self.fixture(allocations=True)
@@ -1092,11 +1101,337 @@ class CheckedDefaultMeasurementTests(unittest.TestCase):
                 row = next(r for r in rows if r["phase"] == "build" and r["profile"] == "release")
                 row["command"].remove("--release")
             (root / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            self.pin_checks(root)  # Independently exercise semantic rejection after identity validation.
             with self.subTest(mutation=mutation), patch.object(acceptance, "load_manifest", return_value=changed), self.assertRaises(ValueError):
-                acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+                acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, self.evidence_pin)
         (root / "input-inventory.json").write_text("{}")
+        self.pin_checks(root)
         with patch.object(acceptance, "load_manifest", return_value=checks), self.assertRaisesRegex(ValueError, "inventory"):
-            acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+            acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, self.evidence_pin)
+
+    def test_allocation_import_binds_parent_pin_files_and_all_eight_executables(self):
+        inventory, _, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        approved_pin = self.evidence_pin
+        paths = [root / n for n in ("validation.json", "input-inventory.json", "build-manifest.json", "result.json", "results.jsonl")]
+        paths += [root / m / p / n for m in ("C", "I") for p in ("debug", "release") for n in ("noalloc", "allocation-control")]
+        with patch.object(acceptance, "load_manifest", return_value=checks):
+            with self.assertRaisesRegex(ValueError, "parent-approved"):
+                acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+            evidence = acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, approved_pin)
+            self.assertEqual(evidence["approved_index"]["sha256"], approved_pin)
+            for path in paths:
+                original = path.read_bytes()
+                path.write_bytes(original + b"same-output replacement")
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, "identity mismatch"):
+                    acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, approved_pin)
+                path.write_bytes(original)
+            # Rewriting evidence AND its index cannot change the externally supplied approval.
+            (root / "result.json").write_text('{"passed":true,"dry_run":false,"rewritten":true}')
+            self.pin_checks(root)
+            with self.assertRaisesRegex(ValueError, "index pin mismatch"):
+                acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, approved_pin)
+
+    def test_allocation_import_rechecks_identities_after_semantic_read(self):
+        inventory, _, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        original = acceptance.classify
+        def mutate_after_check(*args):
+            result = original(*args)
+            (root / "C/debug/noalloc").write_bytes(b"same-output replacement")
+            return result
+        with patch.object(acceptance, "load_manifest", return_value=checks), \
+             patch.object(acceptance, "classify", side_effect=mutate_after_check), \
+             self.assertRaisesRegex(ValueError, "identity mismatch"):
+            acceptance.allocation_evidence(root, self.inputs, pin, manifest, self.evidence_index, self.evidence_pin)
+
+    def test_allocation_measure_finalization_rechecks_approved_index(self):
+        inventory, path, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        original = acceptance.verify_approved_files
+        calls = 0
+        def verify(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                self.evidence_index.write_text("[]")
+            return original(*args)
+        with patch.object(acceptance, "load_manifest", side_effect=lambda p, **kw: checks if Path(p).name == "build-manifest.json" and Path(p).parent == root else manifest), \
+             patch.object(acceptance, "verify_approved_files", side_effect=verify):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["allocation"], checks_evidence=root, checks_index=self.evidence_index, checks_index_sha256=self.evidence_pin))
+        result = json.loads((self.root / "out/result.json").read_text())
+        self.assertEqual(calls, 3)
+        self.assertEqual(result["phase_status"]["allocation"], "invalid-integrity")
+        self.assertIn("index pin mismatch", result["integrity_error"])
+        self.assertIsNone(result["statistics"])
+
+    def test_allocation_measure_finalization_rehashes_evidence_file_and_executable(self):
+        inventory, path, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        original = acceptance.verify_approved_files
+        for victim in (root / "result.json", root / "I/release/noalloc"):
+            saved = victim.read_bytes()
+            calls = 0
+            def verify(*args):
+                nonlocal calls
+                calls += 1
+                if calls == 3:
+                    victim.write_bytes(saved + b"late replacement")
+                return original(*args)
+            with self.subTest(victim=victim), \
+                 patch.object(acceptance, "load_manifest", side_effect=lambda p, **kw: checks if Path(p).parent == root else manifest), \
+                 patch.object(acceptance, "verify_approved_files", side_effect=verify), \
+                 patch.object(acceptance, "process_group", side_effect=AssertionError("native command")):
+                output = self.root / ("final-" + victim.name)
+                self.assertFalse(acceptance.measure(self.inputs, pin, path, output, allow_perf=True,
+                    phases=["allocation"], checks_evidence=root, checks_index=self.evidence_index, checks_index_sha256=self.evidence_pin))
+            result = json.loads((output / "result.json").read_text())
+            self.assertIn(str(victim), result["integrity_error"])
+            self.assertIsNone(result["statistics"])
+            self.assertEqual(result["phase_status"]["allocation"], "invalid-integrity")
+            victim.write_bytes(saved)
+
+    def test_role_value_only_normalizes_real_prefixes_preserving_types_order_and_tokens(self):
+        build = {"source_tree": "/owned/main", "target_dir": "/owned/main/target"}
+        values = ["/owned/main/src", "--remap-path-prefix=/owned/main=/src", "-Lnative=/owned/main/target/lib",
+                  "--flag=\"/owned/main/lib\"", "/owned/main/target", None, "", 7]
+        expected = ["<source_tree>/src", "--remap-path-prefix=<source_tree>=/src", "-Lnative=<target_dir>/lib",
+                    "--flag=\"<source_tree>/lib\"", "<target_dir>", None, "", 7]
+        self.assertEqual(acceptance.role_value(values, build), expected)
+        self.assertEqual(acceptance.role_value(list(reversed(values)), build), list(reversed(expected)))
+        self.assertEqual(acceptance.role_value("--target-dir /owned/main/target", build), "--target-dir <target_dir>")
+        for value in ("/external path /owned/main/lib", "--flag=\"/external path /owned/main/lib\""):
+            self.assertEqual(acceptance.role_value([value], build), [value])
+            self.assertEqual(acceptance.role_value(value, build), value)
+        for value in ("/external/owned/main/lib", "--flag=/external/owned/main/lib", "/external/key=/owned/main/lib",
+                      "--flag=/external/key=/owned/main/lib", "prefix/owned/main", "/owned/main-lookalike/lib", "x=/owned/main/lib",
+                      "/owned/main=not-owned/lib", "--flag=/owned/main=not-owned/lib", "/owned/main'not-owned",
+                      "/owned/main/../external", "--remap-path-prefix=/owned/main/..=/src", "--flag=/external\\ /owned/main/lib"):
+            with self.subTest(value=value):
+                self.assertEqual(acceptance.role_value(value, build), value)
+        for root in ("/", "//", "///"):
+            with self.subTest(root=root), self.assertRaises(ValueError):
+                acceptance.role_value("/external/lib", {"source_tree": root})
+        spaced = {"source_tree": "/owned main"}
+        self.assertEqual(acceptance.role_value(["/owned main/lib"], spaced), ["<source_tree>/lib"])
+        self.assertEqual(acceptance.role_value('--flag="/owned main/lib"', spaced), '--flag="<source_tree>/lib"')
+        _, path, manifest, _ = self.fixture()
+        for label in ("main", "candidate"):
+            manifest["builds"][label]["source_tree"] = "/owned/" + label
+            manifest["builds"][label]["rustflags"] = ["/external/owned/" + label + "/lib"]
+        acceptance.write_json(path, manifest)
+        with self.assertRaisesRegex(ValueError, "settings do not match"):
+            self.load_manifest(path, True)
+
+    def test_same_output_replacement_after_qualification_blocks_runtime_and_all_statistics(self):
+        inventory, path, manifest, pin = self.fixture()
+        original_validate = acceptance.validate
+        victim = self.root / "out/qualification/I/release/tight"
+        def replace_after_qualification(*args, **kwargs):
+            result = original_validate(*args, **kwargs)
+            victim.write_bytes(b"malicious constant-output executable; unchanged runtime oracle")
+            return result
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "validate", side_effect=replace_after_qualification), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=1, runtime_samples=2))
+        self.assertFalse(any(command[0] == str(victim) for command in self.timed_calls))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 60)
+        blocked = [r for r in rows if r["mode"] == "I"]
+        self.assertTrue(all(r["status"] == "blocked" for r in blocked))
+        self.assertTrue(all(str(victim) in r["qualified_artifact_hashes"] for r in rows if r["mode"] == "I"))
+        result = json.loads((self.root / "out/result.json").read_text())
+        self.assertIsNone(result["statistics"])
+        self.assertIn("identity mismatch", result["integrity_error"])
+        self.assertTrue(all(s == "invalid-integrity" for s in result["phase_status"].values()))
+
+    def test_artifact_change_during_last_runtime_sample_keeps_raw_row_but_invalidates_packet(self):
+        inventory, path, manifest, pin = self.fixture()
+        normal = self.simulator(inventory)
+        def mutate(command, env, timeout, timed=False):
+            row = normal(command, env, timeout, timed)
+            if timed and len(self.timed_calls) == 20:
+                Path(command[0]).write_bytes(b"same output replacement after last execution")
+            return row
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=mutate):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=1))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 20)
+        self.assertIn("stdout_base64", rows[-1])
+        self.assertEqual(rows[-1]["status"], "failed")
+        self.assertIn("artifact_integrity_error", rows[-1])
+        self.assertIsNone(json.loads((self.root / "out/result.json").read_text())["statistics"])
+
+    def test_compiler_sample_stream_contract_rejects_each_action_warmup_and_sample(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        for action in ("check", "object-debug", "aot-debug", "aot-release"):
+            for phase in ("warmup", "sample"):
+                for stream in ("stdout", "stderr"):
+                    output = self.root / (action + "-" + phase + "-" + stream)
+                    plan = acceptance.measurement_plan(self.inputs, pin, phases=["compiler"], compiler_warmups=1, compiler_samples=2)
+                    target = next(j for j in plan["jobs"] if j["action"] == action and j["phase"] == phase)
+                    normal = self.simulator(inventory)
+                    timed_index = 0
+                    def wrong_stream(command, env, timeout, timed=False):
+                        nonlocal timed_index
+                        row = normal(command, env, timeout, timed)
+                        if timed:
+                            job = plan["jobs"][timed_index]
+                            timed_index += 1
+                            # All jobs preceding the single corruption run;
+                            # later blocked jobs need no further injection.
+                            if job["id"] == target["id"]:
+                                row[stream] = "unexpected compiler output\n"
+                                row[stream + "_base64"] = base64.b64encode(row[stream].encode()).decode()
+                        return row
+                    with self.subTest(action=action, phase=phase, stream=stream), \
+                         patch.object(acceptance, "load_manifest", return_value=manifest), \
+                         patch.object(acceptance, "process_group", side_effect=wrong_stream):
+                        self.assertFalse(acceptance.measure(self.inputs, pin, path, output, allow_perf=True,
+                            phases=["compiler"], compiler_warmups=1, compiler_samples=2))
+                    rows = [json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()]
+                    self.assertEqual(len(rows), 96)
+                    failed = next(r for r in rows if r["id"] == target["id"])
+                    self.assertEqual(failed["status"], "failed")
+                    self.assertEqual(failed[stream], "unexpected compiler output\n")
+                    self.assertIn("compiler_stream_error", failed)
+                    self.assertTrue(any(r["status"] == "blocked" for r in rows))
+                    stats = json.loads((output / "result.json").read_text())["statistics"]
+                    group = next(g for g in stats["groups"] if g["family"] == target["family"] and g["case"] == action and g["mode"] == target["mode"])
+                    self.assertNotIn("wall_ns", group)
+
+    def test_compiler_stream_contract_must_be_established_outside_intervals(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        for action in ("check", "object-debug", "aot-debug", "aot-release"):
+            output = self.root / ("preflight-" + action)
+            normal = self.simulator(inventory)
+            def unexpected_preflight(command, env, timeout, timed=False):
+                row = normal(command, env, timeout, timed)
+                actual_action = ("check" if "--check" in command else "object-debug" if "--emit-object" in command else
+                                 "aot-release" if "--release" in command else "aot-debug")
+                if not timed and command[0] in {b["binary"] for b in manifest["builds"].values()} and actual_action == action:
+                    row.update(stderr="unexpected untimed compiler diagnostic\n", stderr_base64=base64.b64encode(b"unexpected untimed compiler diagnostic\n").decode())
+                return row
+            with self.subTest(action=action), patch.object(acceptance, "load_manifest", return_value=manifest), \
+                 patch.object(acceptance, "process_group", side_effect=unexpected_preflight):
+                self.assertFalse(acceptance.measure(self.inputs, pin, path, output, allow_perf=True,
+                    phases=["compiler"], compiler_warmups=0, compiler_samples=1))
+            rows = [json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()]
+            self.assertTrue(all(r["status"] == "blocked" for r in rows if r["action"] == action))
+            self.assertEqual(len(rows), 32)
+
+    def test_replaced_reference_object_blocks_every_dependent_compiler_action(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        normal = self.simulator(inventory)
+        victim = self.root / "out/reference/T/corpus-1000.o"
+        replaced = False
+        def replace_reference(command, env, timeout, timed=False):
+            nonlocal replaced
+            row = normal(command, env, timeout, timed)
+            if not timed and "--emit-object" in command and Path(command[-1]) != victim and victim.exists() and not replaced:
+                victim.write_bytes(b"replaced reference object")
+                replaced = True
+            return row
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=replace_reference):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["compiler"], compiler_warmups=0, compiler_samples=1))
+        self.assertTrue(replaced)
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertTrue(all(r["status"] == "blocked" for r in rows if r["mode"] == "T" and r["family"] == "corpus-1000"))
+        self.assertFalse(any(str(self.inputs / "T/corpus-1000.plenty") in command for command in self.timed_calls))
+        self.assertIsNone(json.loads((self.root / "out/result.json").read_text())["statistics"])
+
+    def test_same_output_new_AOT_replacement_cannot_pass_its_new_binary_oracle(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        plan = acceptance.measurement_plan(self.inputs, pin, phases=["compiler"], compiler_warmups=0, compiler_samples=1)
+        target = next(j for j in plan["jobs"] if j["action"] == "aot-debug")
+        victim = self.root / "out/work" / target["id"] / "program"
+        original_read = Path.read_bytes
+        replaced = False
+        def replace_after_hash_read(path):
+            nonlocal replaced
+            content = original_read(path)
+            if path == victim and not replaced:
+                path.write_bytes(b"same-output constant-only executable after snapshot")
+                replaced = True
+            return content
+        normal = self.simulator(inventory)
+        invoked = []
+        def runner(command, env, timeout, timed=False):
+            invoked.append(command)
+            return normal(command, env, timeout, timed)
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=runner), \
+             patch.object(Path, "read_bytes", replace_after_hash_read):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["compiler"], compiler_warmups=0, compiler_samples=1))
+        self.assertTrue(replaced)
+        self.assertFalse(any(command[0] == str(victim) for command in invoked))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        row = next(r for r in rows if r["id"] == target["id"])
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("artifact_identity", row)
+        self.assertEqual(row["stdout"], "")  # Original successful compiler streams retained.
+        self.assertIn("oracle_error", row)
+        self.assertIsNone(json.loads((self.root / "out/result.json").read_text())["statistics"])
+
+    def test_final_integrity_covers_prior_new_AOT_artifact_and_reference_object(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        plan = acceptance.measurement_plan(self.inputs, pin, phases=["compiler"], compiler_warmups=0, compiler_samples=1)
+        early = next(j for j in plan["jobs"] if j["action"] == "aot-debug")
+        for kind in ("new-AOT", "reference"):
+            output = self.root / kind
+            victim = (output / "work" / early["id"] / "program" if kind == "new-AOT" else output / "reference/T/corpus-1000.o")
+            normal = self.simulator(inventory)
+            def replace_at_end(command, env, timeout, timed=False):
+                row = normal(command, env, timeout, timed)
+                if timed and len(self.timed_calls) == len(plan["jobs"]):
+                    victim.write_bytes(b"same-output late replacement of earlier artifact")
+                return row
+            with self.subTest(kind=kind), patch.object(acceptance, "load_manifest", return_value=manifest), \
+                 patch.object(acceptance, "process_group", side_effect=replace_at_end):
+                self.assertFalse(acceptance.measure(self.inputs, pin, path, output, allow_perf=True,
+                    phases=["compiler"], compiler_warmups=0, compiler_samples=1))
+            rows = [json.loads(line) for line in (output / "samples.jsonl").read_text().splitlines()]
+            self.assertEqual(len(rows), 32)
+            self.assertTrue(all(r["status"] == "passed" for r in rows))
+            result = json.loads((output / "result.json").read_text())
+            self.assertIn(str(victim), result["integrity_error"])
+            self.assertEqual(result["phase_status"]["compiler"], "invalid-integrity")
+            self.assertIsNone(result["statistics"])
+
+    def test_new_compiler_artifacts_and_reference_objects_have_stable_recorded_identities(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        self.assertTrue(self.invoke(inventory, path, manifest, pin, phases=["compiler"]))
+        hashes = json.loads((self.root / "out/artifact-identities.json").read_text())
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        for row in rows:
+            self.assertEqual(len(row["qualified_artifact_hashes"]), 3)
+            self.assertTrue(all(hashes[p] == sha for p, sha in row["qualified_artifact_hashes"].items()))
+            if row["action"] != "check":
+                identity = row["artifact_identity"]
+                self.assertEqual(hashes[identity["path"]], identity["sha256"])
+                self.assertEqual(acceptance.digest(Path(identity["path"]).read_bytes()), identity["sha256"])
+                if row["action"].startswith("aot-"):
+                    self.assertEqual(row["oracle_scope"], "new AOT executable")
+
+    def test_elf_sizes_reject_out_of_file_executable_sections_and_incompatible_types(self):
+        path = self.root / "fixture.elf"
+        original = self.elf()
+        text_header = 64 + 2 * 64
+        for field_offset, format_, value in ((32, "Q", len(original) + 1), (24, "Q", len(original) - 1),
+                                            (24, "Q", len(original) + 20), (4, "I", 8), (4, "I", 3)):
+            data = bytearray(original)
+            struct.pack_into("<" + format_, data, text_header + field_offset, value)
+            path.write_bytes(data)
+            with self.subTest(offset=field_offset, value=value), self.assertRaisesRegex(ValueError, "exceeds file|incompatible"):
+                acceptance.elf_sizes(path)
 
     def test_missing_allocation_evidence_is_blocked_not_a_successful_phase(self):
         inventory, path, manifest, pin = self.fixture()

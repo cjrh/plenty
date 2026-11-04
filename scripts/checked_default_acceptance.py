@@ -410,16 +410,44 @@ MATCH_FIELDS = ("compiler_profile", "cargo_features", "cargo_flags", "rustflags"
 
 
 def role_value(value, build):
-    """Normalize only explicitly owned source/target paths, preserving types/order."""
-    if isinstance(value, list):
-        return [role_value(part, build) for part in value]
-    if isinstance(value, str):
-        paths = [(key, build[key]) for key in ("source_tree", "target_dir") if build.get(key) is not None]
-        if any(not isinstance(path, str) or not Path(path).is_absolute() or path == "/" for _, path in paths):
-            raise ValueError("owned role paths must be absolute non-root paths")
+    """Normalize owned path prefixes, not substrings; retain argv token boundaries."""
+    paths = [(key, build[key]) for key in ("source_tree", "target_dir") if build.get(key) is not None]
+    if any(not isinstance(path, str) or not Path(path).is_absolute() or not path.rstrip("/") for _, path in paths):
+        raise ValueError("owned role paths must be absolute non-root paths")
+
+    def path_token(token):
+        # Only a path word or a supported explicit flag-value prefix.
+        # '=' inside /external/key=/owned/root is not a flag boundary.
+        prefix = re.match(r"(?:(?:--[A-Za-z0-9_-]+=)|(?:-L(?:(?:native|dependency|framework)=)?))?[\"']?", token)
+        start = prefix.end()
+        path_value = token[start:]
+        if "\\" in token:  # Do not guess ownership through escaped spellings.
+            return token
+        if start and token[start - 1] in "\"'":
+            if not path_value.endswith(token[start - 1]):
+                return token
+            path_value = path_value[:-1]
+        if token.startswith("--remap-path-prefix="):
+            path_value = path_value.split("=", 1)[0]
+        if ".." in Path(path_value).parts:
+            return token  # A lexical prefix can escape its purported owner.
         for key, path in sorted(paths, key=lambda item: len(item[1]), reverse=True):
-            value = re.sub(re.escape(path.rstrip("/")) + r"(?=$|[/\s=\"'])", "<" + key + ">", value)
-    return value
+            path = path.rstrip("/")
+            if path_value == path or path_value.startswith(path + "/"):
+                return token[:start] + "<" + key + ">" + token[start + len(path):]
+        return token
+
+    def normalize(part, argv_token=False):
+        if isinstance(part, list):
+            return [normalize(word, True) for word in part]
+        if isinstance(part, str):
+            if argv_token or part.startswith("/"):
+                return path_token(part)
+            # Preserve quoted groups and whitespace verbatim in flag strings.
+            return re.sub(r'''(?:\\.|[^\s\\'\"]+|'[^']*'|"(?:\\.|[^"\\])*")+''', lambda match: path_token(match.group(0)), part)
+        return part
+
+    return normalize(value)
 
 
 def load_manifest(path, measurement=False):
@@ -498,6 +526,8 @@ def load_inventory(root):
 
 def classify(row, expected, source):
     code, stdout, stderr = row["returncode"], row["stdout"], row["stderr"]
+    if row.get("artifact_integrity_error"):
+        return "integrity-error"
     if row.get("spawn_error"):
         return "spawn-error"
     if row.get("timeout"):
@@ -612,7 +642,7 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                         record(dict(row, command=command, classification="not-run"))
                         continue
                     result = run(command, env, timeout)
-                    okay = result["returncode"] == 0 and not result["timeout"]
+                    okay = result["returncode"] == 0 and not result["timeout"] and not result.get("artifact_integrity_error")
                     record(dict(row, **result, classification="passed" if okay else phase + "-failed"))
                     if not okay:
                         passed, ready = False, False
@@ -842,7 +872,13 @@ def elf_sizes(path):
             raise ValueError("malformed ELF name")
         return table[index:table.index(b"\0", index)].decode("utf-8", errors="replace")
     names = content(sections[names_index])
-    executable = [{"name": name(names, section[0]), "bytes": section[5]} for section in sections if section[2] & 4]
+    executable = []
+    for section in sections:
+        if section[2] & 4:
+            if section[1] != 1:  # Executable bytes must be file-backed PROGBITS.
+                raise ValueError("incompatible ELF executable section type")
+            content(section)  # Validate even sections not otherwise decoded.
+            executable.append({"name": name(names, section[0]), "bytes": section[5]})
     if not executable:
         raise ValueError("ELF has no executable sections")
     symbols = []
@@ -868,9 +904,42 @@ def elf_sizes(path):
             "executable_section_bytes": sum(s["bytes"] for s in executable), "source_function_symbols": symbols}
 
 
-def allocation_evidence(directory, inputs, inventory_hash, perf_manifest):
-    """Import actual marker/control outcomes, not alleged absolute allocations."""
+def verify_approved_files(index_path, approved_sha256, paths):
+    """The approval hash is supplied by the parent, never derived as approval."""
+    if not index_path or not re.fullmatch(r"[0-9a-f]{64}", approved_sha256 or ""):
+        raise ValueError("parent-approved evidence index path and SHA256 are required")
+    data = Path(index_path).read_bytes()
+    if digest(data) != approved_sha256:
+        raise ValueError("approved evidence index pin mismatch")
+    records = json.loads(data)
+    if not isinstance(records, list):
+        raise ValueError("approved evidence index must be a path-record list")
+    identities = {}
+    for record in records:
+        path = record["path"]
+        if not Path(path).is_absolute() or path in identities:
+            raise ValueError("ambiguous approved evidence paths")
+        identities[path] = record
+    verified = {}
+    for path in paths:
+        path = str(Path(path).absolute())
+        record = identities.get(path)
+        if record is None or not re.fullmatch(r"[0-9a-f]{64}", record.get("sha256", "")):
+            raise ValueError("file missing from approved evidence index: " + path)
+        content = Path(path).read_bytes()
+        if digest(content) != record["sha256"] or len(content) != record["size_bytes"]:
+            raise ValueError("approved evidence file identity mismatch: " + path)
+        verified[path] = record["sha256"]
+    return verified
+
+
+def allocation_evidence(directory, inputs, inventory_hash, perf_manifest, index_path=None, index_sha256=None):
+    """Import marker outcomes bound to an independently pinned approved index."""
     root = Path(directory).resolve()
+    file_names = ("validation.json", "input-inventory.json", "build-manifest.json", "result.json", "results.jsonl")
+    paths = [root / name for name in file_names] + [root / mode / profile / name
+            for mode in ("C", "I") for profile in ("debug", "release") for name in ("noalloc", "allocation-control")]
+    approved = verify_approved_files(index_path, index_sha256, paths)
     metadata = json.loads((root / "validation.json").read_text())
     inventory = pinned_inventory(inputs, inventory_hash)
     if metadata["inventory_sha256"] != inventory_hash or digest((root / "input-inventory.json").read_bytes()) != inventory_hash:
@@ -924,7 +993,7 @@ def allocation_evidence(directory, inputs, inventory_hash, perf_manifest):
             if executable.resolve() in resolved_artifacts:
                 raise ValueError("aliased allocation executable artifacts")
             resolved_artifacts.add(executable.resolve())
-            artifacts[str(executable)] = digest(executable.read_bytes())
+            artifacts[str(executable)] = approved[str(executable)]
             for expected in entry["cases"]:
                 actual = [r for r in group if r["phase"] == "runtime" and r.get("case") == expected["name"]]
                 if len(actual) != 1 or actual[0]["command"] != [str(executable), *expected["args"]]:
@@ -938,15 +1007,16 @@ def allocation_evidence(directory, inputs, inventory_hash, perf_manifest):
     required = {(mode, name) for mode in ("C", "I") for name in ("noalloc", "allocation-control")}
     if {(e["mode"], Path(e["source"]).stem) for e in inventory["entries"] if e["requires_runtime_checks"]} != required:
         raise ValueError("allocation source/control coverage incomplete")
+    verify_approved_files(index_path, index_sha256, paths)
     return {"status": "qualified", "scope": "zero/nonzero successful calling-thread allocations; not absolute totals",
-            "source": str(root), "files": {name: digest((root / name).read_bytes()) for name in
-            ("validation.json", "input-inventory.json", "build-manifest.json", "result.json", "results.jsonl")},
-            "executable_hashes": artifacts}
+            "source": str(root), "approved_index": {"path": str(Path(index_path).resolve()), "sha256": index_sha256},
+            "files": {name: approved[str(root / name)] for name in file_names}, "executable_hashes": artifacts}
 
 
 def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, dry_run=False,
             phases=None, families=None, runtime_warmups=5, runtime_samples=30, compiler_warmups=3, compiler_samples=15,
-            timeout=300, objdump="objdump", readelf="readelf", time_tool="/usr/bin/time", checks_evidence=None):
+            timeout=300, objdump="objdump", readelf="readelf", time_tool="/usr/bin/time", checks_evidence=None,
+            checks_index=None, checks_index_sha256=None):
     if not allow_perf:
         raise ValueError("measurement requires --allow-perf")
     if resource is None:
@@ -966,8 +1036,10 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
             key not in ("COMPILER_PATH", "PLENTY_LINKER_THREADS", "PATH") or
             (value is not None and not isinstance(value, str)) for key, value in environment.items()):
         raise ValueError("explicit execution_environment needs genuine linker settings (optional PATH)")
-    allocation = (allocation_evidence(checks_evidence, inputs, inventory_sha256, manifest) if checks_evidence else
-                  {"status": "blocked", "reason": "no authentic matching checks-run evidence supplied"})
+    if not checks_evidence and (checks_index is not None or checks_index_sha256 is not None):
+        raise ValueError("approved index needs checks evidence")
+    allocation = (allocation_evidence(checks_evidence, inputs, inventory_sha256, manifest, checks_index, checks_index_sha256)
+                  if checks_evidence else {"status": "blocked", "reason": "no authentic matching checks-run evidence supplied"})
     root = fresh_directory(output)
     inventory = pinned_inventory(inputs, inventory_sha256)
     entries = {e["source"]: e for e in inventory["entries"] if e["source"] in plan["selected_sources"]}
@@ -990,6 +1062,52 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
                "load": list(os.getloadavg()), "quiet_machine_approved": True,
                "policy": "read-only inventory; no CPU/affinity/ASLR/governor changes; OS caches not flushed"})
     ready, references, code_results, sample_rows = {}, {}, [], []
+    artifact_hashes, artifact_errors, compiler_contracts = {}, [], {}
+
+    def bind_artifact(path):
+        key = str(path)
+        sha256 = digest(Path(path).read_bytes())
+        if key in artifact_hashes and artifact_hashes[key] != sha256:
+            raise ValueError("bound artifact changed: " + key)
+        artifact_hashes[key] = sha256
+        return {"path": key, "sha256": sha256}
+
+    def verify_artifacts(paths):
+        for path in paths:
+            if str(path) not in artifact_hashes or digest(Path(path).read_bytes()) != artifact_hashes[str(path)]:
+                raise ValueError("bound artifact identity mismatch: " + str(path))
+
+    def integrity_failure(command, error):
+        message = str(error)
+        artifact_errors.append(message)
+        return dict(command=command, returncode=None, timeout=False, spawn_error=None,
+                    stdout="", stderr="", stdout_base64="", stderr_base64="",
+                    artifact_integrity_error=message)
+
+    def qualified_command(command, child_env, limit):
+        dependencies = [arg for arg in command if arg in artifact_hashes]
+        try:
+            verify_artifacts(dependencies)
+        except (OSError, ValueError) as error:
+            return integrity_failure(command, error)
+        row = process_group(command, child_env, limit)
+        try:
+            verify_artifacts(dependencies)
+            if "--compile" in command and row["returncode"] == 0 and not row["timeout"] and not row["spawn_error"]:
+                row["artifact_identity"] = bind_artifact(Path(command[command.index("-o") + 1]))
+            row["input_artifact_hashes"] = {path: artifact_hashes[path] for path in dependencies}
+        except (OSError, ValueError) as error:
+            artifact_errors.append(str(error))
+            row["artifact_integrity_error"] = str(error)
+        return row
+
+    # These invocations have no approved diagnostic output on success. Confirm
+    # that exact raw contract in untimed qualification before using it in jobs.
+    compiler_stream_contract = {field: "" for field in ("stdout", "stderr", "stdout_base64", "stderr_base64")}
+
+    def compiler_streams_match(row):
+        return all(row.get(field) == expected for field, expected in compiler_stream_contract.items())
+
     with (root / "commands.jsonl").open("x", encoding="utf-8") as commands, (root / "samples.jsonl").open("x", encoding="utf-8") as samples:
         def record(row, sample=False):
             # A nonzero command exit can be an expected trap outcome. Keep
@@ -1007,8 +1125,21 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
             else:
                 actual = ([time_tool, "-q", "-f", "%U %S %M %w %c", "-o", str(resource_file), *command]
                           if resource_file else command)
+                dependencies = [arg for arg in command if arg in artifact_hashes]
+                try:
+                    verify_artifacts(dependencies)
+                except (OSError, ValueError) as error:
+                    row = dict(integrity_failure(actual, error), **context, status="blocked")
+                    record(row)
+                    return row
                 row = dict(process_group(actual, env, timeout, timed=timed), **context)
-                row["status"] = "passed" if row["returncode"] == 0 and not row["timeout"] and not row["spawn_error"] else "failed"
+                row["input_artifact_hashes"] = {path: artifact_hashes[path] for path in dependencies}
+                try:
+                    verify_artifacts(dependencies)
+                except (OSError, ValueError) as error:
+                    artifact_errors.append(str(error))
+                    row["artifact_integrity_error"] = str(error)
+                row["status"] = "passed" if row["returncode"] == 0 and not row["timeout"] and not row["spawn_error"] and not row.get("artifact_integrity_error") else "failed"
                 if resource_file and row["status"] == "passed":
                     try:
                         row.update(gnu_time_metrics(resource_file), compiler_command=command,
@@ -1023,7 +1154,7 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
             # every exact oracle and native retention gates, without timing it.
             validate(inputs, manifest_path, root / "qualification", dry_run, timeout,
                      sorted({Path(e["source"]).stem for e in entries.values()}), None, objdump,
-                     runner=process_group, child_environment=env)
+                     runner=qualified_command, child_environment=env)
             qualifications = [json.loads(line) for line in (root / "qualification/results.jsonl").read_text().splitlines()]
             for entry in entries.values():
                 for profile in ("debug", "release"):
@@ -1031,6 +1162,13 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
                     ready[entry["source"], profile] = dry_run or (
                         len([r for r in group if r["phase"] == "runtime"]) == len(entry["cases"]) and
                         all(r["classification"] in ("passed", "retained-call") or r["classification"].startswith("expected-") for r in group))
+                    for phase, action in (("check", "check"), ("build", "aot-" + profile)):
+                        observations = [r for r in group if r["phase"] == phase]
+                        contract_ready = dry_run or (len(observations) == 1 and observations[0]["classification"] == "passed" and compiler_streams_match(observations[0]))
+                        compiler_contracts[entry["source"], action] = compiler_contracts.get((entry["source"], action), True) and contract_ready
+                        record(dict(phase="compiler-stream-contract", source=entry["source"], mode=entry["mode"],
+                                    profile=profile, action=action, expected=compiler_stream_contract,
+                                    status="not-run" if dry_run else "passed" if contract_ready else "blocked"))
         for entry in entries.values():
             source = str(inputs / entry["source"])
             mode, family = entry["mode"], Path(source).stem
@@ -1043,10 +1181,21 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
                     record(dict(context, status="blocked", reason="qualification failed"))
                 else:
                     row = run([compiler, "--emit-object", source, "-o", str(artifact)], context)
-                    if dry_run or row["status"] == "passed" and artifact.is_file():
+                    if dry_run or row["status"] == "passed" and artifact.is_file() and compiler_streams_match(row):
                         references[entry["source"]] = artifact
+                        compiler_contracts[entry["source"], "object-debug"] = True
+                        if not dry_run:
+                            try:
+                                identity = bind_artifact(artifact)
+                                record(dict(context, phase="reference-object-identity", artifact_identity=identity, status="passed"))
+                            except (OSError, ValueError) as error:
+                                artifact_errors.append(str(error))
+                                ready[entry["source"], "debug"] = False
+                                record(dict(context, phase="reference-object-identity", status="failed", artifact_integrity_error=str(error)))
                     else:
                         ready[entry["source"], "debug"] = False
+                        record(dict(context, phase="compiler-stream-contract", action="object-debug",
+                                    expected=compiler_stream_contract, status="blocked"))
             if "code" in plan["phases"]:
                 context = dict(phase="code", source=entry["source"], mode=mode)
                 if not all(ready.get((entry["source"], p)) for p in ("debug", "release")) or entry["source"] not in references:
@@ -1069,7 +1218,16 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
                     try:
                         if any(r["status"] != "passed" for r in results):
                             raise ValueError("native/IR extraction command failed")
+                        try:
+                            verify_artifacts([executable, references[entry["source"]]])
+                        except (OSError, ValueError) as error:
+                            artifact_errors.append(str(error))
+                            raise
                         item.update(optimized_linked_ELF=elf_sizes(executable), debug_application_object=elf_sizes(references[entry["source"]]))
+                        if (item["optimized_linked_ELF"]["sha256"] != artifact_hashes[str(executable)] or
+                                item["debug_application_object"]["sha256"] != artifact_hashes[str(references[entry["source"]])]):
+                            artifact_errors.append("code extraction artifact identity mismatch")
+                            raise ValueError(artifact_errors[-1])
                         symbol = "__plenty_fn_" + primary
                         if symbol not in {s["name"] for s in item["optimized_linked_ELF"]["source_function_symbols"]} or ("<" + symbol + ">:") not in results[2]["stdout"]:
                             raise ValueError("primary native function extraction missing")
@@ -1091,18 +1249,37 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
             mode, family = job["mode"], job["family"]
             key = (job["stage"], job["source"], job["case"])
             required = ("release",) if job["stage"] == "runtime" else ("debug", "release")
+            dependencies = [root / "qualification" / mode / profile / family for profile in required]
+            if job["stage"] == "compiler" and entry["source"] in references:
+                dependencies.append(references[entry["source"]])
+            if not dry_run:
+                job = dict(job, qualified_artifact_hashes={str(path): artifact_hashes.get(str(path)) for path in dependencies})
             if key in blocked_groups or not all(ready.get((entry["source"], p)) for p in required):
                 record(dict(job, status="blocked", reason="prior sample or qualification/extraction failure"), sample=True)
                 continue
             directory = root / "work" / job["id"]
             directory.mkdir(parents=True)
             prepared = root / "qualification" / mode / "release" / family
+            if job["stage"] == "compiler":
+                if not compiler_contracts.get((entry["source"], job["action"])):
+                    blocked_groups.add(key)
+                    record(dict(job, status="blocked", reason="untimed compiler stream contract unavailable"), sample=True)
+                    continue
+            if not dry_run:
+                try:
+                    verify_artifacts(dependencies)
+                except (OSError, ValueError) as error:
+                    artifact_errors.append(str(error))
+                    blocked_groups.add(key)
+                    record(dict(job, status="blocked", artifact_integrity_error=str(error)), sample=True)
+                    continue
             if job["stage"] == "runtime":
                 expected = next(c for c in entry["cases"] if c["name"] == job["case"])
                 row = run([str(prepared), *expected["args"]], job, timed=True)
                 if not dry_run:
                     row["classification"] = classify(row, expected, source)
-                    row["status"] = "passed" if row["classification"].startswith("expected-") else "failed"
+                    if row["status"] != "blocked":
+                        row["status"] = "passed" if row["classification"].startswith("expected-") else "failed"
             else:
                 compiler = manifest["builds"]["main" if mode in ("T", "C") else "candidate"]["binary"]
                 artifact = directory / ("program.o" if job["action"] == "object-debug" else "program")
@@ -1111,10 +1288,25 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
                            [compiler, "--emit-object", source, "-o", str(artifact)] if action == "object-debug" else
                            [compiler] + (["--release"] if action == "aot-release" else []) + ["--no-cache", "--no-strip", "--compile", source, "-o", str(artifact)])
                 row = run(command, job, timed=True, resource_file=directory / "resources.txt")
+                if not dry_run:
+                    row["compiler_stream_contract"] = compiler_stream_contract
+                    if row["status"] == "passed" and not compiler_streams_match(row):
+                        row.update(status="failed", compiler_stream_error="unexpected raw compiler stdout/stderr")
+                    try:
+                        verify_artifacts(dependencies)
+                    except (OSError, ValueError) as error:
+                        artifact_errors.append(str(error))
+                        row.update(status="failed", artifact_integrity_error=str(error))
+                    if action != "check" and (row["status"] == "passed" or artifact.is_file()):
+                        try:
+                            row["artifact_identity"] = bind_artifact(artifact)
+                        except (OSError, ValueError) as error:
+                            artifact_errors.append(str(error))
+                            row.update(status="failed", artifact_integrity_error=str(error))
                 if not dry_run and row["status"] == "passed":
                     try:
                         if action == "object-debug":
-                            if digest(artifact.read_bytes()) != digest(references[entry["source"]].read_bytes()):
+                            if row["artifact_identity"]["sha256"] != artifact_hashes[str(references[entry["source"]])]:
                                 raise ValueError("sample object differs from untimed reference object")
                         verifier = artifact if action.startswith("aot-") else root / "qualification" / mode / "debug" / family
                         row["oracle_scope"] = "new AOT executable" if action.startswith("aot-") else "fixed-source preflight executable; object samples additionally require byte identity"
@@ -1135,7 +1327,21 @@ def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, d
             raise ValueError("build manifest changed during measurement")
         load_manifest(manifest_path, measurement=True)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
-        integrity_error = str(error)
+        artifact_errors.append(str(error))
+    # Recheck independent identities even when a different integrity guard failed.
+    try:
+        verify_artifacts(artifact_hashes)
+    except (ValueError, OSError) as error:
+        artifact_errors.append(str(error))
+    if allocation["status"] == "qualified":
+        try:
+            verify_approved_files(allocation["approved_index"]["path"], allocation["approved_index"]["sha256"],
+                                  [Path(allocation["source"]) / name for name in allocation["files"]] + list(allocation["executable_hashes"]))
+        except (ValueError, OSError) as error:
+            artifact_errors.append(str(error))
+    if artifact_errors:
+        integrity_error = "; ".join(artifact_errors)
+    write_json(root / "artifact-identities.json", artifact_hashes)
     phase_status = {}
     for phase in plan["phases"]:
         if dry_run:
@@ -1189,6 +1395,8 @@ def main(argv=None):
             command.add_argument("--allow-perf", action="store_true")
             command.add_argument("--build-manifest", required=True, type=Path)
             command.add_argument("--checks-evidence", type=Path)
+            command.add_argument("--checks-index", type=Path, help="independently approved artifact identity index")
+            command.add_argument("--checks-index-sha256", help="parent-supplied approval pin, not a self-computed approval")
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--timeout", type=int, default=300)
             command.add_argument("--objdump", default="objdump")
@@ -1213,7 +1421,8 @@ def main(argv=None):
                 return 0 if measure(args.inputs, args.inventory_sha256, args.build_manifest, args.output,
                                     allow_perf=args.allow_perf, dry_run=args.dry_run, timeout=args.timeout,
                                     objdump=args.objdump, readelf=args.readelf, time_tool=args.time_tool,
-                                    checks_evidence=args.checks_evidence, **options) else 1
+                                    checks_evidence=args.checks_evidence, checks_index=args.checks_index,
+                                    checks_index_sha256=args.checks_index_sha256, **options) else 1
     except (ValueError, OSError, KeyError, TypeError, struct.error, subprocess.CalledProcessError) as error:
         parser.exit(2, f"error: {error}\n")
     return 0
