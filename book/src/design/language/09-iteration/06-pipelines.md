@@ -401,7 +401,8 @@ input length and the count, never on scheduling.
 | `try_collect()` on `Result[U, E]` items | `Result[list[U], ParallelError[E \| AllocError]]` |
 | `count()` | `Result[i64, PoolMapError]` |
 | `any(keep)`, `all(keep)`; `any()`, `all()` on `bool` items | `Result[bool, PoolMapError]` |
-| `sum()` | `Result[T, PoolMapError]` for numeric items |
+| `sum()` on integer items | `Result[T, PoolMapError \| OverflowError[T]]` |
+| `sum()` on float items | `Result[T, PoolMapError]` |
 | `min()`, `max()` | `Result[Option[T], PoolMapError]` |
 | `reduce(f)` | `Result[Option[T], PoolMapError]` |
 
@@ -412,12 +413,21 @@ allocation failure inside a worker is reported as
 without a predicate test `bool` items. `any` and `all` evaluate every chunk;
 there is no early stop across chunks.
 
-`sum` adds each chunk serially, then adds the chunk totals in input order.
-Integer sums match the serial `sum`, including its overflow behavior: the
-program traps with `integer overflow` at the terminal whenever any running
-total of the serial left-to-right sum would leave the type's range. A
-floating-point sum can differ from the serial sum, since chunk totals regroup
-the additions; it is deterministic for a given input length and chunk count.
+Integer `sum` retains each chunk's mapped numeric values, waits for the jobs
+to finish, then adds the values serially in input order. It returns the first
+`OverflowError[T]`, with the exact `wrapped` result of the failing addition,
+whenever the serial left-to-right running total would leave the type's range.
+Later cancellation does not erase an overflow; an incoming negative total can
+rescue a prefix that would overflow if its chunk started at zero. This ordinary
+`Result` contract is independent of the caller's default, `checked:` or
+`unchecked:` mode. Map and filter callbacks are not replayed to find the error;
+on a successful mapping pass each runs exactly once per item reaching it.
+Allocation or submission failure can prevent some items from being visited.
+
+Floating-point `sum` adds each chunk serially, then adds the chunk totals in
+input order, preserving IEEE behavior (including infinity and NaN). It can
+differ from the serial sum, since chunk totals regroup the additions; it is
+deterministic for a given input length and chunk count.
 With the default count, a different pool size can change the result; pass
 `chunks=N` when the same answer is needed from any pool.
 
@@ -425,7 +435,7 @@ With the default count, a different pool size can change the result; pass
 order, so they equal the serial results: the first NaN in input order wins,
 and `-0.0` is less than `0.0`. Empty input gives `Nothing`.
 
-`reduce(f)` takes a named function `(T, T) -> T`. Like `sum`, it reduces each
+`reduce(f)` takes a named function `(T, T) -> T`. Like float `sum`, it reduces each
 chunk serially, left to right, on its worker, then reduces the chunk results in
 input order, skipping chunks with no items; empty input gives `Nothing`. No list
 of all items is built. The result is deterministic for a given input length and
@@ -433,14 +443,21 @@ chunk count, but it can differ from the serial left fold when `f` is not
 associative, and with the default count a different pool size can change it.
 Code that needs one grouping for any pool or chunk count can collect the items
 and use [`pool.reduce_tree`](../../facilities/03-concurrency/parallel-reduce.md),
-whose fixed adjacent-pair tree does not depend on the worker count.
+whose fixed adjacent-pair tree does not depend on the worker count. Fallible
+`reduce` / `reduce_tree` callbacks are not supported by this integer-sum contract.
 
 **Errors and order.** Every terminal reports `PoolMapError.Shutdown` for a
 closed pool and `PoolMapError.Allocation` when chunk storage or job submission
 cannot allocate. Callbacks may run in any order and on any worker. Every
 submitted chunk finishes before the terminal returns, on success, on a callback
 error and after a failed submission; this is what lets chunks read the source's
-rows without owning them. Partial outputs and captures are dropped once.
+rows without owning them. Integer sum overflow is checked only after that
+mapping pass has drained. Partial outputs and captures are dropped once.
+
+Enumeration index overflow remains a deliberate `integer overflow` process
+trap, as in serial `enumerate`, even in a `checked:` caller. It is not a
+recoverable integer-sum overflow: an arbitrary enumeration start can overflow
+while splitting chunks or advancing their indices.
 
 Arguments are evaluated in written order, as in a serial pipeline: the source,
 the `enumerate` start, the pool and `chunks` arguments of `par`, then each later
@@ -448,11 +465,16 @@ step's value or callback captures and the terminal's arguments, left to right.
 The pool stays borrowed until the terminal returns, so a later argument cannot
 move it.
 
-**Cost.** Splitting a list or range allocates one small list of chunk bounds;
-no item is copied or moved on the calling thread. Each chunk is one pool job,
+**Cost.** Splitting a list or range allocates one small list of chunk bounds
+without copying the source's rows. Each chunk is one pool job,
 and its worker reads the items from the source's rows. Collecting terminals allocate one
 output list per chunk, then append each chunk's storage to one reserved result
-list. `reduce` allocates nothing beyond the chunk lists and the jobs.
+list. Integer `sum` also allocates a numeric output list per chunk and retains
+all surviving mapped values until the ordered addition pass; this uses O(n)
+temporary numeric storage, not just O(chunks) totals. It does not build a
+flattened list. The scalar additions themselves allocate nothing, but the
+parallel terminal is allocating and fallible. Float `sum` and `reduce` allocate
+nothing beyond the chunk lists and the jobs.
 
 Each chunk is still a pool job, so with fewer than a few thousand cheap items
 the job overhead exceeds the work. See the
@@ -460,7 +482,8 @@ the job overhead exceeds the work. See the
 
 ## Cost
 
-The pipeline itself adds no heap allocation or per-adapter generator frame.
+A local (non-parallel) pipeline itself adds no heap allocation or per-adapter
+generator frame.
 Source expressions, callbacks, and destructors retain their own costs. A
 generator source still pays its normal resume cost. Collecting reserves once
 for a known-length range or list pipeline containing only `map`, `take`,
