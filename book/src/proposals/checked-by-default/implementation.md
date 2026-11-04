@@ -191,6 +191,16 @@ second-key failure, skipped callbacks, exact payload/drop counts and normal/rele
 storage-layout checks. The pre-repair native probes happened to print correctly;
 the discriminating failure was structural, so no reproduced crash is claimed.
 The fresh integrated whole gate and measurements remain pending.
+
+Untimed native execution of the initial acceptance harness completed 110 builds
+and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
+planned cases remained blocked. Reviewed harness corrections fix the corpus
+error union and add honest mode selection. Shared Unit checked-suite validation
+(issue #712) and unequal optimized leaf-call retention remain blockers; neither
+failed checks nor inlined work qualify as completed four-mode measurements.
+The authorized comparison baseline will be a new fork of pinned main with the
+same independently reviewed #712 repair as the candidate, explicitly labelled
+“main + #712 fix.” Original pins and failed-probe records remain unchanged.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
