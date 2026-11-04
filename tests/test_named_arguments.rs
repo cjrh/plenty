@@ -589,3 +589,36 @@ def main() -> Result[(), IoError]:
         "default\nunchecked\nchecked\n-9223372036854775808\n-9223372036854775808\n-9223372036854775808\n",
     );
 }
+
+#[test]
+fn whole_initializer_output_parameter_survives_inferred_named_default_wrappers() {
+    native(
+        r#"
+enum Problem:
+    Refused
+class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+type Init = Result[(), Problem]
+def refuse() -> Result[i64, Problem]:
+    Err(Problem.Refused)
+class C[R]:
+    value: i64
+    def __init__(self, contract: &R, given: Guard, prior: Guard = Guard("default"), value: i64 = refuse()?) -> R:
+        print("init").unwrap()
+        self.value = value
+        Ok(())
+def main() -> Result[(), IoError]:
+    contract: Init = Ok(())
+    result: Result[C[Init], Problem] = C(given=Guard("supplied"), contract=&contract)
+    print(result.is_err())?
+    value: Result[C[Init], Problem] = C(value=9, given=Guard("success"), contract=&contract)
+    print(value.unwrap().value)?
+    direct = C[Init].new(contract=&contract, given=Guard("explicit"), value=10)
+    print(direct.unwrap().value)?
+    Ok(())
+"#,
+        "default\nsupplied\nTrue\ninit\ndefault\nsuccess\n9\ninit\ndefault\nexplicit\n10\n",
+    );
+}

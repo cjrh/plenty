@@ -529,3 +529,57 @@ def main() -> Result[(), IoError]:
         );
     }
 }
+
+#[test]
+fn whole_output_parameters_preserve_affine_errors_in_inline_and_native_calls() {
+    for large in [false, true] {
+        let padding = if large {
+            "        self.value = 0\n".repeat(80)
+        } else {
+            String::new()
+        };
+        let source = format!(
+            r#"class Payload:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+type Init = Result[(), Payload]
+class Refused[R]:
+    value: i64
+    def __init__(self, error: Payload) -> R:
+{padding}        return Err(error)
+    def __del__(self) -> ():
+        print("unexpected outer hook").unwrap()
+def build(error: Payload) -> Result[Refused[Init], Payload]:
+    Refused[Init].new(error)
+def main() -> Result[(), IoError]:
+    result = build(Payload("payload"))
+    print("returned")?
+    drop(result)
+    Ok(())
+"#
+        );
+        for args in [&[][..], &["--release"][..]] {
+            let (status, stdout, stderr) = run(&source, args);
+            assert_eq!(status, Some(0), "{stderr}");
+            assert_eq!(stdout, "returned\npayload\n");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("p.plenty"), source).unwrap();
+        let output = plenty(
+            dir.path(),
+            &["--release", "--dump", "asm", "p.plenty", "-o", "out"],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let called = calls(dir.path(), "build ");
+        assert_eq!(
+            called.iter().any(|name| name.contains("Refused[")),
+            large,
+            "{called:?}"
+        );
+    }
+}

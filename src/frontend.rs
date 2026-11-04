@@ -138,6 +138,13 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == classes::CONSTRUCTOR_RESULT {
+            let [initializer, instance] = self.args.as_slice() else {
+                return Err(self.at.error("__init__ must return () or Result[(), E]"));
+            };
+            return classes::constructor_output(initializer, instance.clone(), aliases)?
+                .resolve(aliases);
+        }
         if name == "|" {
             let members = self
                 .args

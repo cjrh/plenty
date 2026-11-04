@@ -34,6 +34,10 @@ Storage itself allocates nothing, so construction does not add `AllocError`.
 Initializer operations and parameter defaults must declare or explicitly map
 their actual errors into `E`, including allocation failures when applicable.
 `__del__` and `__exit__` still require `()`; cleanup cannot propagate failure.
+Class parameters in an initializer output, including a parameter naming the
+whole Result, are substituted before validating that output. Unit class type
+arguments remain unsupported; a concrete unit alias can still name an
+initializer output in an otherwise valid generic class.
 Fields may contain classes, enums, tuples, collections, and resolved owned
 closures, but not references, generators, or unit.
 

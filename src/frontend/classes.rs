@@ -280,6 +280,10 @@ fn statement(at: &Token, kind: Statement) -> Stmt {
     }
 }
 
+/// Internal type projection: spaces and angle brackets cannot form a source
+/// type identifier. Substitution visits both operands before it is resolved.
+pub(super) const CONSTRUCTOR_RESULT: &str = "<constructor result>";
+
 /// Generic factory headers keep the written error parameter for substitution;
 /// resolving it here would erase parameters before the class is specialized.
 /// A named alias of the whole initializer result is already concrete.

@@ -314,3 +314,147 @@ def main() -> Result[(), IoError]:
         "Plain[i64](value=1) Plain[bool](value=True)\nChecked[i64](value=2) Checked[i64](value=3) Checked[i64](value=4)\nTrue\n",
     );
 }
+
+#[test]
+fn whole_initializer_output_parameters_specialize_before_constructor_values() {
+    assert_stdout(
+        r#"
+type Init = Result[(), AllocError]
+type InitAlias = Init
+type R = i64
+class C[R]:
+    value: i64
+    def __init__(self, value: i64) -> R:
+        self.value = value
+        Ok(())
+def relay[Q](value: i64) -> Result[C[Q], AllocError]:
+    C[Q](value)
+def main() -> Result[(), IoError]:
+    drop(C[Init](1))
+    explicit: Result[C[Init], AllocError] = C[Init].new(2)
+    make: Callable[[i64], Result[C[Init], AllocError]] = C[Init]
+    inferred: Callable[[i64], Result[C[Init], AllocError]] = C
+    print(explicit.unwrap().value, make(3).unwrap().value, inferred(4).unwrap().value)?
+    print(relay[InitAlias](5).unwrap().value)?
+    Ok(())
+"#,
+        "2 3 4\n5\n",
+    );
+}
+
+#[test]
+fn unused_whole_initializer_output_parameters_and_concrete_shape_validation() {
+    let declaration = r#"
+class C[R]:
+    value: i64
+    def __init__(self, value: i64) -> R:
+        self.value = value
+        Ok(())
+"#;
+    support::check_source(declaration).unwrap();
+    for output in ["i64", "Result[i64, str]", "Option[i64]"] {
+        let error = check_diagnostic(&format!(
+            "{declaration}\ntype Init = {output}\ndrop(C[Init](1))"
+        ));
+        assert!(
+            error.contains("__init__ must return () or Result[(), E]"),
+            "{error}"
+        );
+        assert!(!error.contains("unknown type `R`"), "{error}");
+        assert!(!error.contains("<constructor result>"), "{error}");
+    }
+    // Unit class arguments remain unsupported; a unit-alias initializer in
+    // an otherwise valid generic class is covered separately above.
+    let error = check_diagnostic(&format!("{declaration}\ntype Unit = ()\ndrop(C[Unit](1))"));
+    assert!(
+        error.contains("unit type arguments are not supported yet"),
+        "{error}"
+    );
+}
+
+#[test]
+fn whole_initializer_output_parameters_keep_affine_union_errors_and_cleanup() {
+    assert_stdout(
+        r#"
+class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+enum Problem:
+    Owned(Guard)
+type Init = Result[(), Problem | OverflowError[i64]]
+class C[R]:
+    value: Guard
+    def __init__(self, value: Guard, error: Problem) -> R:
+        self.value = value
+        return Err(error)
+    def __del__(self) -> ():
+        print("unexpected outer hook").unwrap()
+def main() -> Result[(), IoError]:
+    make: Callable[[Guard, Problem], Result[C[Init], Problem | OverflowError[i64]]] = C
+    result = make(Guard("field"), Problem.Owned(Guard("payload")))
+    print("returned")?
+    drop(result)
+    second = C[Init].new(Guard("new field"), Problem.Owned(Guard("new payload")))
+    print("new returned")?
+    drop(second)
+    Ok(())
+"#,
+        "field\nreturned\npayload\nnew field\nnew returned\nnew payload\n",
+    );
+}
+
+#[test]
+fn deferred_constructor_output_cannot_shadow_source_type_names() {
+    assert_stdout(
+        r#"
+type constructor_result = Result[(), str]
+type _constructor_result = constructor_result
+type ConstructorResult = _constructor_result
+class C[R]:
+    value: i64
+    def __init__(self, value: i64) -> R:
+        self.value = value
+        Ok(())
+def main() -> Result[(), IoError]:
+    print(C[ConstructorResult](7).unwrap().value)?
+    Ok(())
+"#,
+        "7\n",
+    );
+    let error = check_diagnostic("type Forged = <constructor result>");
+    assert!(error.contains("expected a type name or ()"), "{error}");
+}
+
+#[test]
+fn dependent_initializer_success_shape_is_checked_at_class_instantiation() {
+    let declaration = r#"
+class C[S, E]:
+    value: i64
+    def __init__(self, value: i64) -> Result[S, E]:
+        self.value = value
+        Ok(value)
+"#;
+    support::check_source(declaration).unwrap();
+    let error = check_diagnostic(&format!("{declaration}\ndrop(C[i64, str](1))"));
+    assert!(
+        error.contains("__init__ must return () or Result[(), E]"),
+        "{error}"
+    );
+    assert!(!error.contains("<constructor result>"), "{error}");
+    let error = check_diagnostic(
+        r#"
+class C[R]:
+    value: i64
+    def __init__(self, value: i64) -> R:
+        self.value = value
+        Ok(())
+drop(C[Result[(), &i64]](1))
+"#,
+    );
+    assert!(
+        error.contains("Result errors cannot carry references"),
+        "{error}"
+    );
+    assert!(!error.contains("<constructor result>"), "{error}");
+}
