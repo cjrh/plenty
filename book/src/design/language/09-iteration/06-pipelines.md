@@ -404,7 +404,7 @@ input length and the count, never on scheduling.
 | `sum()` on integer items | `Result[T, PoolMapError \| OverflowError[T]]` |
 | `sum()` on float items | `Result[T, PoolMapError]` |
 | `min()`, `max()` | `Result[Option[T], PoolMapError]` |
-| `reduce(f)` | `Result[Option[T], PoolMapError]` |
+| `reduce(f)` | `Result[Option[T], PoolMapError]` for `(T, T) -> T`; `Result[Option[T], PoolMapError \| E]` for `(T, T) -> Result[T, E]` |
 
 `try_collect` reports the error at the lowest input index, across chunks, as
 [`map_result`](../../facilities/03-concurrency/parallel-map.md) does. Chunk

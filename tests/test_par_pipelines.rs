@@ -1510,3 +1510,223 @@ def main() -> Result[(), IoError | PoolError | PoolMapError]:
         assert!(error.contains(diagnostic), "{error}");
     }
 }
+
+#[test]
+fn fallible_reduce_rebuilds_only_split_pairs_for_owned_enumerated_and_mapped_items() {
+    let source = r#"
+def first[T](a: T, b: T) -> Result[T, str]:
+    Ok(a)
+def reject[T](a: T, b: T) -> Result[T, str]:
+    Err("must not run")
+def pair(n: i64) -> (i64, i64):
+    (n, n)
+def own(pair: &(i64, i64)) -> (i64, i64):
+    *pair
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str | OverflowError[i64]]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        for chunks in [1, 2, 3]?:
+            print(iter([(1, 10), (2, 20), (3, 30)]?).par(&pool, chunks=Positive.try_from(chunks).unwrap()).reduce(first)?)?
+        print(enumerate(range(3)).par(&pool, chunks=1).reduce(first)?)?
+        print(enumerate([(1, 10), (2, 20)]?).par(&pool, chunks=1).reduce(first)?)?
+        print(iter(range(3)).par(&pool, chunks=1).map(pair).reduce(first)?)?
+        mut values = [(1, 10), (2, 20)]?
+        print(iter(&values).par(&pool, chunks=1).map(own).reduce(first)?)?
+        values.append((3, 30))?
+        print(len(values))?
+        empty: list[(i64, i64)] = []?
+        print(iter(empty).par(&pool).reduce(reject)?)?
+        print(iter([(9, 90)]?).par(&pool).reduce(reject)?)?
+        # pipeline_split_pair flattens only arity two, not one or N>2.
+        print(iter([(1,), (2,)]?).par(&pool, chunks=1).reduce(first)?)?
+        print(iter([(1, 2, 3), (4, 5, 6)]?).par(&pool, chunks=1).reduce(first)?)?
+        print(iter([(1, 2, 3, 4), (5, 6, 7, 8)]?).par(&pool, chunks=1).reduce(first)?)?
+        n = 1
+        checked_result = checked:
+            end = n + 2
+            iter(range(end)).par(&pool, chunks=1).map(pair).reduce(first)
+        print(checked_result??)?
+        unchecked:
+            print(iter([(1, 10), (2, 20)]?).par(&pool, chunks=1).reduce(first)?)?
+    Ok(())
+"#;
+    let expected = format!(
+        "{}Option[tuple[i64, i64]].Some((0, 0))\nOption[tuple[i64, tuple[i64, i64]]].Some((0, (1, 10)))\nOption[tuple[i64, i64]].Some((0, 0))\nOption[tuple[i64, i64]].Some((1, 10))\n3\nOption[tuple[i64, i64]].Nothing\nOption[tuple[i64, i64]].Some((9, 90))\nOption[tuple[i64]].Some((1,))\nOption[tuple[i64, i64, i64]].Some((1, 2, 3))\nOption[tuple[i64, i64, i64, i64]].Some((1, 2, 3, 4))\nOption[tuple[i64, i64]].Some((0, 0))\nOption[tuple[i64, i64]].Some((1, 10))\n",
+        "Option[tuple[i64, i64]].Some((1, 10))\n".repeat(3)
+    );
+    for optimize in [false, true] {
+        let result = output_with_optimization(source, optimize);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&result.stdout), expected);
+    }
+    let error = support::check_source(
+        r#"
+def first(a: (i64, i64), b: (i64, i64)) -> Result[(i64, i64), str]:
+    Ok(a)
+def main() -> ():
+    values = [(1, 10), (2, 20)].unwrap()
+    with ThreadPoolExecutor(2, 1).unwrap() as pool:
+        drop(iter(&values).par(&pool).reduce(first))
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("reduce after .par cannot store borrowed items"),
+        "{error}"
+    );
+    // Zero-field tuples are unit; collection item storage already rejects it.
+    let unit_error = support::check_source("drop([(), ()].unwrap())")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        unit_error.contains("collection elements cannot be unit"),
+        "{unit_error}"
+    );
+}
+
+#[test]
+fn fallible_reduce_pair_fields_and_managed_errors_move_and_drop_once() {
+    let source = r#"
+class Payload:
+    index: i64
+    spans: list[Option[range[i64]]]
+    def __del__(self) -> ():
+        print(self.index).unwrap()
+class TupleError:
+    pair: (Payload, Payload)
+    def __del__(self) -> ():
+        print("error dropped").unwrap()
+def payload(index: i64) -> Result[Payload, AllocError]:
+    Ok(Payload(index, [Some(range(index))]?))
+def left(a: (Payload, Payload), b: (Payload, Payload)) -> Result[(Payload, Payload), TupleError]:
+    print("combined").unwrap()
+    Ok(a)
+def reject(a: (Payload, Payload), b: (Payload, Payload)) -> Result[(Payload, Payload), TupleError]:
+    print("combined").unwrap()
+    Err(TupleError(a))
+def main() -> Result[(), AllocError | IoError | PoolError]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        pairs = [(payload(0)?, payload(1)?), (payload(2)?, payload(3)?), (payload(4)?, payload(5)?), (payload(6)?, payload(7)?)]?
+        result = iter(pairs).par(&pool, chunks=2).reduce(left)
+        match result:
+            case Ok(value):
+                match value:
+                    case Some((a, b)):
+                        print("selected", a.index, b.index)?
+                    case Nothing:
+                        print("missing result")?
+            case Err(error):
+                match error:
+                    case domain: TupleError:
+                        print("selected", domain.pair[0].index, domain.pair[1].index)?
+                    case infrastructure: PoolMapError:
+                        print("unexpected infrastructure")?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        for (program, calls, errors) in [
+            (source.to_string(), 3, 0),
+            (source.replace(".reduce(left)", ".reduce(reject)"), 2, 2),
+        ] {
+            let result = output_with_optimization(&program, optimize);
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                result.status.success(),
+                "{stdout}\n{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(stdout.matches("combined\n").count(), calls, "{stdout}");
+            assert_eq!(
+                stdout.matches("error dropped\n").count(),
+                errors,
+                "{stdout}"
+            );
+            assert_eq!(stdout.matches("selected 0 1\n").count(), 1, "{stdout}");
+            for index in 0..8 {
+                assert_eq!(
+                    stdout
+                        .lines()
+                        .filter(|line| *line == index.to_string())
+                        .count(),
+                    1,
+                    "{stdout}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fallible_reduce_pair_submission_oom_drains_and_drops_each_field_once() {
+    let mut failures = 0;
+    let mut successes = 0;
+    let mut partial = 0;
+    for optimize in [false, true] {
+        for budget in 0..24 {
+            let source = format!(
+                r#"
+class Payload:
+    index: i64
+    events: Sender[i64]
+    def __del__(self) -> ():
+        self.events.send(self.index).unwrap()
+def left(a: (Payload, Payload), b: (Payload, Payload)) -> Result[(Payload, Payload), str]:
+    print("combined").unwrap()
+    Ok(a)
+def main() -> Result[(), AllocError | IoError | PoolError]:
+    events, received = channel[i64](16)?
+    with ThreadPoolExecutor(2, 1)? as pool:
+        pairs = [(Payload(0, events.share()), Payload(1, events.share())), (Payload(2, events.share()), Payload(3, events.share())), (Payload(4, events.share()), Payload(5, events.share())), (Payload(6, events.share()), Payload(7, events.share()))]?
+        print("__test_fail_allocations_after_{budget}__").unwrap()
+        result = iter(pairs).par(&pool, chunks=2).reduce(left)
+        print("__test_restore_allocations__").unwrap()
+        match result:
+            case Ok(value):
+                print("success")?
+            case Err(error):
+                print(error)?
+        for _ in range(8):
+            print(received.recv().unwrap())?
+    Ok(())
+"#
+            );
+            let result = output_with_optimization(&source, optimize);
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                result.status.success(),
+                "budget {budget}: {stdout}\n{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            for index in 0..8 {
+                assert_eq!(
+                    stdout
+                        .lines()
+                        .filter(|line| *line == index.to_string())
+                        .count(),
+                    1,
+                    "{stdout}"
+                );
+            }
+            let failed = stdout.contains("PoolMapError.Allocation(AllocError.OutOfMemory)");
+            let succeeded = stdout.contains("success\n");
+            assert!(failed || succeeded, "{stdout}");
+            let calls = stdout.matches("combined\n").count();
+            assert!(calls <= 3, "{stdout}");
+            if succeeded {
+                assert_eq!(calls, 3, "{stdout}");
+            }
+            failures += usize::from(failed);
+            successes += usize::from(succeeded);
+            partial += usize::from(failed && calls > 0);
+        }
+    }
+    assert!(
+        failures > 0 && successes > 0 && partial > 0,
+        "{failures} failures, {successes} successes, {partial} partial"
+    );
+}

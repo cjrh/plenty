@@ -565,6 +565,31 @@ impl Lower<'_> {
                     let error = result.get().variants[1].fields[0].clone();
                     let output = crate::sum::result(crate::sum::option(item.clone()), error);
                     let helper = self.par_helper("reduce_step")?;
+                    let mut inputs = vec![(
+                        "__plenty_par_reduce_left".into(),
+                        typed(crate::sum::option(item.clone())),
+                    )];
+                    // Match pipeline_split_pair: only direct two-field tuples
+                    // arrive as separate callback arguments. Rebuild the owned
+                    // RHS for the public reducer, moving each field once.
+                    let right = if let Ty::Enum(tuple) = &item
+                        && tuple.tuple()
+                        && tuple.get().variants[0].fields.len() == 2
+                    {
+                        let mut fields = Vec::new();
+                        for (index, ty) in tuple.get().variants[0].fields.iter().enumerate() {
+                            let name = format!("__plenty_par_reduce_right_{index}");
+                            inputs.push((name.clone(), typed(ty.clone())));
+                            fields.push(name_expr(&at, &name));
+                        }
+                        Expr {
+                            at: at.clone(),
+                            kind: Expression::Tuple(fields),
+                        }
+                    } else {
+                        inputs.push(("__plenty_par_reduce_right".into(), typed(item.clone())));
+                        name_expr(&at, "__plenty_par_reduce_right")
+                    };
                     let step = Function {
                         once: false,
                         captures: vec![],
@@ -573,13 +598,7 @@ impl Lower<'_> {
                         name: "par_reduce_step".into(),
                         type_params: vec![],
                         at: at.clone(),
-                        inputs: vec![
-                            (
-                                "__plenty_par_reduce_left".into(),
-                                typed(crate::sum::option(item.clone())),
-                            ),
-                            ("__plenty_par_reduce_right".into(), typed(item.clone())),
-                        ],
+                        inputs,
                         defaults: vec![],
                         output: typed(output.clone()),
                         doc: String::new(),
@@ -590,7 +609,7 @@ impl Lower<'_> {
                             vec![
                                 reducer.clone(),
                                 name_expr(&at, "__plenty_par_reduce_left"),
-                                name_expr(&at, "__plenty_par_reduce_right"),
+                                right,
                             ],
                         ))],
                     };
