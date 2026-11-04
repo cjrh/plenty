@@ -219,7 +219,7 @@ and the [completed measurements](completed-work/performance.md) as baselines.
 
 | ID | Remaining work | Scope / dependency |
 | --- | --- | --- |
-| B97 | Units plot axis labels | `std.plot` axis labels from quantity units. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics, native erasure, [`std.units`](design/stdlib/units.md) with zero-copy `wrap_list`/`strip_list`, and shared bodies for instances that differ only in dimension are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design: [units of measure proposal](proposals/units-of-measure.md). A `Positive[f64]` float domain is a separate follow-up. |
+| B97 | Units plot axis labels | `std.plot` axis labels from quantity units. Deferred; design open, including choosing a display unit that matches the values' scale (`km` rather than `m` for long distances). `std` has no way yet to get a unit symbol as text. Compiler dimensions, Quantity operations, formatting, constants, scoped diagnostics, native erasure, [`std.units`](design/stdlib/units.md) with zero-copy `wrap_list`/`strip_list`, and shared bodies for instances that differ only in dimension are [delivered](completed-work/language-and-tooling.md#b97-compile-time-dimensions). Design: [units of measure proposal](proposals/units-of-measure.md). A `Positive[f64]` float domain is a separate follow-up. |
 
 ### Runtime-independent protocol support
 
