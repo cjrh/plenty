@@ -231,30 +231,31 @@ def broken() -> i64:
     "Returns the wrong type."
     "text"
 
-def scale(p: &Point, by: i64) -> i64:
+def scale(p: &Point, by: i64) -> Result[i64, OverflowError[i64]]:
     """Scale a point's x.
 
     Multiplies by `by`."""
-    p.x * by
+    Ok(p.x * by)
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     p = Point(3, 4)
-    s = scale(&p, 2)
-    d = p.dist()
+    s = scale(&p, 2)?
+    d = p.dist()?
     c = Color.Red
     g = gcd(6u64, 4u64)
+    Ok(())
 "#;
 
 const SHAPES: &str = r#"pub class Point:
     pub x: i64
     pub y: i64
 
-    pub def dist(self) -> i64:
+    pub def dist(self) -> Result[i64, OverflowError[i64]]:
         "Taxicab distance from the origin."
-        self.x + self.y
+        Ok(self.x + self.y)
 
-pub def area(p: &Point) -> i64:
-    p.x * p.y
+pub def area(p: &Point) -> Result[i64, OverflowError[i64]]:
+    Ok(p.x * p.y)
 "#;
 
 #[test]
@@ -274,7 +275,9 @@ fn hover_definition_and_diagnostics_in_a_file_with_an_error_elsewhere() {
     // A local function: signature with its docstring.
     let hover = client.hover(&main, 19, 8);
     assert!(
-        hover.starts_with("```plenty\ndef scale(p: &Point, by: i64) -> i64\n```"),
+        hover.starts_with(
+            "```plenty\ndef scale(p: &Point, by: i64) -> Result[i64, OverflowError[i64]]\n```"
+        ),
         "{hover}"
     );
     assert!(
@@ -285,7 +288,10 @@ fn hover_definition_and_diagnostics_in_a_file_with_an_error_elsewhere() {
 
     // A method resolved through the receiver's type, in another module.
     let hover = client.hover(&main, 20, 10);
-    assert!(hover.contains("def dist(self) -> i64"), "{hover}");
+    assert!(
+        hover.contains("def dist(self) -> Result[i64, OverflowError[i64]]"),
+        "{hover}"
+    );
     assert!(
         hover.contains("Taxicab distance from the origin."),
         "{hover}"
@@ -295,9 +301,9 @@ fn hover_definition_and_diagnostics_in_a_file_with_an_error_elsewhere() {
     assert_eq!((line, character), (4, 12));
 
     // A field, a parameter, a local with its type, an imported class.
-    assert!(client.hover(&main, 15, 6).contains("pub x: i64"));
-    assert!(client.hover(&main, 15, 4).contains("p: &shapes.Point"));
-    assert_eq!(client.definition(&main, 15, 4), (file_of(&main), 11, 10));
+    assert!(client.hover(&main, 15, 9).contains("pub x: i64"));
+    assert!(client.hover(&main, 15, 7).contains("p: &shapes.Point"));
+    assert_eq!(client.definition(&main, 15, 7), (file_of(&main), 11, 10));
     assert!(client.hover(&main, 18, 4).contains("p: shapes.Point"));
     assert!(client.hover(&main, 18, 8).contains("pub class Point"));
     assert_eq!(client.definition(&main, 1, 21).1, 0);
@@ -363,7 +369,9 @@ fn completion_and_changes() {
     assert!(!names.contains(&"by".to_owned()), "{names:?}");
 
     // An edit fixes the error and adds a call; the unsaved text is checked.
-    let fixed = MAIN.replace("    \"text\"\n", "    1\n") + "    a = area(&p)\n";
+    let fixed = MAIN
+        .replace("    \"text\"\n", "    1\n")
+        .replace("    Ok(())\n", "    a = area(&p)?\n    Ok(())\n");
     let uri = uri(&main);
     client.notify(
         "textDocument/didChange",
@@ -371,7 +379,10 @@ fn completion_and_changes() {
     );
     assert_eq!(client.published(&uri), json!([]));
     let hover = client.hover(&main, 23, 8);
-    assert!(hover.contains("pub def area(p: &Point) -> i64"), "{hover}");
+    assert!(
+        hover.contains("pub def area(p: &Point) -> Result[i64, OverflowError[i64]]"),
+        "{hover}"
+    );
     client.exit();
 }
 
@@ -392,12 +403,15 @@ fn a_dependency_of_a_package_resolves() {
     let main = dir.path().join("app/src/main.plenty");
     write(
         &main,
-        "import geo\n\ndef main() -> ():\n    p = geo.Point(1, 2)\n    n = geo.area(&p)\n",
+        "import geo\n\ndef main() -> Result[(), OverflowError[i64]]:\n    p = geo.Point(1, 2)\n    n = geo.area(&p)?\n    Ok(())\n",
     );
     let mut client = Client::start(&dir.path().join("cache"));
     assert_eq!(client.open(&main), json!([]));
     let hover = client.hover(&main, 4, 12);
-    assert!(hover.contains("pub def area(p: &Point) -> i64"), "{hover}");
+    assert!(
+        hover.contains("pub def area(p: &Point) -> Result[i64, OverflowError[i64]]"),
+        "{hover}"
+    );
     let (file, line, _) = client.definition(&main, 4, 12);
     assert_eq!(
         Path::new(&file),
@@ -461,7 +475,7 @@ fn inlay_hints_use_checked_simple_bindings_and_imports() {
         r#"from shapes import Point
 from std.math import gcd
 
-def main() -> Result[(), AllocError]:
+def main() -> Result[(), AllocError | OverflowError[i64]]:
     count = 42
     mut small = 7u8
     small = 8u8
@@ -602,7 +616,7 @@ def main() -> ():
     integer = identity(1)
     text = identity("hello")
     pipeline = iter(range(3))
-    callback = (def [integer](x: i64) -> i64: x + integer)
+    callback = (def [integer](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + integer))
     left, right = (1, 2)
     for i in range(2):
         pass

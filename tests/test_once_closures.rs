@@ -49,17 +49,17 @@ fn one_shot_and_reusable_annotations_do_not_unify() {
 #[test]
 fn one_shot_calls_transfer_captures_to_the_body() {
     let output = run(r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [2, 3]?
     take = def once [values]() -> list[i64]:
         values
     result = take()
     print(result)?
     value = 7
-    adjust = def once [mut value](offset: i64) -> i64:
+    adjust = def once [mut value](offset: i64) -> Result[i64, OverflowError[i64]]:
         value = value + offset
-        value
-    print(adjust(5))?
+        Ok(value)
+    print(adjust(5)?)?
     empty = def once () -> i64:
         9
     print(empty())?

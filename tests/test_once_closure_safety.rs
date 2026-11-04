@@ -10,18 +10,18 @@ class Resource:
         print(self.id).unwrap()
 def fail() -> Result[i64, AllocError]:
     Err(AllocError.OutOfMemory)
-def make() -> Result[OnceClosure[[Resource, i64], Result[i64, AllocError]], AllocError]:
+def make() -> Result[OnceClosure[[Resource, i64], Result[i64, AllocError | OverflowError[i64]]], AllocError]:
     first = Resource(1)
     second = Resource(2)
-    callback = def once [first, second](argument: Resource, value: i64) -> Result[i64, AllocError]:
+    callback = def once [first, second](argument: Resource, value: i64) -> Result[i64, AllocError | OverflowError[i64]]:
         print("entered").unwrap()
         fail()?
         Ok(first.id + second.id + argument.id + value)
     Ok(callback)
-def before_entry() -> Result[(), AllocError]:
+def before_entry() -> Result[(), AllocError | OverflowError[i64]]:
     make()?(Resource(3), fail()?)?
     Ok(())
-def after_entry() -> Result[(), AllocError]:
+def after_entry() -> Result[(), AllocError | OverflowError[i64]]:
     make()?(Resource(3), 0)?
     Ok(())
 def main() -> Result[(), IoError]:
@@ -36,7 +36,7 @@ def main() -> Result[(), IoError]:
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\nentered\n3\n2\n1\nResult[(), AllocError].Err(AllocError.OutOfMemory)\n"
+        "3\n2\n1\nResult[(), AllocError | OverflowError[i64]].Err(AllocError.OutOfMemory)\nentered\n3\n2\n1\nResult[(), AllocError | OverflowError[i64]].Err(AllocError.OutOfMemory)\n"
     );
 }
 
@@ -54,7 +54,7 @@ def make(values: list[i64], resource: Resource) -> OnceClosure[[], list[i64]]:
         values
 def invoke[T, F: OnceCallable[[], T]](callback: F) -> T:
     callback()
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     values = [7, 8].unwrap()
     resource = Resource(1)
     print("__test_begin_no_allocations__").unwrap()
@@ -62,15 +62,16 @@ def main() -> ():
     wrapped = Some(make(values, resource))
     result = invoke(wrapped.unwrap())
     mut count = 2
-    take = def once [result, &mut count]() -> list[i64]:
+    take = def once [result, &mut count]() -> Result[list[i64], OverflowError[i64]]:
         count = count + 1
-        result
-    output = take()
+        Ok(result)
+    output = take()?
     answer = output[0] + count
     drop(output)
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(answer).unwrap()
+    Ok(())
 "#);
     assert!(
         output.status.success(),
@@ -80,6 +81,42 @@ def main() -> ():
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\n10\n"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn arithmetic_failure_consumes_once_environment_without_assignment_or_allocation() {
+    let output = run(r#"
+class Resource:
+    def __del__(self) -> ():
+        print("drop").unwrap()
+def main() -> Result[(), IoError]:
+    mut count = i64.MAX
+    resource = Resource()
+    take = def once [resource, &mut count](offset: i64) -> Result[i64, OverflowError[i64]]:
+        count = count + offset
+        Ok(count)
+    print("__test_begin_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    failed = take(1)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    match failed:
+        case Err(error):
+            print(error.wrapped == i64.MIN, count == i64.MAX)?
+        case Ok(_):
+            print("unexpected success")?
+    Ok(())
+"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\ndrop\n__test_restore_allocations__\n__test_end_no_allocations__\nTrue True\n"
     );
 }
 

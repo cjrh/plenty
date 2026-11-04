@@ -4,21 +4,22 @@ use support::{check_source, run};
 #[test]
 fn nested_owned_environments_relocate_all_inline_fields() {
     let output = run(r#"
-def make(base: i64) -> Closure[[], i64]:
+def make(base: i64) -> Result[Closure[[], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     span = range(base, base + 3)
     inner = def [span]() -> i64:
         span[1]
-    def [inner, mut base]() -> i64:
+    outer = def [inner, mut base]() -> Result[i64, OverflowError[i64]]:
         base = base + inner()
-        base
-def maybe(base: i64) -> Result[Option[Closure[[], i64]], AllocError]:
+        Ok(base)
+    Ok(outer)
+def maybe(base: i64) -> Result[Option[Closure[[], Result[i64, OverflowError[i64]]]], AllocError | OverflowError[i64]]:
     if base < 0:
         return Ok(Nothing)
-    Ok(Some(make(base)))
-def main() -> Result[(), AllocError | IoError]:
+    Ok(Some(make(base)?))
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut f = maybe(3)?.unwrap()
-    print(f())?
-    print(f())?
+    print(f()?)?
+    print(f()?)?
     print(f)?
     match maybe(-1)?:
         case Nothing:
@@ -45,14 +46,14 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     a = Resource(1)
     b = Resource(2)
-    inner = def [a, b]() -> i64:
-        a.id + b.id
-    outer = def [inner]() -> i64:
+    inner = def [a, b]() -> Result[i64, OverflowError[i64]]:
+        Ok(a.id + b.id)
+    outer = def [inner]() -> Result[i64, OverflowError[i64]]:
         inner()
-    print(outer())?
+    print(outer()?)?
     moved = Some(outer)
     drop(moved)
     print(9)?

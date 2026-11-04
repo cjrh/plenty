@@ -11,7 +11,7 @@ def numbers() -> Generator[i64]:
     yield 8
 def build() -> Result[Generator[i64], AllocError]:
     Ok(numbers())
-def consume() -> Result[i64, AllocError]:
+def consume() -> Result[i64, AllocError | OverflowError[i64]]:
     mut source = build()?
     mut total = 0
     for n in source:
@@ -19,7 +19,7 @@ def consume() -> Result[i64, AllocError]:
     Ok(total)
 print(str.repr(consume()).unwrap()).unwrap()
 "#,
-        "Result[i64, AllocError].Ok(12)",
+        "Result[i64, AllocError | OverflowError[i64]].Ok(12)",
     );
 }
 

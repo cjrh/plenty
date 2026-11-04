@@ -193,21 +193,49 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
         let source = temp.path().join("source.plenty");
         let library = temp.path().join("library");
         let options = LibraryOptions::new("calc", kind);
+        // C exports support fieldless errors, not OverflowError's wrapped payload.
         let build = |text: &str| {
+            let text = format!("pub enum ArithmeticError:\n    Overflow\n{text}");
             std::fs::write(&source, text).unwrap();
             plenty::compile_file_to_library(&source, &library, None, &options).unwrap();
             plenty::read_library_interfaces(&library).unwrap().remove(0)
         };
-        let original =
-            build("export def answer(value: i32) -> i32 = \"calc_answer\":\n    value + 1\n");
+        let assert_boundary = |width: &str| {
+            let app = temp.path().join("boundary.plenty");
+            std::fs::write(
+                &app,
+                format!("import calc\ndef main() -> Result[(), IoError | calc.ArithmeticError]:\n    print(calc.answer(40)?)?\n    match calc.answer({width}.MAX):\n        case Err(calc.ArithmeticError.Overflow):\n            print(True)?\n        case Ok(_):\n            print(False)?\n    Ok(())\n"),
+            )
+            .unwrap();
+            let executable = temp.path().join("boundary");
+            let compile = plenty::CompileOptions {
+                link_args: vec![library.clone().into_os_string()],
+                ..Default::default()
+            };
+            plenty::compile_file_to_executable_with_options(&app, &executable, None, &compile)
+                .unwrap();
+            let output = Command::new(executable).output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(output.stdout, b"41\nTrue\n");
+        };
+        let original = build(
+            "export def answer(value: i32) -> Result[i32, ArithmeticError] = \"calc_answer\":\n    result = checked:\n        value + 1\n    result.map_error(def(error: OverflowError[i32]) -> ArithmeticError: ArithmeticError.Overflow)\n",
+        );
+        assert_boundary("i32");
         let changed_body = build(
-            "export def answer(renamed: i32) -> i32 = \"calc_answer\":\n    \"New author documentation.\"\n    renamed + 2\n",
+            "export def answer(renamed: i32) -> Result[i32, ArithmeticError] = \"calc_answer\":\n    \"New author documentation.\"\n    result = checked:\n        renamed + 2\n    result.map_error(def(error: OverflowError[i32]) -> ArithmeticError: ArithmeticError.Overflow)\n",
         );
         assert_eq!(original.fingerprint, changed_body.fingerprint);
         assert_eq!(original.fingerprint.as_ref().unwrap().len(), 64);
-        let changed_type =
-            build("export def answer(value: i64) -> i64 = \"calc_answer\":\n    value + 1\n");
+        let changed_type = build(
+            "export def answer(value: i64) -> Result[i64, ArithmeticError] = \"calc_answer\":\n    result = checked:\n        value + 1\n    result.map_error(def(error: OverflowError[i64]) -> ArithmeticError: ArithmeticError.Overflow)\n",
+        );
         assert_ne!(original.fingerprint, changed_type.fingerprint);
+        assert_boundary("i64");
         std::fs::write(temp.path().join("calc.plentyi"), original.source).unwrap();
         let error = plenty::verify_library_interface(&library, &temp.path().join("calc.plentyi"))
             .unwrap_err()
@@ -216,7 +244,7 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
         let app = temp.path().join("main.plenty");
         std::fs::write(
             &app,
-            "import calc\ndef main() -> i32:\n    calc.answer(40)\n",
+            "import calc\ndef main() -> Result[i32, calc.ArithmeticError]:\n    calc.answer(40)\n",
         )
         .unwrap();
         let compile = plenty::CompileOptions {

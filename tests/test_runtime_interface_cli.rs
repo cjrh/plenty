@@ -7,7 +7,8 @@ fn command_generates_without_a_toolchain_and_preserves_source_files() {
     let source = root.join("producer.plenty");
     let helper = root.join("helper.plentyi");
     std::fs::write(&helper, "pub def offset() -> i32:\n    2\n").unwrap();
-    std::fs::write(&source, "from helper import offset\nexport def add(value: i32) -> i32 = \"calc_add\":\n    value + offset()\n").unwrap();
+    // Map the wrapped arithmetic payload to the fieldless error supported by C.
+    std::fs::write(&source, "from helper import offset\npub enum ArithmeticError:\n    Overflow\nexport def add(value: i32) -> Result[i32, ArithmeticError] = \"calc_add\":\n    result = checked:\n        value + offset()\n    result.map_error(def(error: OverflowError[i32]) -> ArithmeticError: ArithmeticError.Overflow)\n").unwrap();
     let output = root.join("plugin.plentyi");
     let command = || {
         let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
