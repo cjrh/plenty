@@ -337,6 +337,33 @@ impl Plan {
         }
     }
 
+    /// The entry of `id`, which shares `into`'s code ([`super::folding`]):
+    /// its own IR, and in place of code the function it shares. Its requests
+    /// were never declared, so the IR names them by number.
+    pub(super) fn folded(
+        &self,
+        module: &ObjectModule,
+        (id, into): (FuncId, FuncId),
+        capture: Capture,
+        (requests, checks): (&[Request], &super::traps::Checks),
+    ) -> Entry {
+        let mut entry = self.entry(
+            module,
+            id,
+            capture,
+            (&[], &[], &[]),
+            (requests, &[], checks),
+        );
+        if entry.asm.is_some() {
+            let into = module
+                .declarations()
+                .get_function_decl(into)
+                .linkage_name(into);
+            entry.asm = Some(format!("; shares the code of {into}\n"));
+        }
+        entry
+    }
+
     /// The finished dump of `entries`, in placement order.
     pub(super) fn finish(&self, entries: Vec<Entry>) -> Dump {
         let options = &self.options;

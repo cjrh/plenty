@@ -23,12 +23,16 @@ def quantity_km(a: Quantity[f64, Length]) -> f64:
     a.to(km)
 def scalar_km(a: f64) -> f64:
     a / 1000.0
+def quantity_new(a: f64) -> Quantity[f64, Length]:
+    Quantity[f64, Length](a)
+def scalar_identity(a: f64) -> f64:
+    a
 def main() -> Result[(), IoError]:
     a = Quantity[f64, Length](6.0)
     b = Quantity[f64, Length](2.0)
     t = Quantity[f64, Time](2.0)
     print(quantity_add(a, b).get(), scalar_add(6.0, 2.0), quantity_mul(a, t).get(), scalar_mul(6.0, 2.0), quantity_to(a, b), scalar_div(6.0, 2.0))?
-    print(quantity_km(a), scalar_km(6.0))?
+    print(quantity_km(a), scalar_km(6.0), quantity_new(1.0).get(), scalar_identity(1.0))?
     Ok(())
 ").replace("f64", storage);
         std::fs::write(dir.path().join("q.plenty"), source).unwrap();
@@ -45,11 +49,8 @@ def main() -> Result[(), IoError]:
         );
         let asm = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
         let instructions = |name: &str| -> Vec<String> {
-            asm.split("==== ")
-                .find(|part| part.starts_with(&format!("{name} ")))
-                .unwrap()
+            support::asm_body(&asm, name)
                 .lines()
-                .skip(1)
                 .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
                 .map(str::to_owned)
                 .collect()
@@ -59,6 +60,8 @@ def main() -> Result[(), IoError]:
             ("quantity_mul", "scalar_mul"),
             ("quantity_to", "scalar_div"),
             ("quantity_km", "scalar_km"),
+            // Construction retags the storage value without a call.
+            ("quantity_new", "scalar_identity"),
         ] {
             assert_eq!(
                 instructions(quantity),

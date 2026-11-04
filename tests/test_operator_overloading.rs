@@ -275,12 +275,8 @@ def main() -> Result[(), IoError]:
         );
         let text = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
         let section = |name: &str| -> Vec<String> {
-            let body = text
-                .split("==== ")
-                .find(|part| part.starts_with(&format!("{name} ")))
-                .unwrap();
-            body.lines()
-                .skip(1)
+            support::asm_body(&text, name)
+                .lines()
                 .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
                 .map(str::to_string)
                 .collect()

@@ -8,8 +8,9 @@ language, shipped through issue #701 (local PRs #885, #887–#891); see
 [quantities](../design/language/03-types/quantities.md) and
 [where the implementation differs](#implementation). Milestone 2's
 [`std.units`](../design/stdlib/units.md) shipped, including `wrap_list` and
-`strip_list`; shared instance bodies remain under
-[B97](../backlog.md#units-of-measure). Companion
+`strip_list`. Milestone 3's
+[shared instance bodies](../design/toolchain/02-architecture/emission.md#identical-code-folding)
+shipped; plot axis labels remain under [B97](../backlog.md#units-of-measure). Companion
 pages record the [precedents](units-of-measure/precedents.md) and the
 [spike evidence](units-of-measure/evidence.md). Researched against local
 `main` at `bd407f05` on 2026-11-03; reconciled with `eb772202`.
@@ -338,7 +339,7 @@ are authoritative.
 | `checked:` | `OverflowError[T]` | Also `ZeroDivisionError`, as for the underlying arithmetic |
 | Constants | Literals and quantity constants | Also casts of extracted values, `.get()` and float `.to`; no user function calls |
 | Zero-cost evidence | Release instructions match `f64` | Matched for `f32` and `f64` `+`, `*` and `.to` on x86-64; not measured on other targets |
-| Instance sharing | Milestone 1 if cheap | Not done; instances that differ only in dimension have separate bodies |
+| Instance sharing | Milestone 1 if cheap | Milestone 3, for every function: identical placed code is folded into one body. Instances that format a value or build a collection keep separate bodies, since their type descriptors name the dimension; functions used as values keep their own addresses |
 | `std.units` lists | `wrap_list[D](xs: list[T])` and `strip_list` | `f64` storage only, like the other `std.units` functions. A std-only compiler intrinsic, `__list_retag`, consumes the list and stores the target list type's descriptor in its header; it accepts only a quantity and its own storage type as element types |
 | `std.units` storage | Unstated | Units, constants and the `std.math`-based functions use `f64`; `abs` and `clamp` accept any storage |
 | `min`, `max` | In `std.units` | Not repeated: the generic `std.math.min` and `max` already accept quantities |
@@ -369,8 +370,8 @@ are authoritative.
    functions; temperature and `Duration` conversions; zero-copy list
    conversions.
 3. **Measured follow-ups.** Shared bodies for instances differing only in
-   dimension, if milestone 1 did not include them; plot axis labels from
-   units; then any later item with a use case.
+   dimension (**delivered**); plot axis labels from units; then any later
+   item with a use case.
 
 ## Testing and acceptance
 

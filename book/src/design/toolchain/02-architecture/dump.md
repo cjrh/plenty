@@ -75,7 +75,9 @@ a `#N` suffix.
   as `.byte` rows. x86 RIP-relative addresses are offsets within the function.
   AArch64 offsets advance by four bytes per instruction, and PC-relative
   operands retain the decoder's displacement notation. Unknown ARM encodings
-  appear as `.inst` words, preserving their bytes.
+  appear as `.inst` words, preserving their bytes. A function that
+  [shares another's code](emission.md#identical-code-folding) shows
+  `; shares the code of SYMBOL` instead.
 - Data symbols carry what they hold: a string literal's text, a type's
   metadata, or the object's trap-site table, with the function's record count
   and its offset into the table (`.Ldata1 (trap sites: 1)+44`).

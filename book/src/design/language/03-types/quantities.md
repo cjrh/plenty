@@ -192,8 +192,10 @@ storage packing as their numeric payloads. Arithmetic and conversion do not
 allocate. The [release instruction probe](../04-expressions/operators-implementation.md#quantity-erasure)
 compares addition, multiplication and unit conversion with plain-number code.
 This does not promise that every surrounding function call or temporary is
-optimized away; generic instances that differ only in dimension can still have
-separate function bodies.
+optimized away. Generic instances that differ only in dimension
+[share one body](../../toolchain/02-architecture/emission.md#identical-code-folding)
+unless they format a value or build a collection, whose type descriptor names
+the dimension.
 
 Unit spellings live in static type metadata and compiled formatting calls, not
 in each value. A single quantity carries no type pointer: the compiler knows

@@ -57,7 +57,7 @@ pub(super) fn kind(kind: TrapKind) -> u32 {
 }
 
 /// One function's checks, by trap code.
-#[derive(Default)]
+#[derive(Default, Hash)]
 pub(super) struct Checks {
     /// `(kind, site record offset in the function's own records)`, for code
     /// `FIRST_CODE + index`.
