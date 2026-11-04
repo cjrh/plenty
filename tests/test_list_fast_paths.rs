@@ -97,13 +97,14 @@ fn indexed_column_hot_loop_has_no_runtime_calls() {
     std::fs::write(
         &source,
         r#"
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for i in range(len(xs)):
         total += xs[i] * ys[i]
-    total
-def main() -> ():
-    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+    Ok(total)
+def main() -> Result[(), OverflowError[i64]]:
+    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())?).unwrap()
+    Ok(())
 "#,
     )
     .unwrap();
@@ -149,28 +150,29 @@ def main() -> ():
 #[test]
 fn indexed_shared_columns_keep_bounds_bits_and_loop_control() {
     support::assert_visible_stdout(
-        r#"
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+        r#"def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for i in range(len(xs)):
         if i == 1:
             continue
         total += xs[i] * ys[-i - 1]
-    total
+    Ok(total)
 def floats(xs: &list[f32], flags: &list[bool], wide: &list[u64]) -> ():
     for i in range(len(xs)):
         print(xs[i], flags[i], wide[i]).unwrap()
-def local_columns(xs: &list[i64]) -> i64:
+def local_columns(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
     column = xs
     mut total = 0
     for i in range(2):
         for j in range(len(column)):
             total += column[j]
-    total
-xs = [1, 2, 3].unwrap()
-ys = [4, 5, 6].unwrap()
-print(total(&xs, &ys), local_columns(&xs)).unwrap()
-floats(&[-1.25f32].unwrap(), &[True].unwrap(), &[18446744073709551615u64].unwrap())
+    Ok(total)
+def main() -> Result[(), OverflowError[i64]]:
+    xs = [1, 2, 3].unwrap()
+    ys = [4, 5, 6].unwrap()
+    print(total(&xs, &ys)?, local_columns(&xs)?).unwrap()
+    floats(&[-1.25f32].unwrap(), &[True].unwrap(), &[18446744073709551615u64].unwrap())
+    Ok(())
 "#,
         "18 12\n-1.25 True 18446744073709551615",
     );
@@ -186,7 +188,7 @@ fn indexed_shared_columns_trap_at_each_columns_own_bound(
     #[case] values: &str,
 ) {
     let source = format!(
-        "def read(xs: &list[i64], ys: &list[i64]) -> i64:\n    mut result = 0\n    for i in range(len(xs)):\n        result += xs[i] + ys[{index}]\n    result\nprint(read(&[1].unwrap(), &{values})).unwrap()"
+        "def read(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    for i in range(len(xs)):\n        result += xs[i] + ys[{index}]\n    Ok(result)\ndef main() -> Result[(), OverflowError[i64]]:\n    print(read(&[1].unwrap(), &{values})?).unwrap()\n    Ok(())\n"
     );
     let output = support::run(&source);
     assert!(!output.status.success());
@@ -222,16 +224,17 @@ for i in range(3):
 #[test]
 fn cached_column_reads_preserve_index_effects_and_owner_loans() {
     support::assert_visible_stdout(
-        r#"
-def index(value: i64) -> i64:
+        r#"def index(value: i64) -> i64:
     print(value).unwrap()
     value
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for i in range(2):
         result += xs[index(i)] + ys[index(-i - 1)]
-    result
-print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+    Ok(result)
+def main() -> Result[(), OverflowError[i64]]:
+    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())?).unwrap()
+    Ok(())
 "#,
         "0\n-1\n1\n-2\n10",
     );
@@ -257,7 +260,7 @@ fn immediate_literal_progressions_need_no_collection_storage() {
 def numbers() -> Generator[i64]:
     for n in [3, 2, 1].unwrap():
         yield n
-def total() -> Result[i64, AllocError]:
+def total() -> Result[i64, AllocError | OverflowError[i64]]:
     mut total = 0
     for n in [2, 4, 6]?:
         total += n
@@ -272,7 +275,7 @@ def total() -> Result[i64, AllocError]:
         total += n - 9223372036854775806
     for n in [-9223372036854775808]?:
         total += n - -9223372036854775808
-    total += iter([1, 2, 3]?).map(def(n: i64) -> i64: n * 2).fold(0, def(a: i64, b: i64) -> i64: a + b)
+    total += iter([1, 2, 3]?).map(def(n: i64) -> Result[i64, OverflowError[i64]]: Ok(n * 2)).try_fold(0, def(a: i64, b: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]: Ok(a + b?))?
     for n in numbers():
         total += n
     Ok(total)
@@ -379,36 +382,37 @@ fn invalid_indices_keep_the_diagnostic(#[case] receiver: &str, #[case] index: &s
 #[test]
 fn evaluation_order_growth_and_managed_fallbacks() {
     let output = support::run(
-        r#"
-def receiver() -> list[i64]:
+        r#"def receiver() -> list[i64]:
     print("receiver").unwrap()
     [42].unwrap()
 def index() -> i64:
     print("index").unwrap()
     -1
-def read(xs: &list[i64]) -> i64:
-    xs[index()] + len(xs)
-print(receiver()[index()]).unwrap()
-print(len(receiver())).unwrap()
-mut xs = [1].unwrap()
-print(read(&xs)).unwrap()
-for i in range(100):
-    xs.append(i).unwrap()
-    if xs[-1] != i or len(xs) != i + 2:
-        print("wrong growth").unwrap()
-xs[0] = 9
-print(xs[0]).unwrap()
-print(xs.pop(-1).unwrap()).unwrap()
-print(len(xs)).unwrap()
-print(xs[-1]).unwrap()
-mut nested = [["a long managed string"].unwrap()].unwrap()
-print(len(nested[0])).unwrap()
-print(nested[0][0]).unwrap()
-nested[0].append("another managed string").unwrap()
-print(len(nested[0])).unwrap()
-drop(nested)
-drop(xs)
-print("__test_small_live_heap__").unwrap()
+def read(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(xs[index()] + len(xs))
+def main() -> Result[(), OverflowError[i64]]:
+    print(receiver()[index()]).unwrap()
+    print(len(receiver())).unwrap()
+    mut xs = [1].unwrap()
+    print(read(&xs)?).unwrap()
+    for i in range(100):
+        xs.append(i).unwrap()
+        if xs[-1] != i or len(xs) != i + 2:
+            print("wrong growth").unwrap()
+    xs[0] = 9
+    print(xs[0]).unwrap()
+    print(xs.pop(-1).unwrap()).unwrap()
+    print(len(xs)).unwrap()
+    print(xs[-1]).unwrap()
+    mut nested = [["a long managed string"].unwrap()].unwrap()
+    print(len(nested[0])).unwrap()
+    print(nested[0][0]).unwrap()
+    nested[0].append("another managed string").unwrap()
+    print(len(nested[0])).unwrap()
+    drop(nested)
+    drop(xs)
+    print("__test_small_live_heap__").unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -435,7 +439,7 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("access.o");
     plenty::compile_source_to_object(
-        "def read(xs: &list[i64], i: i64) -> i64:\n    xs[i] + len(xs)\ndef main() -> ():\n    xs = [1].unwrap()\n    print(read(&xs, 0)).unwrap()\n",
+        "def read(xs: &list[i64], i: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(xs[i] + len(xs))\ndef main() -> Result[(), OverflowError[i64]]:\n    xs = [1].unwrap()\n    print(read(&xs, 0)?).unwrap()\n    Ok(())\n",
         &path,
     ).unwrap();
     let bytes = std::fs::read(path).unwrap();

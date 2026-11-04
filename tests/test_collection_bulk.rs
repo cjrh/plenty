@@ -32,20 +32,21 @@ print(Custom().extend(42)).unwrap()
 #[test]
 fn fallible_copy_preserves_the_source_and_arguments_run_before_mutation() {
     native(
-        r#"
-def append_copy(items: &mut list[str], source: &list[str]) -> Result[(), AllocError]:
+        r#"def append_copy(items: &mut list[str], source: &list[str]) -> Result[(), AllocError]:
     items.extend(copy(source)?)
-def more(items: &list[i64]) -> list[i64]:
+def more(items: &list[i64]) -> Result[list[i64], OverflowError[i64]]:
     print(len(items)).unwrap()
-    [len(items), len(items) + 1].unwrap()
-mut items = [10].unwrap()
-print(str.repr(items.extend(more(&items))).unwrap()).unwrap()
-print(items).unwrap()
-source = [("A" + "da").unwrap()].unwrap()
-mut names = ["Bea"].unwrap()
-print(str.repr(append_copy(&mut names, &source)).unwrap()).unwrap()
-drop(names)
-print(source).unwrap()
+    Ok([len(items), len(items) + 1].unwrap())
+def main() -> Result[(), OverflowError[i64]]:
+    mut items = [10].unwrap()
+    print(str.repr(items.extend(more(&items)?)).unwrap()).unwrap()
+    print(items).unwrap()
+    source = [("A" + "da").unwrap()].unwrap()
+    mut names = ["Bea"].unwrap()
+    print(str.repr(append_copy(&mut names, &source)).unwrap()).unwrap()
+    drop(names)
+    print(source).unwrap()
+    Ok(())
 "#,
         "1\nResult[(), AllocError].Ok(())\n[10, 1, 2]\nResult[(), AllocError].Ok(())\n[\"Ada\"]",
     );
@@ -307,18 +308,20 @@ print(2u8 in bytes).unwrap()
 fn set_update_keeps_probe_chains_valid_through_growth_and_removal() {
     native(
         r#"
-mut values = {n for n in range(100) if n % 2 == 0}.unwrap()
-print(str.repr(values.update({n for n in range(100)}.unwrap())).unwrap()).unwrap()
-mut valid = len(values) == 100
-for n in range(100):
-    valid = valid and n in values
-for n in range(25):
-    values.discard(n)
-print(str.repr(values.update({n for n in range(25)}.unwrap())).unwrap()).unwrap()
-for n in range(100):
-    valid = valid and n in values
-print(valid).unwrap()
-print(len(values)).unwrap()
+def main() -> Result[(), ZeroDivisionError]:
+    mut values = {n for n in range(100) if n % 2 == 0}.unwrap()
+    print(str.repr(values.update({n for n in range(100)}.unwrap())).unwrap()).unwrap()
+    mut valid = len(values) == 100
+    for n in range(100):
+        valid = valid and n in values
+    for n in range(25):
+        values.discard(n)
+    print(str.repr(values.update({n for n in range(25)}.unwrap())).unwrap()).unwrap()
+    for n in range(100):
+        valid = valid and n in values
+    print(valid).unwrap()
+    print(len(values)).unwrap()
+    Ok(())
 "#,
         "Result[(), AllocError].Ok(())\nResult[(), AllocError].Ok(())\nTrue\n100",
     );

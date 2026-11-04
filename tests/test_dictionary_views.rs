@@ -6,25 +6,26 @@ use support::assert_visible_stdout as native;
 #[test]
 fn boxed_dictionary_projections_borrow_through_nested_boxes() {
     native(
-        r#"
-def sum_values(data: &Box[Box[dict[str, list[i64]]]]) -> i64:
+        r#"def sum_values(data: &Box[Box[dict[str, list[i64]]]]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for values in data.values():
         result += len(values)
-    result
-mut data = Box(Box({"a": [1].unwrap(), "b": [2].unwrap()}.unwrap()).unwrap()).unwrap()
-keys = data.keys()
-print([*key for key in keys].unwrap()).unwrap()
-print(sum_values(&data)).unwrap()
-for values in (&mut data).values():
-    values.append(3).unwrap()
-for key, values in data.items():
-    print(*key, values).unwrap()
-for key, values in (&mut data).items():
-    values.append(4).unwrap()
-print(sum_values(&data)).unwrap()
-for key in Box({"temporary": 1}.unwrap()).unwrap().keys():
-    print(*key).unwrap()
+    Ok(result)
+def main() -> Result[(), OverflowError[i64]]:
+    mut data = Box(Box({"a": [1].unwrap(), "b": [2].unwrap()}.unwrap()).unwrap()).unwrap()
+    keys = data.keys()
+    print([*key for key in keys].unwrap()).unwrap()
+    print(sum_values(&data)?).unwrap()
+    for values in (&mut data).values():
+        values.append(3).unwrap()
+    for key, values in data.items():
+        print(*key, values).unwrap()
+    for key, values in (&mut data).items():
+        values.append(4).unwrap()
+    print(sum_values(&data)?).unwrap()
+    for key in Box({"temporary": 1}.unwrap()).unwrap().keys():
+        print(*key).unwrap()
+    Ok(())
 "#,
         "[\"a\", \"b\"]\n2\na [1, 3]\nb [2, 3]\n6\ntemporary",
     );
@@ -209,38 +210,40 @@ for value in Custom().values():
 fn observations_never_allocate_and_algebra_failure_preserves_source() {
     native(
         r#"
-data = {"a": [1].unwrap(), "b": [2].unwrap()}.unwrap()
-other = {"b", "a"}.unwrap()
-empty = dict[str, list[i64]]().unwrap()
-print("__test_begin_no_allocations__").unwrap()
-print("__test_fail_allocations_after_0__").unwrap()
-keys = data.keys()
-same = keys == other
-subset = keys.issubset(&other)
-superset = keys.issuperset(&other)
-disjoint = empty.keys().isdisjoint(&keys)
-empty_same = empty.keys() == empty.keys()
-empty_different = empty.keys() != keys
-empty_subset = empty.keys().issubset(&keys)
-empty_superset = empty.keys().issuperset(&empty.keys())
-values = data.values()
-items = data.items()
-view_size = len(values) + len(items)
-view_count = iter(items).count()
-size = len(keys)
-found = "a" in keys
-mut total = 0
-for key in keys:
-    total += len(*key)
-for value in values:
-    total += len(value)
-failed = keys.union(&other)
-print("__test_restore_allocations__").unwrap()
-print("__test_end_no_allocations__").unwrap()
-print(same, subset, superset, disjoint, size, found, total, view_size, view_count).unwrap()
-print(empty_same, empty_different, empty_subset, empty_superset).unwrap()
-print(str.repr(failed).unwrap()).unwrap()
-print(data).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    data = {"a": [1].unwrap(), "b": [2].unwrap()}.unwrap()
+    other = {"b", "a"}.unwrap()
+    empty = dict[str, list[i64]]().unwrap()
+    print("__test_begin_no_allocations__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    keys = data.keys()
+    same = keys == other
+    subset = keys.issubset(&other)
+    superset = keys.issuperset(&other)
+    disjoint = empty.keys().isdisjoint(&keys)
+    empty_same = empty.keys() == empty.keys()
+    empty_different = empty.keys() != keys
+    empty_subset = empty.keys().issubset(&keys)
+    empty_superset = empty.keys().issuperset(&empty.keys())
+    values = data.values()
+    items = data.items()
+    view_size = len(values) + len(items)
+    view_count = iter(items).count()
+    size = len(keys)
+    found = "a" in keys
+    mut total = 0
+    for key in keys:
+        total += len(*key)
+    for value in values:
+        total += len(value)
+    failed = keys.union(&other)
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    print(same, subset, superset, disjoint, size, found, total, view_size, view_count).unwrap()
+    print(empty_same, empty_different, empty_subset, empty_superset).unwrap()
+    print(str.repr(failed).unwrap()).unwrap()
+    print(data).unwrap()
+    Ok(())
 "#,
         "True True True True 2 True 4 4 2\nTrue True True True\nResult[set[str], AllocError].Err(AllocError.OutOfMemory)\n{\"a\": [1], \"b\": [2]}",
     );
@@ -438,21 +441,26 @@ print(len(keys.to_set().unwrap())).unwrap()
 #[test]
 fn values_and_items_are_reusable_measurable_local_views() {
     native(
-        r#"
-data = {1: [10].unwrap(), 2: [20, 21].unwrap()}.unwrap()
-values = data.values()
-alias = values
-reference = &alias
-items = data.items()
-print(len(values), len(items), len(data.values()), len(data.items())).unwrap()
-for value in values:
-    print(value).unwrap()
-for key, value in &items:
-    print(*key, value).unwrap()
-print(iter(values).map(def(v: &list[i64]) -> i64: len(v)).fold(0, def(a: i64, b: i64) -> i64: a + b)).unwrap()
-print(iter(&items).map(def(k: &i64, v: &list[i64]) -> i64: *k + len(v)).count()).unwrap()
-for value in reference:
-    print(len(value)).unwrap()
+        r#"def count_result(n: i64, item: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    drop(item?)
+    Ok(n + 1)
+
+def main() -> Result[(), OverflowError[i64]]:
+    data = {1: [10].unwrap(), 2: [20, 21].unwrap()}.unwrap()
+    values = data.values()
+    alias = values
+    reference = &alias
+    items = data.items()
+    print(len(values), len(items), len(data.values()), len(data.items())).unwrap()
+    for value in values:
+        print(value).unwrap()
+    for key, value in &items:
+        print(*key, value).unwrap()
+    print(iter(values).map(def(v: &list[i64]) -> i64: len(v)).try_fold(0, def(a: i64, b: i64) -> Result[i64, OverflowError[i64]]: Ok(a + b))?).unwrap()
+    print(iter(&items).map(def(k: &i64, v: &list[i64]) -> Result[i64, OverflowError[i64]]: Ok(*k + len(v))).try_fold(0, count_result)?).unwrap()
+    for value in reference:
+        print(len(value)).unwrap()
+    Ok(())
 "#,
         "2 2 2 2\n[10]\n[20, 21]\n1 [10]\n2 [20, 21]\n3\n2\n1\n2",
     );
@@ -562,20 +570,25 @@ fn reversed_dictionary_projections_are_rejected_for_every_local_form(
 #[test]
 fn explicitly_shared_item_receivers_create_reusable_views() {
     native(
-        r#"
-data = {1: 10, 2: 20}.unwrap()
-view = (&data).items()
-alias = view
-reference = &alias
-print(len((&data).items()), len(view), len(reference)).unwrap()
-for key, value in view:
-    print(*key, *value).unwrap()
-for key, value in reference:
-    print(*key, *value).unwrap()
-print(iter(&alias).map(def(k: &i64, v: &i64) -> i64: *k + *v).count()).unwrap()
-boxed = Box(data).unwrap()
-boxed_view = (&boxed).items()
-print(len(boxed_view), len((&boxed).values())).unwrap()
+        r#"def count_result(n: i64, item: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    drop(item?)
+    Ok(n + 1)
+
+def main() -> Result[(), OverflowError[i64]]:
+    data = {1: 10, 2: 20}.unwrap()
+    view = (&data).items()
+    alias = view
+    reference = &alias
+    print(len((&data).items()), len(view), len(reference)).unwrap()
+    for key, value in view:
+        print(*key, *value).unwrap()
+    for key, value in reference:
+        print(*key, *value).unwrap()
+    print(iter(&alias).map(def(k: &i64, v: &i64) -> Result[i64, OverflowError[i64]]: Ok(*k + *v)).try_fold(0, count_result)?).unwrap()
+    boxed = Box(data).unwrap()
+    boxed_view = (&boxed).items()
+    print(len(boxed_view), len((&boxed).values())).unwrap()
+    Ok(())
 "#,
         "2 2 2\n1 10\n2 20\n1 10\n2 20\n2\n2 2",
     );
