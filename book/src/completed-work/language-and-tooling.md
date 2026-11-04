@@ -245,8 +245,16 @@ outer name is new relative to the older baseline, and no std-source diagnostic
 remains. Reviewed borrowing, tail/stack, control/trap and flow/shared fixture
 batches subsequently pass all 568 parent-run cases, including 258 identical
 failed names from that snapshot. No fresh whole-suite pass is inferred from
-these scoped results; issue #710 tracks the exposed propagated numeric-literal
-context defect without replacing its unsuffixed-literal oracle.
+these scoped results. Reviewed concurrency and collection fixture batches add
+183 and 428 passing parent-run cases with native worker/guard-page/ownership
+oracles retained. The pre-existing propagated numeric-literal context defect
+(issue #710) is repaired through a non-evaluating success-payload hint. A rebuilt
+main baseline rejects the original source; normal/release native regressions and
+the unchanged unsuffixed-literal callable oracle now pass. Parent checks cover
+all 109 callable and ten literal-form cases. One unoptimized range-generator
+oracle was precisely updated with explicit user approval to require its bounded
+helper and caller-provenance calls; this does not establish zero-call or
+performance equivalence.
 
 Reviewed generalized initializer errors preserve exactly the declared E, including
 generic whole-result parameters, aliases, named defaults and constructor values.

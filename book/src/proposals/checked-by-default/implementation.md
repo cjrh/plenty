@@ -149,8 +149,11 @@ remaining std-source diagnostic. Subsequently reviewed borrowing, tail/stack,
 control/trap and flow/shared batches pass all 568 parent-run tests, including
 258 identical failed names from that newer snapshot. This is scoped evidence,
 not a measured current-head whole-suite result or acceptance. Public Result
-adoption also exposed the contextual numeric-literal defect tracked in issue #710;
-its original unsuffixed-call-result oracle remains unwaived. The user approved deterministic fallible-tree
+adoption also exposed the pre-existing contextual numeric-literal defect in issue
+#710. A reviewed non-evaluating success-payload hint fixes it without changing the
+original unsuffixed-call-result oracle. A rebuilt main baseline rejects that
+source; native normal/release regressions now pass, and all 109 callable fixtures
+and ten literal-form tests pass after parent integration. The user approved deterministic fallible-tree
 errors by level then left-to-right pair, accepting level-by-level scheduling while
 infallible reducers retain their optimization. Ordinary Result[(), E] initializers now produce exactly Result[Class, E], without
 adding AllocError unless declared. Reviewed generic-output deferral preserves
@@ -163,7 +166,12 @@ protocols and existing C-export error-layout restrictions remain unchanged.
 The tuple-adapter review correction is integrated with owned/enumerated/mapped
 pair, cardinality, managed-error and allocation-failure regressions. Earlier
 scalar-only passes did not establish that case; the correction received separate
-review before integration.
+review before integration. Further reviewed concurrency and collection batches
+pass 183 and 428 parent-run cases while retaining actual worker, guard-page,
+allocation and ownership oracles. The user explicitly approved updating one
+unoptimized range-generator oracle to require the exact bounded helper and
+caller-provenance calls. It retains counted-source/no-iterator-allocation checks
+and native output, not a zero-call or performance-equivalence claim.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
