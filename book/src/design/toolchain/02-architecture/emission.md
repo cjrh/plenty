@@ -450,7 +450,10 @@ whose condition compares it with another local or a literal, as in
   check stays.
 
 Counters in memory, borrowed locals and generator frames, are not analyzed.
-`for` loops over ranges already step with wrapping arithmetic.
+`for` loops over ranges already step with wrapping arithmetic. A range over
+an integer type narrower than `i64`, or one with a positive literal step and
+a start known nonnegative, cannot have more than `i64.MAX` elements, so its
+length needs no overflow check (issue #721).
 
 ## Short circuits in conditions
 

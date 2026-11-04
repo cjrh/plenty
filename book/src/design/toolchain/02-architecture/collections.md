@@ -63,7 +63,12 @@ at the offsets in `plenty-runtime/src/list_layout.rs`, which the runtime
 asserts against its `repr(C)` `Collection` and `Entries`; a scalar row is 1, 2,
 4 or 8 bytes according to its type. One unsigned comparison accepts an index
 in `0..len`; any other index takes a cold path that adds the length and checks
-again, so a nonnegative index needs no normalization (issue #715). It then
+again, so a nonnegative index needs no normalization (issue #715). A constant
+index, or one known nonnegative, takes the single comparison only, and both
+paths join on the row address (issue #720). An access to the same rows,
+length and index values as a check earlier in the block, or in the chain of
+check and trap-guard blocks leading to it, reuses that check's address, since
+it cannot fail if the first passed (issue #721). It then
 loads or stores the declared bytes. Reads preserve payload bits before
 narrowing or bitcasting, and writes store the same bits a write through an
 element reference would. An index out of bounds calls

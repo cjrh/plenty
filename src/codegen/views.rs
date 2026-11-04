@@ -23,14 +23,16 @@ impl Lowerer<'_, '_> {
                 let element = view_element(view);
                 let (index, _) = self.pop_typed(Ty::I64)?;
                 let (value, _) = self.pop_typed(view.clone())?;
-                let (rows, count) = self.bcx.ins().isplit(value);
+                let (rows, count) = self.split_view(value);
                 // Iteration stays below the count it read, so only indexing
                 // checks.
-                let index = match operation {
-                    CollectionOp::ViewRow(..) => self.list_index(index, count)?,
-                    _ => index,
+                let address = match operation {
+                    CollectionOp::ViewRow(..) => {
+                        let row_bytes = metadata::list_row_bytes(&element) as i64;
+                        self.checked_row(rows, count, index, row_bytes)?
+                    }
+                    _ => self.view_row(rows, index, &element),
                 };
-                let address = self.view_row(rows, index, &element);
                 // A row is a top-level slot: no inline-sum tag is projected.
                 let reference = self.bcx.ins().uextend(types::I128, address);
                 self.stack
@@ -134,15 +136,22 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().select(written, clamped, omitted)
     }
 
+    /// The rows and count of `view`, reusing a split already done on this
+    /// path.
+    fn split_view(&mut self, view: NativeValue) -> (NativeValue, NativeValue) {
+        let view = self.bcx.func.dfg.resolve_aliases(view);
+        let block = self.bcx.current_block();
+        if let Some(split) = self.counters.checked.split(block, view) {
+            return split;
+        }
+        let split = self.bcx.ins().isplit(view);
+        self.counters.checked.record_split(view, split);
+        split
+    }
+
     fn view_row(&mut self, rows: NativeValue, index: NativeValue, element: &Ty) -> NativeValue {
         let row_bytes = metadata::list_row_bytes(element) as i64;
-        // A shift lets x86-64 fold a power-of-two row size into the address.
-        let offset = if row_bytes.count_ones() == 1 {
-            self.bcx.ins().ishl_imm_u(index, row_bytes.ilog2() as i64)
-        } else {
-            self.bcx.ins().imul_imm_s(index, row_bytes)
-        };
-        self.bcx.ins().iadd(rows, offset)
+        self.row_address(rows, index, row_bytes)
     }
 }
 

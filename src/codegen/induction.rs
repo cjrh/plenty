@@ -39,6 +39,114 @@ pub(super) struct Facts {
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
+    /// Row bounds checks done on the current path; see [`Checked`].
+    pub checked: Checked,
+}
+
+/// Row bounds checks already done, for reuse by a later access of the same
+/// row (issue #721). Each check, like each trap guard, ends by switching to
+/// a fresh block that only its own block reaches, so every check recorded
+/// along that chain of blocks dominates its end, `block`. Lowering in any
+/// other block forgets them.
+#[derive(Default)]
+pub(super) struct Checked {
+    block: Option<cranelift_codegen::ir::Block>,
+    /// Row keys, row sizes, and the rows' addresses.
+    rows: Vec<(RowKey, i64, Value)>,
+    /// Views split into their rows and count since `block`, so repeated
+    /// accesses through one view compare the same values.
+    splits: Vec<(Value, (Value, Value))>,
+}
+
+/// The rows and length values of a checked access, and its index: a
+/// constant by value, since each literal is a separate SSA value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct RowKey {
+    pub rows: Value,
+    pub length: Value,
+    pub index: Result<i64, Value>,
+}
+
+/// Enough for one statement's accesses; older checks are dropped first.
+const CHECKED_ROWS: usize = 16;
+
+impl Checked {
+    pub(super) fn find(
+        &mut self,
+        block: Option<cranelift_codegen::ir::Block>,
+        key: RowKey,
+        row_bytes: i64,
+    ) -> Option<Value> {
+        if self.block != block {
+            self.forget();
+            return None;
+        }
+        self.rows
+            .iter()
+            .find(|(k, bytes, _)| *k == key && *bytes == row_bytes)
+            .map(|&(_, _, address)| address)
+    }
+
+    /// Records a check made in `from` that continues in `valid`.
+    pub(super) fn record(
+        &mut self,
+        from: Option<cranelift_codegen::ir::Block>,
+        valid: cranelift_codegen::ir::Block,
+        key: RowKey,
+        row_bytes: i64,
+        address: Value,
+    ) {
+        if self.block != from {
+            self.forget();
+        }
+        if self.rows.len() == CHECKED_ROWS {
+            self.rows.remove(0);
+        }
+        self.rows.push((key, row_bytes, address));
+        self.block = Some(valid);
+    }
+
+    /// Extends the chain when lowering continues from `from` into `to`,
+    /// a block only `from` reaches.
+    pub(super) fn continue_to(
+        &mut self,
+        from: Option<cranelift_codegen::ir::Block>,
+        to: cranelift_codegen::ir::Block,
+    ) {
+        if self.block.is_some() && self.block == from {
+            self.block = Some(to);
+        }
+    }
+
+    fn forget(&mut self) {
+        self.rows.clear();
+        self.splits.clear();
+        self.block = None;
+    }
+
+    /// The rows and count of `view` split earlier on this path, if any.
+    pub(super) fn split(
+        &mut self,
+        block: Option<cranelift_codegen::ir::Block>,
+        view: Value,
+    ) -> Option<(Value, Value)> {
+        if self.block != block {
+            self.forget();
+            self.block = block;
+            return None;
+        }
+        self.splits
+            .iter()
+            .find(|(v, _)| *v == view)
+            .map(|&(_, split)| split)
+    }
+
+    pub(super) fn record_split(&mut self, view: Value, split: (Value, Value)) {
+        if self.splits.len() == CHECKED_ROWS {
+            self.splits.remove(0);
+        }
+        self.splits.push((view, split));
+    }
 }
 
 /// Operations that emit no code and so cannot separate a matched sequence.

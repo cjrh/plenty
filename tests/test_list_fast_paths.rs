@@ -815,3 +815,68 @@ def main() -> ():
         "{asm}"
     );
 }
+
+/// Accesses of one row in a statement share its bounds check (issue #721),
+/// and their results and traps match unshared checks: through lists and
+/// views, with constant, negative and computed indices.
+const REPEATED: &str = r#"
+def swap_ends(xs: &mut [i64], i: i64) -> ():
+    j = -1 - i
+    t = xs[i]
+    xs[i] = xs[j]
+    xs[j] = t
+def double(xs: &mut [i64], i: i64) -> ():
+    xs[i] = xs[i] + xs[i]
+def sum_twice(xs: &[i64], i: i64) -> i64:
+    xs[i] + xs[i] + xs[-1] + xs[-1] + xs[0] + xs[0]
+def main() -> ():
+    mut xs = [1, 2, 3, 4, 5].unwrap()
+    swap_ends(&mut xs, 0)
+    swap_ends(&mut xs, -4)
+    double(&mut xs, 2)
+    double(&mut xs, -1)
+    print(xs).unwrap()
+    print(sum_twice(&xs, 1)).unwrap()
+    print(sum_twice(&xs, -5)).unwrap()
+"#;
+
+#[test]
+fn repeated_row_accesses_keep_their_results() {
+    support::assert_stdout(REPEATED, "[5, 4, 6, 2, 2]\n22\n24\n");
+}
+
+#[rstest]
+#[case("swap_ends(&mut xs, 5)", "index 5, length 5")]
+#[case("swap_ends(&mut xs, -6)", "index -6, length 5")]
+#[case("double(&mut xs, 5)", "index 5, length 5")]
+#[case("double(&mut xs, -6)", "index -6, length 5")]
+#[case("print(sum_twice(&xs, 7)).unwrap()", "index 7, length 5")]
+#[case("print(sum_twice(&xs[5:], 0)).unwrap()", "index 0, length 0")]
+#[case("print(sum_twice(&xs[:1], -2)).unwrap()", "index -2, length 1")]
+fn repeated_row_accesses_trap_with_the_first_failing_index(
+    #[case] call: &str,
+    #[case] message: &str,
+) {
+    let source = REPEATED.replace(
+        "    swap_ends(&mut xs, 0)\n",
+        &format!("    {call}\n    swap_ends(&mut xs, 0)\n"),
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+/// Each distinct row is checked once: `double` has one row and `sum_twice`
+/// three, so the release build emits one trap call per row (issue #721).
+#[test]
+fn repeated_row_accesses_check_each_row_once() {
+    for (name, rows) in [("double", 1), ("sum_twice", 3), ("swap_ends", 2)] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), REPEATED);
+        let traps = clif.matches("call fn").count();
+        assert_eq!(traps, rows, "{name}\n{clif}");
+    }
+}

@@ -10,51 +10,102 @@ enum Site {
 }
 
 impl Lowerer<'_, '_> {
-    /// Normalizes a negative `index` as Python does and checks it against
-    /// `length`, as the runtime's `index` does; an index out of bounds traps
-    /// with the runtime's message and this site.
-    pub(super) fn list_index(
+    /// The address of row `index` of the rows at `rows`, each `row_bytes`
+    /// wide. A negative `index` counts from the end, as Python does, and an
+    /// index out of `0..length` traps with the runtime's message and this
+    /// site.
+    ///
+    /// Two choices keep the hot path free of register copies (issue #720).
+    /// An index known nonnegative needs no normalization, so the in-range
+    /// path uses it directly. Otherwise the two paths join on the row's
+    /// address, not the normalized index: the index usually stays live after
+    /// the access, and a joined copy of it would occupy a second register,
+    /// while the hot address dies at the join.
+    ///
+    /// A check already done in this block or a dominating one, for the same
+    /// rows, length and index values, is reused (issue #721): it cannot fail
+    /// now if it passed then, so trap behavior is unchanged.
+    pub(super) fn checked_row(
         &mut self,
-        index: cranelift_codegen::ir::Value,
+        rows: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
+        index: cranelift_codegen::ir::Value,
+        row_bytes: i64,
     ) -> Result<cranelift_codegen::ir::Value> {
+        let dfg = &self.bcx.func.dfg;
+        let known = super::known::known_signed(dfg, index);
+        let key = super::induction::RowKey {
+            rows: dfg.resolve_aliases(rows),
+            length: dfg.resolve_aliases(length),
+            index: known.ok_or_else(|| dfg.resolve_aliases(index)),
+        };
+        let block = self.bcx.current_block();
+        if let Some(address) = self.counters.checked.find(block, key, row_bytes) {
+            return Ok(address);
+        }
         let failure = self.bcx.create_block();
         let valid = self.bcx.create_block();
-        let normalized = self.bcx.append_block_param(valid, types::I64);
-        match super::known::known_signed(&self.bcx.func.dfg, index) {
-            // A constant index needs only one test.
-            Some(constant) if constant < 0 => {
-                let adjusted = self.bcx.ins().iadd(index, length);
+        let normalized = match known {
+            Some(constant) if constant < 0 => Some(self.bcx.ins().iadd(index, length)),
+            Some(_) => Some(index),
+            None if self.nonnegative_operand(index) => Some(index),
+            None => None,
+        };
+        let joined = match normalized {
+            // A constant or nonnegative index needs only one test.
+            Some(normalized) => {
                 let in_range = self
                     .bcx
                     .ins()
-                    .icmp(IntCC::UnsignedLessThan, adjusted, length);
-                self.bcx
-                    .ins()
-                    .brif(in_range, valid, &[adjusted.into()], failure, &[]);
-            }
-            Some(_) => {
-                let in_range = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length);
-                self.bcx
-                    .ins()
-                    .brif(in_range, valid, &[index.into()], failure, &[]);
+                    .icmp(IntCC::UnsignedLessThan, normalized, length);
+                self.bcx.ins().brif(in_range, valid, &[], failure, &[]);
+                None
             }
             None => {
-                let negative = self.index_hot_test(index, length, valid, &[index.into()]);
-                let adjusted = self.index_adjust(index, length, negative);
+                let joined = self.bcx.append_block_param(valid, PTR_TY);
+                let hot = self.row_address(rows, index, row_bytes);
+                let negative = self.index_hot_test(index, length, valid, &[hot.into()]);
+                let (adjusted, in_range) = self.index_adjust(index, length, negative);
+                let cold = self.row_address(rows, adjusted, row_bytes);
                 self.bcx
                     .ins()
-                    .brif(adjusted.1, valid, &[adjusted.0.into()], failure, &[]);
+                    .brif(in_range, valid, &[cold.into()], failure, &[]);
+                Some(joined)
             }
-        }
+        };
         self.index_failure(failure, index, length)?;
         self.bcx.switch_to_block(valid);
         self.bcx.seal_block(valid);
-        Ok(normalized)
+        // Computed in the block that uses it, a single-test address folds
+        // into the access's addressing mode.
+        let address = match joined {
+            Some(joined) => joined,
+            None => self.row_address(rows, normalized.unwrap_or(index), row_bytes),
+        };
+        self.counters
+            .checked
+            .record(block, valid, key, row_bytes, address);
+        Ok(address)
+    }
+
+    /// `rows + index * row_bytes`. A shift lets x86-64 fold a power-of-two
+    /// row size into the address.
+    pub(super) fn row_address(
+        &mut self,
+        rows: cranelift_codegen::ir::Value,
+        index: cranelift_codegen::ir::Value,
+        row_bytes: i64,
+    ) -> cranelift_codegen::ir::Value {
+        let offset = if row_bytes.count_ones() == 1 {
+            self.bcx.ins().ishl_imm_u(index, row_bytes.ilog2() as i64)
+        } else {
+            self.bcx.ins().imul_imm_s(index, row_bytes)
+        };
+        self.bcx.ins().iadd(rows, offset)
     }
 
     /// Reads (`store` is `None`) or writes the scalar row `index` of the
-    /// rows at `rows`, checked against `length` by [`Self::list_index`].
+    /// rows at `rows`, checked against `length` by [`Self::checked_row`].
     fn scalar_row_access(
         &mut self,
         rows: cranelift_codegen::ir::Value,
@@ -63,10 +114,8 @@ impl Lowerer<'_, '_> {
         element: &Ty,
         store: Option<cranelift_codegen::ir::Value>,
     ) -> Result<Option<cranelift_codegen::ir::Value>> {
-        let normalized = self.list_index(index, length)?;
-        let shift = clif_type(element.clone()).bytes().ilog2() as i64;
-        let offset = self.bcx.ins().ishl_imm_u(normalized, shift);
-        let address = self.bcx.ins().iadd(rows, offset);
+        let row_bytes = clif_type(element.clone()).bytes() as i64;
+        let address = self.checked_row(rows, length, index, row_bytes)?;
         Ok(match store {
             Some(value) => {
                 let flags = cranelift_codegen::ir::MemFlagsData::trusted();
@@ -449,6 +498,19 @@ impl Lowerer<'_, '_> {
         };
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
+        // A narrow range, or an i64 range stepping up from a nonnegative
+        // start, is shorter than `i64::MAX`: fold its check (issue #721).
+        let short = narrow
+            || signed && {
+                let dfg = &self.bcx.func.dfg;
+                super::known::known_signed(dfg, step).is_some_and(|step| step > 0)
+                    && self.nonnegative_operand(first)
+            };
+        if short {
+            self.stack.push((length, Ty::I64));
+            return Ok(());
+        }
+        let b = &mut self.bcx;
         let oversized = b.ins().icmp_imm_s(IntCC::SignedLessThan, length, 0);
         let cold = b.create_block();
         let after = b.create_block();
@@ -750,12 +812,10 @@ impl Lowerer<'_, '_> {
                 .ins()
                 .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
             let length = self.scalar_list_len(owner, &element);
-            let shift = clif_type(element.clone()).bytes().ilog2() as i64;
+            let row_bytes = clif_type(element.clone()).bytes() as i64;
             let mut addresses = [first, second];
             for address in &mut addresses {
-                let normalized = self.list_index(*address, length)?;
-                let offset = self.bcx.ins().ishl_imm_u(normalized, shift);
-                *address = self.bcx.ins().iadd(rows, offset);
+                *address = self.checked_row(rows, length, *address, row_bytes)?;
             }
             let [first, second] = addresses;
             let width = types::Type::int(clif_type(element).bits() as u16).unwrap();

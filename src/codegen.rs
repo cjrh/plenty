@@ -3121,6 +3121,7 @@ impl Lowerer<'_, '_> {
         // A site read from a shared exit's variable differs by predecessor,
         // so its trap block is not shared.
         let key = self.trap_site_offset().ok().map(|offset| (kind, offset));
+        let before = self.bcx.current_block();
         let after = self.bcx.create_block();
         if let Some(&trap_block) = key.as_ref().and_then(|key| self.trap_blocks.get(key)) {
             self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
@@ -3152,9 +3153,10 @@ impl Lowerer<'_, '_> {
             }
         }
 
-        // Continue lowering into `after`.
+        // Continue lowering into `after`, which only `before` reaches.
         self.bcx.switch_to_block(after);
         self.bcx.seal_block(after);
+        self.counters.checked.continue_to(before, after);
         Ok(())
     }
 

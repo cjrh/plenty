@@ -58,8 +58,10 @@ def main() -> ():
         .iter()
         .filter(|name| name.starts_with("plenty_") && !name.starts_with("plenty_trap_"))
         .collect();
-    // One cold call per range reports an oversized length.
-    assert_eq!(runtime, ["plenty_op_10"; 4], "{calls:?}");
+    // Only the range with a runtime step can have an oversized length; its
+    // cold call reports it. The others start at a nonnegative value with a
+    // positive constant step, or have a narrow type.
+    assert_eq!(runtime, ["plenty_op_10"], "{calls:?}");
     expect(source, "175\n");
 }
 
