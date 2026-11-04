@@ -8,6 +8,7 @@ use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
+pub(crate) mod enum_bits;
 mod sort;
 
 #[cfg(test)]
@@ -192,7 +193,35 @@ pub(crate) struct Entries {
     key: &'static Type,
     value: Option<&'static Type>,
     stride: usize,
-    order: Option<Order>,
+    order: RowOrder,
+}
+
+// A bitset occupies the same storage alternative as insertion-order links;
+// neither the ABI prefix nor dense list storage changes.
+enum RowOrder {
+    Dense,
+    Linked(Order),
+    Bits(u64),
+}
+impl RowOrder {
+    fn linked(&self) -> Option<&Order> {
+        match self {
+            Self::Linked(order) => Some(order),
+            _ => None,
+        }
+    }
+    fn linked_mut(&mut self) -> Option<&mut Order> {
+        match self {
+            Self::Linked(order) => Some(order),
+            _ => None,
+        }
+    }
+    fn is_none(&self) -> bool {
+        matches!(self, Self::Dense)
+    }
+    fn is_some(&self) -> bool {
+        !self.is_none()
+    }
 }
 
 const _: () = {
@@ -218,20 +247,50 @@ impl Entries {
                 (key.slot_words() + value.map_or(0, Type::slot_words)) * 16
             },
             removed: false,
-            order: None,
+            order: RowOrder::Dense,
         }
     }
     pub fn ordered(key: &'static Type, value: Option<&'static Type>) -> Self {
         Self {
-            order: Some(Order::new()),
+            order: RowOrder::Linked(Order::new()),
             // Hash rows retain canonical slots, including an unused value slot
             // for sets; their references and ownership traversal share this ABI.
             stride: (key.slot_words() + value.map_or(1, Type::slot_words)) * 16,
             ..Self::new(key, value)
         }
     }
+    pub fn enum_set(key: &'static Type) -> Self {
+        debug_assert!(enum_bits::eligible(key));
+        Self {
+            order: RowOrder::Bits(0),
+            ..Self::new(key, None)
+        }
+    }
+    pub fn bits(&self) -> Option<u64> {
+        match self.order {
+            RowOrder::Bits(bits) => Some(bits),
+            _ => None,
+        }
+    }
+    pub fn set_bits(&mut self, bits: u64) {
+        let RowOrder::Bits(current) = &mut self.order else {
+            unreachable!("enum set")
+        };
+        *current = bits;
+    }
+    pub fn key_ref(&mut self, index: usize) -> *const u128 {
+        if let Some(bits) = self.bits() {
+            assert!(bits & (1 << index) != 0);
+            enum_bits::reference(index)
+        } else {
+            self.slot(index, false)
+        }
+    }
     pub fn len(&self) -> usize {
-        self.order.as_ref().map_or_else(
+        if let Some(bits) = self.bits() {
+            return bits.count_ones() as usize;
+        }
+        self.order.linked().map_or_else(
             || self.data.len() / self.stride - usize::from(self.removed),
             Order::len,
         )
@@ -240,19 +299,29 @@ impl Entries {
         self.len() == 0
     }
     pub fn capacity(&self) -> usize {
+        if self.bits().is_some() {
+            return self.key.variants.len();
+        }
         let rows = self.data.capacity() / self.stride;
         self.order
-            .as_ref()
+            .linked()
             .map_or(rows, |order| rows.min(order.capacity()))
     }
     pub fn row_bytes(&self) -> usize {
         self.stride
     }
     pub fn get(&self, index: usize) -> Entry {
+        if let Some(bits) = self.bits() {
+            assert!(bits & (1 << index) != 0);
+            return Entry {
+                key: enum_bits::value(index),
+                value: 0,
+            };
+        }
         assert!(index < self.data.len() / self.stride);
         debug_assert!(
             self.order
-                .as_ref()
+                .linked()
                 .map_or(index < self.len(), |order| order.contains(index))
         );
         self.read_row(index)
@@ -284,22 +353,31 @@ impl Entries {
         // Exactly one side is populated; chaining keeps both representations
         // allocation-free and preserves double-ended traversal.
         let dense = 0..if self.order.is_none() { self.len() } else { 0 };
-        let sparse = self.order.iter().flat_map(Order::indices);
+        let sparse = self.order.linked().into_iter().flat_map(Order::indices);
         EntryIndices {
-            inner: dense.chain(sparse),
+            inner: dense
+                .chain(sparse)
+                .chain(enum_bits::Indices(self.bits().unwrap_or(0))),
             remaining: self.len(),
         }
     }
     pub fn vacant(&self) -> usize {
         self.order
-            .as_ref()
+            .linked()
             .map_or_else(|| self.len(), Order::vacant)
     }
     pub fn first(&self) -> Option<usize> {
-        self.order.as_ref().expect("hash entries").first()
+        if let Some(bits) = self.bits() {
+            return enum_bits::Indices(bits).next();
+        }
+        self.order.linked().expect("hash entries").first()
     }
     pub fn next(&self, index: usize) -> Option<usize> {
-        self.order.as_ref().expect("hash entries").next(index)
+        if let Some(bits) = self.bits() {
+            return enum_bits::Indices(bits & u64::MAX.checked_shl(index as u32 + 1).unwrap_or(0))
+                .next();
+        }
+        self.order.linked().expect("hash entries").next(index)
     }
     /// Dense row `i` is at byte offset `i * row_bytes()` from this address,
     /// as `slot(i, false)` returns, until the next mutation.
@@ -311,10 +389,14 @@ impl Entries {
     /// packed scalar rows have only their declared width/alignment. Callers
     /// dereferencing this pointer must use the element's storage representation.
     pub fn slot(&mut self, index: usize, value: bool) -> *mut u128 {
+        assert!(
+            self.bits().is_none(),
+            "bitset members have no writable slots"
+        );
         assert!(index < self.data.len() / self.stride);
         debug_assert!(
             self.order
-                .as_ref()
+                .linked()
                 .map_or(index < self.len(), |order| order.contains(index))
         );
         unsafe {
@@ -369,7 +451,7 @@ impl Entries {
         } else {
             dense_start
         };
-        let sparse = self.order.iter().flat_map(Order::indices);
+        let sparse = self.order.linked().into_iter().flat_map(Order::indices);
         for i in (dense_start..dense_end).chain(sparse) {
             unsafe {
                 let slot = base.add(i * self.stride).cast::<u128>();
@@ -381,7 +463,10 @@ impl Entries {
         }
     }
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), memory::AllocError> {
-        if let Some(order) = &mut self.order {
+        if self.bits().is_some() {
+            return Ok(());
+        }
+        if let Some(order) = self.order.linked_mut() {
             let needed = order
                 .len()
                 .checked_add(additional)
@@ -414,9 +499,13 @@ impl Entries {
     }
     /// Reservation belongs to the surrounding transactional operation.
     pub unsafe fn push(&mut self, entry: Entry) {
+        if let RowOrder::Bits(bits) = &mut self.order {
+            *bits |= 1 << self.key.tag(entry.key);
+            return;
+        }
         assert!(self.len() < self.capacity());
         let index = self.vacant();
-        if let Some(order) = &mut self.order {
+        if let Some(order) = self.order.linked_mut() {
             order.push();
             if index == self.data.len() / self.stride {
                 self.data.resize(self.data.len() + self.stride, 0);
@@ -443,13 +532,20 @@ impl Entries {
             .extend_from_slice(&source.data[first * self.stride..(first + count) * self.stride]);
     }
     pub fn clear(&mut self) {
+        if let RowOrder::Bits(bits) = &mut self.order {
+            *bits = 0;
+        }
         self.data.clear();
         self.removed = false;
-        if let Some(order) = &mut self.order {
+        if let Some(order) = self.order.linked_mut() {
             order.clear();
         }
     }
     pub fn drain(&mut self) -> impl Iterator<Item = Entry> + '_ {
+        let bits = self.bits().unwrap_or(0);
+        if self.bits().is_some() {
+            self.set_bits(0);
+        }
         let count = self.len();
         let base = self.data.as_ptr();
         let stride = self.stride;
@@ -459,12 +555,21 @@ impl Entries {
         self.data.clear();
         self.removed = false;
         let dense = 0..if self.order.is_none() { count } else { 0 };
-        let sparse = self.order.as_mut().map(Order::drain).into_iter().flatten();
+        let sparse = self
+            .order
+            .linked_mut()
+            .map(Order::drain)
+            .into_iter()
+            .flatten();
         // The reserved buffer stays live and its trivially copied words remain
         // initialized. The returned iterator borrows self, preventing reallocation.
         dense
             .chain(sparse)
             .map(move |i| unsafe { read_row(base.add(i * stride), key, value, packed) })
+            .chain(enum_bits::Indices(bits).map(|i| Entry {
+                key: enum_bits::value(i),
+                value: 0,
+            }))
     }
     pub unsafe fn append(&mut self, source: &mut Self) {
         for entry in source.iter() {
@@ -478,7 +583,11 @@ impl Entries {
     /// Native callers snapshot it before releasing or mutating this collection.
     pub unsafe fn remove(&mut self, index: usize) -> Entry {
         let entry = self.get(index);
-        if let Some(order) = &mut self.order {
+        if let RowOrder::Bits(bits) = &mut self.order {
+            *bits &= !(1 << index);
+            return entry;
+        }
+        if let Some(order) = self.order.linked_mut() {
             order.remove(index);
             return entry;
         }

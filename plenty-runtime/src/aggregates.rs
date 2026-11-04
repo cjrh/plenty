@@ -17,6 +17,8 @@ mod crypto;
 mod crypto_advanced;
 mod crypto_keys;
 mod entry_error;
+#[cfg(test)]
+mod enum_set_tests;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
 mod filesystem;
@@ -642,6 +644,8 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
         ty,
         entries: if ty.kind == b'L' {
             Entries::new(ty.key(), ty.value)
+        } else if ty.kind == b'S' && crate::entries::enum_bits::eligible(ty.key()) {
+            Entries::enum_set(ty.key())
         } else {
             Entries::ordered(ty.key(), ty.value)
         },
@@ -666,8 +670,10 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
         let ty = &*(*c).ty;
         // A list of values that own nothing needs no per-row release; skipping
         // the walk avoids touching every row before the buffer is freed.
-        let mut entry = if ty.kind == b'L'
-            && (ty.key().owns_nothing() || ty.key().only_strings().is_some_and(<[u32]>::is_empty))
+        let mut entry = if (*c).entries.bits().is_some()
+            || ty.kind == b'L'
+                && (ty.key().owns_nothing()
+                    || ty.key().only_strings().is_some_and(<[u32]>::is_empty))
         {
             None
         } else {
@@ -837,6 +843,10 @@ impl Collection {
         }
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
+        if let Some(bits) = self.entries.bits() {
+            let tag = self.ty().key().tag(key);
+            return (bits & (1 << tag) != 0).then_some(tag);
+        }
         if self.table.is_empty() {
             None
         } else {
@@ -853,6 +863,9 @@ impl Collection {
             .filter(|n| *n <= i64::MAX as usize)
             .ok_or(AllocError::CapacityOverflow)?;
         memory::checked_capacity::<Entry>(needed)?;
+        if self.entries.bits().is_some() {
+            return Ok(());
+        }
         let table_size = if self.ty().kind != b'L' && needed > self.table.len() / 2 {
             let count = needed
                 .checked_mul(2)
@@ -906,6 +919,11 @@ impl Collection {
     /// Count missing keys before reserving. No logical update or payload cleanup
     /// occurs until entry, order, and bucket capacity are available.
     unsafe fn try_update(&mut self, source: &mut Collection) -> Result<(), AllocError> {
+        if let (Some(left), Some(right)) = (self.entries.bits(), source.entries.bits()) {
+            self.entries.set_bits(left | right);
+            source.entries.clear();
+            return Ok(());
+        }
         unsafe {
             let additional = source
                 .entries
@@ -963,6 +981,10 @@ impl Collection {
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
+            if self.entries.bits().is_some() {
+                self.entries.push(Entry { key, value: 0 });
+                return Ok(());
+            }
             if self.ty().kind != b'L'
                 && let Some(i) = self.find(key)
             {
@@ -1000,6 +1022,11 @@ impl Collection {
     /// Sets have a zero payload; Some(0) still distinguishes removal from a miss.
     unsafe fn remove(&mut self, key: u128) -> Option<u128> {
         unsafe {
+            if self.entries.bits().is_some() {
+                let index = self.find(key)?;
+                self.entries.remove(index);
+                return Some(0);
+            }
             if self.table.is_empty() {
                 return None;
             }
@@ -1086,6 +1113,9 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'L' | b'S' | b'D' => {
                 let (a, b) = (&*(a as *const Collection), &*(b as *const Collection));
+                if let (Some(left), Some(right)) = (a.entries.bits(), b.entries.bits()) {
+                    return left == right;
+                }
                 if a.len() != b.len() {
                     return false;
                 }
@@ -1625,6 +1655,10 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             value: result as u128,
             ty,
         };
+        if let Some(bits) = source.entries.bits() {
+            (*result).entries.set_bits(bits);
+            return Ok(owner.into_value());
+        }
         for entry in source.entries.iter() {
             // Insert byte copies that still name the source, then replace them
             // in place, so inline payloads are copied into the final buffer.
@@ -2662,6 +2696,15 @@ pub(crate) unsafe fn collection_at(
                 let target = &mut *(a as *mut Collection);
                 let other = &*(b as *const Collection);
                 let ty = &*target.ty;
+                if let (Some(left), Some(right)) = (target.entries.bits(), other.entries.bits()) {
+                    target.entries.set_bits(if op == 69 {
+                        left & right
+                    } else {
+                        left & !right
+                    });
+                    plenty_retain(a as *mut Header);
+                    return a;
+                }
                 target.entries.retain(|entry| {
                     if other.find(entry.key).is_some() == (op == 69) {
                         true
@@ -2671,10 +2714,12 @@ pub(crate) unsafe fn collection_at(
                     }
                 });
                 target.table.fill(0);
-                for index in target.entries.indices() {
-                    let entry = target.entries.get(index);
-                    let bucket = target.bucket(entry.key);
-                    target.table[bucket] = index + 1;
+                if target.entries.bits().is_none() {
+                    for index in target.entries.indices() {
+                        let entry = target.entries.get(index);
+                        let bucket = target.bucket(entry.key);
+                        target.table[bucket] = index + 1;
+                    }
                 }
                 plenty_retain(a as *mut Header);
                 a
@@ -2689,6 +2734,20 @@ pub(crate) unsafe fn collection_at(
                     KEY_VIEW_SYMMETRIC_DIFFERENCE => (SET_SYMMETRIC_DIFFERENCE, &*descriptor),
                     _ => (op, &*left.ty),
                 };
+                if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
+                    return match try_collection_new(result_type, 0) {
+                        Ok(output) => {
+                            (*output).entries.set_bits(match op {
+                                SET_UNION => left | right,
+                                SET_INTERSECTION => left & right,
+                                SET_DIFFERENCE => left & !right,
+                                _ => left ^ right,
+                            });
+                            wrap(output as u128, 0)
+                        }
+                        Err(error) => wrap(wrap(0, error as u64), 1),
+                    };
+                }
                 let left_entries = left.entries.iter().filter(|entry| match op {
                     SET_UNION => true,
                     SET_INTERSECTION => right.find(entry.key).is_some(),
@@ -2713,6 +2772,14 @@ pub(crate) unsafe fn collection_at(
             }
             SET_IS_SUBSET..=SET_IS_DISJOINT | KEY_VIEW_EQUAL => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
+                if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
+                    return match op {
+                        KEY_VIEW_EQUAL => left == right,
+                        SET_IS_SUBSET => left & !right == 0,
+                        SET_IS_SUPERSET => right & !left == 0,
+                        _ => left & right == 0,
+                    } as u128;
+                }
                 let result = match op {
                     KEY_VIEW_EQUAL => {
                         left.entries.len() == right.entries.len()
@@ -3032,7 +3099,7 @@ pub(crate) unsafe fn collection_at(
             140 => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
-                c.entries.slot(b as usize - 1, false) as u128
+                c.entries.key_ref(b as usize - 1) as u128
             }
             4 | 6 => {
                 let c = &*(a as *const Collection);
