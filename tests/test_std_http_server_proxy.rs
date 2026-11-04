@@ -14,11 +14,13 @@
 
 mod support;
 
+use std::collections::HashSet;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const SERVER: &str = include_str!("fixtures/proxy/server.plenty");
@@ -70,29 +72,85 @@ pub(super) fn enabled(test: &str) -> bool {
     true
 }
 
-/// Keep both TCP ports distinct and available throughout configuration setup.
-/// Caddy also binds UDP on its TLS port for HTTP/3, even though these tests
-/// use curl's TCP transports. TCP availability alone cannot qualify that port.
+type PortRegistry = Arc<Mutex<HashSet<u16>>>;
+
+/// Logical ownership survives releasing the OS sockets for Docker's host-network
+/// bind. Both roles share one namespace; unrelated processes are not protected.
+struct PortLease {
+    registry: PortRegistry,
+    ports: [u16; 2],
+}
+
+impl PortLease {
+    fn claim(registry: &PortRegistry, ports: [u16; 2]) -> Option<Self> {
+        let mut claimed = registry.lock().unwrap();
+        if ports[0] == ports[1] || ports.iter().any(|port| claimed.contains(port)) {
+            return None;
+        }
+        claimed.extend(ports);
+        Some(Self {
+            registry: Arc::clone(registry),
+            ports,
+        })
+    }
+}
+
+impl Drop for PortLease {
+    fn drop(&mut self) {
+        let mut claimed = self.registry.lock().unwrap();
+        for port in self.ports {
+            claimed.remove(&port);
+        }
+    }
+}
+
+/// Keep both TCP ports and matching TLS UDP socket through configuration setup.
+/// Caddy binds UDP for HTTP/3 even though these tests use TCP transports.
 struct Ports {
     http: TcpListener,
     tls: TcpListener,
     _quic: UdpSocket,
+    lease: PortLease,
 }
 
 impl Ports {
     fn reserve() -> Self {
+        static REGISTRY: OnceLock<PortRegistry> = OnceLock::new();
+        Self::reserve_with(REGISTRY.get_or_init(PortRegistry::default), || {
+            (
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+            )
+        })
+    }
+
+    fn reserve_with(
+        registry: &PortRegistry,
+        mut candidate: impl FnMut() -> (TcpListener, TcpListener),
+    ) -> Self {
         for _ in 0..100 {
-            let http = TcpListener::bind("127.0.0.1:0").unwrap();
-            let tls = TcpListener::bind("127.0.0.1:0").unwrap();
+            let (http, tls) = candidate();
+            let numbers = [
+                http.local_addr().unwrap().port(),
+                tls.local_addr().unwrap().port(),
+            ];
+            let Some(lease) = PortLease::claim(registry, numbers) else {
+                continue;
+            };
             if let Ok(quic) = UdpSocket::bind(tls.local_addr().unwrap()) {
                 return Self {
                     http,
                     tls,
                     _quic: quic,
+                    lease,
                 };
             }
         }
         panic!("cannot reserve two TCP ports and a matching UDP port");
+    }
+
+    fn release_sockets(self) -> PortLease {
+        self.lease
     }
 }
 
@@ -181,6 +239,8 @@ pub(super) struct Proxy {
     identity: String,
     docker: Child,
     dir: tempfile::TempDir,
+    // Fields drop after Proxy::drop completes container cleanup, including unwind.
+    _ports: PortLease,
 }
 
 impl Proxy {
@@ -252,9 +312,10 @@ impl Proxy {
         let log = std::fs::File::create(dir.path().join("log")).unwrap();
         // `z` relabels the mount for SELinux hosts; the files are ours.
         // Host-network containers must bind these sockets themselves. Keep
-        // the unavoidable handoff window short; identity probes below reject
-        // a foreign listener instead of accepting it as a ready proxy.
-        drop(ports);
+        // the unavoidable external handoff window short. Retain logical ownership
+        // so another fixture in this process cannot select either port meanwhile.
+        // Identity probes still reject foreign listeners immediately.
+        let lease = ports.release_sockets();
         let docker = Command::new("docker")
             .args(["run", "--rm", "--name", &name, "--network", "host"])
             .args(["--label", "plenty-test=proxy", "-v"])
@@ -274,6 +335,7 @@ impl Proxy {
             identity: name,
             docker,
             dir,
+            _ports: lease,
         };
         proxy.wait_ready();
         proxy
@@ -404,6 +466,204 @@ fn proxy_ports_hold_distinct_tcp_and_matching_udp_reservations() {
     assert!(TcpListener::bind(http).is_err());
     assert!(TcpListener::bind(tls).is_err());
     assert!(UdpSocket::bind(tls).is_err());
+}
+
+#[test]
+fn proxy_ports_reselect_claimed_candidates_after_socket_release() {
+    let registry = PortRegistry::default();
+    let candidate = || {
+        (
+            TcpListener::bind("127.0.0.1:0").unwrap(),
+            TcpListener::bind("127.0.0.1:0").unwrap(),
+        )
+    };
+    let first = Ports::reserve_with(&registry, candidate);
+    let http = first.http.local_addr().unwrap();
+    let tls = first.tls.local_addr().unwrap();
+    let lease = first.release_sockets();
+    // No Docker listener exists: force the exact pair back into selection,
+    // including swapped roles, rather than waiting for ephemeral-port chance.
+    assert!(UdpSocket::bind(tls).is_ok());
+    let mut attempts = 0;
+    let second = Ports::reserve_with(&registry, || {
+        attempts += 1;
+        match attempts {
+            1 => (
+                TcpListener::bind(http).unwrap(),
+                TcpListener::bind(tls).unwrap(),
+            ),
+            2 => (
+                TcpListener::bind(tls).unwrap(),
+                TcpListener::bind(http).unwrap(),
+            ),
+            _ => candidate(),
+        }
+    });
+    assert!(attempts >= 3);
+    assert!(
+        !lease
+            .ports
+            .contains(&second.http.local_addr().unwrap().port())
+    );
+    assert!(
+        !lease
+            .ports
+            .contains(&second.tls.local_addr().unwrap().port())
+    );
+    drop(second);
+    drop(lease);
+    let reused = Ports::reserve_with(&registry, || {
+        (
+            TcpListener::bind(http).unwrap(),
+            TcpListener::bind(tls).unwrap(),
+        )
+    });
+    assert_eq!(reused.lease.ports, [http.port(), tls.port()]);
+}
+
+#[test]
+fn proxy_port_leases_reject_each_cross_role_without_blocking_independent_pairs() {
+    let registry = PortRegistry::default();
+    let first = PortLease::claim(&registry, [1, 2]).unwrap();
+    for pair in [[1, 3], [3, 1], [2, 3], [3, 2], [2, 1], [3, 3]] {
+        assert!(PortLease::claim(&registry, pair).is_none(), "{pair:?}");
+    }
+    let independent = PortLease::claim(&registry, [3, 4]).unwrap();
+    drop(first);
+    let reused = PortLease::claim(&registry, [2, 1]).unwrap();
+    assert!(PortLease::claim(&registry, [3, 4]).is_none());
+    drop(reused);
+    drop(independent);
+    assert!(registry.lock().unwrap().is_empty());
+}
+
+#[test]
+fn proxy_port_leases_release_on_startup_error_and_unwind() {
+    let registry = PortRegistry::default();
+    let candidate = || {
+        (
+            TcpListener::bind("127.0.0.1:0").unwrap(),
+            TcpListener::bind("127.0.0.1:0").unwrap(),
+        )
+    };
+    let fail_startup = || -> io::Result<()> {
+        let ports = Ports::reserve_with(&registry, candidate);
+        let _lease = ports.release_sockets();
+        Err(io::Error::other("simulated spawn failure"))
+    };
+    assert!(fail_startup().is_err());
+    assert!(registry.lock().unwrap().is_empty());
+    for after_handoff in [false, true] {
+        let result = std::panic::catch_unwind(|| {
+            let ports = Ports::reserve_with(&registry, candidate);
+            if after_handoff {
+                let _lease = ports.release_sockets();
+                panic!("simulated readiness failure");
+            } else {
+                let _ports = ports;
+                panic!("simulated configuration failure");
+            }
+        });
+        assert!(result.is_err());
+        assert!(registry.lock().unwrap().is_empty());
+    }
+    let reused = PortLease::claim(&registry, [1, 2]).unwrap();
+    drop(reused);
+    assert!(registry.lock().unwrap().is_empty());
+}
+
+#[test]
+fn proxy_ports_release_claim_when_tls_udp_is_unavailable() {
+    let registry = PortRegistry::default();
+    let http = TcpListener::bind("127.0.0.1:0").unwrap();
+    let tls = TcpListener::bind("127.0.0.1:0").unwrap();
+    let numbers = [
+        http.local_addr().unwrap().port(),
+        tls.local_addr().unwrap().port(),
+    ];
+    let _udp = UdpSocket::bind(tls.local_addr().unwrap()).unwrap();
+    let mut blocked = Some((http, tls));
+    let mut spare = Some((
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+    ));
+    let ports = Ports::reserve_with(&registry, || {
+        blocked.take().or_else(|| spare.take()).unwrap_or_else(|| {
+            (
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+            )
+        })
+    });
+    assert!(PortLease::claim(&registry, numbers).is_some());
+    drop(ports);
+    assert!(registry.lock().unwrap().is_empty());
+}
+
+#[test]
+fn proxy_port_leases_outlive_owner_cleanup() {
+    // Proxy uses this same field-drop ordering: release only after its Drop
+    // body has removed/waited for the container, not at the start of cleanup.
+    struct Owner(PortLease);
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            assert!(PortLease::claim(&self.0.registry, self.0.ports).is_none());
+            assert!(PortLease::claim(&self.0.registry, [3, 4]).is_some());
+        }
+    }
+    let registry = PortRegistry::default();
+    drop(Owner(PortLease::claim(&registry, [1, 2]).unwrap()));
+    assert!(PortLease::claim(&registry, [1, 2]).is_some());
+}
+
+#[test]
+fn proxy_port_leases_concurrent_handoffs_keep_outstanding_ports_unique() {
+    use std::sync::Barrier;
+
+    const WORKERS: usize = 8;
+    let registry = PortRegistry::default();
+    let barrier = Barrier::new(WORKERS);
+    let pairs = Mutex::new([[0; 2]; WORKERS]);
+    std::thread::scope(|scope| {
+        for worker in 0..WORKERS {
+            let (registry, barrier, pairs) = (&registry, &barrier, &pairs);
+            scope.spawn(move || {
+                for _ in 0..32 {
+                    let candidate = || {
+                        (
+                            TcpListener::bind("127.0.0.1:0").unwrap(),
+                            TcpListener::bind("127.0.0.1:0").unwrap(),
+                        )
+                    };
+                    let ports = Ports::reserve_with(registry, candidate);
+                    let lease = ports.release_sockets();
+                    pairs.lock().unwrap()[worker] = lease.ports;
+                    barrier.wait();
+                    let outstanding = *pairs.lock().unwrap();
+                    assert_eq!(
+                        outstanding
+                            .into_iter()
+                            .flatten()
+                            .collect::<HashSet<_>>()
+                            .len(),
+                        WORKERS * 2
+                    );
+                    for pair in outstanding {
+                        // Every candidate is deliberately reused during the gap.
+                        assert!(PortLease::claim(registry, pair).is_none());
+                        assert!(PortLease::claim(registry, [pair[1], pair[0]]).is_none());
+                    }
+                    // A held lease must not serialize independent selection.
+                    let independent = Ports::reserve_with(registry, candidate);
+                    barrier.wait();
+                    drop(independent);
+                    drop(lease);
+                    barrier.wait();
+                }
+            });
+        }
+    });
+    assert!(registry.lock().unwrap().is_empty());
 }
 
 impl Drop for Proxy {
