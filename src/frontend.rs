@@ -3400,20 +3400,32 @@ impl Lower<'_> {
                     return exited_block(body, i);
                 }
                 Statement::While { condition, body } => {
+                    self.indexed_lists.push(collections::IndexedLists::new(
+                        self.parameters + self.locals.len(),
+                    ));
                     let mut test = Vec::new();
-                    let ty = self.expr(condition, &mut test)?;
-                    self.same(ty, Some(Ty::Bool), &condition.at)?;
-                    self.building(&condition.at, 0, &mut test, false);
-                    self.finish_temporaries(temporary_start, &mut test);
-                    let saved = self.names.clone();
-                    self.loop_steps.push(Vec::new());
-                    self.loop_scopes.push(self.locals.len());
+                    let ty = self.expr(condition, &mut test);
                     let mut lowered = Vec::new();
-                    let result = self.block(body, &mut lowered, &Tail::Discard);
-                    self.loop_steps.pop();
-                    self.loop_scopes.pop();
-                    self.names = saved;
+                    let result = ty.and_then(|ty| {
+                        self.same(ty, Some(Ty::Bool), &condition.at)?;
+                        self.building(&condition.at, 0, &mut test, false);
+                        self.finish_temporaries(temporary_start, &mut test);
+                        let saved = self.names.clone();
+                        self.loop_steps.push(Vec::new());
+                        self.loop_scopes.push(self.locals.len());
+                        let result = self.block(body, &mut lowered, &Tail::Discard);
+                        self.loop_steps.pop();
+                        self.loop_scopes.pop();
+                        self.names = saved;
+                        result
+                    });
+                    let setup = self
+                        .indexed_lists
+                        .pop()
+                        .unwrap()
+                        .finish(&mut [&mut test, &mut lowered]);
                     result?;
+                    ops.extend(setup);
                     ops.push(Op::Loop {
                         condition: test.into(),
                         body: lowered.into(),

@@ -139,8 +139,9 @@ def main() -> ():
         })
         .expect("counted loop backedge");
     assert!(!instructions.iter().any(|(offset, text)| (*offset >= target && *offset <= end) && text.starts_with("call")), "{asm}");
-    assert_eq!(asm.matches("# plenty_list_rows").count(), 2, "{asm}");
-    assert_eq!(asm.matches("# plenty_list_row_bytes").count(), 2, "{asm}");
+    // Scalar rows are dense: the setup reads the header without a call.
+    assert!(!asm.contains("# plenty_list_rows"), "{asm}");
+    assert!(!asm.contains("# plenty_list_row_bytes"), "{asm}");
     // Only the out-of-bounds cold blocks call out, to report the index.
     assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
     assert!(!asm.contains("plenty_list_scalar_get"), "{asm}");
@@ -194,7 +195,7 @@ fn indexed_shared_columns_trap_at_each_columns_own_bound(
 }
 
 #[test]
-fn indexed_loops_do_not_cache_mutable_or_owned_sources() {
+fn indexed_loops_that_resize_or_retarget_keep_ordinary_access() {
     support::assert_visible_stdout(
         r#"
 def changing(xs: &mut list[i64]) -> ():
@@ -478,4 +479,152 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
             || matches!(name.as_str(), "plenty_retain" | "plenty_release")),
         "{calls:?}"
     );
+}
+
+/// Owned lists and exclusive references read their header once per loop
+/// when the loop cannot resize them, in `while` and `for` loops (issue #715).
+#[test]
+fn row_caches_cover_exclusive_owned_and_while_loops() {
+    support::assert_visible_stdout(
+        r#"
+def reverse(xs: &mut list[i64]) -> ():
+    mut lo = 0
+    mut hi = len(xs) - 1
+    while lo < hi:
+        t = xs[lo]
+        xs[lo] = xs[hi]
+        xs[hi] = t
+        lo += 1
+        hi -= 1
+def bump(xs: &mut list[u8], times: i64) -> ():
+    for _ in range(times):
+        for i in range(len(xs)):
+            xs[-i - 1] += 1u8
+def scan(xs: &list[i64]) -> i64:
+    mut i = 0
+    while xs[i] != 0:
+        i += 1
+    i
+def grow(xs: &mut list[i64]) -> ():
+    mut i = 0
+    while i < 3:
+        xs[0] = xs[-1] + 1
+        xs.append(xs[0]).unwrap()
+        i += 1
+mut xs = [1, 2, 3, 4, 5].unwrap()
+reverse(&mut xs)
+print(xs).unwrap()
+mut bytes = [1u8, 2u8].unwrap()
+bump(&mut bytes, 3)
+print(bytes).unwrap()
+print(scan(&[3, 2, 0, 1].unwrap())).unwrap()
+grow(&mut xs)
+print(xs).unwrap()
+mut owned = [0.5, 1.5, 2.5].unwrap()
+mut j = 0
+while j < len(owned):
+    owned[j] = owned[-j - 1] * 2.0
+    j += 1
+print(owned).unwrap()
+"#,
+        "[5, 4, 3, 2, 1]\n[4, 5]\n2\n[4, 4, 3, 2, 1, 2, 3, 4]\n[5.0, 3.0, 10.0]",
+    );
+}
+
+#[rstest]
+#[case("0", "list[i64]().unwrap()")]
+#[case("1", "[1].unwrap()")]
+#[case("-2", "[1].unwrap()")]
+#[case("-9223372036854775808", "[1].unwrap()")]
+#[case("9223372036854775807", "[1].unwrap()")]
+fn cached_exclusive_and_owned_rows_trap_out_of_bounds(#[case] index: &str, #[case] values: &str) {
+    for source in [
+        format!(
+            "def read(xs: &mut list[i64]) -> i64:\n    mut result = 0\n    mut i = 0\n    while i < 2:\n        result += xs[{index}]\n        i += 1\n    result\nmut xs = {values}\nprint(read(&mut xs)).unwrap()"
+        ),
+        format!(
+            "def write(xs: &mut list[i64]) -> ():\n    for _ in range(2):\n        xs[{index}] = 1\nmut xs = {values}\nwrite(&mut xs)"
+        ),
+        format!("mut xs = {values}\nfor _ in range(2):\n    xs[{index}] += 1"),
+    ] {
+        let output = support::run(&source);
+        assert!(!output.status.success(), "{source}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("index out of bounds"),
+            "{source}"
+        );
+    }
+}
+
+fn dump(kind: &str, filter: &str, source: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.plenty");
+    std::fs::write(&path, source).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args(["--release", "--dump", kind, "--dump-filter", filter])
+        .arg(path)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+const REVERSE: &str = r#"
+def reverse(xs: &mut list[i64]) -> ():
+    mut lo = 0
+    mut hi = len(xs) - 1
+    while lo < hi:
+        t = xs[lo]
+        xs[lo] = xs[hi]
+        xs[hi] = t
+        lo += 1
+        hi -= 1
+def grow(xs: &mut list[i64]) -> ():
+    for i in range(2):
+        xs[i] = 1
+        xs.append(i).unwrap()
+def main() -> ():
+    mut xs = [1, 2].unwrap()
+    reverse(&mut xs)
+    grow(&mut xs)
+"#;
+
+/// A loop that cannot resize its list uses the cached accesses; one that can
+/// keeps the accesses that read the header (issue #715).
+#[test]
+fn row_caches_fall_back_when_the_loop_can_resize_the_list() {
+    let reverse = dump("ops", "reverse", REVERSE);
+    assert_eq!(
+        reverse.matches("ListScalarGetView(").count(),
+        2,
+        "{reverse}"
+    );
+    assert_eq!(
+        reverse.matches("ListScalarSetView(").count(),
+        2,
+        "{reverse}"
+    );
+    assert!(!reverse.contains("ListScalarGetRef("), "{reverse}");
+    assert!(!reverse.contains("ListScalarSetRef("), "{reverse}");
+    let grow = dump("ops", "grow", REVERSE);
+    assert!(grow.contains("ListScalarSetRef("), "{grow}");
+    assert!(!grow.contains("View("), "{grow}");
+}
+
+/// The reversal loop reads the list's flag byte only for `len(xs)` and the
+/// loop's setup, and
+/// a nonnegative index takes one unsigned comparison: no `cmov`
+/// normalization (issue #715).
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn cached_rows_read_the_header_once_and_skip_normalization() {
+    let asm = dump("asm", "reverse", REVERSE);
+    let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
+    assert_eq!(removed.find_iter(&asm).count(), 2, "{asm}");
+    assert!(!asm.contains("cmov"), "{asm}");
 }

@@ -1028,6 +1028,7 @@ impl Lower<'_> {
         }
         self.ide_member(target);
         let fills = self.fills_init_field(target);
+        let view = self.indexed_element_view(target)?;
         let (ty, temp, loan) = self.borrow_place_after_value(
             target,
             value,
@@ -1037,11 +1038,8 @@ impl Lower<'_> {
         )?;
         match collections::scalar_element_ref(ops) {
             Some(list) => {
-                ops.extend([
-                    Op::MoveLocal(temp),
-                    Op::Collection(CollectionOp::ListScalarSetRef(list)),
-                    Op::Drop,
-                ]);
+                ops.push(Op::MoveLocal(temp));
+                collections::scalar_row_write(list, view, ops);
             }
             _ => {
                 ops.push(Op::MoveLocal(temp));

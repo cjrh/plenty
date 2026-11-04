@@ -272,11 +272,15 @@ pub enum CollectionOp {
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
     ListScalarGetRef(Ty),
-    /// Stable shared list reference, length, rows, row bytes, index -> scalar.
-    /// Metadata is captured before a loop; bounds and negative indices remain checked.
+    /// List reference, index, length, rows -> scalar. The length and row-0
+    /// address were read before a loop that cannot change them; bounds and
+    /// negative indices remain checked (issues #429, #715).
     ListScalarGetView(Ty),
     /// Exclusive scalar row write: list reference, index, value -> ().
     ListScalarSetRef(Ty),
+    /// `ListScalarSetRef` with the loop's cached length and rows:
+    /// exclusive list reference, index, value, length, rows -> ().
+    ListScalarSetView(Ty),
     /// A [`Query`] of the value behind a shared reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
@@ -888,9 +892,18 @@ impl CollectionOp {
                     Ty::I64,
                     Ty::I64,
                     Ty::I64,
-                    Ty::I64,
                 ],
                 t.element().unwrap(),
+            ),
+            ListScalarSetView(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), true),
+                    Ty::I64,
+                    t.element().unwrap(),
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                Ty::Unit,
             ),
             ListSortBy(sort) => (
                 vec![
@@ -1083,6 +1096,7 @@ impl CollectionOp {
             | Self::ListScalarGetRef(_)
             | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
+            | Self::ListScalarSetView(_)
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
