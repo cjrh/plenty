@@ -1,7 +1,7 @@
 # Checked defaults: implementation and validation
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
-> **Compiler core implemented; adoption incomplete.** The acceptance contract
+> **Repository adoption implemented; acceptance incomplete.** The acceptance contract
 > below is not yet satisfied. Remaining work stays in **B14** in the
 > [backlog](../../backlog.md); this page contains no performance evidence.
 
@@ -249,13 +249,26 @@ checks, debug objects and AOT builds. Optimized linked-ELF sizes are distinct fr
 optimized object bytes, and profiling timings are not uninstrumented latency.
 
 Checkpointed validation retains exact target/test identities on the unchanged
-verified build. Two focused live proxy cases pass with actual cleanup; a resumed
-batch stage adds 550 passing tests before an external wrapper falsely rejects
-Docker exit 137 after forced removal. Combined observed coverage is 4,243 passes
-and one ignore across stages, with 1,423 registrations still unobserved. Neither
-that aggregate nor zero completed failure rows constitutes an uninterrupted full
-gate. Successful cases are retained while the lifecycle guard is corrected;
-final complete validation and measurements remain outstanding.
+verified build. After reviewed external-wrapper corrections, all 5,667 registered
+pairs have observed outcomes across stages: 5,659 passes and eight normal ignores,
+including all 27 required optional bodies. Passed prefixes were not replayed to
+complete that checkpoint. Cross-stage coverage is not an uninterrupted gate.
+
+The separate final uninterrupted command completed all targets and both actual
+zero-test doctest packages, but **failed**: 5,658 passed, one failed and eight
+normally ignored; Cargo returned 101, with full wait and no wrapper STOP. Two
+concurrent Caddy fixtures selected the same HTTP port, and readiness correctly
+rejected the other fixture's identity. Issue #719 tracks this pre-existing
+fixture race in a separately authorized fixing task. No compiler/arithmetic
+regression is established by that failure. All ten observed containers had
+completed exact-ID removals; foreign container and image identities were unchanged.
+Missing final wrapper classifications remain unknown, not Docker success.
+
+The guarded measurement manifests and fixed two-job profiling smoke driver have
+independent preparation reviews; the latter passes 40 external mock tests. No
+real smoke, timing or profiling ran. Complete host acceptance and measurement
+collection remain blocked; the separate fixture fix must not be silently applied
+to this validation source or merged.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 

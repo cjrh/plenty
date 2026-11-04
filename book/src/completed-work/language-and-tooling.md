@@ -303,6 +303,14 @@ and execute their designated checksum entrypoints in all four modes and both
 generated profiles. All 24 cleanup outcomes pass; four C/I zero-allocation
 intervals have four genuinely allocating controls. These bounded calling-thread
 checks do not establish allocation totals, timing, size or whole-suite acceptance.
+Reviewed checkpoint continuation observes all 5,667 registered pairs across
+stages: 5,659 passes and eight normal ignores, including all 27 optional bodies.
+The separate uninterrupted post-#712 run completes both zero-test doctest packages
+but fails one Caddy readiness assertion: concurrent fixtures selected the same
+HTTP port. Its 5,658 passes, one failure and eight ignores remain a failed gate;
+issue #719 tracks a separate fixture fix, not an established arithmetic regression.
+Reviewed measurement/profile preparation and a 40-mock-test two-job smoke driver
+remain unexecuted. No timing, profiling or whole-proposal acceptance is claimed.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 
