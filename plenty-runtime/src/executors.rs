@@ -582,6 +582,8 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                     input,
                     entry,
                     job_input,
+                    &*(*args.add(5) as *const Type),
+                    &*(*args.add(6) as *const Type),
                     &*descriptor,
                     out,
                 );

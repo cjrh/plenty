@@ -403,12 +403,15 @@ impl Lower<'_> {
         };
         let reducer = if name == "reduce" {
             match &ungroup(&args[0]).kind {
-                Expression::Name(f) if self.sigs.contains_key(f) && !self.names.contains_key(f) => {
+                Expression::Name(f)
+                    if (self.sigs.contains_key(f) || self.generics.templates.contains_key(f))
+                        && !self.names.contains_key(f) =>
+                {
                     Some(args[0].clone())
                 }
                 _ => {
                     return Err(args[0].at.error(
-                        "a parallel reduce takes a named function (T, T) -> T, the same as reduce_tree",
+                        "a parallel reduce takes a named function (T, T) -> T or Result[T, E], the same as reduce_tree",
                     ));
                 }
             }
@@ -508,9 +511,109 @@ impl Lower<'_> {
                 // Each chunk folds its own items left to right; the template
                 // combines the chunk results in input order.
                 let reducer = reducer.clone().expect("reduce function");
-                chain = method(&at, chain, "reduce", vec![reducer.clone()]);
-                extra.push(reducer);
-                (crate::sum::option(item.clone()), "reduce_chunks")
+                let mut names = Vec::new();
+                let mut arguments = Vec::new();
+                for _ in 0..2 {
+                    let slot = self.slot(item.clone(), &at)?;
+                    let name = format!("__plenty_par_reduce_item_{slot}");
+                    self.bind(
+                        name.clone(),
+                        Local {
+                            slot,
+                            ty: item.clone(),
+                            mutable: false,
+                        },
+                    );
+                    arguments.push(name_expr(&at, &name));
+                    names.push(name);
+                }
+                let Expression::Name(function) = &ungroup(&reducer).kind else {
+                    unreachable!()
+                };
+                let mut probe = Vec::new();
+                let result = self.call_named(function, &arguments, &at, &mut probe);
+                for name in names {
+                    self.names.remove(&name);
+                }
+                let result = result?;
+                let selected = probe
+                    .iter()
+                    .rev()
+                    .find_map(|op| match op {
+                        Op::Call(name) => Some(name),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        at.error("parallel reduce requires a statically selected function")
+                    })?;
+                let reducer = name_expr(&at, selected);
+                if result == Some(item.clone()) {
+                    chain = method(&at, chain, "reduce", vec![reducer.clone()]);
+                    extra.push(reducer);
+                    (crate::sum::option(item.clone()), "reduce_chunks")
+                } else {
+                    let Some(Ty::Enum(result)) = result else {
+                        return Err(
+                            at.error("parallel reduce worker must return T or Result[T, E]")
+                        );
+                    };
+                    if !result.is_result() || result.get().variants[0].fields[0] != item {
+                        return Err(
+                            at.error("parallel reduce worker must return T or Result[T, E]")
+                        );
+                    }
+                    let error = result.get().variants[1].fields[0].clone();
+                    let output = crate::sum::result(crate::sum::option(item.clone()), error);
+                    let helper = self.par_helper("reduce_step")?;
+                    let step = Function {
+                        once: false,
+                        captures: vec![],
+                        foreign: None,
+                        export: None,
+                        name: "par_reduce_step".into(),
+                        type_params: vec![],
+                        at: at.clone(),
+                        inputs: vec![
+                            (
+                                "__plenty_par_reduce_left".into(),
+                                typed(crate::sum::option(item.clone())),
+                            ),
+                            ("__plenty_par_reduce_right".into(), typed(item.clone())),
+                        ],
+                        defaults: vec![],
+                        output: typed(output.clone()),
+                        doc: String::new(),
+                        doc_at: None,
+                        body: vec![expr_stmt(call(
+                            &at,
+                            &helper,
+                            vec![
+                                reducer.clone(),
+                                name_expr(&at, "__plenty_par_reduce_left"),
+                                name_expr(&at, "__plenty_par_reduce_right"),
+                            ],
+                        ))],
+                    };
+                    let empty = self.par_helper("reduce_empty")?;
+                    let initial = Expr {
+                        at: at.clone(),
+                        kind: Expression::GenericCall(empty, vec![typed(item.clone())], vec![]),
+                    };
+                    chain = method(
+                        &at,
+                        chain,
+                        "try_fold",
+                        vec![
+                            initial,
+                            Expr {
+                                at: at.clone(),
+                                kind: Expression::Anonymous(Box::new(step)),
+                            },
+                        ],
+                    );
+                    extra.push(reducer);
+                    (output, "try_reduce_chunks")
+                }
             }
             "collect" => {
                 chain = method(&at, chain, "collect", vec![]);

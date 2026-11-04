@@ -118,6 +118,15 @@ pub(super) fn build_adapter(
             lower.stack.push((value, job.input.clone()));
             lower.lower_call(&job.worker)?;
         }
+        if let Some(closure) = &job.closure
+            && let Some(actual) = &closure.signature.output
+            && *actual != job.output
+        {
+            lower.lower_enum(&crate::sum::EnumOp::Widen(
+                Box::new(actual.clone()),
+                Box::new(job.output.clone()),
+            ))?;
+        }
         let value = if job.output == Ty::Unit {
             lower.bcx.ins().iconst(types::I64, 0)
         } else {
@@ -195,6 +204,20 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .store(MemFlagsData::trusted(), descriptor, args, 64);
+        }
+        if let ExecutorOp::Reduce(job, _) = operation {
+            // Reduce ABI slots: pool, source, entry, source type, pair type,
+            // worker output type, canonical PoolMapError type. Map uses 5/6
+            // for its shared environment instead, under different opcodes.
+            for (offset, ty) in [(80, job.output.clone()), (96, crate::sum::pool_map_error())] {
+                let id = self.module.metadata(&ty);
+                let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                let descriptor = self.bcx.ins().uextend(types::I128, descriptor);
+                self.bcx
+                    .ins()
+                    .store(MemFlagsData::trusted(), descriptor, args, offset);
+            }
         }
         let out = self.inline_storage(output.slot_bytes());
         let id = self.module.metadata(&output);

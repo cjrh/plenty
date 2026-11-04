@@ -435,7 +435,10 @@ With the default count, a different pool size can change the result; pass
 order, so they equal the serial results: the first NaN in input order wins,
 and `-0.0` is less than `0.0`. Empty input gives `Nothing`.
 
-`reduce(f)` takes a named function `(T, T) -> T`. Like float `sum`, it reduces each
+`reduce(f)` takes a named function `(T, T) -> T` or
+`(T, T) -> Result[T, E]`. The latter returns
+`Result[Option[T], PoolMapError | E]`, preserving E without wrapping it in
+`ParallelError`. Like float `sum`, it reduces each
 chunk serially, left to right, on its worker, then reduces the chunk results in
 input order, skipping chunks with no items; empty input gives `Nothing`. No list
 of all items is built. The result is deterministic for a given input length and
@@ -443,8 +446,19 @@ chunk count, but it can differ from the serial left fold when `f` is not
 associative, and with the default count a different pool size can change it.
 Code that needs one grouping for any pool or chunk count can collect the items
 and use [`pool.reduce_tree`](../../facilities/03-concurrency/parallel-reduce.md),
-whose fixed adjacent-pair tree does not depend on the worker count. Fallible
-`reduce` / `reduce_tree` callbacks are not supported by this integer-sum contract.
+whose fixed adjacent-pair tree does not depend on the worker count. Neither
+reduction uses integer `sum`'s serial-prefix grouping.
+
+For a fallible reducer, each chunk stops at its first callback error. All
+accepted chunk jobs drain before inspecting their Results. The first failed
+chunk in input order wins, before any cross-chunk combining calls. If every
+chunk succeeds, chunk results combine in input order until the first error.
+Infrastructure failure from the mapping pass returns its existing PoolMapError
+before inspecting chunk Results. Sources, captures, unused values and errors
+are released exactly once, and borrowed sources can be reused after return.
+Empty input and singleton chunks invoke no local combining callback; a single
+surviving item invokes no callback at all. Inline closures and indirect
+Callable reducers remain unsupported; a named generic function is accepted.
 
 **Errors and order.** Every terminal reports `PoolMapError.Shutdown` for a
 closed pool and `PoolMapError.Allocation` when chunk storage or job submission

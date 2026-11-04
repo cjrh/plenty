@@ -255,3 +255,43 @@ def reduce_chunks[C, T, F: Callable[[C], Option[T]], G: Callable[[T, T], T]](poo
                     Err(error)
         case Err(error):
             Err(PoolMapError.Allocation(error))
+
+def reduce_empty[T]() -> Option[T]:
+    Nothing
+
+def reduce_step[T, E, G: Callable[[T, T], Result[T, E]]](combine: &G, left: Option[T], right: T) -> Result[Option[T], E]:
+    match left:
+        case Some(value):
+            Ok(Some(combine(value, right)?))
+        case Nothing:
+            Ok(Some(right))
+
+def try_reduce_chunks[C, T, E, F: Callable[[C], Result[Option[T], E]], G: Callable[[T, T], Result[T, E]]](pool: &ThreadPoolExecutor, chunks: Result[list[C], AllocError], worker: F, combine: G) -> Result[Option[T], PoolMapError | E]:
+    inputs = chunks.map_error(PoolMapError.Allocation)?
+    parts = pool.map(worker, inputs)?
+    # Map drains before these owned results are inspected. Select the first
+    # failed chunk before running any cross-chunk combining callback.
+    mut failed = False
+    for part in &parts:
+        failed = failed or part.is_err()
+    if failed:
+        # Move, rather than copy, the selected error in the consuming pass.
+        for result in parts:
+            match result:
+                case Err(error):
+                    return Err(error)
+                case Ok(value):
+                    drop(value)
+        return Ok(Nothing)
+    mut total: Option[T] = Nothing
+    for part in parts:
+        match part?:
+            case Some(value):
+                total = match total:
+                    case Some(left):
+                        Some(combine(left, value)?)
+                    case Nothing:
+                        Some(value)
+            case Nothing:
+                pass
+    Ok(total)

@@ -326,8 +326,11 @@ impl Lower<'_> {
                 "{method} results require a concrete wholly owned type"
             )));
         }
-        if reduce && output != **element {
-            return Err(worker.at.error("reduce_tree worker must take two values of the input element type and return that same type"));
+        if reduce
+            && output != **element
+            && !matches!(&output, Ty::Enum(result) if result.is_result() && result.get().variants[0].fields[0] == **element)
+        {
+            return Err(worker.at.error("reduce_tree worker must take two values of the input element type and return that same type or Result[T, E]"));
         }
         let fallible = method == "map_result";
         if fallible
@@ -381,7 +384,20 @@ impl Lower<'_> {
                     adapter,
                     worker,
                     input: Ty::Closure(closure.clone()),
-                    output,
+                    output: if output == **element {
+                        output
+                    } else {
+                        let Ty::Enum(result) = &output else {
+                            unreachable!()
+                        };
+                        crate::sum::result(
+                            (**element).clone(),
+                            crate::sum::anonymous(vec![
+                                crate::sum::pool_map_error(),
+                                result.get().variants[1].fields[0].clone(),
+                            ]),
+                        )
+                    },
                     closure: Some(closure),
                     shared: None,
                 }),
