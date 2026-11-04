@@ -198,7 +198,12 @@ impl Deferred {
     }
 
     /// Build the deferred bodies something refers to, until a round adds no
-    /// reference, and define the rest as empty: nothing calls them.
+    /// reference. The rest are reached only by inlined calls, but their
+    /// symbols stay in the object, where a debugger or C code relinking it
+    /// can still find them: each is defined as a single trap instruction, so
+    /// such a call stops with `SIGILL` instead of running into the next
+    /// function. Leaving them undefined would leave a local symbol with no
+    /// definition, which object formats and linkers treat differently.
     pub(super) fn finish(
         mut self,
         out: &mut Output,
@@ -225,13 +230,44 @@ impl Deferred {
                 .collect();
             out.build(jobs, workers, runtime, build)?;
         }
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        let (alignment, trap) = trap_stub(out.module.isa())?;
         for (name, _) in &self.0 {
             for id in symbols(&functions[name]) {
-                out.module.define_function_bytes(id, 1, &[], &[])?;
+                out.module
+                    .define_function_bytes(id, alignment, &trap, &[])?;
             }
         }
         Ok(())
     }
+}
+
+/// The code of a function that only traps, as `Op::Unreachable` does: no
+/// frame, no relocations and no check table entry, so its bytes serve any
+/// signature. Compiled once per object rather than spelled per target.
+fn trap_stub(isa: &dyn cranelift_codegen::isa::TargetIsa) -> Result<(u64, Vec<u8>)> {
+    use cranelift_codegen::ir::{Function, Signature, UserFuncName};
+    let mut context = cranelift_codegen::Context::for_function(Function::with_name_signature(
+        UserFuncName::default(),
+        Signature::new(isa.default_call_conv()),
+    ));
+    let mut builder_context = cranelift_frontend::FunctionBuilderContext::new();
+    let mut bcx = cranelift_frontend::FunctionBuilder::new(&mut context.func, &mut builder_context);
+    let block = bcx.create_block();
+    bcx.switch_to_block(block);
+    bcx.seal_block(block);
+    bcx.ins().trap(TrapCode::unwrap_user(1));
+    bcx.finalize(isa.frontend_config());
+    let code = context
+        .compile(
+            isa,
+            &mut cranelift_codegen::control::ControlPlane::default(),
+        )
+        .map_err(|error| format!("trap stub: {:?}", error.inner))?;
+    let alignment = isa.function_alignment().minimum.into();
+    Ok((alignment, code.code_buffer().to_vec()))
 }
 
 /// The function and the companions its job defines with it.

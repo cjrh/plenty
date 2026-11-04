@@ -315,7 +315,10 @@ An inlined function's own body is built only if placed code or data still
 refers to it, for example a call from a generator, a function value, a
 protocol table or a thread adapter; exported functions are always built.
 Otherwise the copy at its call site is its only code, so inlining a function
-called once costs no extra compile time. `--dump` builds keep every body.
+called once costs no extra compile time. The symbol of a body not built
+stays in the object as a single trap instruction, so code outside Plenty
+that calls it, such as C linked against the object, stops with `SIGILL`
+rather than running into the next function. `--dump` builds keep every body.
 
 ## Last-use moves
 

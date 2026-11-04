@@ -171,3 +171,74 @@ fn small_and_single_site_functions_are_lowered_in_their_callers() {
         .collect();
     assert_eq!(calls, ["shared", "shared", "depth"], "{section}");
 }
+
+/// A function inlined at its only call site keeps its symbol in the object,
+/// where C code relinking the object can still reach it. Its body is a trap
+/// instruction, not empty code that would run into the next function.
+#[cfg(unix)]
+#[test]
+fn unreferenced_inlined_functions_trap_if_called() {
+    use object::{Object, ObjectSection, ObjectSymbol};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    // The loop keeps call substitution, which keeps the callee's body, from
+    // taking `helper` first.
+    let source = "def helper(n: i64) -> i64:\n    mut total = 0\n    for i in range(n):\n        \
+                  total += i\n    total\n\n\
+                  def main() -> Result[(), IoError]:\n    print(helper(5))?\n    Ok(())\n";
+    std::fs::write(dir.path().join("p.plenty"), source).unwrap();
+    // The linker receives the program object first; keep a copy of it.
+    let linker = dir.path().join("capture.sh");
+    std::fs::write(
+        &linker,
+        "#!/bin/sh\ncp \"$1\" \"$(dirname \"$0\")/p.o\"\nexec cc \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&linker, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let args = ["--release", "--compile", "--no-strip", "--linker"];
+    let mut all = args.map(String::from).to_vec();
+    all.extend([
+        linker.display().to_string(),
+        "p.plenty".into(),
+        "-o".into(),
+        "p".into(),
+    ]);
+    let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    let output = plenty(dir.path(), &all);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ran = std::process::Command::new(dir.path().join("p"))
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8(ran.stdout).unwrap(), "10\n");
+
+    let bytes = std::fs::read(dir.path().join("p.o")).unwrap();
+    let file = object::File::parse(&*bytes).unwrap();
+    let symbol = file
+        .symbols()
+        .find(|symbol| {
+            symbol
+                .name()
+                .is_ok_and(|name| name.ends_with("__plenty_fn_helper"))
+        })
+        .expect("helper keeps its symbol");
+    let section = file
+        .section_by_index(symbol.section_index().unwrap())
+        .unwrap();
+    let offset = (symbol.address() - section.address()) as usize;
+    // Cranelift may set up a frame first; there is no `ret`, only the trap.
+    let code = &section.data().unwrap()[offset..];
+    let code = &code[..code.len().min(8)];
+    let trap: &[u8] = match file.architecture() {
+        object::Architecture::X86_64 => &[0x0f, 0x0b],
+        object::Architecture::Aarch64 => &0xc11f_u32.to_le_bytes(),
+        other => panic!("unexpected architecture {other:?}"),
+    };
+    assert!(code.windows(trap.len()).any(|w| w == trap), "{code:x?}");
+    if symbol.size() != 0 {
+        assert!(symbol.size() <= 8, "{}", symbol.size());
+    }
+}
