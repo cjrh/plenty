@@ -1,7 +1,7 @@
 # Sets and different kinds of values
 
 Sets accept named enums when every payload is a supported key type: integers,
-`bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums of those types, without custom cleanup. The variant
+`bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums of those types. The variant
 is part of the identity, so different variants with equal payloads remain distinct.
 
 ```plenty
@@ -25,7 +25,7 @@ True
 ```
 
 This is one element type with several alternatives. Enums carrying collections,
-floats, boxes or classes with custom cleanup cannot be set elements. Anonymous sums qualify when every member is a supported key type.
+floats or boxes cannot be set elements. Anonymous sums qualify when every member is a supported key type.
 
 ## Class payloads
 
@@ -60,7 +60,7 @@ editors
 ```
 
 The lookup compares fields rather than object addresses. Borrowed iteration
-keeps the stored keys immutable. Set algebra creates independent key copies;
+keeps the stored keys immutable. For keys without custom cleanup, set algebra creates independent key copies;
 its result can outlive either input. See [sets](../../design/facilities/01-builtins/sets.md).
 
 ## Keep each kind in its own set
@@ -168,3 +168,51 @@ members the set currently contains. For example, eight boolean fields have 256
 combinations; adding a separate payload-free variant makes 257 and selects a
 hash set. Integer and string payloads use hash sets. No special container or
 manual integer encoding is needed.
+
+## Keys with custom cleanup
+
+A key may define `__del__`, or contain a value that does. Its fields must still
+be supported key types. The collection owns the inserted key and runs cleanup
+when that owner is removed or destroyed. Borrow keys for lookup and inspection;
+transfer them when a second owner cannot be created.
+
+This example logs cleanup to make ownership visible. It unwraps diagnostic
+printing inside the destructor because cleanup cannot return an error:
+
+```plenty
+class Ticket:
+    id: i64
+
+    def __del__(self) -> ():
+        print("released", self.id).unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut selected = {Ticket(7)}?
+    additional = {Ticket(8)}?
+    selected.update(additional)?
+    print(len(selected))?
+    for ticket in &selected:
+        print(ticket.id)?
+    # Transfer the owners out of the set before destroying them.
+    for ticket in selected:
+        drop(ticket)
+    Ok(())
+```
+```output
+2
+7
+8
+released 7
+released 8
+```
+
+Iteration order is unspecified. `update` consumes the source set; an equal
+incoming key is destroyed while the stored owner is retained. Use
+`intersection_update` and `difference_update` to filter in place, and relationship
+checks such as `issubset` to compare without copying.
+
+`union`, `intersection`, `difference`, `symmetric_difference`, `copy(selected)`
+and dictionary `keys().to_set()` require independent key copies, so they reject
+custom cleanup, including cleanup nested inside an enum or anonymous sum.
+A borrowed `keys()` view still works. To keep dictionary keys after consuming
+the dictionary, use `into_keys()`; see [dictionary snapshots and views](../../design/facilities/01-builtins/dictionaries.md#snapshots-and-views).

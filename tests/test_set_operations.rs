@@ -518,12 +518,11 @@ print(Key("same", 1) in intersection, Key("left", 2) in difference, Key("right",
 }
 
 #[test]
-fn structural_class_keys_reject_ineligible_fields_and_cleanup() {
+fn structural_class_keys_reject_ineligible_fields() {
     for declaration in [
         "class Key:\n    value: f64\n",
         "class Key:\n    value: list[i64]\n",
         "class Key:\n    value: Box[i64]\n",
-        "class Key:\n    value: i64\n    def __del__(self: &mut Key) -> ():\n        pass\n",
     ] {
         let source = format!(
             "{declaration}\ndef main() -> Result[(), AllocError]:\n    keys: set[Key] = set()?\n    Ok(())\n"

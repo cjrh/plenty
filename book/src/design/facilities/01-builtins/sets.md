@@ -6,7 +6,7 @@ and algebra methods. Their operations accept `&set[K]` or `&KeyView[K]`;
 equality also compares a key view and a set in either operand order.
 
 Sets use the [common collection rules](collections.md); members are integers,
-booleans, strings, `bytes`, or tuples, classes, enums and anonymous sums recursively containing those types, without custom cleanup.
+booleans, strings, `bytes`, or tuples, classes, enums and anonymous sums recursively containing those types.
 Iteration order is unspecified. `add` and `reserve` follow
 the [recoverable growth contract](construction-copy.md).
 
@@ -52,6 +52,13 @@ reserved before copying members, including move-only class records. Hash-backed
 results use four allocations when nonempty, one for an empty owner. Small enum
 bitsets use one owner allocation regardless of membership. Arithmetic operator overloads and iterable conversions
 are not implied.
+
+Keys containing `__del__` cannot be duplicated, so all four non-mutating
+algebra methods reject them, even for empty sets or a currently cleanup-free
+variant. `copy(set)` is also rejected. Use consuming `update` to combine owners,
+and `intersection_update` or `difference_update` to filter in place. These
+operations preserve each retained key's ownership and destroy removed or
+incoming duplicate owners. Relationship checks only borrow and remain available.
 
 ## Relationships
 

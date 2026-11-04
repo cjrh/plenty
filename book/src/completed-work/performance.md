@@ -168,7 +168,7 @@ which remains partly implemented for its public allocator design.
 
 Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
-enums, tuples and classes without custom cleanup are supported. Anonymous sums with supported members also qualify; their active member tag
+enums, tuples and classes, including custom cleanup, are supported. Anonymous sums with supported members also qualify; their active member tag
 and structural value define identity. Floats, boxes and recursive types remain excluded. These general key types use keyed runtime hashing. Supported finite enum and tuple domains with at
 most 256 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
@@ -176,14 +176,18 @@ most 256 values use the bitset specialization described here. See [collections](
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
 traversal performs linear field-offset work per pass (issue #330). The built-in `KeyType` constraint now exposes the same key admission rule on
 functions, methods, classes and enums; see [generics](../design/language/07-generics/index.md#keytype).
-Custom-cleanup admission remains under
-**B74** in the [backlog](../backlog.md).
+Custom-cleanup keys use the same structural identity without making their
+cleanup obligations copyable.
 
 Class keys hash their fields rather than their addresses. Move-only class keys,
 and enums containing them, transfer on insertion and owned extraction; lookups
 and views borrow them. Set algebra and key-view `to_set()` create independent
 copies, and affine `keys_snapshot()` requires an owned temporary, matching
-`values_snapshot()`. Classes with custom cleanup remain excluded.
+`values_snapshot()`. Keys containing custom cleanup support borrowing,
+transferring updates, in-place filtering and owned extraction. Non-mutating
+algebra, `to_set()` and explicit copying reject them. Duplicate insertion keeps
+the existing key owner and destroys the incoming owner. Regression tests cover
+nested cleanup, generic boundaries, duplicate ownership and allocation failures.
 
 ### Small enum sets
 
