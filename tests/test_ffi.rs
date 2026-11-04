@@ -47,10 +47,15 @@ fn fixture(root: &Path, shared: bool) -> PathBuf {
 }
 
 fn run(root: &Path, source: &str, library: PathBuf) -> Output {
+    run_with_optimization(root, source, library, false)
+}
+
+fn run_with_optimization(root: &Path, source: &str, library: PathBuf, optimize: bool) -> Output {
     let path = root.join("main.plenty");
     std::fs::write(&path, source).unwrap();
     let executable = root.join("program");
     let options = plenty::CompileOptions {
+        optimize,
         link_args: vec![library.into_os_string()],
         ..Default::default()
     };
@@ -401,10 +406,41 @@ def main() -> Result[(), native.NativeError | native.Resource | CStrError | IoEr
     assert_eq!(visible(output), "17\n1\n0\n0\n0\n42\n0\n0\n0");
 }
 
+#[test]
+fn acquire_pair_adds_fresh_values_and_releases_owners_in_both_modes() {
+    for shared in [false, true] {
+        for optimize in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let library = fixture(temp.path(), shared);
+            adapters(temp.path());
+            let output = run_with_optimization(
+                temp.path(),
+                r#"
+import native
+def main() -> Result[(), native.NativeError | IoError]:
+    native.acquire_pair(0)?
+    print(native.live())?
+    print(native.acquire_pair(2).is_err(), native.live())?
+    Ok(())
+"#,
+                library,
+                optimize,
+            );
+            assert_eq!(
+                visible(output),
+                "84\n0\nTrue 0",
+                "shared={shared}, optimize={optimize}"
+            );
+        }
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn c_string_allocation_failure_reclaims_earlier_buffers_and_skips_c_call() {
-    for budget in 0..=2 {
+    for (budget, optimize) in
+        (0..=2).flat_map(|budget| [false, true].map(|optimize| (budget, optimize)))
+    {
         let temp = tempfile::tempdir().unwrap();
         let library = fixture(temp.path(), false);
         adapters(temp.path());
@@ -438,7 +474,12 @@ def main() -> Result[(), AllocError | native.NativeError | IoError]:
     Ok(())
 "#
         );
-        let actual = visible(run(temp.path(), &source, library));
+        let actual = visible(run_with_optimization(
+            temp.path(),
+            &source,
+            library,
+            optimize,
+        ));
         let result = if budget == 2 {
             "Result[u64, CStrError].Ok(7)\n1"
         } else {
@@ -449,7 +490,8 @@ def main() -> Result[(), AllocError | native.NativeError | IoError]:
             actual,
             format!(
                 "{result}\n1\n0\n532\nResult[(), CStrError].Err(CStrError.Allocation(AllocError.OutOfMemory))\n0"
-            )
+            ),
+            "budget={budget}, optimize={optimize}"
         );
     }
 }

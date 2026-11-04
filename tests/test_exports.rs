@@ -35,9 +35,16 @@ fn build(
 const SCALARS: &str = r#"
 export def add(a: i32, b: i32) -> i32 = "calc_add":
     "Add two values. Text such as */ must remain inside the comment."
-    a + b
+    # Both host callers pass 20 and 22; this assertion is fixture-specific.
+    total = checked:
+        a + b
+    total.unwrap()
 export def narrow(a: i8, b: u8, c: i16, d: u16, e: i32, f: u32, g: i64, h: u64) -> i64 = "calc_narrow":
-    i64(a) + i64(b) + i64(c) + i64(d) + i64(e) + i64(f) + g + i64(h)
+    # The C/C++ fixture passes (-5, 250, -300, 60000, -70000, 80000, -90000, 100000).
+    # Its partial sums fit i64; this does not bound arbitrary C inputs.
+    total = checked:
+        i64(a) + i64(b) + i64(c) + i64(d) + i64(e) + i64(f) + g + i64(h)
+    total.unwrap()
 export def single(x: f32) -> f32 = "calc_single":
     x * 2.0
 export def double(x: f64) -> f64 = "calc_double":
@@ -127,7 +134,10 @@ class Node:
         print(self.value).unwrap()
 export def create(value: i64) -> Result[Node, AllocError] = "calc_create":
     child = Node(value, Nothing)
-    Ok(Node(value + 1, Some(Box(child)?)))
+    # Both consumers create(41); the fixture's parent value is exactly 42.
+    parent_value = checked:
+        value + 1
+    Ok(Node(parent_value.unwrap(), Some(Box(child)?)))
 export def read(owner: &Node) -> i64 = "calc_read":
     owner.value
 "#;
@@ -156,21 +166,23 @@ int main(void) {
         .unwrap();
         let executable = root.join("caller");
         let args = std::fs::read_to_string(artifacts.link_args).unwrap();
-        success(
-            Command::new("cc")
-                .args(["-Wall", "-Wextra", "-Werror"])
-                .arg(&c)
-                .arg(&library)
-                .args(args.lines())
-                .arg("-o")
-                .arg(&executable)
-                .output()
-                .unwrap(),
-        );
-        assert_eq!(
-            success(Command::new(&executable).output().unwrap()).stdout,
-            b"42\n41\n"
-        );
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            assert_eq!(
+                success(Command::new(&executable).output().unwrap()).stdout,
+                b"42\n41\n"
+            );
+        }
         let app = root.join("main.plenty");
         std::fs::write(&app, "import calc\ndef main() -> Result[(), AllocError | IoError]:\n    owner = calc.create(41)?\n    print(calc.read(&owner))?\n    Ok(())\n").unwrap();
         let options = plenty::CompileOptions {
@@ -303,9 +315,15 @@ export def update(a: &mut i8, b: &mut u8, c: &mut i16, d: &mut u16, e: &mut i32,
     *x = *x * 2.0
     *y = *y / 2.0
 export def shared(a: &i8, b: &i8) -> i8 = "calc_shared":
-    *a + *b
+    # The guard-page caller lends -3 twice; no arbitrary-input bound is implied.
+    total = checked:
+        *a + *b
+    total.unwrap()
 export def increment(a: &mut i8) -> i8 = "calc_increment":
-    *a = *a + 1
+    # The C/C++ caller increments -3; the Plenty caller increments 40 then 41.
+    next_value = checked:
+        *a + 1
+    *a = next_value.unwrap()
     *a
 "#;
 
@@ -343,16 +361,16 @@ static void *scalar(size_t size) {
     return (char *)base + page - size;
 }
 int main(void) {
-    int8_t *a = scalar(sizeof(*a)); *a = -3;
-    uint8_t *b = scalar(sizeof(*b)); *b = 3;
-    int16_t *c = scalar(sizeof(*c)); *c = -3;
-    uint16_t *d = scalar(sizeof(*d)); *d = 3;
-    int32_t *e = scalar(sizeof(*e)); *e = -3;
-    uint32_t *f = scalar(sizeof(*f)); *f = 3;
-    int64_t *g = scalar(sizeof(*g)); *g = -3;
-    uint64_t *h = scalar(sizeof(*h)); *h = 3;
-    float *x = scalar(sizeof(*x)); *x = 1.25f;
-    double *y = scalar(sizeof(*y)); *y = 7.0;
+    int8_t *a = (int8_t *)scalar(sizeof(*a)); *a = -3;
+    uint8_t *b = (uint8_t *)scalar(sizeof(*b)); *b = 3;
+    int16_t *c = (int16_t *)scalar(sizeof(*c)); *c = -3;
+    uint16_t *d = (uint16_t *)scalar(sizeof(*d)); *d = 3;
+    int32_t *e = (int32_t *)scalar(sizeof(*e)); *e = -3;
+    uint32_t *f = (uint32_t *)scalar(sizeof(*f)); *f = 3;
+    int64_t *g = (int64_t *)scalar(sizeof(*g)); *g = -3;
+    uint64_t *h = (uint64_t *)scalar(sizeof(*h)); *h = 3;
+    float *x = (float *)scalar(sizeof(*x)); *x = 1.25f;
+    double *y = (double *)scalar(sizeof(*y)); *y = 7.0;
     assert(calc_shared(a, a) == -6);
     assert(*a == -3);
     assert(calc_increment(a) == -2 && *a == -2);
@@ -366,18 +384,20 @@ int main(void) {
 "#).unwrap();
         let args = std::fs::read_to_string(artifacts.link_args).unwrap();
         let app = root.join("borrow");
-        success(
-            Command::new("cc")
-                .args(["-Wall", "-Wextra", "-Werror"])
-                .arg(&c)
-                .arg(&library)
-                .args(args.lines())
-                .arg("-o")
-                .arg(&app)
-                .output()
-                .unwrap(),
-        );
-        success(Command::new(app).output().unwrap());
+        for compiler in ["cc", "c++"] {
+            success(
+                Command::new(compiler)
+                    .args(["-Wall", "-Wextra", "-Werror"])
+                    .arg(&c)
+                    .arg(&library)
+                    .args(args.lines())
+                    .arg("-o")
+                    .arg(&app)
+                    .output()
+                    .unwrap(),
+            );
+            success(Command::new(&app).output().unwrap());
+        }
         let source = root.join("main.plenty");
         std::fs::write(&source, "import calc\ndef main() -> i32:\n    mut value = 40i8\n    calc.increment(&mut value)\n    i32(calc.increment(&mut value))\n").unwrap();
         let executable = root.join("plenty-borrows");
@@ -403,8 +423,15 @@ export def checked(x: i32) -> Result[f32, i16] = "calc_checked":
     else:
         Ok(1.25)
 export def touch(x: &mut i32) -> Result[(), u64] = "calc_touch":
-    *x = *x + 1
-    Err(18000000000)
+    # Preflight overflow before storing; representable increments still write back on Err.
+    next_value = checked:
+        *x + 1
+    match next_value:
+        case Ok(value):
+            *x = value
+        case Err(_):
+            return Err(18000000000u64)
+    Err(18000000000u64)
 export def allocation(x: i32) -> Result[(), AllocError] = "calc_allocation":
     if x == 0:
         Ok(())
@@ -442,6 +469,10 @@ int main(void) {
     uint64_t large = 0;
     assert(calc_touch(&x, &large) == 1);
     assert(x == 41 && large == UINT64_C(18000000000));
+    x = INT32_MAX;
+    large = 99;
+    assert(calc_touch(&x, &large) == 1);
+    assert(x == INT32_MAX && large == UINT64_C(18000000000));
     uint32_t code = 99;
     assert(calc_allocation(0, &code) == 0 && code == 99);
     assert(calc_allocation(1, &code) == 1 && code == 0);
@@ -520,9 +551,10 @@ export def check(value: i64) -> Result[f64, CalcError] = "calc_check":
 export def first() -> Result[(), CalcError] = "calc_first":
     Err(CalcError.Empty)
 export def shape(value: i32) -> Result[i32, errors.codes.Shape] = "calc_shape":
+    two: NonZero[i32] = 2
     if value > 9:
         Err(errors.codes.Shape.Huge)
-    elif value % 2 == 1:
+    elif value % two == 1:
         Err(errors.codes.Shape.Odd)
     else:
         Ok(value)
@@ -723,7 +755,10 @@ class Resource:
 export def create(value: i64) -> Result[Resource, AllocError] = "calc_create":
     Ok(Resource(value))
 export def read(a: &Resource, b: &Resource) -> i64 = "calc_read":
-    a.value + b.value
+    # Consumers read the same owner twice, before (11) and after replacement (42).
+    total = checked:
+        a.value + b.value
+    total.unwrap()
 export def replace(owner: &mut Resource, value: i64) -> Result[(), AllocError] = "calc_replace":
     owner.value = value
     Err(AllocError.CapacityOverflow)
