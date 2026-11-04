@@ -131,12 +131,16 @@ coherent-unit symbol: `1.3 m/s`. Numeric format specs apply to the number,
 including its padding; `f"{q:08.2f}"` gives `00001.30 m/s`. Integer domains
 format as their underlying integers. Dimensionless quantities have no suffix.
 
-Symbols follow normalized base order. Products use `*`, powers use `^`, and
-multiple denominator factors are parenthesized: `kg*m/s^2` or `m/(kg*s)`.
-The ordering is by nominal base identity, not by symbol. Distinct dimensions
-with equal symbols remain distinct; their symbols do not cancel.
+Products use `*`, powers use `^`, and multiple denominator factors are
+parenthesized: `kg*m/s^2` or `m/(kg*s)`. Symbols appear in the order their
+base dimensions are declared within a module, with modules ordered by name.
+[`std.units`](../../stdlib/units.md) declares its bases in SI order, so a
+newton prints as `kg*m/s^2`. The order is presentation only: distinct
+dimensions with equal symbols remain distinct, and their symbols do not
+cancel.
 
 ```plenty
+dimension Mass("kg")
 dimension Length("m")
 dimension Time("s")
 
@@ -145,16 +149,23 @@ def main() -> Result[(), IoError | AllocError]:
     print(speed)?
     print(f"{speed:.2f}"?)?
     print(f"{speed!r}"?)?
+    momentum = Quantity[f64, Mass](2.0) * speed
+    print(momentum)?
+    print(f"{momentum!r}"?)?
     Ok(())
 ```
 ```output
 1.3 m/s
 1.30 m/s
 Quantity[f64, Length * Pow[Time, -1]](1.3)
+2.6 kg*m/s
+Quantity[f64, Length * Mass * Pow[Time, -1]](2.6)
 ```
 
 `str.repr(q)`, `!r` and quantities inside aggregates show
-`Quantity[T, D](value)`, with the normalized dimension expression. `!a` escapes
+`Quantity[T, D](value)`, with the normalized dimension expression. That
+expression orders bases by qualified name, as dimension identity does, so it
+can differ from the symbol order. `!a` escapes
 non-ASCII characters in that debug spelling. `!s` converts the display spelling
 to text first, so `f"{q!s:>12}"` pads the whole number-and-unit text.
 

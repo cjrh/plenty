@@ -56,7 +56,8 @@ dimensions, distinct derived aliases, prefixed SI and common exact units, the
 exact SI defining and CODATA 2022 constants, and dimension-aware `sqrt`,
 `cbrt`, `hypot`, `sum`, `mean`, `abs`, `clamp` and `std.math` wrappers. Celsius,
 Fahrenheit and `std.time.Duration` convert at the boundary; `to_duration`
-rejects negative, NaN and out-of-range times. [B97](../backlog.md#units-of-measure)
+rejects negative, NaN and out-of-range times. Symbols print in declaration
+order within a module, so `std.units` quantities read `kg*m/s^2`. [B97](../backlog.md#units-of-measure)
 retains `wrap_list`/`strip_list` and measured sharing of bodies that differ
 only in dimension.
 
