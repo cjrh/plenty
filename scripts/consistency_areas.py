@@ -69,6 +69,7 @@ AREA_DESCRIPTIONS = {
     "design-facilities": "Builtins and I/O facilities reference",
     "design-toolchain": "Toolchain reference",
     "design-examples": "Reference examples and the syntax cheat sheet",
+    "design-comparisons": "Comparisons with other languages",
     "examples": "Sample programs",
     "tests-std": "Standard-library integration tests (Plenty embedded in Rust)",
     "tests-fixtures": "Test fixture programs",

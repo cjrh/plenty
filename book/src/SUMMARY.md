@@ -521,6 +521,8 @@
             - [Native interfaces and metadata](design/toolchain/02-architecture/interop.md)
             - [Support index](design/toolchain/02-architecture/support.md)
             - [Runtime contributor guide](runtime.md)
+    - [Comparisons](design/comparisons/index.md)
+        - [Rust](design/comparisons/rust.md)
     - [Supplementary examples](design/examples/index.md)
         - [Syntax cheat sheet](design/examples/cheatsheet.md)
         - [Finder feasibility experiment](design/examples/finder.md)
