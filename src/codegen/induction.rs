@@ -28,6 +28,10 @@ pub(super) struct Counter {
     /// Every write to the counter inside the loop is a checked step that adds
     /// a nonnegative constant.
     pub only_grows: bool,
+    /// The bound's local and its first step's body index, when the bound is
+    /// also a counter whose step cannot overflow: in `while lo < hi`, with
+    /// `lo` the counter, `hi -= 1` cannot pass `lo` (issue #720).
+    pub bound_step: Option<(u8, usize)>,
 }
 
 /// Facts the lowerer holds while it lowers a function.
@@ -208,10 +212,18 @@ pub(super) fn analyze(condition: &[Op], body: &[Op], locals: &[Ty]) -> Option<Co
         Op::LoadLocal(i) => analyze_counter(*i, right, side, body, locals),
         _ => None,
     };
-    left_counter.or_else(|| match right {
+    let right_counter = match right {
         Op::LoadLocal(i) => analyze_counter(*i, left, side.mirrored(), body, locals),
         _ => None,
-    })
+    };
+    match left_counter {
+        Some(mut counter) => {
+            counter.bound_step =
+                right_counter.and_then(|bound| Some((bound.local, bound.proven_step?)));
+            Some(counter)
+        }
+        None => right_counter,
+    }
 }
 
 fn analyze_counter(
@@ -248,6 +260,7 @@ fn analyze_counter(
         local,
         proven_step: proven_step.map(|(index, _)| index),
         only_grows,
+        bound_step: None,
     })
 }
 

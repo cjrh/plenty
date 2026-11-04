@@ -1389,6 +1389,11 @@ impl Lowerer<'_, '_> {
         let counter = super::induction::analyze(condition, body, &types)
             .filter(|counter| self.local_address(counter.local).is_none());
         let proven_step = counter.as_ref().and_then(|counter| counter.proven_step);
+        let bound_step = counter
+            .as_ref()
+            .and_then(|counter| counter.bound_step)
+            .filter(|&(local, _)| self.local_address(local).is_none())
+            .map(|(_, index)| index);
         let nonnegative = counter.filter(|counter| {
             counter.only_grows && super::is_signed(types[counter.local as usize].clone()) && {
                 let entry = self.read_local(counter.local);
@@ -1417,7 +1422,7 @@ impl Lowerer<'_, '_> {
             if self.terminated {
                 break;
             }
-            if Some(index) == proven_step && !self.gathering() {
+            if (Some(index) == proven_step || Some(index) == bound_step) && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;

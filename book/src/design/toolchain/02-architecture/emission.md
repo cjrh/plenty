@@ -441,7 +441,9 @@ whose condition compares it with another local or a literal, as in
   the type's maximum, so `i + 1` cannot overflow; a literal bound also admits
   larger steps that stay in range, and `i > n` admits `i - 1`. Such a step is
   a plain add. Later writes, steps inside nested loops, and steps such as
-  `i <= n` with a variable `n` keep their check.
+  `i <= n` with a variable `n` keep their check. When the bound is also a
+  local, its own first step is proven the same way, so in `while lo < hi`
+  both `lo += 1` and `hi -= 1` are plain (issue #720).
 - **Signed division.** A signed counter that enters the loop holding a
   nonnegative literal, and whose every write in the loop adds a nonnegative
   literal, is never negative, since each add is checked or proven. `//` and

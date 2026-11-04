@@ -168,6 +168,14 @@ def mod_after_reset() -> i64:
             reset = False
     total
 
+def both_ends(lo: i64, hi: i64) -> i64:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    i - j
+
 def main() -> Result[(), AllocError | IoError]:
     print(up_to(0, 0), up_to(0, -5), up_to(0, 1), up_to(-3, 4), up_to(9223372036854775804, i64.MAX))?
     print(up_to_i8(0i8, i8.MIN), up_to_i8(120i8, i8.MAX), up_to_i8(-128i8, -125i8))?
@@ -181,6 +189,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(mod_negative_start(), mod_after_decrease())?
     print(mod_variable_step(-1), mod_variable_step(2), mod_parameter_start(-6))?
     print(mod_after_reset())?
+    print(both_ends(i64.MAX - 1, i64.MAX), both_ends(i64.MIN, i64.MIN + 1), both_ends(5, 2))?
     Ok(())
 "#;
 
@@ -196,6 +205,7 @@ const EXPECTED: &str = "0 0 1 4 9223372036854775807\n\
 -1464786 162754\n\
 28047 44286 181575\n\
 87169609\n\
+1 1 3\n\
 ";
 
 fn plenty_output(dir: &Path, args: &[&str]) -> Output {
@@ -275,6 +285,16 @@ fn loop_counters_keep_checked_and_floored_semantics() {
     "f(i64.MAX)",
     "6:17: integer overflow"
 )]
+#[case::inclusive_bound_step(
+    "def f(lo: i64) -> i64:\n    mut hi = lo\n    while lo <= hi:\n        hi -= 1\n    hi\n",
+    "f(i64.MIN)",
+    "4:9: integer overflow"
+)]
+#[case::bound_written_before_its_step(
+    "def f(lo: i64) -> i64:\n    mut hi = lo + 1\n    while lo < hi:\n        hi = lo\n        hi -= 1\n    hi\n",
+    "f(i64.MIN)",
+    "5:9: integer overflow"
+)]
 #[case::zero_divisor(
     "def f(divisor: i64) -> i64:\n    mut i = 0\n    mut total = 0\n    while i < 3:\n        total += i % divisor\n        i += 1\n    total\n",
     "f(0)",
@@ -330,8 +350,16 @@ def signed_mod(limit: i64) -> i64:
         i += 1
     total
 
+def both_ends(lo: i64, hi: i64) -> i64:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    i - j
+
 def main() -> ():
-    x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3)
+    x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3) + both_ends(0, 3)
 "#;
 
 fn clif(dir: &Path, function: &str) -> String {
@@ -365,6 +393,17 @@ fn proven_counter_steps_lower_to_plain_adds() {
     );
     let wide = clif(dir.path(), "wide_step");
     assert_eq!(wide.matches("sadd_overflow").count(), 1, "{wide}");
+}
+
+/// In `while i < j`, both `i += 1` and `j -= 1` stay within the range
+/// between them, so neither step keeps an overflow check (issue #720); the
+/// final `i - j` keeps its own.
+#[test]
+fn counter_and_bound_steps_lower_to_plain_arithmetic() {
+    let dir = write(SHAPES);
+    let both = clif(dir.path(), "both_ends");
+    assert_eq!(both.matches("sadd_overflow").count(), 0, "{both}");
+    assert_eq!(both.matches("ssub_overflow").count(), 1, "{both}");
 }
 
 /// A counter that starts at zero and only grows is divided unsigned, with no
