@@ -47,6 +47,14 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         with patch.object(acceptance, "load_manifest", return_value=manifest):
             return acceptance.validate(self.inputs, self.root / "unused.json", self.root / "validation", **kwargs)
 
+    def reject_inventory_before_output(self, inventory, message):
+        acceptance.write_json(self.inputs / "inventory.json", inventory)
+        with patch.object(acceptance, "load_manifest", side_effect=AssertionError("manifest must not load")), \
+             self.assertRaisesRegex(ValueError, message):
+            acceptance.validate(self.inputs, self.root / "unused.json", self.root / "validation",
+                                dry_run=True, modes=["I"])
+        self.assertFalse((self.root / "validation").exists())
+
     def test_generation_never_executes_commands(self):
         with patch.object(acceptance.subprocess, "run", side_effect=AssertionError("executed")), \
              patch.object(acceptance.subprocess, "check_output", side_effect=AssertionError("executed")):
@@ -190,6 +198,27 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
             i = count - 1
             self.assertEqual(36 + (i + 1) ** 2 + i + 5 + i + (4 + i) + (16 + i), checksum)
 
+    def test_corpus_work_errors_are_precise_without_other_workload_changes(self):
+        _, template = acceptance.original_template(acceptance.REPO)
+        original_hashes = {
+            "T": "db92390612e4c33af4b98fed9c556f3f088ed198ee013599bcfbab2f8ecc678e",
+            "C": "ed1abe01b9f068828b76fc5f81787dc4145a6825d5e5eb48906aba6290f30966",
+            "I": "d4acd9811498902a6a8671c694752e715c1e71dcec01eaa0452737be0d36172c",
+            "U": "3947eef4729e06f9bce845040c3e48a2ddeacb423b07062639bb919e92441573",
+        }
+        precise = "AllocError | OverflowError[i64] | ZeroDivisionError"
+        for mode in acceptance.MODES:
+            source = acceptance.corpus_source(mode, 2, template)
+            normalized = source
+            for i in range(2):
+                declared = precise if mode in ("C", "I") else "Failure"
+                declaration = f"def work{i}(a: i64) -> Result[i64, {declared}]:"
+                self.assertIn(declaration, source)
+                normalized = normalized.replace(declaration, f"def work{i}(a: i64) -> Result[i64, Failure]:")
+            self.assertIn("def main() -> Result[(), Failure]:\n    print(work1(5)?)?", source)
+            # Only C/I work declarations differ from reviewed commit 628f71aa.
+            self.assertEqual(acceptance.digest(normalized.encode()), original_hashes[mode])
+
     def test_template_drift_is_reported_not_silently_regenerated(self):
         (self.root / "examples").mkdir()
         (self.root / "examples/compile_bench.rs").write_text("changed template")
@@ -260,6 +289,49 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "escapes"):
             acceptance.load_inventory(self.inputs)
 
+    def test_inventory_rejects_internal_dot_and_parent_aliases_before_output(self):
+        inventory = self.generate()
+        original = inventory["entries"][0]
+        for alias in (original["source"], "sources/T/./tight.plenty", "sources/T/../T/tight.plenty"):
+            with self.subTest(alias=alias):
+                inventory["entries"].append(dict(original, source=alias))
+                self.reject_inventory_before_output(inventory, "duplicate resolved source")
+                inventory["entries"].pop()
+
+    def test_inventory_rejects_internal_file_symlink_alias_across_modes_before_output(self):
+        inventory = self.generate()
+        original = inventory["entries"][0]
+        alias = self.inputs / "sources/T/other-name.plenty"
+        alias.symlink_to(self.inputs / original["source"])
+        inventory["entries"].append(dict(original, source=str(alias.relative_to(self.inputs)), mode="C"))
+        self.reject_inventory_before_output(inventory, "duplicate resolved source")
+
+    def test_inventory_rejects_internal_directory_symlink_alias_before_output(self):
+        inventory = self.generate()
+        original = inventory["entries"][0]
+        (self.inputs / "sources/alias").symlink_to(self.inputs / "sources/T", target_is_directory=True)
+        inventory["entries"].append(dict(original, source="sources/alias/tight.plenty"))
+        self.reject_inventory_before_output(inventory, "duplicate resolved source")
+
+    def test_inventory_rejects_distinct_same_mode_stem_outputs_before_output(self):
+        inventory = self.generate()
+        original = inventory["entries"][0]
+        other = self.inputs / "sources/other/tight.plenty"
+        other.parent.mkdir()
+        other.write_bytes((self.inputs / original["source"]).read_bytes())
+        inventory["entries"].append(dict(original, source=str(other.relative_to(self.inputs))))
+        self.reject_inventory_before_output(inventory, "duplicate executable output identity")
+
+    def test_inventory_preserves_symlink_containment_guard_before_output(self):
+        inventory = self.generate()
+        original = inventory["entries"][0]
+        outside = self.root / "outside.plenty"
+        outside.write_bytes((self.inputs / original["source"]).read_bytes())
+        alias = self.inputs / "sources/T/outside-alias.plenty"
+        alias.symlink_to(outside)
+        inventory["entries"].append(dict(original, source=str(alias.relative_to(self.inputs))))
+        self.reject_inventory_before_output(inventory, "escapes")
+
     def test_classification_keeps_traps_errors_signals_panics_and_timeouts_distinct(self):
         expected = acceptance.case("trap", (), trap=True)
         row = dict(returncode=1, stdout="", stderr="error: tight.plenty:3: integer overflow\n")
@@ -319,6 +391,43 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         _, manifest = self.manifest()
         with self.assertRaisesRegex(ValueError, "runtime-checks"):
             self.validate(manifest, dry_run=True, families=["noalloc"])
+        self.assertFalse((self.root / "validation").exists())
+
+    def test_mode_filter_records_candidate_only_allocation_submatrix_without_changing_flags(self):
+        self.generate(allocations=True)
+        _, manifest = self.manifest()
+        manifest["builds"]["candidate"]["cargo_features"] = ["runtime-checks"]
+        with patch.object(acceptance, "execute", side_effect=AssertionError("dry-run must not execute")):
+            self.validate(manifest, dry_run=True, families=["noalloc", "allocation-control"], modes=["I"])
+        root = self.root / "validation"
+        rows = [json.loads(line) for line in (root / "results.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 12)
+        self.assertEqual({row["mode"] for row in rows}, {"I"})
+        self.assertTrue(all(row["classification"] == "not-run" for row in rows))
+        metadata = json.loads((root / "validation.json").read_text())
+        self.assertEqual(metadata["selected_modes"], ["I"])
+        self.assertEqual(metadata["selected_sources"], ["sources/I/noalloc.plenty", "sources/I/allocation-control.plenty"])
+        self.assertEqual(json.loads((root / "build-manifest.json").read_text()), manifest)
+        self.assertEqual(manifest["builds"]["main"]["cargo_features"], [])
+
+    def test_default_allocation_submatrix_still_refuses_uninstrumented_baseline(self):
+        self.generate(allocations=True)
+        _, manifest = self.manifest()
+        manifest["builds"]["candidate"]["cargo_features"] = ["runtime-checks"]
+        with self.assertRaisesRegex(ValueError, "runtime-checks"):
+            self.validate(manifest, dry_run=True, families=["noalloc", "allocation-control"])
+        self.assertFalse((self.root / "validation").exists())
+
+    def test_mode_filter_rejects_invalid_or_empty_selections_before_output(self):
+        self.generate()
+        _, manifest = self.manifest()
+        for modes in ([], ["unknown"], ["I", "unknown"]):
+            with self.subTest(modes=modes), self.assertRaisesRegex(ValueError, "selected modes"):
+                self.validate(manifest, dry_run=True, modes=modes)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit:
+            acceptance.main(["validate", "--inputs", str(self.inputs), "--build-manifest", "/unused",
+                             "--output", str(self.root / "validation"), "--mode", "unknown"])
+        self.assertEqual(exit.exception.code, 2)
         self.assertFalse((self.root / "validation").exists())
 
     def test_validation_refuses_output_reuse(self):

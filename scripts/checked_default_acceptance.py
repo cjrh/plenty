@@ -291,7 +291,8 @@ def corpus_unit(mode, i):
     work = (f"mut point = Point{i}(a, {i})\npoint.shift(1){q}\nvalues = squares{i}(a)?\n"
             f"mut total = point.squared_length(){q} + describe{i}(Reading{i}.Value(a)){q}\n"
             f"for v in &values:\n    if v > {i}:\n        total = total + v\n")
-    return unit + function(mode, f"work{i}", "a: i64", "i64", "Failure", work, "total", public=True)
+    work_errors = f"AllocError | {OVERFLOW} | ZeroDivisionError" if recoverable else "Failure"
+    return unit + function(mode, f"work{i}", "a: i64", "i64", work_errors, work, "total", public=True)
 
 
 def corpus_source(mode, units, template):
@@ -430,14 +431,22 @@ def load_inventory(root):
     inventory = json.loads((root / "inventory.json").read_text(encoding="utf-8"))
     if inventory.get("schema") != 1 or not inventory.get("entries"):
         raise ValueError("invalid source inventory")
-    seen = set()
+    seen_sources = set()
+    seen_outputs = set()
     for entry in inventory["entries"]:
         source = root / entry["source"]
-        if entry["mode"] not in MODES or not source.resolve().is_relative_to(root):
+        resolved = source.resolve()
+        if entry["mode"] not in MODES or not resolved.is_relative_to(root):
             raise ValueError("source path/mode escapes input inventory")
-        if entry["source"] in seen or digest(source.read_bytes()) != entry["sha256"]:
-            raise ValueError("duplicate or changed source")
-        seen.add(entry["source"])
+        output_identity = (entry["mode"], source.stem)
+        if resolved in seen_sources:
+            raise ValueError("duplicate resolved source")
+        if output_identity in seen_outputs:
+            raise ValueError("duplicate executable output identity")
+        if digest(resolved.read_bytes()) != entry["sha256"]:
+            raise ValueError("changed source")
+        seen_sources.add(resolved)
+        seen_outputs.add(output_identity)
     return inventory
 
 
@@ -480,7 +489,7 @@ def execute(command, env, timeout):
             "stdout_base64": base64.b64encode(out).decode(), "stderr_base64": base64.b64encode(err).decode()}
 
 
-def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None):
+def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None, modes=None):
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     inputs = Path(inputs).resolve()
@@ -489,8 +498,11 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
     available = {Path(entry["source"]).stem for entry in inventory["entries"]}
     if families and set(families) - available:
         raise ValueError("unknown source families: " + ", ".join(sorted(set(families) - available)))
+    if modes is not None and (not modes or set(modes) - set(MODES)):
+        raise ValueError("selected modes must be a nonempty subset of T, C, I, U")
     entries = [entry for entry in inventory["entries"]
-               if not families or Path(entry["source"]).stem in families]
+               if (not families or Path(entry["source"]).stem in families)
+               and (modes is None or entry["mode"] in modes)]
     if not entries:
         raise ValueError("no sources selected")
     for entry in entries:
@@ -502,7 +514,8 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
     write_json(root / "input-inventory.json", inventory)
     write_json(root / "validation.json", {"purpose": "syntax-correctness-only-not-performance", "dry_run": dry_run,
                "inputs": str(inputs), "inventory_sha256": digest((inputs / "inventory.json").read_bytes()),
-               "unimplemented": NOT_IMPLEMENTED})
+               "selected_modes": [mode for mode in MODES if any(entry["mode"] == mode for entry in entries)],
+               "selected_sources": [entry["source"] for entry in entries], "unimplemented": NOT_IMPLEMENTED})
     passed = True
     env = dict(os.environ, PLENTY_CACHE="off", PLENTY_CACHE_DIR=str(root / "cache"))
     for key in list(env):
@@ -568,6 +581,7 @@ def main(argv=None):
     check.add_argument("--dry-run", action="store_true")
     check.add_argument("--timeout", type=int, default=120)
     check.add_argument("--family", action="append", help="exact source stem; repeat to select several")
+    check.add_argument("--mode", choices=MODES, action="append", help="validate only selected modes; repeat to select several")
     measure = phases.add_parser("measure", help="reserved; explicitly unavailable in this MVP")
     measure.add_argument("--allow-measurements", action="store_true")
     measure.add_argument("--build-manifest", required=True, type=Path)
@@ -577,7 +591,7 @@ def main(argv=None):
             generate(args.output, allocations=args.allocation_probes)
         elif args.phase == "validate":
             return 0 if validate(args.inputs, args.build_manifest, args.output, args.dry_run,
-                                 args.timeout, args.family) else 1
+                                 args.timeout, args.family, args.mode) else 1
         else:
             if not args.allow_measurements:
                 raise ValueError("measurement requires --allow-measurements; no timings performed")
