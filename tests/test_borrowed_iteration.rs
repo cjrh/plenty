@@ -1,31 +1,40 @@
 mod support;
 
+fn arithmetic_program(source: &str) -> String {
+    support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    ) + "    Ok(())\n"
+}
+
 #[test]
 fn generic_count_uses_one_reference_rule() {
     let output = support::run(
         r#"
-def count_eq[T](values: &list[T], target: &T) -> i64:
+def count_eq[T](values: &list[T], target: &T) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for v in values:
         if v == target:
             n = n + 1
-    n
+    Ok(n)
 class Point:
     x: i64
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     nums = [1, 2, 1].unwrap()
     texts = ["a", "b", "a"].unwrap()
     target = 1
     text = "a"
-    print(count_eq(&nums, &target)).unwrap()
-    print(count_eq(&texts, &text)).unwrap()
+    print(count_eq(&nums, &target)?).unwrap()
+    print(count_eq(&texts, &text)?).unwrap()
     for v in &nums:
         print(*v).unwrap()
     print(&target == target).unwrap()
     print(target == &target).unwrap()
     points = [Point(1), Point(2), Point(1)].unwrap()
     point = Point(1)
-    print(count_eq(&points, &point)).unwrap()
+    print(count_eq(&points, &point)?).unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -103,7 +112,7 @@ def first_above(pairs: &list[(i64, str)], floor: i64) -> &str:
         if *n > floor:
             return s
     return &pairs[0][1]
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     mut pairs = [(1, "one"), (2, "two"), (3, "three")].unwrap()
     for n, s in &pairs:
         print(*n, s).unwrap()
@@ -117,6 +126,7 @@ def main() -> ():
     points = {(2, 3)}.unwrap()
     for x, y in &points:
         print(*x * *y).unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -154,7 +164,7 @@ fn tuple_target_borrows_follow_the_element_borrow() {
             "unpacking arity does not match tuple",
         ),
     ] {
-        let error = support::check_diagnostic(source);
+        let error = support::check_diagnostic(&arithmetic_program(source));
         assert!(error.contains(expected), "{source}\n{error}");
     }
 }
@@ -175,7 +185,7 @@ fn element_borrows_prevent_mutation_and_cannot_escape_temporary_slots() {
 fn borrowed_iteration_adds_no_allocations() {
     let output = support::run(
         r#"
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     values = [1, 2, 3].unwrap()
     numbers = {"a": 4, "b": 5}.unwrap()
     interval = range(2)
@@ -193,6 +203,7 @@ def main() -> ():
             total = total + 1
     print("__test_end_no_allocations__").unwrap()
     print(total).unwrap()
+    Ok(())
 "#,
     );
     assert!(
