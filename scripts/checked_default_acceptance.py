@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
-"""Materialize and validate checked-default acceptance inputs, without measuring.
+"""Generate, qualify and explicitly authorize checked-default measurements.
 
-Generate never invokes a compiler. Validate requires a pinned, hashed, frozen
-binary manifest and records correctness only (even for mismatched debug builds).
-Measure deliberately refuses execution: final pins, quiet-machine approval and
-reviewed timing/inspection instrumentation are still required. No Cargo commands
-or existing benchmark templates are changed or executed by this controller.
+Generate/plan never invoke native tools. Validate records correctness only.
+Measure requires --allow-perf, matching frozen release builds, an inventory hash
+and explicit quiet-machine approval. Runtime timings are whole-process costs,
+NOT kernel-only timings. No Cargo or profiler builds/commands are performed.
 """
 
 import argparse
 import base64
 import hashlib
 import json
+import math
 import os
+import platform
+import signal
+import statistics
+import struct
+import time
 from pathlib import Path
 import random
 import re
 import subprocess
 import textwrap
+
+try:
+    import resource
+except ImportError:  # Generation/planning remain usable off POSIX.
+    resource = None
 
 MODES = ("T", "C", "I", "U")
 OVERFLOW = "OverflowError[i64]"
@@ -38,10 +48,11 @@ REUSED_TESTS = [
     "test_checked_defaults::generators_require_local_handling_or_explicit_traps",
 ]
 NOT_IMPLEMENTED = [
-    "runtime and compiler timing execution (including internal timer regions)",
-    "profiling, Rust build-cost measurement and allocator totals",
-    "IR/ABI/guard/object-size extraction and optimized-object library helper",
-    "full arithmetic/divisor/pow/callback/ownership matrix (reuse existing named tests)",
+    "internal kernel timing regions; runtime costs include startup/input/printing/teardown",
+    "compiler phase/allocation profiling execution/parser blocked: separate count and approximate-byte reports required",
+    "Rust compiler build-cost measurement and absolute native allocator totals",
+    "optimized application object bytes (optimized ELF is not an application object)",
+    "manual guard/ABI/cleanup audit and broader full-suite/native acceptance evidence",
 ]
 
 
@@ -398,6 +409,19 @@ MATCH_FIELDS = ("compiler_profile", "cargo_features", "cargo_flags", "rustflags"
                 "target", "toolchain", "native_linker")
 
 
+def role_value(value, build):
+    """Normalize only explicitly owned source/target paths, preserving types/order."""
+    if isinstance(value, list):
+        return [role_value(part, build) for part in value]
+    if isinstance(value, str):
+        paths = [(key, build[key]) for key in ("source_tree", "target_dir") if build.get(key) is not None]
+        if any(not isinstance(path, str) or not Path(path).is_absolute() or path == "/" for _, path in paths):
+            raise ValueError("owned role paths must be absolute non-root paths")
+        for key, path in sorted(paths, key=lambda item: len(item[1]), reverse=True):
+            value = re.sub(re.escape(path.rstrip("/")) + r"(?=$|[/\s=\"'])", "<" + key + ">", value)
+    return value
+
+
 def load_manifest(path, measurement=False):
     manifest = json.loads(Path(path).read_text(encoding="utf-8"))
     if manifest.get("schema") != 1:
@@ -415,9 +439,10 @@ def load_manifest(path, measurement=False):
                 raise ValueError(f"{key} must be SHA256")
         if build["frozen_snapshot"] is not True:
             raise ValueError("a frozen binary snapshot is required, not an active Cargo output")
-        if not isinstance(build["cargo_features"], list) or not isinstance(build["cargo_flags"], list):
-            raise ValueError("features and Cargo flags must be lists")
-        if not isinstance(build["build_command"], list) or not build["build_command"]:
+        if any(not isinstance(build[key], list) or not all(isinstance(part, str) for part in build[key])
+               for key in ("cargo_features", "cargo_flags")):
+            raise ValueError("features and Cargo flags must be string lists")
+        if not isinstance(build["build_command"], list) or not build["build_command"] or not all(isinstance(part, str) for part in build["build_command"]):
             raise ValueError("build_command must preserve the explicit invocation")
         if not all(isinstance(build[key], str) and build[key] for key in
                    ("compiler_profile", "target", "toolchain", "native_linker")):
@@ -436,7 +461,13 @@ def load_manifest(path, measurement=False):
         if manifest["purpose"] != "measurement" or manifest.get("quiet_machine_approved") is not True:
             raise ValueError("measurement needs purpose=measurement and explicit quiet-machine approval")
         before, after = (manifest["builds"][name] for name in ("main", "candidate"))
-        if any(before[key] != after[key] for key in MATCH_FIELDS):
+        for build in (before, after):
+            for key in ("rustflags", "runtime_rustflags"):
+                value = build[key]
+                if value is not None and not isinstance(value, str) and not (
+                        isinstance(value, list) and all(isinstance(part, str) for part in value)):
+                    raise ValueError("flag representations must be null, string or string list")
+        if any(role_value(before[key], before) != role_value(after[key], after) for key in MATCH_FIELDS):
             raise ValueError("measurement build settings do not match")
     return manifest
 
@@ -522,7 +553,8 @@ def retained_calls(disassembly, caller, callee="__plenty_fn_leaf"):
     return sites
 
 
-def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None, modes=None, objdump="objdump"):
+def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families=None, modes=None, objdump="objdump", runner=None, child_environment=None):
+    run = runner or execute
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     inputs = Path(inputs).resolve()
@@ -551,12 +583,13 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                "selected_sources": [entry["source"] for entry in entries], "objdump": objdump,
                "unimplemented": NOT_IMPLEMENTED})
     passed = True
-    env = dict(os.environ, PLENTY_CACHE="off", PLENTY_CACHE_DIR=str(root / "cache"))
+    env = dict(os.environ if child_environment is None else child_environment,
+               PLENTY_CACHE="off", PLENTY_CACHE_DIR=str(root / "cache"))
     for key in list(env):
-        if key.startswith("HOTPATH_") or key == "PLENTY_PROFILE":
+        if key.startswith(("HOTPATH_", "PLENTY_PROFILE")):
             env.pop(key)
     write_json(root / "environment.json", {key: env.get(key) for key in
-               ("PLENTY_CACHE", "PLENTY_CACHE_DIR", "PLENTY_LINKER_THREADS", "COMPILER_PATH", "PATH")})
+               ("PLENTY_CACHE", "PLENTY_CACHE_DIR", "PLENTY_LINKER_THREADS", "COMPILER_PATH", "PATH", "LC_ALL")})
     with (root / "results.jsonl").open("x", encoding="utf-8") as log:
         def record(row):
             log.write(json.dumps(row, sort_keys=True) + "\n")
@@ -578,7 +611,7 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                     if dry_run:
                         record(dict(row, command=command, classification="not-run"))
                         continue
-                    result = execute(command, env, timeout)
+                    result = run(command, env, timeout)
                     okay = result["returncode"] == 0 and not result["timeout"]
                     record(dict(row, **result, classification="passed" if okay else phase + "-failed"))
                     if not okay:
@@ -595,7 +628,7 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                     if dry_run:
                         record(dict(row, command=command, classification="not-run"))
                     else:
-                        result = execute(command, env, timeout)
+                        result = run(command, env, timeout)
                         sites = retained_calls(result["stdout"], caller)
                         qualified = result["returncode"] == 0 and not result["timeout"] and len(sites) == 1
                         record(dict(row, **result, static_call_sites=sites,
@@ -611,13 +644,519 @@ def validate(inputs, manifest_path, output, dry_run=False, timeout=120, families
                     if dry_run:
                         record(dict(row, command=command, classification="not-run"))
                         continue
-                    result = execute(command, env, timeout)
+                    result = run(command, env, timeout)
                     outcome = classify(result, expected, source)
                     passed &= outcome.startswith("expected-")
                     record(dict(row, **result, classification=outcome))
     write_json(root / "result.json", {"passed": passed if not dry_run else None, "dry_run": dry_run,
                                       "performance_evidence": False})
     return passed
+
+
+MEASURE_PHASES = ("runtime", "compiler", "code", "allocation")
+RUNTIME_FAMILIES = ("tight", "calls", "text", "recovered-errors")
+
+
+def pinned_inventory(inputs, expected_hash):
+    root = Path(inputs).resolve()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_hash or ""):
+        raise ValueError("an explicit inventory SHA256 is required")
+    if digest((root / "inventory.json").read_bytes()) != expected_hash:
+        raise ValueError("inventory hash mismatch")
+    return load_inventory(root)
+
+
+def measurement_plan(inputs, inventory_sha256, phases=None, families=None,
+                     runtime_warmups=5, runtime_samples=30, compiler_warmups=3, compiler_samples=15):
+    inventory = pinned_inventory(inputs, inventory_sha256)
+    phases = list(MEASURE_PHASES if phases is None else phases)
+    if not phases or len(set(phases)) != len(phases) or set(phases) - set(MEASURE_PHASES):
+        raise ValueError("invalid or duplicate measurement phases")
+    counts = (runtime_warmups, runtime_samples, compiler_warmups, compiler_samples)
+    if any(type(count) is not int or count < 0 for count in counts) or not runtime_samples or not compiler_samples:
+        raise ValueError("sample counts must be positive and warmups nonnegative")
+    families = list(RUNTIME_FAMILIES if families is None else families)
+    if not families or len(set(families)) != len(families) or set(families) - set(RUNTIME_FAMILIES):
+        raise ValueError("measurement runtime families must be tight, calls, text or recovered-errors")
+    entries = inventory["entries"]
+    if set(phases) & {"compiler", "code"}:
+        if inventory["units"] != [1000, 4000]:
+            raise ValueError("compiler/code phases require the complete 1000/4000 corpus")
+        for count in (1000, 4000):
+            if {e["mode"] for e in entries if Path(e["source"]).stem == f"corpus-{count}"} != set(MODES):
+                raise ValueError("full four-mode compiler corpus is missing")
+    selected = [e for e in entries if
+                (set(phases) & {"runtime", "code"} and Path(e["source"]).stem in families) or
+                (set(phases) & {"compiler", "code"} and Path(e["source"]).stem in ("corpus-1000", "corpus-4000"))]
+    for family in families:
+        if set(phases) & {"runtime", "code"}:
+            modes = {e["mode"] for e in selected if Path(e["source"]).stem == family}
+            if modes != (set("CI") if family == "recovered-errors" else set(MODES)):
+                raise ValueError("incomplete runtime mode matrix")
+    jobs = []
+    if "runtime" in phases:
+        for family in families:
+            group = [e for e in selected if Path(e["source"]).stem == family]
+            names = list(dict.fromkeys(c["name"] for e in group for c in e["cases"]))
+            for name in names:
+                for slot in schedule(runtime_warmups, runtime_samples):
+                    entry = next((e for e in group if e["mode"] == slot["mode"]), None)
+                    if entry is not None:
+                        expected = next(c for c in entry["cases"] if c["name"] == name)
+                        semantics = ("trap-process" if expected["expected"] == "arithmetic-trap" else
+                                     "api-error-process" if family == "text" and expected["expected"] == "handled-error" else
+                                     expected["expected"] + "-process")
+                        jobs.append(dict(slot, stage="runtime", family=family, case=name, semantics=semantics,
+                                         source=entry["source"], action="run"))
+    if "compiler" in phases:
+        for count in (1000, 4000):
+            for action in ("check", "object-debug", "aot-debug", "aot-release"):
+                for slot in schedule(compiler_warmups, compiler_samples):
+                    entry = next(e for e in selected if e["mode"] == slot["mode"] and
+                                 Path(e["source"]).stem == f"corpus-{count}")
+                    jobs.append(dict(slot, stage="compiler", family=f"corpus-{count}", case=action,
+                                     semantics="compiler-success", source=entry["source"], action=action))
+    for ordinal, job in enumerate(jobs):
+        job["id"] = f"job-{ordinal:06}"
+    return {"schema": 1, "seed": 88616, "inventory_sha256": inventory_sha256,
+            "phases": phases, "selected_sources": [e["source"] for e in selected], "jobs": jobs,
+            "runtime_counts": [runtime_warmups, runtime_samples], "compiler_counts": [compiler_warmups, compiler_samples],
+            "protocol": "planned-counts" if counts == (5, 30, 3, 15) and families == list(RUNTIME_FAMILIES) else "exploration-not-acceptance",
+            "timing_scope": "whole-process: startup/parsing/input/printing/teardown included; no kernel-only attribution",
+            "blocked_metrics": NOT_IMPLEMENTED}
+
+
+def distribution(values):
+    if not values or any(not math.isfinite(v) or v < 0 for v in values):
+        raise ValueError("statistics require finite nonnegative values")
+    ordered = sorted(values)
+    def percentile(p):
+        index = (len(ordered) - 1) * p
+        lo = math.floor(index)
+        return ordered[lo] + (ordered[math.ceil(index)] - ordered[lo]) * (index - lo)
+    median = statistics.median(ordered)
+    return {"n": len(values), "median": median, "p10": percentile(.1), "p90": percentile(.9),
+            "min": ordered[0], "max": ordered[-1], "p90_minus_p10": percentile(.9) - percentile(.1),
+            "stdev": statistics.stdev(values) if len(values) > 1 else 0,
+            "mad": statistics.median(abs(value - median) for value in values)}
+
+
+def sample_summary(rows):
+    groups = {}
+    for row in rows:
+        key = (row["stage"], row["family"], row["case"], row["semantics"], row["mode"])
+        groups.setdefault(key, []).append(row)
+    summaries, complete = [], {}
+    for key, group in groups.items():
+        okay = all(row["status"] == "passed" for row in group)
+        samples = [row for row in group if row["phase"] == "sample"]
+        item = dict(zip(("stage", "family", "case", "semantics", "mode"), key),
+                    status="complete" if okay and samples else "blocked", warmups=sum(r["phase"] == "warmup" for r in group),
+                    samples=len(samples), failed_or_blocked=sum(r["status"] != "passed" for r in group))
+        if okay and samples:
+            item["wall_ns"] = distribution([r["elapsed_ns"] for r in samples])
+            for metric in ("user_seconds", "sys_seconds", "peak_rss_kib"):
+                if all(metric in r for r in samples):
+                    item[metric] = distribution([r[metric] for r in samples])
+            complete[key] = samples
+        summaries.append(item)
+    ratios = []
+    for key, numerator in complete.items():
+        for denominator_mode in MODES:
+            if (key[-1], denominator_mode) not in (("U", "T"), ("I", "C"), ("C", "T"), ("I", "U")):
+                continue
+            other = (*key[:-1], denominator_mode)
+            if other not in complete:
+                continue  # Trap-process and recovered-error groups never share semantics.
+            denominator = {row["round"]: row for row in complete[other]}
+            if set(denominator) != {r["round"] for r in numerator} or any(r["elapsed_ns"] <= 0 for r in denominator.values()):
+                continue
+            ratios.append({"stage": key[0], "family": key[1], "case": key[2], "semantics": key[3],
+                           "ratio": key[-1] + "/" + denominator_mode,
+                           "paired_wall_ratio": distribution([r["elapsed_ns"] / denominator[r["round"]]["elapsed_ns"] for r in numerator])})
+    return {"groups": summaries, "ratios": ratios}
+
+
+def process_group(command, env, timeout, timed=False):
+    """Direct child status, bounded descendants and lossless streams; serial only."""
+    started_at = time.time_ns()
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN) if timed else None
+    start = time.perf_counter_ns() if timed else None
+    expired, spawn = False, None
+    try:
+        child = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            out, err = child.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            expired = True
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            out, err = child.communicate()
+        code = child.returncode
+    except OSError as error:
+        code, out, err, spawn = None, b"", str(error).encode(), str(error)
+    elapsed = time.perf_counter_ns() - start if timed else None
+    row = {"command": command, "started_at_unix_ns": started_at, "returncode": code,
+           "timeout": expired, "spawn_error": spawn, "stdout": out.decode("utf-8", errors="replace"),
+           "stderr": err.decode("utf-8", errors="replace"), "stdout_base64": base64.b64encode(out).decode(),
+           "stderr_base64": base64.b64encode(err).decode()}
+    if timed:
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
+        row.update(elapsed_ns=elapsed, user_seconds=after.ru_utime - usage.ru_utime, sys_seconds=after.ru_stime - usage.ru_stime)
+    return row
+
+
+def gnu_time_metrics(path):
+    raw = path.read_text(encoding="utf-8")
+    fields = raw.split()
+    if len(fields) != 5:
+        raise ValueError("missing/malformed GNU time metrics")
+    values = [float(field) for field in fields]
+    if any(not math.isfinite(value) or value < 0 for value in values):
+        raise ValueError("invalid GNU time metrics")
+    return dict(zip(("user_seconds", "sys_seconds", "peak_rss_kib", "voluntary_switches", "involuntary_switches"), values),
+                gnu_time_raw=raw)
+
+
+def elf_sizes(path):
+    """ELF section/symbol bytes, not guessed objdump lengths or optimized objects."""
+    data = path.read_bytes()
+    if data[:4] != b"\x7fELF" or len(data) < 64 or data[4] not in (1, 2) or data[5] not in (1, 2):
+        raise ValueError("unsupported/malformed ELF")
+    order, wide = ("<" if data[5] == 1 else ">"), data[4] == 2
+    header = struct.unpack_from(order + ("16sHHIQQQIHHHHHH" if wide else "16sHHIIIIIHHHHHH"), data)
+    section_format = order + ("IIQQQQIIQQ" if wide else "IIIIIIIIII")
+    size = struct.calcsize(section_format)
+    offset, stride, count, names_index = header[6], header[11], header[12], header[13]
+    if not count or names_index >= count or stride < size or offset + stride * count > len(data):
+        raise ValueError("unsupported/malformed ELF section table (extended indices not inferred)")
+    sections = [struct.unpack_from(section_format, data, offset + stride * i) for i in range(count)]
+    def content(section):
+        if section[4] + section[5] > len(data):
+            raise ValueError("ELF section exceeds file")
+        return data[section[4]:section[4] + section[5]]
+    def name(table, index):
+        if index >= len(table) or b"\0" not in table[index:]:
+            raise ValueError("malformed ELF name")
+        return table[index:table.index(b"\0", index)].decode("utf-8", errors="replace")
+    names = content(sections[names_index])
+    executable = [{"name": name(names, section[0]), "bytes": section[5]} for section in sections if section[2] & 4]
+    if not executable:
+        raise ValueError("ELF has no executable sections")
+    symbols = []
+    symbol_format = order + ("IBBHQQ" if wide else "IIIBBH")
+    symbol_size = struct.calcsize(symbol_format)
+    for section in sections:
+        if section[1] != 2:
+            continue
+        if section[6] >= count or section[9] < symbol_size or section[5] % section[9]:
+            raise ValueError("malformed ELF symbol table")
+        strings, table = content(sections[section[6]]), content(section)
+        for position in range(0, len(table), section[9]):
+            symbol = struct.unpack_from(symbol_format, table, position)
+            index, info, defined, address, byte_count = ((symbol[0], symbol[1], symbol[3], symbol[4], symbol[5]) if wide else
+                                                       (symbol[0], symbol[3], symbol[5], symbol[1], symbol[2]))
+            symbol_name = name(strings, index)
+            if info & 15 == 2 and defined and (symbol_name.startswith("__plenty_fn_") or symbol_name == "plenty_main"):
+                symbols.append({"name": symbol_name, "address": address, "section": defined,
+                                "st_size": byte_count, "usable_bytes": byte_count or None})
+    if not symbols:
+        raise ValueError("ELF source function symbols unavailable (no inferred sizes)")
+    return {"sha256": digest(data), "file_bytes": len(data), "executable_sections": executable,
+            "executable_section_bytes": sum(s["bytes"] for s in executable), "source_function_symbols": symbols}
+
+
+def allocation_evidence(directory, inputs, inventory_hash, perf_manifest):
+    """Import actual marker/control outcomes, not alleged absolute allocations."""
+    root = Path(directory).resolve()
+    metadata = json.loads((root / "validation.json").read_text())
+    inventory = pinned_inventory(inputs, inventory_hash)
+    if metadata["inventory_sha256"] != inventory_hash or digest((root / "input-inventory.json").read_bytes()) != inventory_hash:
+        raise ValueError("allocation evidence inventory does not match measurement inputs")
+    # Validate the original source files as well as the copied source/case inventory.
+    pinned_inventory(metadata["inputs"], inventory_hash)
+    checks = load_manifest(root / "build-manifest.json")
+    for label in ("main", "candidate"):
+        if checks["builds"][label]["source_sha"] != perf_manifest["builds"][label]["source_sha"]:
+            raise ValueError("allocation evidence is from different source pins")
+        if checks["builds"][label]["cargo_features"] != ["runtime-checks"]:
+            raise ValueError("allocation evidence needs genuine runtime-checks builds")
+        for key in ("target", "toolchain", "rustflags", "runtime_rustflags", "native_linker"):
+            if role_value(checks["builds"][label][key], checks["builds"][label]) != role_value(perf_manifest["builds"][label][key], perf_manifest["builds"][label]):
+                raise ValueError("allocation evidence toolchain/flags/target differs from perf provenance")
+    before, after = (checks["builds"][label] for label in ("main", "candidate"))
+    if any(role_value(before[key], before) != role_value(after[key], after) for key in MATCH_FIELDS):
+        raise ValueError("allocation evidence build settings differ")
+    result = json.loads((root / "result.json").read_text())
+    if result.get("dry_run") or result.get("passed") is not True:
+        raise ValueError("allocation evidence is not a successful actual validation")
+    rows = [json.loads(line) for line in (root / "results.jsonl").read_text().splitlines()]
+    artifacts = {}
+    resolved_artifacts = set()
+    for entry in inventory["entries"]:
+        if entry["mode"] not in ("C", "I") or Path(entry["source"]).stem not in ("noalloc", "allocation-control"):
+            continue
+        label = "main" if entry["mode"] == "C" else "candidate"
+        for profile in ("debug", "release"):
+            group = [r for r in rows if r.get("source") == entry["source"] and r.get("mode") == entry["mode"] and r.get("profile") == profile]
+            if len(group) != len(entry["cases"]) + 2:
+                raise ValueError("allocation matrix cell incomplete or duplicated")
+            for phase in ("check", "build"):
+                commands = [r for r in group if r["phase"] == phase]
+                if len(commands) != 1 or commands[0]["classification"] != "passed" or commands[0]["returncode"] != 0:
+                    raise ValueError("missing/failed allocation check or build")
+                if commands[0].get("timeout") or commands[0].get("spawn_error"):
+                    raise ValueError("allocation check/build did not finish normally")
+                if commands[0]["command"][0] != checks["builds"][label]["binary"]:
+                    raise ValueError("allocation command does not use its frozen compiler")
+            build = next(r for r in group if r["phase"] == "build")
+            executable = Path(build["command"][build["command"].index("-o") + 1])
+            wanted = root / entry["mode"] / profile / Path(entry["source"]).stem
+            if executable.resolve() != wanted.resolve() or not executable.resolve().is_relative_to(root):
+                raise ValueError("allocation artifact escapes or aliases its expected identity")
+            source = str(Path(metadata["inputs"]).resolve() / entry["source"])
+            binary = checks["builds"][label]["binary"]
+            if next(r for r in group if r["phase"] == "check")["command"] != [binary, "--check", source] or build["command"] != (
+                    [binary] + (["--release"] if profile == "release" else []) + ["--no-cache", "--no-strip", "--compile", source, "-o", str(executable)]):
+                raise ValueError("allocation source/profile command mismatch")
+            if executable.resolve() in resolved_artifacts:
+                raise ValueError("aliased allocation executable artifacts")
+            resolved_artifacts.add(executable.resolve())
+            artifacts[str(executable)] = digest(executable.read_bytes())
+            for expected in entry["cases"]:
+                actual = [r for r in group if r["phase"] == "runtime" and r.get("case") == expected["name"]]
+                if len(actual) != 1 or actual[0]["command"] != [str(executable), *expected["args"]]:
+                    raise ValueError("incomplete C/I allocation matrix")
+                row = actual[0]
+                if any(base64.b64decode(row[field + "_base64"], validate=True).decode("utf-8", errors="replace") != row[field]
+                       for field in ("stdout", "stderr")):
+                    raise ValueError("allocation raw streams disagree")
+                if not classify(row, expected, entry["source"]).startswith("expected-"):
+                    raise ValueError("allocation marker/control oracle failed")
+    required = {(mode, name) for mode in ("C", "I") for name in ("noalloc", "allocation-control")}
+    if {(e["mode"], Path(e["source"]).stem) for e in inventory["entries"] if e["requires_runtime_checks"]} != required:
+        raise ValueError("allocation source/control coverage incomplete")
+    return {"status": "qualified", "scope": "zero/nonzero successful calling-thread allocations; not absolute totals",
+            "source": str(root), "files": {name: digest((root / name).read_bytes()) for name in
+            ("validation.json", "input-inventory.json", "build-manifest.json", "result.json", "results.jsonl")},
+            "executable_hashes": artifacts}
+
+
+def measure(inputs, inventory_sha256, manifest_path, output, allow_perf=False, dry_run=False,
+            phases=None, families=None, runtime_warmups=5, runtime_samples=30, compiler_warmups=3, compiler_samples=15,
+            timeout=300, objdump="objdump", readelf="readelf", time_tool="/usr/bin/time", checks_evidence=None):
+    if not allow_perf:
+        raise ValueError("measurement requires --allow-perf")
+    if resource is None:
+        raise ValueError("measurement requires POSIX process-group and child resource accounting")
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    inputs = Path(inputs).resolve()
+    plan = measurement_plan(inputs, inventory_sha256, phases, families, runtime_warmups, runtime_samples,
+                            compiler_warmups, compiler_samples)
+    manifest_bytes = Path(manifest_path).read_bytes()
+    manifest_hash = digest(manifest_bytes)
+    manifest = load_manifest(manifest_path, measurement=True)
+    if any(b["compiler_profile"] != "release" or b["cargo_features"] != [] for b in manifest["builds"].values()):
+        raise ValueError("performance requires frozen release builds with no Cargo features")
+    environment = manifest.get("execution_environment")
+    if not isinstance(environment, dict) or not {"COMPILER_PATH", "PLENTY_LINKER_THREADS"} <= environment.keys() or any(
+            key not in ("COMPILER_PATH", "PLENTY_LINKER_THREADS", "PATH") or
+            (value is not None and not isinstance(value, str)) for key, value in environment.items()):
+        raise ValueError("explicit execution_environment needs genuine linker settings (optional PATH)")
+    allocation = (allocation_evidence(checks_evidence, inputs, inventory_sha256, manifest) if checks_evidence else
+                  {"status": "blocked", "reason": "no authentic matching checks-run evidence supplied"})
+    root = fresh_directory(output)
+    inventory = pinned_inventory(inputs, inventory_sha256)
+    entries = {e["source"]: e for e in inventory["entries"] if e["source"] in plan["selected_sources"]}
+    plan["build_manifest_sha256"] = manifest_hash
+    write_json(root / "plan.json", plan)
+    (root / "build-manifest.json").write_bytes(manifest_bytes)
+    (root / "input-inventory.json").write_bytes((inputs / "inventory.json").read_bytes())
+    env = dict(os.environ, PLENTY_CACHE="off", PLENTY_CACHE_DIR=str(root / "cache"), LC_ALL="C")
+    for key in list(env):
+        if key.startswith(("HOTPATH_", "PLENTY_PROFILE")):
+            env.pop(key)
+    for key, value in environment.items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
+    write_json(root / "environment.json", {key: env.get(key) for key in
+               ("PATH", "COMPILER_PATH", "PLENTY_LINKER_THREADS", "PLENTY_CACHE", "PLENTY_CACHE_DIR", "LC_ALL")})
+    write_json(root / "machine.json", {"system": platform.system(), "machine": platform.machine(), "affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
+               "load": list(os.getloadavg()), "quiet_machine_approved": True,
+               "policy": "read-only inventory; no CPU/affinity/ASLR/governor changes; OS caches not flushed"})
+    ready, references, code_results, sample_rows = {}, {}, [], []
+    with (root / "commands.jsonl").open("x", encoding="utf-8") as commands, (root / "samples.jsonl").open("x", encoding="utf-8") as samples:
+        def record(row, sample=False):
+            # A nonzero command exit can be an expected trap outcome. Keep
+            # command status distinct from the later exact sample oracle.
+            commands.write(json.dumps(dict(row, record_type="sample" if sample else "command"), sort_keys=True) + "\n")
+            commands.flush()
+            if sample:
+                samples.write(json.dumps(row, sort_keys=True) + "\n")
+                samples.flush()
+                sample_rows.append(row)
+
+        def run(command, context, timed=False, resource_file=None):
+            if dry_run:
+                row = dict(context, command=command, status="not-run")
+            else:
+                actual = ([time_tool, "-q", "-f", "%U %S %M %w %c", "-o", str(resource_file), *command]
+                          if resource_file else command)
+                row = dict(process_group(actual, env, timeout, timed=timed), **context)
+                row["status"] = "passed" if row["returncode"] == 0 and not row["timeout"] and not row["spawn_error"] else "failed"
+                if resource_file and row["status"] == "passed":
+                    try:
+                        row.update(gnu_time_metrics(resource_file), compiler_command=command,
+                                   resource_scope="GNU time compiler and descendants; RSS KiB; wall includes wrapper")
+                    except (OSError, ValueError) as error:
+                        row.update(status="failed", metric_error=str(error))
+            record(row)
+            return row
+
+        if entries:
+            # Reuse the semantic qualifier, including both generated profiles,
+            # every exact oracle and native retention gates, without timing it.
+            validate(inputs, manifest_path, root / "qualification", dry_run, timeout,
+                     sorted({Path(e["source"]).stem for e in entries.values()}), None, objdump,
+                     runner=process_group, child_environment=env)
+            qualifications = [json.loads(line) for line in (root / "qualification/results.jsonl").read_text().splitlines()]
+            for entry in entries.values():
+                for profile in ("debug", "release"):
+                    group = [r for r in qualifications if r["source"] == entry["source"] and r["profile"] == profile and r["mode"] == entry["mode"]]
+                    ready[entry["source"], profile] = dry_run or (
+                        len([r for r in group if r["phase"] == "runtime"]) == len(entry["cases"]) and
+                        all(r["classification"] in ("passed", "retained-call") or r["classification"].startswith("expected-") for r in group))
+        for entry in entries.values():
+            source = str(inputs / entry["source"])
+            mode, family = entry["mode"], Path(source).stem
+            compiler = manifest["builds"]["main" if mode in ("T", "C") else "candidate"]["binary"]
+            if set(plan["phases"]) & {"compiler", "code"}:
+                artifact = root / "reference" / mode / (family + ".o")
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                context = dict(phase="reference-object", source=entry["source"], mode=mode)
+                if not ready.get((entry["source"], "debug")):
+                    record(dict(context, status="blocked", reason="qualification failed"))
+                else:
+                    row = run([compiler, "--emit-object", source, "-o", str(artifact)], context)
+                    if dry_run or row["status"] == "passed" and artifact.is_file():
+                        references[entry["source"]] = artifact
+                    else:
+                        ready[entry["source"], "debug"] = False
+            if "code" in plan["phases"]:
+                context = dict(phase="code", source=entry["source"], mode=mode)
+                if not all(ready.get((entry["source"], p)) for p in ("debug", "release")) or entry["source"] not in references:
+                    code_results.append(dict(context, status="blocked", reason="qualification/object emission failed"))
+                    continue
+                executable = root / "qualification" / mode / "release" / family
+                destination = root / "code" / mode / family
+                destination.mkdir(parents=True)
+                primary = ("work" + str(int(family.removeprefix("corpus-")) - 1) if family.startswith("corpus-") else
+                           {"tight": "kernel", "calls": "calls", "text": "consume", "recovered-errors": "main"}[family])
+                dump_command = [compiler, "--release", "--dump", "all", "--dump-std", source, "-o", str(destination / "dump")]
+                if family.startswith("corpus-"):
+                    dump_command[1:1] = ["--dump-filter", primary]  # Explicit representative workN, not a full corpus IR audit.
+                results = [run([readelf, "-SW", str(executable)], dict(context, extraction="ELF-sections")),
+                           run([readelf, "-Ws", str(executable)], dict(context, extraction="ELF-symbols")),
+                           run([objdump, "-drw", "--no-show-raw-insn", "--disassemble=__plenty_fn_" + primary, str(executable)], dict(context, extraction="native-primary")),
+                           run(dump_command, dict(context, extraction="compiler-dump"))]
+                item = dict(context, status="not-run" if dry_run else "passed")
+                if not dry_run:
+                    try:
+                        if any(r["status"] != "passed" for r in results):
+                            raise ValueError("native/IR extraction command failed")
+                        item.update(optimized_linked_ELF=elf_sizes(executable), debug_application_object=elf_sizes(references[entry["source"]]))
+                        symbol = "__plenty_fn_" + primary
+                        if symbol not in {s["name"] for s in item["optimized_linked_ELF"]["source_function_symbols"]} or ("<" + symbol + ">:") not in results[2]["stdout"]:
+                            raise ValueError("primary native function extraction missing")
+                        files = list((destination / "dump").glob("*.txt"))
+                        if {p.name for p in files} != {"index.txt", "ops.txt", "clif.txt", "clif-opt.txt", "asm.txt"} or any(not p.stat().st_size for p in files):
+                            raise ValueError("incomplete compiler dump")
+                        if symbol not in (destination / "dump/index.txt").read_text():
+                            raise ValueError("primary function missing from compiler dump index")
+                        item["dump_hashes"] = {p.name: digest(p.read_bytes()) for p in files}
+                    except (ValueError, OSError, struct.error) as error:
+                        item.update(status="failed", reason=str(error))
+                        ready[entry["source"], "release"] = False
+                code_results.append(item)
+                write_json(destination / "sizes.json", item)
+        blocked_groups = set()
+        for job in plan["jobs"]:
+            entry = entries[job["source"]]
+            source = str(inputs / entry["source"])
+            mode, family = job["mode"], job["family"]
+            key = (job["stage"], job["source"], job["case"])
+            required = ("release",) if job["stage"] == "runtime" else ("debug", "release")
+            if key in blocked_groups or not all(ready.get((entry["source"], p)) for p in required):
+                record(dict(job, status="blocked", reason="prior sample or qualification/extraction failure"), sample=True)
+                continue
+            directory = root / "work" / job["id"]
+            directory.mkdir(parents=True)
+            prepared = root / "qualification" / mode / "release" / family
+            if job["stage"] == "runtime":
+                expected = next(c for c in entry["cases"] if c["name"] == job["case"])
+                row = run([str(prepared), *expected["args"]], job, timed=True)
+                if not dry_run:
+                    row["classification"] = classify(row, expected, source)
+                    row["status"] = "passed" if row["classification"].startswith("expected-") else "failed"
+            else:
+                compiler = manifest["builds"]["main" if mode in ("T", "C") else "candidate"]["binary"]
+                artifact = directory / ("program.o" if job["action"] == "object-debug" else "program")
+                action = job["action"]
+                command = ([compiler, "--check", source] if action == "check" else
+                           [compiler, "--emit-object", source, "-o", str(artifact)] if action == "object-debug" else
+                           [compiler] + (["--release"] if action == "aot-release" else []) + ["--no-cache", "--no-strip", "--compile", source, "-o", str(artifact)])
+                row = run(command, job, timed=True, resource_file=directory / "resources.txt")
+                if not dry_run and row["status"] == "passed":
+                    try:
+                        if action == "object-debug":
+                            if digest(artifact.read_bytes()) != digest(references[entry["source"]].read_bytes()):
+                                raise ValueError("sample object differs from untimed reference object")
+                        verifier = artifact if action.startswith("aot-") else root / "qualification" / mode / "debug" / family
+                        row["oracle_scope"] = "new AOT executable" if action.startswith("aot-") else "fixed-source preflight executable; object samples additionally require byte identity"
+                        for expected in entry["cases"]:
+                            proof = run([str(verifier), *expected["args"]], dict(phase="sample-oracle", job_id=job["id"], case=expected["name"]))
+                            if not classify(proof, expected, source).startswith("expected-"):
+                                raise ValueError("compiler sample executable oracle failed")
+                        row["artifact_bytes"] = artifact.stat().st_size if action != "check" else None
+                    except (OSError, ValueError) as error:
+                        row.update(status="failed", oracle_error=str(error))
+            if not dry_run and row["status"] != "passed":
+                blocked_groups.add(key)
+            record(row, sample=True)
+    integrity_error = None
+    try:
+        pinned_inventory(inputs, inventory_sha256)
+        if digest(Path(manifest_path).read_bytes()) != manifest_hash:
+            raise ValueError("build manifest changed during measurement")
+        load_manifest(manifest_path, measurement=True)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        integrity_error = str(error)
+    phase_status = {}
+    for phase in plan["phases"]:
+        if dry_run:
+            phase_status[phase] = "not-run"
+        elif integrity_error:
+            phase_status[phase] = "invalid-integrity"
+        elif phase == "allocation":
+            phase_status[phase] = "passed" if allocation["status"] == "qualified" else "blocked"
+        elif phase == "code":
+            phase_status[phase] = "passed" if code_results and all(r["status"] == "passed" for r in code_results) else "failed"
+        else:
+            phase_status[phase] = "passed" if all(r["status"] == "passed" for r in sample_rows if r["stage"] == phase) else "failed"
+    supported_passed = all(status == "passed" for status in phase_status.values()) and not integrity_error
+    summary = {"dry_run": dry_run, "supported_phases_passed": None if dry_run else supported_passed,
+               "measurements_executed": not dry_run and any(r["status"] in ("passed", "failed") for r in sample_rows),
+               "phase_status": phase_status, "packet_complete": False, "acceptance_complete": False,
+               "integrity_error": integrity_error, "blocked_metrics": NOT_IMPLEMENTED,
+               "allocation": allocation, "code": code_results, "scope": plan["timing_scope"],
+               "protocol": plan["protocol"], "statistics": sample_summary(sample_rows) if not dry_run and not integrity_error else None}
+    write_json(root / "result.json", summary)
+    return supported_passed if not dry_run else True
 
 
 def main(argv=None):
@@ -635,9 +1174,26 @@ def main(argv=None):
     check.add_argument("--family", action="append", help="exact source stem; repeat to select several")
     check.add_argument("--mode", choices=MODES, action="append", help="validate only selected modes; repeat to select several")
     check.add_argument("--objdump", default="objdump", help="native disassembler for mandatory optimized call-retention gates")
-    measure = phases.add_parser("measure", help="reserved; explicitly unavailable in this MVP")
-    measure.add_argument("--allow-measurements", action="store_true")
-    measure.add_argument("--build-manifest", required=True, type=Path)
+    for name in ("plan", "measure"):
+        command = phases.add_parser(name, help="native-free job plan" if name == "plan" else "explicitly authorized whole-process measurement")
+        command.add_argument("--inputs", required=True, type=Path)
+        command.add_argument("--inventory-sha256", required=True)
+        command.add_argument("--output", required=True, type=Path)
+        command.add_argument("--phase", dest="measurement_phases", choices=MEASURE_PHASES, action="append")
+        command.add_argument("--family", action="append", help="runtime families only; compiler/code always retain full 1000/4000 corpus")
+        command.add_argument("--runtime-warmups", type=int, default=5)
+        command.add_argument("--runtime-samples", type=int, default=30)
+        command.add_argument("--compiler-warmups", type=int, default=3)
+        command.add_argument("--compiler-samples", type=int, default=15)
+        if name == "measure":
+            command.add_argument("--allow-perf", action="store_true")
+            command.add_argument("--build-manifest", required=True, type=Path)
+            command.add_argument("--checks-evidence", type=Path)
+            command.add_argument("--dry-run", action="store_true")
+            command.add_argument("--timeout", type=int, default=300)
+            command.add_argument("--objdump", default="objdump")
+            command.add_argument("--readelf", default="readelf")
+            command.add_argument("--time-tool", default="/usr/bin/time")
     args = parser.parse_args(argv)
     try:
         if args.phase == "generate":
@@ -646,11 +1202,19 @@ def main(argv=None):
             return 0 if validate(args.inputs, args.build_manifest, args.output, args.dry_run,
                                  args.timeout, args.family, args.mode, args.objdump) else 1
         else:
-            if not args.allow_measurements:
-                raise ValueError("measurement requires --allow-measurements; no timings performed")
-            load_manifest(args.build_manifest, measurement=True)
-            raise ValueError("measurement execution not implemented; final pins and reviewed quiet-run harness required")
-    except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as error:
+            options = dict(phases=args.measurement_phases, families=args.family,
+                           runtime_warmups=args.runtime_warmups, runtime_samples=args.runtime_samples,
+                           compiler_warmups=args.compiler_warmups, compiler_samples=args.compiler_samples)
+            if args.phase == "plan":
+                plan = measurement_plan(args.inputs, args.inventory_sha256, **options)
+                plan["execution"] = "not-run; no native commands or clocks"
+                write_json(fresh_directory(args.output) / "plan.json", plan)
+            else:
+                return 0 if measure(args.inputs, args.inventory_sha256, args.build_manifest, args.output,
+                                    allow_perf=args.allow_perf, dry_run=args.dry_run, timeout=args.timeout,
+                                    objdump=args.objdump, readelf=args.readelf, time_tool=args.time_tool,
+                                    checks_evidence=args.checks_evidence, **options) else 1
+    except (ValueError, OSError, KeyError, TypeError, struct.error, subprocess.CalledProcessError) as error:
         parser.exit(2, f"error: {error}\n")
     return 0
 

@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import struct
 import re
 import subprocess
 import tempfile
@@ -632,16 +633,488 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         self.assertEqual(sum(row["classification"] == "expected-handled-error" for row in rows), 8)
         self.assertFalse(any("seconds" in row for row in rows))
 
-    def test_measure_cannot_execute_even_with_permission_and_valid_manifest(self):
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit:
-            acceptance.main(["measure", "--build-manifest", "/missing"])
-        self.assertEqual(exit.exception.code, 2)
-        path, _ = self.manifest(purpose="measurement")
-        with patch.object(acceptance, "load_manifest") as load, contextlib.redirect_stderr(io.StringIO()), \
-             self.assertRaises(SystemExit) as exit:
-            acceptance.main(["measure", "--allow-measurements", "--build-manifest", str(path)])
-        self.assertEqual(exit.exception.code, 2)
-        load.assert_called_once_with(path, measurement=True)
+    def test_measure_requires_explicit_new_permission_before_any_inputs_or_commands(self):
+        with self.assertRaisesRegex(ValueError, "allow-perf"), \
+             patch.object(acceptance, "process_group", side_effect=AssertionError("native command")):
+            acceptance.measure("/missing", "a" * 64, "/missing", self.root / "out")
+        self.assertFalse((self.root / "out").exists())
+
+
+class CheckedDefaultMeasurementTests(unittest.TestCase):
+    """Every native path and clock is synthetic; none of these are measurements."""
+    setUp = CheckedDefaultAcceptanceTests.setUp
+    generate = CheckedDefaultAcceptanceTests.generate
+    manifest = CheckedDefaultAcceptanceTests.manifest
+    load_manifest = CheckedDefaultAcceptanceTests.load_manifest
+
+    def fixture(self, full=False, allocations=False):
+        inventory = acceptance.generate(self.inputs, units=(1000, 4000) if full else (1, 2), allocations=allocations)
+        path, manifest = self.manifest(purpose="measurement")
+        manifest["quiet_machine_approved"] = True
+        manifest["execution_environment"] = {"COMPILER_PATH": "/fixture/mold", "PLENTY_LINKER_THREADS": "1"}
+        for build in manifest["builds"].values():
+            build["compiler_profile"] = "release"
+        acceptance.write_json(path, manifest)
+        return inventory, path, manifest, acceptance.digest((self.inputs / "inventory.json").read_bytes())
+
+    @staticmethod
+    def elf(symbol_name="__plenty_fn_kernel"):
+        names = b"\0.shstrtab\0.text\0.strtab\0.symtab\0"
+        strings = b"\0" + symbol_name.encode() + b"\0"
+        header = struct.pack("<16sHHIQQQIHHHHHH", b"\x7fELF\x02\x01\x01" + b"\0" * 9,
+                             2, 62, 1, 0, 0, 64, 0, 64, 0, 0, 64, 5, 1)
+        start = 64 + 5 * 64
+        sections = [bytes(64), struct.pack("<IIQQQQIIQQ", 1, 3, 0, 0, start, len(names), 0, 0, 1, 0),
+                    struct.pack("<IIQQQQIIQQ", 11, 1, 6, 4096, start + len(names), 4, 0, 0, 16, 0),
+                    struct.pack("<IIQQQQIIQQ", 17, 3, 0, 0, start + len(names) + 4, len(strings), 0, 0, 1, 0),
+                    struct.pack("<IIQQQQIIQQ", 25, 2, 0, 0, start + len(names) + 4 + len(strings), 24, 3, 0, 8, 24)]
+        return header + b"".join(sections) + names + b"\x90\x90\x90\xc3" + strings + struct.pack("<IBBHQQ", 1, 2, 0, 2, 4096, 0)
+
+    @staticmethod
+    def raw(command, code=0, stdout="", stderr="", **extra):
+        return dict(command=command, returncode=code, timeout=False, spawn_error=None, stdout=stdout, stderr=stderr,
+                    stdout_base64=base64.b64encode(stdout.encode()).decode(), stderr_base64=base64.b64encode(stderr.encode()).decode(), **extra)
+
+    def simulator(self, inventory, wrong_sample=None, fail_extract=False):
+        entries = inventory["entries"]
+        self.timed_calls = []
+        def run(command, env, timeout, timed=False):
+            self.assertEqual(env["PLENTY_CACHE"], "off")
+            self.assertNotIn("PLENTY_PROFILE", env)
+            self.assertFalse(any(key.startswith("HOTPATH_") for key in env))
+            compiler_command = command
+            if command[0] == "/usr/bin/time":
+                Path(command[5]).write_text("0.10 0.01 2048 3 4\n")
+                compiler_command = command[6:]
+            if "--compile" in compiler_command or "--emit-object" in compiler_command:
+                source = next(arg for arg in compiler_command if arg.endswith(".plenty"))
+                family = Path(source).stem
+                primary = "work" + str(int(family.removeprefix("corpus-")) - 1) if family.startswith("corpus-") else "kernel"
+                Path(compiler_command[-1]).write_bytes(self.elf("__plenty_fn_" + primary))
+                row = self.raw(command)
+            elif "--check" in compiler_command:
+                row = self.raw(command)
+            elif "--dump" in compiler_command:
+                destination = Path(compiler_command[-1])
+                destination.mkdir(parents=True)
+                primary = compiler_command[compiler_command.index("--dump-filter") + 1] if "--dump-filter" in compiler_command else "kernel"
+                for name in ("index.txt", "ops.txt", "clif.txt", "clif-opt.txt", "asm.txt"):
+                    (destination / name).write_text("synthetic unit-test dump __plenty_fn_" + primary + "\n")
+                row = self.raw(command)
+            elif command[0] in ("readelf", "objdump"):
+                text = "fixture extraction"
+                if command[0] == "objdump":
+                    symbol = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--disassemble="))
+                    text = f"00000000001000 <{symbol}>:\n  1000: ret\n"
+                row = self.raw(command, code=1 if fail_extract else 0, stdout=text)
+            else:
+                executable = Path(command[0])
+                family = executable.name
+                if family == "program":
+                    stdout = "1004057\n" if "1000" in self.current_source else "16016057\n"
+                    row = self.raw(command, stdout=stdout)
+                else:
+                    mode = executable.parts[-3]
+                    entry = next(e for e in entries if e["mode"] == mode and Path(e["source"]).stem == family)
+                    expected = next(c for c in entry["cases"] if c["args"] == command[1:])
+                    row = (self.raw(command, code=1, stderr=f"error: {family}.plenty:3: integer overflow\n")
+                           if expected["expected"] == "arithmetic-trap" else self.raw(command, stdout=expected["stdout"]))
+            if "--check" in compiler_command or "--compile" in compiler_command or "--emit-object" in compiler_command:
+                source = next((arg for arg in compiler_command if arg.endswith(".plenty")), "")
+                self.current_source = source
+            if timed:
+                self.timed_calls.append(command)
+                row.update(elapsed_ns=1000 + len(self.timed_calls), user_seconds=.1, sys_seconds=.01)
+                if wrong_sample == len(self.timed_calls):
+                    row.update(stdout="wrong oracle\n", stdout_base64=base64.b64encode(b"wrong oracle\n").decode())
+            return row
+        return run
+
+    def invoke(self, inventory, manifest_path, manifest, pin, **kwargs):
+        options = dict(phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=2,
+                       compiler_warmups=0, compiler_samples=1)
+        options.update(kwargs)
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory)):
+            return acceptance.measure(self.inputs, pin, manifest_path, self.root / "out", allow_perf=True, **options)
+
+    def test_plan_is_native_free_balanced_complete_and_pins_inventory(self):
+        inventory, _, _, pin = self.fixture(full=True)
+        with patch.object(acceptance, "process_group", side_effect=AssertionError("native command")):
+            plan = acceptance.measurement_plan(self.inputs, pin)
+        runtime = [j for j in plan["jobs"] if j["stage"] == "runtime"]
+        compiler = [j for j in plan["jobs"] if j["stage"] == "compiler"]
+        self.assertEqual(len(runtime), 54 * 35)
+        self.assertEqual(len(compiler), 8 * 4 * 18)
+        self.assertEqual(len({j["id"] for j in plan["jobs"]}), len(plan["jobs"]))
+        self.assertEqual(plan["protocol"], "planned-counts")
+        self.assertEqual(plan, acceptance.measurement_plan(self.inputs, pin))
+        self.assertEqual({j["family"] for j in compiler}, {"corpus-1000", "corpus-4000"})
+        self.assertIn("startup", plan["timing_scope"])
+
+    def test_plan_rejects_modified_hash_counts_phases_and_reduced_corpus_before_output(self):
+        _, _, _, pin = self.fixture()
+        for options in (dict(inventory_sha256="0" * 64), dict(runtime_samples=0), dict(phases=[]), dict(phases=["runtime", "runtime"]),
+                        dict(phases=["compiler"]), dict(phases=["code"]), dict(families=["tiny"])):
+            args = dict(inputs=self.inputs, inventory_sha256=pin, phases=["runtime"])
+            args.update(options)
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                acceptance.measurement_plan(**args)
+        self.assertFalse((self.root / "out").exists())
+
+    def test_plan_cli_materializes_without_native_commands_or_clocks_and_refuses_reuse(self):
+        _, _, _, pin = self.fixture()
+        args = ["plan", "--inputs", str(self.inputs), "--inventory-sha256", pin, "--output", str(self.root / "plan"), "--phase", "runtime"]
+        with patch.object(acceptance, "process_group", side_effect=AssertionError("native")), \
+             patch.object(acceptance.time, "perf_counter_ns", side_effect=AssertionError("clock")):
+            self.assertEqual(acceptance.main(args), 0)
+        self.assertEqual(json.loads((self.root / "plan/plan.json").read_text())["execution"], "not-run; no native commands or clocks")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            acceptance.main(args)
+
+    def test_actual_manifest_permission_matching_and_owned_path_normalization(self):
+        _, path, manifest, _ = self.fixture()
+        manifest["builds"]["main"]["source_tree"] = "/owned/main"
+        manifest["builds"]["candidate"]["source_tree"] = "/owned/candidate"
+        for label in ("main", "candidate"):
+            b = manifest["builds"][label]
+            b["target_dir"] = "/owned/" + label + "-target"
+            b["cargo_flags"] = ["--locked", "--target-dir", b["target_dir"]]
+            b["rustflags"] = ["--remap-path-prefix=" + b["source_tree"] + "=/src"]
+        acceptance.write_json(path, manifest)
+        self.load_manifest(path, True)
+        for label in ("main", "candidate"):
+            build = manifest["builds"][label]
+            build["target_dir"] = build["source_tree"] + "/different-" + label + "-target"
+            build["cargo_flags"] = ["--locked", "--target-dir", build["target_dir"]]
+            build["build_command"] = ["/home/caleb/.cargo/bin/cargo" if label == "main" else "cargo",
+                                      "build", "--locked", "--target-dir", build["target_dir"], "--release"]
+        acceptance.write_json(path, manifest)
+        loaded = self.load_manifest(path, True)  # Nested role roots normalize longest-first.
+        self.assertEqual(loaded["builds"]["main"]["build_command"][0], "/home/caleb/.cargo/bin/cargo")
+        self.assertEqual(loaded["builds"]["candidate"]["build_command"][0], "cargo")
+        self.assertNotEqual(loaded["builds"]["main"]["build_command"], loaded["builds"]["candidate"]["build_command"])
+        for field, value in (("rustflags", ""), ("runtime_rustflags", None), ("cargo_features", ["runtime-checks"]),
+                             ("compiler_profile", "debug"), ("toolchain", "different"), ("cargo_flags", ["--offline"]),
+                             ("target", "different-target"), ("native_linker", "different-tools")):
+            changed = json.loads(json.dumps(manifest))
+            changed["builds"]["candidate"][field] = value
+            acceptance.write_json(path, changed)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.load_manifest(path, True)
+        for key in ("rustflags", "runtime_rustflags", "cargo_features", "compiler_profile", "toolchain"):
+            changed = json.loads(json.dumps(manifest))
+            del changed["builds"]["candidate"][key]
+            acceptance.write_json(path, changed)
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                self.load_manifest(path, True)
+        manifest["quiet_machine_approved"] = False
+        acceptance.write_json(path, manifest)
+        with self.assertRaisesRegex(ValueError, "quiet-machine"):
+            self.load_manifest(path, True)
+
+    def test_measure_rejects_nonperf_builds_bad_environment_and_overwrite(self):
+        inventory, path, manifest, pin = self.fixture()
+        for field, value in (("compiler_profile", "debug"), ("cargo_features", ["runtime-checks"]), ("cargo_features", ["profile-alloc"])):
+            changed = json.loads(json.dumps(manifest))
+            for build in changed["builds"].values():
+                build[field] = value
+            with patch.object(acceptance, "load_manifest", return_value=changed), self.assertRaisesRegex(ValueError, "performance requires"):
+                acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True, phases=["runtime"])
+        manifest["execution_environment"]["PLENTY_PROFILE"] = "1"
+        with patch.object(acceptance, "load_manifest", return_value=manifest), self.assertRaisesRegex(ValueError, "execution_environment"):
+            acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True, phases=["runtime"])
+        del manifest["execution_environment"]["PLENTY_PROFILE"]
+        self.invoke(inventory, path, manifest, pin, dry_run=True)
+        previous = (self.root / "out/plan.json").read_bytes()
+        with self.assertRaises(FileExistsError):
+            self.invoke(inventory, path, manifest, pin, dry_run=True)
+        self.assertEqual((self.root / "out/plan.json").read_bytes(), previous)
+
+    def test_runtime_samples_keep_all_outputs_warmups_and_semantic_ratios(self):
+        inventory, path, manifest, pin = self.fixture()
+        self.assertTrue(self.invoke(inventory, path, manifest, pin, runtime_warmups=1))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 5 * 4 * 3)
+        self.assertEqual(sum(r["phase"] == "warmup" for r in rows), 20)
+        self.assertTrue(all(r["status"] == "passed" for r in rows))
+        self.assertTrue(all(base64.b64decode(r["stdout_base64"]).decode() == r["stdout"] for r in rows))
+        summary = json.loads((self.root / "out/result.json").read_text())
+        self.assertEqual(summary["protocol"], "exploration-not-acceptance")
+        self.assertFalse(summary["packet_complete"])
+        self.assertTrue(summary["blocked_metrics"])
+        for ratio in summary["statistics"]["ratios"]:
+            if ratio["case"] in ("early", "late"):
+                self.assertIn(ratio["ratio"], ("U/T", "I/C"))
+        self.assertEqual({r["semantics"] for r in rows if r["case"] == "early"}, {"trap-process", "handled-error-process"})
+
+    def test_wrong_oracle_blocks_remaining_samples_without_discarding_attempts(self):
+        inventory, path, manifest, pin = self.fixture()
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory, wrong_sample=1)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=3))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 60)
+        self.assertEqual(sum(r["status"] == "failed" for r in rows), 1)
+        self.assertEqual(sum(r["status"] == "blocked" for r in rows), 2)
+        self.assertEqual(rows[0]["stdout"], "wrong oracle\n")
+        summary = json.loads((self.root / "out/result.json").read_text())
+        failed = [g for g in summary["statistics"]["groups"] if g["status"] == "blocked"]
+        self.assertEqual(len(failed), 1)
+        self.assertNotIn("wall_ns", failed[0])
+
+    def test_compiler_samples_keep_full_corpus_all_actions_and_oracles(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        self.assertTrue(self.invoke(inventory, path, manifest, pin, phases=["compiler"]))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 8 * 4)
+        self.assertEqual({r["family"] for r in rows}, {"corpus-1000", "corpus-4000"})
+        self.assertEqual({r["action"] for r in rows}, {"check", "object-debug", "aot-debug", "aot-release"})
+        self.assertTrue(all(r["peak_rss_kib"] == 2048 for r in rows))
+        self.assertTrue(all(r["oracle_scope"] for r in rows))
+        commands = [json.loads(line) for line in (self.root / "out/commands.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(r.get("phase") == "sample-oracle" for r in commands), 32)
+        self.assertFalse(any("--release" in r.get("command", []) and "--emit-object" in r.get("command", []) for r in commands))
+
+    def test_code_extraction_labels_ELF_vs_debug_object_and_blocks_failure(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        self.assertTrue(self.invoke(inventory, path, manifest, pin, phases=["code"]))
+        summary = json.loads((self.root / "out/result.json").read_text())
+        self.assertTrue(all(c["optimized_linked_ELF"]["executable_section_bytes"] == 4 for c in summary["code"]))
+        self.assertTrue(all(c["debug_application_object"]["source_function_symbols"][0]["usable_bytes"] is None for c in summary["code"]))
+        self.assertFalse(summary["packet_complete"])
+
+    def test_elf_sizes_preserve_zero_symbols_and_reject_malformed_tables(self):
+        path = self.root / "fixture.elf"
+        path.write_bytes(self.elf())
+        sizes = acceptance.elf_sizes(path)
+        self.assertEqual(sizes["executable_sections"], [{"name": ".text", "bytes": 4}])
+        self.assertEqual(sizes["source_function_symbols"][0]["st_size"], 0)
+        self.assertIsNone(sizes["source_function_symbols"][0]["usable_bytes"])
+        for data in (b"not ELF", self.elf()[:100], self.elf()[:12] + b"\0" * 52):
+            path.write_bytes(data)
+            with self.assertRaises(ValueError):
+                acceptance.elf_sizes(path)
+
+    def test_distribution_and_raw_failure_groups_do_not_invent_ratios(self):
+        stats = acceptance.distribution([1, 2, 3, 4, 100])
+        self.assertEqual(stats["median"], 3)
+        self.assertEqual(stats["n"], 5)
+        self.assertEqual(stats["max"], 100)  # No outlier discard.
+        self.assertGreater(stats["p90"], 4)
+        for values in ([], [float("nan")], [-1]):
+            with self.assertRaises(ValueError):
+                acceptance.distribution(values)
+        row = dict(stage="runtime", family="calls", case="early", semantics="trap-process", mode="T",
+                   phase="sample", round=0, status="failed", timeout=True, elapsed_ns=300)
+        summary = acceptance.sample_summary([row])
+        self.assertEqual(summary["ratios"], [])
+        self.assertNotIn("wall_ns", summary["groups"][0])
+
+    def test_process_group_timeout_kills_descendants_and_preserves_full_streams(self):
+        child = unittest.mock.Mock(pid=42, returncode=-9)
+        child.communicate.side_effect = [subprocess.TimeoutExpired(["fixture"], 1), (b"\xffpartial", b"error")]
+        usage = unittest.mock.Mock(ru_utime=1.0, ru_stime=2.0)
+        with patch.object(acceptance.subprocess, "Popen", return_value=child) as popen, \
+             patch.object(acceptance.os, "killpg") as kill, \
+             patch.object(acceptance.time, "perf_counter_ns", side_effect=[100, 500]), \
+             patch.object(acceptance.resource, "getrusage", return_value=usage):
+            row = acceptance.process_group(["fixture"], {}, 1, timed=True)
+        self.assertTrue(row["timeout"])
+        self.assertEqual(row["returncode"], -9)
+        self.assertEqual(row["elapsed_ns"], 400)
+        self.assertEqual(base64.b64decode(row["stdout_base64"]), b"\xffpartial")
+        kill.assert_called_once_with(42, acceptance.signal.SIGKILL)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_warmup_oracle_failure_blocks_measured_group_but_keeps_the_full_schedule(self):
+        inventory, path, manifest, pin = self.fixture()
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory, wrong_sample=1)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=1, runtime_samples=2))
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 60)
+        self.assertEqual(rows[0]["phase"], "warmup")
+        self.assertEqual(rows[0]["status"], "failed")
+        self.assertEqual(sum(row["status"] == "blocked" for row in rows), 2)
+        self.assertTrue(all(row["phase"] == "sample" for row in rows if row["status"] == "blocked"))
+
+    def test_failed_check_blocks_dependent_measurements_not_compile_error_samples(self):
+        inventory, path, manifest, pin = self.fixture()
+        normal = self.simulator(inventory)
+        def fail(command, env, timeout, timed=False):
+            if "--check" in command:
+                return self.raw(command, code=1, stderr="fixture diagnostic")
+            return normal(command, env, timeout, timed)
+        with patch.object(acceptance, "load_manifest", return_value=manifest), patch.object(acceptance, "process_group", side_effect=fail):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=1))
+        self.assertEqual(self.timed_calls, [])
+        rows = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 20)
+        self.assertTrue(all(r["status"] == "blocked" for r in rows))
+        self.assertTrue(all("elapsed_ns" not in r for r in rows))
+
+    def test_measurement_preserves_optimized_native_retention_as_a_blocking_precondition(self):
+        inventory, path, manifest, pin = self.fixture()
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["calls"], runtime_warmups=0, runtime_samples=1))
+        self.assertEqual(self.timed_calls, [])  # Mock disassembly has no leaf call.
+        qualifications = [json.loads(line) for line in (self.root / "out/qualification/results.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(r["classification"] == "retention-blocked" for r in qualifications), 4)
+        samples = [json.loads(line) for line in (self.root / "out/samples.jsonl").read_text().splitlines()]
+        self.assertEqual(len(samples), 16)
+        self.assertTrue(all(r["status"] == "blocked" for r in samples))
+
+    def test_all_profiler_presence_controls_are_removed_not_set_to_zero(self):
+        inventory, path, manifest, pin = self.fixture()
+        normal = self.simulator(inventory)
+        def isolated(command, env, timeout, timed=False):
+            self.assertFalse(any(key.startswith(("PLENTY_PROFILE", "HOTPATH_")) for key in env))
+            self.assertEqual(env["COMPILER_PATH"], "/fixture/mold")
+            self.assertEqual(env["PLENTY_LINKER_THREADS"], "1")
+            self.assertEqual(env["LC_ALL"], "C")
+            return normal(command, env, timeout, timed)
+        with patch.dict(acceptance.os.environ, {"PLENTY_PROFILE": "0", "PLENTY_PROFILE_EXTRA": "1", "HOTPATH_UPLOAD": "1"}), \
+             patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=isolated):
+            self.assertTrue(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=1))
+        qualification_env = json.loads((self.root / "out/qualification/environment.json").read_text())
+        self.assertEqual(qualification_env["COMPILER_PATH"], "/fixture/mold")
+        self.assertEqual(qualification_env["LC_ALL"], "C")
+
+    def test_failed_extraction_blocks_dependent_runtime_and_reports_code_failure(self):
+        inventory, path, manifest, pin = self.fixture(full=True)
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory, fail_extract=True)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime", "code"], families=["tight"], runtime_warmups=0, runtime_samples=1))
+        self.assertEqual(self.timed_calls, [])
+        result = json.loads((self.root / "out/result.json").read_text())
+        self.assertEqual(result["phase_status"], {"code": "failed", "runtime": "failed"})
+        self.assertFalse(result["supported_phases_passed"])
+
+    def test_postrun_integrity_failure_suppresses_statistics_without_erasing_raw_samples(self):
+        inventory, path, manifest, pin = self.fixture()
+        original = acceptance.pinned_inventory
+        calls = 0
+        def pinned(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise ValueError("fixture late mutation")
+            return original(*args)
+        with patch.object(acceptance, "load_manifest", return_value=manifest), \
+             patch.object(acceptance, "pinned_inventory", side_effect=pinned), \
+             patch.object(acceptance, "process_group", side_effect=self.simulator(inventory)):
+            self.assertFalse(acceptance.measure(self.inputs, pin, path, self.root / "out", allow_perf=True,
+                phases=["runtime"], families=["tight"], runtime_warmups=0, runtime_samples=1))
+        result = json.loads((self.root / "out/result.json").read_text())
+        self.assertIn("late mutation", result["integrity_error"])
+        self.assertIsNone(result["statistics"])
+        self.assertEqual(len((self.root / "out/samples.jsonl").read_text().splitlines()), 20)
+
+    def checks_fixture(self, inventory, manifest, pin, only_i=False):
+        root = self.root / "checks-evidence"
+        root.mkdir()
+        checks = json.loads(json.dumps(manifest))
+        for build in checks["builds"].values():
+            build.update(compiler_profile="debug", cargo_features=["runtime-checks"])
+        acceptance.write_json(root / "build-manifest.json", checks)
+        acceptance.write_json(root / "input-inventory.json", inventory)
+        acceptance.write_json(root / "validation.json", {"inputs": str(self.inputs), "inventory_sha256": pin})
+        acceptance.write_json(root / "result.json", {"passed": True, "dry_run": False})
+        rows = []
+        for entry in inventory["entries"]:
+            if not entry["requires_runtime_checks"] or only_i and entry["mode"] != "I":
+                continue
+            binary = checks["builds"]["main" if entry["mode"] == "C" else "candidate"]["binary"]
+            source = str(self.inputs / entry["source"])
+            for profile in ("debug", "release"):
+                exe = root / entry["mode"] / profile / Path(source).stem
+                exe.parent.mkdir(parents=True, exist_ok=True)
+                exe.write_bytes(b"synthetic instrumented executable")
+                common = dict(mode=entry["mode"], profile=profile, source=entry["source"])
+                rows.append(dict(self.raw([binary, "--check", source]), **common, phase="check", classification="passed"))
+                command = [binary] + (["--release"] if profile == "release" else []) + ["--no-cache", "--no-strip", "--compile", source, "-o", str(exe)]
+                rows.append(dict(self.raw(command), **common, phase="build", classification="passed"))
+                for expected in entry["cases"]:
+                    if expected["expected"] == "allocation-control":
+                        row = self.raw([str(exe)], code=1, stdout="__test_begin_no_allocations__\n",
+                                       stderr="error: unexpected successful allocation in allocation-free region\n")
+                    else:
+                        row = self.raw([str(exe), *expected["args"]], stdout=expected["stdout"])
+                    rows.append(dict(row, **common, phase="runtime", case=expected["name"], classification="unit fixture; reclassification required"))
+        (root / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+        return root, checks
+
+    def test_allocation_import_requires_both_modes_profiles_and_positive_controls(self):
+        inventory, _, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        with patch.object(acceptance, "load_manifest", return_value=checks):
+            evidence = acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+        self.assertEqual(evidence["status"], "qualified")
+        self.assertEqual(len(evidence["executable_hashes"]), 8)
+        self.assertIn("not absolute totals", evidence["scope"])
+        self.assertNotIn("allocation_count", evidence)
+        rows = (root / "results.jsonl").read_text().splitlines()
+        (root / "results.jsonl").write_text("\n".join(row for row in rows if json.loads(row)["mode"] == "I") + "\n")
+        with patch.object(acceptance, "load_manifest", return_value=checks), self.assertRaisesRegex(ValueError, "allocation matrix"):
+            acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+
+    def test_allocation_import_rejects_old_pins_inert_controls_raw_tampering_and_mismatched_inventory(self):
+        inventory, _, manifest, pin = self.fixture(allocations=True)
+        root, checks = self.checks_fixture(inventory, manifest, pin)
+        original = (root / "results.jsonl").read_text()
+        for mutation in ("pin", "features", "raw", "control", "timeout", "source", "profile"):
+            changed = json.loads(json.dumps(checks))
+            rows = [json.loads(line) for line in original.splitlines()]
+            if mutation == "pin":
+                changed["builds"]["main"]["source_sha"] = "c" * 40
+            elif mutation == "features":
+                changed["builds"]["main"]["cargo_features"] = []
+            elif mutation in ("raw", "control"):
+                row = next(r for r in rows if r["phase"] == "runtime" and r["source"].endswith("allocation-control.plenty"))
+                if mutation == "raw":
+                    row["stderr_base64"] = ""
+                else:
+                    row.update(returncode=0, stderr="", stderr_base64="")
+            elif mutation == "timeout":
+                rows[0]["timeout"] = True
+            elif mutation == "source":
+                rows[0]["command"][-1] = "/other/source.plenty"
+            else:
+                row = next(r for r in rows if r["phase"] == "build" and r["profile"] == "release")
+                row["command"].remove("--release")
+            (root / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            with self.subTest(mutation=mutation), patch.object(acceptance, "load_manifest", return_value=changed), self.assertRaises(ValueError):
+                acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+        (root / "input-inventory.json").write_text("{}")
+        with patch.object(acceptance, "load_manifest", return_value=checks), self.assertRaisesRegex(ValueError, "inventory"):
+            acceptance.allocation_evidence(root, self.inputs, pin, manifest)
+
+    def test_missing_allocation_evidence_is_blocked_not_a_successful_phase(self):
+        inventory, path, manifest, pin = self.fixture()
+        self.assertFalse(self.invoke(inventory, path, manifest, pin, phases=["allocation"]))
+        result = json.loads((self.root / "out/result.json").read_text())
+        self.assertEqual(result["phase_status"]["allocation"], "blocked")
+        self.assertFalse(result["supported_phases_passed"])
+        self.assertFalse(result["packet_complete"])
+        self.assertTrue(any("profiling" in metric for metric in result["blocked_metrics"]))
+
+    def test_gnu_time_parser_refuses_missing_nan_and_malformed_metrics(self):
+        path = self.root / "resources.txt"
+        for text in ("", "nan 1 2 3 4", "1 2 3", "-1 2 3 4 5"):
+            path.write_text(text)
+            with self.assertRaises(ValueError):
+                acceptance.gnu_time_metrics(path)
+        path.write_text("0.25 0.1 4096 2 1\n")
+        self.assertEqual(acceptance.gnu_time_metrics(path)["peak_rss_kib"], 4096)
 
 
 if __name__ == "__main__":
