@@ -266,6 +266,8 @@ mod test_generics;
 mod test_heap_drop_order;
 #[path = "test_indirect_ffi.rs"]
 mod test_indirect_ffi;
+#[path = "test_inline_calls.rs"]
+mod test_inline_calls;
 #[path = "test_inline_constructors.rs"]
 mod test_inline_constructors;
 #[path = "test_inline_copies.rs"]

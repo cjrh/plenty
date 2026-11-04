@@ -329,7 +329,7 @@ impl Output {
                     (&built.requests, &built.checks),
                     built.capture,
                     |module, sites, coverage, relocs| {
-                        symbols::resolve(
+                        let targets = symbols::resolve(
                             module,
                             sites,
                             coverage,
@@ -337,7 +337,15 @@ impl Output {
                             built.id,
                             &built.requests,
                             relocs,
-                        )
+                        )?;
+                        runtime.refer(relocs.iter().filter_map(|reloc| match reloc.name {
+                            ModuleRelocTarget::User {
+                                namespace: 0,
+                                index,
+                            } => Some(FuncId::from_u32(index)),
+                            _ => None,
+                        }));
+                        Ok(targets)
                     },
                 )?;
             }

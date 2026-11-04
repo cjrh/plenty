@@ -375,6 +375,7 @@ pub(super) fn resolve(
                     let mut data = DataDescription::new();
                     data.set_align(8);
                     data.define(vec![0; functions.len() * 8].into_boxed_slice());
+                    runtime.refer(functions.iter().copied());
                     for (index, function) in functions.iter().enumerate() {
                         let reference = module.declare_func_in_data(*function, &mut data);
                         data.write_function_addr(u32::try_from(index * 8)?, reference);

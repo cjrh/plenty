@@ -2,7 +2,9 @@
 //! overflow lowers to a plain add, and floor modulo or division of a counter
 //! that only grows from a nonnegative start needs no sign correction. Every
 //! other check stays, and results match the language's checked, floored
-//! semantics in debug and release builds.
+//! semantics in debug and release builds. A `for i in range(start, stop)`
+//! loop with step 1 gets the same two facts: `i + 1` is at most `stop`, and
+//! `i` is nonnegative when `start` is.
 use rstest::rstest;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -168,6 +170,34 @@ def mod_after_reset() -> i64:
             reset = False
     total
 
+def both_ends(lo: i64, hi: i64) -> i64:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    i - j
+
+def range_next(start: i64, stop: i64) -> i64:
+    mut total = 0
+    for i in range(start, stop):
+        if i % 2 == 0:
+            continue
+        total = total.wrapping_add(i + 1)
+    total
+
+def range_mod(stop: i64) -> i64:
+    mut total = 0
+    for i in range(stop):
+        total = total * 3 + i % 4 + i // 3
+    total
+
+def range_mod_negative_start() -> i64:
+    mut total = 0
+    for i in range(-7, 7):
+        total = total * 3 + i % 4 + i // 4
+    total
+
 def main() -> Result[(), AllocError | IoError]:
     print(up_to(0, 0), up_to(0, -5), up_to(0, 1), up_to(-3, 4), up_to(9223372036854775804, i64.MAX))?
     print(up_to_i8(0i8, i8.MIN), up_to_i8(120i8, i8.MAX), up_to_i8(-128i8, -125i8))?
@@ -181,6 +211,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(mod_negative_start(), mod_after_decrease())?
     print(mod_variable_step(-1), mod_variable_step(2), mod_parameter_start(-6))?
     print(mod_after_reset())?
+    print(both_ends(i64.MAX - 1, i64.MAX), both_ends(i64.MIN, i64.MIN + 1), both_ends(5, 2))?
+    print(range_next(0, 10), range_next(i64.MAX - 3, i64.MAX), range_next(-5, -1))?
+    print(range_mod(9), range_mod_negative_start())?
     Ok(())
 "#;
 
@@ -196,6 +229,9 @@ const EXPECTED: &str = "0 0 1 4 9223372036854775807\n\
 -1464786 162754\n\
 28047 44286 181575\n\
 87169609\n\
+1 1 3\n\
+30 9223372036854775806 -6\n\
+4805 -1464786\n\
 ";
 
 fn plenty_output(dir: &Path, args: &[&str]) -> Output {
@@ -275,6 +311,31 @@ fn loop_counters_keep_checked_and_floored_semantics() {
     "f(i64.MAX)",
     "6:17: integer overflow"
 )]
+#[case::inclusive_bound_step(
+    "def f(lo: i64) -> i64:\n    mut hi = lo\n    while lo <= hi:\n        hi -= 1\n    hi\n",
+    "f(i64.MIN)",
+    "4:9: integer overflow"
+)]
+#[case::bound_written_before_its_step(
+    "def f(lo: i64) -> i64:\n    mut hi = lo + 1\n    while lo < hi:\n        hi = lo\n        hi -= 1\n    hi\n",
+    "f(i64.MIN)",
+    "5:9: integer overflow"
+)]
+#[case::descending_range(
+    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in range(top, top - 2, -1):\n        total = i + 1\n    total\n",
+    "f(i64.MAX)",
+    "4:17: integer overflow"
+)]
+#[case::reversed_descending_range(
+    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in reversed(range(top, top - 2, -1)):\n        total = i + 1\n    total\n",
+    "f(i64.MAX)",
+    "4:17: integer overflow"
+)]
+#[case::range_wide_increment(
+    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in range(top - 1, top):\n        total = i + 2\n    total\n",
+    "f(i64.MAX)",
+    "4:17: integer overflow"
+)]
 #[case::zero_divisor(
     "def f(divisor: i64) -> i64:\n    mut i = 0\n    mut total = 0\n    while i < 3:\n        total += i % divisor\n        i += 1\n    total\n",
     "f(0)",
@@ -330,8 +391,35 @@ def signed_mod(limit: i64) -> i64:
         i += 1
     total
 
+def both_ends(lo: i64, hi: i64) -> i64:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    i - j
+
+def range_step(stop: i64) -> i64:
+    mut total = 0
+    for i in range(stop):
+        total = total + (i + 1)
+    total
+
+def natural_range_mod(stop: i64) -> i64:
+    mut total = 0
+    for i in range(stop):
+        total = total.wrapping_add(i % 7 + i // 5)
+    total
+
+def offset_range_mod(stop: i64) -> i64:
+    mut total = 0
+    for i in range(-1, stop):
+        total = total.wrapping_add(i % 7 + i // 5)
+    total
+
 def main() -> ():
-    x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3)
+    x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3) + both_ends(0, 3)
+    y = range_step(3) + natural_range_mod(3) + offset_range_mod(3)
 "#;
 
 fn clif(dir: &Path, function: &str) -> String {
@@ -365,6 +453,45 @@ fn proven_counter_steps_lower_to_plain_adds() {
     );
     let wide = clif(dir.path(), "wide_step");
     assert_eq!(wide.matches("sadd_overflow").count(), 1, "{wide}");
+}
+
+/// In `while i < j`, both `i += 1` and `j -= 1` stay within the range
+/// between them, so neither step keeps an overflow check (issue #720); the
+/// final `i - j` keeps its own.
+#[test]
+fn counter_and_bound_steps_lower_to_plain_arithmetic() {
+    let dir = write(SHAPES);
+    let both = clif(dir.path(), "both_ends");
+    assert_eq!(both.matches("sadd_overflow").count(), 0, "{both}");
+    assert_eq!(both.matches("ssub_overflow").count(), 1, "{both}");
+}
+
+/// In `for i in range(stop)`, `i + 1` is at most `stop`, so only the
+/// accumulator's add keeps an overflow check.
+#[test]
+fn range_counter_steps_lower_to_plain_adds() {
+    let dir = write(SHAPES);
+    let range = clif(dir.path(), "range_step");
+    assert_eq!(range.matches("sadd_overflow").count(), 1, "{range}");
+}
+
+/// A range counter from a nonnegative start is divided unsigned; one from a
+/// negative start keeps signed division.
+#[test]
+fn nonnegative_range_counters_use_unsigned_division() {
+    let dir = write(SHAPES);
+    let nonnegative = clif(dir.path(), "natural_range_mod");
+    for expected in ["urem", "udiv"] {
+        assert!(nonnegative.contains(expected), "{nonnegative}");
+    }
+    // The range's length still has its own `select`s.
+    for absent in ["srem", "sdiv"] {
+        assert!(!nonnegative.contains(absent), "{nonnegative}");
+    }
+    let signed = clif(dir.path(), "offset_range_mod");
+    for expected in ["srem", "sdiv"] {
+        assert!(signed.contains(expected), "{signed}");
+    }
 }
 
 /// A counter that starts at zero and only grows is divided unsigned, with no
