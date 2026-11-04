@@ -289,7 +289,11 @@ and select another pair; only registry operations hold the mutex, not Docker
 startup or scenarios. Deterministic non-Docker tests force reuse during the
 socket-free gap, check cross-role exclusion and RAII release, and stress eight
 concurrent reservers (issue #719). These are helper tests, not renewed real-proxy
-qualification. Unrelated processes remain outside this ownership registry.
+qualification. A separate exact batch on the reviewed port-ownership source
+passes all eight worker and two actor nginx/Caddy cases with two test threads
+(local PR #918), including actual container removal and unchanged foreign
+container state. This is bounded proxy qualification, not a whole-workspace or
+performance result. Unrelated processes remain outside this ownership registry.
 Host networking still has a socket handoff window, so readiness checks a unique
 proxy-local response over both HTTP and verified TLS, without adding upstream
 requests. An unexpected HTTP status or identity fails immediately rather than
