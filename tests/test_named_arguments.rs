@@ -53,7 +53,7 @@ fn defaults_do_not_double_the_parameter_slot_budget() {
         .join(", ");
     native(
         &format!(
-            "def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f()).unwrap()\n"
+            "def f({parameters}) -> Result[i64, OverflowError[i64]]:\n    Ok(a0 + a129)\ndef main() -> ():\n    print(f().unwrap()).unwrap()\n"
         ),
         "129\n",
     );
@@ -64,7 +64,7 @@ fn defaults_do_not_double_the_parameter_slot_budget() {
         .join(", ");
     native(
         &format!(
-            "def f({parameters}) -> i64:\n    a0 + a129\ndef main() -> ():\n    print(f({arguments})).unwrap()\n"
+            "def f({parameters}) -> Result[i64, OverflowError[i64]]:\n    Ok(a0 + a129)\ndef main() -> ():\n    print(f({arguments}).unwrap()).unwrap()\n"
         ),
         "129\n",
     );
@@ -80,13 +80,14 @@ class Cell[T]:
     def __init__(self, value: T, extra: i64 = 3) -> ():
         self.value = value
         self.extra = extra
-    def add(self: &mut Cell[T], first: i64, second: i64 = 4) -> ():
+    def add(self: &mut Cell[T], first: i64, second: i64 = 4) -> Result[(), OverflowError[i64]]:
         self.extra = self.extra + first + second
+        Ok(())
     def get(self) -> i64:
         self.extra
 def main() -> ():
     mut cell = Cell(value=True)
-    cell.add(second=cell.get(), first=cell.get())
+    cell.add(second=cell.get(), first=cell.get()).unwrap()
     print(cell.extra).unwrap()
     other = Cell[u8](extra=6, value=2)
     print(other.extra).unwrap()
@@ -100,19 +101,21 @@ def main() -> ():
 fn wrappers_allocate_nothing_and_default_allocation_failure_is_returned() {
     let output = support::run(
         r#"
-def combine(first: i64, second: i64 = 2) -> i64:
-    first + second
+def combine(first: i64, second: i64 = 2) -> Result[i64, OverflowError[i64]]:
+    Ok(first + second)
 def work(values: list[i64] = [1, 2, 3]?) -> Result[i64, AllocError]:
     Ok(len(values))
 def main() -> ():
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
-    value = combine(second=4, first=3)
-    fallback = combine(first=5)
+    value = combine(second=4, first=3).unwrap()
+    fallback = combine(first=5).unwrap()
     print("__test_end_no_allocations__").unwrap()
     result = work()
     print("__test_restore_allocations__").unwrap()
-    print(value + fallback).unwrap()
+    total = checked:
+        value + fallback
+    print(total.unwrap()).unwrap()
     match result:
         case Ok(_):
             print("unexpected success").unwrap()
@@ -139,12 +142,12 @@ def main() -> ():
 fn direct_calls_bind_names_and_contextual_types() {
     native(
         r#"
-def combine(left: u8, right: u8, offset: u8 = 1) -> u8:
-    left * 10u8 + right + offset
+def combine(left: u8, right: u8, offset: u8 = 1) -> Result[u8, OverflowError[u8]]:
+    Ok(left * 10u8 + right + offset)
 def main() -> ():
-    print(combine(right=2, left=3)).unwrap()
-    print(combine(3, offset=4, right=2)).unwrap()
-    print(combine(3, 2, 0)).unwrap()
+    print(combine(right=2, left=3).unwrap()).unwrap()
+    print(combine(3, offset=4, right=2).unwrap()).unwrap()
+    print(combine(3, 2, 0).unwrap()).unwrap()
 "#,
         "33\n36\n32\n",
     );
@@ -157,10 +160,10 @@ fn named_supplied_arguments_run_before_defaults_in_written_order() {
 def mark(value: i64) -> i64:
     print(value).unwrap()
     value
-def combine(a: i64, b: i64 = mark(2), c: i64 = mark(3), d: i64 = mark(4)) -> i64:
-    a * 1000 + b * 100 + c * 10 + d
+def combine(a: i64, b: i64 = mark(2), c: i64 = mark(3), d: i64 = mark(4)) -> Result[i64, OverflowError[i64]]:
+    Ok(a * 1000 + b * 100 + c * 10 + d)
 def main() -> ():
-    print(combine(d=mark(9), a=mark(1))).unwrap()
+    print(combine(d=mark(9), a=mark(1)).unwrap()).unwrap()
 "#,
         "9\n1\n2\n3\n1239\n",
     );
@@ -173,8 +176,8 @@ fn generated_and_explicit_constructors_and_methods_use_names() {
 class Point:
     x: i64
     y: i64
-    def shifted(self, dx: i64 = 1, dy: i64 = 2) -> i64:
-        self.x + dx + self.y + dy
+    def shifted(self, dx: i64 = 1, dy: i64 = 2) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x + dx + self.y + dy)
 class Pair:
     x: i64
     y: i64
@@ -188,9 +191,11 @@ def mark(value: i64) -> i64:
     print(value).unwrap()
     value
 def main() -> ():
-    print(make().shifted(dy=mark(9), dx=mark(5))).unwrap()
+    print(make().shifted(dy=mark(9), dx=mark(5)).unwrap()).unwrap()
     pair = Pair(first=6)
-    print(pair.x + pair.y).unwrap()
+    total = checked:
+        pair.x + pair.y
+    print(total.unwrap()).unwrap()
 "#,
         "receiver\n9\n5\n21\n14\n",
     );
@@ -220,8 +225,8 @@ fn imported_defaults_resolve_in_the_defining_module() {
         r#"
 def seed() -> i64:
     7
-pub def value(base: i64 = seed(), scale: i64 = 2) -> i64:
-    base * scale
+pub def value(base: i64 = seed(), scale: i64 = 2) -> Result[i64, OverflowError[i64]]:
+    Ok(base * scale)
 "#,
     )
     .unwrap();
@@ -234,8 +239,8 @@ from settings import value as imported
 def seed() -> i64:
     99
 def main() -> ():
-    print(settings.value(scale=3)).unwrap()
-    print(imported(base=4)).unwrap()
+    print(settings.value(scale=3).unwrap()).unwrap()
+    print(imported(base=4).unwrap()).unwrap()
 "#,
     )
     .unwrap();
@@ -407,13 +412,13 @@ fn protocol_calls_cannot_use_implementation_parameter_names() {
     reject(
         r#"
 protocol Add:
-    def add(self, amount: i64) -> i64:
+    def add(self, amount: i64) -> Result[i64, OverflowError[i64]]:
         pass
 class Counter:
     value: i64
-    def add(self, delta: i64) -> i64:
-        self.value + delta
-def work[T: Add](value: &T) -> i64:
+    def add(self, delta: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.value + delta)
+def work[T: Add](value: &T) -> Result[i64, OverflowError[i64]]:
     value.add(amount=1)
 def main() -> ():
     counter = Counter(4)
@@ -499,5 +504,88 @@ def main() -> ():
     print(count[u8](values=[3u8, 4u8].unwrap()).unwrap()).unwrap()
 "#,
         "0\n0\n2\n",
+    );
+}
+
+#[test]
+fn constructor_defaults_keep_declared_union_and_failed_default_cleanup() {
+    native(
+        r#"
+class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+enum Problem:
+    Failed(Guard)
+def fail() -> Result[i64, Problem]:
+    Err(Problem.Failed(Guard("error")))
+class Owner[T]:
+    given: T
+    first: Guard
+    last: i64
+    def __init__(self, given: T, first: Guard = Guard("default"), last: i64 = fail()?) -> Result[(), Problem | OverflowError[i64]]:
+        print("init").unwrap()
+        self.given = given
+        self.first = first
+        self.last = last + 1
+        Ok(())
+    def __del__(self) -> ():
+        print("owner").unwrap()
+def main() -> ():
+    result: Result[Owner[Guard], Problem | OverflowError[i64]] = Owner(given=Guard("supplied"))
+    print("returned").unwrap()
+    drop(result)
+    value = Owner[Guard].new(last=3, given=Guard("success")).unwrap()
+    print(value.last).unwrap()
+    drop(value)
+"#,
+        "default\nsupplied\nreturned\nerror\ninit\n4\nowner\nsuccess\ndefault\n",
+    );
+    reject(
+        r#"
+class C:
+    values: list[i64]
+    def __init__(self, values: list[i64] = []?) -> Result[(), OverflowError[i64]]:
+        self.values = values
+        Ok(())
+"#,
+        "AllocError",
+    );
+}
+
+#[test]
+fn generic_constructor_default_arithmetic_keeps_its_public_error_in_all_modes() {
+    native(
+        r#"
+class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+def limit() -> i64:
+    i64.MAX
+class Cell[T]:
+    value: T
+    number: i64
+    def __init__(self, value: T, number: i64 = limit() + 1) -> Result[(), OverflowError[i64]]:
+        print("unexpected init").unwrap()
+        self.value = value
+        self.number = number
+        Ok(())
+def main() -> Result[(), IoError]:
+    first: Result[Cell[Guard], OverflowError[i64]] = Cell(value=Guard("default"))
+    second = unchecked:
+        Cell[Guard].new(value=Guard("unchecked"))
+    third = checked:
+        ignored = 1 + 2
+        Cell(value=Guard("checked"))
+    for result in [first, second, third.unwrap()].unwrap():
+        match result:
+            case Err(error):
+                print(error.wrapped)?
+            case Ok(_):
+                print("unexpected success")?
+    Ok(())
+"#,
+        "default\nunchecked\nchecked\n-9223372036854775808\n-9223372036854775808\n-9223372036854775808\n",
     );
 }

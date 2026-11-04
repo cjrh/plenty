@@ -180,8 +180,8 @@ fn constructor_names_follow_local_shadowing_and_reference_lifetimes() {
 class Point:
     value: i64
 def main() -> Result[(), IoError]:
-    Point = (def(value: i64) -> i64: value + 1)
-    print(Point(4))?
+    Point = (def(value: i64) -> Result[i64, OverflowError[i64]]: Ok(value + 1))
+    print(Point(4).unwrap())?
     mut value = 7
     wrap: Callable[[&i64], Option[&i64]] = Some
     wrapped = wrap(&value)
@@ -248,5 +248,69 @@ def main() -> Result[(), IoError]:
     Ok(())
 "#,
         "done\n",
+    );
+}
+
+#[test]
+fn generic_constructor_values_preserve_alias_and_affine_union_errors() {
+    assert_stdout(
+        r#"
+class Guard:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+enum Problem:
+    Owned(Guard)
+type ConstructorError = Problem | OverflowError[i64]
+class Cell[T, E]:
+    value: T
+    def __init__(self, value: T, error: Option[E]) -> Result[(), E | OverflowError[i64]]:
+        self.value = value
+        match error:
+            case Some(error):
+                return Err(error)
+            case Nothing:
+                pass
+        Ok(())
+def main() -> Result[(), IoError]:
+    make: Callable[[Guard, Option[Problem]], Result[Cell[Guard, Problem], ConstructorError]] = Cell
+    result = make(Guard("field"), Some(Problem.Owned(Guard("error"))))
+    print("returned")?
+    drop(result)
+    value = Cell[Guard, Problem].new(Guard("success"), Nothing).unwrap()
+    print(value.value.name)?
+    drop(value)
+    Ok(())
+"#,
+        "field\nreturned\nerror\nsuccess\nsuccess\n",
+    );
+}
+
+#[test]
+fn constructor_factory_resolves_whole_result_and_unit_aliases() {
+    assert_stdout(
+        r#"
+type Ready = ()
+type InitResult = Result[(), str]
+class Plain[T]:
+    value: T
+    def __init__(self, value: T) -> Ready:
+        self.value = value
+class Checked[T]:
+    value: T
+    def __init__(self, value: T, fail: bool = False) -> InitResult:
+        if fail:
+            return Err("rejected")
+        self.value = value
+        Ok(())
+def main() -> Result[(), IoError]:
+    plain: Callable[[i64], Plain[i64]] = Plain
+    make: Callable[[i64, bool], Result[Checked[i64], str]] = Checked
+    print(plain(1), Plain(value=True))?
+    print(make(2, False).unwrap(), Checked(value=3).unwrap(), Checked[i64].new(4).unwrap())?
+    print(Checked[i64](5, True).is_err())?
+    Ok(())
+"#,
+        "Plain[i64](value=1) Plain[bool](value=True)\nChecked[i64](value=2) Checked[i64](value=3) Checked[i64](value=4)\nTrue\n",
     );
 }

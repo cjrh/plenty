@@ -280,6 +280,51 @@ fn statement(at: &Token, kind: Statement) -> Stmt {
     }
 }
 
+/// Generic factory headers keep the written error parameter for substitution;
+/// resolving it here would erase parameters before the class is specialized.
+/// A named alias of the whole initializer result is already concrete.
+pub(super) fn constructor_output(
+    initializer: &TypeRef,
+    instance: TypeRef,
+    aliases: &TypeAliases,
+) -> Result<TypeRef> {
+    let error = if initializer.name.as_deref() == Some("Result") && initializer.args.len() == 2 {
+        if initializer.args[0].resolve(aliases)?.is_some() {
+            return Err(initializer
+                .at
+                .error("__init__ must return () or Result[(), E]"));
+        }
+        Some(initializer.args[1].clone())
+    } else {
+        match initializer.resolve(aliases)? {
+            None => None,
+            Some(Ty::Enum(result))
+                if result.is_result() && result.get().variants[0].fields == [Ty::Unit] =>
+            {
+                Some(generics::type_ref(
+                    &result.get().variants[1].fields[0],
+                    &initializer.at,
+                ))
+            }
+            _ => {
+                return Err(initializer
+                    .at
+                    .error("__init__ must return () or Result[(), E]"));
+            }
+        }
+    };
+    Ok(match error {
+        Some(error) => TypeRef {
+            concrete: None,
+            metadata: None,
+            at: initializer.at.clone(),
+            name: Some("Result".into()),
+            args: vec![instance, error],
+        },
+        None => instance,
+    })
+}
+
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<Vec<Function>> {
     let mut functions = Vec::new();
@@ -345,6 +390,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         }
         let mut constructor_inputs = Vec::new();
         let mut constructor_defaults = Vec::new();
+        let mut constructor_error = None;
         for f in &mut methods {
             operators::validate(f, aliases)?;
             let special = matches!(f.name.as_str(), "__init__" | "__del__");
@@ -365,15 +411,21 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             } else {
                 None
             };
+            let init_error = match &output {
+                Some(Ty::Enum(result))
+                    if result.is_result() && result.get().variants[0].fields == [Ty::Unit] =>
+                {
+                    Some(result.get().variants[1].fields[0].clone())
+                }
+                _ => None,
+            };
             if special
                 && (generators::yields(&f.body)
-                    || (output.is_some()
-                        && !(f.name == "__init__"
-                            && output == Some(crate::sum::allocation_result()))))
+                    || (output.is_some() && !(f.name == "__init__" && init_error.is_some())))
             {
                 return Err(f
                     .at
-                    .error("__del__ must return (); __init__ must return () or Result[(), AllocError]; neither can yield"));
+                    .error("__del__ must return (); __init__ must return () or Result[(), E]; neither can yield"));
             }
             if f.name == "__del__" && f.inputs.len() != 1 {
                 return Err(f.at.error("__del__ takes only self"));
@@ -382,6 +434,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 validate_init(f, &ty)?;
                 constructor_inputs = f.inputs[1..].to_vec();
                 constructor_defaults = f.defaults.iter().skip(1).cloned().collect();
+                constructor_error = init_error;
             }
             f.name = method(&class.name, &f.name);
         }
@@ -397,13 +450,13 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
             let init = expression(at, Expression::Call(method(&class.name, "__init__"), args));
             let fallible = ty.get().fallible_init;
             // Storage is inline, so only a fallible initializer makes construction fail.
-            let output = if fallible {
+            let output = if let Some(error) = constructor_error {
                 TypeRef {
                     concrete: None,
                     metadata: None,
                     at: at.clone(),
                     name: Some("Result".into()),
-                    args: vec![type_ref(at, &class.name), type_ref(at, "AllocError")],
+                    args: vec![type_ref(at, &class.name), generics::type_ref(&error, at)],
                 }
             } else {
                 type_ref(at, &class.name)
@@ -499,6 +552,17 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
         }
         fn expr(&self, e: &Expr, initialized: &HashSet<String>) -> Result<()> {
             match &e.kind {
+                // Capturing self borrows the whole instance at creation, not
+                // when the closure body eventually runs (issue #709).
+                Expression::Anonymous(function) => {
+                    if function
+                        .captures
+                        .iter()
+                        .any(|capture| capture.name == "self")
+                    {
+                        self.complete(initialized, &e.at)?;
+                    }
+                }
                 Expression::Name(n) if n == "self" => self.complete(initialized, &e.at)?,
                 Expression::Member(base, field, _) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
                     if !initialized.contains(field) {

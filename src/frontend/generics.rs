@@ -120,7 +120,7 @@ pub(super) fn prepare(
     table: &mut functions::Functions,
 ) -> Result<(Engine, Vec<Signature>)> {
     aliases.validate_data_bounds()?;
-    functions.extend(aliases.data.factories());
+    functions.extend(aliases.data.factories(aliases)?);
     let mut retention = retention::Retention::new(&functions, aliases);
     for f in kept {
         retention.keep(&f.body);

@@ -195,7 +195,7 @@ impl DataTypes {
         ))
     }
 
-    pub(super) fn factories(&self) -> Vec<Function> {
+    pub(super) fn factories(&self, aliases: &TypeAliases) -> Result<Vec<Function>> {
         let mut classes: Vec<_> = self
             .classes
             .values()
@@ -231,7 +231,12 @@ impl DataTypes {
                         kind: Expression::Name(n.clone()),
                     })
                     .collect();
-                Function {
+                let instance = reference(class.name.clone(), types.clone());
+                let output = match class.methods.iter().find(|m| m.name == "__init__") {
+                    Some(init) => classes::constructor_output(&init.output, instance, aliases)?,
+                    None => instance,
+                };
+                Ok(Function {
                     once: false,
                     captures: vec![],
                     foreign: None,
@@ -246,22 +251,7 @@ impl DataTypes {
                     type_params: class.type_params.clone(),
                     at: at.clone(),
                     inputs,
-                    // Only a fallible initializer makes construction fail.
-                    output: if class
-                        .methods
-                        .iter()
-                        .any(|m| m.name == "__init__" && m.output.name.is_some())
-                    {
-                        reference(
-                            "Result".into(),
-                            vec![
-                                reference(class.name.clone(), types.clone()),
-                                reference("AllocError".into(), vec![]),
-                            ],
-                        )
-                    } else {
-                        reference(class.name.clone(), types.clone())
-                    },
+                    output,
                     doc: String::new(),
                     doc_at: None,
                     body: vec![Stmt {
@@ -271,7 +261,7 @@ impl DataTypes {
                             kind: Expression::GenericCall(class.name.clone(), types, args),
                         }),
                     }],
-                }
+                })
             })
             .collect()
     }

@@ -376,7 +376,10 @@ False
 ```
 
 Classes have typed fields and a generated positional constructor; there is no
-inheritance. Bare `self` is a shared borrow; mutating methods declare
+inheritance. An explicit `__init__` returns `()` for a plain class result or
+`Result[(), E]` for precisely `Result[Class, E]`, with explicit `Ok(())` on
+success. Construction adds no allocation error; initializer operations and
+parameter defaults must declare or map their own errors. Bare `self` is a shared borrow; mutating methods declare
 `self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
 method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. `@copy` before `class` makes instances copy like integers; every
