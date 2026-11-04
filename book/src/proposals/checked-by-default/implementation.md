@@ -281,11 +281,28 @@ verified; ten non-test example paths' pre-clean absence remains unobserved.
 Existing external engines remain older compatible builds, not fresh source builds.
 Process sampling is not exhaustive tracing or a controlled performance baseline.
 
-The guarded measurement manifests and fixed two-job profiling smoke driver have
-independent preparation reviews; the latter passes 40 external mock tests. No
-real smoke, timing or profiling ran. Controlled collection and its acceptance
-remain outstanding. Neither PR is merged; the fixture patch is present only in
-the explicitly approved isolated validation fork.
+Exploratory collection now passes 16 runtime samples, 32 compiler samples and
+12 code reports, with no warmups and one sample per selected case. Full 1000/4000
+corpora, all four modes/actions, both-profile native qualification, retained
+optimized calls, exact streams, ELF bounds and authenticated zero/nonzero
+allocation-proof imports remain required. Code reports include linked ELF and
+executable-section sizes, debug-object bytes and representative IR dumps—not an
+exhaustive function audit or optimized-object size. These successful smoke runs
+validate collection contracts, not speedups or acceptance-quality distributions.
+
+The separate two-job allocation-profile attempt stopped before either producer
+ran: its identity guard rejected a packaged GCC hard link (issue #731). The
+reviewed correction authenticates recorded native-tool identities, binds fresh
+link-count/ctime observations, and preserves strict nonalias rules for inputs,
+proofs, frozen binaries and generated artifacts. It also authenticates the exact
+record bytes consumed, with deterministic record-swap regressions. All 102
+profile and 182 combined controller mock tests pass; these are not native profile
+results. A fresh external-driver configuration still needs review before new
+profile collection. No allocation totals or byte estimates have been collected.
+
+Full controlled schedules and performance/profile acceptance remain outstanding.
+Neither PR is merged; the proxy fixture patch remains only in the explicitly
+approved isolated validation fork.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 

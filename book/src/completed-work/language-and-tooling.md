@@ -318,8 +318,15 @@ host qualification. Neither PR branch is merged or rewritten, and the earlier
 failed run is not relabelled. Missing wrapper classifications, sampled-process
 limits, older compatible engines and the disclosed non-test pre-clean observation
 gap remain explicit limits.
-Reviewed measurement/profile preparation and a 40-mock-test two-job smoke driver
-remain unexecuted. No timing, profiling or whole-proposal acceptance is claimed.
+Exploratory runtime/compiler/code smokes pass 16 runtime samples, 32 compiler
+samples and 12 code reports, retaining full corpus sizes, native oracles, optimized
+call gates and allocation-proof integrity. One sample without warmups is not
+performance acceptance. The two-job profile attempt stops before either producer
+because of the authenticated-system-tool alias defect in issue #731. Its reviewed
+controller repair preserves strict source/output alias rejection and consumes the
+exact authenticated record bytes; 102 profile and 182 combined mock tests pass.
+A new driver configuration and native profile collection remain unqualified. No
+profile totals, speedup or whole-proposal acceptance is claimed.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 
