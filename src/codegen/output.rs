@@ -811,7 +811,7 @@ mod tests {
             )
             .unwrap();
             let signature = output.module.make_signature();
-            for name in ["fold_first", "fold_second"] {
+            for name in ["__plenty_fn_fold_first", "__plenty_fn_fold_second"] {
                 let id = output
                     .module
                     .declare_function(name, cranelift_module::Linkage::Local, &signature)
@@ -831,15 +831,15 @@ mod tests {
             let bytes = output.finish().unwrap().emit().unwrap();
             let file = object::File::parse(bytes.as_slice()).unwrap();
             let symbol = |name: &str| {
+                let name = object_symbol_name(&file, name);
                 file.symbols()
-                    .find(|symbol| {
-                        symbol
-                            .name()
-                            .is_ok_and(|n| n.trim_start_matches('_') == name)
-                    })
+                    .find(|symbol| symbol.name() == Ok(name.as_str()))
                     .unwrap_or_else(|| panic!("{}: no symbol {name}", target.triple))
             };
-            let (first, second) = (symbol("fold_first"), symbol("fold_second"));
+            let (first, second) = (
+                symbol("__plenty_fn_fold_first"),
+                symbol("__plenty_fn_fold_second"),
+            );
             assert_eq!(
                 (first.section_index(), first.address()),
                 (second.section_index(), second.address()),
@@ -1200,6 +1200,15 @@ def main() -> Result[(), IoError | AllocError]:
     Ok(())
 ";
 
+    fn object_symbol_name(file: &object::File<'_>, name: &str) -> String {
+        // Mach-O adds one underscore; the linkage name's own underscores matter.
+        if file.format() == object::BinaryFormat::MachO {
+            format!("_{name}")
+        } else {
+            name.to_owned()
+        }
+    }
+
     /// Instances that differ only in dimension share one body, and so does a
     /// function equal to another. Functions used as values keep their own
     /// addresses, since function values compare addresses.
@@ -1209,9 +1218,10 @@ def main() -> Result[(), IoError | AllocError]:
         let bytes = object(FOLDING, 1, Build::default());
         let file = object::File::parse(bytes.as_slice()).unwrap();
         let at = |name: &str| {
+            let name = object_symbol_name(&file, name);
             let symbol = file
                 .symbols()
-                .find(|symbol| symbol.name() == Ok(name))
+                .find(|symbol| symbol.name() == Ok(name.as_str()))
                 .unwrap_or_else(|| panic!("no symbol {name}"));
             (symbol.section_index(), symbol.address())
         };
