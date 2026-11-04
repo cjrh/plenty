@@ -809,3 +809,164 @@ def main() -> ():
         );
     }
 }
+
+/// Unit bodies have no operand-stack success value; exercise native wrapping.
+fn checked_unit_runs_in_both_modes(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("checked-unit.plenty");
+        let executable = directory.path().join("checked-unit");
+        std::fs::write(&path, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("optimize={optimize}: {error}\n{source}"));
+        let output = support::output_within(
+            &mut std::process::Command::new(executable),
+            b"",
+            std::time::Duration::from_secs(15),
+        );
+        assert!(
+            output.status.success(),
+            "optimize={optimize}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "optimize={optimize}"
+        );
+    }
+}
+
+#[test]
+fn checked_unit_minimal_success_and_overflow_keep_the_compound_destination() {
+    checked_unit_runs_in_both_modes(
+        r#"
+def cleanup(n: &mut i64) -> Result[(), OverflowError[i64]]:
+    checked:
+        *n += i64.MAX
+        ()
+def main() -> Result[(), IoError]:
+    mut n = 0
+    print(cleanup(&mut n).is_ok(), n)?
+    n = 1
+    match cleanup(&mut n):
+        case Ok(_):
+            print("missed overflow")?
+        case Err(error):
+            print(error.wrapped, n)?
+    Ok(())
+"#,
+        "True 9223372036854775807\n-9223372036854775808 1\n",
+    );
+}
+
+#[test]
+fn checked_unit_preserves_earlier_mutation_and_handles_division_in_loop_branches() {
+    checked_unit_runs_in_both_modes(
+        r#"
+class Point:
+    x: i64
+    y: i64
+    def shift(self: &mut Point, amount: i64) -> Result[(), OverflowError[i64]]:
+        checked:
+            self.x = self.x + amount
+            self.y = self.y + amount
+            ()
+def divide(n: &mut i64, divisor: i64) -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        *n //= divisor
+        ()
+def early(n: i64) -> Result[(), OverflowError[i64]]:
+    checked:
+        if n == 0:
+            return Ok(())
+        drop(n + 1)
+        ()
+def main() -> Result[(), IoError]:
+    mut point = Point(1, i64.MAX)
+    print(point.shift(1).is_err(), point.x, point.y)?
+    for divisor in range(0, 3):
+        mut n = 12
+        result = if divisor == 0:
+            divide(&mut n, divisor)
+        else:
+            checked:
+                if divisor == 1:
+                    continue
+                n //= divisor
+                ()
+        match result:
+            case Ok(_):
+                print("ok", n)?
+            case Err(ZeroDivisionError()):
+                print("zero", n)?
+            case Err(OverflowError(wrapped)):
+                print("overflow", wrapped, n)?
+    mut n = i64.MIN
+    print(divide(&mut n, -1).is_err(), n)?
+    print(early(0).is_ok(), early(1).is_ok(), early(i64.MAX).is_err())?
+    Ok(())
+"#,
+        "True 2 9223372036854775807\nzero 12\nok 6\nTrue -9223372036854775808\nTrue True True\n",
+    );
+}
+
+#[test]
+fn checked_unit_drops_owners_and_pending_temporaries_once_and_propagates() {
+    checked_unit_runs_in_both_modes(
+        r#"
+class Owner:
+    id: i64
+    def __del__(self: &mut Owner) -> ():
+        print("drop", self.id).unwrap()
+def accept(owner: Owner, n: i64) -> ():
+    print("accept", owner.id, n).unwrap()
+def parse(fail: bool) -> Result[(), ParseError]:
+    if fail:
+        return Err(ParseError.Invalid)
+    Ok(())
+def cleanup(n: i64, fail: bool) -> Result[(), AllocError | OverflowError[i64] | ParseError]:
+    outer = Owner(1)
+    result = checked:
+        local = Owner(2)
+        items = [1, 2, 3]?
+        accept(Owner(3), n + i64.MAX)
+        parse(fail)?
+        drop(local)
+        drop(items)
+        ()
+    result?
+    print("after").unwrap()
+    Ok(())
+def main() -> Result[(), IoError]:
+    print(cleanup(0, False).is_ok())?
+    print(cleanup(1, False).is_err())?
+    print(cleanup(0, True).is_err())?
+    Ok(())
+"#,
+        "accept 3 9223372036854775807\ndrop 3\ndrop 2\nafter\ndrop 1\nTrue\ndrop 3\ndrop 2\ndrop 1\nTrue\naccept 3 9223372036854775807\ndrop 3\ndrop 2\ndrop 1\nTrue\n",
+    );
+}
+
+#[test]
+fn checked_unit_fix_keeps_float_checked_division_with_pending_operands() {
+    checked_unit_runs_in_both_modes(
+        r#"
+def divide(a: f64, b: f64) -> Result[f64, ZeroDivisionError]:
+    Ok(10.0 + a.div_checked(b)?)
+def main() -> Result[(), IoError]:
+    print(divide(12.0, 3.0).unwrap(), divide(12.0, 0.0).is_err(), divide(12.0, -0.0).is_err())?
+    Ok(())
+"#,
+        "14.0 True True\n",
+    );
+}
