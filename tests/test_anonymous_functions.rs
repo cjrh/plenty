@@ -5,18 +5,18 @@ use support::{check_source, run};
 #[test]
 fn multiline_functions_have_independent_control_flow_and_locals() {
     let output = run(r#"
-def main() -> Result[(), IoError]:
-    transform = def(value: i64) -> i64:
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    transform = def(value: i64) -> Result[i64, OverflowError[i64]]:
         mut result = 0
         for n in range(value):
             if n == 2:
                 continue
             result = result + n
         if result > 10:
-            return 10
-        result
-    print(transform(5))?
-    print(transform(8))?
+            return Ok(10)
+        Ok(result)
+    print(transform(5)?)?
+    print(transform(8)?)?
     Ok(())
 "#);
     assert!(
@@ -33,14 +33,14 @@ fn anonymous_functions_escape_without_allocating_an_environment() {
 def make[T]() -> Callable[[T], T]:
     return def(value: T) -> T:
         value
-def nested() -> Callable[[], Callable[[i64], i64]]:
-    def() -> Callable[[i64], i64]:
-        def(value: i64) -> i64:
-            value + 1
-def main() -> Result[(), IoError]:
+def nested() -> Callable[[], Callable[[i64], Result[i64, OverflowError[i64]]]]:
+    def() -> Callable[[i64], Result[i64, OverflowError[i64]]]:
+        def(value: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(value + 1)
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print(make[u8]()(42))?
     print(make[str]()("hello"))?
-    print(nested()()(5))?
+    print(nested()()(5)?)?
     Ok(())
 "#);
     assert!(
@@ -88,11 +88,13 @@ fn output(source: &str) -> String {
 
 const APPLY: &str = "def apply(f: Callable[[i64], i64], value: i64) -> i64:\n    f(value)\n";
 
+const FALLIBLE_APPLY: &str = "def apply(f: Callable[[i64], Result[i64, OverflowError[i64]]], value: i64) -> Result[i64, OverflowError[i64]]:\n    f(value)\n";
+
 #[test]
 fn the_issue_27_examples_compile_and_run() {
     assert_eq!(
         output(&format!(
-            "{APPLY}def main() -> Result[(), AllocError | IoError]:\n    print(apply(def(x: i64) -> i64: x * 2, 4))?\n    Ok(())\n"
+            "{FALLIBLE_APPLY}def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 2), 4)?)?\n    Ok(())\n"
         )),
         "8\n"
     );
@@ -113,29 +115,29 @@ def main() -> Result[(), SpawnError[OnceClosure[[], i64]] | IoError]:
 #[test]
 fn an_inline_body_ends_at_the_comma_or_closing_bracket() {
     let source = format!(
-        r#"{APPLY}
-def both(f: Callable[[i64], i64], g: Callable[[i64], i64], value: i64) -> i64:
-    g(f(value))
+        r#"{FALLIBLE_APPLY}
+def both(f: Callable[[i64], Result[i64, OverflowError[i64]]], g: Callable[[i64], Result[i64, OverflowError[i64]]], value: i64) -> Result[i64, OverflowError[i64]]:
+    g(f(value)?)
 
-def adder() -> Callable[[i64], Callable[[i64], i64]]:
-    (def(a: i64) -> Callable[[i64], i64]: def(b: i64) -> i64: b + 1)
+def adder() -> Callable[[i64], Callable[[i64], Result[i64, OverflowError[i64]]]]:
+    (def(a: i64) -> Callable[[i64], Result[i64, OverflowError[i64]]]: def(b: i64) -> Result[i64, OverflowError[i64]]: Ok(b + 1))
 
-def main() -> Result[(), AllocError | IoError]:
-    print(apply(def(x: i64) -> i64: x * 2, 4))?
-    print(apply(def(x: i64) -> i64: (x * 2), 4))?
-    print(apply(def(x: i64) -> i64: apply(def(y: i64) -> i64: y + 1, x), 4))?
-    print(apply(def(x: i64) -> i64: (x, x + 1)[1], 4))?
-    print(apply(def(x: i64) -> i64: x if x > 10 else 0 - x, 4))?
-    print(both(def(x: i64) -> i64: x + 1, def(x: i64) -> i64: x * 3, 4,))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 2), 4)?)?
+    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok((x * 2)), 4)?)?
+    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: apply(def(y: i64) -> Result[i64, OverflowError[i64]]: Ok(y + 1), x), 4)?)?
+    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok((x, x + 1)[1]), 4)?)?
+    print(apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x if x > 10 else 0 - x), 4)?)?
+    print(both(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1), def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 3), 4,)?)?
     print(both(
-        def(x: i64) -> i64: x + 1,
-        def(x: i64) -> i64:
-            x
-            * 3,
+        def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1),
+        def(x: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(x
+            * 3),
         4,
-    ))?
-    print(adder()(1)(41))?
-    print((def(x: i64) -> i64: x + 100)(1))?
+    )?)?
+    print(adder()(1)(41)?)?
+    print((def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 100))(1)?)?
     Ok(())
 "#
     );
@@ -145,23 +147,23 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn inline_functions_are_values_in_every_bracketed_position() {
     let source = r#"
-class Holder[F: Callable[[i64], i64]]:
+class Holder[F: Callable[[i64], Result[i64, OverflowError[i64]]]]:
     callback: F
 
-def main() -> Result[(), AllocError | IoError]:
-    first, second = (def(x: i64) -> i64: x + 1, def(x: i64) -> i64: x + 2)
-    print(first(1) + second(1))?
-    handlers = [def(x: i64) -> i64: x + 1, def(x: i64) -> i64: x * 9]?
-    print(handlers[1](3))?
-    table = {"double": def(x: i64) -> i64: x * 2, "square": def(x: i64) -> i64: x * x}?
-    print(table["square"](7))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    first, second = (def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1), def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 2))
+    print(first(1)? + second(1)?)?
+    handlers = [def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1), def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 9)]?
+    print(handlers[1](3)?)?
+    table = {"double": def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 2), "square": def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * x)}?
+    print(table["square"](7)?)?
     scale = 3
-    holder = Holder(def [scale](x: i64) -> i64: x * scale)
-    print(holder.callback(5))?
-    closures = [def [n]() -> i64: n * 10 for n in range(3)]?
+    holder = Holder(def [scale](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * scale))
+    print(holder.callback(5)?)?
+    closures = [def [n]() -> Result[i64, OverflowError[i64]]: Ok(n * 10) for n in range(3)]?
     mut total = 0
     for closure in closures:
-        total = total + closure()
+        total = total + closure()?
     print(total)?
     Ok(())
 "#;
@@ -181,10 +183,10 @@ fn an_inline_string_body_is_the_value_not_documentation() {
 #[test]
 fn inline_closures_follow_the_capture_and_once_rules() {
     let source = r#"
-def twice[T, F: Callable[[T], T]](f: &F, value: T) -> T:
-    f(f(value))
+def twice[T, F: Callable[[T], Result[T, OverflowError[i64]]]](f: &F, value: T) -> Result[T, OverflowError[i64]]:
+    f(f(value)?)
 
-def owned[F: Callable[[i64], i64]](f: F, value: i64) -> i64:
+def owned[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: F, value: i64) -> Result[i64, OverflowError[i64]]:
     f(value)
 
 def run[T, F: OnceCallable[[], T]](callback: F) -> T:
@@ -194,14 +196,14 @@ def run[T, F: OnceCallable[[], T]](callback: F) -> T:
 def identity[T](value: T) -> T:
     (def(inner: T) -> T: inner)(value)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     offset = 10
-    print(twice(&(def [offset](x: i64) -> i64: x + offset), 1))?
-    print(twice(&(def(x: i64) -> i64: x + 1), 1))?
-    print(owned(def [offset](x: i64) -> i64: x + offset, 1))?
-    print(owned(def(x: i64) -> i64: x + 7, 1))?
+    print(twice(&(def [offset](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + offset)), 1)?)?
+    print(twice(&(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)), 1)?)?
+    print(owned(def [offset](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + offset), 1)?)?
+    print(owned(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 7), 1)?)?
     mut total = 1
-    print(twice(&(def [&total](x: i64) -> i64: x + total), 4))?
+    print(twice(&(def [&total](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + total)), 4)?)?
     total = 5
     values = [1, 2, 3]?
     print(run(def once [values]() -> list[i64]: values))?
@@ -219,20 +221,20 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn inline_closures_keep_the_block_form_diagnostics() {
     let helpers = format!(
-        "{APPLY}def run[T, F: OnceCallable[[], T]](callback: F) -> T:\n    mut job = callback\n    job()\ndef bump[F: Callable[[], i64]](f: &mut F) -> i64:\n    f() + f()\n"
+        "{FALLIBLE_APPLY}def run[T, F: OnceCallable[[], T]](callback: F) -> T:\n    mut job = callback\n    job()\ndef bump[F: Callable[[], Result[i64, OverflowError[i64]]]](f: &mut F) -> Result[i64, OverflowError[i64]]:\n    Ok(f()? + f()?)\n"
     );
     for (body, expected) in [
         (
-            "    offset = 3\n    apply(def(x: i64) -> i64: x + offset, 4)",
+            "    offset = 3\n    apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + offset), 4)?",
             "anonymous functions cannot capture `offset`",
         ),
         (
-            "    offset = 3\n    apply(def [offset](x: i64) -> i64: x + offset, 4)",
-            "use `F: Callable[[i64], i64]` with `callback: &F`",
+            "    offset = 3\n    apply(def [offset](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + offset), 4)?",
+            "use `F: Callable[[i64], Result[i64, OverflowError[i64]]]` with `callback: &F`",
         ),
         (
-            "    apply(def once (x: i64) -> i64: x, 4)",
-            "use `F: OnceCallable[[i64], i64]` with `callback: F`",
+            "    apply(def once (x: i64) -> Result[i64, OverflowError[i64]]: Ok(x), 4)",
+            "use `F: OnceCallable[[i64], Result[i64, OverflowError[i64]]]` with `callback: F`",
         ),
         (
             "    values = [1, 2].unwrap()\n    run(def once [values]() -> list[i64]: values)\n    print(values).unwrap()",
@@ -243,30 +245,32 @@ fn inline_closures_keep_the_block_form_diagnostics() {
             "use of moved binding `values`",
         ),
         (
-            "    apply(def(x: i64) -> i64: missing, 4)",
+            "    apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(missing), 4)?",
             "unknown binding `missing`",
         ),
         (
-            "    apply(def(x: i64) -> i64: x * 2.5, 4)",
+            "    apply(def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 2.5), 4)?",
             "cannot combine i64 with f64; convert with `f64(x)`",
         ),
         (
-            "    apply(def(x: i64, y: i64) -> i64: x * y, 4)",
-            "expected Callable[[i64], i64], got Callable[[i64, i64], i64]",
+            "    apply(def(x: i64, y: i64) -> Result[i64, OverflowError[i64]]: Ok(x * y), 4)",
+            "expected Callable[[i64], Result[i64, OverflowError[i64]]], got Callable[[i64, i64], Result[i64, OverflowError[i64]]]",
         ),
         ("    apply(def(x) -> i64: x, 4)", "expected `:`"),
         ("    apply(def(x: i64): x, 4)", "expected `->`"),
         (
-            "    apply(def [missing](x: i64) -> i64: x, 4)",
+            "    apply(def [missing](x: i64) -> Result[i64, OverflowError[i64]]: Ok(x), 4)?",
             "capture requires a local binding `missing`",
         ),
         // A temporary cannot be borrowed exclusively, whatever produced it.
         (
-            "    count = 0\n    bump(&mut (def [mut count]() -> i64: count + 1))",
+            "    count = 0\n    bump(&mut (def [mut count]() -> Result[i64, OverflowError[i64]]: Ok(count + 1)))",
             "borrowing requires a named binding",
         ),
     ] {
-        let error = diagnostic(&format!("{helpers}def main() -> ():\n{body}\n    pass\n"));
+        let error = diagnostic(&format!(
+            "{helpers}def main() -> Result[(), OverflowError[i64]]:\n{body}\n    Ok(())\n"
+        ));
         assert!(error.contains(expected), "{body}\n{error}");
     }
 }
@@ -360,7 +364,7 @@ fn the_body_form_follows_the_position() {
     // Parentheses are brackets: the one-expression form can be bound.
     assert_eq!(
         output(
-            "def main() -> Result[(), IoError]:\n    f = (def(x: i64) -> i64: x * 2)\n    print(f(4))?\n    Ok(())\n"
+            "def main() -> Result[(), IoError | OverflowError[i64]]:\n    f = (def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x * 2))\n    print(f(4)?)?\n    Ok(())\n"
         ),
         "8\n"
     );
@@ -387,15 +391,15 @@ fn lambda_names_the_plenty_spelling() {
 #[test]
 fn inline_closures_are_thread_and_pool_jobs() {
     let source = r#"
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
 # Each job has its own closure type, so each needs its own SpawnError or SubmitError.
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | SendError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | SendError[i64] | OverflowError[i64] | SpawnError[OnceClosure[[], Result[(), SendError[i64] | OverflowError[i64]]]] | SpawnError[Closure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]]]:
     sender, receiver = channel[i64](2)?
-    with spawn(def once [sender]() -> Result[(), SendError[i64]]: produce(sender))? as task:
+    with spawn(def once [sender]() -> Result[(), SendError[i64] | OverflowError[i64]]: produce(sender))? as task:
         mut total = 0
         with receiver as inbox:
             while True:
@@ -431,13 +435,13 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnE
 #[test]
 fn inline_functions_are_tail_call_arguments() {
     let source = r#"
-def countdown(n: i64, f: Callable[[i64], i64]) -> i64:
+def countdown(n: i64, f: Callable[[i64], Result[i64, OverflowError[i64]]]) -> Result[i64, OverflowError[i64]]:
     if n == 0:
         return f(0)
-    countdown(n - 1, def(x: i64) -> i64: x + 1)
+    countdown(n - 1, def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1))
 
-def main() -> Result[(), IoError]:
-    print(countdown(1000000, def(x: i64) -> i64: x))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(countdown(1000000, def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x))?)?
     Ok(())
 "#;
     assert_eq!(output(source), "1\n");
@@ -447,7 +451,7 @@ def main() -> Result[(), IoError]:
 fn brackets_in_string_literals_do_not_select_the_inline_form() {
     assert_eq!(
         output(
-            "def main() -> Result[(), IoError]:\n    text = \"(\"\n    f = def(x: i64) -> i64:\n        x + len(\"[{(\")\n    print(f(1))?\n    print(text)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError | OverflowError[i64]]:\n    text = \"(\"\n    f = def(x: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(x + len(\"[{(\"))\n    print(f(1)?)?\n    print(text)?\n    Ok(())\n"
         ),
         "4\n(\n"
     );

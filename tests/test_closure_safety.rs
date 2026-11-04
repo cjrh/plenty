@@ -8,7 +8,8 @@ fn shared_environment_types_are_bounded_without_exponential_expansion() {
     );
     for i in 1..28 {
         let previous = i - 1;
-        source.push_str(&format!("def make{i}() -> Closure[[], i64]:\n    a = make{previous}()\n    b = make{previous}()\n    def [a, b]() -> i64:\n        a() + b()\n"));
+        let sum = if i == 1 { "a() + b()" } else { "a()? + b()?" };
+        source.push_str(&format!("def make{i}() -> Closure[[], Result[i64, OverflowError[i64]]]:\n    a = make{previous}()\n    b = make{previous}()\n    def [a, b]() -> Result[i64, OverflowError[i64]]:\n        Ok({sum})\n"));
     }
     source.push_str("def main() -> ():\n    pass\n");
     let error = check_source(&source).unwrap_err().to_string();
@@ -19,23 +20,24 @@ fn shared_environment_types_are_bounded_without_exponential_expansion() {
 #[test]
 fn suspended_owned_closures_relocate_with_generator_frames_without_allocating() {
     let output = run(r#"
-def produce(start: i64) -> Generator[i64]:
-    mut advance = def [mut start]() -> i64:
+def produce(start: i64) -> Generator[Result[i64, OverflowError[i64]]]:
+    mut advance = def [mut start]() -> Result[i64, OverflowError[i64]]:
         start = start + 1
-        start
+        Ok(start)
     yield advance()
     yield advance()
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     mut source = produce(2)
-    first = next(source).unwrap()
+    first = next(source).unwrap()?
     mut moved = source
-    second = next(moved).unwrap()
+    second = next(moved).unwrap()?
     drop(moved)
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(first + second).unwrap()
+    Ok(())
 "#);
     assert!(
         output.status.success(),
@@ -59,30 +61,30 @@ class Resource:
         pass
 def identity[T](value: T) -> T:
     value
-def build(values: list[i64], resource: Resource) -> Option[Closure[[i64], i64]]:
+def build(values: list[i64], resource: Resource) -> Option[Closure[[i64], Result[i64, OverflowError[i64]]]]:
     span = range(3, 6)
-    inner = def [values, resource, span]() -> i64:
-        values[0] + resource.id + span[1]
+    inner = def [values, resource, span]() -> Result[i64, OverflowError[i64]]:
+        Ok(values[0] + resource.id + span[1])
     count = 0
-    outer = def [inner, mut count](n: i64) -> i64:
+    outer = def [inner, mut count](n: i64) -> Result[i64, OverflowError[i64]]:
         count = count + n
-        inner() + count
+        Ok(inner()? + count)
     Some(outer)
-def invoke[T](f: &mut Closure[[T], T], n: T) -> T:
+def invoke[T](f: &mut Closure[[T], Result[T, OverflowError[T]]], n: T) -> Result[T, OverflowError[T]]:
     f(n)
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     values = [10].unwrap()
     resource = Resource(2)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     mut callback = identity(build(values, resource).unwrap())
-    first = invoke(&mut callback, 1)
-    second = callback(2)
+    first = invoke(&mut callback, 1)?
+    second = callback(2)?
     mut external = 5
-    mut borrowed = def [&mut external]() -> i64:
+    mut borrowed = def [&mut external]() -> Result[i64, OverflowError[i64]]:
         external = external + 1
-        external
-    third = borrowed()
+        Ok(external)
+    third = borrowed()?
     drop(borrowed)
     drop(callback)
     print("__test_restore_allocations__").unwrap()
@@ -90,6 +92,7 @@ def main() -> ():
     print(first).unwrap()
     print(second).unwrap()
     print(third).unwrap()
+    Ok(())
 "#);
     assert!(
         output.status.success(),
@@ -125,11 +128,11 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def double(n: i64) -> i64:
-    n * 2
-def invoke(f: &Callable[[i64], i64], n: i64) -> i64:
+def double(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * 2)
+def invoke(f: &Callable[[i64], Result[i64, OverflowError[i64]]], n: i64) -> Result[i64, OverflowError[i64]]:
     f(n)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     for n in range(3):
         resource = Resource(n)
         f = def [resource]() -> i64:
@@ -138,9 +141,9 @@ def main() -> Result[(), IoError]:
             continue
         break
     function = double
-    wrapped = def [function](n: i64) -> i64:
+    wrapped = def [function](n: i64) -> Result[i64, OverflowError[i64]]:
         invoke(&function, n)
-    print(wrapped(4))?
+    print(wrapped(4)?)?
     Ok(())
 "#);
     assert!(

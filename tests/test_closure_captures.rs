@@ -4,10 +4,10 @@ use support::{check_source, run};
 #[test]
 fn exclusive_captures_update_the_original_owner() {
     let output = run(r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut count = 0
     mut values = [10]?
-    mut change = def [&mut count, &mut values](step: i64) -> Result[(), AllocError]:
+    mut change = def [&mut count, &mut values](step: i64) -> Result[(), AllocError | OverflowError[i64]]:
         count = count + step
         values.append(count)?
         Ok(())
@@ -29,7 +29,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn exclusive_captures_exclude_competing_access_and_arguments() {
     for access in ["print(count)?", "count = 9", "other = &count"] {
         let source = format!(
-            "def main() -> Result[(), IoError]:\n    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    {access}\n    change()\n    Ok(())\n"
+            "def main() -> Result[(), IoError | OverflowError[i64]]:\n    mut count = 0\n    mut change = def [&mut count]() -> Result[(), OverflowError[i64]]:\n        count = count + 1\n        Ok(())\n    {access}\n    change()?\n    Ok(())\n"
         );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
@@ -81,7 +81,7 @@ fn mutable_owned_captures_retain_state_between_calls() {
 def main() -> Result[(), AllocError | IoError]:
     count = 0
     values = [10]?
-    mut next = def [mut count, mut values](step: i64) -> Result[i64, AllocError]:
+    mut next = def [mut count, mut values](step: i64) -> Result[i64, AllocError | OverflowError[i64]]:
         count = count + step
         values.append(count)?
         Ok(len(values) + count)
@@ -97,7 +97,7 @@ def main() -> Result[(), AllocError | IoError]:
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Result[i64, AllocError].Ok(4)\nResult[i64, AllocError].Ok(8)\n0\n"
+        "Result[i64, AllocError | OverflowError[i64]].Ok(4)\nResult[i64, AllocError | OverflowError[i64]].Ok(8)\n0\n"
     );
 }
 
@@ -126,14 +126,14 @@ fn closure_mutation_requires_explicit_permission() {
 #[test]
 fn owned_captures_move_into_reusable_inline_environments() {
     let output = run(r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     offset = 4
     values = [10, 20]?
-    adjust = def [offset, values](index: i64) -> i64:
-        values[index] + offset
-    print(adjust(0))?
+    adjust = def [offset, values](index: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(values[index] + offset)
+    print(adjust(0)?)?
     moved = adjust
-    print(moved(1))?
+    print(moved(1)?)?
     print(offset)?
     Ok(())
 "#);

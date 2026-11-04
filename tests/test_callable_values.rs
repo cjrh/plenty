@@ -4,22 +4,22 @@ use support::{check_source, run};
 #[test]
 fn named_functions_are_structural_copyable_values() {
     let output = run(r#"
-def double(value: i64) -> i64:
-    value * 2
-def increment(other: i64) -> i64:
-    other + 1
-def apply(operation: Callable[[i64], i64], value: i64) -> i64:
+def double(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * 2)
+def increment(other: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(other + 1)
+def apply(operation: Callable[[i64], Result[i64, OverflowError[i64]]], value: i64) -> Result[i64, OverflowError[i64]]:
     operation(value)
-def choose(first: bool) -> Callable[[i64], i64]:
+def choose(first: bool) -> Callable[[i64], Result[i64, OverflowError[i64]]]:
     double if first else increment
-def main() -> Result[(), IoError]:
-    mut operation: Callable[[i64], i64] = double
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    mut operation: Callable[[i64], Result[i64, OverflowError[i64]]] = double
     saved = operation
     operation = increment
-    print(apply(operation, 20))?
-    print(saved(20))?
+    print(apply(operation, 20)?)?
+    print(saved(20)?)?
     selected = choose(True)
-    print(selected(7))?
+    print(selected(7)?)?
     Ok(())
 "#);
     assert!(
@@ -55,22 +55,22 @@ fn callable_signatures_check_arguments_and_results() {
 #[test]
 fn call_results_groups_indices_and_fields() {
     let output = run(r#"
-def double(value: i64) -> i64:
-    value * 2
-def choose() -> Callable[[i64], i64]:
+def double(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * 2)
+def choose() -> Callable[[i64], Result[i64, OverflowError[i64]]]:
     double
 class Handler:
-    operation: Callable[[i64], i64]
-def main() -> Result[(), AllocError | IoError]:
-    print(choose()(3))?
-    print((double)(4))?
+    operation: Callable[[i64], Result[i64, OverflowError[i64]]]
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(choose()(3)?)?
+    print((double)(4)?)?
     handlers = [double]?
     index = 0
-    print(handlers[index](5))?
-    print(handlers[0](6))?
+    print(handlers[index](5)?)?
+    print(handlers[0](6)?)?
     handler = Handler(double)
-    print(handler.operation(7))?
-    print(Some(double).unwrap()(8))?
+    print(handler.operation(7)?)?
+    print(Some(double).unwrap()(8)?)?
     Ok(())
 "#);
     assert!(
@@ -87,23 +87,24 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn indirect_calls_preserve_borrows_and_owned_arguments() {
     let output = run(r#"
-def increment(value: &mut i64) -> ():
+def increment(value: &mut i64) -> Result[(), OverflowError[i64]]:
     *value = *value + 1
-def total(values: &list[i64]) -> i64:
+    Ok(())
+def total(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in values:
         sum = sum + value
-    sum
+    Ok(sum)
 def consume(values: list[i64]) -> i64:
     len(values)
-def main() -> Result[(), AllocError | IoError]:
-    mutate: Callable[[&mut i64], ()] = increment
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mutate: Callable[[&mut i64], Result[(), OverflowError[i64]]] = increment
     mut value = 3
-    mutate(&mut value)
+    mutate(&mut value)?
     print(value)?
     values = [2, 5]?
-    inspect: Callable[[&list[i64]], i64] = total
-    print(inspect(&values))?
+    inspect: Callable[[&list[i64]], Result[i64, OverflowError[i64]]] = total
+    print(inspect(&values)?)?
     take = consume
     print(take(values))?
     Ok(())
@@ -193,9 +194,9 @@ print(reference).unwrap()
 #[test]
 fn generic_parameters_are_inferred_from_callable_signatures() {
     let output = run(r#"
-def increment(value: u8) -> u8:
-    value + 1
-def apply[T](operation: Callable[[T], T], value: T) -> T:
+def increment(value: u8) -> Result[u8, OverflowError[u8]]:
+    Ok(value + 1)
+def apply[T](operation: Callable[[T], Result[T, OverflowError[T]]], value: T) -> Result[T, OverflowError[T]]:
     operation(value)
 def keep[T](value: T) -> T:
     value
@@ -203,9 +204,9 @@ def display(value: i64) -> ():
     print(value).unwrap()
 def invoke[T](operation: Callable[[T], ()], value: T) -> ():
     operation(value)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[u8]]:
     saved = keep(increment)
-    print(apply(saved, 41u8))?
+    print(apply(saved, 41u8)?)?
     invoke(display, 7)
     Ok(())
 "#);

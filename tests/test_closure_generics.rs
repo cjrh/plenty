@@ -4,21 +4,21 @@ use support::{check_source, run};
 #[test]
 fn infer_signature_parameters_from_closure_inputs_and_results() {
     let output = run(r#"
-def apply[T](f: &Closure[[T], T], value: T) -> T:
+def apply[T](f: &Closure[[T], Result[T, OverflowError[T]]], value: T) -> Result[T, OverflowError[T]]:
     f(value)
 def read[T](f: &Closure[[], T]) -> T:
     f()
-def make[T: IntType](offset: T) -> Closure[[T], T]:
-    def [offset](value: T) -> T:
-        offset + value
-def main() -> Result[(), IoError]:
+def make[T: IntType](offset: T) -> Closure[[T], Result[T, OverflowError[T]]]:
+    def [offset](value: T) -> Result[T, OverflowError[T]]:
+        Ok(offset + value)
+def main() -> Result[(), IoError | OverflowError[u8] | OverflowError[u16]]:
     add = make(2u8)
-    print(apply(&add, 3u8))?
+    print(apply(&add, 3u8)?)?
     base = 7u16
-    get = def [&base]() -> u16:
-        base + 1
-    print(read(&get))?
-    print(1 + get())?
+    get = def [&base]() -> Result[u16, OverflowError[u16]]:
+        Ok(base + 1)
+    print(read(&get)?)?
+    print(1 + get()?)?
     Ok(())
 "#);
     assert!(
@@ -52,7 +52,7 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn signature_evidence_must_agree_without_erasing_capture_lifetimes() {
-    let error = check_source("def apply[T](f: &Closure[[T], T], x: T) -> T:\n    f(x)\ndef main() -> ():\n    n = 1u8\n    f = def [n](x: u8) -> u8:\n        n + x\n    apply(&f, 2i64)\n    pass\n").unwrap_err().to_string();
+    let error = check_source("def apply[T](f: &Closure[[T], Result[T, OverflowError[T]]], x: T) -> Result[T, OverflowError[T]]:\n    f(x)\ndef main() -> ():\n    n = 1u8\n    f = def [n](x: u8) -> Result[u8, OverflowError[u8]]:\n        Ok(n + x)\n    apply(&f, 2i64)\n    pass\n").unwrap_err().to_string();
     assert!(error.contains("conflicting types"), "{error}");
     let error = check_source("def identity[T](value: T) -> T:\n    value\ndef main() -> ():\n    n = 1\n    f = def [&n]() -> i64:\n        n\n    g = identity(f)\n    pass\n").unwrap_err().to_string();
     assert!(error.contains("reference type arguments"), "{error}");
