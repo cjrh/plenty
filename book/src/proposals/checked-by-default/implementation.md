@@ -113,13 +113,29 @@ Image and Markdown preserve format/domain errors, checked extents, exact parser
 and output progress, and cleanup. Their 23 and 10 tests pass respectively;
 representation-limit probes supplement, not replace, actual codec/parser tests.
 
-Adoption remains incomplete. Parallel reductions/generated helpers, repository-wide
-tests/examples/docs migration, full-suite validation, native arithmetic audits and
-performance measurements remain. The user selected serial-prefix parallel integer
-sum semantics with the precise first overflow payload and callbacks invoked once;
-initial mapped-value storage is acceptable pending measurement. Enumerate index
-overflow retains its explicitly documented trapping primitive contract for this
-checkpoint. Neither decision constitutes implementation or acceptance of that lane.
+The reviewed parallel integer sum now returns an ordinary overflow/pool Result,
+retaining serial-prefix semantics, the precise first wrapped payload and one
+callback invocation per item. Mapping drains before ordered addition and source
+cleanup; O(n) mapped storage and a serial combination pass are deliberate,
+unbenchmarked costs. Floats retain chunk grouping. Enumerate index overflow keeps
+its explicitly documented trapping contract. All 30 pipeline tests and both owned
+tutorial examples pass after integration.
+
+Reviewed tutorial, reference and skill adoption uses independent public callback
+Results, explicit joins and precise propagation. Full executable documentation
+improves from 3 passing / 17 failing tests to 11 passing / 9 failing. Remaining
+locations instantiate unmigrated generic deque/heap/graph/LRU bodies or the
+infallible fixed-tree reducer contract. Registry analysis does not instantiate
+all generic bodies; its two passes do not establish complete std adoption.
+
+Adoption remains incomplete. Fallible reduction callbacks, deferred generic std
+instances, repository fixtures/examples, full-suite/native arithmetic audits and
+performance measurements remain. The user approved deterministic fallible-tree
+errors by level then left-to-right pair, accepting level-by-level scheduling while
+infallible reducers retain their optimization. The user also approved ordinary
+Result[(), E] initializers producing Result[Class, E], without adding AllocError
+unless declared. Both extensions await implementation/review/cleanup proof;
+infallible destructor and context-exit protocols remain unchanged.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 

@@ -217,8 +217,19 @@ progress remain checked rather than saturated. Independent review prompted a
 Markdown source-comment correction and an image OOM fixture change to exercise
 conversion rather than copying; both were applied and validated.
 These are focused checkpoints, not full-suite/native/export/performance acceptance.
-Repository examples/docs and parallel reductions/generated helpers remain under
-adoption. Separate pre-existing archive-decimal and PNG-framing limits are recorded
+Reviewed parallel integer sums now expose precise first-overflow Results after
+workers drain, preserving serial-prefix behavior and callbacks-once semantics.
+All 30 pipeline tests pass. The initial implementation retains O(n) numeric values
+and combines them serially; no performance improvement is claimed. Generated
+split/count helpers have source bounds and exact extent errors; enumeration keeps
+its explicit trapping boundary.
+Reviewed early/advanced lessons, reference and skill examples use public callback
+Results and explicit worker error handling. Combined executable documentation now
+has 11 passing / 9 failing tests rather than 3 / 17. Unmigrated generic deque,
+heap, graph and LRU instances plus fallible reducers remain actual blockers;
+registry success does not cover them. Repository fixtures/examples, full native
+and all-features acceptance remain outstanding.
+Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 
 Class match patterns shipped with issue #558.
