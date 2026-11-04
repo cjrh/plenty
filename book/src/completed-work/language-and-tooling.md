@@ -268,6 +268,14 @@ imported-callback test separately proves inlining and isolated cold/warm/edit ca
 behavior. HTTP qualification retains real TCP/TLS/curl/corpus/installed-toolchain
 assertions, with 15 passing cases and precise aggregate-overflow context. These are
 scoped checkpoints, not a substitute for the red whole-workspace baseline.
+The complete gate at `af8aa15d` confirms 5,375 reported passes, 259 failures
+and eight ignores, including 27 optional self-skips: 554 identical earlier failed
+names now pass and no failed name is new. It is still red. Subsequently reviewed
+shipped examples and structure companions pass 20 structure tests and all three
+exhaustive-example tests. The explicitly run sqlite-vec transaction/inference
+preservation trial passes with deterministic test inference, not a real embedding
+model. Local skill assembly passes 19 sync tests and 152-page/837-target link
+validation; no publication, agent trial or performance acceptance is inferred.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

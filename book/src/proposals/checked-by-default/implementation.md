@@ -172,6 +172,17 @@ allocation and ownership oracles. The user explicitly approved updating one
 unoptimized range-generator oracle to require the exact bounded helper and
 caller-provenance calls. It retains counted-source/no-iterator-allocation checks
 and native output, not a zero-call or performance-equivalence claim.
+A complete gate at `af8aa15d` confirms all those integrated checkpoints: 5,375
+reported passes, 259 failures and eight ignores, including 27 optional self-skips.
+Exactly 554 previously failing names now pass, with no newly failing name. The
+remaining failures are fixture/example adoption blockers, not acceptance.
+Reviewed shipped-example and companion adoption subsequently passes all 20
+structure tests and all three exhaustive-example tests, with the original stress,
+allocation and ownership oracles intact. An explicitly run sqlite-vec trial passes
+its real transactional example using deterministic test inference; this does not
+qualify a real embedding model. A local release-skill assembly passes 19 sync tests
+and checks 152 Markdown pages/837 local targets without missing links; no remote
+publication or agent trial is implied.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
