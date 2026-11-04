@@ -5,8 +5,15 @@
 mod support;
 use support::assert_stdout as expect;
 
-/// Names of the symbols `function` calls in a compiled object.
+/// Names of the symbols `function` references in a compiled object.
 fn calls(source: &str, function: &str) -> Vec<String> {
+    symbol_relocations(source, function)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+fn symbol_relocations(source: &str, function: &str) -> Vec<(String, object::SymbolKind)> {
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("loop.o");
@@ -26,13 +33,10 @@ fn calls(source: &str, function: &str) -> Vec<String> {
             *offset >= symbol.address() && *offset < symbol.address() + symbol.size()
         })
         .filter_map(|(_, relocation)| match relocation.target() {
-            RelocationTarget::Symbol(index) => Some(
-                file.symbol_by_index(index)
-                    .unwrap()
-                    .name()
-                    .unwrap()
-                    .to_owned(),
-            ),
+            RelocationTarget::Symbol(index) => {
+                let symbol = file.symbol_by_index(index).unwrap();
+                Some((symbol.name().unwrap().to_owned(), symbol.kind()))
+            }
             _ => None,
         })
         .collect()
@@ -192,7 +196,7 @@ fn generator_expression_range_sources_are_counted_loops() {
     let source = r#"
 def triple(n: i64) -> i64:
     # Only called for n={10,7,4,1,-2,-5,-8}: products fit in [-24,30].
-    # Retain the generator-expression resume's exact no-runtime-call oracle.
+    # Keep primitive trapping arithmetic bounded without changing the range workload.
     unchecked:
         n * 3
 
@@ -203,13 +207,48 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
     print(total)?
     Ok(())
 "#;
-    let calls = calls(source, "__plenty_resume___plenty_genexpr_main_10_14");
-    // The frame calls the runtime once, when it finishes.
+    let relocations = symbol_relocations(source, "__plenty_resume___plenty_genexpr_main_10_14");
+    // Data addresses are not calls; retain every other symbol target, including
+    // undefined runtime symbols whose object kind is Unknown rather than Text.
+    let calls: Vec<_> = relocations
+        .iter()
+        .filter(|(_, kind)| *kind != object::SymbolKind::Data)
+        .map(|(name, _)| name.as_str())
+        .collect();
+    // This text-API object is unoptimized: the bounded helper remains a call,
+    // with intentional caller-provenance enter/leave bookkeeping. Counted-range
+    // advancement needs no iterator/producer/allocation helpers, but this does
+    // not establish zero calls or performance equivalence to inline arithmetic.
     let runtime: Vec<_> = calls
         .iter()
-        .filter(|name| name.starts_with("plenty_") && !name.starts_with("plenty_trap_"))
+        .copied()
+        .filter(|name| name.starts_with("plenty_"))
         .collect();
-    assert_eq!(runtime, ["plenty_generator_finish"], "{calls:?}");
+    assert_eq!(
+        runtime,
+        [
+            "plenty_generator_finish",
+            "plenty_caller_enter",
+            "plenty_caller_leave"
+        ],
+        "{relocations:?}"
+    );
+    let user: Vec<_> = calls
+        .iter()
+        .copied()
+        .filter(|name| !name.starts_with("plenty_"))
+        .collect();
+    assert_eq!(user, ["__plenty_fn_triple"], "{relocations:?}");
+    assert_eq!(
+        calls,
+        [
+            "plenty_generator_finish",
+            "plenty_caller_enter",
+            "__plenty_fn_triple",
+            "plenty_caller_leave"
+        ],
+        "{relocations:?}"
+    );
     expect(source, "21\n");
 }
 
