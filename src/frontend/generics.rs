@@ -2231,12 +2231,12 @@ mod tests {
     #[test]
     fn explicit_inferred_alias_and_recursive_calls_share_one_specialization() {
         let mut source = String::from(
-            "type Count = i64\ndef down[T: IntType](x: T) -> T:\n    if x == 0:\n        return x\n    down(x - 1)\ndef main() -> ():\n",
+            "type Count = i64\ndef down[T: IntType](x: T) -> Result[T, OverflowError[T]]:\n    if x == 0:\n        return Ok(x)\n    down(x - 1)\ndef main() -> Result[(), OverflowError[i64]]:\n",
         );
         for _ in 0..100 {
-            source.push_str("    down(3)\n    down[i64](3)\n    down[Count](3)\n");
+            source.push_str("    down(3)?\n    down[i64](3)?\n    down[Count](3)?\n");
         }
-        source.push_str("    pass\n");
+        source.push_str("    Ok(())\n");
         let program = compile(&source, &mut Heap::default()).unwrap();
         let instances = program
             .ops

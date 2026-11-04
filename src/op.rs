@@ -1363,24 +1363,24 @@ mod tests {
     #[test]
     fn lifetime_fact_directly_precedes_only_forwarding_calls() {
         let source = r#"
-def read(value: &i64, n: i64) -> i64:
-    *value + n
+def read(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(*value + n)
 def view(value: &i64) -> &i64:
     value
-def forwards(value: &i64) -> i64:
+def forwards(value: &i64) -> Result[i64, OverflowError[i64]]:
     read(value, 1)
 def forwards_result(value: &i64) -> &i64:
     return view(value)
-def forwards_indirectly(value: &i64) -> i64:
+def forwards_indirectly(value: &i64) -> Result[i64, OverflowError[i64]]:
     operation = read
     operation(value, 1)
-def lends_local(value: &i64) -> i64:
+def lends_local(value: &i64) -> Result[i64, OverflowError[i64]]:
     local = 2
     read(&local, 1)
-def lends_owned(value: i64) -> i64:
+def lends_owned(value: i64) -> Result[i64, OverflowError[i64]]:
     read(&value, 1)
-def lends_one(value: &i64, other: i64) -> i64:
-    read(value, read(&other, 1))
+def lends_one(value: &i64, other: i64) -> Result[i64, OverflowError[i64]]:
+    read(value, read(&other, 1)?)
 def main() -> ():
     pass
 "#;

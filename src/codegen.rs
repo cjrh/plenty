@@ -4124,7 +4124,11 @@ mod native_target_tests {
         // carries those words through pointers, including callback results.
         let source = r#"
 def key(value: &i64) -> i64:
-    -*value
+    # Keep the plain native callback ABI. The fixture sorts MAX-1, 42 and -7,
+    # never MIN; assert that their negations succeed locally.
+    result = checked:
+        -*value
+    result.unwrap()
 
 def count(stop: i64) -> Generator[i64]:
     for value in range(stop):

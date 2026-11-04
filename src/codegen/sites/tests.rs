@@ -1,8 +1,10 @@
 use super::*;
 
-/// These fixtures deliberately mark checked functions as embedded code:
+/// These fixtures deliberately mark compiled functions as embedded code:
 /// real std algorithms should not gain contrived callback-then-trap paths
 /// merely to exercise diagnostic context restoration.
+/// Each division-by-zero suite deliberately opts out of recoverable arithmetic:
+/// these tests require the guarded trap itself and its exact caller provenance.
 fn fixture(source: &str) -> String {
     let mut heap = Heap::default();
     let mut program = crate::frontend::compile(source, &mut heap).unwrap();
@@ -42,25 +44,25 @@ fn fixture(source: &str) -> String {
 #[test]
 fn nested_standard_helpers_restore_the_caller_after_a_tail_calling_callback() {
     let error = fixture(
-        "def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_forward(n: i64) -> i64:\n    callback(n)\ndef standard_inner(n: i64) -> i64:\n    n // 0\ndef standard_outer(n: i64) -> i64:\n    value = standard_forward(n)\n    standard_inner(value)\ndef main() -> Result[(), IoError]:\n    print(standard_outer(1))?\n    Ok(())\n",
+        "def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_forward(n: i64) -> i64:\n    callback(n)\ndef standard_inner(n: i64) -> i64:\n    unchecked: # Deliberately exercise the division trap, not an Err return.\n        n // 0\ndef standard_outer(n: i64) -> i64:\n    value = standard_forward(n)\n    standard_inner(value)\ndef main() -> Result[(), IoError]:\n    print(standard_outer(1))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:8:5: division by zero\nnote: called from user.plenty:13:11\n"
+        "error: std/fixture.plenty:9:9: division by zero\nnote: called from user.plenty:14:11\n"
     );
 }
 
 #[test]
 fn a_standard_generator_reports_the_resume_site() {
     let error = fixture(
-        "def standard_values() -> Generator[i64]:\n    yield 1\n    yield 1 // 0\ndef main() -> Result[(), IoError]:\n    for n in standard_values():\n        print(n)?\n    Ok(())\n",
+        "def standard_values() -> Generator[i64]:\n    yield 1\n    unchecked: # Deliberately trap while resuming this generator.\n        yield 1 // 0\ndef main() -> Result[(), IoError]:\n    for n in standard_values():\n        print(n)?\n    Ok(())\n",
     );
     assert!(
-        error.starts_with("error: std/fixture.plenty:3:11: division by zero\n"),
+        error.starts_with("error: std/fixture.plenty:4:15: division by zero\n"),
         "{error}"
     );
     assert!(
-        error.ends_with("note: called from user.plenty:5:14\n"),
+        error.ends_with("note: called from user.plenty:6:14\n"),
         "{error}"
     );
 }
@@ -70,66 +72,66 @@ fn a_standard_generator_reports_the_resume_site() {
 #[test]
 fn nested_preserving_standard_helpers_keep_the_user_caller() {
     let error = fixture(
-        "def standard_inner(n: i64) -> i64:\n    n // 0\ndef standard_count(n: i64, total: i64) -> i64:\n    if n == 0:\n        return total\n    standard_count(n - 1, total + n)\ndef standard_mid(n: i64) -> i64:\n    value = standard_count(n, 0)\n    standard_inner(value)\ndef standard_outer(n: i64) -> i64:\n    value = standard_mid(n)\n    value + 1\ndef main() -> Result[(), IoError]:\n    print(standard_outer(3))?\n    Ok(())\n",
+        "def standard_inner(n: i64) -> i64:\n    unchecked: # Deliberately exercise the division trap, not an Err return.\n        n // 0\ndef standard_count(n: i64, total: i64) -> i64:\n    if n == 0:\n        return total\n    # This fixture calls count(3, 0): recursive states are (2,3), (1,5), (0,6).\n    args = checked:\n        (n - 1, total + n)\n    next_n, next_total = args.unwrap()\n    standard_count(next_n, next_total)\ndef standard_mid(n: i64) -> i64:\n    value = standard_count(n, 0)\n    standard_inner(value)\ndef standard_outer(n: i64) -> i64:\n    value = standard_mid(n)\n    # Unreachable: standard_mid always traps before returning a value.\n    result = checked:\n        value + 1\n    result.unwrap()\ndef main() -> Result[(), IoError]:\n    print(standard_outer(3))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:2:5: division by zero\nnote: called from user.plenty:14:11\n"
+        "error: std/fixture.plenty:3:9: division by zero\nnote: called from user.plenty:22:11\n"
     );
 }
 
 #[test]
 fn a_standard_trap_after_an_indirect_callback_returns_names_the_original_caller() {
     let error = fixture(
-        "def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_inner(n: i64) -> i64:\n    n // 0\ndef standard_apply(f: &BoxedCallable[[i64], i64], n: i64) -> i64:\n    value = f(n)\n    standard_inner(value)\ndef main() -> Result[(), AllocError | IoError]:\n    g = BoxedCallable(callback)?\n    print(standard_apply(&g, 1))?\n    Ok(())\n",
+        "def standard_identity(n: i64) -> i64:\n    n\ndef callback(n: i64) -> i64:\n    standard_identity(n)\ndef standard_inner(n: i64) -> i64:\n    unchecked: # Deliberately exercise the division trap, not an Err return.\n        n // 0\ndef standard_apply(f: &BoxedCallable[[i64], i64], n: i64) -> i64:\n    value = f(n)\n    standard_inner(value)\ndef main() -> Result[(), AllocError | IoError]:\n    g = BoxedCallable(callback)?\n    print(standard_apply(&g, 1))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:6:5: division by zero\nnote: called from user.plenty:12:11\n"
+        "error: std/fixture.plenty:7:9: division by zero\nnote: called from user.plenty:13:11\n"
     );
 }
 
 #[test]
 fn a_standard_trap_inside_a_callback_names_the_callback() {
     let error = fixture(
-        "def standard_inner(n: i64) -> i64:\n    n // 0\ndef callback(n: i64) -> i64:\n    standard_inner(n) + 1\ndef standard_apply(f: &BoxedCallable[[i64], i64], n: i64) -> i64:\n    f(n)\ndef main() -> Result[(), AllocError | IoError]:\n    g = BoxedCallable(callback)?\n    print(standard_apply(&g, 1))?\n    Ok(())\n",
+        "def standard_inner(n: i64) -> i64:\n    unchecked: # Deliberately exercise the division trap, not an Err return.\n        n // 0\ndef callback(n: i64) -> i64:\n    # Unreachable addition: standard_inner always traps.\n    result = checked:\n        standard_inner(n) + 1\n    result.unwrap()\ndef standard_apply(f: &BoxedCallable[[i64], i64], n: i64) -> i64:\n    f(n)\ndef main() -> Result[(), AllocError | IoError]:\n    g = BoxedCallable(callback)?\n    print(standard_apply(&g, 1))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:2:5: division by zero\nnote: called from user.plenty:4:5\n"
+        "error: std/fixture.plenty:3:9: division by zero\nnote: called from user.plenty:7:9\n"
     );
 }
 
 #[test]
 fn a_destructor_that_tail_calls_std_does_not_leak_its_site() {
     let error = fixture(
-        "def standard_touch(n: i64) -> ():\n    m = n + 1\nclass Guard:\n    n: i64\n    def __del__(self) -> ():\n        standard_touch(self.n)\ndef standard_make(n: i64) -> i64:\n    guard = Guard(n)\n    guard.n\ndef standard_outer(n: i64) -> i64:\n    value = standard_make(n)\n    value // 0\ndef main() -> Result[(), IoError]:\n    print(standard_outer(1))?\n    Ok(())\n",
+        "def standard_touch(n: i64) -> ():\n    # The destructor passes 1 here; preserve its plain tail-call ABI.\n    result = checked:\n        n + 1\n    m = result.unwrap()\nclass Guard:\n    n: i64\n    def __del__(self) -> ():\n        standard_touch(self.n)\ndef standard_make(n: i64) -> i64:\n    guard = Guard(n)\n    guard.n\ndef standard_outer(n: i64) -> i64:\n    value = standard_make(n)\n    unchecked: # Deliberately trap after the destructor has returned.\n        value // 0\ndef main() -> Result[(), IoError]:\n    print(standard_outer(1))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:12:5: division by zero\nnote: called from user.plenty:14:11\n"
+        "error: std/fixture.plenty:16:9: division by zero\nnote: called from user.plenty:18:11\n"
     );
 }
 
 #[test]
 fn a_sort_key_that_tail_calls_std_does_not_leak_its_site() {
     let error = fixture(
-        "def standard_identity(n: i64) -> i64:\n    n\ndef key(n: &i64) -> i64:\n    standard_identity(*n)\ndef standard_sort(n: i64) -> Result[i64, AllocError]:\n    mut values = [3, 1, 2]?\n    values.sort_by_key(key)\n    Ok(values[0] // (n - n))\ndef main() -> Result[(), AllocError | IoError]:\n    print(standard_sort(1)?)?\n    Ok(())\n",
+        "def standard_identity(n: i64) -> i64:\n    n\ndef key(n: &i64) -> i64:\n    standard_identity(*n)\ndef standard_sort(n: i64) -> Result[i64, AllocError]:\n    mut values = [3, 1, 2]?\n    values.sort_by_key(key)\n    result = unchecked: # n - n is zero; deliberately trap after sorting.\n        values[0] // (n - n)\n    Ok(result)\ndef main() -> Result[(), AllocError | IoError]:\n    print(standard_sort(1)?)?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:8:8: division by zero\nnote: called from user.plenty:10:11\n"
+        "error: std/fixture.plenty:9:9: division by zero\nnote: called from user.plenty:12:11\n"
     );
 }
 
 #[test]
 fn a_standard_trap_after_advancing_a_user_generator_names_the_original_caller() {
     let error = fixture(
-        "def standard_identity(n: i64) -> i64:\n    n\ndef values() -> Generator[i64]:\n    yield standard_identity(1)\ndef standard_sum(n: i64) -> i64:\n    mut total = 0\n    for v in values():\n        total += v\n    total // (total - n)\ndef main() -> Result[(), IoError]:\n    print(standard_sum(1))?\n    Ok(())\n",
+        "def standard_identity(n: i64) -> i64:\n    n\ndef values() -> Generator[i64]:\n    yield standard_identity(1)\ndef standard_sum(n: i64) -> i64:\n    mut total = 0\n    for v in values():\n        # values yields exactly one item, 1; assert this bounded sum locally.\n        result = checked:\n            total + v\n        total = result.unwrap()\n    unchecked: # With n=1, deliberately divide by zero after the resume.\n        total // (total - n)\ndef main() -> Result[(), IoError]:\n    print(standard_sum(1))?\n    Ok(())\n",
     );
     assert_eq!(
         error,
-        "error: std/fixture.plenty:9:5: division by zero\nnote: called from user.plenty:11:11\n"
+        "error: std/fixture.plenty:13:9: division by zero\nnote: called from user.plenty:15:11\n"
     );
 }
 

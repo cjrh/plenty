@@ -612,15 +612,15 @@ def values() -> Generator[i64]:
     yield 2
 def unused() -> i64:
     99
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     owner = Resource(7)
     mut total = 0
     for value in values():
         total += value
     offset = 10
-    callback = def [offset](value: i64) -> i64:
-        value + offset
-    print(total, callback(1))?
+    callback = def [offset](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + offset)
+    print(total, callback(1)?)?
     Ok(())
 "#;
         let temp = tempfile::tempdir().unwrap();

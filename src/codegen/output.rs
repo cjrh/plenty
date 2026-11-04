@@ -915,15 +915,15 @@ mod tests {
     x: i64
     y: i64
 
-    def squared_length(self) -> i64:
-        self.x * self.x + self.y * self.y + {i}
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y + {i})
 
-def label{i}(point: &Point{i}) -> Result[(), IoError]:
-    if point.squared_length() > {i}:
+def label{i}(point: &Point{i}) -> Result[(), IoError | OverflowError[i64]]:
+    if point.squared_length()? > {i}:
         print(\"far {i}\")?
     Ok(())
 
-def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
+def squares{i}(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:
     [n * n + {i} for n in range(limit) if n % 2 == 0]
 
 "
@@ -937,11 +937,11 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
         let mut source: String = (0..UNITS).map(unit).collect();
         // One function over `SINGLE_PASS_BRANCH_ARGUMENTS`, so both register
         // allocators contribute to the object.
-        source.push_str("def large(x: i64) -> i64:\n    mut y = x\n");
+        source.push_str("def large(x: i64) -> Result[i64, OverflowError[i64]]:\n    mut y = x\n");
         for i in 0..SINGLE_PASS_BRANCH_ARGUMENTS / 2 + 100 {
             source.push_str(&format!("    if y > {i}:\n        y = y + 3\n"));
         }
-        source.push_str("    y\n\n");
+        source.push_str("    Ok(y)\n\n");
         assert_same_object_for_any_worker_count(source);
     }
 
@@ -996,14 +996,14 @@ def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
 def first[T](items: &list[T]) -> i64:
     len(items)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     p = Point(3, 4)
     xs = [p.x, p.y]?
     print(first(&xs))?
     offset = 5
-    add = def [offset](v: i64) -> i64:
-        v + offset
-    print(add(2))?
+    add = def [offset](v: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(v + offset)
+    print(add(2)?)?
     Ok(())
 ";
         let options = super::super::DumpOptions {
@@ -1376,32 +1376,37 @@ def main() -> ():
     /// thread and executor adapters, generator frames, runtime imports.
     fn declaring_unit(i: usize) -> String {
         format!(
-            "def count{i}(start: i64) -> Generator[i64]:
+            "def count{i}(start: i64) -> Generator[Result[i64, OverflowError[i64] | ZeroDivisionError]]:
     mut remaining = start
     while remaining > 0:
-        yield remaining // {i} + 1
-        remaining = remaining - 1
+        value = checked:
+            remaining // {i} + 1
+        yield value
+        # remaining > 0 proves decrement stays in [0, MAX-1].
+        unchecked:
+            remaining = remaining - 1
 
-def table{i}(n: i64) -> Result[dict[str, list[i64]], AllocError]:
+def table{i}(n: i64) -> Result[dict[str, list[i64]], AllocError | OverflowError[i64]]:
     mut table: dict[str, list[i64]] = {{}}?
     table.insert(\"k{i}\", [n, n + {i}]?)?
     Ok(table)
 
-def worker{i}(n: i64) -> Result[list[i64], AllocError]:
+def worker{i}(n: i64) -> Result[list[i64], AllocError | OverflowError[i64]]:
     [x * {i} for x in range(n)]
 
-def scaled{i}(n: i64) -> i64:
-    n * {i} + 1
+def scaled{i}(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * {i} + 1)
 
 # Spawn, pool and map jobs each contribute their own errors.
-def run{i}(n: i64) -> Result[(), AllocError | IoError | PoolError | PoolMapError | SpawnError[()]]:
+def run{i}(n: i64) -> Result[(), AllocError | IoError | PoolError | PoolMapError | SpawnError[()] | OverflowError[i64] | ZeroDivisionError]:
     for value in count{i}(n):
-        print(value)?
+        print(value?)?
     print(table{i}(n)?[\"k{i}\"][1] // n)?
     with spawn(worker{i}, n).drop_job()? as task:
         print(task.join()?)?
     with ThreadPoolExecutor(2, 2)? as pool:
-        print(pool.map(scaled{i}, range(n))?)?
+        mapped = pool.map(scaled{i}, range(n))?
+        print([value? for value in mapped]?)?
     Ok(())
 
 "
