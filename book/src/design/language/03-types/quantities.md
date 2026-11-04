@@ -196,7 +196,18 @@ optimized away; generic instances that differ only in dimension can still have
 separate function bodies.
 
 Unit spellings live in static type metadata and compiled formatting calls, not
-in each value. Type and dimension errors include
-[scoped alias notes](dimensions.md#diagnostic-alias-notes), while debug formatting
-keeps normalized dimensions. See the
+in each value. A single quantity carries no type pointer: the compiler knows
+its dimension at every use and embeds the symbol in the formatting code. A
+list already holds one pointer to its type descriptor, whatever its element
+type, because the runtime's shared printing, sorting, hashing and cleanup code
+reads the element type through it. A `list[Quantity[f64, D]]` stores plain
+8-byte `f64` rows; only its descriptor, and through it the unit symbol, differs
+from a `list[f64]`. Descriptors are static read-only data, so neither lists nor
+values allocate type information. Converting between the two list types
+without copying would therefore rewrite one header word and leave every
+element untouched. That conversion is part of the
 [remaining units work](../../../backlog.md#units-of-measure).
+
+Type and dimension errors include
+[scoped alias notes](dimensions.md#diagnostic-alias-notes), while debug formatting
+keeps normalized dimensions.
