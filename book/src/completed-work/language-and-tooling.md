@@ -268,10 +268,16 @@ imported-callback test separately proves inlining and isolated cold/warm/edit ca
 behavior. HTTP qualification retains real TCP/TLS/curl/corpus/installed-toolchain
 assertions, with 15 passing cases and precise aggregate-overflow context. These are
 scoped checkpoints, not a substitute for the red whole-workspace baseline.
-The complete gate at `af8aa15d` confirms 5,375 reported passes, 259 failures
-and eight ignores, including 27 optional self-skips: 554 identical earlier failed
-names now pass and no failed name is new. It is still red. Subsequently reviewed
-shipped examples and structure companions pass 20 structure tests and all three
+The historical `af8aa15d` gate had 5,375 reported passes, 259 failures and
+eight ignores. After the reviewed final fixture and example batches, the complete
+host gate at `2ef36dce` passes 5,650 tests with zero failures and eight existing
+ignores. All 259 exact failed names now pass, along with sixteen new outer tests;
+all 27 known optional self-skips execute their bodies. Real native dataframe,
+linalg, tutorial engine, Docker, libFuzzer and Neovim execution is recorded.
+Existing external engines were not rebuilt; transient host-tool conditionals are
+not exhaustively traced. Two selected ignored trials pass separately. This green
+snapshot does not establish performance acceptance or validate the pending shared
+Unit checked-suite repair (issue #712). Reviewed shipped examples and structure companions pass 20 structure tests and all three
 exhaustive-example tests. The explicitly run sqlite-vec transaction/inference
 preservation trial passes with deterministic test inference, not a real embedding
 model. Local skill assembly passes 19 sync tests and 152-page/837-target link

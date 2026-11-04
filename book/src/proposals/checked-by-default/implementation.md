@@ -172,10 +172,17 @@ allocation and ownership oracles. The user explicitly approved updating one
 unoptimized range-generator oracle to require the exact bounded helper and
 caller-provenance calls. It retains counted-source/no-iterator-allocation checks
 and native output, not a zero-call or performance-equivalence claim.
-A complete gate at `af8aa15d` confirms all those integrated checkpoints: 5,375
-reported passes, 259 failures and eight ignores, including 27 optional self-skips.
-Exactly 554 previously failing names now pass, with no newly failing name. The
-remaining failures are fixture/example adoption blockers, not acceptance.
+The historical gate at `af8aa15d` had 5,375 reported passes, 259 failures and
+eight ignores, including 27 optional self-skips. After the reviewed final fixture
+and example adoption, the complete host gate at `2ef36dce` passes: 5,650 passed,
+zero failed and eight existing ignores. Every one of those 259 failed names now
+passes; sixteen additional outer tests pass separately. All 27 known optional
+self-skips execute their bodies, including the selected dataframe/linalg engines,
+tutorial engine jobs and ten Docker cases. The real libFuzzer and Neovim bodies
+also execute. Two explicitly selected ignored trials pass afterward and are not
+folded into the whole-gate totals. External engines are compatible existing
+artifacts, not newly source-built engines; transient host-tool conditionals are
+not exhaustively traced. This is host test acceptance, not performance acceptance.
 Reviewed shipped-example and companion adoption subsequently passes all 20
 structure tests and all three exhaustive-example tests, with the original stress,
 allocation and ownership oracles intact. An explicitly run sqlite-vec trial passes
@@ -190,7 +197,8 @@ heap allocation or restricting the public error type. Independent review and
 second-key failure, skipped callbacks, exact payload/drop counts and normal/release
 storage-layout checks. The pre-repair native probes happened to print correctly;
 the discriminating failure was structural, so no reproduced crash is claimed.
-The fresh integrated whole gate and measurements remain pending.
+The integrated whole gate is green at that immutable snapshot. Measurements
+remain pending, and the #712 repair will require a new integrated gate.
 
 Untimed native execution of the initial acceptance harness completed 110 builds
 and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
