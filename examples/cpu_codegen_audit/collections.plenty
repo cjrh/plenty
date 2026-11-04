@@ -1,11 +1,16 @@
 # CPU-bound string-key workload adapted from examples/collection_bench.py.
 def lookup(xs: &dict[str, i64], keys: &list[str], count: i64) -> i64:
+    modulus: NonZero[i64] = 2048
     mut total = 0
     mut i = 0
     while i < count:
-        if keys[i % 2048] in xs:
-            total = total + 1
-        i = i + 1
+        if keys[i % modulus] in xs:
+            # 0 <= total <= i < count <= i64.MAX.
+            unchecked:
+                total = total + 1
+        # i starts at zero and increments only while i < count.
+        unchecked:
+            i = i + 1
     total
 
 def main() -> Result[(), AllocError | IoError]:

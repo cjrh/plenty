@@ -31,7 +31,7 @@ def echo_one(stream: &mut TcpStream, buffer: &mut Bytes, cancel: &CancellationTo
     stream.read_before(buffer, 0, 1, &deadline, cancel)?
     stream.write_all_before(&buffer[:1], &deadline, cancel)
 
-def selected(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
+def selected(listener: &TcpListener, count: i64) -> Result[i64, NetError | OverflowError[i64]]:
     cancel = CancellationToken().unwrap()
     mut streams = accepted(listener, count, &cancel)?
     mut chosen = selector(64).unwrap()
@@ -52,7 +52,7 @@ def selected(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
             served += 1
     Ok(served)
 
-def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
+def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError | OverflowError[i64]]:
     cancel = CancellationToken().unwrap()
     mut streams = accepted(listener, count, &cancel)?
     mut buffer = std.bytes.with_capacity(1).unwrap()
@@ -71,7 +71,7 @@ def polled(listener: &TcpListener, count: i64) -> Result[i64, NetError]:
                     return Err(error)
     Ok(served)
 
-def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[i64, AllocError | std.bytes.BytesError]:
+def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Result[i64, AllocError | std.bytes.BytesError | OverflowError[i64] | ZeroDivisionError]:
     address = listener.local_address().unwrap()
     mut streams = list[TcpStream].with_capacity(count)?
     for _ in range(count):
@@ -86,7 +86,7 @@ def drive(listener: &TcpListener, count: i64, cancel: &CancellationToken) -> Res
         stream.read_before(&mut buffer, 0, 1, &deadline, cancel).unwrap()
     Ok(i64(monotonic_now().saturating_duration_since(&start).as_nanoseconds()) // rounds)
 
-def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | SpawnError[()] | NetError | OverflowError[i64] | ZeroDivisionError]:
     cancel = CancellationToken()?
     print("connections", "selector ns", "polling ns")?
     for count in [1, 16, 128, 1024]?:
@@ -94,10 +94,10 @@ def main() -> Result[(), AllocError | std.bytes.BytesError | IoError | SpawnErro
         mut by_selector = 0
         with spawn(selected, &listener, count)? as task:
             by_selector = drive(&listener, count, &cancel)?
-            task.join().unwrap()
+            task.join()?
         mut by_polling = 0
         with spawn(polled, &listener, count)? as task:
             by_polling = drive(&listener, count, &cancel)?
-            task.join().unwrap()
+            task.join()?
         print(count, by_selector, by_polling)?
     Ok(())

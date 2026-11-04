@@ -11,7 +11,7 @@ enum TestError:
     Insert(i64)
     Remove(i64)
 
-type CheckError = AllocError | TestError
+type CheckError = AllocError | TestError | OverflowError[i64]
 
 def verify(b: &btree.Tree, r: &red_black.Tree, expected: &list[i64]) -> Result[(), CheckError]:
     if not btree.valid(&b)?:
@@ -95,7 +95,7 @@ def insertion_permutations(keys: &mut list[i64], depth: i64) -> Result[(), Check
         keys.swap(depth, i)
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | TestError]:
+def main() -> Result[(), CheckError | IoError | ZeroDivisionError]:
     # Every insertion/deletion permutation pair, including the full i64 domain.
     mut small = [-9223372036854775808, -1, 0, 1, 9223372036854775807]?
     insertion_permutations(&mut small, 0)?

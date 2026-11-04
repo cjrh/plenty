@@ -54,20 +54,26 @@ def prepare(tree: &mut Trie, wanted: i64) -> Result[(), AllocError]:
         id = len(tree.nodes)
         tree.nodes.append(Node("", -1, -1, -1, Nothing, False, tree.free))?
         tree.free = id
-        tree.available += 1
+        # The appended node supplies one additional free slot.
+        unchecked:
+            tree.available += 1
     Ok(())
 
 def take(tree: &mut Trie, parent: i64, label: str) -> i64:
     id = tree.free
     tree.free = tree.nodes[id].next_free
-    tree.available -= 1
+    # prepare reserved the entire missing suffix before any take.
+    unchecked:
+        tree.available -= 1
     tree.nodes[id] = Node(label, parent, -1, -1, Nothing, True, -1)
     id
 
 def release(tree: &mut Trie, id: i64) -> ():
     tree.nodes[id] = Node("", -1, -1, -1, Nothing, False, tree.free)
     tree.free = id
-    tree.available += 1
+    # A live node becomes free, so available remains <= len(nodes) - 1.
+    unchecked:
+        tree.available += 1
 
 pub def insert(tree: &mut Trie, key: &str) -> Result[bool, AllocError]:
     mut id = 0
@@ -75,7 +81,9 @@ pub def insert(tree: &mut Trie, key: &str) -> Result[bool, AllocError]:
     # Stream scalars instead of repeatedly scanning UTF-8 with key[index].
     for scalar in key:
         if missing > 0:
-            missing += 1
+            # At most one missing node per scalar; count <= len(key).
+            unchecked:
+                missing += 1
         else:
             next = child(&tree, id, scalar)
             if next == -1:
@@ -103,7 +111,9 @@ pub def insert(tree: &mut Trie, key: &str) -> Result[bool, AllocError]:
         id = next
     # str copies share immutable storage; this does not allocate a fresh string.
     tree.nodes[id].word = Some(*key)
-    tree.size += 1
+    # One terminal per node (including root); this node was nonterminal.
+    unchecked:
+        tree.size += 1
     Ok(True)
 
 pub def remove(tree: &mut Trie, key: &str) -> bool:
@@ -111,7 +121,9 @@ pub def remove(tree: &mut Trie, key: &str) -> bool:
     if id == -1 or tree.nodes[id].word.is_none():
         return False
     tree.nodes[id].word = Nothing
-    tree.size -= 1
+    # The terminal check proved size >= 1 before clearing this key.
+    unchecked:
+        tree.size -= 1
     # Prune nonterminal leaves upward, stopping at the root or a shared prefix.
     while id != 0 and tree.nodes[id].child == -1 and tree.nodes[id].word.is_none():
         parent = tree.nodes[id].parent
@@ -181,7 +193,9 @@ pub def valid(tree: &Trie) -> Result[bool, AllocError]:
         if tree.nodes[id].next_free != -1:
             return Ok(False)
         if tree.nodes[id].word.is_some():
-            count += 1
+            # Each node enters the worklist once, so count <= len(nodes).
+            unchecked:
+                count += 1
         if id != 0 and tree.nodes[id].child == -1 and tree.nodes[id].word.is_none():
             return Ok(False)
         mut next = tree.nodes[id].child
@@ -227,7 +241,9 @@ pub def valid(tree: &Trie) -> Result[bool, AllocError]:
         if tree.nodes[free].parent != -1 or tree.nodes[free].child != -1 or tree.nodes[free].sibling != -1:
             return Ok(False)
         seen[free] = True
-        available += 1
+        # Seen marks exclude repeats, bounding the free count by len(nodes).
+        unchecked:
+            available += 1
         free = tree.nodes[free].next_free
     if available != tree.available:
         return Ok(False)

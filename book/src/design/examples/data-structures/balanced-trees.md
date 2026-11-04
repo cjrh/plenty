@@ -74,6 +74,13 @@ counter because node IDs never leave the module. Surviving IDs remain valid
 when the backing list grows. Storage is retained for reuse rather than shrunk;
 dropping the tree releases all of it. Neither type is a copyable value.
 
+Structural index/count arithmetic uses small `unchecked:` regions with bounds
+maintained by these private representations, not caller-supplied numeric values.
+The B-tree additionally caps its key count at `i64.MAX`: inserting a new key at
+that representational capacity returns `AllocError.CapacityOverflow` before
+allocation or mutation. Duplicate insertion still returns `Ok(False)` there.
+One key per live node bounds the red-black tree's count by its node-list length.
+
 ## Validate more than sorted output
 
 `checks.plenty` compares both trees against a sorted-list model after every

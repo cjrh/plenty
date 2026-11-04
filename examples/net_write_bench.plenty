@@ -12,7 +12,7 @@ from std.time import Deadline, deadline_after, monotonic_now, seconds
 const response_size: i64 = 1048576
 const responses: i64 = 64
 
-def drain(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | NetError | BytesError]:
+def drain(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, AllocError | NetError | BytesError | OverflowError[i64]]:
     mut stream = listener.accept(deadline, cancel)?
     mut buffer = std.bytes.with_capacity(65536)?
     buffer.resize(65536, 0u8)?
@@ -24,7 +24,7 @@ def drain(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
         received += count
     Ok(received)
 
-def main() -> Result[(), AllocError | BytesError | NetError | RangeError | SpawnError[()] | IoError]:
+def main() -> Result[(), AllocError | BytesError | NetError | RangeError | SpawnError[()] | IoError | OverflowError[i64]]:
     mut data = std.bytes.with_capacity(response_size)?
     data.resize(response_size, 120u8)?
     cancel = CancellationToken()?

@@ -54,17 +54,24 @@ pub class Arena[T]:
         else:
             self._free = self._slots[index].next_free
             replace(self._slots[index].value, Some(value))
-        self._count += 1
+        # A successful append bounds count by len(_slots); reuse consumes a hole.
+        unchecked:
+            self._count += 1
         Ok(Key[T](self._namespace, index, self._slots[index].generation))
 
     pub def remove(self: &mut Arena[T], key: &Key[T]) -> Option[T]:
         if not self.contains(key):
             return Nothing
         value = replace(self._slots[key._slot].value, Nothing)
-        self._count -= 1
+        # contains proved a live value, hence count >= 1.
+        unchecked:
+            self._count -= 1
         # Retire exhausted slots instead of allowing a generation to wrap.
         if self._slots[key._slot].generation < self._generation_limit:
-            self._slots[key._slot].generation += 1
+            # Generations start at zero and the guard bounds the increment by
+            # the i64 generation limit. Exhausted slots never reenter the pool.
+            unchecked:
+                self._slots[key._slot].generation += 1
             self._slots[key._slot].next_free = self._free
             self._free = key._slot
         value

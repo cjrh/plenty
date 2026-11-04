@@ -11,7 +11,7 @@ enum TestError:
     Longest(str)
     RetainedResult
 
-type CheckError = AllocError | TestError
+type CheckError = AllocError | TestError | OverflowError[i64] | ZeroDivisionError
 
 def verify(tree: &trie.Trie, expected: &list[str]) -> Result[(), CheckError]:
     if not trie.valid(&tree)?:
@@ -151,7 +151,7 @@ def captured_results() -> Result[(Option[str], list[str]), CheckError]:
     drop(tree)
     Ok((retained, owned))
 
-def main() -> Result[(), AllocError | IoError | TestError]:
+def main() -> Result[(), CheckError | IoError]:
     mut small = ["", "a", "ab", "b", "猫"]?
     insertion_permutations(&mut small, 0)?
     print("14400 permutation pairs passed")?

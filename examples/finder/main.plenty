@@ -13,22 +13,22 @@ def usage() -> Result[(), IoError]:
     print("Directory traversal does not follow discovered symlinks; errors are reported.")?
     Ok(())
 
-def search(pattern: &str, glob: bool, full_path: bool, hidden: bool) -> Result[i32, IoError]:
+def search(pattern: &str, glob: bool, full_path: bool, hidden: bool) -> Result[i32, IoError | OverflowError[i64]]:
     while True:
         match input()?:
             case Some(path):
                 if len(path) == 0:
                     continue
-                if not hidden and matching.is_hidden(&path):
+                if not hidden and matching.is_hidden(&path)?:
                     continue
-                if matching.matches(pattern, &path, glob, full_path):
+                if matching.matches(pattern, &path, glob, full_path)?:
                     print(path)?
             case Nothing:
                 break
     flush_stdout()?
     Ok(0)
 
-def main() -> Result[i32, IoError]:
+def main() -> Result[i32, IoError | OverflowError[i64]]:
     raw = args_bytes()?
     for index in range(1, len(raw)):
         if raw[index] == encode_utf8("--")?:

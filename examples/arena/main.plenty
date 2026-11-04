@@ -3,16 +3,24 @@ from arena import Arena
 def value(x: &i64) -> i64:
     *x
 
-def transfer(left: &mut i64, right: &mut i64) -> bool:
-    *left -= 3
-    *right += 3
-    True
+def transfer(left: &mut i64, right: &mut i64) -> Result[bool, OverflowError[i64]]:
+    # Neither balance changes if either side cannot represent the transfer.
+    debited = *left - 3
+    credited = *right + 3
+    *left = debited
+    *right = credited
+    Ok(True)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut nodes = Arena[i64](1)?
     first = nodes.insert(10)?
     second = nodes.insert(20)?
-    print(nodes.update_two(&first, &second, transfer))?
+    updated: Option[bool] = match nodes.update_two(&first, &second, transfer):
+        case Some(result):
+            Some(result?)
+        case Nothing:
+            Nothing
+    print(updated)?
     print(nodes.read(&first, value))?
     print(nodes.read(&second, value))?
     print(nodes.remove(&first))?

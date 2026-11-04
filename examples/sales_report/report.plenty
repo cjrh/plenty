@@ -83,7 +83,7 @@ pub def daily(classified: &df.DataFrame) -> Result[df.Query, df.DataFrameError |
         [df.col("order_id")?.count()?.alias("lines")?, df.col("cents")?.sum()?.alias("total_cents")?]?
     )?.sort([df.SortKey(df.col("day")?), df.SortKey(df.col("category")?)]?)?)
 
-pub def run(kind: str, orders_path: str, products_path: str, output: str) -> Result[(), df.DataFrameError | AllocError | IoError]:
+pub def run(kind: str, orders_path: str, products_path: str, output: str) -> Result[(), df.DataFrameError | AllocError | IoError | OverflowError[i64]]:
     products = catalogue(products_path)?
     orders = scan_orders(kind, orders_path)?
     classified = classify(orders, products)?
