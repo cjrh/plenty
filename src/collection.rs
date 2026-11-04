@@ -277,6 +277,8 @@ pub enum CollectionOp {
     ListScalarGetView(Ty),
     /// Exclusive scalar row write: list reference, index, value -> ().
     ListScalarSetRef(Ty),
+    /// Exclusive scalar row exchange: list reference, two indices -> ().
+    ListScalarSwapRef(Ty),
     /// A [`Query`] of the value behind a shared reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
@@ -910,6 +912,10 @@ impl CollectionOp {
                 ],
                 Ty::Unit,
             ),
+            ListScalarSwapRef(t) => (
+                vec![Ty::Ref(Arc::new(t.clone()), true), Ty::I64, Ty::I64],
+                Ty::Unit,
+            ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
             HashIterKeyRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -1083,6 +1089,7 @@ impl CollectionOp {
             | Self::ListScalarGetRef(_)
             | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
+            | Self::ListScalarSwapRef(_)
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
