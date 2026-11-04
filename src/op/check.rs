@@ -354,6 +354,7 @@ fn step(
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarGetView(ty)
                 | crate::collection::CollectionOp::ListScalarSetRef(ty)
+                | crate::collection::CollectionOp::ListScalarSwapRef(ty)
                     if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
                 {
                     return Err("scalar list access requires a scalar list reference".into());
