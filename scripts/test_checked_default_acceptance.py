@@ -211,8 +211,17 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
         self.assertLess(control.index("values = [1, 2, 3]"), control.index("end_no_allocations"))
 
     def test_original_template_extracted_without_workload_edits(self):
+        raw = (acceptance.REPO / "scripts/fixtures/checked_default_compile_bench.rs").read_bytes()
+        self.assertEqual(acceptance.digest(raw),
+                         "14de3ba25e3c4feaea9120d9decebf4d039891c73cbc51c9d3594dfc07b56b73")
+        self.assertEqual(acceptance.digest(raw), acceptance.COMPILE_BENCH_SHA256)
         rust, template = acceptance.original_template(acceptance.REPO)
+        self.assertEqual(rust.encode("utf-8"), raw)
+        self.assertIn("fn main() -> Result<(), Box<dyn Error>>", rust)
+        self.assertEqual(rust.count("#[test]"), 5)
         self.assertIn(template, rust)
+        self.assertEqual(acceptance.digest(template.encode("utf-8")),
+                         "a5ece905715aee8a7db4116d552d91bfda5eebaaf4ff94425a0adeb84924480f")
         original = acceptance.corpus_source("T", 2, template)
         self.assertEqual(original, template.replace("{i}", "0") + template.replace("{i}", "1")
                          + "def main() -> Result[(), Failure]:\n    print(work1(5)?)?\n    Ok(())\n")
@@ -259,12 +268,80 @@ class CheckedDefaultAcceptanceTests(unittest.TestCase):
             # Only C/I work declarations differ from reviewed commit 628f71aa.
             self.assertEqual(acceptance.digest(normalized.encode()), original_hashes[mode])
 
+    def historical_fixture(self):
+        path = self.root / "scripts/fixtures/checked_default_compile_bench.rs"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((acceptance.REPO / "scripts/fixtures/checked_default_compile_bench.rs").read_bytes())
+        return path
+
     def test_template_drift_is_reported_not_silently_regenerated(self):
+        fixture = self.historical_fixture()
+        # Even an unaltered old live example cannot rescue a changed fixture.
         (self.root / "examples").mkdir()
-        (self.root / "examples/compile_bench.rs").write_text("changed template")
+        (self.root / "examples/compile_bench.rs").write_bytes(fixture.read_bytes())
+        fixture.write_bytes(fixture.read_bytes() + b"// changed entrypoint audit input\n")
         with self.assertRaisesRegex(ValueError, "template changed"):
             acceptance.generate(self.inputs, repo=self.root)
         self.assertFalse(self.inputs.exists())
+
+    def test_current_example_changes_do_not_change_historical_generation(self):
+        self.historical_fixture()
+        example = self.root / "examples/compile_bench.rs"
+        example.parent.mkdir()
+        example.write_bytes((acceptance.REPO / "examples/compile_bench.rs").read_bytes())
+        with patch.object(acceptance.subprocess, "run", side_effect=AssertionError("executed")), \
+             patch.object(acceptance.subprocess, "check_output", side_effect=AssertionError("executed")):
+            first = acceptance.generate(self.inputs, repo=self.root, units=(1, 2), allocations=True)
+            for name, changed in (("changed", b"changed runnable example\n"), ("missing", None)):
+                with self.subTest(example=name):
+                    if changed is None:
+                        example.unlink()
+                    else:
+                        example.write_bytes(changed)
+                    output = self.root / name
+                    other = acceptance.generate(output, repo=self.root, units=(1, 2), allocations=True)
+                    self.assertEqual(first, other)
+                    self.assertEqual((self.inputs / "original-template.txt").read_bytes(),
+                                     (output / "original-template.txt").read_bytes())
+                    for entry in first["entries"]:
+                        self.assertEqual((self.inputs / entry["source"]).read_bytes(),
+                                         (output / entry["source"]).read_bytes())
+        self.assertEqual(first["template_sha256"], acceptance.COMPILE_BENCH_SHA256)
+
+    def test_missing_historical_fixture_has_no_live_example_or_command_fallback(self):
+        (self.root / "examples").mkdir()
+        (self.root / "examples/compile_bench.rs").write_bytes(
+            (acceptance.REPO / "scripts/fixtures/checked_default_compile_bench.rs").read_bytes())
+        with patch.object(acceptance.subprocess, "run", side_effect=AssertionError("executed")), \
+             patch.object(acceptance.subprocess, "check_output", side_effect=AssertionError("executed")), \
+             self.assertRaises(FileNotFoundError):
+            acceptance.generate(self.inputs, repo=self.root)
+        self.assertFalse(self.inputs.exists())
+
+    def test_historical_fixture_raw_byte_tampering_fails_before_output(self):
+        fixture = self.historical_fixture()
+        raw = fixture.read_bytes()
+        (self.root / "examples").mkdir()
+        (self.root / "examples/compile_bench.rs").write_bytes(raw)
+        for name, changed in (("crlf", raw.replace(b"\n", b"\r\n")),
+                              ("invalid-utf8", raw + b"\xff"),
+                              ("truncated", raw[:-1])):
+            with self.subTest(tampering=name):
+                fixture.write_bytes(changed)
+                with self.assertRaisesRegex(ValueError, "template changed"):
+                    acceptance.generate(self.inputs, repo=self.root)
+                self.assertFalse(self.inputs.exists())
+
+    def test_historical_fixture_is_read_once_from_passed_repo(self):
+        fixture = self.historical_fixture()
+        raw = fixture.read_bytes()
+        with patch.object(Path, "read_bytes", autospec=True,
+                          side_effect=[raw, AssertionError("unchecked reread")]) as read:
+            rust, template = acceptance.original_template(self.root)
+        read.assert_called_once_with(fixture)
+        self.assertEqual(rust.encode("utf-8"), raw)
+        self.assertEqual(acceptance.digest(template.encode("utf-8")),
+                         "a5ece905715aee8a7db4116d552d91bfda5eebaaf4ff94425a0adeb84924480f")
 
     def test_order_is_reproducible_balanced_and_keeps_all_rounds(self):
         rows = acceptance.schedule()

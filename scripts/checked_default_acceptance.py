@@ -36,8 +36,10 @@ MIN = -(1 << 63)
 TEXT = "alpha beta gamma delta " * 4096
 TEXT_OUTPUT = ("alpha beta\ngamma\ndelta\n" * 4096)[:-1]
 REPO = Path(__file__).resolve().parent.parent
-# Pin the complete historical generator, including its entrypoint, for an
-# auditable original-versus-adapted comparison rather than silent template drift.
+# scripts/fixtures/checked_default_compile_bench.rs preserves the complete historical
+# examples/compile_bench.rs from 830763c9cd7a91fe02e2d05c6ab315b29fd19da8,
+# including its entrypoint and tests. It is audit input, not the runnable example.
+# Pin its unaltered bytes to prevent silent original-versus-adapted workload drift.
 COMPILE_BENCH_SHA256 = "14de3ba25e3c4feaea9120d9decebf4d039891c73cbc51c9d3594dfc07b56b73"
 REUSED_TESTS = [
     "test_arithmetic_errors::overflow_carries_the_wrapped_value_for_every_width",
@@ -283,9 +285,12 @@ def allocation_source(mode, positive=False):
 
 
 def original_template(repo):
-    rust = (repo / "examples/compile_bench.rs").read_text(encoding="utf-8")
+    raw = (repo / "scripts/fixtures/checked_default_compile_bench.rs").read_bytes()
+    if digest(raw) != COMPILE_BENCH_SHA256:
+        raise ValueError("compile_bench template changed; review extraction rather than replace workload")
+    rust = raw.decode("utf-8")
     found = re.search(r'"(protocol Measured\{i\}:.*?)"\n        \)\);', rust, re.S)
-    if digest(rust.encode()) != COMPILE_BENCH_SHA256 or not found or "\\" in found[1]:
+    if not found or "\\" in found[1]:
         raise ValueError("compile_bench template changed; review extraction rather than replace workload")
     return rust, found[1]
 
