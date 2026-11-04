@@ -276,6 +276,12 @@ exhaustive-example tests. The explicitly run sqlite-vec transaction/inference
 preservation trial passes with deterministic test inference, not a real embedding
 model. Local skill assembly passes 19 sync tests and 152-page/837-target link
 validation; no publication, agent trial or performance acceptance is inferred.
+A native adapter audit found and repaired inline sort-error ownership (issue
+#711): typed caller-owned storage now receives the payload before the comparator
+returns. Reviewed native range/managed-error and layout regressions pass in both
+modes without heap allocation; all 21 checked-default cases pass after parent
+integration. Native probes did not reproduce wrong output before the repair;
+the pre-repair structural regression distinguishes the lifetime/layout fix.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

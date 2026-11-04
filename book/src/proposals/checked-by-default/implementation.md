@@ -182,11 +182,15 @@ allocation and ownership oracles intact. An explicitly run sqlite-vec trial pass
 its real transactional example using deterministic test inference; this does not
 qualify a real embedding model. A local release-skill assembly passes 19 sync tests
 and checks 152 Markdown pages/837 local targets without missing links; no remote
-publication or agent trial is implied. A bounded native/generated-adapter audit
-identified the inline sort-error ownership hazard tracked in issue #711; its
-simple range probe still prints correctly in both modes, so no reproduced crash
-is claimed. A typed storage repair and focused validation remain required before
-completion acceptance.
+publication or agent trial is implied. The bounded native/generated-adapter
+audit's inline sort-error ownership hazard (issue #711) is repaired with a
+caller-owned typed result slot. Relocation precedes comparator return, without
+heap allocation or restricting the public error type. Independent review and
+21 parent-run checked-default tests cover range/nested managed errors, first and
+second-key failure, skipped callbacks, exact payload/drop counts and normal/release
+storage-layout checks. The pre-repair native probes happened to print correctly;
+the discriminating failure was structural, so no reproduced crash is claimed.
+The fresh integrated whole gate and measurements remain pending.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
