@@ -278,6 +278,15 @@ impl Drop for Artifact {
     }
 }
 
+fn sum_example_boundary_program() -> String {
+    let (helper, _) = include_str!("../examples/sum.plenty")
+        .split_once("\ndef main(")
+        .expect("sum example entrypoint");
+    format!(
+        "{helper}\ndef main() -> Result[(), AllocError | IoError]:\n    print(str.repr(sum_to(1, i64.MAX))?)?\n    print(str.repr(sum_to(0, i64.MAX))?)?\n    print(str.repr(sum_to(100_000, 0))?)?\n    Ok(())\n"
+    )
+}
+
 #[rstest]
 #[case(include_str!("../examples/sum.plenty"), "5051\n")]
 #[case(
@@ -331,6 +340,10 @@ impl Drop for Artifact {
 #[case(
     "print(42 if True else 1 // 0).unwrap()\nprint(False and 1 // 0 == 0).unwrap()",
     "42\nFalse\n"
+)]
+#[case::sum_example_boundaries(
+    &sum_example_boundary_program(),
+    "Result[i64, OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808))\nResult[i64, OverflowError[i64]].Ok(9223372036854775807)\nResult[i64, OverflowError[i64]].Ok(5000050000)\n"
 )]
 fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
