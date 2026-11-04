@@ -227,10 +227,10 @@ fn drop_job_gives_one_job_free_member_for_distinct_jobs() {
         r#"
 from std.concurrent import ThreadPoolExecutor, SubmitError, PoolError, FutureError
 
-def add(x: i64, y: i64) -> i64:
-    x + y
+def add(x: i64, y: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + y)
 
-def main() -> Result[(), AllocError | IoError | FutureError | PoolError | SpawnError[()] | SubmitError[()]]:
+def main() -> Result[(), AllocError | IoError | FutureError | PoolError | SpawnError[()] | SubmitError[()] | OverflowError[i64]]:
     values = [1, 2]?
     others = [3]?
     with spawn(def once [others]() -> i64: others[0]).drop_job()? as first:
@@ -239,7 +239,7 @@ def main() -> Result[(), AllocError | IoError | FutureError | PoolError | SpawnE
         print(second.join())?
     with ThreadPoolExecutor(1, 1)? as pool:
         print(pool.submit(def once () -> i64: 8).drop_job()?.result()?)?
-        print(pool.submit(add, 4, 5).drop_job()?.result()?)?
+        print(pool.submit(add, 4, 5).drop_job()?.result()??)?
         print(pool.submit(def once [values]() -> i64: values[1]).drop_job()?.result()?)?
     Ok(())
 "#,
