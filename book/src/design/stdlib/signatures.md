@@ -18,92 +18,93 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 108-185
-- [`std.actor.net`](#stdactornet): 187-250
-- [`std.actor.tls`](#stdactortls): 252-281
-- [`std.actor.http.server`](#stdactorhttpserver): 283-346
-- [`std.archive`](#stdarchive): 348-414
-- [`std.atomic`](#stdatomic): 416-425
-- [`std.bytes`](#stdbytes): 427-474
-- [`std.cache.lru`](#stdcachelru): 476-498
-- [`std.channel`](#stdchannel): 500-504
-- [`std.cli`](#stdcli): 506-536
-- [`std.cli.fileinput`](#stdclifileinput): 538-547
-- [`std.cli.progress`](#stdcliprogress): 549-573
-- [`std.collections`](#stdcollections): 575-602
-- [`std.complex`](#stdcomplex): 604-630
-- [`std.compress`](#stdcompress): 632-662
-- [`std.concurrent`](#stdconcurrent): 664-668
-- [`std.crypto`](#stdcrypto): 670-751
-- [`std.csv`](#stdcsv): 753-816
-- [`std.dataframe`](#stddataframe): 818-1017
-- [`std.db.kv`](#stddbkv): 1019-1051
-- [`std.db.sqlite`](#stddbsqlite): 1053-1117
-- [`std.deque`](#stddeque): 1119-1133
-- [`std.diff`](#stddiff): 1135-1164
-- [`std.encoding`](#stdencoding): 1166-1233
-- [`std.env`](#stdenv): 1235-1249
-- [`std.error`](#stderror): 1251-1271
-- [`std.fmt`](#stdfmt): 1273-1340
-- [`std.fs`](#stdfs): 1342-1436
-- [`std.fs.dirs`](#stdfsdirs): 1438-1448
-- [`std.fs.watch`](#stdfswatch): 1450-1485
-- [`std.graph`](#stdgraph): 1487-1575
-- [`std.http`](#stdhttp): 1577-1647
-- [`std.http.decoder`](#stdhttpdecoder): 1649-1666
-- [`std.http.body`](#stdhttpbody): 1668-1703
-- [`std.http.client`](#stdhttpclient): 1705-1815
-- [`std.http.cookie`](#stdhttpcookie): 1817-1849
-- [`std.http.files`](#stdhttpfiles): 1851-1864
-- [`std.http.https`](#stdhttphttps): 1866-1880
-- [`std.http.proxy`](#stdhttpproxy): 1882-1903
-- [`std.http.server`](#stdhttpserver): 1905-1990
-- [`std.http.sse`](#stdhttpsse): 1992-2011
-- [`std.http.tls`](#stdhttptls): 2013-2030
-- [`std.http.typed`](#stdhttptyped): 2032-2065
-- [`std.http.websocket`](#stdhttpwebsocket): 2067-2102
-- [`std.http.wss`](#stdhttpwss): 2104-2110
-- [`std.image`](#stdimage): 2112-2158
-- [`std.io`](#stdio): 2160-2266
-- [`std.io.typed`](#stdiotyped): 2268-2306
-- [`std.json`](#stdjson): 2308-2372
-- [`std.jwt`](#stdjwt): 2374-2421
-- [`std.log`](#stdlog): 2423-2490
-- [`std.markdown`](#stdmarkdown): 2492-2526
-- [`std.template`](#stdtemplate): 2528-2549
-- [`std.math`](#stdmath): 2551-2617
-- [`std.mime`](#stdmime): 2619-2645
-- [`std.net`](#stdnet): 2647-2729
-- [`std.path`](#stdpath): 2731-2748
-- [`std.process`](#stdprocess): 2750-2799
-- [`std.random`](#stdrandom): 2801-2822
-- [`std.ready`](#stdready): 2824-2855
-- [`std.regex`](#stdregex): 2857-2910
-- [`std.report`](#stdreport): 2912-2919
-- [`std.secrets`](#stdsecrets): 2921-2947
-- [`std.shlex`](#stdshlex): 2949-2958
-- [`std.sketch`](#stdsketch): 2960-2998
-- [`std.sketch.xor`](#stdsketchxor): 3000-3011
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3013-3028
-- [`std.signal`](#stdsignal): 3030-3047
-- [`std.simd`](#stdsimd): 3049-3150
-- [`std.stat`](#stdstat): 3152-3185
-- [`std.plot`](#stdplot): 3187-3276
-- [`std.linalg`](#stdlinalg): 3278-3319
-- [`std.sync`](#stdsync): 3321-3339
-- [`std.system`](#stdsystem): 3341-3399
-- [`std.tempfile`](#stdtempfile): 3401-3433
-- [`std.test`](#stdtest): 3435-3477
-- [`std.text`](#stdtext): 3479-3522
-- [`std.thread`](#stdthread): 3524-3528
-- [`std.time`](#stdtime): 3530-3574
-- [`std.tls`](#stdtls): 3576-3658
-- [`std.toml`](#stdtoml): 3660-3709
-- [`std.unicode`](#stdunicode): 3711-3723
-- [`std.units`](#stdunits): 3725-3955
-- [`std.url`](#stdurl): 3957-3985
-- [`std.uuid`](#stduuid): 3987-4010
-- [`std.xml`](#stdxml): 4012-4045
+- [`std.actor`](#stdactor): 109-186
+- [`std.actor.net`](#stdactornet): 188-251
+- [`std.actor.tls`](#stdactortls): 253-282
+- [`std.actor.http.server`](#stdactorhttpserver): 284-347
+- [`std.archive`](#stdarchive): 349-415
+- [`std.atomic`](#stdatomic): 417-426
+- [`std.bytes`](#stdbytes): 428-475
+- [`std.cache.lru`](#stdcachelru): 477-499
+- [`std.channel`](#stdchannel): 501-505
+- [`std.cli`](#stdcli): 507-537
+- [`std.cli.fileinput`](#stdclifileinput): 539-548
+- [`std.cli.progress`](#stdcliprogress): 550-574
+- [`std.collections`](#stdcollections): 576-603
+- [`std.complex`](#stdcomplex): 605-631
+- [`std.compress`](#stdcompress): 633-663
+- [`std.concurrent`](#stdconcurrent): 665-669
+- [`std.crypto`](#stdcrypto): 671-752
+- [`std.csv`](#stdcsv): 754-817
+- [`std.dataframe`](#stddataframe): 819-1018
+- [`std.db.kv`](#stddbkv): 1020-1052
+- [`std.db.sqlite`](#stddbsqlite): 1054-1118
+- [`std.deque`](#stddeque): 1120-1134
+- [`std.diff`](#stddiff): 1136-1165
+- [`std.encoding`](#stdencoding): 1167-1234
+- [`std.env`](#stdenv): 1236-1250
+- [`std.error`](#stderror): 1252-1272
+- [`std.fmt`](#stdfmt): 1274-1341
+- [`std.fs`](#stdfs): 1343-1437
+- [`std.fs.dirs`](#stdfsdirs): 1439-1449
+- [`std.fs.watch`](#stdfswatch): 1451-1486
+- [`std.graph`](#stdgraph): 1488-1576
+- [`std.http`](#stdhttp): 1578-1648
+- [`std.http.decoder`](#stdhttpdecoder): 1650-1667
+- [`std.http.body`](#stdhttpbody): 1669-1704
+- [`std.http.client`](#stdhttpclient): 1706-1816
+- [`std.http.cookie`](#stdhttpcookie): 1818-1850
+- [`std.http.files`](#stdhttpfiles): 1852-1865
+- [`std.http.https`](#stdhttphttps): 1867-1881
+- [`std.http.proxy`](#stdhttpproxy): 1883-1904
+- [`std.http.server`](#stdhttpserver): 1906-1991
+- [`std.http.sse`](#stdhttpsse): 1993-2012
+- [`std.http.tls`](#stdhttptls): 2014-2031
+- [`std.http.typed`](#stdhttptyped): 2033-2066
+- [`std.http.websocket`](#stdhttpwebsocket): 2068-2103
+- [`std.http.wss`](#stdhttpwss): 2105-2111
+- [`std.image`](#stdimage): 2113-2159
+- [`std.io`](#stdio): 2161-2267
+- [`std.io.typed`](#stdiotyped): 2269-2307
+- [`std.json`](#stdjson): 2309-2373
+- [`std.jwt`](#stdjwt): 2375-2422
+- [`std.log`](#stdlog): 2424-2491
+- [`std.markdown`](#stdmarkdown): 2493-2527
+- [`std.template`](#stdtemplate): 2529-2550
+- [`std.math`](#stdmath): 2552-2618
+- [`std.mime`](#stdmime): 2620-2646
+- [`std.net`](#stdnet): 2648-2730
+- [`std.path`](#stdpath): 2732-2749
+- [`std.process`](#stdprocess): 2751-2800
+- [`std.random`](#stdrandom): 2802-2823
+- [`std.ready`](#stdready): 2825-2856
+- [`std.regex`](#stdregex): 2858-2911
+- [`std.report`](#stdreport): 2913-2920
+- [`std.secrets`](#stdsecrets): 2922-2948
+- [`std.shlex`](#stdshlex): 2950-2959
+- [`std.sketch`](#stdsketch): 2961-2999
+- [`std.sketch.xor`](#stdsketchxor): 3001-3012
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3014-3029
+- [`std.signal`](#stdsignal): 3031-3048
+- [`std.simd`](#stdsimd): 3050-3151
+- [`std.stat`](#stdstat): 3153-3186
+- [`std.plot`](#stdplot): 3188-3277
+- [`std.linalg`](#stdlinalg): 3279-3320
+- [`std.sync`](#stdsync): 3322-3340
+- [`std.system`](#stdsystem): 3342-3400
+- [`std.tempfile`](#stdtempfile): 3402-3434
+- [`std.test`](#stdtest): 3436-3478
+- [`std.text`](#stdtext): 3480-3523
+- [`std.thread`](#stdthread): 3525-3529
+- [`std.time`](#stdtime): 3531-3575
+- [`std.tls`](#stdtls): 3577-3659
+- [`std.toml`](#stdtoml): 3661-3710
+- [`std.unicode`](#stdunicode): 3712-3724
+- [`std.units`](#stdunits): 3726-3962
+- [`std.units.catalogue`](#stdunitscatalogue): 3964-4742
+- [`std.url`](#stdurl): 4744-4772
+- [`std.uuid`](#stduuid): 4774-4797
+- [`std.xml`](#stdxml): 4799-4832
 
 ## `std.actor`
 
@@ -3896,6 +3897,7 @@ const day: Quantity[f64, Time] = 86400.0 * s
 const hectare: Quantity[f64, Area] = 1e4 * (m * m)
 const litre: Quantity[f64, Volume] = 1e-3 * (m * m * m)
 const millilitre: Quantity[f64, Volume] = 1e-6 * (m * m * m)
+const cubic_metre: Quantity[f64, Volume] = m * m * m
 const tonne: Quantity[f64, Mass] = 1e3 * kg
 const dalton: Quantity[f64, Mass] = m_u
 const eV: Quantity[f64, Energy] = e * V
@@ -3911,6 +3913,7 @@ const foot: Quantity[f64, Length] = 0.3048 * m
 const yard: Quantity[f64, Length] = 0.9144 * m
 const mile: Quantity[f64, Length] = 1609.344 * m
 const nautical_mile: Quantity[f64, Length] = 1852.0 * m
+const angstrom: Quantity[f64, Length] = 1e-10 * m
 const light_year: Quantity[f64, Length] = 9460730472580800.0 * m
 const parsec: Quantity[f64, Length] = (648000.0 / f64.PI) * au
 const acre: Quantity[f64, Area] = 4046.8564224 * (m * m)
@@ -3919,6 +3922,8 @@ const pound: Quantity[f64, Mass] = 0.45359237 * kg
 const ounce: Quantity[f64, Mass] = pound / 16.0
 const pound_force: Quantity[f64, Force] = 0.45359237 * 9.80665 * N
 const knot: Quantity[f64, Velocity] = nautical_mile / hour
+const km_per_hour: Quantity[f64, Velocity] = km / hour
+const mph: Quantity[f64, Velocity] = mile / hour
 const psi: Quantity[f64, Pressure] = pound_force / (inch * inch)
 const torr: Quantity[f64, Pressure] = atm / 760.0
 const mmHg: Quantity[f64, Pressure] = 133.322387415 * Pa
@@ -3926,6 +3931,8 @@ const calorie: Quantity[f64, Energy] = 4.184 * J
 const kilocalorie: Quantity[f64, Energy] = 4184.0 * J
 const btu: Quantity[f64, Energy] = 1055.05585262 * J
 const horsepower: Quantity[f64, Power] = 550.0 * foot * pound_force / s
+const week: Quantity[f64, Time] = 7.0 * day
+const year: Quantity[f64, Time] = 365.0 * day
 def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]
 def clamp[Num, D: Dimension](x: Quantity[Num, D], low: Quantity[Num, D], high: Quantity[Num, D]) -> Quantity[Num, D]
 def sum[D: Dimension](items: &list[Quantity[f64, D]]) -> Quantity[f64, D]
@@ -3952,6 +3959,786 @@ def from_fahrenheit(degrees: f64) -> Quantity[f64, Temperature]
 def to_fahrenheit(t: Quantity[f64, Temperature]) -> f64
 def from_duration(span: &Duration) -> Quantity[f64, Time]
 def to_duration(t: Quantity[f64, Time]) -> Result[Duration, RangeError]
+```
+
+## `std.units.catalogue`
+
+Every SI prefix on every SI unit and the other named units of NIST SP 811. [Reference](units-catalogue.md).
+
+```text
+dimension LinearDensity = u.Mass / u.Length
+dimension ElectricDipoleMoment = u.Charge * u.Length
+dimension MagneticFieldStrength = u.Current / u.Length
+dimension Exposure = u.Charge / u.Mass
+dimension Luminance = u.Luminosity / u.Area
+const qg: Quantity[f64, u.Mass] = 1e-33 * u.kg
+const rg: Quantity[f64, u.Mass] = 1e-30 * u.kg
+const yg: Quantity[f64, u.Mass] = 1e-27 * u.kg
+const zg: Quantity[f64, u.Mass] = 1e-24 * u.kg
+const ag: Quantity[f64, u.Mass] = 1e-21 * u.kg
+const fg: Quantity[f64, u.Mass] = 1e-18 * u.kg
+const pg: Quantity[f64, u.Mass] = 1e-15 * u.kg
+const ng: Quantity[f64, u.Mass] = 1e-12 * u.kg
+const ug: Quantity[f64, u.Mass] = 1e-9 * u.kg
+const mg: Quantity[f64, u.Mass] = 1e-6 * u.kg
+const cg: Quantity[f64, u.Mass] = 1e-5 * u.kg
+const dg: Quantity[f64, u.Mass] = 1e-4 * u.kg
+const dag: Quantity[f64, u.Mass] = 1e-2 * u.kg
+const hg: Quantity[f64, u.Mass] = 1e-1 * u.kg
+const kg: Quantity[f64, u.Mass] = 1e0 * u.kg
+const Mg: Quantity[f64, u.Mass] = 1e3 * u.kg
+const Gg: Quantity[f64, u.Mass] = 1e6 * u.kg
+const Tg: Quantity[f64, u.Mass] = 1e9 * u.kg
+const Pg: Quantity[f64, u.Mass] = 1e12 * u.kg
+const Eg: Quantity[f64, u.Mass] = 1e15 * u.kg
+const Zg: Quantity[f64, u.Mass] = 1e18 * u.kg
+const Yg: Quantity[f64, u.Mass] = 1e21 * u.kg
+const Rg: Quantity[f64, u.Mass] = 1e24 * u.kg
+const Qg: Quantity[f64, u.Mass] = 1e27 * u.kg
+const qm: Quantity[f64, u.Length] = 1e-30 * u.m
+const rm: Quantity[f64, u.Length] = 1e-27 * u.m
+const ym: Quantity[f64, u.Length] = 1e-24 * u.m
+const zm: Quantity[f64, u.Length] = 1e-21 * u.m
+const am: Quantity[f64, u.Length] = 1e-18 * u.m
+const fm: Quantity[f64, u.Length] = 1e-15 * u.m
+const pm: Quantity[f64, u.Length] = 1e-12 * u.m
+const nm: Quantity[f64, u.Length] = 1e-9 * u.m
+const um: Quantity[f64, u.Length] = 1e-6 * u.m
+const mm: Quantity[f64, u.Length] = 1e-3 * u.m
+const cm: Quantity[f64, u.Length] = 1e-2 * u.m
+const dm: Quantity[f64, u.Length] = 1e-1 * u.m
+const dam: Quantity[f64, u.Length] = 1e1 * u.m
+const hm: Quantity[f64, u.Length] = 1e2 * u.m
+const km: Quantity[f64, u.Length] = 1e3 * u.m
+const Mm: Quantity[f64, u.Length] = 1e6 * u.m
+const Gm: Quantity[f64, u.Length] = 1e9 * u.m
+const Tm: Quantity[f64, u.Length] = 1e12 * u.m
+const Pm: Quantity[f64, u.Length] = 1e15 * u.m
+const Em: Quantity[f64, u.Length] = 1e18 * u.m
+const Zm: Quantity[f64, u.Length] = 1e21 * u.m
+const Ym: Quantity[f64, u.Length] = 1e24 * u.m
+const Rm: Quantity[f64, u.Length] = 1e27 * u.m
+const Qm: Quantity[f64, u.Length] = 1e30 * u.m
+const qs: Quantity[f64, u.Time] = 1e-30 * u.s
+const rs: Quantity[f64, u.Time] = 1e-27 * u.s
+const ys: Quantity[f64, u.Time] = 1e-24 * u.s
+const zs: Quantity[f64, u.Time] = 1e-21 * u.s
+const attosecond: Quantity[f64, u.Time] = 1e-18 * u.s
+const fs: Quantity[f64, u.Time] = 1e-15 * u.s
+const ps: Quantity[f64, u.Time] = 1e-12 * u.s
+const ns: Quantity[f64, u.Time] = 1e-9 * u.s
+const us: Quantity[f64, u.Time] = 1e-6 * u.s
+const ms: Quantity[f64, u.Time] = 1e-3 * u.s
+const cs: Quantity[f64, u.Time] = 1e-2 * u.s
+const ds: Quantity[f64, u.Time] = 1e-1 * u.s
+const das: Quantity[f64, u.Time] = 1e1 * u.s
+const hs: Quantity[f64, u.Time] = 1e2 * u.s
+const ks: Quantity[f64, u.Time] = 1e3 * u.s
+const Ms: Quantity[f64, u.Time] = 1e6 * u.s
+const Gs: Quantity[f64, u.Time] = 1e9 * u.s
+const Ts: Quantity[f64, u.Time] = 1e12 * u.s
+const Ps: Quantity[f64, u.Time] = 1e15 * u.s
+const Es: Quantity[f64, u.Time] = 1e18 * u.s
+const Zs: Quantity[f64, u.Time] = 1e21 * u.s
+const Ys: Quantity[f64, u.Time] = 1e24 * u.s
+const Rs: Quantity[f64, u.Time] = 1e27 * u.s
+const Qs: Quantity[f64, u.Time] = 1e30 * u.s
+const qA: Quantity[f64, u.Current] = 1e-30 * u.A
+const rA: Quantity[f64, u.Current] = 1e-27 * u.A
+const yA: Quantity[f64, u.Current] = 1e-24 * u.A
+const zA: Quantity[f64, u.Current] = 1e-21 * u.A
+const aA: Quantity[f64, u.Current] = 1e-18 * u.A
+const fA: Quantity[f64, u.Current] = 1e-15 * u.A
+const pA: Quantity[f64, u.Current] = 1e-12 * u.A
+const nA: Quantity[f64, u.Current] = 1e-9 * u.A
+const uA: Quantity[f64, u.Current] = 1e-6 * u.A
+const mA: Quantity[f64, u.Current] = 1e-3 * u.A
+const cA: Quantity[f64, u.Current] = 1e-2 * u.A
+const dA: Quantity[f64, u.Current] = 1e-1 * u.A
+const daA: Quantity[f64, u.Current] = 1e1 * u.A
+const hA: Quantity[f64, u.Current] = 1e2 * u.A
+const kA: Quantity[f64, u.Current] = 1e3 * u.A
+const MA: Quantity[f64, u.Current] = 1e6 * u.A
+const GA: Quantity[f64, u.Current] = 1e9 * u.A
+const TA: Quantity[f64, u.Current] = 1e12 * u.A
+const PA: Quantity[f64, u.Current] = 1e15 * u.A
+const EA: Quantity[f64, u.Current] = 1e18 * u.A
+const ZA: Quantity[f64, u.Current] = 1e21 * u.A
+const YA: Quantity[f64, u.Current] = 1e24 * u.A
+const RA: Quantity[f64, u.Current] = 1e27 * u.A
+const QA: Quantity[f64, u.Current] = 1e30 * u.A
+const qK: Quantity[f64, u.Temperature] = 1e-30 * u.K
+const rK: Quantity[f64, u.Temperature] = 1e-27 * u.K
+const yK: Quantity[f64, u.Temperature] = 1e-24 * u.K
+const zK: Quantity[f64, u.Temperature] = 1e-21 * u.K
+const aK: Quantity[f64, u.Temperature] = 1e-18 * u.K
+const fK: Quantity[f64, u.Temperature] = 1e-15 * u.K
+const pK: Quantity[f64, u.Temperature] = 1e-12 * u.K
+const nK: Quantity[f64, u.Temperature] = 1e-9 * u.K
+const uK: Quantity[f64, u.Temperature] = 1e-6 * u.K
+const mK: Quantity[f64, u.Temperature] = 1e-3 * u.K
+const cK: Quantity[f64, u.Temperature] = 1e-2 * u.K
+const dK: Quantity[f64, u.Temperature] = 1e-1 * u.K
+const daK: Quantity[f64, u.Temperature] = 1e1 * u.K
+const hK: Quantity[f64, u.Temperature] = 1e2 * u.K
+const kK: Quantity[f64, u.Temperature] = 1e3 * u.K
+const MK: Quantity[f64, u.Temperature] = 1e6 * u.K
+const GK: Quantity[f64, u.Temperature] = 1e9 * u.K
+const TK: Quantity[f64, u.Temperature] = 1e12 * u.K
+const PK: Quantity[f64, u.Temperature] = 1e15 * u.K
+const EK: Quantity[f64, u.Temperature] = 1e18 * u.K
+const ZK: Quantity[f64, u.Temperature] = 1e21 * u.K
+const YK: Quantity[f64, u.Temperature] = 1e24 * u.K
+const RK: Quantity[f64, u.Temperature] = 1e27 * u.K
+const QK: Quantity[f64, u.Temperature] = 1e30 * u.K
+const qmol: Quantity[f64, u.Amount] = 1e-30 * u.mol
+const rmol: Quantity[f64, u.Amount] = 1e-27 * u.mol
+const ymol: Quantity[f64, u.Amount] = 1e-24 * u.mol
+const zmol: Quantity[f64, u.Amount] = 1e-21 * u.mol
+const amol: Quantity[f64, u.Amount] = 1e-18 * u.mol
+const fmol: Quantity[f64, u.Amount] = 1e-15 * u.mol
+const pmol: Quantity[f64, u.Amount] = 1e-12 * u.mol
+const nmol: Quantity[f64, u.Amount] = 1e-9 * u.mol
+const umol: Quantity[f64, u.Amount] = 1e-6 * u.mol
+const mmol: Quantity[f64, u.Amount] = 1e-3 * u.mol
+const cmol: Quantity[f64, u.Amount] = 1e-2 * u.mol
+const dmol: Quantity[f64, u.Amount] = 1e-1 * u.mol
+const damol: Quantity[f64, u.Amount] = 1e1 * u.mol
+const hmol: Quantity[f64, u.Amount] = 1e2 * u.mol
+const kmol: Quantity[f64, u.Amount] = 1e3 * u.mol
+const Mmol: Quantity[f64, u.Amount] = 1e6 * u.mol
+const Gmol: Quantity[f64, u.Amount] = 1e9 * u.mol
+const Tmol: Quantity[f64, u.Amount] = 1e12 * u.mol
+const Pmol: Quantity[f64, u.Amount] = 1e15 * u.mol
+const Emol: Quantity[f64, u.Amount] = 1e18 * u.mol
+const Zmol: Quantity[f64, u.Amount] = 1e21 * u.mol
+const Ymol: Quantity[f64, u.Amount] = 1e24 * u.mol
+const Rmol: Quantity[f64, u.Amount] = 1e27 * u.mol
+const Qmol: Quantity[f64, u.Amount] = 1e30 * u.mol
+const qcd: Quantity[f64, u.Luminosity] = 1e-30 * u.cd
+const rcd: Quantity[f64, u.Luminosity] = 1e-27 * u.cd
+const ycd: Quantity[f64, u.Luminosity] = 1e-24 * u.cd
+const zcd: Quantity[f64, u.Luminosity] = 1e-21 * u.cd
+const acd: Quantity[f64, u.Luminosity] = 1e-18 * u.cd
+const fcd: Quantity[f64, u.Luminosity] = 1e-15 * u.cd
+const pcd: Quantity[f64, u.Luminosity] = 1e-12 * u.cd
+const ncd: Quantity[f64, u.Luminosity] = 1e-9 * u.cd
+const ucd: Quantity[f64, u.Luminosity] = 1e-6 * u.cd
+const mcd: Quantity[f64, u.Luminosity] = 1e-3 * u.cd
+const ccd: Quantity[f64, u.Luminosity] = 1e-2 * u.cd
+const dcd: Quantity[f64, u.Luminosity] = 1e-1 * u.cd
+const dacd: Quantity[f64, u.Luminosity] = 1e1 * u.cd
+const hcd: Quantity[f64, u.Luminosity] = 1e2 * u.cd
+const kcd: Quantity[f64, u.Luminosity] = 1e3 * u.cd
+const Mcd: Quantity[f64, u.Luminosity] = 1e6 * u.cd
+const Gcd: Quantity[f64, u.Luminosity] = 1e9 * u.cd
+const Tcd: Quantity[f64, u.Luminosity] = 1e12 * u.cd
+const Pcd: Quantity[f64, u.Luminosity] = 1e15 * u.cd
+const Ecd: Quantity[f64, u.Luminosity] = 1e18 * u.cd
+const Zcd: Quantity[f64, u.Luminosity] = 1e21 * u.cd
+const Ycd: Quantity[f64, u.Luminosity] = 1e24 * u.cd
+const Rcd: Quantity[f64, u.Luminosity] = 1e27 * u.cd
+const Qcd: Quantity[f64, u.Luminosity] = 1e30 * u.cd
+const qrad: Quantity[f64, One] = 1e-30 * u.rad
+const rrad: Quantity[f64, One] = 1e-27 * u.rad
+const yrad: Quantity[f64, One] = 1e-24 * u.rad
+const zrad: Quantity[f64, One] = 1e-21 * u.rad
+const arad: Quantity[f64, One] = 1e-18 * u.rad
+const frad: Quantity[f64, One] = 1e-15 * u.rad
+const prad: Quantity[f64, One] = 1e-12 * u.rad
+const nrad: Quantity[f64, One] = 1e-9 * u.rad
+const urad: Quantity[f64, One] = 1e-6 * u.rad
+const mrad: Quantity[f64, One] = 1e-3 * u.rad
+const crad: Quantity[f64, One] = 1e-2 * u.rad
+const drad: Quantity[f64, One] = 1e-1 * u.rad
+const darad: Quantity[f64, One] = 1e1 * u.rad
+const hrad: Quantity[f64, One] = 1e2 * u.rad
+const krad: Quantity[f64, One] = 1e3 * u.rad
+const Mrad: Quantity[f64, One] = 1e6 * u.rad
+const Grad: Quantity[f64, One] = 1e9 * u.rad
+const Trad: Quantity[f64, One] = 1e12 * u.rad
+const Prad: Quantity[f64, One] = 1e15 * u.rad
+const Erad: Quantity[f64, One] = 1e18 * u.rad
+const Zrad: Quantity[f64, One] = 1e21 * u.rad
+const Yrad: Quantity[f64, One] = 1e24 * u.rad
+const Rrad: Quantity[f64, One] = 1e27 * u.rad
+const Qrad: Quantity[f64, One] = 1e30 * u.rad
+const qHz: Quantity[f64, u.Frequency] = 1e-30 * u.Hz
+const rHz: Quantity[f64, u.Frequency] = 1e-27 * u.Hz
+const yHz: Quantity[f64, u.Frequency] = 1e-24 * u.Hz
+const zHz: Quantity[f64, u.Frequency] = 1e-21 * u.Hz
+const aHz: Quantity[f64, u.Frequency] = 1e-18 * u.Hz
+const fHz: Quantity[f64, u.Frequency] = 1e-15 * u.Hz
+const pHz: Quantity[f64, u.Frequency] = 1e-12 * u.Hz
+const nHz: Quantity[f64, u.Frequency] = 1e-9 * u.Hz
+const uHz: Quantity[f64, u.Frequency] = 1e-6 * u.Hz
+const mHz: Quantity[f64, u.Frequency] = 1e-3 * u.Hz
+const cHz: Quantity[f64, u.Frequency] = 1e-2 * u.Hz
+const dHz: Quantity[f64, u.Frequency] = 1e-1 * u.Hz
+const daHz: Quantity[f64, u.Frequency] = 1e1 * u.Hz
+const hHz: Quantity[f64, u.Frequency] = 1e2 * u.Hz
+const kHz: Quantity[f64, u.Frequency] = 1e3 * u.Hz
+const MHz: Quantity[f64, u.Frequency] = 1e6 * u.Hz
+const GHz: Quantity[f64, u.Frequency] = 1e9 * u.Hz
+const THz: Quantity[f64, u.Frequency] = 1e12 * u.Hz
+const PHz: Quantity[f64, u.Frequency] = 1e15 * u.Hz
+const EHz: Quantity[f64, u.Frequency] = 1e18 * u.Hz
+const ZHz: Quantity[f64, u.Frequency] = 1e21 * u.Hz
+const YHz: Quantity[f64, u.Frequency] = 1e24 * u.Hz
+const RHz: Quantity[f64, u.Frequency] = 1e27 * u.Hz
+const QHz: Quantity[f64, u.Frequency] = 1e30 * u.Hz
+const qN: Quantity[f64, u.Force] = 1e-30 * u.N
+const rN: Quantity[f64, u.Force] = 1e-27 * u.N
+const yN: Quantity[f64, u.Force] = 1e-24 * u.N
+const zN: Quantity[f64, u.Force] = 1e-21 * u.N
+const aN: Quantity[f64, u.Force] = 1e-18 * u.N
+const fN: Quantity[f64, u.Force] = 1e-15 * u.N
+const pN: Quantity[f64, u.Force] = 1e-12 * u.N
+const nN: Quantity[f64, u.Force] = 1e-9 * u.N
+const uN: Quantity[f64, u.Force] = 1e-6 * u.N
+const mN: Quantity[f64, u.Force] = 1e-3 * u.N
+const cN: Quantity[f64, u.Force] = 1e-2 * u.N
+const dN: Quantity[f64, u.Force] = 1e-1 * u.N
+const daN: Quantity[f64, u.Force] = 1e1 * u.N
+const hN: Quantity[f64, u.Force] = 1e2 * u.N
+const kN: Quantity[f64, u.Force] = 1e3 * u.N
+const MN: Quantity[f64, u.Force] = 1e6 * u.N
+const GN: Quantity[f64, u.Force] = 1e9 * u.N
+const TN: Quantity[f64, u.Force] = 1e12 * u.N
+const PN: Quantity[f64, u.Force] = 1e15 * u.N
+const EN: Quantity[f64, u.Force] = 1e18 * u.N
+const ZN: Quantity[f64, u.Force] = 1e21 * u.N
+const YN: Quantity[f64, u.Force] = 1e24 * u.N
+const RN: Quantity[f64, u.Force] = 1e27 * u.N
+const QN: Quantity[f64, u.Force] = 1e30 * u.N
+const qPa: Quantity[f64, u.Pressure] = 1e-30 * u.Pa
+const rPa: Quantity[f64, u.Pressure] = 1e-27 * u.Pa
+const yPa: Quantity[f64, u.Pressure] = 1e-24 * u.Pa
+const zPa: Quantity[f64, u.Pressure] = 1e-21 * u.Pa
+const aPa: Quantity[f64, u.Pressure] = 1e-18 * u.Pa
+const fPa: Quantity[f64, u.Pressure] = 1e-15 * u.Pa
+const pPa: Quantity[f64, u.Pressure] = 1e-12 * u.Pa
+const nPa: Quantity[f64, u.Pressure] = 1e-9 * u.Pa
+const uPa: Quantity[f64, u.Pressure] = 1e-6 * u.Pa
+const mPa: Quantity[f64, u.Pressure] = 1e-3 * u.Pa
+const cPa: Quantity[f64, u.Pressure] = 1e-2 * u.Pa
+const dPa: Quantity[f64, u.Pressure] = 1e-1 * u.Pa
+const daPa: Quantity[f64, u.Pressure] = 1e1 * u.Pa
+const hPa: Quantity[f64, u.Pressure] = 1e2 * u.Pa
+const kPa: Quantity[f64, u.Pressure] = 1e3 * u.Pa
+const MPa: Quantity[f64, u.Pressure] = 1e6 * u.Pa
+const GPa: Quantity[f64, u.Pressure] = 1e9 * u.Pa
+const TPa: Quantity[f64, u.Pressure] = 1e12 * u.Pa
+const PPa: Quantity[f64, u.Pressure] = 1e15 * u.Pa
+const EPa: Quantity[f64, u.Pressure] = 1e18 * u.Pa
+const ZPa: Quantity[f64, u.Pressure] = 1e21 * u.Pa
+const YPa: Quantity[f64, u.Pressure] = 1e24 * u.Pa
+const RPa: Quantity[f64, u.Pressure] = 1e27 * u.Pa
+const QPa: Quantity[f64, u.Pressure] = 1e30 * u.Pa
+const qJ: Quantity[f64, u.Energy] = 1e-30 * u.J
+const rJ: Quantity[f64, u.Energy] = 1e-27 * u.J
+const yJ: Quantity[f64, u.Energy] = 1e-24 * u.J
+const zJ: Quantity[f64, u.Energy] = 1e-21 * u.J
+const aJ: Quantity[f64, u.Energy] = 1e-18 * u.J
+const fJ: Quantity[f64, u.Energy] = 1e-15 * u.J
+const pJ: Quantity[f64, u.Energy] = 1e-12 * u.J
+const nJ: Quantity[f64, u.Energy] = 1e-9 * u.J
+const uJ: Quantity[f64, u.Energy] = 1e-6 * u.J
+const mJ: Quantity[f64, u.Energy] = 1e-3 * u.J
+const cJ: Quantity[f64, u.Energy] = 1e-2 * u.J
+const dJ: Quantity[f64, u.Energy] = 1e-1 * u.J
+const daJ: Quantity[f64, u.Energy] = 1e1 * u.J
+const hJ: Quantity[f64, u.Energy] = 1e2 * u.J
+const kJ: Quantity[f64, u.Energy] = 1e3 * u.J
+const MJ: Quantity[f64, u.Energy] = 1e6 * u.J
+const GJ: Quantity[f64, u.Energy] = 1e9 * u.J
+const TJ: Quantity[f64, u.Energy] = 1e12 * u.J
+const PJ: Quantity[f64, u.Energy] = 1e15 * u.J
+const EJ: Quantity[f64, u.Energy] = 1e18 * u.J
+const ZJ: Quantity[f64, u.Energy] = 1e21 * u.J
+const YJ: Quantity[f64, u.Energy] = 1e24 * u.J
+const RJ: Quantity[f64, u.Energy] = 1e27 * u.J
+const QJ: Quantity[f64, u.Energy] = 1e30 * u.J
+const qW: Quantity[f64, u.Power] = 1e-30 * u.W
+const rW: Quantity[f64, u.Power] = 1e-27 * u.W
+const yW: Quantity[f64, u.Power] = 1e-24 * u.W
+const zW: Quantity[f64, u.Power] = 1e-21 * u.W
+const aW: Quantity[f64, u.Power] = 1e-18 * u.W
+const fW: Quantity[f64, u.Power] = 1e-15 * u.W
+const pW: Quantity[f64, u.Power] = 1e-12 * u.W
+const nW: Quantity[f64, u.Power] = 1e-9 * u.W
+const uW: Quantity[f64, u.Power] = 1e-6 * u.W
+const mW: Quantity[f64, u.Power] = 1e-3 * u.W
+const cW: Quantity[f64, u.Power] = 1e-2 * u.W
+const dW: Quantity[f64, u.Power] = 1e-1 * u.W
+const daW: Quantity[f64, u.Power] = 1e1 * u.W
+const hW: Quantity[f64, u.Power] = 1e2 * u.W
+const kW: Quantity[f64, u.Power] = 1e3 * u.W
+const MW: Quantity[f64, u.Power] = 1e6 * u.W
+const GW: Quantity[f64, u.Power] = 1e9 * u.W
+const TW: Quantity[f64, u.Power] = 1e12 * u.W
+const PW: Quantity[f64, u.Power] = 1e15 * u.W
+const EW: Quantity[f64, u.Power] = 1e18 * u.W
+const ZW: Quantity[f64, u.Power] = 1e21 * u.W
+const YW: Quantity[f64, u.Power] = 1e24 * u.W
+const RW: Quantity[f64, u.Power] = 1e27 * u.W
+const QW: Quantity[f64, u.Power] = 1e30 * u.W
+const qC: Quantity[f64, u.Charge] = 1e-30 * u.C
+const rC: Quantity[f64, u.Charge] = 1e-27 * u.C
+const yC: Quantity[f64, u.Charge] = 1e-24 * u.C
+const zC: Quantity[f64, u.Charge] = 1e-21 * u.C
+const aC: Quantity[f64, u.Charge] = 1e-18 * u.C
+const fC: Quantity[f64, u.Charge] = 1e-15 * u.C
+const pC: Quantity[f64, u.Charge] = 1e-12 * u.C
+const nC: Quantity[f64, u.Charge] = 1e-9 * u.C
+const uC: Quantity[f64, u.Charge] = 1e-6 * u.C
+const mC: Quantity[f64, u.Charge] = 1e-3 * u.C
+const cC: Quantity[f64, u.Charge] = 1e-2 * u.C
+const dC: Quantity[f64, u.Charge] = 1e-1 * u.C
+const daC: Quantity[f64, u.Charge] = 1e1 * u.C
+const hC: Quantity[f64, u.Charge] = 1e2 * u.C
+const kC: Quantity[f64, u.Charge] = 1e3 * u.C
+const MC: Quantity[f64, u.Charge] = 1e6 * u.C
+const GC: Quantity[f64, u.Charge] = 1e9 * u.C
+const TC: Quantity[f64, u.Charge] = 1e12 * u.C
+const PC: Quantity[f64, u.Charge] = 1e15 * u.C
+const EC: Quantity[f64, u.Charge] = 1e18 * u.C
+const ZC: Quantity[f64, u.Charge] = 1e21 * u.C
+const YC: Quantity[f64, u.Charge] = 1e24 * u.C
+const RC: Quantity[f64, u.Charge] = 1e27 * u.C
+const QC: Quantity[f64, u.Charge] = 1e30 * u.C
+const qV: Quantity[f64, u.Voltage] = 1e-30 * u.V
+const rV: Quantity[f64, u.Voltage] = 1e-27 * u.V
+const yV: Quantity[f64, u.Voltage] = 1e-24 * u.V
+const zV: Quantity[f64, u.Voltage] = 1e-21 * u.V
+const aV: Quantity[f64, u.Voltage] = 1e-18 * u.V
+const fV: Quantity[f64, u.Voltage] = 1e-15 * u.V
+const pV: Quantity[f64, u.Voltage] = 1e-12 * u.V
+const nV: Quantity[f64, u.Voltage] = 1e-9 * u.V
+const uV: Quantity[f64, u.Voltage] = 1e-6 * u.V
+const mV: Quantity[f64, u.Voltage] = 1e-3 * u.V
+const cV: Quantity[f64, u.Voltage] = 1e-2 * u.V
+const dV: Quantity[f64, u.Voltage] = 1e-1 * u.V
+const daV: Quantity[f64, u.Voltage] = 1e1 * u.V
+const hV: Quantity[f64, u.Voltage] = 1e2 * u.V
+const kV: Quantity[f64, u.Voltage] = 1e3 * u.V
+const MV: Quantity[f64, u.Voltage] = 1e6 * u.V
+const GV: Quantity[f64, u.Voltage] = 1e9 * u.V
+const TV: Quantity[f64, u.Voltage] = 1e12 * u.V
+const PV: Quantity[f64, u.Voltage] = 1e15 * u.V
+const EV: Quantity[f64, u.Voltage] = 1e18 * u.V
+const ZV: Quantity[f64, u.Voltage] = 1e21 * u.V
+const YV: Quantity[f64, u.Voltage] = 1e24 * u.V
+const RV: Quantity[f64, u.Voltage] = 1e27 * u.V
+const QV: Quantity[f64, u.Voltage] = 1e30 * u.V
+const qF: Quantity[f64, u.Capacitance] = 1e-30 * u.F
+const rF: Quantity[f64, u.Capacitance] = 1e-27 * u.F
+const yF: Quantity[f64, u.Capacitance] = 1e-24 * u.F
+const zF: Quantity[f64, u.Capacitance] = 1e-21 * u.F
+const aF: Quantity[f64, u.Capacitance] = 1e-18 * u.F
+const fF: Quantity[f64, u.Capacitance] = 1e-15 * u.F
+const pF: Quantity[f64, u.Capacitance] = 1e-12 * u.F
+const nF: Quantity[f64, u.Capacitance] = 1e-9 * u.F
+const uF: Quantity[f64, u.Capacitance] = 1e-6 * u.F
+const mF: Quantity[f64, u.Capacitance] = 1e-3 * u.F
+const cF: Quantity[f64, u.Capacitance] = 1e-2 * u.F
+const dF: Quantity[f64, u.Capacitance] = 1e-1 * u.F
+const daF: Quantity[f64, u.Capacitance] = 1e1 * u.F
+const hF: Quantity[f64, u.Capacitance] = 1e2 * u.F
+const kF: Quantity[f64, u.Capacitance] = 1e3 * u.F
+const MF: Quantity[f64, u.Capacitance] = 1e6 * u.F
+const GF: Quantity[f64, u.Capacitance] = 1e9 * u.F
+const TF: Quantity[f64, u.Capacitance] = 1e12 * u.F
+const PF: Quantity[f64, u.Capacitance] = 1e15 * u.F
+const EF: Quantity[f64, u.Capacitance] = 1e18 * u.F
+const ZF: Quantity[f64, u.Capacitance] = 1e21 * u.F
+const YF: Quantity[f64, u.Capacitance] = 1e24 * u.F
+const RF: Quantity[f64, u.Capacitance] = 1e27 * u.F
+const QF: Quantity[f64, u.Capacitance] = 1e30 * u.F
+const qohm: Quantity[f64, u.Resistance] = 1e-30 * u.ohm
+const rohm: Quantity[f64, u.Resistance] = 1e-27 * u.ohm
+const yohm: Quantity[f64, u.Resistance] = 1e-24 * u.ohm
+const zohm: Quantity[f64, u.Resistance] = 1e-21 * u.ohm
+const aohm: Quantity[f64, u.Resistance] = 1e-18 * u.ohm
+const fohm: Quantity[f64, u.Resistance] = 1e-15 * u.ohm
+const pohm: Quantity[f64, u.Resistance] = 1e-12 * u.ohm
+const nohm: Quantity[f64, u.Resistance] = 1e-9 * u.ohm
+const uohm: Quantity[f64, u.Resistance] = 1e-6 * u.ohm
+const milliohm: Quantity[f64, u.Resistance] = 1e-3 * u.ohm
+const cohm: Quantity[f64, u.Resistance] = 1e-2 * u.ohm
+const dohm: Quantity[f64, u.Resistance] = 1e-1 * u.ohm
+const daohm: Quantity[f64, u.Resistance] = 1e1 * u.ohm
+const hohm: Quantity[f64, u.Resistance] = 1e2 * u.ohm
+const kohm: Quantity[f64, u.Resistance] = 1e3 * u.ohm
+const Mohm: Quantity[f64, u.Resistance] = 1e6 * u.ohm
+const Gohm: Quantity[f64, u.Resistance] = 1e9 * u.ohm
+const Tohm: Quantity[f64, u.Resistance] = 1e12 * u.ohm
+const Pohm: Quantity[f64, u.Resistance] = 1e15 * u.ohm
+const Eohm: Quantity[f64, u.Resistance] = 1e18 * u.ohm
+const Zohm: Quantity[f64, u.Resistance] = 1e21 * u.ohm
+const Yohm: Quantity[f64, u.Resistance] = 1e24 * u.ohm
+const Rohm: Quantity[f64, u.Resistance] = 1e27 * u.ohm
+const Qohm: Quantity[f64, u.Resistance] = 1e30 * u.ohm
+const qS: Quantity[f64, u.Conductance] = 1e-30 * u.S
+const rS: Quantity[f64, u.Conductance] = 1e-27 * u.S
+const yS: Quantity[f64, u.Conductance] = 1e-24 * u.S
+const zS: Quantity[f64, u.Conductance] = 1e-21 * u.S
+const aS: Quantity[f64, u.Conductance] = 1e-18 * u.S
+const fS: Quantity[f64, u.Conductance] = 1e-15 * u.S
+const pS: Quantity[f64, u.Conductance] = 1e-12 * u.S
+const nS: Quantity[f64, u.Conductance] = 1e-9 * u.S
+const uS: Quantity[f64, u.Conductance] = 1e-6 * u.S
+const mS: Quantity[f64, u.Conductance] = 1e-3 * u.S
+const cS: Quantity[f64, u.Conductance] = 1e-2 * u.S
+const dS: Quantity[f64, u.Conductance] = 1e-1 * u.S
+const daS: Quantity[f64, u.Conductance] = 1e1 * u.S
+const hS: Quantity[f64, u.Conductance] = 1e2 * u.S
+const kS: Quantity[f64, u.Conductance] = 1e3 * u.S
+const MS: Quantity[f64, u.Conductance] = 1e6 * u.S
+const GS: Quantity[f64, u.Conductance] = 1e9 * u.S
+const TS: Quantity[f64, u.Conductance] = 1e12 * u.S
+const PS: Quantity[f64, u.Conductance] = 1e15 * u.S
+const ES: Quantity[f64, u.Conductance] = 1e18 * u.S
+const ZS: Quantity[f64, u.Conductance] = 1e21 * u.S
+const YS: Quantity[f64, u.Conductance] = 1e24 * u.S
+const RS: Quantity[f64, u.Conductance] = 1e27 * u.S
+const QS: Quantity[f64, u.Conductance] = 1e30 * u.S
+const qWb: Quantity[f64, u.MagneticFlux] = 1e-30 * u.Wb
+const rWb: Quantity[f64, u.MagneticFlux] = 1e-27 * u.Wb
+const yWb: Quantity[f64, u.MagneticFlux] = 1e-24 * u.Wb
+const zWb: Quantity[f64, u.MagneticFlux] = 1e-21 * u.Wb
+const aWb: Quantity[f64, u.MagneticFlux] = 1e-18 * u.Wb
+const fWb: Quantity[f64, u.MagneticFlux] = 1e-15 * u.Wb
+const pWb: Quantity[f64, u.MagneticFlux] = 1e-12 * u.Wb
+const nWb: Quantity[f64, u.MagneticFlux] = 1e-9 * u.Wb
+const uWb: Quantity[f64, u.MagneticFlux] = 1e-6 * u.Wb
+const mWb: Quantity[f64, u.MagneticFlux] = 1e-3 * u.Wb
+const cWb: Quantity[f64, u.MagneticFlux] = 1e-2 * u.Wb
+const dWb: Quantity[f64, u.MagneticFlux] = 1e-1 * u.Wb
+const daWb: Quantity[f64, u.MagneticFlux] = 1e1 * u.Wb
+const hWb: Quantity[f64, u.MagneticFlux] = 1e2 * u.Wb
+const kWb: Quantity[f64, u.MagneticFlux] = 1e3 * u.Wb
+const MWb: Quantity[f64, u.MagneticFlux] = 1e6 * u.Wb
+const GWb: Quantity[f64, u.MagneticFlux] = 1e9 * u.Wb
+const TWb: Quantity[f64, u.MagneticFlux] = 1e12 * u.Wb
+const PWb: Quantity[f64, u.MagneticFlux] = 1e15 * u.Wb
+const EWb: Quantity[f64, u.MagneticFlux] = 1e18 * u.Wb
+const ZWb: Quantity[f64, u.MagneticFlux] = 1e21 * u.Wb
+const YWb: Quantity[f64, u.MagneticFlux] = 1e24 * u.Wb
+const RWb: Quantity[f64, u.MagneticFlux] = 1e27 * u.Wb
+const QWb: Quantity[f64, u.MagneticFlux] = 1e30 * u.Wb
+const qT: Quantity[f64, u.MagneticFluxDensity] = 1e-30 * u.T
+const rT: Quantity[f64, u.MagneticFluxDensity] = 1e-27 * u.T
+const yT: Quantity[f64, u.MagneticFluxDensity] = 1e-24 * u.T
+const zT: Quantity[f64, u.MagneticFluxDensity] = 1e-21 * u.T
+const aT: Quantity[f64, u.MagneticFluxDensity] = 1e-18 * u.T
+const fT: Quantity[f64, u.MagneticFluxDensity] = 1e-15 * u.T
+const pT: Quantity[f64, u.MagneticFluxDensity] = 1e-12 * u.T
+const nT: Quantity[f64, u.MagneticFluxDensity] = 1e-9 * u.T
+const uT: Quantity[f64, u.MagneticFluxDensity] = 1e-6 * u.T
+const mT: Quantity[f64, u.MagneticFluxDensity] = 1e-3 * u.T
+const cT: Quantity[f64, u.MagneticFluxDensity] = 1e-2 * u.T
+const dT: Quantity[f64, u.MagneticFluxDensity] = 1e-1 * u.T
+const daT: Quantity[f64, u.MagneticFluxDensity] = 1e1 * u.T
+const hT: Quantity[f64, u.MagneticFluxDensity] = 1e2 * u.T
+const kT: Quantity[f64, u.MagneticFluxDensity] = 1e3 * u.T
+const MT: Quantity[f64, u.MagneticFluxDensity] = 1e6 * u.T
+const GT: Quantity[f64, u.MagneticFluxDensity] = 1e9 * u.T
+const TT: Quantity[f64, u.MagneticFluxDensity] = 1e12 * u.T
+const PT: Quantity[f64, u.MagneticFluxDensity] = 1e15 * u.T
+const ET: Quantity[f64, u.MagneticFluxDensity] = 1e18 * u.T
+const ZT: Quantity[f64, u.MagneticFluxDensity] = 1e21 * u.T
+const YT: Quantity[f64, u.MagneticFluxDensity] = 1e24 * u.T
+const RT: Quantity[f64, u.MagneticFluxDensity] = 1e27 * u.T
+const QT: Quantity[f64, u.MagneticFluxDensity] = 1e30 * u.T
+const qH: Quantity[f64, u.Inductance] = 1e-30 * u.H
+const rH: Quantity[f64, u.Inductance] = 1e-27 * u.H
+const yH: Quantity[f64, u.Inductance] = 1e-24 * u.H
+const zH: Quantity[f64, u.Inductance] = 1e-21 * u.H
+const aH: Quantity[f64, u.Inductance] = 1e-18 * u.H
+const fH: Quantity[f64, u.Inductance] = 1e-15 * u.H
+const pH: Quantity[f64, u.Inductance] = 1e-12 * u.H
+const nH: Quantity[f64, u.Inductance] = 1e-9 * u.H
+const uH: Quantity[f64, u.Inductance] = 1e-6 * u.H
+const mH: Quantity[f64, u.Inductance] = 1e-3 * u.H
+const cH: Quantity[f64, u.Inductance] = 1e-2 * u.H
+const dH: Quantity[f64, u.Inductance] = 1e-1 * u.H
+const daH: Quantity[f64, u.Inductance] = 1e1 * u.H
+const hH: Quantity[f64, u.Inductance] = 1e2 * u.H
+const kH: Quantity[f64, u.Inductance] = 1e3 * u.H
+const MH: Quantity[f64, u.Inductance] = 1e6 * u.H
+const GH: Quantity[f64, u.Inductance] = 1e9 * u.H
+const TH: Quantity[f64, u.Inductance] = 1e12 * u.H
+const PH: Quantity[f64, u.Inductance] = 1e15 * u.H
+const EH: Quantity[f64, u.Inductance] = 1e18 * u.H
+const ZH: Quantity[f64, u.Inductance] = 1e21 * u.H
+const YH: Quantity[f64, u.Inductance] = 1e24 * u.H
+const RH: Quantity[f64, u.Inductance] = 1e27 * u.H
+const QH: Quantity[f64, u.Inductance] = 1e30 * u.H
+const qlm: Quantity[f64, u.Luminosity] = 1e-30 * u.lm
+const rlm: Quantity[f64, u.Luminosity] = 1e-27 * u.lm
+const ylm: Quantity[f64, u.Luminosity] = 1e-24 * u.lm
+const zlm: Quantity[f64, u.Luminosity] = 1e-21 * u.lm
+const alm: Quantity[f64, u.Luminosity] = 1e-18 * u.lm
+const flm: Quantity[f64, u.Luminosity] = 1e-15 * u.lm
+const plm: Quantity[f64, u.Luminosity] = 1e-12 * u.lm
+const nlm: Quantity[f64, u.Luminosity] = 1e-9 * u.lm
+const ulm: Quantity[f64, u.Luminosity] = 1e-6 * u.lm
+const mlm: Quantity[f64, u.Luminosity] = 1e-3 * u.lm
+const clm: Quantity[f64, u.Luminosity] = 1e-2 * u.lm
+const dlm: Quantity[f64, u.Luminosity] = 1e-1 * u.lm
+const dalm: Quantity[f64, u.Luminosity] = 1e1 * u.lm
+const hlm: Quantity[f64, u.Luminosity] = 1e2 * u.lm
+const klm: Quantity[f64, u.Luminosity] = 1e3 * u.lm
+const Mlm: Quantity[f64, u.Luminosity] = 1e6 * u.lm
+const Glm: Quantity[f64, u.Luminosity] = 1e9 * u.lm
+const Tlm: Quantity[f64, u.Luminosity] = 1e12 * u.lm
+const Plm: Quantity[f64, u.Luminosity] = 1e15 * u.lm
+const Elm: Quantity[f64, u.Luminosity] = 1e18 * u.lm
+const Zlm: Quantity[f64, u.Luminosity] = 1e21 * u.lm
+const Ylm: Quantity[f64, u.Luminosity] = 1e24 * u.lm
+const Rlm: Quantity[f64, u.Luminosity] = 1e27 * u.lm
+const Qlm: Quantity[f64, u.Luminosity] = 1e30 * u.lm
+const qlx: Quantity[f64, u.Illuminance] = 1e-30 * u.lx
+const rlx: Quantity[f64, u.Illuminance] = 1e-27 * u.lx
+const ylx: Quantity[f64, u.Illuminance] = 1e-24 * u.lx
+const zlx: Quantity[f64, u.Illuminance] = 1e-21 * u.lx
+const alx: Quantity[f64, u.Illuminance] = 1e-18 * u.lx
+const flx: Quantity[f64, u.Illuminance] = 1e-15 * u.lx
+const plx: Quantity[f64, u.Illuminance] = 1e-12 * u.lx
+const nlx: Quantity[f64, u.Illuminance] = 1e-9 * u.lx
+const ulx: Quantity[f64, u.Illuminance] = 1e-6 * u.lx
+const mlx: Quantity[f64, u.Illuminance] = 1e-3 * u.lx
+const clx: Quantity[f64, u.Illuminance] = 1e-2 * u.lx
+const dlx: Quantity[f64, u.Illuminance] = 1e-1 * u.lx
+const dalx: Quantity[f64, u.Illuminance] = 1e1 * u.lx
+const hlx: Quantity[f64, u.Illuminance] = 1e2 * u.lx
+const klx: Quantity[f64, u.Illuminance] = 1e3 * u.lx
+const Mlx: Quantity[f64, u.Illuminance] = 1e6 * u.lx
+const Glx: Quantity[f64, u.Illuminance] = 1e9 * u.lx
+const Tlx: Quantity[f64, u.Illuminance] = 1e12 * u.lx
+const Plx: Quantity[f64, u.Illuminance] = 1e15 * u.lx
+const Elx: Quantity[f64, u.Illuminance] = 1e18 * u.lx
+const Zlx: Quantity[f64, u.Illuminance] = 1e21 * u.lx
+const Ylx: Quantity[f64, u.Illuminance] = 1e24 * u.lx
+const Rlx: Quantity[f64, u.Illuminance] = 1e27 * u.lx
+const Qlx: Quantity[f64, u.Illuminance] = 1e30 * u.lx
+const qBq: Quantity[f64, u.Frequency] = 1e-30 * u.Bq
+const rBq: Quantity[f64, u.Frequency] = 1e-27 * u.Bq
+const yBq: Quantity[f64, u.Frequency] = 1e-24 * u.Bq
+const zBq: Quantity[f64, u.Frequency] = 1e-21 * u.Bq
+const aBq: Quantity[f64, u.Frequency] = 1e-18 * u.Bq
+const fBq: Quantity[f64, u.Frequency] = 1e-15 * u.Bq
+const pBq: Quantity[f64, u.Frequency] = 1e-12 * u.Bq
+const nBq: Quantity[f64, u.Frequency] = 1e-9 * u.Bq
+const uBq: Quantity[f64, u.Frequency] = 1e-6 * u.Bq
+const mBq: Quantity[f64, u.Frequency] = 1e-3 * u.Bq
+const cBq: Quantity[f64, u.Frequency] = 1e-2 * u.Bq
+const dBq: Quantity[f64, u.Frequency] = 1e-1 * u.Bq
+const daBq: Quantity[f64, u.Frequency] = 1e1 * u.Bq
+const hBq: Quantity[f64, u.Frequency] = 1e2 * u.Bq
+const kBq: Quantity[f64, u.Frequency] = 1e3 * u.Bq
+const MBq: Quantity[f64, u.Frequency] = 1e6 * u.Bq
+const GBq: Quantity[f64, u.Frequency] = 1e9 * u.Bq
+const TBq: Quantity[f64, u.Frequency] = 1e12 * u.Bq
+const PBq: Quantity[f64, u.Frequency] = 1e15 * u.Bq
+const EBq: Quantity[f64, u.Frequency] = 1e18 * u.Bq
+const ZBq: Quantity[f64, u.Frequency] = 1e21 * u.Bq
+const YBq: Quantity[f64, u.Frequency] = 1e24 * u.Bq
+const RBq: Quantity[f64, u.Frequency] = 1e27 * u.Bq
+const QBq: Quantity[f64, u.Frequency] = 1e30 * u.Bq
+const qGy: Quantity[f64, u.SpecificEnergy] = 1e-30 * u.Gy
+const rGy: Quantity[f64, u.SpecificEnergy] = 1e-27 * u.Gy
+const yGy: Quantity[f64, u.SpecificEnergy] = 1e-24 * u.Gy
+const zGy: Quantity[f64, u.SpecificEnergy] = 1e-21 * u.Gy
+const aGy: Quantity[f64, u.SpecificEnergy] = 1e-18 * u.Gy
+const fGy: Quantity[f64, u.SpecificEnergy] = 1e-15 * u.Gy
+const pGy: Quantity[f64, u.SpecificEnergy] = 1e-12 * u.Gy
+const nGy: Quantity[f64, u.SpecificEnergy] = 1e-9 * u.Gy
+const uGy: Quantity[f64, u.SpecificEnergy] = 1e-6 * u.Gy
+const mGy: Quantity[f64, u.SpecificEnergy] = 1e-3 * u.Gy
+const cGy: Quantity[f64, u.SpecificEnergy] = 1e-2 * u.Gy
+const dGy: Quantity[f64, u.SpecificEnergy] = 1e-1 * u.Gy
+const daGy: Quantity[f64, u.SpecificEnergy] = 1e1 * u.Gy
+const hGy: Quantity[f64, u.SpecificEnergy] = 1e2 * u.Gy
+const kGy: Quantity[f64, u.SpecificEnergy] = 1e3 * u.Gy
+const MGy: Quantity[f64, u.SpecificEnergy] = 1e6 * u.Gy
+const GGy: Quantity[f64, u.SpecificEnergy] = 1e9 * u.Gy
+const TGy: Quantity[f64, u.SpecificEnergy] = 1e12 * u.Gy
+const PGy: Quantity[f64, u.SpecificEnergy] = 1e15 * u.Gy
+const EGy: Quantity[f64, u.SpecificEnergy] = 1e18 * u.Gy
+const ZGy: Quantity[f64, u.SpecificEnergy] = 1e21 * u.Gy
+const YGy: Quantity[f64, u.SpecificEnergy] = 1e24 * u.Gy
+const RGy: Quantity[f64, u.SpecificEnergy] = 1e27 * u.Gy
+const QGy: Quantity[f64, u.SpecificEnergy] = 1e30 * u.Gy
+const qSv: Quantity[f64, u.SpecificEnergy] = 1e-30 * u.Sv
+const rSv: Quantity[f64, u.SpecificEnergy] = 1e-27 * u.Sv
+const ySv: Quantity[f64, u.SpecificEnergy] = 1e-24 * u.Sv
+const zSv: Quantity[f64, u.SpecificEnergy] = 1e-21 * u.Sv
+const aSv: Quantity[f64, u.SpecificEnergy] = 1e-18 * u.Sv
+const fSv: Quantity[f64, u.SpecificEnergy] = 1e-15 * u.Sv
+const pSv: Quantity[f64, u.SpecificEnergy] = 1e-12 * u.Sv
+const nSv: Quantity[f64, u.SpecificEnergy] = 1e-9 * u.Sv
+const uSv: Quantity[f64, u.SpecificEnergy] = 1e-6 * u.Sv
+const mSv: Quantity[f64, u.SpecificEnergy] = 1e-3 * u.Sv
+const cSv: Quantity[f64, u.SpecificEnergy] = 1e-2 * u.Sv
+const dSv: Quantity[f64, u.SpecificEnergy] = 1e-1 * u.Sv
+const daSv: Quantity[f64, u.SpecificEnergy] = 1e1 * u.Sv
+const hSv: Quantity[f64, u.SpecificEnergy] = 1e2 * u.Sv
+const kSv: Quantity[f64, u.SpecificEnergy] = 1e3 * u.Sv
+const MSv: Quantity[f64, u.SpecificEnergy] = 1e6 * u.Sv
+const GSv: Quantity[f64, u.SpecificEnergy] = 1e9 * u.Sv
+const TSv: Quantity[f64, u.SpecificEnergy] = 1e12 * u.Sv
+const PSv: Quantity[f64, u.SpecificEnergy] = 1e15 * u.Sv
+const ESv: Quantity[f64, u.SpecificEnergy] = 1e18 * u.Sv
+const ZSv: Quantity[f64, u.SpecificEnergy] = 1e21 * u.Sv
+const YSv: Quantity[f64, u.SpecificEnergy] = 1e24 * u.Sv
+const RSv: Quantity[f64, u.SpecificEnergy] = 1e27 * u.Sv
+const QSv: Quantity[f64, u.SpecificEnergy] = 1e30 * u.Sv
+const qkat: Quantity[f64, u.CatalyticActivity] = 1e-30 * u.kat
+const rkat: Quantity[f64, u.CatalyticActivity] = 1e-27 * u.kat
+const ykat: Quantity[f64, u.CatalyticActivity] = 1e-24 * u.kat
+const zkat: Quantity[f64, u.CatalyticActivity] = 1e-21 * u.kat
+const akat: Quantity[f64, u.CatalyticActivity] = 1e-18 * u.kat
+const fkat: Quantity[f64, u.CatalyticActivity] = 1e-15 * u.kat
+const pkat: Quantity[f64, u.CatalyticActivity] = 1e-12 * u.kat
+const nkat: Quantity[f64, u.CatalyticActivity] = 1e-9 * u.kat
+const ukat: Quantity[f64, u.CatalyticActivity] = 1e-6 * u.kat
+const mkat: Quantity[f64, u.CatalyticActivity] = 1e-3 * u.kat
+const ckat: Quantity[f64, u.CatalyticActivity] = 1e-2 * u.kat
+const dkat: Quantity[f64, u.CatalyticActivity] = 1e-1 * u.kat
+const dakat: Quantity[f64, u.CatalyticActivity] = 1e1 * u.kat
+const hkat: Quantity[f64, u.CatalyticActivity] = 1e2 * u.kat
+const kkat: Quantity[f64, u.CatalyticActivity] = 1e3 * u.kat
+const Mkat: Quantity[f64, u.CatalyticActivity] = 1e6 * u.kat
+const Gkat: Quantity[f64, u.CatalyticActivity] = 1e9 * u.kat
+const Tkat: Quantity[f64, u.CatalyticActivity] = 1e12 * u.kat
+const Pkat: Quantity[f64, u.CatalyticActivity] = 1e15 * u.kat
+const Ekat: Quantity[f64, u.CatalyticActivity] = 1e18 * u.kat
+const Zkat: Quantity[f64, u.CatalyticActivity] = 1e21 * u.kat
+const Ykat: Quantity[f64, u.CatalyticActivity] = 1e24 * u.kat
+const Rkat: Quantity[f64, u.CatalyticActivity] = 1e27 * u.kat
+const Qkat: Quantity[f64, u.CatalyticActivity] = 1e30 * u.kat
+const microlitre: Quantity[f64, u.Volume] = 1e-9 * (u.m * u.m * u.m)
+const centilitre: Quantity[f64, u.Volume] = 1e-5 * (u.m * u.m * u.m)
+const decilitre: Quantity[f64, u.Volume] = 1e-4 * (u.m * u.m * u.m)
+const hectolitre: Quantity[f64, u.Volume] = 1e-1 * (u.m * u.m * u.m)
+const kilolitre: Quantity[f64, u.Volume] = u.m * u.m * u.m
+const megalitre: Quantity[f64, u.Volume] = 1e3 * (u.m * u.m * u.m)
+const meV: Quantity[f64, u.Energy] = 1e-3 * u.eV
+const TeV: Quantity[f64, u.Energy] = 1e12 * u.eV
+const TWh: Quantity[f64, u.Energy] = 1e12 * u.Wh
+const fermi: Quantity[f64, u.Length] = 1e-15 * u.m
+const micron: Quantity[f64, u.Length] = 1e-6 * u.m
+const mil: Quantity[f64, u.Length] = 1e-3 * u.inch
+const microinch: Quantity[f64, u.Length] = 1e-6 * u.inch
+const point: Quantity[f64, u.Length] = u.inch / 72.0
+const pica: Quantity[f64, u.Length] = u.inch / 6.0
+const printers_point: Quantity[f64, u.Length] = 0.013837 * u.inch
+const printers_pica: Quantity[f64, u.Length] = 12.0 * printers_point
+const survey_foot: Quantity[f64, u.Length] = (1200.0 / 3937.0) * u.m
+const survey_mile: Quantity[f64, u.Length] = 5280.0 * survey_foot
+const chain: Quantity[f64, u.Length] = 66.0 * survey_foot
+const rod: Quantity[f64, u.Length] = 16.5 * survey_foot
+const fathom: Quantity[f64, u.Length] = 6.0 * survey_foot
+const are: Quantity[f64, u.Area] = 1e2 * (u.m * u.m)
+const barn: Quantity[f64, u.Area] = 1e-28 * (u.m * u.m)
+const circular_mil: Quantity[f64, u.Area] = (f64.PI / 4.0) * (mil * mil)
+const survey_acre: Quantity[f64, u.Area] = 43560.0 * (survey_foot * survey_foot)
+const darcy: Quantity[f64, u.Area] = u.cm * (1e-3 * u.Pa * u.s) * (u.cm * u.cm * u.cm / u.s) / (u.cm * u.cm * u.atm)
+const stere: Quantity[f64, u.Volume] = u.m * u.m * u.m
+const acre_foot: Quantity[f64, u.Volume] = survey_acre * survey_foot
+const barrel: Quantity[f64, u.Volume] = 42.0 * u.gallon
+const quart: Quantity[f64, u.Volume] = u.gallon / 4.0
+const pint: Quantity[f64, u.Volume] = u.gallon / 8.0
+const cup: Quantity[f64, u.Volume] = u.gallon / 16.0
+const gill: Quantity[f64, u.Volume] = u.gallon / 32.0
+const fluid_ounce: Quantity[f64, u.Volume] = u.gallon / 128.0
+const tablespoon: Quantity[f64, u.Volume] = fluid_ounce / 2.0
+const teaspoon: Quantity[f64, u.Volume] = fluid_ounce / 6.0
+const bushel: Quantity[f64, u.Volume] = 2150.42 * (u.inch * u.inch * u.inch)
+const peck: Quantity[f64, u.Volume] = bushel / 4.0
+const dry_quart: Quantity[f64, u.Volume] = bushel / 32.0
+const dry_pint: Quantity[f64, u.Volume] = bushel / 64.0
+const imperial_gallon: Quantity[f64, u.Volume] = 4.54609e-3 * (u.m * u.m * u.m)
+const imperial_gill: Quantity[f64, u.Volume] = imperial_gallon / 32.0
+const imperial_fluid_ounce: Quantity[f64, u.Volume] = imperial_gallon / 160.0
+const cord: Quantity[f64, u.Volume] = 128.0 * (u.foot * u.foot * u.foot)
+const register_ton: Quantity[f64, u.Volume] = 100.0 * (u.foot * u.foot * u.foot)
+const carat: Quantity[f64, u.Mass] = 200.0 * u.mg
+const grain: Quantity[f64, u.Mass] = 64.79891 * u.mg
+const pennyweight: Quantity[f64, u.Mass] = 24.0 * grain
+const troy_ounce: Quantity[f64, u.Mass] = 480.0 * grain
+const troy_pound: Quantity[f64, u.Mass] = 5760.0 * grain
+const short_hundredweight: Quantity[f64, u.Mass] = 100.0 * u.pound
+const long_hundredweight: Quantity[f64, u.Mass] = 112.0 * u.pound
+const short_ton: Quantity[f64, u.Mass] = 2000.0 * u.pound
+const long_ton: Quantity[f64, u.Mass] = 2240.0 * u.pound
+const assay_ton: Quantity[f64, u.Mass] = (short_ton / troy_ounce) * u.mg
+const slug: Quantity[f64, u.Mass] = u.pound_force * u.s * u.s / u.foot
+const shake: Quantity[f64, u.Time] = 1e-8 * u.s
+const sidereal_day: Quantity[f64, u.Time] = 86164.0905 * u.s
+const sidereal_hour: Quantity[f64, u.Time] = sidereal_day / 24.0
+const sidereal_minute: Quantity[f64, u.Time] = sidereal_hour / 60.0
+const sidereal_second: Quantity[f64, u.Time] = sidereal_minute / 60.0
+const sidereal_year: Quantity[f64, u.Time] = 365.256363004 * u.day
+const tropical_year: Quantity[f64, u.Time] = 365.24219 * u.day
+const dyne: Quantity[f64, u.Force] = 1e-5 * u.N
+const kilogram_force: Quantity[f64, u.Force] = u.kg * u.g_n
+const ounce_force: Quantity[f64, u.Force] = u.pound_force / 16.0
+const poundal: Quantity[f64, u.Force] = u.pound * u.foot / (u.s * u.s)
+const kip: Quantity[f64, u.Force] = 1e3 * u.pound_force
+const ton_force: Quantity[f64, u.Force] = 2000.0 * u.pound_force
+const technical_atmosphere: Quantity[f64, u.Pressure] = kilogram_force / (u.cm * u.cm)
+const ksi: Quantity[f64, u.Pressure] = 1e3 * u.psi
+const cmHg: Quantity[f64, u.Pressure] = 10.0 * u.mmHg
+const inHg: Quantity[f64, u.Pressure] = 25.4 * u.mmHg
+const ftHg: Quantity[f64, u.Pressure] = 304.8 * u.mmHg
+const mmH2O: Quantity[f64, u.Pressure] = water_density * u.g_n * u.mm
+const cmH2O: Quantity[f64, u.Pressure] = water_density * u.g_n * u.cm
+const inH2O: Quantity[f64, u.Pressure] = water_density * u.g_n * u.inch
+const ftH2O: Quantity[f64, u.Pressure] = water_density * u.g_n * u.foot
+const erg: Quantity[f64, u.Energy] = 1e-7 * u.J
+const calorie_IT: Quantity[f64, u.Energy] = 4.1868 * u.J
+const kilocalorie_IT: Quantity[f64, u.Energy] = 4186.8 * u.J
+const btu_th: Quantity[f64, u.Energy] = u.calorie / (u.g * u.K) * u.pound * u.rankine
+const therm_EC: Quantity[f64, u.Energy] = 1.05506e8 * u.J
+const therm_US: Quantity[f64, u.Energy] = 1.054804e8 * u.J
+const quad: Quantity[f64, u.Energy] = 1e15 * u.btu
+const ton_of_tnt: Quantity[f64, u.Energy] = 4.184e9 * u.J
+const horsepower_electric: Quantity[f64, u.Power] = 746.0 * u.W
+const horsepower_metric: Quantity[f64, u.Power] = 75.0 * kilogram_force * u.m / u.s
+const ton_of_refrigeration: Quantity[f64, u.Power] = 12000.0 * u.btu / u.hour
+const poise: Quantity[f64, u.DynamicViscosity] = 0.1 * u.Pa * u.s
+const centipoise: Quantity[f64, u.DynamicViscosity] = 1e-3 * u.Pa * u.s
+const rhe: Quantity[f64, One / u.DynamicViscosity] = 1.0 / poise
+const stokes: Quantity[f64, u.KinematicViscosity] = 1e-4 * (u.m * u.m) / u.s
+const centistokes: Quantity[f64, u.KinematicViscosity] = 1e-6 * (u.m * u.m) / u.s
+const ampere_hour: Quantity[f64, u.Charge] = u.A * u.hour
+const milliampere_hour: Quantity[f64, u.Charge] = u.mA * u.hour
+const faraday: Quantity[f64, u.Charge] = u.e * u.N_A * u.mol
+const mho: Quantity[f64, u.Conductance] = u.S
+const debye: Quantity[f64, ElectricDipoleMoment] = 1e-21 * u.C * u.m * u.m / (u.c * u.s)
+const gauss: Quantity[f64, u.MagneticFluxDensity] = 1e-4 * u.T
+const gamma: Quantity[f64, u.MagneticFluxDensity] = 1e-9 * u.T
+const maxwell: Quantity[f64, u.MagneticFlux] = 1e-8 * u.Wb
+const oersted: Quantity[f64, MagneticFieldStrength] = (1e3 / (4.0 * f64.PI)) * u.A / u.m
+const curie: Quantity[f64, u.Frequency] = 3.7e10 * u.Bq
+const rad_dose: Quantity[f64, u.SpecificEnergy] = 1e-2 * u.Gy
+const rem: Quantity[f64, u.SpecificEnergy] = 1e-2 * u.Sv
+const roentgen: Quantity[f64, Exposure] = 2.58e-4 * u.C / u.kg
+const footcandle: Quantity[f64, u.Illuminance] = u.lm / (u.foot * u.foot)
+const phot: Quantity[f64, u.Illuminance] = u.lm / (u.cm * u.cm)
+const stilb: Quantity[f64, Luminance] = u.cd / (u.cm * u.cm)
+const lambert: Quantity[f64, Luminance] = u.cd / (f64.PI * u.cm * u.cm)
+const footlambert: Quantity[f64, Luminance] = u.cd / (f64.PI * u.foot * u.foot)
+const revolution: Quantity[f64, One] = 2.0 * f64.PI * u.rad
+const gon: Quantity[f64, One] = (f64.PI / 200.0) * u.rad
+const angular_mil: Quantity[f64, One] = (2.0 * f64.PI / 6400.0) * u.rad
+const gal: Quantity[f64, u.Acceleration] = 1e-2 * u.m / (u.s * u.s)
+const kayser: Quantity[f64, u.Wavenumber] = 1e2 / u.m
+const tex: Quantity[f64, LinearDensity] = u.g / u.km
+const denier: Quantity[f64, LinearDensity] = u.g / (9000.0 * u.m)
 ```
 
 ## `std.url`

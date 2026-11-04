@@ -68,8 +68,13 @@ the object places identical code once, for any function not used as a value.
 `Quantity[T, D](x)` written with explicit type arguments, as generic bodies
 must, now retags its value as other constructions do, instead of calling the
 constructor; that made `std.units` generic bodies such as `sum` and `hypot`
-identical across dimensions. [B97](../backlog.md#units-of-measure) retains plot
-axis labels from units.
+identical across dimensions.
+
+[`std.units.catalogue`](../design/stdlib/units-catalogue.md) adds every SI
+prefix on every SI unit and the other named units of NIST SP 811 appendix B,
+built from their definitions and tested against SP 811's factors. It is a
+separate module so its 768 constants cost compile time only where imported.
+[B97](../backlog.md#units-of-measure) retains plot axis labels from units.
 
 ## Heterogeneous collections tutorial
 
