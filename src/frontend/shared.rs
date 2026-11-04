@@ -53,6 +53,11 @@ fn rejection(content: &Ty) -> Option<String> {
                 }
             }
             // Erased captures could hold a share of the value.
+            Ty::BoxedProtocol(_) => {
+                return Some(format!(
+                    "{shared} cannot hold {ty}: erased payloads may conceal shared cycles or executor/future owners"
+                ));
+            }
             Ty::BoxedCallable(_) => {
                 if let Some(through) = &through {
                     let (shared, ty) = (shown(&shared), shown(&ty));

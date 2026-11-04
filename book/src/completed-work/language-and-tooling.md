@@ -351,12 +351,19 @@ Future default/final methods and private-hook grants belong to the separate
 [protocol-body proposal](../proposals/protocol-method-bodies.md).
 Additional bounds/default-body contracts remain **B29** in the [backlog](../backlog.md).
 
-The [boxed protocol investigation](../proposals/boxed-protocols.md) records a
+The [boxed protocol investigation](../proposals/completed/boxed-protocols.md) records a
 proposed `Box[P]` contract, compiler/runtime integration map and qualification
-criteria. Four retained probes establish current rejection of protocol-valued
+criteria. Four original probes established the then-current rejection of protocol-valued
 boxes, concrete boxed method calls, and single-method erasure of class/enum
-instances through `BoxedCallable`. This delivers research and a proposal, not
-protocol objects; implementation remains unscheduled under B29.
+instances through `BoxedCallable`. The subsequent implementation adds explicit
+`Box[P](value)?`, shared/mutable
+method tables over one concrete payload, fixed protocol argument inference,
+identical-protocol generic bounds, aggregate storage and descriptor-driven
+cleanup. Executable lessons cover heterogeneous lists and dictionary values.
+Borrowed outputs, consuming or generic requirements, copying, keys and native
+transfer remain unsupported. `Shared` contents and hidden executor/future or
+erased-callback payloads are conservatively rejected. See the
+[implemented contract](../design/language/07-generics/boxed-protocols.md).
 
 ## B32: Callback storage
 

@@ -1,11 +1,14 @@
 # Boxed protocol objects
 
-**Status: proposed; not implemented.** This proposes explicit owned protocol
-objects, written `Box[P]`, for collections and interfaces whose concrete
-implementations may differ. The [protocol reference](../design/language/07-generics/protocols.md)
-and [box reference](../design/facilities/01-builtins/boxes.md) describe current
-behavior. Implementation remains a candidate under **B29** in the
-[backlog](../backlog.md); writing this proposal does not schedule it.
+**Status: implemented with conservative erasure limits.** Explicit `Box[P]`
+owners support shared/mutable dispatch, fixed protocol arguments and generic
+consumers of the same protocol. The [implemented contract](../../design/language/07-generics/boxed-protocols.md)
+is authoritative. This proposal retains the research and design rationale.
+`Shared` cannot contain protocol objects, and construction rejects payloads
+concealing executors, futures or erased callbacks. Returned borrows, consuming
+requirements, method-local generics and native transfer remain unsupported.
+Generator-frame/concrete-closure signature types and recursive boxed interface
+signatures are also rejected. See the retained [measurements](boxed-protocols/evidence.md#implementation-measurements).
 
 The investigation used local `main` at `bb97038b` on 2026-11-03. It found a
 credible implementation path through the existing boxed-callable machinery,
@@ -22,8 +25,7 @@ iterate over them, and call the methods declared by a common protocol without
 matching or casting. Every method on an object must reach the same underlying
 instance, including changes made through mutable methods.
 
-Hypothetical complete program; `Box[MyProtocol]` and its constructor do not
-compile today:
+Complete example of the implemented interface:
 
 ```text
 protocol MyProtocol:
@@ -49,8 +51,8 @@ enum Message:
 
 def main() -> Result[(), AllocError | IoError]:
     mut items: list[Box[MyProtocol]] = []?
-    items.append(Box[MyProtocol](Counter(10))?)?
-    items.append(Box[MyProtocol](Message.Count(20))?)?
+    items.append(Box[MyProtocol](../Counter(10))?)?
+    items.append(Box[MyProtocol](../Message.Count(20))?)?
     for item in &items:
         print(item.hey())?
     Ok(())
@@ -64,15 +66,15 @@ Dictionary values work the same way, with ordinary supported keys:
 
 ```text
 items: dict[str, Box[MyProtocol]] = {
-    "counter": Box[MyProtocol](Counter(10))?,
-    "message": Box[MyProtocol](Message.Ready)?,
+    "counter": Box[MyProtocol](../Counter(10))?,
+    "message": Box[MyProtocol](../Message.Ready)?,
 }?
 for name, item in items.items():
     print(name, item.hey())?
 ```
 
-This does not extend dictionary keys or set elements. See the current
-[heterogeneous collection lessons](../tutorial/heterogeneous-collections/index.md)
+Protocol boxes are not dictionary keys or set elements. See the current
+[heterogeneous collection lessons](../../tutorial/heterogeneous-collections/index.md)
 for implemented enum and anonymous-sum alternatives.
 
 ## Why `Box` is explicit
@@ -80,7 +82,7 @@ for implemented enum and anonymous-sum alternatives.
 The proposed spelling is **`list[Box[MyProtocol]]`, not `list[MyProtocol]`**.
 `MyProtocol` remains a compile-time contract rather than a standalone stored
 value type. The `Box` boundary supplies owned storage for an unknown concrete
-layout, while `Box[MyProtocol](value)?` exposes allocation and its failure.
+layout, while `Box[MyProtocol](../value)?` exposes allocation and its failure.
 
 This is a deliberate language choice, not a mathematical requirement. An
 unboxed-looking protocol value could be defined as an implicitly boxed owner,
@@ -138,7 +140,7 @@ concrete type disappears from the caller, not allocating memory or selecting
 a function pointer. The estimate is architectural judgment, not a calendar
 estimate or a measured prototype result.
 
-This is independent of [protocol method bodies](protocol-method-bodies.md).
+This is independent of [protocol method bodies](../protocol-method-bodies.md).
 Defaults, final methods, private-hook grants, and abstract checking of supplied
 bodies need their own implementation. Boxed objects can initially dispatch the
 accessible inherent methods required by protocols with `pass` bodies.

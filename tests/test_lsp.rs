@@ -675,3 +675,19 @@ def main() -> ():
     );
     client.exit();
 }
+
+#[test]
+fn boxed_protocol_method_navigates_to_its_requirement() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(
+        &main,
+        "protocol Read:\n    def read(self) -> i64:\n        pass\nclass Value:\n    def read(self) -> i64:\n        7\ndef main() -> Result[(), AllocError | IoError]:\n    value = Box[Read](Value())?\n    print(value.read())?\n    Ok(())\n",
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(client.open(&main), json!([]));
+    let (file, line, _) = client.definition(&main, 8, 17);
+    assert_eq!(file, main.to_str().unwrap());
+    assert_eq!(line, 1);
+    client.exit();
+}

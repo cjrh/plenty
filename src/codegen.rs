@@ -1016,6 +1016,7 @@ struct Runtime {
     /// object declares symbols; the lock lets threads building IR share the
     /// rest of `Runtime`.
     type_data: std::sync::Mutex<HashMap<Ty, DataId>>,
+    protocol_tables: std::sync::Mutex<HashMap<Vec<FuncId>, DataId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
     list_len: FuncId,
@@ -1219,6 +1220,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
+        protocol_tables: Default::default(),
         drop_hooks: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
@@ -2567,6 +2569,12 @@ impl Lowerer<'_, '_> {
                 self.lower_boxed_callable_new(source, adapter, sig)?
             }
             Op::BoxedCallableCall(sig) => self.lower_boxed_callable_call(sig)?,
+            Op::ProtocolBoxNew(source, adapters, protocol) => {
+                self.lower_protocol_box_new(source, adapters, protocol)?
+            }
+            Op::ProtocolBoxCall(protocol, index) => {
+                self.lower_protocol_box_call(protocol, *index)?
+            }
             Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => {
                 self.fresh_load = fresh_load;

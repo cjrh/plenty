@@ -2725,6 +2725,52 @@ fn failed_callable_box_drops_the_concrete_environment_once() {
     }
 }
 
+static ERASED_PROTOCOL: Type = Type {
+    affine: true,
+    ..scalar(b'j')
+};
+
+#[test]
+fn protocol_box_retains_table_and_concrete_cleanup() {
+    trace();
+    // SAFETY: the Guard has initialized inline storage; opcode 128 moves it
+    // into the concrete box. The static table is never invoked by this test.
+    unsafe {
+        let mut value = [INITIALIZED, 44];
+        let table = [0x1234u64, 0x5678];
+        let result = collection(
+            128,
+            value.as_mut_ptr() as u128,
+            table.as_ptr() as u128,
+            0,
+            &GUARD,
+        );
+        assert_eq!(result >> 64, 0);
+        let boxed = result as u64 as *mut u64;
+        assert_eq!(boxed.add(2).read(), &GUARD as *const Type as u64);
+        assert_eq!(boxed.add(3).read(), table.as_ptr() as u64);
+        crate::aggregates::release(boxed as u128, &ERASED_PROTOCOL);
+        assert_eq!(trace(), [44]);
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn failed_protocol_box_destroys_consumed_payload() {
+    trace();
+    TRACE.with(|trace| trace.borrow_mut().reserve(1));
+    // SAFETY: initialized Guard storage remains valid during failed boxing;
+    // the operation consumes it, including running its destructor on failure.
+    unsafe {
+        let mut value = [INITIALIZED, 45];
+        crate::accounting::fail_after(Some(0));
+        let result = collection(128, value.as_mut_ptr() as u128, 0x1234, 0, &GUARD);
+        crate::accounting::fail_after(None);
+        assert_eq!(result >> 64 & 1, 1);
+        assert_eq!(trace(), [45]);
+    }
+}
+
 /// Python's slice selection, by brute force over every position.
 fn python_slice(len: usize, start: Option<i64>, stop: Option<i64>, step: i64) -> Vec<usize> {
     let len = len as i128;

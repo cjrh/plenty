@@ -150,3 +150,7 @@ def main() -> Result[(), AllocError | IoError]:
 The annotations provide the expected types for insertion and lookup. The
 integer key `7` remains distinct from the string key `"7"`. Use a named enum
 when domain-specific variant names make the meaning clearer.
+
+For implementations supplied independently of a fixed list of alternatives, see
+[protocol objects](../09-generics/boxed-protocols.md). Each object uses an explicit
+heap allocation and exposes the methods of one protocol.

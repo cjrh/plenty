@@ -64,6 +64,8 @@ pub enum Ty {
     Callable(Arc<CallableSig>),
     /// Explicitly allocated, owned shared-call environment with structural identity.
     BoxedCallable(Arc<CallableSig>),
+    /// An owned concrete payload behind a fixed protocol method table.
+    BoxedProtocol(Arc<crate::boxed::ProtocolType>),
     I8,
     I16,
     I32,
@@ -279,6 +281,7 @@ impl Ty {
     }
     pub fn layout_depth(&self) -> usize {
         match self {
+            Self::BoxedProtocol(p) => 1 + p.types().map(Ty::layout_depth).max().unwrap_or(0),
             Self::Closure(t) => t.depth,
             Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
                 1 + sig
@@ -315,7 +318,7 @@ impl Ty {
                 | Self::Executor
                 | Self::Future(_)
                 | Self::Closure(_)
-                | Self::BoxedCallable(_)
+                | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Generator(_)
@@ -635,6 +638,7 @@ impl Ty {
             Self::Str
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
+                | Self::BoxedProtocol(_)
                 | Self::File
                 | Self::FsReadDir
                 | Self::FsDirEntry
@@ -714,6 +718,7 @@ impl Ty {
                     format!("{signature} from `{}`", t.name)
                 }
             }
+            Ty::BoxedProtocol(p) => p.identity_name(),
             Ty::Callable(t) => t.identity_name(),
             Ty::BoxedCallable(t) => t.identity_name().replacen("Callable", "BoxedCallable", 1),
             Ty::Enum(t) => t.name.to_string(),
@@ -826,6 +831,7 @@ impl fmt::Display for Ty {
                 };
             }
             Ty::Callable(sig) => return write!(f, "{sig}"),
+            Ty::BoxedProtocol(protocol) => return write!(f, "{protocol}"),
             Ty::BoxedCallable(sig) => {
                 return f.write_str(&sig.to_string().replacen("Callable", "BoxedCallable", 1));
             }
@@ -1049,6 +1055,8 @@ pub enum Op {
     ClosureCall(Arc<crate::closure::ClosureType>),
     BoxedCallableNew(Box<Ty>, String, Arc<CallableSig>),
     BoxedCallableCall(Arc<CallableSig>),
+    ProtocolBoxNew(Box<Ty>, Vec<String>, Arc<crate::boxed::ProtocolType>),
+    ProtocolBoxCall(Arc<crate::boxed::ProtocolType>, usize),
     FunctionAddress(String, Arc<CallableSig>),
     CallIndirect(Arc<CallableSig>),
     TailCallIndirect(Arc<CallableSig>),

@@ -3077,6 +3077,26 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             return Ok(());
         }
         match ty {
+            Ty::BoxedProtocol(protocol) => {
+                if access
+                    .types
+                    .get(&protocol.name)
+                    .is_some_and(|rule| !rule.public)
+                {
+                    return Err(at.error(format!(
+                        "public signature exposes private protocol `{}`",
+                        protocol.name
+                    )));
+                }
+                for ty in protocol.arguments.iter().chain(
+                    protocol
+                        .methods
+                        .iter()
+                        .flat_map(|m| m.signature.inputs.iter().chain(m.signature.output.iter())),
+                ) {
+                    visible(ty, at, access, aliases)?;
+                }
+            }
             Ty::Closure(t) => {
                 for ty in t.signature.inputs.iter().chain(t.signature.output.iter()) {
                     visible(ty, at, access, aliases)?;

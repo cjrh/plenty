@@ -1849,7 +1849,10 @@ impl Checker<'_, '_> {
                 Op::ClosureCall(closure) if !closure.name.is_empty() => {
                     Some(Some(closure.name.as_str()))
                 }
-                Op::ClosureCall(_) | Op::CallIndirect(_) | Op::BoxedCallableCall(_) => Some(None),
+                Op::ClosureCall(_)
+                | Op::CallIndirect(_)
+                | Op::BoxedCallableCall(_)
+                | Op::ProtocolBoxCall(..) => Some(None),
                 // The frame, and every endpoint it holds, is released first.
                 Op::TailCall(_) | Op::TailCallIndirect(_) => {
                     passing = None;

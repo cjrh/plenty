@@ -10,6 +10,7 @@ data is an optional extension at the end.
 - [Parameterize a class](generic-classes.md)
 - [Parameterize an enum](generic-enums.md)
 - [Parameterize a protocol](generic-protocols.md)
+- [Store different implementations of a protocol](boxed-protocols.md)
 - [Give a method its own type parameters](generic-methods.md)
 - [Calculate with quantities](dimensions.md)
 - [Build recursive data](recursive-data.md)

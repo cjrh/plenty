@@ -724,6 +724,7 @@ impl Names<'_> {
                     Some(Request::Coverage(counters)) => {
                         format!("{resolved} (coverage counters: {counters})")
                     }
+                    Some(Request::ProtocolTable(_)) => format!("protocol table {index}"),
                     Some(Request::Import(..) | Request::Foreign(..)) | None => resolved,
                 }
             }
