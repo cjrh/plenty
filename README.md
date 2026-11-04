@@ -32,6 +32,8 @@ plenty --compile main.plenty --release -o main
 ./main
 ```
 
+Output:
+
 ```text
 {"small": 2, "language": 1, "big": 1, "ideas": 1, "programs": 1}
 ```
