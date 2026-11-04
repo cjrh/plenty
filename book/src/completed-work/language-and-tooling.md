@@ -227,8 +227,11 @@ Reviewed early/advanced lessons, reference and skill examples use public callbac
 Results and explicit worker error handling. The reviewed generic deque, heap,
 graph and LRU arithmetic checkpoint preserves public declarations and exact
 allocation/ownership contracts; its 49 targeted tests pass. Full executable
-documentation now has 19 passing / 1 failing test, the remaining fallible-reducer
-lesson, rather than the initial 3 / 17. Registry success alone did not cover these
+documentation now has all 20 tests passing, rather than the initial 3 / 17.
+Reviewed fallible tree/pipeline reducers preserve ordinary callback Results,
+typed worker-error ownership and deterministic selection; 24 parallel and 37
+parallel-pipeline tests pass. Pair adapters reconstruct only the existing
+two-field split and retain affine field/error cleanup. Registry success alone did not cover these
 generic instantiations. Native export/FFI fixture adoption preserves scalar and
 fieldless error ABIs, C/C++ guard-page assertions and exact resource cleanup;
 its 23 component tests pass. Repository fixtures/examples, full native and
@@ -236,6 +239,19 @@ all-features acceptance remain outstanding. A complete earlier all-features
 baseline compiled successfully but reported 4,465 passes, 1,109 failures and
 eight ignores; 27 confirmed self-skips are included in the reported passes.
 That snapshot predates the generic/native follow-ups and is not a current pass.
+
+Reviewed generalized initializer errors preserve exactly the declared E, including
+generic whole-result parameters, aliases, named defaults and constructor values.
+Construction adds no AllocError implicitly. Partial initialization and affine
+error/default ownership are tested in both native modes; all 114 constructor/
+checked-default cases pass. Issue #709's partial-self closure-capture guard is
+integrated, while destructor/context exits remain infallible and C-export error
+layouts are unchanged. Generator/serial-pipeline fixture adoption has 184 passing
+cases with suspension, fusion, allocation and drop oracles intact; its corrected
+imported-callback test separately proves inlining and isolated cold/warm/edit cache
+behavior. HTTP qualification retains real TCP/TLS/curl/corpus/installed-toolchain
+assertions, with 15 passing cases and precise aggregate-overflow context. These are
+scoped checkpoints, not a substitute for the red whole-workspace baseline.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

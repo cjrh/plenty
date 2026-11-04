@@ -126,9 +126,14 @@ Results, explicit joins and precise propagation. Full executable documentation
 improves from 3 passing / 17 failing tests to 19 passing / 1 failing after the
 reviewed generic deque/heap/graph/LRU checkpoint (49 targeted passes). Its std
 public declarations, allocation causes and ownership contracts stay unchanged.
-The remaining lesson needs fallible fixed-tree reducers. Registry analysis does
-not instantiate all generic bodies; executable coverage was needed in addition
-to its two passing tests. Reviewed native export/FFI fixtures restore 23 tests
+Reviewed fallible fixed-tree and pipeline reducers now accept ordinary Result
+callbacks, including reconstructed pair items with exactly-once affine cleanup.
+Their public error unions retain pool failures and callback errors; deterministic
+tree-level/pair selection and chunk-fold policies remain distinct from integer
+sum's serial prefixes. All 20 tutorial/skill tests, 24 parallel tests and 37
+parallel-pipeline tests pass after integration. Registry analysis does not
+instantiate all generic bodies; executable coverage was needed in addition to
+its two passing tests. Reviewed native export/FFI fixtures restore 23 tests
 without widening C scalar/fieldless-error signatures or weakening native oracles.
 
 Adoption remains incomplete. Fallible reduction callbacks, repository fixtures/
@@ -139,10 +144,18 @@ The passes include 27 confirmed optional self-skips. Most failures reject old
 fixture arithmetic contracts; some hit the generic std bodies adapted since that
 snapshot. Compilation and those counts are not whole-proposal acceptance. The user approved deterministic fallible-tree
 errors by level then left-to-right pair, accepting level-by-level scheduling while
-infallible reducers retain their optimization. The user also approved ordinary
-Result[(), E] initializers producing Result[Class, E], without adding AllocError
-unless declared. Both extensions await implementation/review/cleanup proof;
-infallible destructor and context-exit protocols remain unchanged.
+infallible reducers retain their optimization. Ordinary Result[(), E] initializers now produce exactly Result[Class, E], without
+adding AllocError unless declared. Reviewed generic-output deferral preserves
+whole-result parameters, aliases, defaults and constructor values. All 114
+constructor/checked-default tests pass after integration, including partial-field,
+affine-error, default-failure and native inline/noninline cleanup. Issue #709's
+partial-self capture guard is integrated; captures are checked when created,
+without crediting deferred closure-body writes. Infallible destructor/context-exit
+protocols and existing C-export error-layout restrictions remain unchanged.
+The tuple-adapter review correction is integrated with owned/enumerated/mapped
+pair, cardinality, managed-error and allocation-failure regressions. Earlier
+scalar-only passes did not establish that case; the correction received separate
+review before integration.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
