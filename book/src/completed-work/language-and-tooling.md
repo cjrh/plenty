@@ -224,11 +224,18 @@ and combines them serially; no performance improvement is claimed. Generated
 split/count helpers have source bounds and exact extent errors; enumeration keeps
 its explicit trapping boundary.
 Reviewed early/advanced lessons, reference and skill examples use public callback
-Results and explicit worker error handling. Combined executable documentation now
-has 11 passing / 9 failing tests rather than 3 / 17. Unmigrated generic deque,
-heap, graph and LRU instances plus fallible reducers remain actual blockers;
-registry success does not cover them. Repository fixtures/examples, full native
-and all-features acceptance remain outstanding.
+Results and explicit worker error handling. The reviewed generic deque, heap,
+graph and LRU arithmetic checkpoint preserves public declarations and exact
+allocation/ownership contracts; its 49 targeted tests pass. Full executable
+documentation now has 19 passing / 1 failing test, the remaining fallible-reducer
+lesson, rather than the initial 3 / 17. Registry success alone did not cover these
+generic instantiations. Native export/FFI fixture adoption preserves scalar and
+fieldless error ABIs, C/C++ guard-page assertions and exact resource cleanup;
+its 23 component tests pass. Repository fixtures/examples, full native and
+all-features acceptance remain outstanding. A complete earlier all-features
+baseline compiled successfully but reported 4,465 passes, 1,109 failures and
+eight ignores; 27 confirmed self-skips are included in the reported passes.
+That snapshot predates the generic/native follow-ups and is not a current pass.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

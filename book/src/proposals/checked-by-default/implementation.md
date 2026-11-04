@@ -123,14 +123,21 @@ tutorial examples pass after integration.
 
 Reviewed tutorial, reference and skill adoption uses independent public callback
 Results, explicit joins and precise propagation. Full executable documentation
-improves from 3 passing / 17 failing tests to 11 passing / 9 failing. Remaining
-locations instantiate unmigrated generic deque/heap/graph/LRU bodies or the
-infallible fixed-tree reducer contract. Registry analysis does not instantiate
-all generic bodies; its two passes do not establish complete std adoption.
+improves from 3 passing / 17 failing tests to 19 passing / 1 failing after the
+reviewed generic deque/heap/graph/LRU checkpoint (49 targeted passes). Its std
+public declarations, allocation causes and ownership contracts stay unchanged.
+The remaining lesson needs fallible fixed-tree reducers. Registry analysis does
+not instantiate all generic bodies; executable coverage was needed in addition
+to its two passing tests. Reviewed native export/FFI fixtures restore 23 tests
+without widening C scalar/fieldless-error signatures or weakening native oracles.
 
-Adoption remains incomplete. Fallible reduction callbacks, deferred generic std
-instances, repository fixtures/examples, full-suite/native arithmetic audits and
-performance measurements remain. The user approved deterministic fallible-tree
+Adoption remains incomplete. Fallible reduction callbacks, repository fixtures/
+examples, full-suite/native arithmetic audits and performance measurements remain.
+A complete earlier all-features baseline compiled, including experimental emitter
+and profiling features, but reported 4,465 passes, 1,109 failures and eight ignores.
+The passes include 27 confirmed optional self-skips. Most failures reject old
+fixture arithmetic contracts; some hit the generic std bodies adapted since that
+snapshot. Compilation and those counts are not whole-proposal acceptance. The user approved deterministic fallible-tree
 errors by level then left-to-right pair, accepting level-by-level scheduling while
 infallible reducers retain their optimization. The user also approved ordinary
 Result[(), E] initializers producing Result[Class, E], without adding AllocError
