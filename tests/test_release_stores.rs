@@ -20,9 +20,19 @@ fn compile(
 ) -> (Output, std::path::PathBuf) {
     let path = dir.join("main.plenty");
     let executable = dir.join("main");
-    std::fs::write(&path, source).unwrap();
+    let unchanged = match std::fs::read_to_string(&path) {
+        Ok(previous) => previous == source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => panic!("read {path:?}: {error}"),
+    };
+    if !unchanged {
+        std::fs::write(&path, source).unwrap();
+    }
     let mut command = Command::new(support::plenty_bin());
-    command.env("PLENTY_CACHE", cache);
+    command
+        .env("PLENTY_CACHE", if cache == "off" { "off" } else { "on" })
+        .env("PLENTY_CACHE_DIR", cache)
+        .arg("--cache-stats");
     if release {
         command.arg("--release");
     }
@@ -61,14 +71,14 @@ def fill(out: &mut i64, value: i64) -> Result[list[i64], AllocError]:
         values.append(i)?
     Ok(values)
 
-def wait_then_publish(ready: &Atomic[bool], seen: &Atomic[i64]) -> i64:
+def wait_then_publish(ready: &Atomic[bool], seen: &Atomic[i64]) -> Result[i64, OverflowError[i64]]:
     mut spins = 0
     while not ready.load(Ordering.Acquire):
         spins = spins + 1
     seen.store(7, Ordering.Release)
-    1
+    Ok(1)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     mut a = 0
     mut b = 0
     with spawn(fill, &mut a, 5)? as first, spawn(fill, &mut b, 9)? as second:
@@ -79,7 +89,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     seen = Atomic[i64](0)
     with spawn(wait_then_publish, &ready, &seen)? as task:
         ready.store(True, Ordering.Release)
-        print(task.join())?
+        print(task.join()?)?
     print(seen.load(Ordering.Acquire))?
     Ok(())
 "#;
@@ -88,43 +98,49 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 /// and executor results.
 const CHANNELS: &str = r#"from std.sync import Mutex
 
-def produce(sender: Sender[i64], start: i64) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64], start: i64) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for i in range(start, start + 1000):
         sender.send(i)?
     Ok(())
 
-def collect(receiver: &Receiver[i64]) -> i64:
+def collect(receiver: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match receiver.recv():
             case Ok(n):
                 total = total + n
             case Err(_):
-                return total
-    total
+                return Ok(total)
+    Ok(total)
 
-def count(stats: &Mutex[i64], rounds: i64) -> ():
+def count(stats: &Mutex[i64], rounds: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(rounds):
         with stats.lock() as value:
             *value = *value + 1
             *value = *value + 2
+    Ok(())
 
-def square(value: i64) -> i64:
-    value * value
+def square(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * value)
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], i64]] | SendError[i64] | SpawnError[()]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[OnceClosure[[], Result[i64, OverflowError[i64]]]] | SendError[i64] | SpawnError[()] | OverflowError[i64]]:
     sender, receiver = channel[i64](4)?
-    with spawn(produce, sender, 0).drop_job()?, receiver as inbox:
-        total = collect(inbox)
-        print(total)?
+    with spawn(produce, sender, 0).drop_job()? as producer:
+        with receiver as inbox:
+            total = collect(inbox)?
+            print(total)?
+        producer.join()?
     stats = Mutex(0)
-    with spawn(count, &stats, 50000)?, spawn(count, &stats, 50000)?, spawn(count, &stats, 50000)?:
-        count(&stats, 50000)
+    with spawn(count, &stats, 50000)? as first, spawn(count, &stats, 50000)? as second, spawn(count, &stats, 50000)? as third:
+        count(&stats, 50000)?
+        first.join()?
+        second.join()?
+        third.join()?
     print(stats.into_inner())?
     with ThreadPoolExecutor(3, 4)? as pool:
         mut sum = 0
         for n in range(20):
-            sum = sum + pool.submit(square, n)?.result()?
+            sum = sum + (pool.submit(square, n)?.result()?)?
         print(sum)?
     Ok(())
 "#;
@@ -135,32 +151,58 @@ const GENERATORS: &str = r#"class Pair:
     left: i64
     right: str
 
-def steps(n: i64) -> Generator[i64]:
+def steps(n: i64) -> Generator[Result[i64, OverflowError[i64]]]:
     mut total = 0
     mut i = 0
     while i < n:
-        total = total + i
-        yield total
-        total = total * 2
-        yield total
-        i = i + 1
+        added = checked:
+            total + i
+        match added:
+            case Ok(value):
+                total = value
+            case Err(error):
+                yield Err(error)
+                return
+        yield Ok(total)
+        doubled = checked:
+            total * 2
+        match doubled:
+            case Ok(value):
+                total = value
+            case Err(error):
+                yield Err(error)
+                return
+        yield Ok(total)
+        # 0 <= i < n <= i64.MAX, so advancing the index cannot overflow.
+        unchecked:
+            i = i + 1
 
-def pairs(n: i64) -> Generator[Pair]:
+def pairs(n: i64) -> Generator[Result[Pair, OverflowError[i64]]]:
     for i in range(n):
-        yield Pair(i, "p")
-        yield Pair(i * 10, "q")
+        yield Ok(Pair(i, "p"))
+        result = checked:
+            Pair(i * 10, "q")
+        yield result
 
-def main() -> Result[(), AllocError | IoError]:
+def step_option(value: Option[Result[i64, OverflowError[i64]]]) -> Result[Option[i64], OverflowError[i64]]:
+    match value:
+        case Some(result):
+            Ok(Some(result?))
+        case Nothing:
+            Ok(Nothing)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut sum = 0
     for value in steps(6):
-        sum = sum * 3 + value
+        sum = sum * 3 + value?
     print(sum)?
     mut it = steps(3)
-    print(next(&mut it))?
-    print(next(&mut it))?
-    print(next(&mut it))?
+    print(step_option(next(&mut it))?)?
+    print(step_option(next(&mut it))?)?
+    print(step_option(next(&mut it))?)?
     mut checksum = 0
-    for pair in pairs(4):
+    for result in pairs(4):
+        pair = result?
         checksum = checksum * 7 + pair.left + len(pair.right)
     print(checksum)?
     Ok(())
@@ -200,7 +242,7 @@ fn oversized_frame() -> String {
         source.push_str("    yield 1\n\n");
     }
     source.push_str(
-        "def main() -> i32:\n    mut t = 0\n    for v in g7():\n        t = t + v\n    i32(t)\n",
+        "def main() -> Result[i32, OverflowError[i64]]:\n    mut t = 0\n    for v in g7():\n        t = t + v\n    Ok(i32(t))\n",
     );
     source
 }
@@ -209,16 +251,91 @@ fn oversized_frame() -> String {
 fn frame_over_one_gib_is_a_diagnostic(#[values(false, true)] release: bool) {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
-    for cache in ["off".as_ref(), cache.as_os_str()] {
-        let (output, _) = compile(dir.path(), &oversized_frame(), release, cache);
-        assert!(!output.status.success());
+    let source = oversized_frame();
+    let edited = source.replacen("    yield 1\n", "    yield 2\n", 1);
+    assert_ne!(source, edited);
+    for (phase, source, cache) in [
+        ("off", &source, "off".as_ref()),
+        ("cold", &source, cache.as_os_str()),
+        ("warm", &source, cache.as_os_str()),
+        ("edited", &edited, cache.as_os_str()),
+    ] {
+        let (output, _) = compile(dir.path(), source, release, cache);
+        assert!(!output.status.success(), "{phase}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             stderr.contains(
                 "compiling `main`: its native stack frame exceeds the 1 GiB limit; \
                  store large values in a `Box` or split the function"
             ),
-            "{stderr}"
+            "{phase}: {stderr}"
         );
+    }
+}
+
+#[rstest]
+fn generator_stores_survive_cold_warm_and_edited_cache(#[values(false, true)] release: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join("cache");
+    let edited = GENERATORS.replace("Pair(i, \"p\")", "Pair(i, \"pp\")");
+    assert_ne!(GENERATORS, edited);
+    let original_output =
+        "53295\nOption[i64].Some(0)\nOption[i64].Some(0)\nOption[i64].Some(1)\n1003334\n";
+    let edited_output =
+        "53295\nOption[i64].Some(0)\nOption[i64].Some(0)\nOption[i64].Some(1)\n1844034\n";
+    // Program-cache admission stores a marker on first use, then the object
+    // on second use. That second build must reuse all nine function entries.
+    for (phase, source, mode, statistic, expected) in [
+        (
+            "cold-marker",
+            GENERATORS,
+            cache.as_os_str(),
+            "compile cache: program miss, 0 hits, 9 misses",
+            original_output,
+        ),
+        (
+            "object-admission",
+            GENERATORS,
+            cache.as_os_str(),
+            "compile cache: program miss, 9 hits, 0 misses",
+            original_output,
+        ),
+        (
+            "warm",
+            GENERATORS,
+            cache.as_os_str(),
+            "compile cache: program hit",
+            original_output,
+        ),
+        (
+            "edited",
+            edited.as_str(),
+            cache.as_os_str(),
+            "compile cache: program miss",
+            edited_output,
+        ),
+        (
+            "warm-edited",
+            edited.as_str(),
+            cache.as_os_str(),
+            "compile cache: program hit",
+            edited_output,
+        ),
+        (
+            "off-edited",
+            edited.as_str(),
+            "off".as_ref(),
+            "compile cache: off",
+            edited_output,
+        ),
+    ] {
+        let (built, executable) = compile(dir.path(), source, release, mode);
+        let stderr = String::from_utf8_lossy(&built.stderr);
+        assert!(built.status.success(), "{phase}: {stderr}");
+        assert!(stderr.contains(statistic), "{phase}: {stderr}");
+        println!("release={release} {phase}: {stderr}");
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{phase}: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected, "{phase}");
     }
 }

@@ -63,13 +63,15 @@ def later() -> i64:
 def fail() -> Result[i64, str]:
     print("fail").unwrap()
     Err("stop")
-def attempt() -> Result[i64, str]:
+def attempt() -> Result[i64, str | OverflowError[i64]]:
     Ok(len(&make()) + fail()?)
-print(len(&"é🦀"), len(&("a" + "b").unwrap()), len(&b"abc")).unwrap()
-print(len(&[1, 2].unwrap())).unwrap()
-print(len(&make()) + later()).unwrap()
-drop(attempt())
-print("done").unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    print(len(&"é🦀"), len(&("a" + "b").unwrap()), len(&b"abc")).unwrap()
+    print(len(&[1, 2].unwrap())).unwrap()
+    print(len(&make()) + later()).unwrap()
+    drop(attempt())
+    print("done").unwrap()
+    Ok(())
 "#,
         "2 2 3\n2\nmake\nlater\n8\ndrop\nmake\nfail\ndrop\ndone\n",
     );
@@ -96,11 +98,13 @@ def later() -> i64:
     1
 def view(item: &Item) -> &i64:
     &item.value
-def use(item: &Item, extra: i64) -> i64:
-    item.value + extra
-print(use(make(), later())).unwrap()
-print(*view(make()) + later()).unwrap()
-print("end").unwrap()
+def use(item: &Item, extra: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(item.value + extra)
+def main() -> Result[(), OverflowError[i64]]:
+    print(use(make(), later())?).unwrap()
+    print(*view(make()) + later()).unwrap()
+    print("end").unwrap()
+    Ok(())
 "#,
         "make\nlater\n43\n42\nmake\nlater\n43\n42\nend\n",
     );
@@ -116,10 +120,10 @@ class Item:
         print(self.value).unwrap()
 def fail() -> Result[i64, str]:
     Err("stop")
-def use(item: &Item, extra: i64) -> i64:
-    item.value + extra
-def attempt() -> Result[i64, str]:
-    Ok(use(Item(42), fail()?))
+def use(item: &Item, extra: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(item.value + extra)
+def attempt() -> Result[i64, str | OverflowError[i64]]:
+    Ok(use(Item(42), fail()?)?)
 drop(attempt())
 print("done").unwrap()
 "#,

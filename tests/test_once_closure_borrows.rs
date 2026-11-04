@@ -4,15 +4,15 @@ use support::{check_source, run};
 #[test]
 fn consuming_captures_can_mix_owned_and_local_borrowed_values() {
     let output = run(r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut total = 1
     offset = 3
     values = [5, 8]?
-    take = def once [values, &mut total, &offset]() -> list[i64]:
+    take = def once [values, &mut total, &offset]() -> Result[list[i64], OverflowError[i64]]:
         total = total + offset
-        values
+        Ok(values)
     moved = take
-    result = moved()
+    result = moved()?
     print(total)?
     total = 10
     print(result)?
@@ -31,7 +31,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn pending_one_shot_calls_keep_capture_loans_through_later_arguments() {
     for operation in ["value", "change(&mut value)"] {
         let source = format!(
-            "def change(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> ():\n    mut value = 1\n    f = def once [&mut value](arg: i64) -> i64:\n        value + arg\n    f({operation})\n    pass\n"
+            "def change(value: &mut i64) -> i64:\n    *value = 9\n    *value\ndef main() -> ():\n    mut value = 1\n    f = def once [&mut value](arg: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(value + arg)\n    drop(f({operation}))\n    pass\n"
         );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
@@ -50,7 +50,7 @@ fn borrowed_one_shot_closures_cannot_escape_or_pass_by_value() {
 
 #[test]
 fn consuming_a_transitively_borrowing_environment_checks_roots() {
-    let source = "def main() -> ():\n    mut value = 1\n    mut inner = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    outer = def once [&mut inner](arg: i64) -> i64:\n        inner() + arg\n    outer(value)\n    pass\n";
+    let source = "def main() -> ():\n    mut value = 1\n    mut inner = def [&mut value]() -> Result[i64, OverflowError[i64]]:\n        value = value + 1\n        Ok(value)\n    outer = def once [&mut inner](arg: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(inner()? + arg)\n    drop(outer(value))\n    pass\n";
     let error = check_source(source).unwrap_err().to_string();
     assert!(error.contains("borrow"), "{error}");
 }

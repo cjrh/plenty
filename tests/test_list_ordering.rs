@@ -7,14 +7,16 @@ use support::assert_visible_stdout as native;
 fn wide_sort_moves_nested_string_owners_in_both_directions() {
     native(
         r#"
-mut rows = [((i % 7, str.repr(&i).unwrap()), i) for i in range(127)].unwrap()
-rows.sort()
-print(len(rows)).unwrap()
-print(rows[0]).unwrap()
-rows.sort(True)
-print(rows[0]).unwrap()
-rows.reverse()
-print(rows[0]).unwrap()
+def main() -> Result[(), ZeroDivisionError]:
+    mut rows = [((i % 7, str.repr(&i).unwrap()), i) for i in range(127)].unwrap()
+    rows.sort()
+    print(len(rows)).unwrap()
+    print(rows[0]).unwrap()
+    rows.sort(True)
+    print(rows[0]).unwrap()
+    rows.reverse()
+    print(rows[0]).unwrap()
+    Ok(())
 "#,
         "127\n((0, \"0\"), 0)\n((6, \"97\"), 97)\n((0, \"0\"), 0)\n",
     );
@@ -55,23 +57,25 @@ def ends(items: &mut list[i64]) -> ():
     items.swap(0, -1)
 class Data:
     items: list[i64]
-mut data = Data([1, 2, 3, 4].unwrap())
-ends(&mut data.items)
-print(data.items).unwrap()
-data.items.swap(1, 2)
-print(data.items).unwrap()
-data.items.swap(-4, -4)
-print(data.items).unwrap()
-mut pairs = [(1, "a"), (2, "b"), (3, "c")].unwrap()
-pairs.swap(0, 2)
-print(pairs).unwrap()
-mut indices = [1, 0].unwrap()
-indices.swap(indices[0], len(indices) - 2)
-print(indices).unwrap()
 class Custom:
-    def swap(self, a: i64, b: i64) -> i64:
-        a - b
-print(Custom().swap(7, 2)).unwrap()
+    def swap(self, a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(a - b)
+def main() -> Result[(), OverflowError[i64]]:
+    mut data = Data([1, 2, 3, 4].unwrap())
+    ends(&mut data.items)
+    print(data.items).unwrap()
+    data.items.swap(1, 2)
+    print(data.items).unwrap()
+    data.items.swap(-4, -4)
+    print(data.items).unwrap()
+    mut pairs = [(1, "a"), (2, "b"), (3, "c")].unwrap()
+    pairs.swap(0, 2)
+    print(pairs).unwrap()
+    mut indices = [1, 0].unwrap()
+    indices.swap(indices[0], len(indices) - 2)
+    print(indices).unwrap()
+    print(Custom().swap(7, 2)?).unwrap()
+    Ok(())
 "#,
         "[4, 2, 3, 1]\n[4, 3, 2, 1]\n[4, 3, 2, 1]\n[(3, \"c\"), (2, \"b\"), (1, \"a\")]\n[0, 1]\n5",
     );
@@ -180,32 +184,34 @@ print(narrow).unwrap()
 fn sort_orders_many_tuple_rows_and_keeps_every_element() {
     native(
         r#"
-def ordered(items: &list[(i64, i64)]) -> bool:
+def ordered(items: &list[(i64, i64)]) -> Result[bool, OverflowError[i64]]:
     for i in range(1, len(items)):
         if items[i - 1][0] > items[i][0]:
-            return False
+            return Ok(False)
         if items[i - 1][0] == items[i][0] and items[i - 1][1] > items[i][1]:
-            return False
-    True
-def total(items: &list[(i64, i64)]) -> i64:
+            return Ok(False)
+    Ok(True)
+def total(items: &list[(i64, i64)]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for i in range(len(items)):
         sum = sum + items[i][0] * 1000 + items[i][1]
-    sum
-mut seed = 7
-mut items: list[(i64, i64)] = [].unwrap()
-for i in range(500):
-    seed = (seed * 1103515245 + 12345) % 2147483648
-    items.append((seed % 40, seed % 7)).unwrap()
-before = total(&items)
-print(ordered(&items)).unwrap()
-items.sort()
-print(ordered(&items)).unwrap()
-print(len(items)).unwrap()
-print(total(&items) == before).unwrap()
-items.reverse()
-items.sort()
-print(ordered(&items)).unwrap()
+    Ok(sum)
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+    mut seed = 7
+    mut items: list[(i64, i64)] = [].unwrap()
+    for i in range(500):
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        items.append((seed % 40, seed % 7)).unwrap()
+    before = total(&items)?
+    print(ordered(&items)?).unwrap()
+    items.sort()
+    print(ordered(&items)?).unwrap()
+    print(len(items)).unwrap()
+    print(total(&items)? == before).unwrap()
+    items.reverse()
+    items.sort()
+    print(ordered(&items)?).unwrap()
+    Ok(())
 "#,
         "False\nTrue\n500\nTrue\nTrue",
     );

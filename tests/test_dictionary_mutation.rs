@@ -71,7 +71,7 @@ fn get_mut_changes_present_values_in_place() {
     assert_stdout(
         &program(
             "    match d.get_mut(\"a\"):\n        case Some(count):\n            *count += 10\n        case Nothing:\n            pass\n    match lists.get_mut(\"a\"):\n        case Some(list):\n            list.append(2)?\n        case Nothing:\n            pass\n    match points.get_mut(\"a\"):\n        case Some(point):\n            point.x = 5\n        case Nothing:\n            pass\n    print(d, lists, points[\"a\"].x)?\n",
-        ),
+        ).replace("AllocError | IoError", "AllocError | IoError | OverflowError[i64]"),
         "{\"a\": 11} {\"a\": [1, 2]} 5\n",
     );
 }
@@ -89,7 +89,7 @@ fn get_mut_returns_nothing_for_an_absent_key() {
 #[test]
 fn get_mut_works_through_a_mutable_reference() {
     assert_stdout(
-        "def bump(counts: &mut dict[str, i64], key: str) -> ():\n    match counts.get_mut(key):\n        case Some(count):\n            *count += 1\n        case Nothing:\n            pass\ndef main() -> Result[(), AllocError | IoError]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, \"a\")\n    bump(&mut counts, \"b\")\n    print(counts)?\n    Ok(())\n",
+        "def bump(counts: &mut dict[str, i64], key: str) -> Result[(), OverflowError[i64]]:\n    match counts.get_mut(key):\n        case Some(count):\n            *count += 1\n        case Nothing:\n            pass\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, \"a\")?\n    bump(&mut counts, \"b\")?\n    print(counts)?\n    Ok(())\n",
         "{\"a\": 2}\n",
     );
 }

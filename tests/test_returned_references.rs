@@ -68,30 +68,36 @@ def head(xs: &mut [i64]) -> &mut i64:
     &mut xs[0]
 def name(xs: &mut list[str]) -> &mut str:
     &mut xs[1]
-def bump(xs: &mut list[i64]) -> ():
+def bump(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     *first(xs) += 100
+    Ok(())
 class Counter:
     calls: i64
     n: i64
     def slot(self: &mut Counter) -> &mut i64:
-        self.calls += 1
+        # Fixture-only: main starts calls at 0 and invokes slot exactly twice.
+        # Keep the returned-reference ABI; these calls advance it only to 2.
+        unchecked:
+            self.calls += 1
         &mut self.n
-mut xs = [1, 2, 3].unwrap()
-*first(&mut xs) = 9
-*first(&mut xs) += 1
-*head(&mut xs[1:]) = 7
-*head(&mut xs[2:]) *= 4
-*(head(&mut xs[:2])) -= 1
-print(xs).unwrap()
-bump(&mut xs)
-print(xs).unwrap()
-mut names = ["a", "b"].unwrap()
-*name(&mut names) = "zed"
-print(names).unwrap()
-mut c = Counter(0, 1)
-*c.slot() = 5
-*c.slot() += 2
-print(c.n, c.calls).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [1, 2, 3].unwrap()
+    *first(&mut xs) = 9
+    *first(&mut xs) += 1
+    *head(&mut xs[1:]) = 7
+    *head(&mut xs[2:]) *= 4
+    *(head(&mut xs[:2])) -= 1
+    print(xs).unwrap()
+    bump(&mut xs)?
+    print(xs).unwrap()
+    mut names = ["a", "b"].unwrap()
+    *name(&mut names) = "zed"
+    print(names).unwrap()
+    mut c = Counter(0, 1)
+    *c.slot() = 5
+    *c.slot() += 2
+    print(c.n, c.calls).unwrap()
+    Ok(())
 "#,
         "[9, 7, 12]\n[109, 7, 12]\n[\"a\", \"zed\"]\n7 2\n",
     );
@@ -102,13 +108,13 @@ fn a_returned_reference_keeps_its_argument_borrowed_through_the_assignment() {
     for op in ["=", "+="] {
         reject(
             &format!(
-                "def first(xs: &mut list[i64]) -> &mut i64:\n    &mut xs[0]\nmut xs = [1, 2].unwrap()\n*first(&mut xs) {op} xs[1]\n"
+                "def first(xs: &mut list[i64]) -> &mut i64:\n    &mut xs[0]\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = [1, 2].unwrap()\n    *first(&mut xs) {op} xs[1]\n    Ok(())\n"
             ),
             "conflicting borrow",
         );
         reject(
             &format!(
-                "def first(xs: &list[i64]) -> &i64:\n    &xs[0]\nxs = [1, 2].unwrap()\n*first(&xs) {op} 3\n"
+                "def first(xs: &list[i64]) -> &i64:\n    &xs[0]\ndef main() -> Result[(), OverflowError[i64]]:\n    xs = [1, 2].unwrap()\n    *first(&xs) {op} 3\n    Ok(())\n"
             ),
             "assignment requires an exclusive reference",
         );
@@ -152,14 +158,16 @@ class Pair:
     y: i64
     def x_ref(self: &mut Pair) -> &mut i64:
         &mut self.x
-mut pair = Pair(2, 3)
-x = pair.x_ref()
-*x = 5
-mut number = 7
-alias = identity(&mut number)
-*alias = *alias + 1
-print(*view(&number)).unwrap()
-print(pair.x).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut pair = Pair(2, 3)
+    x = pair.x_ref()
+    *x = 5
+    mut number = 7
+    alias = identity(&mut number)
+    *alias = *alias + 1
+    print(*view(&number)).unwrap()
+    print(pair.x).unwrap()
+    Ok(())
 "#,
         "8\n5\n",
     );
@@ -279,13 +287,15 @@ class Point:
         print("drop", self.name).unwrap()
 def make(n: i64, name: str) -> Point:
     Point(n, name)
-print("value", *Point(1, "a").view()).unwrap()
-print("after").unwrap()
-total = *make(2, "b").view() + len(make(3, "cd").label())
-print(total).unwrap()
-print(make(4, "e").label()).unwrap()
-print(*Point(5, "f").slot()).unwrap()
-print(Point(6, "g").maybe().is_some()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    print("value", *Point(1, "a").view()).unwrap()
+    print("after").unwrap()
+    total = *make(2, "b").view() + len(make(3, "cd").label())
+    print(total).unwrap()
+    print(make(4, "e").label()).unwrap()
+    print(*Point(5, "f").slot()).unwrap()
+    print(Point(6, "g").maybe().is_some()).unwrap()
+    Ok(())
 "#,
         "value 1\ndrop a\nafter\ndrop cd\ndrop b\n4\ne\ndrop e\n5\ndrop f\nTrue\ndrop g\n",
     );
@@ -340,27 +350,36 @@ fn the_first_reference_parameter_is_the_origin_of_a_returned_reference() {
 class Entry:
     name: str
     score: i64
+def last_index(length: i64) -> i64:
+    # Called only at the two score_of sites below, each with len(entries).
+    # 0 <= length <= i64.MAX, so length - 1 lies in -1..i64.MAX-1.
+    unchecked:
+        length - 1
 class Table:
     entries: list[Entry]
     def score_of(self: &mut Table, name: &str) -> &mut i64:
         mut i = 0
-        while i < len(self.entries) - 1:
+        while i < last_index(len(self.entries)):
             if self.entries[i].name == name:
                 return &mut self.entries[i].score
-            i = i + 1
-        &mut self.entries[len(self.entries) - 1].score
+            # i starts at 0; i < len(entries)-1 <= i64.MAX-1 bounds the step.
+            unchecked:
+                i = i + 1
+        &mut self.entries[last_index(len(self.entries))].score
 def lookup(scores: &dict[str, i64], key: &str) -> &i64:
     &scores[*key]
-mut table = Table([Entry("ada", 3), Entry("bob", 5)].unwrap())
-score = table.score_of("ada")
-*score = *score + 10
-print(table.entries[0].score).unwrap()
-scores = {"x": 4}.unwrap()
-mut name = "x"
-value = lookup(&scores, &name)
-name = "changed"
-print(value).unwrap()
-print(name).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut table = Table([Entry("ada", 3), Entry("bob", 5)].unwrap())
+    score = table.score_of("ada")
+    *score = *score + 10
+    print(table.entries[0].score).unwrap()
+    scores = {"x": 4}.unwrap()
+    mut name = "x"
+    value = lookup(&scores, &name)
+    name = "changed"
+    print(value).unwrap()
+    print(name).unwrap()
+    Ok(())
 "#,
         "13\n4\nchanged\n",
     );
@@ -371,15 +390,20 @@ fn later_reference_arguments_are_released_after_the_call() {
     run(
         r#"
 def add_into(target: &mut i64, amount: &i64) -> &mut i64:
-    *target = *target + *amount
+    # Fixture-only: the sole call below has target=1 and amount=2, giving 3.
+    # Preserve the returned-reference ABI, not a general arbitrary-input API.
+    unchecked:
+        *target = *target + *amount
     target
-mut total = 1
-mut step = 2
-result = add_into(&mut total, &step)
-step = 7
-*result = *result * 10
-print(total).unwrap()
-print(step).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut total = 1
+    mut step = 2
+    result = add_into(&mut total, &step)
+    step = 7
+    *result = *result * 10
+    print(total).unwrap()
+    print(step).unwrap()
+    Ok(())
 "#,
         "30\n7\n",
     );
@@ -452,15 +476,17 @@ def find(node: &mut Node, key: &i64) -> &mut i64:
             return find(next, key)
         case Nothing:
             return &mut node.value
-mut head = Node(0, Nothing)
-mut i = 1
-while i < 200000:
-    head = Node(i, Some(Box(head).unwrap()))
-    i = i + 1
-key = 5
-found = find(&mut head, &key)
-*found = 99
-print(*find(&mut head, &99)).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut head = Node(0, Nothing)
+    mut i = 1
+    while i < 200000:
+        head = Node(i, Some(Box(head).unwrap()))
+        i = i + 1
+    key = 5
+    found = find(&mut head, &key)
+    *found = 99
+    print(*find(&mut head, &99)).unwrap()
+    Ok(())
 "#,
         "99\n",
     );

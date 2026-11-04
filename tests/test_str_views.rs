@@ -88,26 +88,26 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 fn substr_parameters_take_part_of_a_string() {
     support::assert_stdout(
         r#"
-def count(text: &substr, scalar: &str) -> i64:
+def count(text: &substr, scalar: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == scalar:
             n += 1
-    n
+    Ok(n)
 
-def words(text: &str) -> i64:
+def words(text: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     mut start = 0
     for i, c in enumerate(text):
         if c == " ":
-            if count(&text[start:i], "o") > 0:
+            if count(&text[start:i], "o")? > 0:
                 n += 1
             start = i + 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "one two three four"
-    print(count(&s[:], "o"), count(&s[4:], "o"), words(&s))?
+    print(count(&s[:], "o")?, count(&s[4:], "o")?, words(&s)?)?
     Ok(())
 "#,
         "3 2 2\n",
@@ -120,20 +120,20 @@ def main() -> Result[(), AllocError | IoError]:
 fn strings_convert_to_whole_substr_views() {
     support::assert_stdout(
         r#"
-def vowels(text: &substr) -> i64:
+def vowels(text: &substr) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c in "aeiou":
             n += 1
-    n
+    Ok(n)
 
-def through(text: &str) -> i64:
+def through(text: &str) -> Result[i64, OverflowError[i64]]:
     vowels(text)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "education"
     shared = Shared("queue")?
-    print(vowels(&s), vowels(&s[:3]), vowels("aei"), through(&s), vowels(&shared))?
+    print(vowels(&s)?, vowels(&s[:3])?, vowels("aei")?, through(&s)?, vowels(&shared)?)?
     whole: &substr = &s
     literal: &substr = "hello"
     print(whole, len(literal))?
@@ -147,7 +147,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn view_index_is_checked_against_the_view() {
     let output = support::run(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "héllo"
     v = &s[1:3]
     i = len(s) - 3
@@ -221,19 +221,19 @@ fn invalid_substr_views_are_rejected(#[case] source: &str, #[case] expected: &st
 fn views_add_no_allocations() {
     let output = support::run(
         r#"
-def count(text: &substr, scalar: &str) -> i64:
+def count(text: &substr, scalar: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == scalar:
             n += 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "a longer heap string, with ünïcode"
     mut sum = 0
     print("__test_begin_no_allocations__")?
     v = &s[2:8]
-    sum += count(&s[:], "n") + len(v) + v.byte_len()
+    sum += count(&s[:], "n")? + len(v) + v.byte_len()
     for c in reversed(&v[1:]):
         if c == "g":
             sum += 100
