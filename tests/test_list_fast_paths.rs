@@ -642,6 +642,78 @@ fn cached_rows_read_the_header_once_and_skip_normalization() {
     assert!(!asm.contains("cmov"), "{asm}");
 }
 
+/// An index failure stores its index and length to the stack for the
+/// helper, so the hot loop keeps its values out of the call's argument
+/// registers: the reversal loop has no register-to-register moves.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn index_failures_add_no_moves_to_the_loop() {
+    let asm = dump("asm", "reverse", REVERSE);
+    let instruction = regex::Regex::new(r"^\s*([0-9a-f]+):\s+(.*)$").unwrap();
+    let instructions: Vec<_> = asm
+        .lines()
+        .filter_map(|line| {
+            let captures = instruction.captures(line)?;
+            Some((
+                u64::from_str_radix(&captures[1], 16).unwrap(),
+                captures[2].to_owned(),
+            ))
+        })
+        .collect();
+    let (end, start) = instructions
+        .iter()
+        .find_map(|(offset, text)| {
+            let target = text.strip_prefix("jmp")?.trim().strip_prefix("0x")?;
+            let target = u64::from_str_radix(target, 16).ok()?;
+            (target < *offset).then_some((*offset, target))
+        })
+        .expect("reversal loop backedge");
+    // The function's exit lies inside the address range, so the frame
+    // pointer's restore is not a loop move.
+    let register_move = regex::Regex::new(r"^mov\s+%(\w+),%(\w+)$").unwrap();
+    let register_move = |text: &str| {
+        register_move
+            .captures(text)
+            .is_some_and(|c| ![&c[1], &c[2]].iter().any(|r| *r == "rsp" || *r == "rbp"))
+    };
+    assert!(
+        !instructions
+            .iter()
+            .any(|(offset, text)| (start..=end).contains(offset) && register_move(text)),
+        "{asm}"
+    );
+    assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
+}
+
+/// Release builds report the index as written and the length through the
+/// stored pair.
+#[rstest]
+#[case("-4", "index -4, length 3")]
+#[case("3", "index 3, length 3")]
+fn release_index_failures_report_the_index_and_length(#[case] index: &str, #[case] message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.plenty");
+    std::fs::write(
+        &path,
+        format!(
+            "def at(xs: &[i64], i: i64) -> i64:\n    xs[i]\n\
+             def main() -> ():\n    xs = [1, 2, 3].unwrap()\n    print(at(&xs, {index})).unwrap()\n"
+        ),
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--release")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index.plenty:2:5: index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
 /// Loops whose calls take shared or view borrows, or an exclusive borrow of
 /// another owner, keep the row cache, for locals and field lists alike; calls
 /// that could resize the list through an exclusive list, owner or method

@@ -73,7 +73,10 @@ loads or stores the declared bytes. Reads preserve payload bits before
 narrowing or bitcasting, and writes store the same bits a write through an
 element reference would. An index out of bounds calls
 `plenty_trap_list_index`, which reports the index as written, the length and
-the site, as the generic path does. The length of a borrowed scalar list is
+the site, as the generic path does. The failure block stores the index and
+length to the function's scratch slot and passes its address: as register
+arguments, they would pin the loop's values to the call's argument registers
+and add moves to every iteration. The length of a borrowed scalar list is
 read the same way. The list's loan keeps the rows in place for each access.
 Outside the loop caches below, codegen does not cache the address across source
 operations, so growth between accesses is observed.

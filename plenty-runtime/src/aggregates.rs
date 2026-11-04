@@ -2118,11 +2118,22 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     }
 }
 
-/// Reports list index `index`, as written, out of bounds for `len` rows.
-/// Generated code calls it from inline scalar row reads and writes, which
-/// normalize and check the index as `index` does (issue #509).
+/// Reports list index `record[0]`, as written, out of bounds for
+/// `record[1]` rows. Generated code calls it from inline scalar row reads and
+/// writes, which normalize and check the index as `index` does (issue #509).
+/// The pair is passed in memory to keep the call's argument registers off
+/// the hot path.
+///
+/// # Safety
+///
+/// `record` points to two readable `i64` words.
 #[unsafe(no_mangle)]
-extern "C" fn plenty_trap_list_index(index: i64, len: u64, site: *const crate::Site) -> ! {
+unsafe extern "C" fn plenty_trap_list_index(
+    record: *const [i64; 2],
+    site: *const crate::Site,
+) -> ! {
+    // SAFETY: the caller stores both words just before the call.
+    let [index, len] = unsafe { record.read() };
     out_of_bounds(index, len as usize, site)
 }
 

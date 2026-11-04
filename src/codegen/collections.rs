@@ -167,6 +167,12 @@ impl Lowerer<'_, '_> {
     /// Fills the cold block `failure`, every predecessor of which is now
     /// known: it reports `index` out of bounds for `length` at this site and
     /// traps.
+    ///
+    /// The block stores the index and length to the scratch slot and passes
+    /// its address. Passed as arguments, they would need the first argument
+    /// registers at the call, and the register allocator then keeps the hot
+    /// path's values there too, adding moves to every iteration of a loop
+    /// that indexes a list. A trap does not return, so the slot is free.
     fn index_failure(
         &mut self,
         failure: cranelift_codegen::ir::Block,
@@ -176,11 +182,16 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(failure);
         self.bcx.set_cold_block(failure);
         self.bcx.seal_block(failure);
+        let slot = self.scratch_slot(16);
+        let record = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+        self.bcx.ins().store(flags, index, record, 0);
+        self.bcx.ins().store(flags, length, record, 8);
         let site = self.trap_site()?;
         let helper = self
             .module
             .declare_func_in_func(self.runtime.trap_list_index, self.bcx.func);
-        self.bcx.ins().call(helper, &[index, length, site]);
+        self.bcx.ins().call(helper, &[record, site]);
         self.bcx.ins().trap(TrapCode::unwrap_user(3));
         Ok(())
     }
@@ -558,6 +569,26 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// The function's scratch slot for runtime call operands, at least
+    /// `bytes` long: created on first use, and grown for a larger use, so a
+    /// function that only reports index failures keeps a small frame.
+    fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
+        if let Some(slot) = self.collection_scratch {
+            let data = &mut self.bcx.func.sized_stack_slots[slot];
+            data.size = data.size.max(bytes);
+            return slot;
+        }
+        let slot = self
+            .bcx
+            .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                bytes,
+                4,
+            ));
+        self.collection_scratch = Some(slot);
+        slot
+    }
+
     /// Call runtime operation `opcode` through its own entry symbol,
     /// `plenty_op_<opcode>` (`plenty-runtime/src/aggregates.rs`), so the linker
     /// keeps only the operations a program calls. `site` is the trap site of
@@ -584,19 +615,7 @@ impl Lowerer<'_, '_> {
         } else {
             zero
         };
-        let slot = if let Some(slot) = self.collection_scratch {
-            slot
-        } else {
-            let slot = self
-                .bcx
-                .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    96,
-                    4,
-                ));
-            self.collection_scratch = Some(slot);
-            slot
-        };
+        let slot = self.scratch_slot(96);
         let args = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
         for i in 0..3 {
             let value = values.get(i).copied().unwrap_or(zero);

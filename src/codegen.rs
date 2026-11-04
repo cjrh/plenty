@@ -1115,7 +1115,7 @@ struct Runtime {
     /// from the range-check branch of a bare numeric cast.
     trap_cast_range: FuncId,
     trap_clist_index: FuncId,
-    /// `plenty_trap_list_index(index, length, site) -> !`: an inline scalar
+    /// `plenty_trap_list_index(&[index, length], site) -> !`: an inline scalar
     /// list row index out of bounds.
     trap_list_index: FuncId,
     /// `plenty_trap_message(text, site) -> !`: std's `__trap(message)`.
@@ -1432,12 +1432,10 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         trap_list_index: {
             let mut sig = module.make_signature();
             sig.call_conv = crate::target::native_call_conv();
-            // Index as written, length, trap site.
-            sig.params.extend([
-                AbiParam::new(types::I64),
-                AbiParam::new(types::I64),
-                AbiParam::new(PTR_TY),
-            ]);
+            // The index as written and the length, stored in that order,
+            // then the trap site.
+            sig.params
+                .extend([AbiParam::new(PTR_TY), AbiParam::new(PTR_TY)]);
             module.declare_function("plenty_trap_list_index", Linkage::Import, &sig)?
         },
         trap_message: {
