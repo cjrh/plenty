@@ -229,16 +229,17 @@ fn unreferenced_inlined_functions_trap_if_called() {
         .section_by_index(symbol.section_index().unwrap())
         .unwrap();
     let offset = (symbol.address() - section.address()) as usize;
-    // Cranelift may set up a frame first; there is no `ret`, only the trap.
-    let code = &section.data().unwrap()[offset..];
-    let code = &code[..code.len().min(8)];
-    let trap: &[u8] = match file.architecture() {
-        object::Architecture::X86_64 => &[0x0f, 0x0b],
-        object::Architecture::Aarch64 => &0xc11f_u32.to_le_bytes(),
+    // Allow the frame setup before the trap: on AArch64 the two prologue
+    // instructions alone occupy eight bytes, followed by a four-byte UDF.
+    let (trap, max_size): (&[u8], usize) = match file.architecture() {
+        object::Architecture::X86_64 => (&[0x0f, 0x0b], 8),
+        object::Architecture::Aarch64 => (&0xc11f_u32.to_le_bytes(), 12),
         other => panic!("unexpected architecture {other:?}"),
     };
+    let code = &section.data().unwrap()[offset..];
+    let code = &code[..code.len().min(max_size)];
     assert!(code.windows(trap.len()).any(|w| w == trap), "{code:x?}");
     if symbol.size() != 0 {
-        assert!(symbol.size() <= 8, "{}", symbol.size());
+        assert!(symbol.size() <= max_size as u64, "{}", symbol.size());
     }
 }
