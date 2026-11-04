@@ -109,3 +109,33 @@ If you need one ordered sequence of mixed values, use a
 duplicates; it does not acquire set semantics just because its element type is
 a sum. Avoid converting unrelated kinds to one string type unless that text
 representation is the identity your application intends.
+
+## Small enums without payloads
+
+Use ordinary sets for flags or selections too. An enum with no payloads and at
+most 64 variants automatically gets compact bitset storage:
+
+```plenty
+enum Permission:
+    Read
+    Write
+    Execute
+
+def main() -> Result[(), AllocError | IoError]:
+    mut granted = {Permission.Read}?
+    granted.add(Permission.Write)?
+    required = {Permission.Read, Permission.Write}?
+    print(required.issubset(&granted))?
+    granted.discard(Permission.Write)
+    print(Permission.Write in granted)?
+    Ok(())
+```
+```output
+True
+False
+```
+
+Keep the usual `?` handling: constructing a set still allocates its owner.
+Adding members to this representation needs no further allocation. The same
+programming style works for larger enums and payload-carrying enums, which use
+hash sets. See [small enum bitsets](../../design/facilities/01-builtins/sets.md#small-enum-bitsets).

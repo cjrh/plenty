@@ -8,6 +8,9 @@ result and reserves at least that many entries, including hash storage.
 Aliases expose these constructors too. Empty construction allocates its owner;
 negative counts and impossible layouts return `CapacityOverflow`; exhaustion
 returns `OutOfMemory`. Partial storage is reclaimed on failure.
+[Small enum bitsets](sets.md#small-enum-bitsets) need only the owner allocation;
+valid capacity hints require no additional storage because all possible members
+already fit in the membership mask.
 
 `[elements]`, `{key: value}`, `{elements}`, and typed empty constructors such as
 `list[i64]()` also return `Result[collection, AllocError]`. `{}` is a dictionary.

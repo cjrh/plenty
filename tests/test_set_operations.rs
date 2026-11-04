@@ -584,3 +584,147 @@ match result:
         }
     }
 }
+
+#[test]
+fn enum_bitsets_preserve_views_copying_and_set_operations() {
+    native(
+        r#"
+enum E:
+    A
+    B
+    C
+mut left = {E.C, E.A}.unwrap()
+right = {E.B, E.C}.unwrap()
+union = left.union(&right).unwrap()
+intersection = left.intersection(&right).unwrap()
+difference = left.difference(&right).unwrap()
+symmetric = left.symmetric_difference(&right).unwrap()
+print(len(union), len(intersection), len(difference), len(symmetric)).unwrap()
+print(left.issubset(&union), union.issuperset(&right), difference.isdisjoint(&right)).unwrap()
+cloned = copy(left).unwrap()
+print(cloned == left).unwrap()
+left.intersection_update(&right)
+print(left == intersection).unwrap()
+left.update({E.A, E.B}.unwrap()).unwrap()
+left.difference_update(&right)
+print(left == difference).unwrap()
+map = {E.B: 2, E.A: 1}.unwrap()
+view = map.keys()
+print(len(view.union(&right).unwrap()), len(right.intersection(&view).unwrap())).unwrap()
+print(view.to_set().unwrap() == {E.A, E.B}.unwrap()).unwrap()
+mut mixed = copy(union).unwrap()
+mixed.intersection_update(&view)
+print(len(mixed)).unwrap()
+mixed.difference_update(&view)
+print(len(mixed)).unwrap()
+for value in &union:
+    match value:
+        case E.A:
+            print("A").unwrap()
+        case E.B:
+            print("B").unwrap()
+        case E.C:
+            print("C").unwrap()
+left.clear()
+print(len(left), len(cloned)).unwrap()
+"#,
+        "3 1 1 2\nTrue True True\nTrue\nTrue\nTrue\n3 1\nTrue\n2\n0\nA\nB\nC\n0 2",
+    );
+}
+
+#[test]
+fn enum_bitsets_handle_one_64_and_65_variants() {
+    for size in [1, 63, 64, 65] {
+        let variants = (0..size).map(|i| format!("    V{i}\n")).collect::<String>();
+        let values = (0..size)
+            .rev()
+            .map(|i| format!("E.V{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        native(
+            &format!(
+                r#"
+enum E:
+{variants}
+values = [{values}].unwrap()
+mut members = {{value for value in &values}}.unwrap()
+print(len(members)).unwrap()
+print(E.V0 in members, E.V{last} in members).unwrap()
+print(members.discard(E.V{last}), E.V{last} in members).unwrap()
+members.add(E.V{last}).unwrap()
+print(len(members), len(copy(members).unwrap())).unwrap()
+"#,
+                last = size - 1
+            )
+            .replace(
+                "{value for value in &values}",
+                "{*value for value in &values}",
+            ),
+            &format!("{size}\nTrue True\nTrue False\n{size} {size}"),
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn enum_bitsets_recover_owner_failure_and_mutate_without_allocating() {
+    for budget in 0..=1 {
+        native(
+            &format!(
+                r#"
+enum E:
+    A
+    B
+    C
+mut left = {{E.A}}.unwrap()
+right = {{E.B}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = left.union(&right)
+print("__test_restore_allocations__").unwrap()
+print(result.is_ok(), len(left), len(right)).unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+print("__test_begin_no_allocations__").unwrap()
+left.add(E.B).unwrap()
+left.add(E.C).unwrap()
+left.reserve(100).unwrap()
+left.update(right).unwrap()
+left.discard(E.A)
+count = len(left)
+left.clear()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(count, len(left)).unwrap()
+"#
+            ),
+            &format!("{} 1 1\n2 0", if budget == 0 { "False" } else { "True" }),
+        );
+    }
+}
+
+#[test]
+fn enum_bitsets_survive_owned_iteration_and_nested_copying() {
+    native(
+        r#"
+enum E:
+    A
+    B
+def score(value: &E) -> i64:
+    match value:
+        case E.A:
+            1
+        case E.B:
+            2
+original = [{E.B, E.A}.unwrap()].unwrap()
+mut total = 0
+for member in copy(original[0]).unwrap():
+    total += score(&member)
+print(total, len(original[0])).unwrap()
+cloned = copy(original).unwrap()
+drop(original)
+print(len(cloned[0]), cloned[0] == {E.A, E.B}.unwrap()).unwrap()
+collected = [*member for member in &cloned[0]].unwrap()
+print(len(collected)).unwrap()
+"#,
+        "3 2\n2 True\n2",
+    );
+}

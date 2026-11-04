@@ -169,8 +169,8 @@ which remains partly implemented for its public allocator design.
 Named enums with supported key payloads now use structural hashing in sets and
 dictionary keys. Variant tags and all payload fields participate; nested named
 enums, tuples and classes without custom cleanup are supported. Floats, boxes, recursive types and
-anonymous sums remain excluded. This reuses the existing keyed runtime hashing,
-not bitset storage. See [collections](../design/facilities/01-builtins/collections.md).
+anonymous sums remain excluded. These general key types use keyed runtime hashing. Payload-free enums with at
+most 64 variants use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
 
 Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
@@ -184,3 +184,34 @@ and enums containing them, transfer on insertion and owned extraction; lookups
 and views borrow them. Set algebra and key-view `to_set()` create independent
 copies, and affine `keys_snapshot()` requires an owned temporary, matching
 `values_snapshot()`. Classes with custom cleanup remain excluded.
+
+### Small enum sets
+
+Sets of payload-free named enums with up to 64 variants use one membership
+word, without entry/order/hash buffers or entropy reads. The collection owner
+still allocates once. Membership, length, insertion/removal, same-type set
+relationships and algebra use bit operations. Shared iteration uses immutable
+canonical enum values, while normal source loans remain enforced. Mixed
+operations with dictionary key views retain their existing semantics.
+
+Allocation-failure tests cover the remaining owner allocation and allocation-free
+mutation; boundary tests cover 1, 63, 64 and 65 variants. Payload-carrying enums
+and larger enums retain hash storage. Benchmark reproduction is
+`cargo build --locked --bin plenty` (without instrumentation features), then
+`python3 scripts/bench_enum_sets.py target/debug/plenty --output /tmp/enum-sets.json`:
+the same first 64 variants are exercised in a 64-variant bitset and a 65-variant
+hash set. It checks equal results and alternates execution order. Native programs
+use `--release`; measurements are observations, not performance assertions.
+
+Measured on x86-64 AMD Ryzen 7 7840HS, with 200,000 rounds and median of five
+runs per case. Each lookup round probes 64 values; each mutation round adds and
+removes all 64. Union combines two disjoint 32-member sets; copy duplicates a
+32-member set. These timings describe these workloads on this machine, not a
+general speed guarantee.
+
+| Workload | Bitset (seconds) | Hash fallback (seconds) | Speedup |
+| --- | ---: | ---: | ---: |
+| Lookup | 0.081969 | 0.357319 | 4.36× |
+| Add and discard | 0.339045 | 1.598463 | 4.71× |
+| Union | 0.012670 | 1.210755 | 95.56× |
+| Copy | 0.013672 | 0.461085 | 33.72× |
