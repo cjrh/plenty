@@ -203,8 +203,13 @@ post-repair gate was safety-aborted by an external Docker evidence-wrapper regex
 error before any container launch: 4,089 passed, two wrapper-caused failures and
 one ignore were observed; 1,575 registered tests were unobserved. All 25
 checked-default tests and the five new verifier tests passed, but this partial
-run is not a complete gate. Its records remain intact; a corrected external
-harness must be prevalidated before a new complete attempt.
+run is not a complete gate. A second independently reviewed external harness
+attempt also stopped before container launch because the installed Docker emits
+lowercase absence diagnostics: 3,691 passes, no completed failure rows and one
+ignore were observed; 1,975 registered tests remained unobserved. Its corrected
+process monitor fully waited owned descendants, but that does not make the run
+green. Both failed attempts remain intact. Live diagnostic compatibility must be
+prevalidated before another complete attempt.
 
 Untimed native execution of the initial acceptance harness completed 110 builds
 and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
