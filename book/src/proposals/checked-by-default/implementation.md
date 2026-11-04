@@ -198,17 +198,28 @@ second-key failure, skipped callbacks, exact payload/drop counts and normal/rele
 storage-layout checks. The pre-repair native probes happened to print correctly;
 the discriminating failure was structural, so no reproduced crash is claimed.
 The integrated whole gate is green at that immutable snapshot. Measurements
-remain pending, and the #712 repair will require a new integrated gate.
+remain pending. The independently reviewed #712 repair is integrated, and a new
+source-matched integrated gate is running after it.
 
 Untimed native execution of the initial acceptance harness completed 110 builds
 and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
 planned cases remained blocked. Reviewed harness corrections fix the corpus
-error union and add honest mode selection. Shared Unit checked-suite validation
-(issue #712) and unequal optimized leaf-call retention remain blockers; neither
-failed checks nor inlined work qualify as completed four-mode measurements.
-The authorized comparison baseline will be a new fork of pinned main with the
-same independently reviewed #712 repair as the candidate, explicitly labelled
-“main + #712 fix.” Original pins and failed-probe records remain unchanged.
+error union and add honest mode selection. The reviewed shared Unit checked-suite
+repair (issue #712) now preserves the exact entry type stack for Unit success,
+without changing nonunit behavior or codegen. Five verifier and four native
+normal/release regressions cover strict stack checking, ordered mutations,
+destruction/propagation and floating division. The same reviewed production hunk
+is committed on a new baseline fork, labelled “main + #712 fix”; original pins
+and failed-probe records remain unchanged.
+
+Reviewed call-heavy probes now name the live multiplication result before adding
+the bias, preserving operations and error payloads while retaining a genuine leaf
+call. All four optimized modes and both recovery variants pass actual native
+call-site extraction on the historical syntax pair. The controller fails closed
+when extraction cannot qualify a call; an additional I-side cleanup case proves
+no rollback after an earlier successful mutation. These are not final-pin or
+performance results: matching common-fix rebuilds and full corrected corpus,
+cleanup and allocation reruns remain required.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 

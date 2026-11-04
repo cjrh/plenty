@@ -288,6 +288,14 @@ returns. Reviewed native range/managed-error and layout regressions pass in both
 modes without heap allocation; all 21 checked-default cases pass after parent
 integration. Native probes did not reproduce wrong output before the repair;
 the pre-repair structural regression distinguishes the lifetime/layout fix.
+The independently reviewed Unit checked-suite verifier repair (issue #712) is
+also integrated: Unit success preserves its entry type stack, while nonunit
+behavior remains unchanged. Five verifier tests and four native both-mode tests
+cover mutations, cleanup, propagation and floating division. A new comparison
+baseline fork contains the identical production repair, explicitly labelled
+“main + #712 fix”; final common-fix build and full-gate validation remain separate.
+Reviewed call-retention probes preserve their arithmetic and error oracles and
+require actual optimized native leaf calls, not source-policy inference.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 
