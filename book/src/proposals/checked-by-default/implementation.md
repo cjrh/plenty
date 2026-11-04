@@ -198,8 +198,13 @@ second-key failure, skipped callbacks, exact payload/drop counts and normal/rele
 storage-layout checks. The pre-repair native probes happened to print correctly;
 the discriminating failure was structural, so no reproduced crash is claimed.
 The integrated whole gate is green at that immutable snapshot. Measurements
-remain pending. The independently reviewed #712 repair is integrated, and a new
-source-matched integrated gate is running after it.
+remain pending. The independently reviewed #712 repair is integrated. The fresh
+post-repair gate was safety-aborted by an external Docker evidence-wrapper regex
+error before any container launch: 4,089 passed, two wrapper-caused failures and
+one ignore were observed; 1,575 registered tests were unobserved. All 25
+checked-default tests and the five new verifier tests passed, but this partial
+run is not a complete gate. Its records remain intact; a corrected external
+harness must be prevalidated before a new complete attempt.
 
 Untimed native execution of the initial acceptance harness completed 110 builds
 and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
@@ -219,7 +224,12 @@ call-site extraction on the historical syntax pair. The controller fails closed
 when extraction cannot qualify a call; an additional I-side cleanup case proves
 no rollback after an earlier successful mutation. These are not final-pin or
 performance results: matching common-fix rebuilds and full corrected corpus,
-cleanup and allocation reruns remain required.
+cleanup and allocation reruns remain required. Both matching perf/check build
+pairs and the genuine allocation-profiling build pair now pass preparation.
+The new baseline also executes the previously rejected original C cleanup source
+in both native modes. Profiling will report exact allocation counts and clearly
+label formatted byte totals approximate; no profiling or timing samples have yet
+been collected.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
