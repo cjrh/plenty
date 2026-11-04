@@ -295,6 +295,36 @@ call in the caller reports the same position and call chain as before. They
 become part of the caller's IR, so the [compiled-function cache](cache.md)
 key changes when a constant's value or a predicate's body does.
 
+## Call-site inlining
+
+In optimized builds, `src/codegen/inline_calls.rs` lowers some calls by
+lowering the callee's typed body in the caller (issues #548 and #722). The
+body keeps its own locals, source position, trap sites and cleanup, so traps
+and `?` failures behave as the call would; only its final return becomes a
+jump. A callee is inlined when it is not recursive, not a generator, has no
+tail call and defines no function, and its operations, counting the callees
+inlined into it, stay within a bound:
+
+| Callee | Bound |
+|---|---|
+| A class's `new` or `__init__` | 64 operations |
+| Any function with one direct call site | 160 operations |
+| Any other function | 16 operations |
+
+A tail call is inlined only when the caller has no managed locals or has just
+one tail-call site; otherwise it retains the shared tail-exit cleanup, keeping
+code growth linear in the number of owned locals and exits. C string adapter failures also return through
+the inlined callee's exit, so the caller can handle the error.
+
+An inlined function's own body is built only if placed code or data still
+refers to it, for example a call from a generator, a function value, a
+protocol table or a thread adapter; exported functions are always built.
+Otherwise the copy at its call site is its only code, so inlining a function
+called once costs no extra compile time. The symbol of a body not built
+stays in the object as a single trap instruction, so code outside Plenty
+that calls it, such as C linked against the object, stops with `SIGILL`
+rather than running into the next function. `--dump` builds keep every body.
+
 ## Last-use moves
 
 After substitution, `src/codegen/last_use.rs` turns the last read of a local
@@ -441,7 +471,9 @@ whose condition compares it with another local or a literal, as in
   the type's maximum, so `i + 1` cannot overflow; a literal bound also admits
   larger steps that stay in range, and `i > n` admits `i - 1`. Such a step is
   a plain add. Later writes, steps inside nested loops, and steps such as
-  `i <= n` with a variable `n` keep their check.
+  `i <= n` with a variable `n` keep their check. When the bound is also a
+  local, its own first step is proven the same way, so in `while lo < hi`
+  both `lo += 1` and `hi -= 1` are plain (issue #720).
 - **Signed division.** A signed counter that enters the loop holding a
   nonnegative literal, and whose every write in the loop adds a nonnegative
   literal, is never negative, since each add is checked or proven. `//` and
@@ -449,8 +481,20 @@ whose condition compares it with another local or a literal, as in
   division, with no floor correction or `MIN // -1` check. The zero-divisor
   check stays.
 
+A `for` loop over a `range(start, stop)` call with step 1 and an `i64` or
+`u64` element gets both facts from the range instead of a condition: every
+value of the loop variable `i` is below `stop`, so a top-level `i + 1` in the
+body is a plain add, and a nonnegative `start` keeps `i` nonnegative. The
+lowerer accepts the loop only when its hidden counters start from that
+range's computed length, start, and step, and nothing in the body writes them
+except the loop's own step before `continue`. Reversed ranges, other steps,
+narrower elements, and range values in locals keep every check.
+
 Counters in memory, borrowed locals and generator frames, are not analyzed.
-`for` loops over ranges already step with wrapping arithmetic.
+`for` loops over ranges step with wrapping arithmetic. A range over
+an integer type narrower than `i64`, or one with a positive literal step and
+a start known nonnegative, cannot have more than `i64.MAX` elements, so its
+length needs no overflow check (issue #721).
 
 ## Short circuits in conditions
 

@@ -2947,6 +2947,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if !self.indexed_lists.is_empty() {
+            self.record_loop_call(&call, inputs, loans);
+        }
         let parameters = self
             .sigs
             .get(&self.function_name)
@@ -2982,6 +2985,62 @@ impl Lower<'_> {
             self.checked_named_call(&name, &sig, at, ops)?;
         }
         Ok(())
+    }
+    /// Records a direct call in every enclosing loop's list cache, with what
+    /// its arguments could resize; see [`collections::IndexedLists`]. Only
+    /// arguments reach a list: there are no global variables, and other call
+    /// operations (closures, callables, protocol boxes) end caching.
+    fn record_loop_call(&mut self, call: &Op, inputs: &[(String, Ty)], loans: &[usize]) {
+        use collections::Reach;
+        let Op::Call(callee) = call else {
+            return;
+        };
+        let borrowed = |ty: &Ty| matches!(ty, Ty::Ref(..) | Ty::View(..));
+        let mut reaches = Vec::new();
+        // Each view or reference parameter has one loan, in order. A loan
+        // carried in a by-value argument, such as a closure's borrowed
+        // captures, has none here.
+        if inputs.iter().filter(|(_, ty)| borrowed(ty)).count() != loans.len()
+            || inputs
+                .iter()
+                .any(|(_, ty)| !borrowed(ty) && ty.contains_reference())
+        {
+            reaches.push(Reach::Any);
+        } else {
+            let exclusive = inputs.iter().filter(|(_, ty)| borrowed(ty)).zip(loans);
+            for ((_, ty), &loan) in exclusive {
+                // A view cannot resize its list, and an exclusive scalar
+                // reference holds none.
+                let Ty::Ref(inner, true) = ty else {
+                    continue;
+                };
+                if inner.is_numeric() || matches!(**inner, Ty::Bool | Ty::Unit | Ty::Str) {
+                    continue;
+                }
+                let root = self.loans[loan].root;
+                reaches.push(if self.owned_slot(root) {
+                    Reach::Owned(root)
+                } else {
+                    Reach::Any
+                });
+            }
+        }
+        for context in &mut self.indexed_lists {
+            context.call(callee, &reaches);
+        }
+    }
+    /// Whether `slot` holds an owned value rather than a reference, so a
+    /// loan rooted there reaches only storage that binding owns.
+    fn owned_slot(&self, slot: u8) -> bool {
+        let ty = match usize::from(slot).checked_sub(self.parameters) {
+            Some(local) => self.locals.get(local),
+            None => self
+                .sigs
+                .get(&self.function_name)
+                .and_then(|sig| sig.inputs.get(usize::from(slot)))
+                .map(|(_, ty)| ty),
+        };
+        ty.is_some_and(|ty| !ty.contains_reference())
     }
     /// Lowers `return` with its value, the function's cleanup, and the exit.
     fn return_statement(

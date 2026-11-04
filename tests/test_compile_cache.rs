@@ -242,7 +242,9 @@ fn optimization_level_is_part_of_the_key() {
         object: Vec::new(),
     };
     let (hits, misses) = release.counts();
-    assert_eq!(hits + misses, debug_hits + debug_misses, "{stderr}");
+    // An inlined function that nothing else refers to is never compiled on
+    // its own in a release build (issue #722).
+    assert!(hits + misses <= debug_hits + debug_misses, "{stderr}");
     // Every optimized function missed, apart from the intra-program sharing
     // a cold run has: the unoptimized entries were never candidates, so the
     // optimized ones were all added. Workers missing the same new key at

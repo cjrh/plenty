@@ -1,0 +1,698 @@
+; The reversal loop, `reverse` in ../kernels.plenty. v0 is the `&mut [i64]`
+; (address, length); v1 is `first`. Each variant changes one IR shape.
+
+; a: Plenty's optimized CLIF as dumped (`--release --dump clif-opt`).
+function %reverse_a_plenty(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v13, v14 = isplit.i128 v0
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v14, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    v55 = ishl.i64 v9, v53
+    v28 = iadd.i64 v13, v55
+    brif v29, block9(v28), block10
+
+block10 cold:
+    v30 = iadd.i64 v9, v14
+    v31 = icmp ult v30, v14
+    v57 = ishl v30, v53
+    v34 = iadd.i64 v13, v57
+    brif v31, block9(v34), block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v9, v14, v58)
+    trap user3
+
+block9(v25: i64):
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v900 = iconst.i64 1
+    v60 = iadd.i64 v8, v900
+    v901 = iconst.i64 1
+    v61 = isub.i64 v9, v901
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; b: `hi` known nonnegative (hi > lo >= 1), so it takes the single unsigned
+; check like `lo`, with no negative-index path and no address join.
+function %reverse_b_nonneg_hi(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v13, v14 = isplit.i128 v0
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v14, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v9, v14, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v902 = iconst.i64 1
+    v60 = iadd.i64 v8, v902
+    v903 = iconst.i64 1
+    v61 = isub.i64 v9, v903
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; c: b with the slice split once in the entry block instead of in the body.
+function %reverse_c_split_once(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v14, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v9, v14, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v904 = iconst.i64 1
+    v60 = iadd.i64 v8, v904
+    v905 = iconst.i64 1
+    v61 = isub.i64 v9, v905
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; d: c rotated: a guard before the loop and the condition at the bottom.
+function %reverse_d_rotated(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v14, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v9, v14, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v906 = iconst.i64 1
+    v60 = iadd.i64 v8, v906
+    v907 = iconst.i64 1
+    v61 = isub.i64 v9, v907
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; e: d with both checks as conditional traps (`trapz`), the form a check
+; table entry takes without a helper call.
+function %reverse_e_trapz(i128, i64) tail {
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    trapz v15, user5
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    trapz v29, user6
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v908 = iconst.i64 1
+    v60 = iadd.i64 v8, v908
+    v909 = iconst.i64 1
+    v61 = isub.i64 v9, v909
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; f: d with one check before the loop: `hi < len` at entry covers every
+; access, since lo < hi throughout and hi only decreases. A failing guard
+; takes the original checked loop (here, a trap) so messages keep their order.
+function %reverse_f_hoisted(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block1, block5
+
+block1:
+    v29 = icmp.i64 ult v6, v14
+    brif v29, block4(v4, v6), block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v6, v14, v58)
+    trap user3
+
+block4(v8: i64, v9: i64):
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v910 = iconst.i64 1
+    v60 = iadd.i64 v8, v910
+    v911 = iconst.i64 1
+    v61 = isub.i64 v9, v911
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; g: b's checks with c's split but without rotation, to separate the
+; effect of rotation from the split.
+function %reverse_g_unchecked_top(i128, i64) tail {
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v912 = iconst.i64 1
+    v60 = iadd.i64 v8, v912
+    v913 = iconst.i64 1
+    v61 = isub.i64 v9, v913
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; h: d with both checks branching to one cold block that takes the index as
+; a block parameter, so only that parameter meets the helper's argument
+; registers.
+function %reverse_h_shared_trap_block(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    v70 = iconst.i64 16
+    brif v15, block7, block6(v8, v70)
+
+block6(v71: i64, v72: i64) cold:
+    v16 = symbol_value.i64 gv0
+    v73 = iadd v16, v72
+    call fn0(v71, v14, v73)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    v74 = iconst.i64 32
+    brif v29, block9, block6(v9, v74)
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; i: d with each check's cold block taking the index as a block parameter
+; (one cold block per check, as now, but with the index passed in).
+function %reverse_i_param_per_check(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6(v8)
+
+block6(v71: i64) cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v71, v14, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8(v9)
+
+block8(v72: i64) cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v72, v14, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; j: c (unrotated, as Plenty emits loops) with i's block parameters.
+function %reverse_j_param_unrotated(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u0:52 sig0
+
+block0(v0: i128, v1: i64):
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v13, v14 = isplit.i128 v0
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6(v8, v14)
+
+block6(v71: i64, v76: i64) cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v71, v76, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8(v9, v14)
+
+block8(v72: i64, v77: i64) cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v72, v77, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; k: d with each cold block storing the index and length to a stack slot
+; and passing its address, so no hot value meets a fixed argument register.
+function %reverse_k_args_in_memory(i128, i64) tail {
+    ss0 = explicit_slot 16
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v950 = stack_addr.i64 ss0
+    store notrap aligned v8, v950+0
+    v951 = stack_addr.i64 ss0
+    store notrap aligned v14, v951+8
+    v80 = stack_addr.i64 ss0
+    v16 = symbol_value.i64 gv0
+    call fn0(v80, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v952 = stack_addr.i64 ss0
+    store notrap aligned v9, v952+0
+    v953 = stack_addr.i64 ss0
+    store notrap aligned v14, v953+8
+    v81 = stack_addr.i64 ss0
+    v58 = symbol_value.i64 gv0
+    call fn0(v81, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; l: k, unrotated, with the split in the body: Plenty's current shape
+; except for how the cold block passes its arguments.
+function %reverse_l_memory_unrotated(i128, i64) tail {
+    ss0 = explicit_slot 16
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+
+block0(v0: i128, v1: i64):
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    jump block3(v4, v6)
+
+block3(v8: i64, v9: i64):
+    v10 = icmp slt v8, v9
+    brif v10, block4, block5
+
+block4:
+    v13, v14 = isplit.i128 v0
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v954 = stack_addr.i64 ss0
+    store notrap aligned v8, v954+0
+    v955 = stack_addr.i64 ss0
+    store notrap aligned v14, v955+8
+    v80 = stack_addr.i64 ss0
+    v16 = symbol_value.i64 gv0
+    call fn0(v80, v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v956 = stack_addr.i64 ss0
+    store notrap aligned v9, v956+0
+    v957 = stack_addr.i64 ss0
+    store notrap aligned v14, v957+8
+    v81 = stack_addr.i64 ss0
+    v58 = symbol_value.i64 gv0
+    call fn0(v81, v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    jump block3(v60, v61)
+
+block5:
+    return
+}
+
+; m: k with the helper taking the site first, so the stack address meets
+; the second argument register instead of the first.
+function %reverse_m_site_first(i128, i64) tail {
+    ss0 = explicit_slot 16
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v950 = stack_addr.i64 ss0
+    store notrap aligned v8, v950+0
+    v951 = stack_addr.i64 ss0
+    store notrap aligned v14, v951+8
+    v80 = stack_addr.i64 ss0
+    v16 = symbol_value.i64 gv0
+    call fn0(v16, v80)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v952 = stack_addr.i64 ss0
+    store notrap aligned v9, v952+0
+    v953 = stack_addr.i64 ss0
+    store notrap aligned v14, v953+8
+    v81 = stack_addr.i64 ss0
+    v58 = symbol_value.i64 gv0
+    call fn0(v58, v81)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+

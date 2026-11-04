@@ -1,7 +1,10 @@
-//! Constructor inlining during native lowering (issue #548). A class's
-//! synthesized `new` and its `__init__` are small and called once per value
-//! built, so the call, the caller-context bookkeeping around it and the copies
-//! through the callee's frame dominate building a small object.
+//! Call-site inlining during native lowering (issues #548 and #722). A
+//! class's synthesized `new` and its `__init__` are small and called once per
+//! value built, so the call, the caller-context bookkeeping around it and the
+//! copies through the callee's frame dominate building a small object. Other
+//! small functions gain the same, and a callee lowered in its caller also
+//! shares the caller's facts: list headers, checked rows and induction
+//! ranges.
 //!
 //! The callee's typed body is lowered into the caller with its own locals,
 //! source position, trap blocks and exits, so it keeps the semantics of the
@@ -15,8 +18,17 @@
 //! keys too.
 use super::*;
 
-/// Operations, excluding markers, in a callee and the callees inlined into it.
-const MAX_OPERATIONS: usize = 64;
+/// Operations, excluding markers, in a constructor and the callees inlined
+/// into it.
+const MAX_CONSTRUCTOR_OPERATIONS: usize = 64;
+
+/// The same bound for a function called from one place: its body is then
+/// usually lowered only there (see [`Deferred`]), so the bound only limits
+/// how large a caller grows.
+const MAX_SINGLE_SITE_OPERATIONS: usize = 160;
+
+/// The same bound for a function called from several places.
+const MAX_SHARED_OPERATIONS: usize = 16;
 
 /// Whether `name` is a constructor: a class's `new` or its `__init__`.
 fn constructor(name: &str) -> bool {
@@ -47,76 +59,222 @@ enum State {
     Done(Option<usize>),
 }
 
-/// Mark the constructors to lower at their call sites: bounded in size and
-/// not recursive. A real tail call releases the caller's locals before the
-/// callee runs, which a jump back into the caller cannot express, so a body
-/// with one stays a call.
+struct Plan<'a> {
+    candidates: HashMap<&'a str, &'a Arc<[Op]>>,
+    /// Direct call sites of each function across every body.
+    sites: HashMap<&'a str, usize>,
+    states: HashMap<&'a str, State>,
+}
+
+/// Mark the functions to lower at their call sites in optimized builds:
+/// bounded in size and not recursive (issues #548 and #722). The bound
+/// depends on how often the body would be copied, so compile time grows
+/// little: a constructor is small by construction, a function with one call
+/// site is usually lowered only there, and one called from several places
+/// must be about as small as the call it replaces.
+///
+/// A real tail call releases the caller's locals before the callee runs,
+/// which a jump back into the caller cannot express, so a body with one
+/// stays a call. So do generators and bodies that define functions.
 pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<String, UserFn>) {
     let candidates: HashMap<&str, &Arc<[Op]>> = bodies
         .iter()
-        .filter(|(name, _)| constructor(name))
         .filter(|(name, _)| {
             let function = &functions[name];
             function.generator.is_none() && function.inline.is_none()
         })
         .map(|(name, body)| (name.as_str(), body))
         .collect();
-    let mut states: HashMap<&str, State> = HashMap::default();
+    let mut sites: HashMap<&str, usize> = HashMap::default();
+    for (_, body) in bodies {
+        crate::threading::walk(body, &mut |op| {
+            if let Op::Call(callee) | Op::TailCall(callee) = op {
+                *sites.entry(callee.as_str()).or_default() += 1;
+            }
+        });
+    }
+    let mut plan = Plan {
+        candidates,
+        sites,
+        states: HashMap::default(),
+    };
     // Declaration order keeps the outcome deterministic.
     for (name, _) in bodies {
-        if candidates.contains_key(name.as_str()) {
-            size(name, &candidates, &mut states);
+        if plan.candidates.contains_key(name.as_str()) {
+            plan.size(name);
         }
     }
-    for (name, body) in &candidates {
-        if let Some(State::Done(Some(_))) = states.get(name) {
+    for (name, body) in &plan.candidates {
+        if let Some(State::Done(Some(_))) = plan.states.get(name) {
             functions.get_mut(*name).unwrap().inline_body = Some(Arc::clone(body));
         }
     }
 }
 
-/// The operation count of `name` with its inlined callees, or `None` when it
-/// stays a call. A callee reached again while its own count is pending is
-/// recursive and stays a call; any cycle has such a callee, so inlining always
-/// ends.
-fn size<'a>(
-    name: &'a str,
-    candidates: &HashMap<&'a str, &'a Arc<[Op]>>,
-    states: &mut HashMap<&'a str, State>,
-) -> Option<usize> {
-    match states.get(name) {
-        Some(State::Done(size)) => return *size,
-        Some(State::Visiting) => {
-            states.insert(name, State::Done(None));
-            return None;
+impl<'a> Plan<'a> {
+    fn limit(&self, name: &str) -> usize {
+        if constructor(name) {
+            MAX_CONSTRUCTOR_OPERATIONS
+        } else if self.sites.get(name) == Some(&1) {
+            MAX_SINGLE_SITE_OPERATIONS
+        } else {
+            MAX_SHARED_OPERATIONS
         }
-        None => {}
     }
-    let body = *candidates.get(name)?;
-    states.insert(name, State::Visiting);
-    let mut ops = Vec::new();
-    crate::threading::walk(body, &mut |op| ops.push(op));
-    let mut total = Some(0usize);
-    for op in ops {
-        if marker(op) {
-            continue;
-        }
-        let cost = match op {
-            Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Yield(_) | Op::DefineFn(..) => None,
-            Op::Call(callee) if candidates.contains_key(callee.as_str()) => {
-                Some(size(callee, candidates, states).unwrap_or(1))
+
+    /// The operation count of `name` with its inlined callees, or `None` when
+    /// it stays a call. A callee reached again while its own count is pending
+    /// is recursive and stays a call; any cycle has such a callee, so inlining
+    /// always ends.
+    fn size(&mut self, name: &'a str) -> Option<usize> {
+        match self.states.get(name) {
+            Some(State::Done(size)) => return *size,
+            Some(State::Visiting) => {
+                self.states.insert(name, State::Done(None));
+                return None;
             }
-            _ => Some(1),
+            None => {}
+        }
+        let body = *self.candidates.get(name)?;
+        self.states.insert(name, State::Visiting);
+        let mut ops = Vec::new();
+        crate::threading::walk(body, &mut |op| ops.push(op));
+        let mut total = Some(0usize);
+        for op in ops {
+            if marker(op) {
+                continue;
+            }
+            let cost = match op {
+                Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Yield(_) | Op::DefineFn(..) => None,
+                Op::Call(callee) if self.candidates.contains_key(callee.as_str()) => {
+                    Some(self.size(callee).unwrap_or(1))
+                }
+                _ => Some(1),
+            };
+            total = total.zip(cost).map(|(total, cost)| total + cost);
+        }
+        // A recursive call found below marked this function as staying a call.
+        let size = match self.states.get(name) {
+            Some(State::Done(None)) => None,
+            _ => total.filter(|&total| total <= self.limit(name)),
         };
-        total = total.zip(cost).map(|(total, cost)| total + cost);
+        self.states.insert(name, State::Done(size));
+        size
     }
-    // A recursive call found below marked this function as staying a call.
-    let size = match states.get(name) {
-        Some(State::Done(None)) => None,
-        _ => total.filter(|&total| total <= MAX_OPERATIONS),
-    };
-    states.insert(name, State::Done(size));
-    size
+}
+
+impl Runtime {
+    pub(super) fn refer(&self, functions: impl IntoIterator<Item = FuncId>) {
+        self.referenced.lock().unwrap().extend(functions);
+    }
+}
+
+/// Bodies of inlined functions, built only once placed code or data refers
+/// to them: through a call the lowering kept, such as one in a generator, a
+/// function value, a protocol table or a thread adapter. Otherwise the copy
+/// at each call site is the function's only code, so inlining a function with
+/// one call site costs no extra compile time.
+pub(super) struct Deferred(Vec<(String, Arc<[Op]>)>);
+
+impl Deferred {
+    /// Move the deferred bodies out of `bodies`. Exported functions are
+    /// referred to only after every body is placed, so they are built at once.
+    pub(super) fn take(
+        bodies: &mut Vec<(String, Arc<[Op]>)>,
+        functions: &HashMap<String, UserFn>,
+        exports: &[crate::exports::Export],
+        enabled: bool,
+    ) -> Self {
+        if !enabled {
+            return Self(Vec::new());
+        }
+        let exported: crate::hash::HashSet<&str> =
+            exports.iter().map(|e| e.function.as_str()).collect();
+        let (deferred, built) = std::mem::take(bodies).into_iter().partition(|(name, _)| {
+            functions[name].inline_body.is_some() && !exported.contains(name.as_str())
+        });
+        *bodies = built;
+        Self(deferred)
+    }
+
+    /// Build the deferred bodies something refers to, until a round adds no
+    /// reference. The rest are reached only by inlined calls, but their
+    /// symbols stay in the object, where a debugger or C code relinking it
+    /// can still find them: each is defined as a single trap instruction, so
+    /// such a call stops with `SIGILL` instead of running into the next
+    /// function. Leaving them undefined would leave a local symbol with no
+    /// definition, which object formats and linkers treat differently.
+    pub(super) fn finish(
+        mut self,
+        out: &mut Output,
+        workers: usize,
+        runtime: &Runtime,
+        functions: &HashMap<String, UserFn>,
+        build: &(impl Fn(Job, &mut Worker) -> Result<()> + Sync),
+    ) -> Result<()> {
+        loop {
+            let referenced = runtime.referenced.lock().unwrap().clone();
+            let (now, later): (Vec<_>, Vec<_>) =
+                std::mem::take(&mut self.0)
+                    .into_iter()
+                    .partition(|(name, _)| {
+                        symbols(&functions[name]).any(|id| referenced.contains(&id))
+                    });
+            self.0 = later;
+            if now.is_empty() {
+                break;
+            }
+            let jobs = now
+                .into_iter()
+                .map(|(name, body)| Job::Function(name, body))
+                .collect();
+            out.build(jobs, workers, runtime, build)?;
+        }
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        let (alignment, trap) = trap_stub(out.module.isa())?;
+        for (name, _) in &self.0 {
+            for id in symbols(&functions[name]) {
+                out.module
+                    .define_function_bytes(id, alignment, &trap, &[])?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The code of a function that only traps, as `Op::Unreachable` does: no
+/// frame, no relocations and no check table entry, so its bytes serve any
+/// signature. Compiled once per object rather than spelled per target.
+fn trap_stub(isa: &dyn cranelift_codegen::isa::TargetIsa) -> Result<(u64, Vec<u8>)> {
+    use cranelift_codegen::ir::{Function, Signature, UserFuncName};
+    let mut context = cranelift_codegen::Context::for_function(Function::with_name_signature(
+        UserFuncName::default(),
+        Signature::new(isa.default_call_conv()),
+    ));
+    let mut builder_context = cranelift_frontend::FunctionBuilderContext::new();
+    let mut bcx = cranelift_frontend::FunctionBuilder::new(&mut context.func, &mut builder_context);
+    let block = bcx.create_block();
+    bcx.switch_to_block(block);
+    bcx.seal_block(block);
+    bcx.ins().trap(TrapCode::unwrap_user(1));
+    bcx.finalize(isa.frontend_config());
+    let code = context
+        .compile(
+            isa,
+            &mut cranelift_codegen::control::ControlPlane::default(),
+        )
+        .map_err(|error| format!("trap stub: {:?}", error.inner))?;
+    let alignment = isa.function_alignment().minimum.into();
+    Ok((alignment, code.code_buffer().to_vec()))
+}
+
+/// The function and the companions its job defines with it.
+fn symbols(function: &UserFn) -> impl Iterator<Item = FuncId> {
+    std::iter::once(function.id)
+        .chain(function.drop_callback)
+        .chain(function.resume)
 }
 
 impl Lowerer<'_, '_> {

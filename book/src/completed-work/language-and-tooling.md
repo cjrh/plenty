@@ -570,4 +570,6 @@ All compilation entry points now optimize generated code by default. The
 trades runtime optimization for shorter compilation without changing language
 checks. Package output uses `target/optimized/` and `target/fast-compile/`;
 `--release` remains an alias for the default. Profile-separated cache reuse and
-explicit two-profile regression tests accompany the change.
+explicit two-profile regression tests accompany the change. Integration with
+call-site inlining preserves caller handling of C string conversion errors
+(issue #724) and shared cleanup for tail calls with managed locals (issue #725).

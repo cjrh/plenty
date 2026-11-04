@@ -132,7 +132,9 @@ impl Lowerer<'_, '_> {
                             self.release(buffer, &Ty::Str);
                         }
                         // Err has the same inline representation for every supported C return.
-                        self.return_values(vec![(converted, sig.outputs[0].clone())]);
+                        // An inlined adapter must return to its caller, which
+                        // can handle this error, rather than leave that caller.
+                        self.leave(vec![(converted, sig.outputs[0].clone())], &Arc::from([]))?;
                         self.bcx.switch_to_block(ready);
                         self.bcx.seal_block(ready);
                         let buffer = self.raw_word(converted);
