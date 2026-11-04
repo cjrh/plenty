@@ -165,7 +165,7 @@ checkpoint adds 40 passing component tests and preserves parse errors, document
 edit atomicity, regex work/memory limits and replacement error precedence.
 Public Match lengths now expose typed subtraction overflow; TOML location
 exhaustion uses InputTooLarge with unavailable zero coordinates at the valid
-offset. XML/CSV and broader adoption remain outstanding.
+offset. XML/CSV and broader adoption were not yet included at that checkpoint.
 
 The coordinated numerical, transport, server and actor checkpoint is integrated
 with independent source reviews. Ordinary integer SIMD operations return
@@ -183,8 +183,8 @@ Combined targeted runtime-check validation reports 733 passes, two failures in
 still-unmigrated HTTP body/cookie dependencies and one pre-existing ignored test.
 Full crypto, JWT, HTTPS, standalone server/client and actor TLS tests now pass
 together. The optional native-engine linalg bodies were initially unrun;
-broad documentation examples, remaining modules and full acceptance measurements
-remain outstanding.
+broad documentation examples, remaining modules and full measurements were
+not yet included at that checkpoint.
 
 Reviewed CLI/progress arithmetic now preserves exact work counts and output-failure
 state; the countbytes example exposes its aggregate overflow contract. Dataframe
@@ -235,7 +235,7 @@ two-field split and retain affine field/error cleanup. Registry success alone di
 generic instantiations. Native export/FFI fixture adoption preserves scalar and
 fieldless error ABIs, C/C++ guard-page assertions and exact resource cleanup;
 its 23 component tests pass. Repository fixtures/examples, full native and
-all-features acceptance remain outstanding. A complete earlier all-features
+all-features validation were not yet complete at that checkpoint. An earlier all-features
 baseline compiled successfully but reported 4,465 passes, 1,109 failures and
 eight ignores; 27 confirmed self-skips are included in the reported passes.
 That snapshot predates the generic/native follow-ups and is not a current pass.
@@ -321,12 +321,30 @@ gap remain explicit limits.
 Exploratory runtime/compiler/code smokes pass 16 runtime samples, 32 compiler
 samples and 12 code reports, retaining full corpus sizes, native oracles, optimized
 call gates and allocation-proof integrity. One sample without warmups is not
-performance acceptance. The two-job profile attempt stops before either producer
-because of the authenticated-system-tool alias defect in issue #731. Its reviewed
-controller repair preserves strict source/output alias rejection and consumes the
-exact authenticated record bytes; 102 profile and 182 combined mock tests pass.
-A new driver configuration and native profile collection remain unqualified. No
-profile totals, speedup or whole-proposal acceptance is claimed.
+performance acceptance. The first two-job profile attempt remains blocked before
+either producer by issue #731's authenticated-system-tool alias defect. The
+reviewed repair preserves strict non-tool alias rejection and consumes the exact
+authenticated record bytes; 102 profile and 182 combined controller mocks pass.
+The new external driver passes independent review and 58 synthetic methods, then
+a fresh two-job smoke succeeds.
+
+The full approved schedules complete serially: 2466 timed general jobs (366
+warmups and 2100 samples), all 22 code reports and all 16 official profile jobs.
+Exact attributed requests and approximate binary-unit byte displays remain
+separate metrics. Independent evidence review finds no issues with collection,
+not a general speedup or whole-proposal acceptance. Existing optimized code is
+inspected in 20 representative native symbols: guard/result/cleanup/return
+structures are accounted for, including the C→I corpus's extra widening/tag test
+and shared-cleanup differences. A bounded native/export audit establishes no
+new defect; neither review claims universal ABI coverage.
+
+The compiler benchmark template now uses precise independent arithmetic Results,
+without changing the original workload, controls or five tests. Four new tests
+bring its example suite to nine passes, including actual 1000/4000-unit checking,
+native checksums and mutation/failure paths. Fifteen arithmetic integration tests,
+formatting and strict workspace/all-target Clippy pass. Frozen comparison inputs
+remain unchanged. See [collected results and limits](checked-default-validation.md)
+for distributions, attribution, source bridging and bounded code analysis.
 Separate pre-existing archive-decimal and PNG-framing limits are recorded
 as issues #705 and #707, open and outside these arithmetic checkpoints.
 

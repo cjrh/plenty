@@ -572,6 +572,7 @@
 - [Backlog](backlog.md)
 - [Completed work](completed-work.md)
     - [Language and tooling](completed-work/language-and-tooling.md)
+    - [Checked-default validation](completed-work/checked-default-validation.md)
     - [Libraries and applications](completed-work/libraries.md)
     - [Compiler performance and SIMD](completed-work/performance.md)
 

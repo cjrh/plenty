@@ -1,12 +1,15 @@
 # Checked arithmetic by default
 
-> **Status: Core and repository adoption implemented; acceptance incomplete.**
+> **Status: Core and repository adoption implemented; bounded validation complete.**
 > Function-level arithmetic boundaries, lexical `unchecked:`, independent closure
-> contracts, std/callback APIs, fixtures, shipped examples and teaching/reference
-> changes are implemented on this branch. Compiler benchmark templates, a complete
-> post-repair host gate and final native/performance measurements remain under
-> **B14** in the [backlog](../backlog.md). The [implementation record](checked-by-default/implementation.md)
-> distinguishes completed validation from those outstanding acceptance gates.
+> contracts, std/callback APIs, fixtures, shipped examples, compiler benchmark
+> templates and teaching/reference changes are implemented on this branch.
+> [Validation evidence](../completed-work/checked-default-validation.md) records the
+> isolated post-repair host gate, controlled timings/profiles, representative
+> optimized code and native/export audit, with explicit source and observation
+> limits. Neither local PR #886 nor its proxy-fixture dependency #918 is merged.
+> This is not whole-proposal performance or merge acceptance. Remaining B14
+> conveniences stay in the [backlog](../backlog.md).
 
 ## Recommendation
 

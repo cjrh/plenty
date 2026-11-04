@@ -1,9 +1,12 @@
 # Checked defaults: implementation and validation
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
-> **Repository adoption implemented; acceptance incomplete.** The acceptance contract
-> below is not yet satisfied. Remaining work stays in **B14** in the
-> [backlog](../../backlog.md); this page contains no performance evidence.
+> **Repository adoption and bounded validation complete.**
+> [Collected results and limits](../../completed-work/checked-default-validation.md)
+> cover the isolated host gate, all controlled timing/profile jobs, representative
+> optimized code, native/export audit and compiler benchmark-template adoption.
+> This is not universal performance/ABI or merge acceptance. Remaining **B14**
+> conveniences stay in the [backlog](../../backlog.md).
 
 ## Current implementation
 
@@ -281,28 +284,50 @@ verified; ten non-test example paths' pre-clean absence remains unobserved.
 Existing external engines remain older compatible builds, not fresh source builds.
 Process sampling is not exhaustive tracing or a controlled performance baseline.
 
-Exploratory collection now passes 16 runtime samples, 32 compiler samples and
-12 code reports, with no warmups and one sample per selected case. Full 1000/4000
-corpora, all four modes/actions, both-profile native qualification, retained
-optimized calls, exact streams, ELF bounds and authenticated zero/nonzero
-allocation-proof imports remain required. Code reports include linked ELF and
-executable-section sizes, debug-object bytes and representative IR dumps—not an
-exhaustive function audit or optimized-object size. These successful smoke runs
-validate collection contracts, not speedups or acceptance-quality distributions.
+Exploratory collection passed 16 runtime samples, 32 compiler samples and
+12 code reports, with no warmups and one sample per selected case. These smokes
+qualified collection contracts, not speedups or acceptance-quality distributions.
+The first separate two-job profile attempt remains stopped before either producer
+ran: its identity guard rejected a packaged GCC hard link (issue #731).
 
-The separate two-job allocation-profile attempt stopped before either producer
-ran: its identity guard rejected a packaged GCC hard link (issue #731). The
-reviewed correction authenticates recorded native-tool identities, binds fresh
-link-count/ctime observations, and preserves strict nonalias rules for inputs,
-proofs, frozen binaries and generated artifacts. It also authenticates the exact
-record bytes consumed, with deterministic record-swap regressions. All 102
-profile and 182 combined controller mock tests pass; these are not native profile
-results. A fresh external-driver configuration still needs review before new
-profile collection. No allocation totals or byte estimates have been collected.
+The reviewed correction authenticates recorded native-tool identities, binds
+fresh link-count/ctime observations and preserves strict nonalias rules for
+inputs, proofs, frozen binaries and outputs. It consumes the exact authenticated
+record bytes, with deterministic record-swap regressions. All 102 profile and 182
+combined controller mock tests pass. A new external driver then passes independent
+review and 58 synthetic methods, followed by a fresh successful two-job smoke.
+These do not relabel the original blocked attempt.
 
-Full controlled schedules and performance/profile acceptance remain outstanding.
-Neither PR is merged; the proxy fixture patch remains only in the explicitly
-approved isolated validation fork.
+The full approved general schedule completes once: 2466 timed jobs, comprising
+366 warmups and 2100 samples, plus qualification and code inspection. All 86
+groups, 75 available paired distributions and 22 code reports retain their raw
+streams, resources and artifacts. No outlier or failure was dropped. All 350
+required arithmetic traps correctly exit 1. The official full allocation-profile
+schedule separately completes all 16 jobs and retains 1248 phase rows; exact
+attributed request counts and approximate binary-unit byte displays are distinct
+from process allocation totals or retained heap. Independent evidence review
+finds no issues with these bounded collection components, not whole-proposal
+performance acceptance. The helper's packet/acceptance-complete flags remain false.
+
+Representative optimized-IR/native analysis accounts for arithmetic guards,
+Result construction/tests, cleanup and return carriers in 20 selected symbols.
+Trapping and recoverable pairs preserve their intended contracts. The C→I corpus
+has an additional Result widening/tag test, one fewer cleanup call site and a
+smaller local frame; this is not a measured speedup or universal ABI conclusion.
+The separate bounded native/export source audit finds no defect in changed typed
+storage, entry stacks, executor operands, partial mutation or explicit C adapters.
+
+The repository compiler benchmark template is now mechanically adopted with
+independent precise errors and unchanged workload/measurement controls. Nine
+example tests, including full 1000/4000-unit type-check/native checksum cases and
+partial-mutation failures, pass alongside 15 arithmetic tests, formatting and
+strict workspace/all-target Clippy. These functional checks are not new timing
+samples. Frozen comparison inputs remain unchanged.
+
+The [validation record](../../completed-work/checked-default-validation.md) gives
+paired timing distributions, attributed allocation values, static code counts,
+source bridging and observation limits. Neither PR is merged; the proxy fixture
+patch remains only in the explicitly approved isolated validation fork.
 Independent pre-existing archive-decimal and PNG-framing limits are recorded as
 issues #705 and #707, not silently changed by arithmetic migration.
 
