@@ -1068,6 +1068,17 @@ impl Lower<'_> {
             | Expression::GenericMethod(..) => self
                 .numeric_builtin_hint(e)
                 .or_else(|| self.expression_type_hint(e).filter(Ty::is_numeric)),
+            Expression::Try(inner) => match self.operator_hint(inner)? {
+                Ty::Enum(t) if t.is_result() || t.is_option() => {
+                    let success = usize::from(t.is_option());
+                    t.get().variants[success]
+                        .fields
+                        .first()
+                        .cloned()
+                        .filter(Ty::is_numeric)
+                }
+                _ => None,
+            },
             Expression::Unary(op, inner) if op == "+" || op == "-" || op == "~" => {
                 self.numeric_hint(inner)
             }
