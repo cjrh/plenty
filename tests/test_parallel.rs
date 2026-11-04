@@ -22,7 +22,7 @@ fn runs(source: &str, expected: &str) {
 
 #[test]
 fn maps_share_owned_immutable_closures_including_generic_callable_workers() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Capture:
     values: list[i64]
@@ -36,7 +36,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture([2, 3]?)
         scale = def [capture](n: i64) -> i64:
-            n * len(capture.values)
+            # Fixed fixture: n is 0..3 and capture length is two.
+            result = checked:
+                n * len(capture.values)
+            result.unwrap()
         print(mapped(&pool, scale)?)?
         label = "error"
         work = def [label](n: i64) -> Result[i64, str]:
@@ -47,7 +50,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
         print(str.repr(fallible(&pool, work))?)?
         offset = 10
         shift = def [offset](n: i64) -> i64:
-            n + offset
+            # Fixed fixture: n is 0..2 and offset is ten; retain map's i64 ABI.
+            result = checked:
+                n + offset
+            result.unwrap()
         print(pool.map(shift, range(3))?)?
     Ok(())
 "#,
@@ -57,21 +63,23 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
 
 #[test]
 fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
+    // Fixed n=0..2/value=2 fixtures retain their i64 ABI so arithmetic
+    // diagnostics cannot mask the intended ownership/eligibility rejection.
     for (worker, diagnostic) in [
         (
-            "job = def once [value](n: i64) -> i64:\n    n + value\n",
+            "job = def once [value](n: i64) -> i64:\n    result = checked:\n        n + value\n    result.unwrap()\n",
             "reusable immutable closure",
         ),
         (
-            "mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n",
+            "mut job = def [mut value](n: i64) -> i64:\n    result = checked:\n        value + n\n    value = result.unwrap()\n    value\n",
             "reusable immutable closure",
         ),
         (
-            "job = def [&value](n: i64) -> i64:\n    n + value\n",
+            "job = def [&value](n: i64) -> i64:\n    result = checked:\n        n + value\n    result.unwrap()\n",
             "must own their captures",
         ),
         (
-            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    result = checked:\n        n + value + f()\n    result.unwrap()\n",
             "changing the working directory",
         ),
         (
@@ -79,7 +87,7 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
             "lack worker eligibility evidence",
         ),
         (
-            "job = def [value](n: &i64) -> i64:\n    *n + value\n",
+            "job = def [value](n: &i64) -> i64:\n    result = checked:\n        *n + value\n    result.unwrap()\n",
             "one owned input",
         ),
     ] {
@@ -94,13 +102,13 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
 
 #[test]
 fn fallible_map_drains_shared_callback_before_destroying_its_capture() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Capture:
     sender: Sender[i64]
     def __del__(self) -> ():
         self.sender.send(99).unwrap()
-def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError | OverflowError[i64]]:
     sender, receiver = channel[i64](16)?
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture(sender)
@@ -132,13 +140,16 @@ def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
 
 #[test]
 fn map_evaluates_the_callback_before_its_input_and_moves_inline_input_values() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 def callback() -> Closure[[range[i64]], range[i64]]:
     print("callback").unwrap()
     offset = 1
     def [offset](value: range[i64]) -> range[i64]:
-        range(len(value) + offset)
+        # Fixed ranges have length three or two, and offset is one.
+        size = checked:
+            len(value) + offset
+        range(size.unwrap())
 def inputs() -> list[range[i64]]:
     print("inputs").unwrap()
     [range(3), range(4, 6)].unwrap()
@@ -153,7 +164,7 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 #[test]
 fn map_failure_and_shutdown_drop_shared_captures_once_and_drain_jobs() {
     for budget in 0..8 {
-        runs(
+        parallel_runs_in_both_modes(
             &format!(
                 r#"
 class Capture:
@@ -163,7 +174,10 @@ class Capture:
 with ThreadPoolExecutor(2, 1).unwrap() as pool:
     capture = Capture("dropped")
     work = def [capture](n: i64) -> i64:
-        n + len(capture.message)
+        # Fixed n=0..7 and seven-character capture; keep the infallible ABI.
+        result = checked:
+            n + len(capture.message)
+        result.unwrap()
     print("__test_fail_allocations_after_{budget}__").unwrap()
     result = pool.map(work, range(8))
     print("__test_restore_allocations__").unwrap()
@@ -184,11 +198,11 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 
 #[test]
 fn fallible_map_preserves_order_and_concrete_error() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
-def square[T: IntType](n: T) -> Result[T, str]:
+def square[T: IntType](n: T) -> Result[T, OverflowError[T]]:
     Ok(n * n)
-def fail(n: i64) -> Result[i64, range[i64]]:
+def fail(n: i64) -> Result[i64, range[i64] | OverflowError[i64]]:
     if n == 2 or n == 3:
         Err(range(n, n + 2))
     else:
@@ -201,7 +215,7 @@ def inspect[E](error: ParallelError[E]) -> E:
             fail_unreachable()
 def fail_unreachable() -> range[i64]:
     range(0)
-def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
+def main() -> Result[(), IoError | ParallelError[OverflowError[u8]] | ParallelError[OverflowError[i64]] | PoolError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         print(pool.map_result(square, range[u8](5))?)?
         print(pool.map_result(square, range(0))?)?
@@ -214,13 +228,13 @@ def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
         print(str.repr(pool.map_result(square, range(0))).unwrap())?
     Ok(())
 "#,
-        "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Shutdown)\n",
+        "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[OverflowError[i64]]].Err(ParallelError[OverflowError[i64]].Shutdown)\n",
     );
 }
 
 #[test]
 fn lowest_input_error_wins_even_when_a_later_failure_finishes_first() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Input:
     index: i64
@@ -238,7 +252,7 @@ def work(value: Input) -> Result[Input, Input]:
         Err(value)
     else:
         Ok(value)
-def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError | OverflowError[i64]]:
     signal, wait = channel[i64](1)?
     dropped, count = channel[i64](8)?
     with ThreadPoolExecutor(3, 1)? as pool:
@@ -434,12 +448,12 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 }
 
 /// Public callbacks and native slot ownership must work with either backend mode.
-fn fallible_tree_runs(source: &str, expected: &str) {
+fn parallel_runs_in_both_modes(source: &str, expected: &str) {
     for optimize in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("reduce.plenty");
         let executable = directory.path().join("reduce");
-        std::fs::write(&path, source).unwrap();
+        std::fs::write(&path, support::program(source)).unwrap();
         plenty::compile_file_to_executable_with_options(
             &path,
             &executable,
@@ -467,7 +481,7 @@ fn fallible_tree_runs(source: &str, expected: &str) {
 
 #[test]
 fn fallible_tree_public_results_preserve_grouping_payloads_and_caller_modes() {
-    fallible_tree_runs(r#"
+    parallel_runs_in_both_modes(r#"
 def add[T: IntType](a: T, b: T) -> Result[T, OverflowError[T]]:
     Ok(a + b)
 def shape(a: i64, b: i64) -> Result[i64, str]:
@@ -503,7 +517,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | Overf
 
 #[test]
 fn fallible_tree_selects_level_then_pair_and_accepts_overlapping_error_unions() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 def levels(a: i64, b: i64) -> Result[i64, str]:
     if a == 4:
@@ -539,7 +553,7 @@ def main() -> Result[(), AllocError | IoError | PoolError]:
 
 #[test]
 fn fallible_tree_moves_managed_errors_and_drops_unused_inputs_and_errors_once() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 class Item:
     events: Sender[i64]
@@ -595,14 +609,14 @@ fn fallible_tree_tutorial_example_runs_in_both_modes() {
         .split_once("```")
         .unwrap()
         .0;
-    fallible_tree_runs(source, expected);
+    parallel_runs_in_both_modes(source, expected);
 }
 
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn fallible_tree_allocation_failures_preserve_errors_and_pool_reuse() {
     for budget in 0..18 {
-        fallible_tree_runs(
+        parallel_runs_in_both_modes(
             &format!(
                 r#"
 def left[T](a: T, b: T) -> Result[T, str]:
@@ -626,7 +640,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
         );
     }
     // Values scratch + Pending + first job succeed; the next job fails.
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 def reject(a: i64, b: i64) -> Result[i64, str]:
     Err("first callback")
@@ -653,7 +667,7 @@ def main() -> Result[(), IoError | PoolError]:
 
 #[test]
 fn fallible_tree_matches_ordinary_fixed_tree_for_odd_and_large_lengths() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 def shape(a: i64, b: i64) -> i64:
     a.wrapping_mul(1000003).wrapping_add(b.wrapping_mul(31)).wrapping_add(17)
@@ -679,7 +693,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
 
 #[test]
 fn fallible_tree_drains_gated_accepted_pairs_before_unused_source_drops() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 class Row:
     index: i64
@@ -729,7 +743,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | SpawnError[()]]:
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn fallible_tree_empty_singleton_never_call_or_allocate() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 def reject[T](a: T, b: T) -> Result[T, str]:
     Err("must not run")
@@ -749,7 +763,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
 
 #[test]
 fn fallible_tree_success_calls_each_pair_once_and_returns_owned_payload() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 class Row:
     value: list[Option[range[i64]]]
@@ -786,7 +800,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
 
 #[test]
 fn fallible_tree_and_pipeline_relocate_inline_error_payloads() {
-    fallible_tree_runs(
+    parallel_runs_in_both_modes(
         r#"
 def span(a: i64, b: i64) -> Result[i64, range[i64]]:
     Err(range(a, b))
