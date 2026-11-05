@@ -59,9 +59,21 @@ impl Header {
 
     /// Consume one count and synchronize with every earlier release before the
     /// final owner destroys the payload. This does not synchronize payload use.
+    ///
+    /// A count of 1 means the caller's reference is the only one, and no other
+    /// thread can retain or release concurrently, so the sole owner skips the
+    /// locked decrement and leaves the dead count at 1. See "Sole-owner release"
+    /// in book/src/design/toolchain/02-architecture/memory.md.
     pub(crate) fn release_last(&self) -> bool {
-        if self.refs.load(Ordering::Relaxed) == u64::MAX {
+        let count = self.refs.load(Ordering::Relaxed);
+        if count == u64::MAX {
             return false;
+        }
+        if count == 1 {
+            // Synchronizes with the Release decrement that left 1, when
+            // another owner wrote it, so its payload use precedes destruction.
+            fence(Ordering::Acquire);
+            return true;
         }
         let previous = self.refs.fetch_sub(1, Ordering::Release);
         debug_assert!(previous > 0);
@@ -145,6 +157,10 @@ pub(crate) unsafe extern "C" fn plenty_retain(object: *mut Header) {
         if inert(object) || (*object).refs.load(Ordering::Relaxed) == u64::MAX {
             return;
         }
+        // Retain has no sole-owner fast path: it also runs through shared
+        // borrows, which carry no count, so two threads can both read 1 (a
+        // scoped worker and its parent copying one string, or two jobs reading
+        // one Shared[list[str]]); a plain store of 2 would lose an increment.
         // An existing live owner permits relaxed retain. Reject overflow
         // before incrementing so concurrent retains cannot reach the sentinel.
         if (*object)
@@ -246,10 +262,26 @@ pub(crate) fn try_allocate_in<H, E>(
     count: usize,
     allocator: &'static Allocator,
 ) -> Result<*mut H, AllocError> {
+    try_allocate_with::<H, E>(count, allocator, allocator.allocate_zeroed)
+}
+
+/// [`try_allocate`] without zeroing, for an object whose header and every
+/// element the caller writes before anything reads them, such as a copied
+/// string. Freeing and allocation accounting are the same as for zeroed
+/// storage: both come from the global allocator.
+pub(crate) fn try_allocate_uninit<H, E>(count: usize) -> Result<*mut H, AllocError> {
+    try_allocate_with::<H, E>(count, &GLOBAL, std::alloc::alloc)
+}
+
+fn try_allocate_with<H, E>(
+    count: usize,
+    allocator: &'static Allocator,
+    allocate: unsafe fn(Layout) -> *mut u8,
+) -> Result<*mut H, AllocError> {
     let (layout, offset) = allocation_layout::<H, E>(count)?;
     // SAFETY: the checked layout has a nonzero size. Null means no allocation
     // was obtained, so returning an error leaves nothing to deallocate.
-    let pointer = unsafe { (allocator.allocate_zeroed)(layout) };
+    let pointer = unsafe { allocate(layout) };
     if pointer.is_null() {
         Err(AllocError::OutOfMemory)
     } else {
@@ -344,6 +376,88 @@ mod sharing_tests {
             assert_eq!(slot.load(Ordering::Relaxed), 1);
         }
         assert_eq!(object.destroyed.fetch_add(1, Ordering::Relaxed), 0);
+    }
+
+    fn new_shared(destroyed: &Arc<AtomicUsize>) -> *mut Shared {
+        Box::into_raw(Box::new(Shared {
+            header: Header::new(destroy),
+            destroyed: destroyed.clone(),
+            writes: std::array::from_fn(|_| AtomicUsize::new(1)),
+        }))
+    }
+
+    #[test]
+    fn sole_owner_release_destroys_without_decrementing() {
+        let destroyed = Arc::new(AtomicUsize::new(0));
+        let object = new_shared(&destroyed);
+        unsafe {
+            plenty_retain(object.cast());
+            assert_eq!((*object).header.refs.load(Ordering::Relaxed), 2);
+            // Two owners take the decrement; the remaining sole owner does not.
+            assert!(!(*object).header.release_last());
+            assert_eq!((*object).header.refs.load(Ordering::Relaxed), 1);
+            assert!((*object).header.release_last());
+            assert_eq!((*object).header.refs.load(Ordering::Relaxed), 1);
+            destroy(object.cast());
+        }
+        assert_eq!(destroyed.load(Ordering::Relaxed), 1);
+        let destroyed = Arc::new(AtomicUsize::new(0));
+        unsafe { plenty_release(new_shared(&destroyed).cast()) };
+        assert_eq!(destroyed.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn racing_final_releases_destroy_once() {
+        // Two owners on two threads release together: whichever decrements
+        // second may see 1 and take the sole-owner path, never both.
+        for _ in 0..2000 {
+            let destroyed = Arc::new(AtomicUsize::new(0));
+            let object = new_shared(&destroyed);
+            unsafe { plenty_retain(object.cast()) };
+            let address = object.expose_provenance();
+            let barrier = Barrier::new(2);
+            std::thread::scope(|scope| {
+                for worker in 0..2 {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        let object = ptr::with_exposed_provenance_mut::<Shared>(address);
+                        barrier.wait();
+                        unsafe {
+                            (*object).writes[worker].store(1, Ordering::Relaxed);
+                            plenty_release(object.cast());
+                        }
+                    });
+                }
+            });
+            assert_eq!(destroyed.load(Ordering::Relaxed), 1);
+        }
+    }
+
+    #[test]
+    fn owner_handed_to_another_thread_releases_there() {
+        // A retain made on a worker and joined before the original owner's
+        // release is visible to it, so that release decrements atomically and
+        // the worker's copy, sent back, is the sole owner that destroys.
+        let destroyed = Arc::new(AtomicUsize::new(0));
+        let object = new_shared(&destroyed);
+        let address = object.expose_provenance();
+        let copy = std::thread::spawn(move || {
+            let object = ptr::with_exposed_provenance_mut::<Shared>(address);
+            unsafe { plenty_retain(object.cast()) };
+            address
+        })
+        .join()
+        .unwrap();
+        unsafe {
+            assert!(!(*object).header.release_last());
+            assert_eq!(destroyed.load(Ordering::Relaxed), 0);
+        }
+        std::thread::spawn(move || unsafe {
+            plenty_release(ptr::with_exposed_provenance_mut::<Shared>(copy).cast());
+        })
+        .join()
+        .unwrap();
+        assert_eq!(destroyed.load(Ordering::Relaxed), 1);
     }
 
     #[test]

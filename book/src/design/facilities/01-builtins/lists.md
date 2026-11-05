@@ -19,12 +19,21 @@ An access that cannot fail has no bounds check. In
 `for i in range(start, len(xs))` with a nonnegative constant `start` and
 step 1, `xs[i]` cannot fail when `xs` is a `&list[T]` parameter or a
 [slice view](../../language/04-expressions/slices.md#slice-views): its
-length cannot change while the function runs. Indexing any other list with
-`i`, including through a shared reference made inside the function, or a
-range with any other stop, keeps the check. The counter of
+length cannot change while the function runs. With the stop written as
+`len(xs)` for the same list `xs`, an owned list, an exclusive reference, or a
+shared reference made inside the function also qualifies when the loop uses
+the row cache described above: the loop cannot change the list, so the cache
+takes its length from the range's stop. Indexing any other list with `i`, a
+range with any other stop, or a loop that can resize the list keeps the
+check, so a length read before a `clear()` still traps. The counter of
 `for i, x in enumerate(xs)` over such a list or view qualifies the same way,
 when the call has no start; indexing another list with it still checks the
 bound but skips negative-index normalization.
+
+`for x in xs` over an owned list reads the list's length and rows once,
+before the loop, like iteration over a borrowed list: the loop owns the
+list, and no other code can reach it. Each element read has no bounds check,
+and the position advances without an overflow check.
 
 A `while lo < hi` loop over a slice view checks once, before the loop, when
 its body begins by indexing the view with `hi`, and possibly `lo`, as
