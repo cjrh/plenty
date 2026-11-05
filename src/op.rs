@@ -1129,6 +1129,12 @@ pub enum Op {
         ty: Ty,
         cleanup: Arc<[Op]>,
     },
+    /// An integer operation from an `unchecked:` suite whose build assumes
+    /// its preconditions (`--unchecked assume`): the inner `Add`, `Sub`,
+    /// `Mul`, `FloorDiv`, `Modulo`, `Numeric(Pow)`, shift or `CheckedCast`
+    /// without its overflow, zero-divisor, shift-count or range check. A
+    /// violated precondition is undefined behavior, not wrapping.
+    Assumed(Box<Op>),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
         condition: Arc<[Op]>,

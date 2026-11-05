@@ -2204,7 +2204,7 @@ impl Scope {
                 let at = e.at.clone();
                 self.match_block(value, cases, &at, locals)?
             }
-            Expression::Checked(body) | Expression::If(body) => {
+            Expression::Checked(_, body) | Expression::If(body) => {
                 self.block(body, &mut locals.clone())?
             }
 

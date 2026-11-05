@@ -564,7 +564,12 @@ fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()>
     };
     resolved.require_main = resolved.functions.iter().any(|f| f.name == "main");
     let mut heap = Heap::default();
-    let program = lower(resolved, &mut heap, crate::CheckOptions::default())?;
+    let program = lower(
+        resolved,
+        &mut heap,
+        crate::CheckOptions::default(),
+        crate::UncheckedMode::Trap,
+    )?;
     // A function that failed was left out, so later passes would report
     // what is missing rather than what is wrong.
     if with(|r| r.diagnostics.is_empty()) {

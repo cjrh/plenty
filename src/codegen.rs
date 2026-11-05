@@ -346,8 +346,12 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} test hooks {} coverage {} executable pruning {}",
-                build.optimize, build.test_hooks, build.coverage, build.prune_user
+                "optimize {} unchecked {} test hooks {} coverage {} executable pruning {}",
+                build.optimize,
+                build.unchecked.name(),
+                build.test_hooks,
+                build.coverage,
+                build.prune_user
             );
             Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
         });
@@ -368,7 +372,7 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
         eprintln!(" Compiling {}", entry.display());
     }
     let mut heap = Heap::default();
-    let program = sources.compile(&mut heap)?;
+    let program = sources.compile(&mut heap, build.unchecked)?;
     op::check(&program.ops)?;
     compile_to_object(program.ops, &heap, object, program.returns_status, build)?;
     if let Some((cache, key)) = &cached {
@@ -460,6 +464,9 @@ struct Build {
     target: Option<&'static str>,
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
+    /// The frontend's mode for plain `unchecked:` suites. Function cache
+    /// keys see its effect on the emitted code; the program key names it.
+    unchecked: crate::UncheckedMode,
     /// Lower std's `__test_fault` to the explicitly enabled hook object.
     test_hooks: bool,
     /// Count each block's runs for libFuzzer ([`coverage`]).
@@ -481,6 +488,7 @@ impl Build {
     fn new(options: &crate::CompileOptions, test_hooks: bool) -> Self {
         Self {
             optimize: options.optimize,
+            unchecked: options.unchecked,
             prune_user: false,
             #[cfg(test)]
             target: None,
@@ -623,7 +631,7 @@ pub fn dump_file(
     crate::validate_target(None)?;
     let sources = Sources::file(path, root)?;
     let mut heap = Heap::default();
-    let program = sources.compile(&mut heap)?;
+    let program = sources.compile(&mut heap, options.unchecked)?;
     op::check(&program.ops)?;
     dump_program(
         program.ops,
@@ -2662,9 +2670,10 @@ impl Lowerer<'_, '_> {
             Op::Add => self.lower_add()?,
             Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
-            Op::Div => self.lower_div(false, crate::numeric::Divisor::Any)?,
-            Op::FloorDiv(proof) => self.lower_div(true, *proof)?,
-            Op::Modulo(proof) => self.lower_modulo(*proof)?,
+            Op::Div => self.lower_div(false, crate::numeric::Divisor::Any, true)?,
+            Op::FloorDiv(proof) => self.lower_div(true, *proof, true)?,
+            Op::Modulo(proof) => self.lower_modulo(*proof, true)?,
+            Op::Assumed(op) => self.lower_assumed(op)?,
             Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Numeric(operation) => self.lower_numeric(operation)?,
             Op::Eq => self.lower_eq()?,
@@ -3023,9 +3032,57 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// An [`Op::Assumed`] integer operation: the plain instruction, without
+    /// the check that would trap.
+    fn lower_assumed(&mut self, op: &Op) -> Result<()> {
+        match op {
+            Op::Add | Op::Sub | Op::Mul => {
+                let (a, b, ty) = self.pop_int_pair()?;
+                let result = match op {
+                    Op::Add => self.bcx.ins().iadd(a, b),
+                    Op::Sub => self.bcx.ins().isub(a, b),
+                    _ => self.bcx.ins().imul(a, b),
+                };
+                self.stack.push((result, ty));
+            }
+            Op::FloorDiv(proof) => self.lower_div(true, *proof, false)?,
+            Op::Modulo(proof) => self.lower_modulo(*proof, false)?,
+            Op::Numeric(crate::numeric::NumericOp::Pow) => {
+                let (base, exponent, ty) = self.pop_int_pair()?;
+                // The runtime still rejects a negative exponent; only the
+                // overflow flag is ignored.
+                let (result, _) = self.int_pow_checked(base, exponent, &ty)?;
+                self.stack.push((result, ty));
+            }
+            // Cranelift masks the count to the operand width.
+            Op::Integer(kind @ (IntegerOp::ShiftLeft | IntegerOp::ShiftRight)) => {
+                let (a, b, ty) = self.pop_int_pair()?;
+                let result = match kind {
+                    IntegerOp::ShiftLeft => self.bcx.ins().ishl(a, b),
+                    _ if is_signed(ty.clone()) => self.bcx.ins().sshr(a, b),
+                    _ => self.bcx.ins().ushr(a, b),
+                };
+                self.stack.push((result, ty));
+            }
+            Op::CheckedCast(target) => {
+                let (value, source) = self.stack.pop().ok_or("AOT: stack underflow on cast")?;
+                let converted = self.cast(value, source, target.clone());
+                self.stack.push((converted, target.clone()));
+            }
+            _ => return Err(format!("AOT: `Assumed` cannot hold {op:?}").into()),
+        }
+        Ok(())
+    }
+
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
-    /// so both failures produce runtime diagnostics instead of hardware traps.
-    fn lower_div(&mut self, floor: bool, proof: crate::numeric::Divisor) -> Result<()> {
+    /// so both failures produce runtime diagnostics instead of hardware
+    /// traps. Without `checks`, both are assumed absent ([`Op::Assumed`]).
+    fn lower_div(
+        &mut self,
+        floor: bool,
+        proof: crate::numeric::Divisor,
+        checks: bool,
+    ) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let a = self.float_left_operand(a, b);
@@ -3035,14 +3092,14 @@ impl Lowerer<'_, '_> {
         }
         let cty = clif_type(ty.clone());
 
-        let zero = self.bcx.ins().iconst(cty, 0);
-        if proof == crate::numeric::Divisor::Any {
+        if checks && proof == crate::numeric::Divisor::Any {
+            let zero = self.bcx.ins().iconst(cty, 0);
             let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(b_is_zero, TrapKind::DivZero)?;
         }
 
         let signed = is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof);
-        if signed && proof != crate::numeric::Divisor::Positive {
+        if checks && signed && proof != crate::numeric::Divisor::Positive {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -3079,10 +3136,12 @@ impl Lowerer<'_, '_> {
     }
 
     /// Python-style modulo has the divisor's sign, including negative divisors.
-    fn lower_modulo(&mut self, proof: crate::numeric::Divisor) -> Result<()> {
+    /// Without `checks`, a zero divisor is assumed absent ([`Op::Assumed`]);
+    /// `INT_MIN % -1` is still zero, since that case is defined.
+    fn lower_modulo(&mut self, proof: crate::numeric::Divisor, checks: bool) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
-        if proof == crate::numeric::Divisor::Any {
+        if checks && proof == crate::numeric::Divisor::Any {
+            let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
             let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(is_zero, TrapKind::DivZero)?;
         }

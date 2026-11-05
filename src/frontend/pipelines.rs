@@ -1892,6 +1892,7 @@ impl Lower<'_> {
                     start: self.locals.len(),
                     function: false,
                     arithmetic: true,
+                    assume: false,
                     failures: Vec::new(),
                 });
             }

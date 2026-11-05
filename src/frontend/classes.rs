@@ -633,7 +633,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 }
                 // A failure skips the rest of the block, so nothing it
                 // initializes is credited either.
-                Expression::Checked(body) | Expression::If(body) => {
+                Expression::Checked(_, body) | Expression::If(body) => {
                     self.block(body, initialized.clone())?;
                 }
 

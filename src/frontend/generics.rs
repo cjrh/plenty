@@ -216,6 +216,7 @@ pub(super) fn prepare(
         protocol_instances: HashSet::default(),
         source_root: None,
         standard_sources: HashSet::default(),
+        unchecked: crate::UncheckedMode::Trap,
         source_facts: None,
         retention,
     };
@@ -321,6 +322,8 @@ pub(super) struct Engine {
     pub(super) protocol_instances: HashSet<String>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
+    /// The build's mode for plain `unchecked:` suites outside `std`.
+    pub(super) unchecked: crate::UncheckedMode,
     /// The last source `source_facts` described, and the result. Functions
     /// arrive module by module, so this spares a path copy and a path hash
     /// per function.
@@ -1958,7 +1961,9 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
                     positional_protocol_methods(&case.body)?;
                 }
             }
-            Expression::Checked(body) | Expression::If(body) => positional_protocol_methods(body)?,
+            Expression::Checked(_, body) | Expression::If(body) => {
+                positional_protocol_methods(body)?
+            }
             Expression::Collection {
                 entries, clauses, ..
             } => {
@@ -2116,7 +2121,9 @@ fn substitute_match(
 pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Result<()> {
     match &mut e.kind {
         Expression::Match(value, cases) => substitute_match(value, cases, substitutions)?,
-        Expression::Checked(body) | Expression::If(body) => substitute_block(body, substitutions)?,
+        Expression::Checked(_, body) | Expression::If(body) => {
+            substitute_block(body, substitutions)?
+        }
 
         Expression::GenericMethod(base, _, types, args, _) => {
             substitute_expr(base, substitutions)?;

@@ -1051,7 +1051,7 @@ impl Parser {
         if self.peek().is("match") {
             return self.match_statement();
         }
-        if self.checked_block() {
+        if self.checked_block().is_some() {
             let value = self.statement_value()?;
             return Ok(Stmt {
                 at: value.at.clone(),
@@ -1298,13 +1298,27 @@ impl Parser {
     /// expression, or a value-producing `if`/`match`/arithmetic-mode block.
     /// Arithmetic mode names are contextual: only a colon followed by a
     /// newline opens a suite; `unchecked: i64 = 0` still declares a name.
-    fn checked_block(&self) -> bool {
-        (self.peek().is("checked") || self.peek().is("unchecked"))
-            && self.tokens.get(self.pos + 1).is_some_and(|t| t.is(":"))
-            && self
-                .tokens
-                .get(self.pos + 2)
-                .is_some_and(|t| t.kind == Kind::Newline)
+    fn checked_block(&self) -> Option<Suite> {
+        let opens = |offset: usize| {
+            self.tokens
+                .get(self.pos + offset)
+                .is_some_and(|t| t.is(":"))
+                && self
+                    .tokens
+                    .get(self.pos + offset + 1)
+                    .is_some_and(|t| t.kind == Kind::Newline)
+        };
+        if self.peek().is("checked") {
+            return opens(1).then_some(Suite::Checked);
+        }
+        if !self.peek().is("unchecked") {
+            return None;
+        }
+        if opens(1) {
+            return Some(Suite::Unchecked);
+        }
+        (self.tokens.get(self.pos + 1).is_some_and(|t| t.is("trap")) && opens(2))
+            .then_some(Suite::Trap)
     }
     fn statement_value(&mut self) -> Result<Expr> {
         if self.peek().is("if") {
@@ -1317,12 +1331,15 @@ impl Parser {
                 kind: Expression::If(vec![statement]),
             });
         }
-        if self.checked_block() {
+        if let Some(suite) = self.checked_block() {
             let at = self.take();
+            if suite == Suite::Trap {
+                self.take();
+            }
             let body = self.suite()?;
             return Ok(Expr {
                 at,
-                kind: Expression::Checked(body),
+                kind: Expression::Checked(suite, body),
             });
         }
         if !self.peek().is("match") {
