@@ -1521,12 +1521,14 @@ fn owned_range_counters_trap_on_other_lengths(#[case] call: &str, #[case] messag
 #[test]
 fn owned_range_counters_and_cursors_skip_checks() {
     // `sadd_overflow` counts the checked `t +=` plus any checked step.
+    // `sum_stale` and `sum_other` are versioned: both copies add, and the
+    // checked copy keeps the trap for a stop past the indexed length.
     for (name, traps, adds) in [
         ("sum_owned", 0, 1),
         ("sum_mut", 0, 2),
-        ("sum_stale", 1, 1),
+        ("sum_stale", 1, 2),
         ("sum_popped", 1, 1),
-        ("sum_other", 1, 1),
+        ("sum_other", 1, 2),
         ("cursor_sum", 0, 1),
         ("cursor_bytes", 0, 1),
         ("cursor_text", 0, 1),
@@ -1642,5 +1644,165 @@ fn saved_lengths_of_borrowed_lists_bound_their_counters() {
             checked,
             "{name}\n{clif}"
         );
+    }
+}
+
+/// Range loops whose stop has no visible relation to the lengths they index
+/// run an unchecked copy when one test before the loop shows every index is
+/// in bounds, and an ordinary checked copy otherwise (issue #728).
+const VERSIONED: &str = r#"
+def copy_rows(n: i64, dst: &mut list[i64], src: &list[i64]) -> ():
+    for i in range(n):
+        dst[i] = src[i]
+
+def shift(r: i64, xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(r):
+        xs[i] = xs[i + 1]
+    Ok(())
+
+def view_sum(n: i64, v: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(n):
+        t += v[i]
+    Ok(t)
+
+def until_negative(n: i64, xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(n):
+        if xs[i] < 0:
+            break
+        t += xs[i]
+    Ok(t)
+
+def first_negative(n: i64, xs: &list[i64]) -> i64:
+    for i in range(1, n):
+        if xs[i] < 0:
+            return i
+    -1
+
+def owned_copy(n: i64) -> Result[list[i64], AllocError]:
+    mut a = list[i64].with_capacity(n)?
+    mut b = list[i64].with_capacity(n)?
+    for i in range(n):
+        a.append(i)?
+        b.append(0)?
+    for i in range(n):
+        b[i] = a[i]
+    Ok(b)
+
+def double(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x * 2)
+
+def called(n: i64, xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(n):
+        xs[i] = double(xs[i])?
+    Ok(())
+
+def own_length(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(len(xs)):
+        xs[i] = xs[i] + 1
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut dst = [0, 0, 0]?
+    src = [1, 2, 3]?
+    copy_rows(3, &mut dst, &src)
+    mut xs = [1, 2, 3, 4]?
+    shift(3, &mut xs)?
+    print(dst, xs, view_sum(3, &src[0:3])?, view_sum(2, &src[1:3])?)?
+    signs = [1, 2, -1]?
+    print(until_negative(10, &signs)?, first_negative(10, &signs), first_negative(2, &signs))?
+    big = [9223372036854775807, 1]?
+    match view_sum(5, &big[0:2]):
+        case Ok(t):
+            print(t)?
+        case Err(_):
+            print("overflow")?
+    print(owned_copy(4)?)?
+    called(3, &mut dst)?
+    own_length(&mut dst)?
+    print(dst)?
+    Ok(())
+"#;
+
+#[test]
+fn versioned_range_loops_keep_their_results() {
+    // `until_negative`, `first_negative` and the overflowing `view_sum` leave
+    // the loop before their stop passes the length: the checked copy runs
+    // them without trapping.
+    support::assert_stdout(
+        VERSIONED,
+        "[1, 2, 3] [2, 3, 4, 4] 6 5\n3 2 -1\noverflow\n[0, 1, 2, 3]\n[3, 5, 7]\n",
+    );
+}
+
+#[rstest]
+#[case("copy_rows(4, &mut dst, &src)", "index 3, length 3")]
+#[case("shift(3, &mut dst)?", "index 3, length 3")]
+#[case("print(view_sum(3, &src[1:3])?)?", "index 2, length 2")]
+#[case("print(until_negative(4, &src)?)?", "index 3, length 3")]
+#[case("print(first_negative(5, &src))?", "index 3, length 3")]
+fn versioned_range_loops_trap_past_the_length(#[case] call: &str, #[case] message: &str) {
+    let source = VERSIONED.replace(
+        "    copy_rows(3, &mut dst, &src)",
+        &format!("    copy_rows(3, &mut dst, &src)\n    {call}"),
+    );
+    let output = support::run(&source);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{call}\n{stderr}"
+    );
+    assert!(output.stdout.is_empty(), "{call}");
+}
+
+/// The bounds-check traps inside each loop of `clif`, in layout order: a
+/// loop runs from its header to the block that jumps back to it.
+fn traps_per_loop(clif: &str) -> Vec<usize> {
+    let lines: Vec<&str> = clif.lines().collect();
+    let traps: Vec<String> = lines
+        .iter()
+        .filter(|line| line.ends_with("; plenty_trap_list_index"))
+        .filter_map(|line| Some(line.trim().split(' ').next()?.to_string()))
+        .collect();
+    let mut loops = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some(name) = line.split(['(', ':']).next() else {
+            continue;
+        };
+        if !name.starts_with("block") || line.starts_with(' ') {
+            continue;
+        }
+        let back = lines[at + 1..].iter().position(|line| {
+            let line = line.trim();
+            line == format!("jump {name}") || line.starts_with(&format!("jump {name}("))
+        });
+        if let Some(back) = back {
+            let count = lines[at..=at + 1 + back]
+                .iter()
+                .filter(|line| traps.iter().any(|t| line.contains(&format!("call {t}("))))
+                .count();
+            loops.push(count);
+        }
+    }
+    loops
+}
+
+#[test]
+fn versioned_range_loops_have_an_unchecked_copy() {
+    for (name, loops) in [
+        ("copy_rows", &[0, 2][..]),
+        ("shift", &[0, 2]),
+        ("view_sum", &[0, 1]),
+        ("until_negative", &[0, 2]),
+        ("first_negative", &[0, 1]),
+        // The second loop; the first appends.
+        ("owned_copy", &[0, 0, 2]),
+        ("called", &[2]),
+        ("own_length", &[0]),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), VERSIONED);
+        assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
     }
 }
