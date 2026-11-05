@@ -2168,11 +2168,16 @@ enum TrapKind {
 }
 
 /// Whether `op` neither runs code nor writes a slot or referent, so the copies
-/// in [`Lowerer::slot_copies`] stay held by their sources across it.
+/// in [`Lowerer::slot_copies`] stay held by their sources across it. A
+/// `MoveLocal` empties its slot, but the moved owner stays on the stack until
+/// the op consuming it releases it, after that op's call; `Swap` only reorders
+/// the stack (issue #744).
 fn keeps_slot_copies(op: &Op) -> bool {
     matches!(
         op,
         Op::LoadLocal(_)
+            | Op::MoveLocal(_)
+            | Op::Swap
             | Op::ReadRef(_)
             | Op::BorrowLocal(..)
             | Op::Reborrow(_)
@@ -2244,11 +2249,12 @@ struct Lowerer<'a, 'b> {
     scalar_captures: scalar_captures::Captures,
     portable_simd: portable_simd::State,
     /// Counted one-word copies pushed since the last op that could run code
-    /// or write a slot, with the `plenty_retain` call that counted each, and
-    /// string literals, which are immortal and need none. Their sources hold
-    /// them until such an op runs. An op that only reads a text operand
-    /// during its call, and releases it right after, reads such a copy in
-    /// place: it removes the retain and skips the release (issue #387).
+    /// or release a value (see [`keeps_slot_copies`]), with the
+    /// `plenty_retain` call that counted each, and string literals, which are
+    /// immortal and need none. Their sources hold them until such an op runs.
+    /// An op that only reads an operand during its call, and releases it
+    /// right after, reads such a copy in place: it removes the retain and
+    /// skips the release (issues #387, #744).
     slot_copies: Vec<(
         cranelift_codegen::ir::Value,
         Option<cranelift_codegen::ir::Inst>,

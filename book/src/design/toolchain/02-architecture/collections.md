@@ -129,9 +129,21 @@ runtime operations whose operands are all texts or scalars (`replace`,
 `upper`, string concatenation, and so on) read in place each text operand that
 its source still holds: a copy loaded from a local or read through a
 reference, or a string literal. Codegen tracks these copies across the
-operand pushes that run no code and write no slot (loads, literals,
-references); it removes each copy's retain and skips its release. Any other op,
-including a conditional or call that computes an operand, ends the tracking.
+operand pushes that run no code and release nothing (loads, literals,
+references, last-use moves, and stack swaps); it removes each copy's retain and
+skips its release. Any other op, including a conditional or call that computes
+an operand, ends the tracking.
+
+Runtime operations that only read their operands read every such copy in
+place, whatever its type: dictionary `get`, `get_mut`, and indexing; `in` on a
+list, dictionary, set, range, or text; list `find`, `rfind`, and `count`; set
+subset, superset, and disjoint tests; and `Bytes` reads, writes, and scans that
+do not resize the buffer. In `counts.get_mut(&key)` the key is not counted, nor
+is a dictionary read through a shared reference, and a `Bytes` method's read of
+`self._owner` counts nothing. These operations run no Plenty code (keys hash
+and compare structurally) and release or replace no stored value. Operations
+that can, such as `pop`, `discard`, and inserts, keep the copy's count, because
+a stored value they release may be the copy's source.
 
 An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
 element type calls `plenty_list_row(list, index, site)`, which checks the index

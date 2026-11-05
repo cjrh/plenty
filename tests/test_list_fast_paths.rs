@@ -1288,3 +1288,133 @@ fn relational_counters_check_before_the_loop() {
         assert_eq!(loop_index_traps(&clif), in_loop, "{name}\n{clif}");
     }
 }
+
+/// `enumerate` over a fresh forward list or view cursor counts with the
+/// cursor's own index (issue #727), so `xs[i]` on the same list needs no check
+/// and the count needs no overflow check. Other sources keep their own count.
+const ENUMERATE: &str = r#"
+def sum_self(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(xs):
+        t += *x * xs[i]
+    Ok(t)
+def view_self(v: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(v):
+        t += *x * v[i]
+    Ok(t)
+def sum_other(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(xs):
+        t += *x * ys[i]
+    Ok(t)
+def with_start(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(xs, 1):
+        t += *x * xs[i]
+    Ok(t)
+def reversed_self(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(reversed(xs)):
+        t += *x * xs[i]
+    Ok(t)
+def filtered(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(iter(xs).filter(def(x: &i64) -> bool: *x > 1)):
+        t += *x * xs[i]
+    Ok(t)
+def owned(xs: list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(xs):
+        t += x * i
+    Ok(t)
+def method(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in iter(xs).enumerate():
+        t += *x * xs[i]
+    Ok(t)
+def paired(xs: list[i64], ys: list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, p in enumerate(zip(xs, ys)):
+        a, b = p
+        t += i * (a + b)
+    Ok(t)
+def nested(xs: list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, p in enumerate(enumerate(xs, 5)):
+        j, x = p
+        t += i * j + x
+    Ok(t)
+def resumed(xs: list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    mut q = iter(xs)
+    match next(&mut q):
+        case Some(x):
+            t += x
+        case Nothing:
+            pass
+    for i, x in enumerate(q):
+        t += i * 100 + x
+    Ok(t)
+def labels(xs: list[i64]) -> Generator[i64]:
+    unchecked:
+        for i, x in enumerate(xs):
+            yield i * 10 + x
+def main() -> Result[(), OverflowError[i64] | AllocError | IoError]:
+    xs = [1, 2, 3]?
+    ys = [4, 5, 6]?
+    empty = list[i64].with_capacity(0)?
+    print(sum_self(&xs)?, sum_self(&empty)?, view_self(&xs[1:])?)?
+    print(sum_other(&xs, &ys)?, reversed_self(&xs)?, filtered(&xs)?)?
+    print(owned(copy(xs)?)?, method(&xs)?, paired(copy(xs)?, copy(ys)?)?)?
+    print(nested(copy(xs)?)?, resumed(copy(xs)?)?)?
+    for v in labels(copy(ys)?):
+        print(v)?
+    Ok(())
+"#;
+
+#[test]
+fn enumerate_counters_keep_their_results() {
+    support::assert_stdout(ENUMERATE, "14 0 13\n32 10 8\n8 14 25\n26 106\n4\n15\n26\n");
+}
+
+#[rstest]
+#[case("print(with_start(&xs)?)?", "index 3, length 3")]
+#[case("print(sum_other(&xs, &empty)?)?", "index 0, length 0")]
+fn enumerate_counters_trap_on_other_bounds(#[case] call: &str, #[case] message: &str) {
+    let source = ENUMERATE.replace(
+        "    print(sum_self(&xs)?",
+        &format!("    {call}\n    print(sum_self(&xs)?"),
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn enumerate_counters_reuse_the_cursor_index() {
+    // `sadd_overflow` counts the checked `t +=` plus any checked count.
+    for (name, traps, adds) in [
+        ("sum_self", 0, 1),
+        ("view_self", 0, 1),
+        ("method", 0, 1),
+        ("sum_other", 1, 1),
+        ("with_start", 1, 2),
+        ("reversed_self", 1, 2),
+        ("filtered", 1, 2),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), ENUMERATE);
+        assert_eq!(
+            (
+                clif.matches("plenty_trap_list_index").count() > 0,
+                clif.matches("sadd_overflow").count()
+            ),
+            (traps > 0, adds),
+            "{name}\n{clif}"
+        );
+    }
+}
