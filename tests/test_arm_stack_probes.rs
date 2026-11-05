@@ -19,8 +19,10 @@ fn unrolled_and_loop_probes_report_with_cold_and_warm_function_caches(
         .map(|i| format!("a{i}.f{}", i % 100))
         .collect::<Vec<_>>()
         .join(" + ");
+    // 0 <= n <= 1_000_000 and at most 40 summed fields per frame, so even a
+    // completed recursion stays far below i64.MAX; the probe never returns.
     let source = format!(
-        "class Wide:\n{fields}\ndef depth(n: i64) -> i64:\n    if n == 0:\n        return 0\n{values}    below = depth(n - 1)\n    below + {sum}\ndef main() -> Result[(), IoError]:\n    print(depth(1000000))?\n    Ok(())\n"
+        "class Wide:\n{fields}\ndef depth(n: i64) -> i64:\n    if n == 0:\n        return 0\n{values}    unchecked:\n        below = depth(n - 1)\n        below + {sum}\ndef main() -> Result[(), IoError]:\n    print(depth(1000000))?\n    Ok(())\n"
     );
     let workspace = tempfile::tempdir().unwrap();
     let input = workspace.path().join("probe.plenty");
