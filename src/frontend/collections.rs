@@ -172,6 +172,8 @@ impl Scan {
                 Op::Integer(_)
                 | Op::Numeric(_)
                 | Op::CheckedArith { .. }
+                // `--unchecked assume` integer arithmetic; it touches no list.
+                | Op::Assumed(_)
                 | Op::Cast(_)
                 | Op::CheckedCast(_)
                 | Op::PushInt(_)

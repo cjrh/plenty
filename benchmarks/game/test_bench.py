@@ -33,6 +33,8 @@ class Manifests(unittest.TestCase):
                     self.assertEqual(manifest["plenty"], [])
                 for variant in manifest["plenty"]:
                     self.assertTrue((manifest["dir"] / variant["file"]).is_file())
+                    # tests/test_benchmarks_game.rs maps each flag to compile options.
+                    self.assertIn(variant.get("flags", []), ([], ["--unchecked", "assume"]))
 
     def test_unknown_benchmark_is_an_error(self):
         with self.assertRaises(bench.BenchError):

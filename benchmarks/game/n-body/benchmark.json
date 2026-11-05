@@ -53,6 +53,13 @@
       "file": "plenty/nbody_clist.plenty",
       "threads": 1,
       "note": "Bodies in a clist[Body]: each field is its own column. Tracks indexed clist field access in loops (issue #759)."
+    },
+    {
+      "variant": "unchecked",
+      "file": "plenty/nbody_unchecked.plenty",
+      "threads": 1,
+      "flags": ["--unchecked", "assume"],
+      "note": "The idiomatic program with its index arithmetic in unchecked: suites, built with --unchecked assume. List bounds checks remain."
     }
   ]
 }

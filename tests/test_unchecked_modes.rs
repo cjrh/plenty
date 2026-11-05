@@ -291,3 +291,36 @@ fn command_line_selects_the_mode() {
     let stderr = String::from_utf8_lossy(&check.stderr);
     assert!(stderr.contains("requires a compilation mode"), "{stderr}");
 }
+
+#[test]
+fn assumed_arithmetic_keeps_cached_list_rows() {
+    // An assumed `k += 1` must not stop the loop from caching `ps`'s length
+    // and rows: each pass checks only its index against the cached length.
+    let source = r#"
+@copy
+class P:
+    x: f64
+    y: f64
+def f(ps: &mut list[P], out: &mut list[f64]) -> i64:
+    n = len(ps)
+    mut k = 0
+    for i in range(n):
+        out[0] = ps[i].x - ps[i].y
+        unchecked:
+            k += 1
+    k
+def main() -> Result[(), AllocError | IoError]:
+    mut ps = [P(1.0, 2.0), P(5.0, 3.0)]?
+    mut out = [0.0]?
+    print(f(&mut ps, &mut out), out[0])?
+    Ok(())
+"#;
+    let mut counts = Vec::new();
+    for mode in [UncheckedMode::Trap, UncheckedMode::Assume] {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(stdout(&run(dir.path(), source, &options(mode))), "2 2.0\n");
+        let clif = dump(source, mode, DumpStage::ClifOpt, "f", false);
+        counts.push(clif.matches("icmp.i64 ult").count() + clif.matches("icmp ult").count());
+    }
+    assert_eq!(counts[0], counts[1], "{counts:?}");
+}
