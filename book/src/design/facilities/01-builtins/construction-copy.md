@@ -54,6 +54,11 @@ These exclusive methods return `Result[(), AllocError]`:
 | Set | `add(value: T)` | Insert if absent |
 | Dictionary | `insert(key: K, value: V)` | Insert or replace without changing existing key order |
 
+`dictionary.get_or_insert(key: K, default: V)` follows the same growth and
+failure rules but returns `Result[&mut V, AllocError]`: a present key keeps its
+entry and drops both arguments; see
+[dictionary lookup](dictionaries.md#lookup-and-removal).
+
 Growth reserves all required storage before mutation. Failure preserves contents,
 order, and lookup behavior; capacity may change. Negative or impossible counts
 return `CapacityOverflow`. A successful reserve permits the specified number of

@@ -71,11 +71,7 @@ def count_frames(sequence: Shared[std.bytes.Bytes], length: i64) -> Result[Count
     mut counts: Counts = {}?
     for i in range(sequence.len() - length + 1):
         key = sequence.to_text_range(i, i + length)?
-        match counts.get_mut(&key):
-            case Some(count):
-                *count += 1
-            case Nothing:
-                counts.insert(key, 1)?
+        *counts.get_or_insert(key, 0)? += 1
     Ok(counts)
 
 

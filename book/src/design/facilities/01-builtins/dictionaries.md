@@ -2,8 +2,9 @@
 
 Dictionaries use the [common collection rules](collections.md).
 [`insert(key, value)`](construction-copy.md) adds a key or replaces its
-value, so counting uses `counts.insert(key, counts.get(key, 0) + 1)?`. Its
-`?` exposes allocation failure.
+value. Counting uses `*counts.get_or_insert(key, 0)? += 1`, which looks the
+key up once; see [lookup and removal](#lookup-and-removal). The `?` exposes
+allocation failure.
 
 Dictionaries have no indexed assignment. `dictionary[key] = value`,
 `dictionary[key] += n`, and `&mut dictionary[key]` are compile errors whose
@@ -56,6 +57,36 @@ update a value in place: `*count += 1` for a scalar, `items.append(x)?` for a
 list, or `point.x = 0` for a class. `replace(*value, new)` returns the previous
 value and keeps the entry's position.
 
+`dictionary.get_or_insert(key, default) -> Result[&mut V, AllocError]` lends
+the value for `key` exclusively, first inserting `key` and `default` when the
+key is absent. Key and default evaluate in that order before the receiver is
+borrowed, and both move into the call. A present key keeps its stored entry
+and value; the call drops the incoming key and the unused default before
+returning. Either way the key is hashed once, so counting or grouping needs one
+lookup per item rather than the two of `get_mut` followed by `insert`. A
+missing key may grow the dictionary as `insert` does; on `AllocError` the key
+and default are dropped and the dictionary is unchanged. The result holds the
+same whole-dictionary loan as `get_mut`'s. The default is eager: it is built
+even when the key is present, so prefer `get_mut` when building it costs an
+allocation and the key is usually present.
+
+```plenty
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut counts: dict[str, i64] = {}?
+    for word in "to be or not to be".split()?:
+        *counts.get_or_insert(word, 0)? += 1
+    mut lengths: dict[i64, list[str]] = {}?
+    for word in counts.keys():
+        group = lengths.get_or_insert(len(*word), []?)?
+        group.append(*word)?
+    print(counts, lengths)?
+    Ok(())
+```
+
+```output
+{"to": 2, "be": 2, "or": 1, "not": 1} {2: ["to", "be", "or"], 3: ["not"]}
+```
+
 `dictionary.pop(key) -> Option[V]` requires exclusive access and supports all
 permitted value types. A hit removes the entry, drops its stored key, and transfers
 the value's owner into `Some`; a miss returns `Nothing` without mutation.
@@ -106,7 +137,7 @@ moving a named set or view.
 result explicitly.
 
 A bound view holds a shared loan on the whole dictionary until its last use.
-Insertion, `get_mut`, update, removal, clearing, and moving the owner
+Insertion, `get_mut`, `get_or_insert`, update, removal, clearing, and moving the owner
 conflict with that loan, including through aliases. Views cannot be stored in
 fields, collections, tuples, enum payloads, generators or worker/closure
 captures, or passed to or returned from user functions. Binding a view of a

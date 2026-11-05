@@ -11,11 +11,14 @@
 //! Only copyable types qualify. They have no destructor, so ending their last
 //! owner earlier changes no observable cleanup, and the ownership checker has
 //! already accepted the frontend's operations, so diagnostics are unchanged.
-//! Borrowed locals are left alone, because a reference reads the slot without
-//! naming it. Generator bodies are left alone too.
+//! A reference reads the slot without naming it, so a read of a borrowed
+//! local becomes a move only where no loan of it is live afterwards, by the
+//! ownership checker's own loan liveness (issue #755): every reference to the
+//! slot has been used for the last time, as for a move the frontend emits.
+//! Generator bodies are left alone.
 use std::sync::Arc;
 
-use crate::hash::HashMap;
+use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, ElifArm, MatchArm, Op, Ty};
 
 /// A set of local slots, which are numbered by `u8`.
@@ -69,13 +72,19 @@ fn function(f: &CompiledFn) -> Option<Box<CompiledFn>> {
     let mut liveness = Liveness::default();
     if f.generator.is_none() {
         for (slot, ty) in types.iter().enumerate() {
-            if !borrowed[slot] && ty.managed() && ty.can_copy() && !ty.has_destructor() {
+            if ty.managed() && ty.can_copy() && !ty.has_destructor() {
                 liveness.eligible.insert(slot as u8);
+                if borrowed[slot] {
+                    liveness.borrowed.insert(slot as u8);
+                }
                 if !ty.wide() && !matches!(ty, Ty::Closure(_)) {
                     liveness.one_word.insert(slot as u8);
                 }
             }
         }
+    }
+    if liveness.borrowed != Slots::default() {
+        liveness.unborrowed = crate::ownership::unborrowed_reads(&f.body);
     }
     let (_, body) = liveness.sequence(&f.body, Slots::default(), true);
     let mut f = Box::new(f.clone());
@@ -85,8 +94,14 @@ fn function(f: &CompiledFn) -> Option<Box<CompiledFn>> {
 
 #[derive(Default)]
 struct Liveness {
-    /// Copyable, managed, never borrowed slots.
+    /// Copyable, managed slots.
     eligible: Slots,
+    /// Eligible slots that some operation borrows. A read of one is its last
+    /// only if it is also in `unborrowed`.
+    borrowed: Slots,
+    /// The reads, by address, after which no reference to the slot they
+    /// read is used; see [`crate::ownership::unborrowed_reads`].
+    unborrowed: HashSet<*const Op>,
     /// Eligible slots whose copy is one counted word; see [`Liveness::op`].
     one_word: Slots,
     /// For each enclosing loop, innermost last: the slots live at its
@@ -152,7 +167,10 @@ impl Liveness {
         let mut changed = false;
         let rewritten = match op {
             Op::LoadLocal(slot) => {
-                let last = self.eligible.contains(*slot) && !live.contains(*slot)
+                let last = self.eligible.contains(*slot)
+                    && !live.contains(*slot)
+                    && (!self.borrowed.contains(*slot)
+                        || self.unborrowed.contains(&(op as *const Op)))
                     // A collection query right after a load of one counted
                     // word borrows the slot's value instead of counting a
                     // copy (issue #379), which costs less than a move.

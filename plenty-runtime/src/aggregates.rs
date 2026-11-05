@@ -240,6 +240,17 @@ fn fallible(value: Result<u128, AllocError>) -> u128 {
     }
 }
 
+/// Where `Collection::locate` found a key, or where a miss would insert it.
+/// `vacant` is the probed empty bucket, valid only while the table keeps
+/// `table_len` buckets.
+struct Slot {
+    found: Option<usize>,
+    hashed: bool,
+    hash: u64,
+    vacant: Option<usize>,
+    table_len: usize,
+}
+
 #[repr(C)]
 struct Collection {
     header: Header,
@@ -827,7 +838,15 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     };
     (i >= 0 && i < len as i128).then_some(i as usize)
 }
+#[cfg(test)]
+thread_local! {
+    /// Key hashes computed on this thread, so tests can check how often an
+    /// operation hashes (issue #748).
+    static HASHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
+    #[cfg(test)]
+    HASHES.with(|count| count.set(count.get() + 1));
     // SAFETY: the caller supplies a live key matching its descriptor.
     unsafe { hashing::hash(value, ty) }
 }
@@ -839,8 +858,14 @@ impl Collection {
         self.entries.len()
     }
     unsafe fn bucket(&self, key: u128) -> usize {
+        unsafe { self.probe(key, hash(key, self.ty().key())) }
+    }
+    /// The bucket holding `key`, or the empty bucket that ends its probe.
+    /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
+    /// the same hash to `vacant_bucket` instead of hashing the key again.
+    unsafe fn probe(&self, key: u128, hash: u64) -> usize {
         unsafe {
-            let mut bucket = hash(key, self.ty().key()) as usize & (self.table.len() - 1);
+            let mut bucket = hash as usize & (self.table.len() - 1);
             while self.table[bucket] != 0
                 && !equal(
                     self.entries.get(self.table[bucket] - 1).key,
@@ -852,6 +877,16 @@ impl Collection {
             }
             bucket
         }
+    }
+    /// The empty bucket for a key known to be absent. All stored keys are
+    /// unique, so the probe compares no keys.
+    fn vacant_bucket(&self, hash: u64) -> usize {
+        let mask = self.table.len() - 1;
+        let mut bucket = hash as usize & mask;
+        while self.table[bucket] != 0 {
+            bucket = (bucket + 1) & mask;
+        }
+        bucket
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -995,9 +1030,8 @@ impl Collection {
                 self.entries.push(Entry { key, value: 0 });
                 return Ok(());
             }
-            if self.ty().kind != b'L'
-                && let Some(i) = self.find(key)
-            {
+            let slot = self.locate(key);
+            if let Some(i) = slot.found {
                 if let Some(ty) = &self.ty().value {
                     release(self.entries.get(i).value, ty);
                 }
@@ -1005,6 +1039,69 @@ impl Collection {
                 self.entries.set(i, true, value);
                 return Ok(());
             }
+            self.try_add(key, value, slot).map(|_| ())
+        }
+    }
+    /// `dict.get_or_insert`: the row of `key`, inserting `key` and `value` on
+    /// a miss with `try_insert`'s ownership rules. A hit keeps the stored
+    /// entry and drops the affine operands; generated code releases the
+    /// copyable ones, so a hit adjusts no reference counts (issue #748).
+    unsafe fn try_get_or_insert(&mut self, key: u128, value: u128) -> Result<usize, AllocError> {
+        unsafe {
+            let ty = &*self.ty;
+            let (key_ty, value_ty) = (ty.key(), ty.value.expect("dictionary value"));
+            let slot = self.locate(key);
+            if let Some(i) = slot.found {
+                if key_ty.affine {
+                    release(key, key_ty);
+                }
+                if value_ty.affine {
+                    release(value, value_ty);
+                }
+                return Ok(i);
+            }
+            if !key_ty.affine {
+                retain(key, key_ty);
+            }
+            if !value_ty.affine {
+                retain(value, value_ty);
+            }
+            let added = self.try_add(key, value, slot);
+            if added.is_err() {
+                release(key, key_ty);
+                release(value, value_ty);
+            }
+            added
+        }
+    }
+    /// Hash `key` once and find its row, or the empty bucket a miss would
+    /// fill. Not for bit-row sets.
+    unsafe fn locate(&self, key: u128) -> Slot {
+        unsafe {
+            let hashed = self.ty().kind != b'L';
+            let hash = if hashed {
+                hash(key, self.ty().key())
+            } else {
+                0
+            };
+            let mut slot = Slot {
+                found: None,
+                hashed,
+                hash,
+                vacant: None,
+                table_len: self.table.len(),
+            };
+            if hashed && !self.table.is_empty() {
+                let bucket = self.probe(key, hash);
+                slot.found = self.table[bucket].checked_sub(1);
+                slot.vacant = Some(bucket);
+            }
+            slot
+        }
+    }
+    /// Append owned operands for a key `locate` missed, and return the row.
+    unsafe fn try_add(&mut self, key: u128, value: u128, slot: Slot) -> Result<usize, AllocError> {
+        unsafe {
             let additional = if self.entries.len() == self.entries.capacity() {
                 // Geometric growth without making explicit reserve speculative.
                 self.entries
@@ -1019,12 +1116,18 @@ impl Collection {
                 1
             };
             self.try_reserve(additional)?;
-            if self.ty().kind != b'L' {
-                let bucket = self.bucket(key);
+            if slot.hashed {
+                // Reservation either leaves the table untouched, keeping the
+                // probed bucket empty, or rebuilds it strictly larger.
+                let bucket = match slot.vacant {
+                    Some(bucket) if self.table.len() == slot.table_len => bucket,
+                    _ => self.vacant_bucket(slot.hash),
+                };
                 self.table[bucket] = self.entries.vacant() + 1;
             }
+            let index = self.entries.vacant();
             self.entries.push(Entry { key, value });
-            Ok(())
+            Ok(index)
         }
     }
     /// Unlink the stable entry slot and repair only its linear-probe cluster.
@@ -2182,7 +2285,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591 592 593 594 595 596 597 598 599 600
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
@@ -2225,7 +2328,7 @@ operation_entries! {
 }
 // `std.regex`.
 operation_entries! {
-    360 361 362 363 364 365
+    360 361 362 363 364 365 367
 }
 // `std.net`.
 operation_entries! {
@@ -2461,7 +2564,7 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as u64,
             )),
-            360..=365 => crate::regex::call(op, a, b, value),
+            360..=365 | 367 => crate::regex::call(op, a, b, value),
             366 => strings::ascii_equal_folded(a as *const Text, b as *const Text) as u128,
             192 => crate::text_io::result(crate::files::seek_bytes(
                 a as *mut crate::files::File,
@@ -2483,6 +2586,15 @@ pub(crate) unsafe fn collection_at(
                     })
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
+            }
+            // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
+            DICT_GET_OR_INSERT => {
+                let owner = *(a as *const u128);
+                let c = &mut *(owner as *mut Collection);
+                match c.try_get_or_insert(b, value) {
+                    Ok(position) => wrap(c.entries.slot(position, true) as u128, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
             }
             // `dict.get_mut`: the value slot's address, or Nothing; never traps.
             113 => {

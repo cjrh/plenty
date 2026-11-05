@@ -205,6 +205,7 @@ impl CollectionOp {
             | DictGet(_)
             | DictPop(_)
             | DictGetMut(_)
+            | DictGetOrInsert(_)
             | ListPop(_)
             | SetDiscard(_)
             | ListReverse(_)

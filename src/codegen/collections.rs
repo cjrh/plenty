@@ -43,8 +43,9 @@ impl Lowerer<'_, '_> {
         if let Some(address) = self.counters.checked.find(block, key, row_bytes) {
             return Ok(address);
         }
-        if known.map_or_else(|| self.nonnegative_operand(index), |constant| constant >= 0)
-            && self.counters.bounds.below(dfg, index, length)
+        if (known.map_or_else(|| self.nonnegative_operand(index), |constant| constant >= 0)
+            && self.counters.bounds.below(dfg, index, length))
+            || self.versioned_index(index, length)
         {
             return Ok(self.row_address(rows, index, row_bytes));
         }
@@ -91,6 +92,49 @@ impl Lowerer<'_, '_> {
             .checked
             .record(block, valid, key, row_bytes, address);
         Ok(address)
+    }
+
+    /// Whether the versioned loop copy being lowered may skip the check of
+    /// `index` against `length`, recording the test that copy then needs;
+    /// see [`super::induction::Version`].
+    fn versioned_index(
+        &mut self,
+        index: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+    ) -> bool {
+        use super::induction::Assumed;
+        let dfg = &self.bcx.func.dfg;
+        let (base, k) = super::induction::offset(dfg, index);
+        let bounds = &self.counters.bounds;
+        let Some(version) = &bounds.version else {
+            return false;
+        };
+        let below_stop = bounds
+            .below
+            .get(&base)
+            .is_some_and(|&bound| bounds.canonical(dfg, bound) == version.stop);
+        if !(0..=super::induction::VERSION_OFFSET).contains(&k)
+            || !below_stop
+            || !self.nonnegative_operand(base)
+        {
+            return false;
+        }
+        let length = bounds.canonical(dfg, length);
+        let assumed = if version.entries.get(&length) == Some(&false) {
+            Assumed::Length(length)
+        } else if let Some(&view) = bounds.lengths.get(&length)
+            && version.entries.get(&view) == Some(&true)
+        {
+            Assumed::View(view)
+        } else {
+            return false;
+        };
+        let version = self.counters.bounds.version.as_mut().unwrap();
+        match version.assumed.iter_mut().find(|(a, _)| *a == assumed) {
+            Some((_, most)) => *most = (*most).max(k),
+            None => version.assumed.push((assumed, k)),
+        }
+        true
     }
 
     /// `rows + index * row_bytes`. A shift lets x86-64 fold a power-of-two
@@ -1273,7 +1317,7 @@ impl Lowerer<'_, '_> {
         // retains only the copyable operands it stores.
         let inserts = matches!(
             operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_)
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
         );
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
             if !(held[i] || inserts && i > 0 && ty.affine()) {
@@ -1545,11 +1589,14 @@ impl Lowerer<'_, '_> {
     /// [`super::induction::Bounds`].
     /// `stop` is the loop's range stop, if any: a local holding it, such as a
     /// row cache's length taken from `range(len(xs))`, bounds the counter.
+    /// A `versioned` loop records every `i64` local, any of which may hold
+    /// a length its test compares; see [`super::induction::Version`].
     fn enter_invariant_locals(
         &mut self,
         condition: &[Op],
         body: &[Op],
         stop: Option<cranelift_codegen::ir::Value>,
+        versioned: bool,
     ) {
         let mut read = crate::hash::HashSet::default();
         let mut written = crate::hash::HashSet::default();
@@ -1572,7 +1619,7 @@ impl Lowerer<'_, '_> {
             let stable = if shared_list {
                 bounds.stable_lists.contains(&entry)
             } else {
-                view || bounds.lengths.contains_key(&entry) || stop == Some(entry)
+                view || versioned || bounds.lengths.contains_key(&entry) || stop == Some(entry)
             };
             if !stable {
                 continue;
@@ -1651,8 +1698,12 @@ impl Lowerer<'_, '_> {
             self.counters.nonnegative_locals.push(below.0);
             self.counters.bounds.below_locals.push(below);
         }
+        let versioned = range_nonnegative.is_some()
+            && stop.is_some()
+            && !self.gathering()
+            && super::induction::versionable(body);
         let invariant = self.counters.bounds.invariant_locals.len();
-        self.enter_invariant_locals(condition, body, stop);
+        self.enter_invariant_locals(condition, body, stop, versioned);
         // Each body value of the counter is an element of the range, so it
         // is below the range's stop.
         let below = range
@@ -1664,10 +1715,103 @@ impl Lowerer<'_, '_> {
         }
         let low = nonnegative.as_ref().map(|counter| counter.local);
         let mut relation = self.enter_relation(condition, body, low, &types, invariant)?;
-        let header = self.bcx.create_block();
-        let iteration = self.bcx.create_block();
+        let proven = |index| {
+            Some(index) == proven_step || Some(index) == bound_step || unit_steps.contains(&index)
+        };
         let exit = self.bcx.create_block();
-        self.bcx.ins().jump(header, &[]);
+        let version = stop.filter(|_| versioned && relation.is_none());
+        if let Some(stop) = version {
+            // See `induction::Version`: lower an unchecked copy, then the test
+            // that selects it, then, if the copy skipped any check, a checked
+            // copy.
+            let guard = self.bcx.create_block();
+            self.bcx.ins().jump(guard, &[]);
+            self.bcx.seal_block(guard);
+            let bounds = &self.counters.bounds;
+            let version = super::induction::Version {
+                stop: bounds.canonical(&self.bcx.func.dfg, stop),
+                entries: bounds
+                    .invariant_locals
+                    .iter()
+                    .map(|&(local, entry)| {
+                        (entry, matches!(self.locals[local as usize].1, Ty::View(..)))
+                    })
+                    .collect(),
+                assumed: Vec::new(),
+            };
+            let outer = self.counters.bounds.version.replace(version);
+            let fast = self.bcx.create_block();
+            self.lower_loop_copy(condition, body, fast, exit, &proven, &mut None)?;
+            let version = std::mem::replace(&mut self.counters.bounds.version, outer).unwrap();
+            self.stack = initial.clone();
+            self.terminated = false;
+            self.bcx.switch_to_block(guard);
+            if version.assumed.is_empty() {
+                self.bcx.ins().jump(fast, &[]);
+                self.bcx.seal_block(fast);
+            } else {
+                let mut holds = None;
+                for (assumed, k) in version.assumed {
+                    let length = match assumed {
+                        super::induction::Assumed::Length(length) => length,
+                        super::induction::Assumed::View(view) => self.bcx.ins().isplit(view).1,
+                    };
+                    // A length is nonnegative, so this cannot wrap.
+                    let limit = self.bcx.ins().iadd_imm_s(length, -k);
+                    let fits = self
+                        .bcx
+                        .ins()
+                        .icmp(IntCC::SignedLessThanOrEqual, stop, limit);
+                    holds = Some(match holds {
+                        Some(all) => self.bcx.ins().band(all, fits),
+                        None => fits,
+                    });
+                }
+                let checked = self.bcx.create_block();
+                self.bcx.ins().brif(holds.unwrap(), fast, &[], checked, &[]);
+                self.bcx.seal_block(fast);
+                self.lower_loop_copy(condition, body, checked, exit, &proven, &mut None)?;
+                self.bcx.seal_block(checked);
+            }
+        } else {
+            let header = self.bcx.create_block();
+            self.bcx.ins().jump(header, &[]);
+            self.lower_loop_copy(condition, body, header, exit, &proven, &mut relation)?;
+            self.bcx.seal_block(header);
+        }
+        if below.is_some() {
+            self.counters.bounds.below_locals.pop();
+        }
+        self.counters.bounds.invariant_locals.truncate(invariant);
+        if cursor_below.is_some() {
+            self.counters.bounds.below_locals.pop();
+            self.counters.nonnegative_locals.pop();
+        }
+        if range_nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
+        if nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
+        self.bcx.switch_to_block(exit);
+        self.bcx.seal_block(exit);
+        self.stack = initial;
+        self.terminated = false;
+        Ok(())
+    }
+
+    /// Lowers one copy of a loop from its `header`, which the caller enters
+    /// and seals, to `exit`.
+    fn lower_loop_copy(
+        &mut self,
+        condition: &[Op],
+        body: &[Op],
+        header: cranelift_codegen::ir::Block,
+        exit: cranelift_codegen::ir::Block,
+        proven: &dyn Fn(usize) -> bool,
+        relation: &mut Option<(usize, usize)>,
+    ) -> Result<()> {
+        let iteration = self.bcx.create_block();
         self.bcx.switch_to_block(header);
         for op in condition {
             self.lower(op)?;
@@ -1685,16 +1829,13 @@ impl Lowerer<'_, '_> {
             if self.terminated {
                 break;
             }
-            let proven = Some(index) == proven_step
-                || Some(index) == bound_step
-                || unit_steps.contains(&index);
-            if proven && !self.gathering() {
+            if proven(index) && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;
             }
         }
-        if let Some((_, below)) = relation {
+        if let Some((_, below)) = relation.take() {
             self.leave_relation(below);
         }
         if !self.terminated {
@@ -1703,25 +1844,6 @@ impl Lowerer<'_, '_> {
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
-        if below.is_some() {
-            self.counters.bounds.below_locals.pop();
-        }
-        self.counters.bounds.invariant_locals.truncate(invariant);
-        if cursor_below.is_some() {
-            self.counters.bounds.below_locals.pop();
-            self.counters.nonnegative_locals.pop();
-        }
-        if range_nonnegative.is_some() {
-            self.counters.nonnegative_locals.pop();
-        }
-        if nonnegative.is_some() {
-            self.counters.nonnegative_locals.pop();
-        }
-        self.bcx.seal_block(header);
-        self.bcx.switch_to_block(exit);
-        self.bcx.seal_block(exit);
-        self.stack = initial;
-        self.terminated = false;
         Ok(())
     }
 }
