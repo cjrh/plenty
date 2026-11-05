@@ -1592,6 +1592,24 @@ impl Lowerer<'_, '_> {
         if let Some(range) = range_nonnegative {
             self.counters.nonnegative_locals.push(range.target);
         }
+        // A cursor's length local is never written, so its entry value bounds
+        // every body read of the index.
+        let cursor = super::induction::analyze_cursor(condition, body).filter(|cursor| {
+            [cursor.index, cursor.length]
+                .iter()
+                .all(|&slot| self.local_address(slot).is_none())
+                && {
+                    let first = self.read_local(cursor.index);
+                    self.nonnegative_operand(first)
+                }
+        });
+        let cursor_below = cursor
+            .as_ref()
+            .map(|cursor| (cursor.index, self.read_local(cursor.length)));
+        if let Some(below) = cursor_below {
+            self.counters.nonnegative_locals.push(below.0);
+            self.counters.bounds.below_locals.push(below);
+        }
         let invariant = self.counters.bounds.invariant_locals.len();
         self.enter_invariant_locals(condition, body);
         // Each body value of the counter is an element of the range, so it
@@ -1648,6 +1666,10 @@ impl Lowerer<'_, '_> {
             self.counters.bounds.below_locals.pop();
         }
         self.counters.bounds.invariant_locals.truncate(invariant);
+        if cursor_below.is_some() {
+            self.counters.bounds.below_locals.pop();
+            self.counters.nonnegative_locals.pop();
+        }
         if range_nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
         }

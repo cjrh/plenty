@@ -13,6 +13,11 @@ Enumeration yields `(i64, element)`, starting at zero by default. Its counter
 increments with checked arithmetic only after another element is available.
 A last index of `i64.MAX` is valid; a further item traps at the adapter's
 source location. `continue` advances the source and keeps the count aligned.
+Enumerating a forward list or view, as `enumerate(&xs)`, `enumerate(v)` or
+`iter(&xs).enumerate()`, without a start counts with the loop's own row
+position. That count cannot overflow and needs no separate counter. Indexing
+the same `&list[T]` parameter or view with it then needs no
+[bounds check](../../facilities/01-builtins/lists.md).
 
 Zip yields `(left element, right element)` and stops when either input ends.
 It tests the left condition before the right, including generator advancement.

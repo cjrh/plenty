@@ -406,6 +406,11 @@ impl Lower<'_> {
             }
             _ => return Err(e.at.error("expected an iterator pipeline")),
         };
+        // Only a fresh source's cursor counts its items from zero. A bound or
+        // lent plan may have advanced, and an adapter may skip or add items.
+        if !matches!(&ungroup(e).kind, Expression::Call(function, _) if function == "iter") {
+            plan.iteration.counter = None;
+        }
         plan.resources
             .extend((start..self.locals.len()).map(|i| (self.parameters + i) as u8));
         plan.resources.sort_unstable();
@@ -680,7 +685,21 @@ impl Lower<'_> {
             }));
         }
         self.pipeline_pack_pair(&mut left, at)?;
-        let fields = if method == "enumerate" {
+        let fields = if method == "enumerate"
+            && args.is_empty()
+            && let Some(counter) = left.iteration.counter
+        {
+            // The cursor's row index is the count, and its step cannot
+            // overflow; see `Iteration::counter`.
+            [
+                Local {
+                    slot: counter,
+                    ty: Ty::I64,
+                    mutable: false,
+                },
+                left.item.clone(),
+            ]
+        } else if method == "enumerate" {
             let counter = self.slot(Ty::I64, at)?;
             let first = self.slot(Ty::Bool, at)?;
             if let Some(start) = args.first() {
@@ -891,6 +910,7 @@ impl Lower<'_> {
             fits
         });
         left.iteration = Iteration {
+            counter: None,
             exact_len,
             cleanup,
             condition: vec![Op::LoadLocal(second), branch(later, first)],
@@ -1060,6 +1080,7 @@ impl Lower<'_> {
             cleanup.extend([Op::LoadLocal(active), branch(i.cleanup, vec![])]);
         }
         outer.iteration = Iteration {
+            counter: None,
             exact_len: None,
             cleanup,
             condition,

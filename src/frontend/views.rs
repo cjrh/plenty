@@ -496,6 +496,7 @@ impl Lower<'_> {
             Op::StoreLocal(target),
         ]);
         Ok(collections::Iteration {
+            counter: (!reverse).then_some(index),
             exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],
             condition,
@@ -559,6 +560,7 @@ impl Lower<'_> {
         };
         step.push(Op::DropLocal(target));
         Ok(collections::Iteration {
+            counter: None,
             exact_len: None,
             cleanup: vec![],
             condition,

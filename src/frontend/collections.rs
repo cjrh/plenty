@@ -343,6 +343,11 @@ pub(super) struct Iteration {
     pub(super) body: Vec<Op>,
     pub(super) step: Vec<Op>,
     pub(super) target: u8,
+    /// A slot that holds the current item's zero-based position throughout
+    /// the body, and that only the step writes: the row index of a forward
+    /// list or view cursor. `enumerate` without a start reads it rather than
+    /// keeping its own counter (issue #727).
+    pub(super) counter: Option<u8>,
 }
 
 impl Parser {
@@ -1971,6 +1976,7 @@ impl Lower<'_> {
         step.push(Op::DropLocal(key_slot));
         step.push(Op::DropLocal(value_slot));
         Ok(Iteration {
+            counter: None,
             exact_len: None,
             cleanup: vec![],
             condition: vec![
@@ -2460,7 +2466,12 @@ impl Lower<'_> {
         let internal = format!("<iteration {}>", self.locals.len());
         let mut left = self.iteration(std::slice::from_ref(&internal), &args[0], None, ops)?;
         let left_local = self.names.remove(&internal).unwrap();
-        let (fields, slots) = if function == "enumerate" {
+        let (fields, slots) = if function == "enumerate"
+            && args.len() == 1
+            && let Some(counter) = left.counter
+        {
+            (vec![Ty::I64, left_local.ty], vec![counter, left.target])
+        } else if function == "enumerate" {
             let counter = self.slot(Ty::I64, at)?;
             let first = self.slot(Ty::Bool, at)?;
             if let Some(start) = args.get(1) {
@@ -2576,6 +2587,7 @@ impl Lower<'_> {
                 self.names.remove(&name);
             }
         }
+        left.counter = None;
         Ok(left)
     }
 
@@ -2642,6 +2654,7 @@ impl Lower<'_> {
             Op::StoreLocal(target),
         ]);
         Ok(Iteration {
+            counter: (!reverse).then_some(index),
             exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],
             condition,
@@ -2735,6 +2748,7 @@ impl Lower<'_> {
             },
         );
         Ok(Iteration {
+            counter: None,
             exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],
             condition,
@@ -2763,6 +2777,7 @@ impl Lower<'_> {
             Op::StoreLocal(index),
         ]);
         Ok(Iteration {
+            counter: None,
             exact_len: None,
             cleanup: vec![],
             condition: vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne],
@@ -2815,6 +2830,7 @@ impl Lower<'_> {
             };
             let item = self.slot(option.clone(), at)?;
             return Ok(Iteration {
+                counter: None,
                 exact_len: None,
                 cleanup: vec![],
                 absent: vec![
@@ -2958,6 +2974,7 @@ impl Lower<'_> {
             step.push(Op::DropLocal(target));
         }
         Ok(Iteration {
+            counter: (list && !reverse).then_some(index),
             exact_len,
             cleanup: vec![],
             condition,
@@ -5045,6 +5062,7 @@ impl Lower<'_> {
             ]);
         }
         Ok(Iteration {
+            counter: None,
             exact_len: Some(vec![Op::LoadLocal(remaining)]),
             cleanup: vec![],
             condition: vec![Op::LoadLocal(remaining), Op::PushInt(Value::I64(0)), Op::Gt],
