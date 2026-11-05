@@ -47,6 +47,18 @@ first value, and `lo` is below `hi`. The check runs only when the loop does,
 and fails with the first pass's message and site. A body that starts with any
 other operation that can fail, such as `t * 10 + v[hi]`, keeps its checks.
 
+Any other `for i in range(start, stop)` loop with step 1 and a nonnegative
+constant `start` is compiled twice when its body is small, makes no call, and
+has no nested loop, as in `for i in range(n): dst[i] = src[i]`. One test
+before the loop compares `stop` with the length of each list or view the body
+indexes by `i` or `i + k`, for a constant `k` from 0 to 64. When every index
+is in bounds, the copy without those checks runs; otherwise the checked copy
+runs, so a body that breaks, returns, or fails before reaching a bad index
+behaves as before, and the bad index traps with its usual message and site.
+The length must be read once before the loop: a borrowed list or view, or a
+list that uses the row cache described above. The body limit bounds the code
+size the second copy adds. An overflow check on `i + k` with `k > 1` remains.
+
 ## Storage costs
 
 Scalar lists store elements at their declared widths: one byte for `bool`, `i8`
