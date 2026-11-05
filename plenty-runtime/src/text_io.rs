@@ -187,8 +187,7 @@ pub(crate) fn read_all(reader: &mut impl Read) -> Result<*mut strings::Text, Err
         written += 1;
     }
     bytes.truncate(written);
-    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
-    Ok(strings::try_new(text)?)
+    Ok(strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)??)
 }
 
 pub(crate) fn read_text(path: &str) -> Result<u128, Error> {
@@ -235,8 +234,7 @@ pub(crate) fn read_file_line(
             break;
         }
     }
-    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
-    Ok(strings::try_new(text)?)
+    Ok(strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)??)
 }
 
 pub(crate) fn read_remaining(
@@ -292,8 +290,7 @@ pub(crate) fn read_chars(
         }
     }
     // Each appended scalar was validated above.
-    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
-    Ok(strings::try_new(text)?)
+    Ok(strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)??)
 }
 
 pub(crate) fn write_text(path: &str, text: &str, append: bool) -> Result<u128, Error> {
@@ -347,8 +344,10 @@ fn line(reader: &mut impl Read) -> Result<u128, Error> {
             Err(error) => return Err(error.into()),
         }
     }
-    let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
-    Ok(wrap(strings::try_new(text)? as u128, 1))
+    Ok(wrap(
+        strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)?? as u128,
+        1,
+    ))
 }
 
 pub(crate) struct Stdin;
