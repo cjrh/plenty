@@ -1,0 +1,21 @@
+# Adversarial complement to the unchanged regex-redux benchmark.
+# Compile, then run with sparse, near, or dense as the first argument.
+import std.regex
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | std.regex.RegexError | RangeError]:
+    argv = args()?
+    mode = argv[1]
+    expression = "aaaaaaab|aaaaaaaa" if mode == "dense" else "aaaaaaab|baaaaaaa"
+    text = if mode == "sparse":
+        ("z".repeat(200000)? + "baaaaaaa")?
+    else:
+        "a".repeat(200000)?
+    mut limits = std.regex.limits()
+    limits.max_work = NonNegative.try_from(i64.MAX)?
+    regex = std.regex.compile(&expression, &limits)?
+    mut cursor = regex.cursor()?
+    mut count = 0
+    while regex.next_match(&text, &mut cursor)?.is_some():
+        count += 1
+    print(count)?
+    Ok(())

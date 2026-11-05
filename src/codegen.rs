@@ -1046,9 +1046,6 @@ struct Runtime {
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
     list_rows: FuncId,
     list_row_bytes: FuncId,
-    /// `plenty_list_row(list, index, site) -> row address`, for explicit
-    /// element references (`&xs[i]`, `&mut xs[i]`).
-    list_row: FuncId,
     list_scalar_get: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
     list_sort_by: FuncId,
@@ -1282,18 +1279,6 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             ]);
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_list_scalar_get", Linkage::Import, &sig)?
-        },
-        list_row: {
-            let mut sig = module.make_signature();
-            sig.call_conv = crate::target::native_call_conv();
-            // List, index, trap site.
-            sig.params.extend([
-                AbiParam::new(PTR_TY),
-                AbiParam::new(types::I64),
-                AbiParam::new(PTR_TY),
-            ]);
-            sig.returns.push(AbiParam::new(PTR_TY));
-            module.declare_function("plenty_list_row", Linkage::Import, &sig)?
         },
         list_sort_by: {
             let mut sig = module.make_signature();

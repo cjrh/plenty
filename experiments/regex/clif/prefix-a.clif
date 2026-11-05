@@ -1,0 +1,235 @@
+function u0:59(i128, i128, i64, i64, i64, i64) -> i128 tail {
+    ss0 = explicit_slot 32, align = 16
+    ss1 = explicit_slot 16, align = 16
+    ss2 = explicit_slot 32, align = 16
+    ss3 = explicit_slot 32, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata2 (trap sites: 6)
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0 ; plenty_trap_list_index
+
+block0(v0: i128, v1: i128, v2: i64, v3: i64, v4: i64, v5: i64):
+    ; line 8
+    v9 = iconst.i64 1
+    v11, v12 = ssub_overflow v3, v9  ; v9 = 1
+    trapnz v12, user4  ; plenty_trap_overflow
+    jump block1
+
+block1:
+    v13 = iconst.i64 64
+    v14 = icmp.i64 uge v11, v13  ; v13 = 64
+    trapnz v14, user5  ; plenty_trap_shift
+    jump block3
+
+block3:
+    ; line 9
+    v19, v20 = isplit.i128 v0
+    v6 = iconst.i64 0
+    v27 = icmp.i64 slt v2, v6  ; v6 = 0
+    v23 = iadd.i64 v2, v20
+    v24 = smax v23, v6  ; v6 = 0
+    v25 = smin.i64 v2, v20
+    v28 = select v27, v24, v25
+    v46 = iadd v19, v28
+    v42 = isub v20, v28
+    v43 = smax v42, v6  ; v6 = 0
+    v47 = iconcat v46, v43
+    v49, v50 = isplit v47
+    ; line 12
+    v109 = iconst.i64 3
+    v244 = iconst.i64 1
+    v245 = ishl v244, v11  ; v244 = 1
+    ; line 9
+    jump block5(v6, v6)  ; v6 = 0, v6 = 0
+
+block5(v52: i64, v92: i64):
+    v54 = icmp slt v52, v50
+    brif v54, block6, block7
+
+block6:
+    v57, v58 = isplit.i128 v47
+    ; line 10
+    v64 = icmp.i64 sge v52, v4
+    brif v64, block9, block10
+
+block9:
+    ; line 11
+    v65 = iconst.i64 -2
+    v69 = uextend.i128 v65  ; v65 = -2
+    v66 = stack_addr.i64 ss0
+    store notrap aligned v69, v66
+    v72 = uextend.i128 v52
+    v253 = iconst.i64 16
+    v71 = iadd v66, v253  ; v253 = 16
+    store notrap aligned v72, v71
+    v73 = uextend.i128 v66
+    v74, v75 = isplit v73
+    v254 = iconst.i64 1
+    v255 = ishl v75, v254  ; v254 = 1
+    v80 = iconcat v74, v255
+    v83 = ireduce.i64 v80
+    brif v83, block11, block12(v80)
+
+block11:
+    v85 = load.i64 notrap aligned v83
+    v86 = load.i64 notrap aligned v83+8
+    v87 = load.i64 notrap aligned v83+16
+    v88 = load.i64 notrap aligned v83+24
+    store notrap aligned v85, v5
+    store notrap aligned v86, v5+8
+    store notrap aligned v87, v5+16
+    store notrap aligned v88, v5+24
+    v89, v90 = isplit.i128 v80
+    v91 = iconcat.i64 v5, v90
+    jump block12(v91)
+
+block12(v84: i128):
+    return v84
+
+block10:
+    jump block8
+
+block8:
+    ; line 9
+    v61 = iadd.i64 v57, v52
+    ; line 12
+    v102 = load.i8 notrap aligned v61
+    v106, v107 = isplit.i128 v1
+    v103 = uextend.i64 v102
+    v112 = icmp ult v103, v107
+    v237 = iconst.i64 3
+    v238 = ishl v103, v237  ; v237 = 3
+    v111 = iadd v106, v238
+    brif v112, block14(v111), block15
+
+block15 cold:
+    v113 = iadd.i64 v103, v107
+    v114 = icmp ult v113, v107
+    v239 = iconst.i64 3
+    v240 = ishl v113, v239  ; v239 = 3
+    v117 = iadd.i64 v106, v240
+    brif v114, block14(v117), block13
+
+block13 cold:
+    v118 = stack_addr.i64 ss1
+    store.i64 notrap aligned v103, v118
+    store.i64 notrap aligned v107, v118+8
+    v119 = symbol_value.i64 gv0
+    v120 = iconst.i64 32
+    v121 = iadd v119, v120  ; v120 = 32
+    call fn0(v118, v121)
+    trap user3
+
+block14(v108: i64):
+    v123 = load.i64 notrap aligned v108
+    v241 = iconst.i64 1
+    v242 = ishl.i64 v92, v241  ; v241 = 1
+    v243 = bor v242, v241  ; v241 = 1
+    v124 = band v243, v123
+    ; line 13
+    v127 = band v124, v245
+    brif v127, block17, block18
+
+block17:
+    ; line 14
+    v133, v134 = sadd_overflow.i64 v2, v52
+    trapnz v134, user6  ; plenty_trap_overflow
+    jump block19
+
+block19:
+    v248 = iconst.i64 1
+    v136, v137 = sadd_overflow.i64 v133, v248  ; v248 = 1
+    trapnz v137, user6  ; plenty_trap_overflow
+    jump block21
+
+block21:
+    v140, v141 = ssub_overflow.i64 v136, v3
+    trapnz v141, user6  ; plenty_trap_overflow
+    jump block22
+
+block22:
+    v249 = iconst.i64 1
+    v143, v144 = sadd_overflow.i64 v52, v249  ; v249 = 1
+    trapnz v144, user7  ; plenty_trap_overflow
+    jump block23
+
+block23:
+    v148 = uextend.i128 v140
+    v145 = stack_addr.i64 ss2
+    store notrap aligned v148, v145
+    v151 = uextend.i128 v143
+    v250 = iconst.i64 16
+    v150 = iadd v145, v250  ; v250 = 16
+    store notrap aligned v151, v150
+    v152 = uextend.i128 v145
+    v153, v154 = isplit v152
+    v251 = iconst.i64 1
+    v252 = ishl v154, v251  ; v251 = 1
+    v159 = iconcat v153, v252
+    v162 = ireduce.i64 v159
+    brif v162, block25, block26(v159)
+
+block25:
+    v164 = load.i64 notrap aligned v162
+    v165 = load.i64 notrap aligned v162+8
+    v166 = load.i64 notrap aligned v162+16
+    v167 = load.i64 notrap aligned v162+24
+    store notrap aligned v164, v5
+    store notrap aligned v165, v5+8
+    store notrap aligned v166, v5+16
+    store notrap aligned v167, v5+24
+    v168, v169 = isplit.i128 v159
+    v170 = iconcat.i64 v5, v169
+    jump block26(v170)
+
+block26(v163: i128):
+    return v163
+
+block18:
+    jump block16
+
+block16:
+    v246 = iconst.i64 1
+    v247 = iadd.i64 v52, v246  ; v246 = 1
+    jump block5(v247, v124)
+
+block7:
+    ; line 15
+    v181, v182 = isplit.i128 v0
+    v183, v184 = ssub_overflow v182, v2
+    trapnz v184, user8  ; plenty_trap_overflow
+    jump block27
+
+block27:
+    v177 = iconst.i64 -1
+    v188 = uextend.i128 v177  ; v177 = -1
+    v185 = stack_addr.i64 ss3
+    store notrap aligned v188, v185
+    v191 = uextend.i128 v183
+    v189 = iconst.i64 16
+    v190 = iadd v185, v189  ; v189 = 16
+    store notrap aligned v191, v190
+    v192 = uextend.i128 v185
+    v193, v194 = isplit v192
+    v235 = iconst.i64 1
+    v236 = ishl v194, v235  ; v235 = 1
+    v199 = iconcat v193, v236
+    v202 = ireduce.i64 v199
+    brif v202, block29, block30(v199)
+
+block29:
+    v204 = load.i64 notrap aligned v202
+    v205 = load.i64 notrap aligned v202+8
+    v206 = load.i64 notrap aligned v202+16
+    v207 = load.i64 notrap aligned v202+24
+    store notrap aligned v204, v5
+    store notrap aligned v205, v5+8
+    store notrap aligned v206, v5+16
+    store notrap aligned v207, v5+24
+    v208, v209 = isplit.i128 v199
+    v210 = iconcat.i64 v5, v209
+    jump block30(v210)
+
+block30(v203: i128):
+    return v203
+}
+

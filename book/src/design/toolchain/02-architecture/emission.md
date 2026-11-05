@@ -379,10 +379,14 @@ been moved out is the common case.
 A backward liveness pass over each function finds these reads. Loops are
 solved to a fixed point; `break`, `continue`, early returns and the error path
 of `?` are followed. Only managed copyable types qualify: they have no
-destructor, so ending the last owner earlier changes no output. Locals that
-are ever borrowed and generator bodies are skipped. A one-word read that feeds
-a collection query keeps the borrowed read from issue #379, which costs less
-than a move.
+destructor, so ending the last owner earlier changes no output. Generator
+bodies are skipped. A borrowed local moves only at a read after which none of
+its loans is live, by the loan liveness of the ownership checker in
+`src/ownership.rs` (issue #755). Reading a key after its `get_mut` lookup has
+ended moves it into `insert`; a read followed by a use of a reference to the
+local still copies. A local with any borrow that records no loan is never
+moved. A one-word read that feeds a collection query keeps the borrowed read
+from issue #379, which costs less than a move.
 
 When a `match` reads the tag of a local it has just copied, the copy's counting
 is removed, so testing an owned scrutinee costs no runtime call. The pass runs

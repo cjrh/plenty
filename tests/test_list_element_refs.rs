@@ -1,6 +1,6 @@
-//! Explicit list element references (issue #378): `&xs[i]` and `&mut xs[i]`
-//! take the row address from the narrow `plenty_list_row` helper instead of
-//! the generic collection dispatcher. References keep their semantics: loans,
+//! Explicit list element references (issues #378 and #739): `&xs[i]` and
+//! `&mut xs[i]` compute the row address inline instead of calling the
+//! generic collection dispatcher. References keep their semantics: loans,
 //! writes through `&mut`, returning an element, nested and non-scalar rows,
 //! and the same out-of-bounds diagnostic and site.
 mod support;
@@ -283,9 +283,10 @@ fn element_references_hold_the_list_loan() {
     );
 }
 
-/// Explicit element references call the narrow helper, not the dispatcher.
+/// Explicit element references compute the row address inline and keep
+/// their bounds check.
 #[test]
-fn element_references_use_the_narrow_row_helper() {
+fn element_references_compute_rows_inline() {
     let dir = setup(PROGRAM);
     for function in ["bump", "pick", "rename", "shift", "scale", "element"] {
         let asm = stdout(
@@ -301,7 +302,171 @@ fn element_references_use_the_narrow_row_helper() {
                 "-",
             ],
         );
-        assert!(asm.contains("# plenty_list_row\n"), "{function}: {asm}");
+        assert!(!asm.contains("# plenty_list_row\n"), "{function}: {asm}");
+        assert!(asm.contains("plenty_trap_list_index"), "{function}: {asm}");
         assert!(!asm.contains("plenty_op_"), "{function}: {asm}");
+    }
+}
+
+/// Field access on `list[@copy class]` rows in loops (issue #739): exclusive,
+/// shared and owned lists use the loop's cached header, and a loop that can
+/// resize the list reads the header at each access.
+const ROWS: &str = r#"@copy
+class Body:
+    x: f64
+    v: f64
+    n: i64
+
+
+def step(bodies: &mut list[Body], dt: f64) -> Result[(), OverflowError[i64]]:
+    for i in range(len(bodies)):
+        bodies[i].x += dt * bodies[i].v
+        for j in range(i + 1, len(bodies)):
+            bodies[j].v -= bodies[i].x
+            bodies[i].n += 1
+    Ok(())
+
+
+def total(bodies: &list[Body]) -> f64:
+    mut sum = 0.0
+    for i in range(len(bodies)):
+        sum += bodies[i].x + bodies[i].v
+    sum
+
+
+def grow(bodies: &mut list[Body]) -> Result[(), AllocError | AppendError[Body] | OverflowError[i64]]:
+    for i in range(2):
+        bodies[i].n += 10
+        bodies.append(Body(1.0, 1.0, i))?
+    Ok(())
+
+
+def main() -> Result[(), AllocError | AppendError[Body] | IoError | OverflowError[i64]]:
+    mut bodies = [Body(1.0, 2.0, 0), Body(3.0, 4.0, 0), Body(5.0, 6.0, 0)]?
+    step(&mut bodies, 0.5)?
+    print(f"{total(&bodies)} {bodies[0].n} {bodies[1].n} {bodies[2].n}"?)?
+    mut owned = [Body(1.0, 1.0, 0), Body(2.0, 2.0, 0)]?
+    for i in range(len(owned)):
+        owned[i].x *= 2.0
+        owned[i].n = i
+    print(f"{owned[0].x} {owned[1].x} {owned[1].n}"?)?
+    grow(&mut bodies)?
+    print(f"{len(bodies)} {bodies[0].n} {bodies[1].n} {bodies[4].n}"?)?
+    Ok(())
+"#;
+
+fn ops(dir: &Path, function: &str) -> String {
+    stdout(
+        dir,
+        &[
+            "--release",
+            "--dump",
+            "ops",
+            "--dump-filter",
+            function,
+            "refs.plenty",
+            "-o",
+            "-",
+        ],
+    )
+}
+
+#[test]
+fn record_rows_in_loops_keep_their_results() {
+    let dir = setup(ROWS);
+    for args in [
+        &["--fast-compile", "refs.plenty"][..],
+        &["--release", "refs.plenty"],
+    ] {
+        assert_eq!(
+            stdout(dir.path(), args),
+            "15.0 2 1 0\n2.0 4.0 1\n5 12 11 1\n"
+        );
+    }
+}
+
+#[test]
+fn record_rows_use_the_loop_cache_unless_the_loop_resizes() {
+    let dir = setup(ROWS);
+    let total = ops(dir.path(), "total");
+    assert_eq!(total.matches("ElementRefView(").count(), 2, "{total}");
+    assert!(!total.contains("ElementRef("), "{total}");
+    // The inner loop's accesses are cached; the outer loop's are not, since
+    // only innermost loops cache.
+    let step = ops(dir.path(), "step");
+    assert_eq!(step.matches("ElementRefView(").count(), 5, "{step}");
+    assert_eq!(step.matches("ElementRef(").count(), 3, "{step}");
+    let grow = ops(dir.path(), "grow");
+    assert!(grow.contains("ElementRef("), "{grow}");
+    assert!(!grow.contains("ElementRefView("), "{grow}");
+}
+
+/// The cached loop calls nothing, and the list header is read before it.
+#[test]
+fn record_row_loops_call_nothing_and_read_the_header_once() {
+    let dir = setup(ROWS);
+    let clif = stdout(
+        dir.path(),
+        &[
+            "--release",
+            "--dump",
+            "clif",
+            "--dump-filter",
+            "total",
+            "refs.plenty",
+            "-o",
+            "-",
+        ],
+    );
+    // `i` is below `len(bodies)`, so not even a bounds check remains.
+    assert!(!clif.contains("plenty_list_row"), "{clif}");
+    assert!(!clif.contains("plenty_list_len"), "{clif}");
+    assert!(!clif.contains(" call "), "{clif}");
+    let asm = stdout(
+        dir.path(),
+        &[
+            "--release",
+            "--dump",
+            "asm",
+            "--dump-filter",
+            "total",
+            "refs.plenty",
+            "-o",
+            "-",
+        ],
+    );
+    assert!(!asm.lines().any(support::native_call), "{asm}");
+    // One read of the popped-row flag: `len(bodies)` and the cache share it.
+    let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
+    assert_eq!(removed.find_iter(&asm).count(), 1, "{asm}");
+}
+
+/// Cached row references trap with the generic message and site.
+#[rstest::rstest]
+#[case("3", "index 3, length 3")]
+#[case("-4", "index -4, length 3")]
+#[case("9223372036854775807", "index 9223372036854775807, length 3")]
+#[case("-9223372036854775808", "index -9223372036854775808, length 3")]
+fn record_rows_in_loops_trap_out_of_bounds(#[case] index: &str, #[case] message: &str) {
+    let source = format!(
+        "@copy\nclass Body:\n    x: f64\n    n: i64\n\n\
+         def poke(bodies: &mut list[Body], at: i64) -> f64:\n    mut sum = 0.0\n    for _ in range(2):\n        bodies[at].x += 1.0\n        sum += bodies[at].x\n    sum\n\n\
+         def main() -> Result[(), AllocError | IoError]:\n    mut bodies = [Body(1.0, 0), Body(2.0, 0), Body(3.0, 0)]?\n    print(poke(&mut bodies, -1))?\n    print(poke(&mut bodies, {index}))?\n    Ok(())\n"
+    );
+    let dir = setup(&source);
+    let poke = ops(dir.path(), "poke");
+    assert!(poke.contains("ElementRefView("), "{poke}");
+    assert!(!poke.contains("ElementRef("), "{poke}");
+    for args in [
+        &["--fast-compile", "refs.plenty"][..],
+        &["--release", "refs.plenty"],
+    ] {
+        let output = plenty(dir.path(), args);
+        assert!(!output.status.success(), "{source}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "9.0\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!("error: refs.plenty:9:9: index out of bounds: {message}\n")
+        );
     }
 }
