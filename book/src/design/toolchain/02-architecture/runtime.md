@@ -251,9 +251,15 @@ reads the record only when the trap fires and formats the report directly to
 standard error.
 
 For objects containing embedded std functions, user calls into std save and
-restore a thread-local pointer to the nearest user call site. User code also
-saves and restores it around generator advancement, cleanup, and collection
-operations that can run callbacks. Std code saves and restores it only around
+restore a thread-local pointer to the nearest user call site, except calls to
+std accessors that only read a field, such as `NonNegative[i64].get`, which
+cannot trap or run other code. User code also
+saves and restores it around generator advancement, collection operations that
+can run callbacks, and cleanup that can run compiled code: a class `__del__`,
+a generator, or a closure, channel or executor, which may own either. Releasing strings,
+byte storage, and records, boxes or collections of only those runs the runtime
+alone, which neither traps nor reads the context, so those releases skip it
+(issue #750). Std code saves and restores it only around
 indirect calls and direct calls to functions that may change it: a function
 may change the context when it tail-calls std from user code, makes an indirect
 tail call, calls such a function in tail position, or is a generator or a

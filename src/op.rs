@@ -571,6 +571,51 @@ impl Ty {
     pub fn has_destructor(&self) -> bool {
         self.facts().destructor
     }
+    /// Whether releasing a value of this type can run compiled code: a class
+    /// `__del__`, a generator's cleanup, or whatever a closure, channel or
+    /// executor owns. Only such code can trap in std or read the caller
+    /// location. Strings, byte storage, and collections, boxes and records of
+    /// them are freed by the runtime alone, which neither traps nor reads the
+    /// caller. A release destroys only what it reaches, since the destruction
+    /// queue is empty whenever a release starts a drain. So a user-code
+    /// release of any other type needs no caller site (issue #750). An
+    /// undefined forward reference counts as code.
+    pub fn release_runs_code(&self) -> bool {
+        let facts = self.facts();
+        if facts.complete && !facts.destructor {
+            return false;
+        }
+        let mut work = vec![self.clone()];
+        let mut seen = crate::hash::HashSet::default();
+        while let Some(ty) = work.pop() {
+            match &ty {
+                _ if !ty.managed() => {}
+                Self::Str | Self::ByteStorage => {}
+                Self::List(t) | Self::Set(t) | Self::Box(t) | Self::Shared(t) => {
+                    work.push((**t).clone())
+                }
+                Self::Dict(k, v) => work.extend([(**k).clone(), (**v).clone()]),
+                Self::Class(t) => match t.try_get() {
+                    Some(definition) if definition.destructor.is_none() => {
+                        if seen.insert((0, t.name.clone())) {
+                            work.extend(definition.fields.iter().map(|(_, t)| t.clone()));
+                        }
+                    }
+                    _ => return true,
+                },
+                Self::Enum(t) => match t.try_get() {
+                    Some(definition) => {
+                        if seen.insert((1, t.name.clone())) {
+                            work.extend(definition.variants.iter().flat_map(|v| v.fields.clone()));
+                        }
+                    }
+                    None => return true,
+                },
+                _ => return true,
+            }
+        }
+        false
+    }
     /// Values requiring cleanup have one owner per operand/local. This includes
     /// inline generators as well as heap-backed values; scalars copy as bits.
     pub fn managed(&self) -> bool {

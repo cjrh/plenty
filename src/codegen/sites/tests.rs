@@ -11,7 +11,8 @@ fn fixture(source: &str) -> String {
     for op in &mut program.ops {
         if let Op::DefineFn(name, f) = op {
             let origins = Arc::make_mut(&mut f.origins);
-            origins.standard_library = name.starts_with("standard_");
+            origins.standard_library =
+                name.starts_with("standard_") || name.starts_with("__plenty_class_Standard");
             origins.trap_file = Some(if origins.standard_library {
                 "std/fixture.plenty".into()
             } else {
@@ -110,6 +111,24 @@ fn a_destructor_that_tail_calls_std_does_not_leak_its_site() {
     assert_eq!(
         error,
         "error: std/fixture.plenty:16:9: division by zero\nnote: called from user.plenty:18:11\n"
+    );
+}
+
+/// Issue #750: a user release of a type whose destruction can run compiled
+/// code still names its site, directly and through a container; releases of
+/// strings and plain collections before it skip the bookkeeping. A
+/// scope-end release reports the statement that ends the scope.
+#[rstest::rstest]
+#[case::direct("    guard = StandardGuard(0)\n")]
+#[case::in_a_list("    guards = [StandardGuard(0)]?\n")]
+fn a_trap_in_a_standard_destructor_names_the_user_release(#[case] owner: &str) {
+    let source = format!(
+        "class StandardGuard:\n    n: i64\n    def __del__(self) -> ():\n        unchecked: # Deliberately trap while destroying the guard.\n            m = 1 // self.n\ndef main() -> Result[(), AllocError | IoError]:\n    names = [\"a\"]?\n    print(names)?\n{owner}    Ok(())\n"
+    );
+    let error = fixture(&source);
+    assert_eq!(
+        error,
+        "error: std/fixture.plenty:5:17: division by zero\nnote: called from user.plenty:10:5\n"
     );
 }
 

@@ -622,6 +622,44 @@ fn standard_library_code_makes_no_caller_context_calls() {
     );
 }
 
+/// Issue #750: releasing strings, plain records and collections of them runs
+/// no compiled code, so user code releases them without caller bookkeeping;
+/// a release that can run a `__del__` keeps it.
+#[test]
+fn releases_that_run_no_compiled_code_make_no_caller_context_calls() {
+    let calls = caller_context_calls(
+        "import std.bytes\nclass Plain:\n    name: str\n    counts: dict[str, list[i64]]\nclass Tree:\n    kids: list[Tree]\nclass Guard:\n    n: i64\n    def __del__(self) -> ():\n        pass\ndef plain(s: str, xs: list[str], p: Plain, o: Option[Box[Plain]], t: Tree) -> i64:\n    unchecked: # Small lengths.\n        s.byte_len() + len(xs) + len(p.counts) + len(t.kids)\ndef guarded(g: Guard, gs: list[Guard]) -> i64:\n    unchecked: # Small values.\n        g.n + len(gs)\ndef main() -> Result[(), AllocError | IoError]:\n    print(std.bytes.with_capacity(1)?.len())?\n    p = Plain(\"p\", {}?)\n    print(plain(\"s\", [\"x\"]?, p, Nothing, Tree(list[Tree].with_capacity(0)?)))?\n    print(guarded(Guard(1), [Guard(2)]?))?\n    Ok(())\n",
+    );
+    let count = |name: &str| {
+        calls
+            .iter()
+            .find(|(header, _)| header.starts_with(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("{name}: {calls:?}"))
+            .1
+    };
+    assert_eq!(count("plain"), 0, "{calls:?}");
+    assert!(count("guarded") > 0, "{calls:?}");
+}
+
+/// Issue #750: a std accessor that only reads a field, such as a domain
+/// type's `.get()`, cannot trap or run code, so user calls to it need no
+/// caller site; a std call that can trap keeps one.
+#[test]
+fn field_reading_standard_accessors_make_no_caller_context_calls() {
+    let calls = caller_context_calls(
+        "import std.bytes\ndef nn(xs: &list[i64], s: NonNegative[i64], b: Bounded[i64, 0, 7]) -> i64:\n    unchecked: # Small values.\n        xs[s.get()] + xs[b.get()]\ndef sized(n: i64) -> Result[i64, AllocError]:\n    Ok(std.bytes.with_capacity(n)?.len())\ndef main() -> Result[(), AllocError | IoError]:\n    xs = [1, 2, 3]?\n    print(nn(&xs, 1, 2))?\n    print(sized(1)?)?\n    Ok(())\n",
+    );
+    let count = |name: &str| {
+        calls
+            .iter()
+            .find(|(header, _)| header.starts_with(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("{name}: {calls:?}"))
+            .1
+    };
+    assert_eq!(count("nn"), 0, "{calls:?}");
+    assert!(count("sized") > 0, "{calls:?}");
+}
+
 /// A std function calling back through a callable keeps saving and restoring
 /// the context: the callback may tail-call std and leave its own site behind.
 #[test]
