@@ -10,7 +10,7 @@ use std::process::Command;
 use support::assert_stdout as expect;
 
 /// Names of the runtime symbols `function` calls in a compiled object.
-fn runtime_calls(source: &str, function: &str) -> Vec<String> {
+pub(crate) fn runtime_calls(source: &str, function: &str) -> Vec<String> {
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("queries.o");
