@@ -1,0 +1,116 @@
+# k-nucleotide: count every k-length substring of the third FASTA sequence
+# in a hash table, then report frame-1 and frame-2 frequencies and five
+# specific counts.
+# Counts the seven frame lengths concurrently, as the reference
+# (knucleotide.rs, Rust #1) does: one pool job per frame length, each building
+# its own dictionary keyed by owned copies of the substrings.
+#
+# What crosses threads:
+# - The sequence goes to every job as its own `Shared[Bytes]` owner, as the
+#   reference shares an `Arc<Vec<u8>>`. Each `share()` increments the handle's
+#   count on the main thread; each job drops its owner, decrementing the count
+#   on a worker thread, while the main thread and other workers still hold
+#   theirs. Pool jobs must own their inputs, so a borrow is not an option here.
+# - Each job's dictionary moves back through its future. Keys longer than seven
+#   bytes (frames 12 and 18) are counted heap strings created on a worker and
+#   released on the main thread when the dictionary drops.
+import std.bytes
+
+const NEWLINE: u8 = 10u8
+const READ_CHUNK: i64 = 1048576
+# One worker per frame length, as the reference starts one thread per frame.
+const WORKERS: Positive[i64] = 7
+
+type Counts = dict[str, i64]
+type CountError = AllocError | OverflowError[i64] | std.bytes.BytesError
+type CountFuture = Future[Result[Counts, CountError]]
+type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError | PoolError | SubmitError[()] | FutureError
+
+
+def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
+    mut buffer = std.bytes.with_capacity(READ_CHUNK)?
+    mut end = 0
+    while True:
+        if end == buffer.len():
+            buffer.resize(end + READ_CHUNK, 0u8)?
+        count = buffer.read_stdin(end, buffer.len())?
+        if count == 0:
+            break
+        end += count
+    buffer.truncate(end)
+    Ok(buffer)
+
+
+# The upper-cased letters of the sequence after the ">THREE" header line.
+def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocError | OverflowError[i64]]:
+    mut sequence = std.bytes.with_capacity(input.len())?
+    header = match input.find_bytes(b">THREE", 0, input.len()):
+        case Some(index):
+            index
+        case Nothing:
+            return Ok(sequence)
+    start = match input.find(NEWLINE, header, input.len()):
+        case Some(index):
+            index + 1
+        case Nothing:
+            input.len()
+    for i in range(start, input.len()):
+        c = input.get(i)
+        if c >= 97u8 and c <= 122u8:
+            # c is in 97..=122, so the subtraction cannot wrap.
+            upper = unchecked:
+                c - 32u8
+            sequence.push(upper)?
+        elif c != NEWLINE and c != 13u8:
+            sequence.push(c)?
+    Ok(sequence)
+
+
+# A pool job: owns one handle to the sequence and drops it on the worker.
+def count_frames(sequence: Shared[std.bytes.Bytes], length: i64) -> Result[Counts, CountError]:
+    mut counts: Counts = {}?
+    for i in range(sequence.len() - length + 1):
+        key = sequence.to_text_range(i, i + length)?
+        match counts.get_mut(&key):
+            case Some(count):
+                *count += 1
+            case Nothing:
+                counts.insert(key, 1)?
+    Ok(counts)
+
+
+def print_frequencies(counts: &Counts) -> Result[(), AppError]:
+    mut total = 0
+    mut sorted = list[(i64, str)].with_capacity(len(counts))?
+    for (key, count) in counts.items():
+        total += *count
+        sorted.append((-*count, copy(key)?))?
+    # Descending count, then ascending key.
+    sorted.sort()
+    for (count, key) in &sorted:
+        percent = 100.0 * f64(-*count) / f64(total)
+        print(f"{key} {percent:.3f}"?)?
+    print()?
+    Ok(())
+
+
+def main() -> Result[(), AppError]:
+    input = read_all_stdin()?
+    sequence = Shared(third_sequence(&input)?)?
+    drop(input)
+    patterns = ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"]?
+    with ThreadPoolExecutor(WORKERS, WORKERS)? as pool:
+        # Submit every frame before waiting on any, so all seven run at once.
+        ones = pool.submit(count_frames, sequence.share(), 1).drop_job()?
+        twos = pool.submit(count_frames, sequence.share(), 2).drop_job()?
+        mut pattern_futures = list[CountFuture].with_capacity(len(patterns))?
+        for pattern in &patterns:
+            pattern_futures.append(pool.submit(count_frames, sequence.share(), len(pattern)).drop_job()?)?
+        drop(sequence)
+        print_frequencies(&ones.result()??)?
+        print_frequencies(&twos.result()??)?
+        for (pattern, future) in zip(&patterns, pattern_futures):
+            counts = future.result()??
+            count = counts.get(pattern, 0)
+            print(f"{count}\t{pattern}"?)?
+    Ok(())
