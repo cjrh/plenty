@@ -26,6 +26,8 @@ mod test_callable_forms;
 mod test_arithmetic_errors;
 #[path = "test_checked_defaults.rs"]
 mod test_checked_defaults;
+#[path = "test_unchecked_modes.rs"]
+mod test_unchecked_modes;
 
 #[path = "test_record_walks.rs"]
 mod test_record_walks;

@@ -1,10 +1,12 @@
 # Unchecked arithmetic modes
 
-> **Status: Not implemented.** This is the intended arithmetic-only extension
-> to [checked arithmetic by default](checked-by-default.md). The current
-> [numeric reference](../design/language/03-types/numbers.md) remains authoritative.
-> Delivery is tracked under **B14** in the [backlog](../backlog.md).
-> Syntax and settings on this page are proposed, not runnable language examples.
+> **Status: Partly implemented.** `--unchecked trap|assume` and
+> `unchecked trap:` are implemented; see the
+> [numeric reference](../design/language/03-types/numbers.md#unchecked-blocks),
+> which is authoritative. A `plenty.toml` setting and the stdlib precondition
+> audit remain under **B14** in the [backlog](../backlog.md); until that audit,
+> `std` always traps. This is the arithmetic-only extension to
+> [checked arithmetic by default](checked-by-default.md).
 
 ## Contract
 

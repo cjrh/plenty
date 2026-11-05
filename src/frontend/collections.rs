@@ -1365,7 +1365,9 @@ impl Lower<'_> {
             Expression::Try(value) => self.propagate(e, value, expected, ops),
             Expression::Slice(..) => self.slice(e, expected, ops).map(Some),
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, expected, ops),
-            Expression::Checked(body) => self.checked_value(&e.at, body, expected, ops),
+            Expression::Checked(suite, body) => {
+                self.checked_value(&e.at, *suite, body, expected, ops)
+            }
             Expression::If(body) => self.if_value(&e.at, body, expected, ops),
 
             Expression::Method(base, name, args, _)

@@ -87,11 +87,12 @@ impl Lower<'_> {
             Checked::Modulo(proof)
         };
         if !self.checked_arith(operation, ty, at, ops)? {
-            ops.push(if op == "//" {
+            let operation = if op == "//" {
                 Op::FloorDiv(proof)
             } else {
                 Op::Modulo(proof)
-            });
+            };
+            self.push_trapping(operation, ty, ops);
         }
         Ok(())
     }

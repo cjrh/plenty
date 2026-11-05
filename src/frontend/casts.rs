@@ -27,7 +27,7 @@ impl Lower<'_> {
         };
         if !literal {
             self.mark(cast, ops);
-            ops.push(Op::CheckedCast(target.clone()));
+            self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
             return Ok(());
         }
         if let Some((min, end)) = target.int_range() {
@@ -66,7 +66,7 @@ impl Lower<'_> {
                 _ => {}
             }
         }
-        ops.push(Op::CheckedCast(target.clone()));
+        self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
         Ok(())
     }
 

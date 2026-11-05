@@ -1,7 +1,8 @@
 //! Recoverable integer arithmetic uses each function's declared Result.
 //! Explicit `checked:` suites collect local errors; `unchecked:` suites
-//! select trapping operations. Nested functions always keep their own contracts.
-//! See
+//! select trapping operations, or, in a build that assumes their
+//! preconditions, operations without checks ([`Op::Assumed`]). Nested
+//! functions always keep their own contracts. See
 //! `book/src/design/language/03-types/numbers.md#checked-blocks`.
 use super::*;
 use crate::numeric::Checked;
@@ -15,6 +16,9 @@ pub(super) struct Scope {
     pub(super) function: bool,
     /// False selects trapping operators without searching outer scopes.
     pub(super) arithmetic: bool,
+    /// A plain `unchecked:` suite outside `std` in a build that assumes its
+    /// preconditions: its fallible integer operations omit their checks.
+    pub(super) assume: bool,
     /// The errors the block's arithmetic can produce, in source order.
     pub(super) failures: Vec<Ty>,
 }
@@ -23,12 +27,13 @@ impl Lower<'_> {
     pub(super) fn checked_value(
         &mut self,
         at: &Token,
+        suite: Suite,
         body: &[Stmt],
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if at.is("unchecked") {
-            return match self.unchecked_suite(at, body, &Tail::Value(expected), ops)? {
+        if suite != Suite::Checked {
+            return match self.unchecked_suite(at, suite, body, &Tail::Value(expected), ops)? {
                 BlockResult::Continues(ty) => Ok(ty),
                 BlockResult::Exits => Err(at.error("every path through this `unchecked:` block exits, so it has no value; write it as a statement")),
             };
@@ -46,6 +51,7 @@ impl Lower<'_> {
             start: self.locals.len(),
             function: false,
             arithmetic: true,
+            assume: false,
             failures: Vec::new(),
         });
         let mut inner = Vec::new();
@@ -91,15 +97,24 @@ impl Lower<'_> {
     pub(super) fn unchecked_suite(
         &mut self,
         at: &Token,
+        suite: Suite,
         body: &[Stmt],
         tail: &Tail,
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
+        // `std` keeps its checks until its preconditions are audited, so a
+        // user's build mode cannot change library behavior.
+        let assume = suite == Suite::Unchecked
+            && self.generics.unchecked == crate::UncheckedMode::Assume
+            && !at
+                .source()
+                .is_some_and(|source| self.generics.standard_sources.contains(&source));
         let saved = self.names.clone();
         self.checked.push(Scope {
             start: self.locals.len(),
             function: false,
             arithmetic: false,
+            assume,
             failures: Vec::new(),
         });
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
@@ -173,6 +188,30 @@ impl Lower<'_> {
             cleanup: cleanup.into(),
         });
         Ok(true)
+    }
+
+    /// Push `op`, an ordinary integer operation on `ty` that traps when its
+    /// preconditions fail. Inside an assuming `unchecked:` suite it becomes
+    /// [`Op::Assumed`], which omits the checks; a violation is undefined.
+    pub(super) fn push_trapping(&self, op: Op, ty: &Ty, ops: &mut Vec<Op>) {
+        let fallible = ty.is_int()
+            && matches!(
+                op,
+                Op::Add
+                    | Op::Sub
+                    | Op::Mul
+                    | Op::FloorDiv(_)
+                    | Op::Modulo(_)
+                    | Op::Numeric(crate::numeric::NumericOp::Pow)
+                    | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
+                    | Op::CheckedCast(_)
+            );
+        let assume = fallible && self.checked.last().is_some_and(|scope| scope.assume);
+        ops.push(if assume {
+            Op::Assumed(Box::new(op))
+        } else {
+            op
+        });
     }
 
     /// `ZeroDivisionError`, or `OverflowError[T]` for `operand` `T`.

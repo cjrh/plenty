@@ -165,19 +165,52 @@ def scale_in_bounds(value: i64, factor: i64) -> i64:
         value * factor
 ```
 
-The compiler currently validates the precondition: a violation terminates the
-process in every build, and never wraps or reaches an outer checked boundary.
-Do not rely on that termination as the suite's meaning. A planned compiler mode
-may assume the precondition and omit these checks, in which case a violation
-is undefined behavior, possibly a silently wrong result. Use explicit wrapping
-operations for modular arithmetic and ordinary validation for untrusted input.
-Nested `checked:` restores local recoverability; leaving either suite restores
-the outer mode. Calls still return their declared results, and `?`, `return`,
-`break` and `continue` keep their ordinary targets.
+The `--unchecked MODE` build setting selects what a plain `unchecked:` suite
+does with its preconditions. `unchecked trap:` always checks them:
 
-`unchecked` is contextual: only a colon followed by a newline opens a suite;
-`unchecked: i64 = 0` remains a typed binding. Suites support binding,
-assignment, return, function-tail and match-arm-tail value positions.
+| Suite | `--unchecked trap` (default) | `--unchecked assume` |
+| --- | --- | --- |
+| `unchecked:` | Check; trap on a violation | Omit the checks; a violation is undefined behavior |
+| `unchecked trap:` | Check; trap on a violation | Check; trap on a violation |
+
+A trap terminates the process; it never wraps or reaches an outer checked
+boundary. In assume mode, overflow is not wrapping: a violation may produce a
+silently wrong result or worse, and no crash is guaranteed. Use explicit
+wrapping operations for modular arithmetic, and `unchecked trap:` or ordinary
+validation when termination on bad input is part of the contract. The default
+does not change with optimization or [profile](../../toolchain/01-building/packages.md#profiles).
+
+```plenty fragment
+def checked_index(row: i64, width: i64, column: i64) -> i64:
+    unchecked trap:
+        row * width + column
+```
+
+The preconditions are representable results of `+`, `-`, `*`, negation and
+`pow`, nonzero divisors and representable quotients for `//` and `%`, valid
+shift counts, and in-range integer conversions. `i64.MIN % -1` stays `0`, and
+a negative `pow` exponent still traps in either mode. Floating-point
+arithmetic, allocation, indexing and explicit wrapping, saturating and checked
+methods keep their contracts.
+
+Modes apply lexically. Nested `checked:` restores local recoverability; a
+nested plain `unchecked:` follows the build setting, even inside
+`unchecked trap:`; leaving any suite restores the outer mode. Named functions
+and closures keep their own contracts wherever they are defined or called.
+Calls still return their declared results, and `?`, `return`, `break` and
+`continue` keep their ordinary targets.
+
+`std` always checks its `unchecked:` suites, so the setting cannot change
+library behavior before its preconditions are audited. The setting is part of
+the [compile cache](../../toolchain/02-architecture/cache.md) identity; there
+is no `plenty.toml` key yet. Cranelift has no no-overflow instruction flags,
+so assume mode removes checks but cannot give the backend further overflow
+facts.
+
+`unchecked` and `trap` are contextual: only `unchecked:` or `unchecked trap:`
+followed by a newline opens a suite; `unchecked: i64 = 0` remains a typed
+binding. Suites support binding, assignment, return, function-tail and
+match-arm-tail value positions.
 
 ## Checked blocks
 
@@ -276,8 +309,8 @@ its operands are constants, so `checked:` around `i8.MAX + 1i8` produces
 `Err(OverflowError[i8](wrapped=-128))`.
 
 Arithmetic uses plain values and a shared cold error exit at its nearest
-recoverable boundary. An `unchecked:` operation currently uses an inline trap guard
-instead; it does not yet make arithmetic check-free or faster. See the
+recoverable boundary. A trapping `unchecked:` operation uses an inline trap
+guard instead; assume mode emits the plain instruction. See the
 [design note](../../../proposals/completed/checked-arithmetic.md).
 
 ## Nonzero integers

@@ -520,6 +520,23 @@ fn step(
             }
             stack.extend(sig.outputs.iter().cloned());
         }
+        Op::Assumed(inner) => {
+            let operand = matches!(
+                **inner,
+                Op::Add
+                    | Op::Sub
+                    | Op::Mul
+                    | Op::FloorDiv(_)
+                    | Op::Modulo(_)
+                    | Op::Numeric(crate::numeric::NumericOp::Pow)
+                    | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
+                    | Op::CheckedCast(_)
+            );
+            if !operand {
+                return Err(format!("`Assumed` cannot hold {inner:?}").into());
+            }
+            return step(inner, stack, locals, sigs, returns, loop_stack, yield_ty);
+        }
         Op::Add => {
             let (a, b) = pop2(stack, "+")?;
             let out = match (a.clone(), b.clone()) {

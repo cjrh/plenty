@@ -411,7 +411,7 @@ mod tests {
         let mut heap = Heap::default();
         let program = Sources::file(&source, None)
             .unwrap()
-            .compile(&mut heap)
+            .compile(&mut heap, crate::UncheckedMode::Trap)
             .unwrap();
         crate::op::check(&program.ops).unwrap();
         let mut product = super::super::object_module(

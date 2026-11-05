@@ -90,7 +90,7 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
         Expression::Try(_)
         | Expression::Anonymous(_)
         | Expression::Match(..)
-        | Expression::Checked(_)
+        | Expression::Checked(..)
         | Expression::If(_)
         | Expression::Ambiguous { .. }
         | Expression::ClassNew(_)
