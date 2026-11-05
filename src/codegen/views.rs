@@ -17,6 +17,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::ViewLen(view) => {
                 let (view, _) = self.pop_typed(view.clone())?;
                 let (_, count) = self.bcx.ins().isplit(view);
+                self.note_view_length(view, count);
                 self.stack.push((count, Ty::I64));
             }
             CollectionOp::ViewRow(view, mutable) | CollectionOp::ViewItem(view, mutable) => {
@@ -24,6 +25,7 @@ impl Lowerer<'_, '_> {
                 let (index, _) = self.pop_typed(Ty::I64)?;
                 let (value, _) = self.pop_typed(view.clone())?;
                 let (rows, count) = self.split_view(value);
+                self.note_view_length(value, count);
                 // Iteration stays below the count it read, so only indexing
                 // checks.
                 let address = match operation {
@@ -174,6 +176,14 @@ impl Lowerer<'_, '_> {
         let split = self.bcx.ins().isplit(view);
         self.counters.checked.record_split(view, split);
         split
+    }
+
+    /// A view's count is part of its value, so every count read from one
+    /// view value is the same number; see [`super::induction::Bounds`].
+    fn note_view_length(&mut self, view: NativeValue, count: NativeValue) {
+        let bounds = &mut self.counters.bounds;
+        let view = bounds.canonical(&self.bcx.func.dfg, view);
+        bounds.lengths.insert(count, view);
     }
 
     fn view_row(&mut self, rows: NativeValue, index: NativeValue, element: &Ty) -> NativeValue {

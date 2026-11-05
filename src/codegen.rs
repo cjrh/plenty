@@ -2981,6 +2981,23 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Records what [`induction::Bounds`] knows about `value`, just read
+    /// from local `i` of type `ty`.
+    fn note_bounds(&mut self, i: u8, value: cranelift_codegen::ir::Value, ty: &Ty) {
+        let bounds = &mut self.counters.bounds;
+        let entry = bounds.invariant_locals.iter().rev().find(|(l, _)| *l == i);
+        if let Some(&(_, entry)) = entry {
+            bounds.canonical.insert(value, entry);
+        }
+        if matches!(ty, Ty::Ref(inner, false) if matches!(**inner, Ty::List(_))) {
+            let list = bounds.canonical(&self.bcx.func.dfg, value);
+            bounds.shared_lists.insert(list);
+        }
+        if let Some(&(_, stop)) = bounds.below_locals.iter().rev().find(|(l, _)| *l == i) {
+            bounds.below.insert(value, stop);
+        }
+    }
+
     fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
         self.counters.nonnegative.contains(&value)
             || induction::nonnegative_constant(&self.bcx.func.dfg, value)
@@ -3553,6 +3570,7 @@ impl Lowerer<'_, '_> {
         if self.counters.nonnegative_locals.contains(&i) {
             self.counters.nonnegative.insert(v);
         }
+        self.note_bounds(i, v, &ty);
         let block = self.bcx.current_block().ok_or("load outside a block")?;
         let before = self.bcx.func.layout.last_inst(block);
         let retain = self.retain(v, &ty);

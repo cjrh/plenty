@@ -143,8 +143,9 @@ def main() -> Result[(), OverflowError[i64]]:
     // Scalar rows are dense: the setup reads the header without a call.
     assert!(!asm.contains("# plenty_list_rows"), "{asm}");
     assert!(!asm.contains("# plenty_list_row_bytes"), "{asm}");
-    // Only the out-of-bounds cold blocks call out, to report the index.
-    assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
+    // Only the out-of-bounds cold block calls out, to report the index.
+    // `xs[i]` needs no check: `i` is below `len(xs)` (issue #728).
+    assert_eq!(asm.matches("# plenty_trap_list_index").count(), 1, "{asm}");
     assert!(!asm.contains("plenty_list_scalar_get"), "{asm}");
 }
 
@@ -972,5 +973,99 @@ fn repeated_row_accesses_check_each_row_once() {
         let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), REPEATED);
         let traps = clif.matches("call fn").count();
         assert_eq!(traps, rows, "{name}\n{clif}");
+    }
+}
+
+/// A `range` counter starting at a nonnegative constant with step 1 is below
+/// the range's stop. When the stop is the length of a shared list reference
+/// or a slice view, indexing that list or view with the counter cannot fail,
+/// so it has no bounds check (issue #728). Other lists, other stops and
+/// negative starts keep theirs.
+const RANGE_BOUNDS: &str = r#"
+def sum_index(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs)):
+        t += xs[i]
+    Ok(t)
+def sum_from(xs: &list[u8], n: &list[u8]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(1, len(xs)):
+        for j in range(len(n)):
+            t += i64(xs[i]) * i64(n[j])
+    Ok(t)
+def sum_other(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs)):
+        t += ys[i]
+    Ok(t)
+def sum_past(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs) + 1):
+        t += xs[i]
+    Ok(t)
+def sum_wrapped(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(-1, len(xs)):
+        t += xs[i]
+    Ok(t)
+def scale(s: &mut [i64]) -> ():
+    for i in range(len(s)):
+        s[i] = s[i] ^ 3
+def copy_row(source: &[i64], target: &mut [i64]) -> ():
+    for i in range(len(source)):
+        target[i] = source[i]
+def main() -> Result[(), OverflowError[i64]]:
+    xs = [1, 2, 3, 4].unwrap()
+    bytes = [5u8, 6u8, 7u8].unwrap()
+    mut zs = [1, 2, 3, 4].unwrap()
+    scale(&mut zs[1:3])
+    copy_row(&xs[:2], &mut zs[2:])
+    print(zs).unwrap()
+    empty = list[i64].with_capacity(0).unwrap()
+    short = [1, 2, 3].unwrap()
+    print(sum_other(&short, &short)?).unwrap()
+    print(sum_index(&xs)?, sum_index(&empty)?).unwrap()
+    print(sum_from(&bytes, &bytes)?).unwrap()
+    print(sum_other(&xs, &xs)?, sum_wrapped(&xs)?).unwrap()
+    Ok(())
+"#;
+
+#[test]
+fn range_counters_index_their_shared_lists() {
+    support::assert_stdout(RANGE_BOUNDS, "[1, 1, 1, 2]\n6\n10 0\n234\n10 14\n");
+}
+
+#[rstest]
+#[case("print(sum_other(&xs, &short)?).unwrap()", "index 3, length 3")]
+#[case("print(sum_past(&xs)?).unwrap()", "index 4, length 4")]
+#[case("copy_row(&xs[:], &mut zs[1:])", "index 3, length 3")]
+fn range_counters_trap_on_other_bounds(#[case] call: &str, #[case] message: &str) {
+    let source = RANGE_BOUNDS.replace(
+        "    print(sum_other(&short, &short)?",
+        &format!("    {call}\n    print(sum_other(&short, &short)?"),
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn range_counters_below_a_shared_length_skip_the_check() {
+    for (name, checks) in [
+        ("sum_index", 0),
+        ("sum_from", 0),
+        ("sum_other", 1),
+        ("sum_past", 1),
+        ("sum_wrapped", 1),
+        ("scale", 0),
+        ("copy_row", 1),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), RANGE_BOUNDS);
+        let traps = clif.matches("plenty_trap_list_index").count();
+        assert_eq!(traps > 0, checks > 0, "{name}\n{clif}");
     }
 }

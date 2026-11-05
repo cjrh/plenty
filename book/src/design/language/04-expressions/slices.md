@@ -188,6 +188,10 @@ and before passing an exclusive view of it.
 | `v == w`, `v != w` | Equal lengths and equal elements; both sides are views of one element type |
 | `print(v)`, `str.repr(v)`, `f"{v}"` | The elements as a list, `[2, 3]`; a `&[u8]` as a `bytes` literal, `b"bc"` |
 
+A view's length never changes, so `v[i]` in `for i in range(len(v))`
+compiles without a bounds check, as described for
+[lists](../../facilities/01-builtins/lists.md).
+
 ```plenty
 def even(x: &i64) -> bool:
     two: NonZero[i64] = 2

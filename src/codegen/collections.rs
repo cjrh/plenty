@@ -43,6 +43,11 @@ impl Lowerer<'_, '_> {
         if let Some(address) = self.counters.checked.find(block, key, row_bytes) {
             return Ok(address);
         }
+        if known.map_or_else(|| self.nonnegative_operand(index), |constant| constant >= 0)
+            && self.counters.bounds.below(dfg, index, length)
+        {
+            return Ok(self.row_address(rows, index, row_bytes));
+        }
         let failure = self.bcx.create_block();
         let valid = self.bcx.create_block();
         let normalized = match known {
@@ -534,7 +539,7 @@ impl Lowerer<'_, '_> {
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
         if !narrow {
-            self.counters.ranges.push((length, start, step));
+            self.counters.ranges.push((length, start, step, bound));
         }
         // A narrow range, or an i64 range stepping up from a nonnegative
         // start, is shorter than `i64::MAX`: fold its check (issue #721).
@@ -792,6 +797,11 @@ impl Lowerer<'_, '_> {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let owner = self.reference_word(receiver);
             let length = self.scalar_list_len(owner, &ty.element().unwrap());
+            let bounds = &mut self.counters.bounds;
+            let list = bounds.canonical(&self.bcx.func.dfg, receiver);
+            if bounds.shared_lists.contains(&list) {
+                bounds.lengths.insert(length, list);
+            }
             self.stack.push((length, Ty::I64));
             return Ok(());
         }
@@ -1418,6 +1428,36 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().select(any, nan_order, order)
     }
 
+    /// Records the shared list references, views and lengths that `condition` and
+    /// `body` read but never write, with their values on entry; see
+    /// [`super::induction::Bounds`].
+    fn enter_invariant_locals(&mut self, condition: &[Op], body: &[Op]) {
+        let mut read = crate::hash::HashSet::default();
+        let mut written = crate::hash::HashSet::default();
+        super::induction::local_uses(condition, &mut read, &mut written);
+        super::induction::local_uses(body, &mut read, &mut written);
+        for local in read.difference(&written).copied() {
+            if self.local_address(local).is_some() {
+                continue;
+            }
+            let ty = &self.locals[local as usize].1;
+            let shared_list = matches!(ty, Ty::Ref(inner, false) if matches!(**inner, Ty::List(_)));
+            let view = matches!(ty, Ty::View(..));
+            if !shared_list && !view && *ty != Ty::I64 {
+                continue;
+            }
+            let entry = self.read_local(local);
+            let bounds = &mut self.counters.bounds;
+            let entry = bounds.canonical(&self.bcx.func.dfg, entry);
+            if shared_list {
+                bounds.shared_lists.insert(entry);
+            } else if !view && !bounds.lengths.contains_key(&entry) {
+                continue;
+            }
+            bounds.invariant_locals.push((local, entry));
+        }
+    }
+
     pub(super) fn lower_loop(&mut self, condition: &[Op], body: &[Op]) -> Result<()> {
         self.lower_clist_simd_prefix(condition, body);
         let initial = self.stack.clone();
@@ -1440,6 +1480,7 @@ impl Lowerer<'_, '_> {
         if let Some(counter) = &nonnegative {
             self.counters.nonnegative_locals.push(counter.local);
         }
+        let mut stop = None;
         let range = super::induction::analyze_range(condition, body).filter(|range| {
             let slots = [range.target, range.remaining, range.advance];
             slots.iter().all(|&slot| self.local_address(slot).is_none()) && {
@@ -1448,8 +1489,13 @@ impl Lowerer<'_, '_> {
                     self.read_local(range.target),
                     self.read_local(range.advance),
                 );
-                self.counters.ranges.contains(&entry)
-                    && super::known::known_signed(&self.bcx.func.dfg, entry.2) == Some(1)
+                stop = self
+                    .counters
+                    .ranges
+                    .iter()
+                    .find(|&&(length, start, step, _)| (length, start, step) == entry)
+                    .map(|&(.., stop)| stop);
+                stop.is_some() && super::known::known_signed(&self.bcx.func.dfg, entry.2) == Some(1)
             }
         });
         let unit_steps = range
@@ -1463,6 +1509,17 @@ impl Lowerer<'_, '_> {
         });
         if let Some(range) = range_nonnegative {
             self.counters.nonnegative_locals.push(range.target);
+        }
+        let invariant = self.counters.bounds.invariant_locals.len();
+        self.enter_invariant_locals(condition, body);
+        // Each body value of the counter is an element of the range, so it
+        // is below the range's stop.
+        let below = range
+            .as_ref()
+            .zip(stop)
+            .map(|(range, stop)| (range.target, stop));
+        if let Some(below) = below {
+            self.counters.bounds.below_locals.push(below);
         }
         let header = self.bcx.create_block();
         let iteration = self.bcx.create_block();
@@ -1497,6 +1554,10 @@ impl Lowerer<'_, '_> {
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
+        if below.is_some() {
+            self.counters.bounds.below_locals.pop();
+        }
+        self.counters.bounds.invariant_locals.truncate(invariant);
         if range_nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
         }
