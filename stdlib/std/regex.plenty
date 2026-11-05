@@ -951,6 +951,26 @@ pub class Captures:
                 return self.get(index)
         Nothing
 
+# Conservative Shift-And scan, shared by the VM and the lazy DFA. The
+# returned work count includes every inspected byte, including no-match scans.
+def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
+    # Callers maintain 0 <= used <= maximum and 0 <= start <= len(data).
+    # width is 1..8 and state has only eight bits. The slice iterator's
+    # index counts inspected bytes; update offsets/work only when returning.
+    unchecked:
+        mut state = 0
+        available = maximum - used
+        accept = 1 << (program._filter_width - 1)
+        for index, raw in enumerate(&data[start:]):
+            if index >= available:
+                return Err(RegexError.LimitExceeded(Limit.Work))
+            state = ((state << 1) | 1) & program._filter[i64(*raw)]
+            if state & accept != 0:
+                consumed = index + 1
+                return Ok((start + consumed - program._filter_width, used + consumed))
+        Ok((-1, used + (len(data) - start)))
+
+
 # A bounded lazy DFA. States are unordered epsilon-closed NFA subsets: this
 # suffices for existence, and for offsets only when every match has the same
 # byte length. Captures and variable-length leftmost-first searches use Vm.
@@ -977,14 +997,20 @@ class Dfa:
                 self._work += 1
                 return Ok(at)
             while at < end:
-                if current == 0 and textual and program._prefix.byte_len() > 0:
+                if current == 0 and program._filter_width > program._prefix.byte_len():
+                    found, work = prefix_candidate(program, data, at, self._work, maximum)?
+                    self._work = work
+                    if found < 0:
+                        return Ok(-1)
+                    at = found
+                elif current == 0 and textual and program._prefix.byte_len() > 0:
                     at = __regex_text_find(text, &program._prefix, at)
                     if at < 0:
                         return Ok(-1)
                 if self._work >= maximum:
                     return Err(RegexError.LimitExceeded(Limit.Work))
                 self._work += 1
-                byte = __regex_text_byte(text, at) if textual else i64(data[at])
+                byte = i64(data[at])
                 if byte >= 128:
                     # Text starts at a scalar boundary and must keep it for
                     # the next native prefix lookup. The ASCII-only DFA
@@ -1106,23 +1132,9 @@ class Vm:
     # width, so the first completed window is the earliest possible start.
     # Non-ASCII bytes reset the window, including invalid UTF-8 in byte input.
     def candidate(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
-        # width is 1..8; state has at most eight bits. at advances only below
-        # the input length and a completed window contains width bytes.
-        unchecked:
-            mut state = 0
-            mut at = start
-            end = input_len(text, data, textual)
-            accept = 1 << (program._filter_width - 1)
-            while at < end:
-                if self._work >= self._max_work:
-                    return Err(RegexError.LimitExceeded(Limit.Work))
-                self._work += 1
-                byte = __regex_text_byte(text, at) if textual else i64(data[at])
-                state = ((state << 1) | 1) & program._filter[byte]
-                at += 1
-                if state & accept != 0:
-                    return Ok(at - program._filter_width)
-            Ok(-1)
+        found, work = prefix_candidate(program, data, start, self._work, self._max_work)?
+        self._work = work
+        Ok(found)
 
     # At most one consuming path can win for each ASCII byte. Remembering the
     # last accepting position preserves greedy choices without backtracking.
@@ -1156,7 +1168,7 @@ class Vm:
                     if remaining == 0:
                         return Ok(-2)
                     remaining -= 1
-                    byte = __regex_text_byte(text, at) if textual else i64(data[at])
+                    byte = i64(data[at])
                     if byte >= 128:
                         return Ok(-2)
                     target = program._one[pc * 129 + byte]
@@ -1180,6 +1192,13 @@ class Vm:
     # its slots in `_found`. With `early`, stops at the first match of any
     # length without recording it.
     def search(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+        if textual:
+            return self.search_bytes(program, text, __regex_text_bytes(text), True, start, early)
+        self.search_bytes(program, text, data, False, start, early)
+
+    # Borrow UTF-8 storage once for all ASCII accelerators; scalar decoding
+    # and assertions still use the original text and its boundary semantics.
+    def search_bytes(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
         if not early and self._slots == 2 and len(program._one) > 0:
             end = self.one_pass(program, text, data, textual, start)?
             if end != -2:

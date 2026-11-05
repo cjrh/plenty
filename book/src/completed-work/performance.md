@@ -173,7 +173,8 @@ and structural value define identity. Floats, boxes and recursive types remain e
 most 256 values use the bitset specialization described here. See [collections](../design/facilities/01-builtins/collections.md).
 
 
-Collections use SipHash-2-4 with a per-process OS key (issue #329), and record
+Collections use SipHash-2-4 with a per-process OS key (issue #329; issue #747
+later moved to SipHash-1-3 with direct `str`, `bytes` and scalar key paths), and record
 traversal performs linear field-offset work per pass (issue #330). The built-in `KeyType` constraint now exposes the same key admission rule on
 functions, methods, classes and enums; see [generics](../design/language/07-generics/index.md#keytype).
 Custom-cleanup keys use the same structural identity without making their

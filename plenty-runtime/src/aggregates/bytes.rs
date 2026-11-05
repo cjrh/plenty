@@ -102,8 +102,7 @@ pub(super) unsafe fn call(
             }
             145 => {
                 let bytes = contiguous(&*(a as *const Collection))?;
-                let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidUtf8)?;
-                Ok(strings::try_new(text)? as u128)
+                Ok(strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)?? as u128)
             }
             146 => write(
                 super::byte_storage::view_bytes(a),

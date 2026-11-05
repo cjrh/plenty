@@ -1158,3 +1158,96 @@ def main() -> Result[(), AllocError | IoError | RegexError]:
         );
     }
 }
+
+#[test]
+fn text_byte_view_borrows_inline_heap_and_substrings() {
+    support::assert_stdout(
+        r#"
+def show(data: &[u8]) -> Result[(), IoError]:
+    print(data)?
+    Ok(())
+
+def temporary() -> Result[str, AllocError]:
+    "é".repeat(4)
+
+def main() -> Result[(), AllocError | IoError]:
+    inline = "aé"
+    heap = "aé".repeat(4)?
+    show(__regex_text_bytes(&inline))?
+    show(__regex_text_bytes(&heap))?
+    show(__regex_text_bytes(&heap[1:3]))?
+    show(__regex_text_bytes(&temporary()?))?
+    show(__regex_text_bytes(""))?
+    Ok(())
+"#,
+        "b\"a\\xc3\\xa9\"\nb\"a\\xc3\\xa9a\\xc3\\xa9a\\xc3\\xa9a\\xc3\\xa9\"\nb\"\\xc3\\xa9a\"\nb\"\\xc3\\xa9\\xc3\\xa9\\xc3\\xa9\\xc3\\xa9\"\nb\"\"\n",
+    );
+}
+
+#[test]
+fn text_byte_view_cannot_escape_or_mutate_its_owner() {
+    for source in [
+        "text = \"abc\"\nv = __regex_text_bytes(&text)",
+        "def escape(text: &str) -> &[u8]:\n    __regex_text_bytes(text)",
+    ] {
+        assert!(support::check_diagnostic(source).contains("view"));
+    }
+    let error = support::check_diagnostic(
+        r#"
+def consume(data: &[u8], text: &mut str) -> i64:
+    len(data)
+mut text = "abc"
+n = consume(__regex_text_bytes(&text), &mut text)
+"#,
+    );
+    assert!(error.contains("borrow"), "{error}");
+}
+
+#[test]
+fn dfa_prefix_skips_charge_every_byte_and_keep_false_candidates() {
+    native(
+        r#"
+mut limits = std.regex.limits()
+limits.max_work = 5
+r = std.regex.compile("ab|cd", &limits)?
+print(r.is_match("zzzzz")?)?
+print(shown(r.is_match("zzzzzz"))?)?
+print(r.is_match("ézzz")?)?
+print(shown(r.is_match("ézzzz"))?)?
+data = std.bytes.from_bytes(b"\xffzzzz")?
+print(r.is_match_bytes(&data)?)?
+full = std.regex.compile("ab|cd", &std.regex.limits())?
+print(spans(&full.find_all("adcbcdab", 10)?)?)?
+"#,
+        "False\nLimitExceeded(Work)\nFalse\nLimitExceeded(Work)\nFalse\n4-6,6-8",
+    );
+}
+
+#[test]
+fn prefix_scan_accounts_at_the_maximum_work_counter() {
+    let library = include_str!("../stdlib/std/regex.plenty");
+    let scan = &library[library.find("def prefix_candidate(").unwrap()
+        ..library.find("# A bounded lazy DFA.").unwrap()];
+    let source = format!(
+        r#"from std.regex import RegexError, Limit
+class Regex:
+    _filter_width: i64
+    _filter: list[i64]
+{scan}
+def main() -> Result[(), AllocError | IoError | RegexError]:
+    mut masks = list[i64].new()?
+    for _ in range(256):
+        masks.append(0)?
+    program = Regex(1, masks)
+    print(prefix_candidate(&program, b"zzzzz", 0, 9223372036854775802, i64.MAX)?)?
+    print(prefix_candidate(&program, b"zzzzzz", 1, 9223372036854775802, i64.MAX)?)?
+    print(prefix_candidate(&program, b"zzzzzz", 0, 9223372036854775802, i64.MAX).is_err())?
+    print(prefix_candidate(&program, b"", 0, i64.MAX, i64.MAX)?)?
+    Ok(())
+"#
+    );
+    assert_eq!(
+        output(&source),
+        "(-1, 9223372036854775807)\n(-1, 9223372036854775807)\nTrue\n(-1, 9223372036854775807)"
+    );
+}

@@ -11,6 +11,8 @@ pub enum RegexOp {
     TextSlice,
     TextFind,
     Case,
+    /// Retag a borrowed UTF-8 view as bytes; the frontend retains its loan.
+    TextBytes,
 }
 
 impl RegexOp {
@@ -22,12 +24,17 @@ impl RegexOp {
             "__regex_text_slice" => Self::TextSlice,
             "__regex_text_find" => Self::TextFind,
             "__regex_case" => Self::Case,
+            "__regex_text_bytes" => Self::TextBytes,
             _ => return None,
         })
     }
 
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         match self {
+            Self::TextBytes => (
+                vec![crate::frontend::text_view()],
+                crate::bytes::byte_view(),
+            ),
             Self::Property => (vec![Ty::U32, Ty::I64], Ty::Bool),
             // `code * 8 + width` of the scalar at a byte offset, -1 at the
             // end, or -2 when the offset is not a scalar boundary.
@@ -46,6 +53,7 @@ impl RegexOp {
     }
 
     pub fn opcode(self) -> i64 {
+        assert!(self != Self::TextBytes, "text byte views lower directly");
         360 + self as i64
     }
 }
