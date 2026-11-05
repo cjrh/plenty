@@ -190,7 +190,9 @@ and before passing an exclusive view of it.
 
 A view's length never changes, so `v[i]` in `for i in range(len(v))`
 compiles without a bounds check, as described for
-[lists](../../facilities/01-builtins/lists.md).
+[lists](../../facilities/01-builtins/lists.md). An in-place reversal,
+`while lo < hi:` starting with `v.swap(lo, hi)` or `v[hi]`, checks its
+first pass's indices once, before the loop, as described there.
 
 ```plenty
 def even(x: &i64) -> bool:

@@ -1138,3 +1138,153 @@ fn range_counters_trap_after_their_length_loan_ends(
         "{call} {mode}\n{stderr}"
     );
 }
+
+/// `while lo < hi` loops whose body starts with an access indexed by `hi`
+/// through an unchanging view, `hi` only decreasing (issue #728).
+const RELATION: &str = r#"
+def reverse(s: &mut [i64], first: i64) -> Result[(), OverflowError[i64]]:
+    mut lo = 1
+    mut hi = first - 1
+    while lo < hi:
+        s.swap(lo, hi)
+        lo += 1
+        hi -= 1
+    Ok(())
+def from_top(s: &[i64]) -> Result[i64, OverflowError[i64]]:
+    low = 0
+    mut hi = len(s) - 1
+    mut t = 0
+    while low < hi:
+        t = s[hi] + t * 10
+        hi -= 2
+    Ok(t)
+def from_param(s: &[i64], lo: i64) -> Result[i64, OverflowError[i64]]:
+    mut low = lo
+    mut hi = len(s) - 1
+    mut t = 0
+    while low < hi:
+        t += s[hi]
+        low += 1
+    Ok(t)
+def low_only(s: &[i64], hi: i64) -> Result[i64, OverflowError[i64]]:
+    mut lo = 0
+    mut high = hi
+    mut t = 0
+    while lo < high:
+        t += s[lo]
+        lo += 1
+        high -= 1
+    Ok(t)
+def offset(s: &mut [i64], hi: i64) -> Result[(), OverflowError[i64]]:
+    mut lo = 0
+    mut high = hi
+    while lo < high:
+        s.swap(lo, high - 1)
+        lo += 1
+        high -= 1
+    Ok(())
+def grows(s: &[i64], hi: i64) -> Result[i64, OverflowError[i64]]:
+    mut lo = 0
+    mut high = hi
+    mut t = 0
+    while lo < high:
+        t += s[high]
+        lo += 2
+        high += 1
+    Ok(t)
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [0, 1, 2, 3, 4, 5, 6].unwrap()
+    reverse(&mut xs[:], 6)?
+    print(xs).unwrap()
+    reverse(&mut xs[2:], 1)?
+    print(from_top(&xs[:])?, from_top(&xs[:1])?).unwrap()
+    print(low_only(&xs[:], 3)?).unwrap()
+    offset(&mut xs[:4], 4)?
+    print(xs).unwrap()
+    print(grows(&xs[:], 2)?).unwrap()
+    Ok(())
+"#;
+
+#[test]
+fn relational_counters_keep_their_results() {
+    support::assert_stdout(
+        RELATION,
+        "[0, 5, 4, 3, 2, 1, 6]\n624 0\n5\n[3, 4, 5, 0, 2, 1, 6]\n5\n",
+    );
+}
+
+#[rstest]
+#[case("reverse(&mut xs[:3], 6)?", "index 5, length 3")]
+#[case("reverse(&mut xs[:1], 6)?", "index 1, length 1")]
+#[case("print(grows(&xs[:], 7)?).unwrap()", "index 7, length 7")]
+fn relational_counters_trap_as_the_first_pass_would(#[case] call: &str, #[case] message: &str) {
+    let source = RELATION.replace(
+        "    print(xs).unwrap()\n    reverse(&mut xs[2:]",
+        &format!("    {call}\n    print(xs).unwrap()\n    reverse(&mut xs[2:]"),
+    );
+    for mode in ["--fast-compile", "--release"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("relation.plenty");
+        std::fs::write(&path, &source).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PLENTY_CACHE", "off")
+            .arg(mode)
+            .arg(&path)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{call} {mode}\n{stderr}");
+        assert!(
+            stderr.contains(&format!("index out of bounds: {message}")),
+            "{call} {mode}\n{stderr}"
+        );
+    }
+}
+
+/// Calls to `plenty_trap_list_index` in or after the first loop header of
+/// `clif`, a back-edge target: a check before the loop comes earlier.
+fn loop_index_traps(clif: &str) -> usize {
+    let lines: Vec<&str> = clif.lines().collect();
+    let label = |line: &str| {
+        let name = line.split(['(', ':']).next()?;
+        (name.starts_with("block") && !line.starts_with(' ')).then(|| name.to_string())
+    };
+    let header = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(at, line)| Some((at, label(line)?)))
+        .find(|(at, name)| {
+            lines[at + 1..]
+                .iter()
+                .any(|line| line.trim_start().starts_with(&format!("jump {name}(")))
+        })
+        .map_or(lines.len(), |(at, _)| at);
+    let traps: Vec<String> = lines
+        .iter()
+        .filter(|line| line.ends_with("; plenty_trap_list_index"))
+        .filter_map(|line| Some(line.trim().split(' ').next()?.to_string()))
+        .collect();
+    lines[header..]
+        .iter()
+        .filter(|line| {
+            traps
+                .iter()
+                .any(|name| line.contains(&format!("call {name}(")))
+        })
+        .count()
+}
+
+#[test]
+fn relational_counters_check_before_the_loop() {
+    for (name, in_loop) in [
+        ("reverse", 0),
+        ("from_top", 0),
+        ("from_param", 1),
+        ("low_only", 1),
+        ("offset", 2),
+        ("grows", 1),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), RELATION);
+        assert_eq!(loop_index_traps(&clif), in_loop, "{name}\n{clif}");
+    }
+}

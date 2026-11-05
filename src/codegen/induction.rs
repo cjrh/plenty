@@ -639,3 +639,140 @@ pub(super) fn nonnegative_constant(dfg: &DataFlowGraph, value: Value) -> bool {
     let sign = dfg.value_type(value).bits() - 1;
     super::known::known_int(dfg, value).is_some_and(|bits| bits >> sign & 1 == 0)
 }
+
+/// A `while low < high` loop whose body begins with a checked access to a
+/// view local, indexed by `high` and possibly `low` (issue #728), as in an
+/// in-place reversal:
+///
+/// ```text
+/// while lo < hi:
+///     s.swap(lo, hi)
+///     lo += 1
+///     hi -= 1
+/// ```
+///
+/// If every write to `high` subtracts a constant with checked arithmetic,
+/// each pass's `high` is at most its value on entry, so a check of the entry
+/// value done once before the loop bounds every pass's `high`; with `low`
+/// nonnegative, `low < high` bounds `low` too. The caller makes that check
+/// only when the loop runs, `low < high` on entry, and makes it exactly as
+/// the first pass's access would: the access is reached from the condition
+/// by reads and moves of locals alone, so nothing observable happens between
+/// the two. The facts hold for reads in the first `prefix` body operations,
+/// before any write to `low` or `high`.
+pub(super) struct Relation {
+    pub low: u8,
+    pub high: u8,
+    pub view: u8,
+    pub ty: Ty,
+    /// The access's index locals, in the order it checks them.
+    pub indices: Vec<u8>,
+    pub site: Option<crate::ownership::Site>,
+    pub prefix: usize,
+}
+
+/// Match a loop that [`Relation`] describes; the caller still checks that
+/// `low` is a nonnegative counter, that both are `i64`, and that the view is
+/// loop-invariant.
+pub(super) fn analyze_relation(condition: &[Op], body: &[Op]) -> Option<Relation> {
+    let condition_ops: Vec<&Op> = condition.iter().filter(|op| !transparent(op)).collect();
+    let [Op::LoadLocal(low), Op::LoadLocal(high), Op::Lt] = condition_ops[..] else {
+        return None;
+    };
+    let (low, high) = (*low, *high);
+    if low == high || !writes_only_shrink(body, high) {
+        return None;
+    }
+    let prefix = body
+        .iter()
+        .position(|op| {
+            let (mut read, mut written) = (HashSet::default(), HashSet::default());
+            local_uses(std::slice::from_ref(op), &mut read, &mut written);
+            written.contains(&low) || written.contains(&high)
+        })
+        .unwrap_or(body.len());
+    // A small stack machine over the operations before the access: each
+    // stack entry is the local whose value it holds.
+    let mut stack: Vec<u8> = Vec::new();
+    let mut temporaries: HashMap<u8, u8> = HashMap::default();
+    let mut site = None;
+    for op in &body[..prefix] {
+        match op {
+            Op::Site(at) => site = Some(*at),
+            Op::Access(..) | Op::Loan(_) | Op::UseLoan(_) | Op::Reborrow(Ty::View(..)) => {}
+            Op::LoadLocal(local) => stack.push(*local),
+            Op::StoreLocal(local) => {
+                temporaries.insert(*local, stack.pop()?);
+            }
+            Op::MoveLocal(local) => stack.push(temporaries.remove(local)?),
+            Op::Collection(operation) => {
+                let (ty, count) = match operation {
+                    crate::collection::CollectionOp::ViewSwap(ty) => (ty, 2),
+                    crate::collection::CollectionOp::ViewRow(ty, _) => (ty, 1),
+                    _ => return None,
+                };
+                let indices = stack.split_off(stack.len().checked_sub(count)?);
+                let view = stack.pop()?;
+                let known = indices.iter().all(|&index| index == low || index == high);
+                if !known || !indices.contains(&high) {
+                    return None;
+                }
+                return Some(Relation {
+                    low,
+                    high,
+                    view,
+                    ty: ty.clone(),
+                    indices,
+                    site,
+                    prefix,
+                });
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn moves(op: &Op, local: u8) -> bool {
+    matches!(
+        op,
+        Op::BorrowLocal(i, _) | Op::MoveLocal(i) | Op::DropLocal(i) | Op::Next(i) if *i == local
+    )
+}
+
+/// Whether every write to `local` in `ops` and their nested bodies is a
+/// checked subtraction of a nonnegative constant, which cannot wrap.
+fn writes_only_shrink(ops: &[Op], local: u8) -> bool {
+    ops.iter().enumerate().all(|(index, op)| match op {
+        _ if moves(op, local) => false,
+        Op::EmptyLocal(i) => *i != local,
+        Op::StoreLocal(i) if *i == local => {
+            step(ops, index, local).is_some_and(|(arith, delta)| {
+                delta <= 0 && matches!(ops[arith], Op::CheckedArith { .. })
+            })
+        }
+        Op::Loop { condition, body } => {
+            writes_only_shrink(condition, local) && writes_only_shrink(body, local)
+        }
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            writes_only_shrink(then, local)
+                && elifs.iter().all(|arm| {
+                    writes_only_shrink(&arm.condition, local)
+                        && writes_only_shrink(&arm.body, local)
+                })
+                && writes_only_shrink(otherwise, local)
+        }
+        Op::Match(arms) => arms.iter().all(|arm| writes_only_shrink(&arm.body, local)),
+        Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+            writes_only_shrink(cleanup, local)
+        }
+        Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+            writes_only_shrink(body, local)
+        }
+        _ => true,
+    })
+}

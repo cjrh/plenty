@@ -23,6 +23,15 @@ length cannot change while the function runs. Indexing any other list with
 `i`, including through a shared reference made inside the function, or a
 range with any other stop, keeps the check.
 
+A `while lo < hi` loop over a slice view checks once, before the loop, when
+its body begins by indexing the view with `hi`, and possibly `lo`, as
+`v.swap(lo, hi)` or `t += v[hi]` does. The view must be one the loop does not
+reassign, `lo` must start nonnegative and only grow, and `hi` must change only
+by checked subtraction of constants. Each pass's `hi` is then at most its
+first value, and `lo` is below `hi`. The check runs only when the loop does,
+and fails with the first pass's message and site. A body that starts with any
+other operation that can fail, such as `t * 10 + v[hi]`, keeps its checks.
+
 ## Storage costs
 
 Scalar lists store elements at their declared widths: one byte for `bool`, `i8`
