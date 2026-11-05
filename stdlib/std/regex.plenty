@@ -985,10 +985,15 @@ class Dfa:
                     return Err(RegexError.LimitExceeded(Limit.Work))
                 self._work += 1
                 byte = __regex_text_byte(text, at) if textual else i64(data[at])
-                at += 1
                 if byte >= 128:
+                    # Text starts at a scalar boundary and must keep it for
+                    # the next native prefix lookup. The ASCII-only DFA
+                    # cannot match any part of this scalar. Byte buffers may
+                    # contain invalid UTF-8, so keep their byte-wise advance.
+                    at += (__regex_text_at(text, at) & 7) if textual else 1
                     current = 0
                     continue
+                at += 1
                 edge = current * 128 + byte
                 mut target = self._edges[edge]
                 if target == 0:

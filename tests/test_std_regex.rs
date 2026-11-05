@@ -19,7 +19,7 @@ def spans(found: &list[Match]) -> Result[str, AllocError | IoError]:
         parts.append(span(found[index].start, found[index].end)?)?
     Ok(",".join(parts)?)
 
-# Every match, then the groups of the first match.
+# Existence, every match, then the groups of the first match.
 def report(regex: &Regex, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
     found = regex.find_all(text, 1000)?
     mut groups = list[str].new()?
@@ -33,7 +33,7 @@ def report(regex: &Regex, text: &str) -> Result[str, AllocError | IoError | std.
                         groups.append("_")?
         case Nothing:
             groups.append("none")?
-    parts = [spans(&found)?, " ".join(groups)?]?
+    parts = [str.repr(regex.is_match(text)?)?, spans(&found)?, " ".join(groups)?]?
     Ok(" | ".join(parts)?)
 
 def check(pattern: &str, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
@@ -212,6 +212,8 @@ const PATTERNS: &[(&str, &str)] = &[
     ("[cgt]gggtaaa|tttaccc[acg]", ""),
     ("a[act]ggtaaa|tttacc[agt]t", ""),
     ("abxy|cdzw", ""),
+    ("ab[cd]", ""),
+    ("[a]b[cd]", ""),
     ("(?:ab|cd)+e", ""),
     ("(ab)|(abcd)", ""),
     ("(abcd)|(ab)", ""),
@@ -266,6 +268,11 @@ const HAYSTACKS: &[&str] = &[
     "abbbb ccc az aaaaaz",
     "<abc><é><><abc",
     "abbbbbbbbbbbbbbbbbbbbb",
+    "aéab",
+    "abéabc",
+    "ab€abc",
+    "ab😀abc",
+    "abé€😀abcabéabd",
 ];
 
 fn expected(pattern: &str, text: &str) -> String {
@@ -285,7 +292,14 @@ fn expected(pattern: &str, text: &str) -> String {
             .join(" "),
         None => "none".to_owned(),
     };
-    format!("{spans} | {groups}")
+    format!(
+        "{} | {spans} | {groups}",
+        if regex.is_match(text) {
+            "True"
+        } else {
+            "False"
+        }
+    )
 }
 
 #[test]
@@ -348,6 +362,54 @@ filter = std.regex.compile("abx|cdy", &tiny)?
 print(shown(filter.captures("abx"))?)?
 "#,
         "2-4,5-7,7-9\n2-4,5-7,7-9\n5\nOutOfRange\n1-3,5-7,8-10\nTrue\nLimitExceeded(Work)\nLimitExceeded(Work)\nLimitExceeded(Work)",
+    );
+}
+
+#[test]
+fn dfa_restarts_after_complete_utf8_scalars() {
+    // A failed partial match must not hide later matches. Exercise both the
+    // native literal-prefix restart and the DFA without a literal prefix.
+    native(
+        r#"
+for pattern in ["ab[cd]", "[a]b[cd]"]?:
+    r = std.regex.compile(&pattern, &std.regex.limits())?
+    for scalar, width in [("é", 2), ("€", 3), ("😀", 4)]?:
+        text = f"ab{scalar}abcab{scalar}abd"?
+        first = 2 + width
+        second = first + 5 + width
+        print(r.is_match(&text)?)?
+        m = r.find(&text)?.unwrap()
+        c = r.captures(&text)?.unwrap().get(0).unwrap()
+        print(m.start == first and m.end == first + 3, c.start == first and c.end == first + 3)?
+        later = r.find_at(&text, first + 3)?.unwrap()
+        caps = r.captures_at(&text, first + 3)?.unwrap().get(0).unwrap()
+        print(later.start == second and later.end == second + 3, caps.start == second)?
+        all = r.find_all(&text, 10)?
+        print(len(all) == 2 and all[0].start == first and all[1].start == second)?
+        mut cursor = r.cursor()?
+        a = r.next_match(&text, &mut cursor)?.unwrap()
+        b = r.next_match(&text, &mut cursor)?.unwrap()
+        print(a.start == first and b.start == second, r.next_match(&text, &mut cursor)?.is_none())?
+        print(r.replace_all(&text, "X", 100)? == f"ab{scalar}Xab{scalar}X"?)?
+        print("|".join(r.split(&text, 10)?)? == f"ab{scalar}|ab{scalar}|"?)?
+        tail = f"ab{scalar}"?
+        print(not r.is_match(&tail)?, r.find(&tail)?.is_none())?
+        data = std.bytes.from_text(&text)?
+        print(r.is_match_bytes(&data)?, r.find_bytes(&data, 0)?.unwrap().start == first)?
+variable = std.regex.compile("a+b", &std.regex.limits())?
+for text in ["aéab", "a€ab", "a😀ab", "aé€😀ab"]?:
+    print(variable.is_match(&text)?, variable.find(&text)?.is_some())?
+# Invalid bytes remain independent non-matching units, never scalar widths.
+r = std.regex.compile("ab[cd]", &std.regex.limits())?
+data = std.bytes.from_bytes(b"ab\xffabcab\xc3abdab\x80abc")?
+print(spans(&r.find_all_bytes(&data, 10)?)?, r.is_match_bytes(&data)?)?
+"#,
+        &format!(
+            "{}{}3-6,9-12,15-18 True",
+            "True\nTrue True\nTrue True\nTrue\nTrue True\nTrue\nTrue\nTrue True\nTrue True\n"
+                .repeat(6),
+            "True True\n".repeat(4),
+        ),
     );
 }
 
