@@ -1,0 +1,27 @@
+# Historical text scanner: one runtime call per byte, before issue #753.
+def scan(text: &str, masks: &[i64], start: i64, width: i64, maximum: i64) -> (i64, i64):
+    mut state = 0
+    mut at = start
+    mut work = 0
+    # Probe preconditions: start in 0..text.byte_len(), width in 1..8, maximum >= 0,
+    # and 256 masks containing only their low eight bits.
+    unchecked:
+        accept = 1 << (width - 1)
+        while at < text.byte_len():
+            if work >= maximum:
+                return (-2, work)
+            work += 1
+            state = ((state << 1) | 1) & masks[__regex_text_byte(text, at)]
+            at += 1
+            if state & accept != 0:
+                return (at - width, work)
+        (-1, work)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut masks = list[i64].new()?
+    for _ in range(256):
+        masks.append(0)?
+    masks[97] = 1
+    masks[98] = 2
+    print(scan("zzab", &masks, 0, 2, 100))?
+    Ok(())

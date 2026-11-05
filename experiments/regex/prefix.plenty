@@ -1,5 +1,5 @@
 # The prefix scanner's hot loop over a borrowed byte view. The production
-# matcher also dispatches borrowed str reads through __regex_text_byte.
+# matcher now borrows text as this same byte view once per search.
 def scan(data: &[u8], masks: &[i64], start: i64, width: i64, maximum: i64) -> (i64, i64):
     mut state = 0
     mut at = start

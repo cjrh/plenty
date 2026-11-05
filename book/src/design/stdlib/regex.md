@@ -234,12 +234,13 @@ The compiler selects these accelerators without changing match semantics:
 - A case-sensitive literal prefix uses substring search in text. For programs
   of at most 256 instructions, a bit-parallel filter can instead recognize up
   to eight mandatory ASCII positions across alternatives and positive range
-  classes. It admits possible matches for the VM to confirm; nullable,
+  classes. It admits possible matches for the matching engine to confirm; nullable,
   case-insensitive or non-ASCII paths shorten or disable this filter.
 - For ASCII-only programs of at most 62 instructions without assertions, a
   lazy DFA answers existence searches. When every match has the same byte
   length, it also supplies match offsets for searches, cursors and replacements.
-  Its 64-state cache is local to the matcher and reused by a cursor. Cache
+  At its initial state it uses the same mandatory-prefix filter to skip
+  impossible starts. Its 64-state cache is local to the matcher and reused by a cursor. Cache
   exhaustion disables the DFA for that matcher and resumes the VM.
 - For small programs without assertions, a one-pass table accelerates searches
   that need only whole-match offsets when each ASCII byte has at most one
@@ -247,6 +248,10 @@ The compiler selects these accelerators without changing match semantics:
   transfers to the VM. Failed anchored attempts can consume at most one input
   length before fallback, preventing quadratic rescanning. The table has at
   most 62 × 129 entries and is built only with sufficient memory headroom.
+
+ASCII accelerators borrow the text's UTF-8 bytes once per search and read the
+view directly, without allocating or calling the runtime for each byte.
+Scalar decoding and assertions retain their Unicode boundary semantics.
 
 Captures requiring subgroup positions use the Pike VM, with prefix filtering
 where applicable. Unsupported patterns continue to use the VM. Each search

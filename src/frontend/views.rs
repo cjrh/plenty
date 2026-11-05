@@ -407,6 +407,23 @@ impl Lower<'_> {
         text: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        // This intrinsic is argument-only: forward the substring's loan to
+        // the consuming call instead of returning an untracked borrowed value.
+        if let Expression::Call(name, args) = &ungroup(arg).kind
+            && name == "__regex_text_bytes"
+        {
+            if mutable || text || args.len() != 1 {
+                return Err(arg.at.error(
+                    "__regex_text_bytes takes one text borrow at a shared byte-view parameter",
+                ));
+            }
+            let (view, loan) = self.view_argument(&args[0], false, true, ops)?;
+            self.same(Some(view), Some(text_view()), &arg.at)?;
+            ops.push(Op::Collection(CollectionOp::Regex(
+                crate::regex::RegexOp::TextBytes,
+            )));
+            return Ok((crate::bytes::byte_view(), loan));
+        }
         let held = if mutable {
             None
         } else {
