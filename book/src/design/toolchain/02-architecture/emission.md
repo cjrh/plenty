@@ -3,6 +3,11 @@
 Generic declarations produce cached concrete specializations. Names, types, and
 operations are resolved before Cranelift receives IR; runtime metadata describes
 known storage and operations, not dynamic inference.
+[Value parameters](../../language/07-generics/values.md) enter the same instance
+keys as typed integer or boolean constants, distinct from type arguments.
+Equal resolved constants share an instance even when spelled through different
+module constants; different values consume separate instances. Substitution
+turns body reads into typed literals and adds no runtime parameter.
 
 Placeholder identities and queued concrete signatures break recursive checking
 dependencies. Each generic function or method allows 16,384 instances. A
@@ -13,7 +18,7 @@ without end must grow the instances of one of them without end. A chain in
 which no declaration repeats is no longer than that number, so only repeats
 can exceed the depth limit: a finite chain through distinct generic functions,
 however long, does not reach it (issue #435). Independent calls start at depth one, even when they specialize
-the same template with different types. A new instance inherits its first
+the same template with different arguments. A new instance inherits its first
 requiring caller's depth plus one; lifted closures and generated call wrappers
 preserve that depth. Repeated calls, ordinary recursion, and alias-equivalent
 arguments reuse cached specializations without spending any limit. The depth

@@ -69,7 +69,9 @@ fn expression(e: &Expr, forbidden: &HashSet<String>) -> Result<()> {
         }
         Expression::Ambiguous { generic, index } => {
             expression(generic, forbidden)?;
-            expression(index, forbidden)?;
+            if let Ok(index) = index {
+                expression(index, forbidden)?;
+            }
         }
         Expression::Conditional { condition, yes, no } => {
             expression(condition, forbidden)?;

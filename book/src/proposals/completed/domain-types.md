@@ -8,7 +8,8 @@ The [numbers reference](../../design/language/03-types/numbers.md#positive-and-n
 defines the types and the
 [std conventions](../../design/stdlib/conventions.md#invalid-arguments) the
 parameter rule. What shipped differs from the tables below as listed in
-[As shipped](#as-shipped); `Bounded` is B96 and a compile-time check of fixed
+[As shipped](#as-shipped); [`Bounded`](../../design/language/03-types/bounded.md)
+now has its own implementation under B96, and a compile-time check of fixed
 ceilings is issue #686.
 
 ## Problem
@@ -388,10 +389,12 @@ def configured(settings: &Settings) -> Result[Positive[i64], AppError]:
 ## Alternatives
 
 - **`Bounded[T, lo, hi]`.** States every domain in the tables, including
-  ceilings and `>= 2`. Needs value generics (B83, accepted, not shipped), and
-  the arithmetic rules depend on the bounds: `Bounded[i64, 1, 64] + 1` has no
-  simple result type. Rejected (user decision); two fixed domains cover the
-  common cases now.
+  ceilings and `>= 2`. Initially deferred in favor of two fixed domains;
+  [bounded integers](../../design/language/03-types/bounded.md) now implement
+  this as a separate type using B83 value parameters. The arithmetic rules
+  would depend on the bounds: `Bounded[i64, 1, 64] + 1` has no
+  simple result type. `Bounded` therefore uses explicit `.get()` for arithmetic;
+  the two fixed domains keep their existing operations.
 - **Unsigned parameters.** `max_bytes: u64` rules out negatives without a new
   type, but breaks the i64 convention for sizes, forces casts at every
   `len()` and index, and `u64` cannot state `>= 1`. Rejected.

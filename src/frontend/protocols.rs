@@ -15,6 +15,12 @@ impl Parser {
         let at = self.take();
         let name = self.name()?;
         let type_params = self.type_parameters()?;
+        if type_params
+            .iter()
+            .any(|(_, b)| b.as_ref().is_some_and(TypeRef::value_parameter))
+        {
+            return Err(at.error("protocols do not accept const parameters"));
+        }
         if type_params.iter().any(|(_, bound)| bound.is_some()) {
             return Err(at.error("protocol parameters do not take constraints; constrain the implementing function's parameters"));
         }
@@ -48,7 +54,9 @@ impl Parser {
                     ));
                 }
                 if bound.as_ref().is_some_and(|b| {
-                    generics::callable_bound(b) || generics::builtin_bound(b).is_some()
+                    b.value_parameter()
+                        || generics::callable_bound(b)
+                        || generics::builtin_bound(b).is_some()
                 }) {
                     return Err(f
                         .at
@@ -463,7 +471,7 @@ fn contains_implementing_type(ty: &Ty, marker: &Ty, aliases: &TypeAliases) -> bo
             continue;
         }
         if let Some((_, arguments)) = aliases.data.arguments(&ty) {
-            pending.extend(arguments);
+            pending.extend(arguments.iter().filter_map(Argument::as_type).cloned());
         }
         match &ty {
             Ty::Callable(sig) | Ty::BoxedCallable(sig) => {

@@ -1,5 +1,7 @@
 # Numeric types and literals
 
+For a fixed inclusive integer interval, use [`Bounded[T, lo, hi]`](bounded.md).
+
 Unsuffixed integers default to `i64`; decimal or exponent literals default to
 `f64`. Width suffixes include `7u8`, `1f32`, `1.5f32`, and `1e-3f64`. Decimal forms
 such as `.5` and `1.` are accepted. Literals must fit their selected width.

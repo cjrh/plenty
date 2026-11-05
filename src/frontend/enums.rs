@@ -213,6 +213,7 @@ pub(super) fn resolve_types(
     classes: &[classes::ClassDecl],
     dimension_names: dimension_diagnostics::Names,
     protocols: &[protocols::Protocol],
+    functions: &[Function],
 ) -> Result<TypeAliases> {
     enum Decl<'a> {
         Alias(&'a TypeAlias),
@@ -261,6 +262,7 @@ pub(super) fn resolve_types(
                     | "NonZero"
                     | "Positive"
                     | "NonNegative"
+                    | "Bounded"
                     | "Quantity"
             )
         {
@@ -275,6 +277,13 @@ pub(super) fn resolve_types(
         }
     }
     let mut resolved = TypeAliases::with_data(enums, classes)?;
+    resolved.constants = Arc::new(
+        functions
+            .iter()
+            .filter(|f| f.name.starts_with("$const."))
+            .map(|f| (f.name.clone(), f.clone()))
+            .collect(),
+    );
     resolved.protocols = Arc::new(
         protocols
             .iter()

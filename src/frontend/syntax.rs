@@ -45,6 +45,8 @@ pub(super) struct TypeRef {
 
 #[derive(Clone, Default)]
 pub(super) struct TypeMetadata {
+    pub(super) value: Option<Box<Expr>>,
+    pub(super) value_parameter: bool,
     /// Substitutes a source type parameter, rather than a written concrete type.
     pub(super) parameter: bool,
     /// Std-only fixed upper bound; resolved types and layout are unchanged.
@@ -179,12 +181,12 @@ pub(super) enum Expression {
     GenericMethod(Box<Expr>, Box<str>, Vec<TypeRef>, Vec<Expr>, Pos),
     /// `base[...]` whose brackets parse both as type arguments and as an index.
     /// `generic` is the Generic* reading, with any call arguments; `index` is
-    /// `Index(base, ...)` without them. The parser cannot tell a local from a
-    /// declaration, so module name resolution keeps one reading and no later
-    /// pass sees this variant.
+    /// `Index(base, ...)` without them, or its nesting diagnostic. Module name
+    /// resolution distinguishes locals from declarations and keeps one reading;
+    /// no later pass sees this variant.
     Ambiguous {
         generic: Box<Expr>,
-        index: Box<Expr>,
+        index: IndexReading,
     },
     Constructor(Box<TypeRef>, Vec<Expr>),
     Unit,
@@ -257,3 +259,6 @@ pub(super) enum Clause {
     Unpack(Vec<String>, Vec<Expr>, Expr),
     If(Expr),
 }
+
+/// A speculative index parse, retaining its structured nesting diagnostic.
+pub(super) type IndexReading = std::result::Result<Box<Expr>, Box<crate::diagnostic::Diagnostic>>;

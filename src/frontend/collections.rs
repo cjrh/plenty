@@ -1403,6 +1403,13 @@ impl Lower<'_> {
                 };
                 self.range(args, (*t).clone(), &e.at, ops).map(Some)
             }
+            _ if expected
+                .as_ref()
+                .is_some_and(|t| self.aliases.bounded(t).is_some())
+                && nonzero::literal(e) =>
+            {
+                self.bounded_literal(e, expected.as_ref().unwrap(), ops)
+            }
             Expression::Number(n)
                 if expected
                     .as_ref()
@@ -3105,6 +3112,14 @@ impl Lower<'_> {
     }
 
     pub(super) fn index(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+        if let Expression::Index(base, _) = &e.kind
+            && let Expression::Name(name) = &base.kind
+            && !self.names.contains_key(name)
+            && (self.generics.templates.contains_key(name) || self.aliases.data.contains(name))
+        {
+            return Err(e.at.error("generic value arguments must be literals, module constants, or value parameters; expressions in brackets are not supported"));
+        }
+
         if let Expression::Index(base, _) = &ungroup(e).kind
             && matches!(self.place_type(base), Some(Ty::Clist(_)))
         {
@@ -3667,6 +3682,9 @@ impl Lower<'_> {
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
+            if name == "try_from" && self.aliases.bounded(&ty).is_some() {
+                return self.bounded_try_from(&ty, args, &base.at, ops);
+            }
             if let Some(result) = self.quantity_static(&ty, name, args, &base.at, ops)? {
                 return Ok(result);
             }

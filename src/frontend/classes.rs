@@ -187,7 +187,7 @@ impl TypeAliases {
         &self,
         class: &crate::nominal::Nominal<ClassType>,
         declaration: &ClassDecl,
-        actual: &[Ty],
+        actual: &[Argument],
     ) -> Result<()> {
         let definition = class.get();
         if !definition.copy || !actual.is_empty() {
@@ -222,6 +222,18 @@ impl TypeAliases {
             .type_params
             .iter()
             .map(|(name, bound)| {
+                if let Some(bound) = bound.as_ref().filter(|b| b.value_parameter()) {
+                    let ty = bound
+                        .name
+                        .as_deref()
+                        .and_then(named_type)
+                        .unwrap_or(Ty::I64);
+                    let value = value_generics::Constant { ty, value: 0 };
+                    return (
+                        name.clone(),
+                        TypeRef::value(value.expression(&declaration.at)),
+                    );
+                }
                 let float = bound
                     .as_ref()
                     .is_some_and(|b| b.name.as_deref() == Some("FloatType"));

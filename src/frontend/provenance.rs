@@ -108,7 +108,15 @@ impl Lower<'_> {
                 let (declaration, actual) = self.aliases.data.origin_class(ty)?;
                 Some(Origin::form(
                     &declaration.name,
-                    actual.into_iter().map(Origin::Parameter).collect(),
+                    actual
+                        .iter()
+                        .map(|a| {
+                            a.as_type()
+                                .cloned()
+                                .map(Origin::Parameter)
+                                .unwrap_or_default()
+                        })
+                        .collect(),
                 ))
             }
         }

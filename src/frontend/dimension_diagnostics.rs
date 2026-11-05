@@ -55,7 +55,13 @@ impl TypeAliases {
                 continue;
             }
             if let Some((_, arguments)) = self.data.arguments(&ty) {
-                pending.extend(arguments.into_iter().rev());
+                pending.extend(
+                    arguments
+                        .iter()
+                        .rev()
+                        .filter_map(Argument::as_type)
+                        .cloned(),
+                );
                 continue;
             }
             match &ty {

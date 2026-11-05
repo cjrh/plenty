@@ -41,6 +41,7 @@ impl Parser {
         ty.metadata = Some(Box::new(TypeMetadata {
             parameter: false,
             ceiling: Some(ceiling),
+            ..Default::default()
         }));
         Ok(ty)
     }
@@ -124,6 +125,7 @@ mod tests {
         f.inputs[0].1.metadata = Some(Box::new(TypeMetadata {
             parameter: false,
             ceiling: Some(64),
+            ..Default::default()
         }));
         let error = match lower(
             resolved,

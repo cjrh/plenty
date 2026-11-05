@@ -373,7 +373,7 @@ fn compile_and_run(source: &str) -> (bool, String, String) {
 #[case::conditionals(conditionals, 61, "7\n", "2:1152")]
 #[case::calls(calls, 62, "7\n", "4:131")]
 #[case::methods(methods, 62, "69\n", "2:998")]
-#[case::indexes(indexes, 62, "7\n", "6:197")]
+#[case::indexes(indexes, 62, "7\n", "6:199")]
 #[case::propagations(propagations, 31, "7\n", "5:231")]
 #[case::tuples(tuples, 62, "7\n", "2:72")]
 #[case::managers(managers, 62, "7\n", "14:13")]

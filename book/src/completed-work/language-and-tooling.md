@@ -5,6 +5,25 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## B83 value parameters and B96 bounded integers
+
+[Value parameters](../design/language/07-generics/values.md) specialize functions,
+methods, classes and enums on integer and boolean constants. Resolved values
+participate in nominal identity and structural inference; typed substitution
+makes them available in bodies without runtime fields. A const parameter can
+use a preceding `T: IntType`, supporting signed and unsigned bound widths.
+
+[`Bounded[T, lo, hi]`](../design/language/03-types/bounded.md) checks inclusive
+bounds at instantiation, admits in-range literals in expected contexts, and
+provides `try_from` returning `RangeError` for computed input and `get` for
+explicit extraction. It reuses private copy-class storage and ownership.
+Regression tests cover widths, boundaries, aliases, imports, privacy, generic
+functions/methods/enums, inference, body forwarding, expected literal contexts,
+copying and moves. The runnable tutorial teaches validation at input boundaries.
+
+This slice uses `Bounded` as the first consumer rather than requiring arrays.
+[Remaining B83/B96 scope](../backlog.md) stays in the backlog.
+
 ## B97 compile-time dimensions
 
 [Dimension declarations and algebra](../design/language/03-types/dimensions.md)

@@ -281,7 +281,7 @@ per-module cache would keep, for each module:
 - its *body*: the lowered, checked operations of its non-generic functions,
   with its string literals as a table of its own, and the generic functions
   and data it defines, in the resolved form that instantiation needs;
-- the generic instances it requests, with their type arguments.
+- the generic instances it requests, with their type and value arguments.
 
 Its key would be a SHA-256 of the module's text, the compiler's identity and
 settings, and the interface hashes of its direct imports. A body edit then

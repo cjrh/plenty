@@ -22,7 +22,8 @@ A constructor's enum qualifier requires explicit arguments:
 [pattern](../04-expressions/matching.md) takes none, because the matched value
 supplies them: `case Choice.Value(value):` matches it. Aliases can name
 complete instances. Different arguments produce different nominal identities
-even when a parameter is absent from every payload.
+even when a parameter is absent from every payload. This includes
+[value parameters](values.md): `Tag[3]` and `Tag[4]` are distinct instances.
 
 Bare `self` uses the current concrete class or enum; an explicit mutable receiver is
 `self: &mut Cell[T]` or `self: &mut Choice[T]`. A by-value receiver is

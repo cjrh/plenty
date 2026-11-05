@@ -277,7 +277,7 @@ pub(super) struct Engine {
     unused_methods: HashMap<String, UnusedMethod>,
     /// Function instance symbols by template (its index in `instantiated`)
     /// and type arguments.
-    cache: HashMap<(u32, Vec<Ty>), String>,
+    cache: HashMap<(u32, Vec<Argument>), String>,
     /// Indices of templates with instances in `instantiated`. Numbering
     /// them spares the cache a name copy per call (issue #436).
     template_ids: HashMap<Arc<str>, u32>,
@@ -728,7 +728,7 @@ fn infer(
     pattern: &TypeRef,
     actual: &Ty,
     template: &Function,
-    inferred: &mut HashMap<String, Ty>,
+    inferred: &mut HashMap<String, Argument>,
     aliases: &TypeAliases,
     at: &Token,
 ) -> Result<()> {
@@ -760,7 +760,7 @@ fn infer_inner(
     pattern: &TypeRef,
     actual: &Ty,
     template: &Function,
-    inferred: &mut HashMap<String, Ty>,
+    inferred: &mut HashMap<String, Argument>,
     aliases: &TypeAliases,
     at: &Token,
     coercible: bool,
@@ -779,11 +779,11 @@ fn infer_inner(
                 .error("a type parameter cannot take type arguments"));
         }
         if let Some(previous) = inferred.get(name) {
-            if previous != actual {
-                return Err(aliases.dimension_error(at, format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name), [previous, actual]));
+            if previous != &Argument::Type(actual.clone()) {
+                return Err(aliases.dimension_error(at, format!("conflicting types for `{name}` in `{}`: {previous} and {actual}; use matching argument types or explicit type arguments", template.name), previous.as_type().into_iter().chain(std::iter::once(actual))));
             }
         } else {
-            inferred.insert(name.clone(), actual.clone());
+            inferred.insert(name.clone(), Argument::Type(actual.clone()));
         }
         return Ok(());
     }
@@ -834,7 +834,41 @@ fn infer_inner(
         && pattern.args.len() == arguments.len()
     {
         for (pattern, argument) in pattern.args.iter().zip(&arguments) {
-            infer_inner(pattern, argument, template, inferred, aliases, at, false)?;
+            match argument {
+                Argument::Type(t) => {
+                    infer_inner(pattern, t, template, inferred, aliases, at, false)?
+                }
+                Argument::Value(value) => {
+                    if let Some(name) = pattern.name.as_ref().filter(|n| {
+                        template.type_params.iter().any(|(p, b)| {
+                            p == *n && b.as_ref().is_some_and(TypeRef::value_parameter)
+                        })
+                    }) {
+                        if let Some(previous) = inferred.insert(name.clone(), argument.clone())
+                            && previous != *argument
+                        {
+                            return Err(at.error(format!(
+                                "conflicting values for `{name}`: {previous} and {argument}"
+                            )));
+                        }
+                    } else {
+                        let expected = value_generics::resolve_arguments(
+                            &[(
+                                "value".into(),
+                                Some(value_generics::parameter_type(&value.ty, at)),
+                            )],
+                            std::slice::from_ref(pattern),
+                            aliases,
+                            at,
+                        )?;
+                        if expected[0] != *argument {
+                            return Err(
+                                at.error(format!("expected value {}, got {argument}", expected[0]))
+                            );
+                        }
+                    }
+                }
+            }
         }
         return Ok(());
     }
@@ -948,7 +982,7 @@ fn infer_inner(
 /// to a fixed point; bounds never invent a type or search for an implementation.
 fn infer_callable_bounds(
     template: &Function,
-    inferred: &mut HashMap<String, Ty>,
+    inferred: &mut HashMap<String, Argument>,
     aliases: &TypeAliases,
     at: &Token,
 ) -> Result<()> {
@@ -961,7 +995,12 @@ fn infer_callable_bounds(
             else {
                 continue;
             };
-            let Some(signature) = inferred.get(name).and_then(callables::signature).cloned() else {
+            let Some(signature) = inferred
+                .get(name)
+                .and_then(Argument::as_type)
+                .and_then(callables::signature)
+                .cloned()
+            else {
                 continue;
             };
             infer(
@@ -1013,7 +1052,12 @@ impl Lower<'_> {
         self.function_value(&symbol, at, ops)
     }
 
-    pub(super) fn specialize(&mut self, name: &str, actual: Vec<Ty>, at: &Token) -> Result<String> {
+    pub(super) fn specialize(
+        &mut self,
+        name: &str,
+        actual: Vec<Argument>,
+        at: &Token,
+    ) -> Result<String> {
         if self.aliases.data.is_class(name) {
             modules::check_member(self.access, name, "__new__", at)?;
         }
@@ -1119,10 +1163,13 @@ impl Lower<'_> {
             return Err(at.error(format!("binding `{name}` is not callable")));
         }
         if let Some(types) = types {
-            let actual = types
-                .iter()
-                .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
-                .collect::<Result<_>>()?;
+            let template = self
+                .generics
+                .templates
+                .get(name)
+                .ok_or_else(|| at.error(format!("`{name}` is not a generic function")))?;
+            let actual =
+                value_generics::resolve_arguments(&template.type_params, types, self.aliases, at)?;
             let symbol = self.specialize(name, actual, at)?;
             return self.call_named_with_receiver(&symbol, args, at, method, ops);
         }
@@ -1321,7 +1368,7 @@ impl Lower<'_> {
 }
 
 /// `name[types]`, as diagnostics name an instance.
-fn instance_name(name: &str, types: &[Ty]) -> String {
+fn instance_name(name: &str, types: &[impl std::fmt::Display]) -> String {
     let mut out = String::with_capacity(name.len() + 2 + 8 * types.len());
     out.push_str(name);
     out.push('[');
@@ -1343,8 +1390,11 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
         if !t.args.is_empty() {
             return Err(t.at.error("a type parameter cannot take type arguments"));
         }
+        let value_parameter = t.value_parameter();
         *t = replacement.clone();
-        t.metadata.get_or_insert_with(Default::default).parameter = true;
+        let metadata = t.metadata.get_or_insert_with(Default::default);
+        metadata.parameter = true;
+        metadata.value_parameter = value_parameter;
     } else {
         for arg in &mut t.args {
             substitute(arg, replacements)?;
@@ -1404,14 +1454,14 @@ impl Engine {
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
-            .map(|((id, types), instance)| (&*self.instantiated[*id as usize].0, types, instance))
-            .chain(
-                self.frames
-                    .iter()
-                    .map(|((name, types), instance)| (name.as_str(), types, instance)),
-            )
-            .find_map(|(name, types, instance)| {
-                (instance == symbol).then(|| instance_name(name, types))
+            .find_map(|((id, types), instance)| {
+                (instance == symbol)
+                    .then(|| instance_name(&self.instantiated[*id as usize].0, types))
+            })
+            .or_else(|| {
+                self.frames.iter().find_map(|((name, types), instance)| {
+                    (instance == symbol).then(|| instance_name(name, types))
+                })
             })
             .unwrap_or_else(|| symbol.into())
     }
@@ -1419,7 +1469,7 @@ impl Engine {
     fn infer_bounds(
         &self,
         template: &Function,
-        inferred: &mut HashMap<String, Ty>,
+        inferred: &mut HashMap<String, Argument>,
         aliases: &TypeAliases,
         access: &modules::AccessMap,
         at: &Token,
@@ -1434,7 +1484,8 @@ impl Engine {
                 let Some(protocol) = bound.name.as_ref().and_then(|n| self.protocols.get(n)) else {
                     continue;
                 };
-                let Some(actual) = inferred.get(parameter).cloned() else {
+                let Some(actual) = inferred.get(parameter).and_then(Argument::as_type).cloned()
+                else {
                     continue;
                 };
                 if let Ty::BoxedProtocol(boxed) = &actual {
@@ -1519,6 +1570,7 @@ impl Engine {
     }
 
     pub(super) fn validate_template(&self, f: &Function, aliases: &TypeAliases) -> Result<()> {
+        value_generics::validate_parameters(&f.type_params)?;
         if f.type_params.iter().any(|(_, bound)| {
             bound
                 .as_ref()
@@ -1530,7 +1582,12 @@ impl Engine {
             // parameter names accidentally become a protocol contract.
             positional_protocol_methods(&f.body)?;
         }
-        for bound in f.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
+        for bound in f
+            .type_params
+            .iter()
+            .filter_map(|(_, b)| b.as_ref())
+            .filter(|b| !b.value_parameter())
+        {
             if callable_bound(bound) {
                 aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
                     callable_pattern(bound).resolve(validation).map(drop)
@@ -1604,7 +1661,7 @@ impl Engine {
     pub(super) fn instantiate(
         &mut self,
         name: &str,
-        actual: Vec<Ty>,
+        actual: Vec<Argument>,
         at: &Token,
         aliases: &TypeAliases,
         access: &modules::AccessMap,
@@ -1625,6 +1682,20 @@ impl Engine {
                 template.type_params.len()
             )));
         }
+        let actual = if template
+            .type_params
+            .iter()
+            .any(|(_, b)| b.as_ref().is_some_and(TypeRef::value_parameter))
+        {
+            value_generics::resolve_arguments(
+                &template.type_params,
+                &actual.iter().map(|a| a.reference(at)).collect::<Vec<_>>(),
+                aliases,
+                at,
+            )?
+        } else {
+            actual
+        };
         let id = self.template_ids.get(name).copied();
         let mut key = (id.unwrap_or(u32::MAX), actual);
         if id.is_some()
@@ -1641,10 +1712,13 @@ impl Engine {
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
-            .zip(actual.iter().map(|ty| type_ref(ty, at)))
+            .zip(actual.iter().map(|ty| ty.reference(at)))
             .collect();
         let mut demanded = Vec::new();
-        for ((_, bound), ty) in template.type_params.iter().zip(actual) {
+        for ((_, bound), argument) in template.type_params.iter().zip(actual) {
+            let Some(ty) = argument.as_type() else {
+                continue;
+            };
             if dimensions::is_dimension(ty) && !bound.as_ref().is_some_and(dimensions::bound) {
                 return Err(
                     at.error("dimension arguments require a parameter constrained by Dimension")
@@ -1770,7 +1844,8 @@ impl Engine {
             .type_params
             .iter()
             .map(|(parameter, _)| Arc::from(parameter.as_str()))
-            .zip(key.1.iter().cloned())
+            .zip(key.1.iter())
+            .filter_map(|(n, a)| a.as_type().cloned().map(|t| (n, t)))
             .collect();
         // Cache before queueing the body, so recursive calls share this instance.
         self.cache.insert(key, symbol.clone());
@@ -1978,7 +2053,9 @@ fn positional_protocol_methods(body: &[Stmt]) -> Result<()> {
             }
             Expression::Ambiguous { generic, index } => {
                 expression(generic)?;
-                expression(index)?;
+                if let Ok(index) = index {
+                    expression(index)?;
+                }
             }
             Expression::GenericValue(..)
             | Expression::ClassNew(..)
@@ -2218,7 +2295,11 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         }
         Expression::Name(n) => {
             if let Some(t) = substitutions.get(n) {
-                e.kind = Expression::Type(Box::new(t.clone()));
+                e.kind = if let Some(value) = t.value_expression() {
+                    value.kind.clone()
+                } else {
+                    Expression::Type(Box::new(t.clone()))
+                };
             }
         }
         Expression::Number(_)

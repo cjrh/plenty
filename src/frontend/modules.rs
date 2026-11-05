@@ -1680,7 +1680,7 @@ impl Scope {
     }
     fn ty(&self, ty: &mut TypeRef) -> Result<()> {
         self.dimension_shadow(&ty.at);
-        if ty.concrete.is_some() {
+        if ty.concrete.is_some() || ty.value_expression().is_some() {
             return Ok(());
         }
         if let Some(name) = &ty.name
@@ -1710,6 +1710,13 @@ impl Scope {
                 if super::ide::active() {
                     let written = name.chars().count() as u32;
                     super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
+                }
+                if let Some(getter) = self.constants.get(&symbol) {
+                    *ty = TypeRef::value(Expr {
+                        at: ty.at.clone(),
+                        kind: Expression::Call(getter.clone(), vec![]),
+                    });
+                    return Ok(());
                 }
                 *name = symbol;
             } else if !matches!(
@@ -1937,7 +1944,7 @@ impl Scope {
                 | Expression::Slice(base, _)
                 | Expression::Group(base)
                 | Expression::Unary(_, base) => leading(base),
-                Expression::Ambiguous { index, .. } => leading(index),
+                Expression::Ambiguous { index, .. } => index.as_ref().ok().and_then(|i| leading(i)),
                 _ => root(e),
             }
         }
@@ -1955,7 +1962,7 @@ impl Scope {
                 // path that does not start at a local names a declaration.
                 Expression::GenericMethod(base, ..) => {
                     path(base).is_none_or(|p| local(&p))
-                        && matches!(&index.kind, Expression::Index(_, i) if leading(i).is_some_and(local))
+                        && index.as_ref().is_ok_and(|index| matches!(&index.kind, Expression::Index(_, i) if leading(i).is_some_and(local)))
                 }
                 // A module constant is a value, so brackets on it index it
                 // (issue #562). Constants are never generic.
@@ -1970,11 +1977,18 @@ impl Scope {
                 }
                 _ => root(&generic).is_some_and(local),
             };
-            e.kind = match generic.kind {
-                _ if !indexes => generic.kind,
-                Expression::GenericCall(_, _, args)
-                | Expression::GenericMethod(_, _, _, args, _) => Expression::Invoke(index, args),
-                _ => index.kind,
+            e.kind = if indexes {
+                let index =
+                    index.map_err(|diagnostic| -> Box<dyn std::error::Error> { diagnostic })?;
+                match generic.kind {
+                    Expression::GenericCall(_, _, args)
+                    | Expression::GenericMethod(_, _, _, args, _) => {
+                        Expression::Invoke(index, args)
+                    }
+                    _ => index.kind,
+                }
+            } else {
+                generic.kind
             };
         }
         if let Some(name) =
@@ -2350,6 +2364,13 @@ pub class Positive[T: IntType]:
 @newtype
 @copy
 pub class NonNegative[T: IntType]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
+
+@copy
+pub class Bounded[T: IntType, const lo: T, const hi: T]:
     value: T
 
     pub def get(self) -> T:
@@ -2959,7 +2980,7 @@ pub(super) fn check_member_at(
                 "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
             ));
         }
-        if crate::op::IntegerDomain::named(class).is_some() {
+        if crate::op::IntegerDomain::named(class).is_some() || class == "Bounded" {
             return Err(diagnostic.error(if member == "__new__" {
                 format!("a `{class}` comes from {} integer literal where one is expected, or from `{class}.try_from(value)?`", if class == "NonZero" { "a nonzero" } else { "an in-domain" })
             } else {
@@ -3005,6 +3026,9 @@ fn signature_public_types(
 }
 
 fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
+    if t.value_expression().is_some() {
+        return;
+    }
     if t.name
         .as_deref()
         .is_some_and(|name| name.starts_with("$exponent:"))
@@ -3057,7 +3081,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             if access.types.get(&name).is_some_and(|rule| !rule.public) {
                 return Err(at.error(format!("public signature exposes private type `{name}`")));
             }
-            for argument in &arguments {
+            for argument in arguments.iter().filter_map(Argument::as_type) {
                 visible(argument, at, access, aliases)?;
             }
             return Ok(());
