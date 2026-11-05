@@ -1,32 +1,69 @@
 # Thread-local reference counts
 
-> **Status: Not implemented.** Design note for issue #746. The
+> **Status: Not implemented; stage 1 measured and rejected.** Design note
+> for issue #746. Stage 1 was built (issue #751, local PR #944) and removed
+> every locked count instruction from k-nucleotide without a measurable cycle
+> gain, so the PR was closed and stage 2 is not recommended; see
+> [measured result](#measured-result). The
 > [memory and destruction](../design/toolchain/02-architecture/memory.md) and
 > [concurrent runtime](../design/toolchain/02-architecture/concurrency.md)
 > pages own the current contract. Issue #744 (no count pair around borrowed
-> arguments) and issue #745 (sole-owner fast path) are the baseline this note
-> builds on. Nothing here is scheduled.
+> arguments) and issue #745 (sole-owner release) have landed.
 
 ## Summary
 
 Every runtime count update is a `lock`-prefixed read-modify-write, although
-most objects never leave their thread. This note recommends the Lean 4 and
-Koka design: a per-object thread-shared mark, set at the certified thread
-boundaries by a walk over the crossing values, with plain loads and stores
-for unmarked objects. Its first increment is a process-wide single-threaded
-phase: while no other Plenty thread is live, every object is thread-local and
-no walk is needed.
+most objects never leave their thread. This note proposed the Lean 4 and Koka
+design, a per-object thread-shared mark set at certified thread boundaries,
+starting with a process-wide single-threaded phase that needs no marking.
 
-The phase flag alone removes every remaining atomic count operation from the
-single-threaded Benchmarks Game programs, including k-nucleotide and
-reverse-complement. Measured below, the gain on top of issues #744 and #745 is
-whatever atomic traffic those fixes leave; it is likely small on these two
-programs. Per-object marking matters only for programs that count heavily on
-several threads at once, and should wait for such a workload to show the cost.
+Stage 1 was built and removed every locked count instruction from
+k-nucleotide, with no measurable change in cycles. On the measured processor
+the locked instructions are not the cost, so neither stage is recommended.
+The design below is kept as the record of what was considered.
 
-The note also finds that the retain half of issue #745's fast path is unsound
+The note also found that the retain half of issue #745's fast path is unsound
 without a thread-locality guarantee; see
 [the sole-owner fast path](#the-sole-owner-fast-path).
+
+## Measured result
+
+Stage 1 was implemented as described below (issue #751, local PR #944): a
+live-thread count raised only in `plenty_thread_start` and lowered only after
+`plenty_thread_join` returns, with plain count updates while it is zero and a
+`runtime-checks` trap for count updates from unregistered threads. Measured
+against `main` at `d7a70ede` (issues #744 and #745 landed) on an AMD Ryzen 7
+7840HS (Zen 4), with callgrind and `perf stat -e cycles:u` pinned to one core:
+
+| Workload | Locked count instructions | Instructions | Cycles |
+| --- | --- | --- | --- |
+| k-nucleotide (fasta 50,000) | 1,399,543 to 0 | +0.2% | Within noise (under 2%) |
+| reverse-complement | About 0 before and after | Unchanged | Within noise |
+| Parallel k-nucleotide (7 pool jobs) | Unchanged: workers are live | +0.4% | Within noise |
+| Retain/release loop, 50M iterations | All removed | About 3 more per operation | Unchanged |
+
+In the loop benchmark, `plenty_retain` and `plenty_release` fell from 46% to
+7% of cycle samples while total cycles stayed the same.
+
+The premise of this note was wrong for this processor. Issue #743 attributed
+k-nucleotide's 26.5% of cycles in `plenty_release` to the `lock decq`, because
+96% of that function's samples fell on the instruction after it. An
+uncontended locked operation on a cache line the thread already owns is cheap
+on Zen 4; the samples land after the first access to the object's header,
+which is the likely real cost, attributed to the next instruction. This has
+not been confirmed with cache-miss counters, and processors with costlier
+atomics (some AArch64 cores, older x86) were not measured.
+
+Consequences:
+
+- Stage 1 adds about three instructions per count operation for no measured
+  gain, so it was not merged.
+- Stage 2 removes the same locked instructions on parallel programs and adds
+  marking walks; on this evidence it is not worth building.
+- The cost to attack is touching object headers: fewer count operations
+  (issue #755, a last-use move after a borrow), fewer separately allocated
+  objects, and confirming header misses with cache counters before further
+  work on count atomicity.
 
 ## Why counts exist and why they are atomic
 
@@ -229,20 +266,19 @@ counted as atomic are inline strings and literals.
    borrow, including the scenario above, and a stage-1 test that the counter
    returns to zero only after join and pool shutdown.
 
-## Open questions
+## Decisions
 
-1. Is stage 1 acceptable as the first step, ahead of any per-object design?
-2. Should the live-thread count return to zero after the last join, so a
-   serial phase after a parallel one runs with plain counts, or stay
-   multi-threaded after the first spawn?
-3. Should issue #745 drop its retain fast path, or keep it only under the
-   stage-1 phase test?
-4. Which parallel workload should decide stage 2: a parallel k-nucleotide
-   variant added to `benchmarks/game`, or another program?
-5. Will any planned feature run Plenty code on a thread not started through
-   `plenty_thread_start`, such as FFI callbacks from foreign threads, exports
-   callable from several threads, or the blocking-work threads proposed for
-   actors? Each would need to join the live-thread count.
+1. Stage 1 was accepted as the first step, then measured and rejected; see
+   [measured result](#measured-result).
+2. The live-thread count was to return to zero after the last join, decremented
+   by the joining thread after `join` returns; detached or unjoined threads
+   keep it raised.
+3. Issue #745 dropped the retain fast path and landed the release half only.
+4. The parallel k-nucleotide variant in `benchmarks/game` (local PR #940) is
+   the threaded workload.
+5. Any future thread that runs Plenty code, such as the proposed
+   [actor blocking-work](actor-blocking-work.md) threads, must start through
+   `plenty_thread_start`. This only matters if count modes return.
 
 ## Sources
 
