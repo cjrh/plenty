@@ -1,6 +1,6 @@
 # Type argument inference
 
-Calls supply all type arguments, as in `identity[list[i64]](values)`, or infer all
+Calls supply all generic arguments, as in `identity[list[i64]](values)`, or infer all
 from inputs, as in `identity(values)`. Partial explicit lists and inference from
 an expected result type are unsupported. Output-only or unused parameters need
 an explicit list.
@@ -10,7 +10,9 @@ Inference structurally matches concrete arguments: `&T` against `&Message` learn
 Collections, ranges, generators, tuples, sums, callable signatures, and nominal
 generic class/enum arguments participate. Repeated parameters must agree after
 alias resolution. Nominal matching requires the same declaration as well as
-matching arguments.
+matching arguments. [Value parameters](values.md) are inferred from nominal
+arguments by the same structural match: `Bounded[T, lo, hi]` against
+`Bounded[u8, 0, 100]` learns all three parameters.
 
 A shared-reference parameter supplies ordinary implicit borrowing, so a
 parameter `value: &T` can accept an owner directly. Mutable borrowing still needs

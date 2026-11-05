@@ -141,7 +141,11 @@ impl Lower<'_> {
         self.plenty_helper("__plenty_key_of", KEY_OF)?;
         let key_of = self.specialize(
             "__plenty_key_of",
-            vec![(*element).clone(), output, callback],
+            vec![
+                Argument::Type((*element).clone()),
+                Argument::Type(output),
+                Argument::Type(callback),
+            ],
             at,
         )?;
         // The runtime sorts the rows and calls back into the generated

@@ -348,7 +348,9 @@ fn names_in_expr(e: &Expr, each: &mut impl FnMut(&str)) {
         // Both readings, should one survive module name resolution.
         Expression::Ambiguous { generic, index } => {
             names_in_expr(generic, each);
-            names_in_expr(index, each);
+            if let Ok(index) = index {
+                names_in_expr(index, each);
+            }
         }
         Expression::Type(_)
         | Expression::Number(_)

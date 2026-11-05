@@ -286,10 +286,10 @@ fn expanding_generator_consumers_are_bounded() {
     // The frontend must still reject unbounded specialization, not arithmetic.
     for (call, expected) in [
         // Each frame requires a deeper one: the dependency depth stops it.
-        // The limit counts `total` and the three builtin integer-domain `get` methods.
+        // The limit counts `total` and the four builtin integer-domain and bounded `get` methods.
         (
             "total((increment(v).unwrap() for v in values), n - 1)?",
-            "dependency depth limit of 260 (256 plus one per generic function or generator consumer) exceeded",
+            "dependency depth limit of 261 (256 plus one per generic function or generator consumer) exceeded",
         ),
         // Two per frame reach the consumer's limit within that depth.
         (

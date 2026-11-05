@@ -16,6 +16,8 @@ const MAX_DATA_INSTANCES: usize = 65_536;
 #[derive(Clone, Default)]
 pub(crate) struct TypeAliases {
     named: HashMap<String, Type>,
+    pub(super) constants: Arc<HashMap<String, Function>>,
+    pub(super) constant_types: consts::Types,
     pub(super) protocols: Arc<HashMap<String, protocols::Protocol>>,
     pub(super) resolving_protocols: Rc<RefCell<Vec<String>>>,
     pub(super) dimension_names: Arc<dimension_diagnostics::Names>,
@@ -28,13 +30,13 @@ pub(crate) struct TypeAliases {
 pub(super) struct DataTypes {
     enums: Arc<HashMap<String, enums::EnumDecl>>,
     classes: Arc<HashMap<String, classes::ClassDecl>>,
-    instances: RefCell<HashMap<(String, Vec<Ty>), Ty>>,
+    instances: RefCell<HashMap<(String, Vec<Argument>), Ty>>,
     /// Instances with type arguments, which `MAX_DATA_INSTANCES` limits.
     generic_instances: Cell<usize>,
     /// Those instances by declaration, which `MAX_DECLARATION_INSTANCES` limits.
     declaration_instances: RefCell<HashMap<String, usize>>,
     named: RefCell<HashMap<String, Ty>>,
-    arguments: RefCell<HashMap<String, (String, Vec<Ty>)>>,
+    arguments: RefCell<HashMap<String, (String, Vec<Argument>)>>,
     pending: RefCell<Vec<classes::ClassDecl>>,
     pending_enums: RefCell<Vec<enums::EnumDecl>>,
     definitions: Arc<crate::nominal::Types>,
@@ -60,7 +62,7 @@ pub(super) struct DataTypes {
 
 struct DefinitionJob {
     name: String,
-    actual: Vec<Ty>,
+    actual: Vec<Argument>,
     at: Token,
     depth: usize,
     requirer: Option<Arc<Requirer>>,
@@ -80,6 +82,9 @@ pub(super) enum Requiring {
 }
 
 impl DataTypes {
+    pub(super) fn shapes_only(&self) -> bool {
+        self.shapes_only
+    }
     /// Replaces the current attribution and returns the previous one, which
     /// the caller restores.
     pub(super) fn attribute(&self, to: Option<Requiring>) -> Option<Requiring> {
@@ -131,7 +136,7 @@ impl DataTypes {
     pub(super) fn lookup(&self, name: &str) -> Type {
         self.named.borrow().get(name).cloned()
     }
-    pub(super) fn arguments(&self, ty: &Ty) -> Option<(String, Vec<Ty>)> {
+    pub(super) fn arguments(&self, ty: &Ty) -> Option<(String, Vec<Argument>)> {
         let name = match ty {
             Ty::Class(t) => &t.name,
             Ty::Enum(t) => &t.name,
@@ -140,7 +145,7 @@ impl DataTypes {
         self.arguments.borrow().get(&**name).cloned()
     }
 
-    pub(super) fn origin_class(&self, ty: &Ty) -> Option<(&classes::ClassDecl, Vec<Ty>)> {
+    pub(super) fn origin_class(&self, ty: &Ty) -> Option<(&classes::ClassDecl, Vec<Argument>)> {
         let (name, arguments) = self.arguments(ty)?;
         Some((self.classes.get(&name)?, arguments))
     }
@@ -189,7 +194,7 @@ impl DataTypes {
             }],
         };
         Some((
-            cause.clone(),
+            cause.as_type().unwrap().clone(),
             protocols::Protocol {
                 name,
                 at: declaration.at.clone(),
@@ -355,6 +360,8 @@ impl TypeAliases {
         let mut shapes = self.data.shapes.borrow_mut();
         let validation = shapes.get_or_insert_with(|| Self {
             named: self.named.clone(),
+            constants: self.constants.clone(),
+            constant_types: consts::Types::default(),
             protocols: self.protocols.clone(),
             resolving_protocols: self.resolving_protocols.clone(),
             dimensions: self.dimensions.clone(),
@@ -408,6 +415,8 @@ impl TypeAliases {
         data.deferred.set(true);
         Ok(Self {
             named: HashMap::default(),
+            constants: Arc::default(),
+            constant_types: consts::Types::default(),
             protocols: Arc::default(),
             resolving_protocols: Rc::default(),
             dimensions: Rc::default(),
@@ -429,26 +438,26 @@ impl TypeAliases {
                 params.len()
             )));
         }
-        let actual = application
-            .args
-            .iter()
-            .zip(params)
-            .map(|(t, (_, bound))| {
-                if bound.as_ref().is_some_and(dimensions::bound) {
-                    return t.resolve_dimension(self);
+        let actual =
+            value_generics::resolve_arguments(params, &application.args, self, &application.at)?;
+        for ((arg, written), (_, bound)) in actual.iter().zip(&application.args).zip(params) {
+            if bound.as_ref().is_some_and(dimensions::bound) {
+                continue;
+            }
+            if let Some(ty) = arg.as_type() {
+                if *ty == Ty::Unit {
+                    return Err(written
+                        .at
+                        .error("unit type arguments are not supported yet"));
                 }
-                let ty = t
-                    .resolve(self)?
-                    .ok_or_else(|| t.at.error("unit type arguments are not supported yet"))?;
                 if let Some(barrier) = ty.storage_barrier() {
-                    return Err(t.at.error(barrier.message("generic data")));
+                    return Err(written.at.error(barrier.message("generic data")));
                 }
-                Ok(ty)
-            })
-            .collect::<Result<Vec<_>>>()?;
+            }
+        }
         if let Some(domain) = crate::op::IntegerDomain::named(name)
             && domain != crate::op::IntegerDomain::NonZero
-            && let [element] = actual.as_slice()
+            && let [Argument::Type(element)] = actual.as_slice()
             && !matches!(element, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
         {
             let mut message = format!("`{name}` requires a signed integer type");
@@ -466,15 +475,28 @@ impl TypeAliases {
         // finalized. The declaration identifies a builtin domain at this phase;
         // its own instantiation validates the integer argument.
         if name == "Quantity"
-            && !actual[0].is_numeric()
+            && !actual[0].as_type().is_some_and(Ty::is_numeric)
             && !self
                 .data
-                .origin_class(&actual[0])
+                .origin_class(actual[0].as_type().unwrap())
                 .is_some_and(|(declaration, _)| {
                     crate::op::IntegerDomain::named(&declaration.name).is_some()
                 })
         {
             return Err(application.at.error("Quantity storage must be an integer, float, or integer domain; put the domain inside Quantity"));
+        }
+        if name == "Bounded"
+            && !self.data.shapes_only
+            && let [Argument::Type(t), Argument::Value(lo), Argument::Value(hi)] = actual.as_slice()
+        {
+            if !t.is_int() {
+                return Err(application.at.error("Bounded requires an integer type"));
+            }
+            if lo.value > hi.value {
+                return Err(application
+                    .at
+                    .error("Bounded lower bound must not exceed its upper bound"));
+            }
         }
         let key = (name.clone(), actual.clone());
         if let Some(ty) = self.data.instances.borrow().get(&key) {
@@ -513,7 +535,7 @@ impl TypeAliases {
                 application.at.error("recursive generic data type or type nesting exceeds the implementation limit of 64")
             }));
         }
-        let concrete_name = instance_name(name, &actual, Ty::identity_name);
+        let concrete_name = instance_name(name, &actual, Argument::identity_name);
         if concrete_name.len() > crate::op::MAX_IDENTITY_NAME_LEN {
             return Err(application
                 .at
@@ -558,7 +580,8 @@ impl TypeAliases {
         let parameters: Arc<[(Arc<str>, Ty)]> = params
             .iter()
             .map(|(parameter, _)| Arc::from(parameter.as_str()))
-            .zip(actual.iter().cloned())
+            .zip(actual.iter())
+            .filter_map(|(n, a)| a.as_type().cloned().map(|t| (n, t)))
             .collect();
         let instance: Arc<str> = ty.to_string().into();
         let required = Arc::new(match &*self.data.requiring.borrow() {
@@ -671,13 +694,16 @@ impl TypeAliases {
                 let substitutions = params
                     .iter()
                     .map(|(n, _)| n.clone())
-                    .zip(actual.iter().map(|t| generics::type_ref(t, &at)))
+                    .zip(actual.iter().map(|t| t.reference(&at)))
                     .collect();
                 // Resolve constraints after aliases and nominal identities exist.
                 // Nested applications join this bounded work queue instead of
                 // recursively rechecking their own declaration's constraints.
                 if !self.data.shapes_only {
-                    for ((_, bound), ty) in params.iter().zip(&actual) {
+                    for ((_, bound), argument) in params.iter().zip(&actual) {
+                        let Some(ty) = argument.as_type() else {
+                            continue;
+                        };
                         if let Some(bound) = bound {
                             if generics::callable_bound(bound) {
                                 generics::check_callable_bound(
@@ -744,7 +770,7 @@ impl TypeAliases {
                     (Ty::Class(t), Ty::Class(value)) => {
                         let mut definition = (*value.get()).clone();
                         if name == "Quantity"
-                            && let [_, Ty::Dimension(dimension)] = actual.as_slice()
+                            && let [_, Argument::Type(Ty::Dimension(dimension))] = actual.as_slice()
                         {
                             definition.quantity = Some(dimension.clone());
                         }
@@ -856,7 +882,7 @@ impl TypeAliases {
 
 /// Formats `name[arg, ...]`, or `name` alone for a non-generic type. Callers pick
 /// the mapper: `Ty::identity_name` for the identity key, `Display` for messages.
-fn instance_name(name: &str, args: &[Ty], f: impl Fn(&Ty) -> String) -> String {
+fn instance_name(name: &str, args: &[Argument], f: impl Fn(&Argument) -> String) -> String {
     if args.is_empty() {
         return name.to_string();
     }
@@ -906,7 +932,12 @@ fn validate_parameters(name: &str, params: &[(String, Option<TypeRef>)], at: &To
     {
         return Err(at.error("a data parameter cannot shadow its declaration name"));
     }
-    for bound in params.iter().filter_map(|(_, b)| b.as_ref()) {
+    value_generics::validate_parameters(params)?;
+    for bound in params
+        .iter()
+        .filter_map(|(_, b)| b.as_ref())
+        .filter(|b| !b.value_parameter())
+    {
         if !(generics::builtin_bound(bound).is_some() && bound.args.is_empty()
             || generics::callable_bound(bound))
         {

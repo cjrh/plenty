@@ -22,6 +22,13 @@ or the output holds a weak edge.
 A complete class or enum caches its facts; a collection or box combines its
 contents' facts instead of walking again.
 Aliases normalize to `Ty` values and generate no runtime operations.
+Generic instance arguments distinguish `Type(Ty)` from typed constant values;
+values never become storage types. The constant evaluator also serves value
+arguments during type resolution, before ordinary module-constant folding.
+Quantity constant output types resolve lazily with cycle detection. The
+[`Bounded` checker](../../language/03-types/bounded.md) validates each concrete
+interval and lowers admitted literals and checked conversions to private
+single-field class construction.
 
 The compiler's own hash tables (`src/hash.rs`) use FxHash rather than std's
 SipHash. Their keys are names and types from the program being compiled, so

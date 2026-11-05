@@ -1,11 +1,15 @@
 # Value generic parameters
 
-**Status: Design accepted, not implemented.** Generic parameters are types only;
-the [generics reference](../design/language/07-generics/index.md) is
-authoritative. Tracked as backlog B83, with B13 (bounded and inline-capacity
-storage) and B23 (SIMD). Researched against local `main` at `1b5b96b1` on
-2026-10-27. Per-instance assertions build on the module-scope `assert` from
-local PR #628, now merged.
+**Status: Partly implemented.** [Value parameters](../design/language/07-generics/values.md)
+and [`Bounded[T, lo, hi]`](../design/language/03-types/bounded.md) are implemented.
+The references own their current contracts; the array and general per-instance
+assertion sections below remain accepted design. [B83/B96](../backlog.md) track
+remaining scope. The original investigation used local `main` at `1b5b96b1`
+on 2026-10-27. Module-scope assertions from local PR #628 are implemented.
+
+The implementation sequence was revised to serve bounded integers first. Const
+parameters can name a preceding `T: IntType`, so bounds retain its exact width
+and signedness. This extends the original concrete-integer-only parameter design.
 
 ## Problem
 
@@ -36,7 +40,7 @@ defers them "until inline aggregates and basic constant parameters exist".
 Inline aggregates now exist. This page designs the constant parameters and
 the array, spelled `array[T, N]` to match `list` and `tuple`.
 
-## What exists today
+## Baseline at design acceptance
 
 | Aspect | Current behavior | Source |
 | --- | --- | --- |
@@ -67,9 +71,9 @@ without a runtime field.
 | `std.crypto` digest size | Runtime `Algorithm`; `finish_into` writes into a caller buffer without allocating | No gain: the algorithm is a runtime choice and the allocation-free path exists |
 | `clist` chunks | Physical storage kept private so chunk size can change ([chunks](columnar-list/chunks.md)) | Not wanted: a public chunk-size parameter would fix what the design keeps private |
 
-Every case that benefits needs indexable inline storage. Value parameters
-without an array type would only save a field. They should ship with
-`array[T, N]`, not before it.
+The array-oriented consumers above need indexable inline storage. B96 supplied
+a separate first consumer: bounds carried in an integer type. Value parameters
+and `Bounded` therefore ship before arrays; arrays retain their accepted scope.
 
 ## Precedents
 
@@ -108,8 +112,8 @@ Lessons:
 
 ## Recommendation
 
-Adopt option C together with a built-in `array[T, N]`, in one change. Defer
-option D until code shows a need. Reject E. The [decisions](#decisions) record
+Adopt option C, initially with `Bounded[T, lo, hi]`, followed by the accepted
+`array[T, N]` consumer. Defer option D until code shows a need. Reject E. The [decisions](#decisions) record
 what is settled.
 
 ### Declaring
@@ -375,7 +379,7 @@ main.plenty:18:9: `sum_all` expects `array[T, N]` for `xs`, found `list[i64]`
 | Float, `str` or user-type values | Identity and printing questions for no current use; `str` can be reconsidered after string constants land |
 | Inferring `N` from runtime values or list lengths | Hidden specialization per call site and no static guarantee |
 | Lane-count-generic public `std.simd` | Already rejected by the [SIMD API](std-simd/api.md) |
-| Value parameters without an array type | Saves a field; no motivating use |
+| Value parameters without a consumer | No motivating use; `Bounded` now supplies the first consumer |
 
 ## Decisions
 
@@ -386,8 +390,9 @@ main.plenty:18:9: `sum_all` expects `array[T, N]` for `xs`, found `list[i64]`
 3. **Name and literal: lowercase `array[T, N]`,** matching `list` and `tuple`.
    A literal with an expected `array` type builds one inline without `?`; see
    [array literals](#array-literals).
-4. **Value parameters and `array` ship together.** Rejected: parameters first
-   for phantom-style uses, which have no motivating case.
+4. **Value parameters first ship with `Bounded`.** This supersedes the original
+   decision to require `array` in the same change. Bounded integers provide a
+   concrete use for values in type identity without indexable storage.
 5. **Derived sizes (option D): deferred.** Add expressions such as
    `array[T, N + 1]` in signatures only with evidence from `BoundedList` or
    `std.simd` code.

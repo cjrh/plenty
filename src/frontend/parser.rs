@@ -447,7 +447,33 @@ impl Parser {
         self.exact_list(
             |p| &mut p.scratch_type_args,
             |p| loop {
-                let ty = p.ty()?;
+                let ty = if matches!(p.peek().kind, Kind::Number(_))
+                    || p.peek().is("-")
+                    || p.peek().is("True")
+                    || p.peek().is("False")
+                {
+                    let at = p.peek().clone();
+                    let negative = p.eat("-");
+                    let token = p.take();
+                    let kind = match &token.kind {
+                        Kind::Number(n) => Expression::Number(n.to_string()),
+                        _ if token.is("True") || token.is("False") => {
+                            Expression::Bool(token.is("True"))
+                        }
+                        _ => return Err(token.error("expected an integer or bool value argument")),
+                    };
+                    let e = Expr { at: token, kind };
+                    TypeRef::value(if negative {
+                        Expr {
+                            at,
+                            kind: Expression::Unary("-".into(), Box::new(e)),
+                        }
+                    } else {
+                        e
+                    })
+                } else {
+                    p.ty()?
+                };
                 p.scratch_type_args.push(ty);
                 if p.eat("]") {
                     return Ok(());
@@ -459,21 +485,30 @@ impl Parser {
     /// Reparses brackets already accepted as type arguments as `base[index]`.
     /// `start` is the opening bracket and the parser sits just past the closing
     /// one, where it stays. Returns None when the contents are not one expression.
-    fn index_reading(&mut self, start: usize, base: &Expr) -> Option<Expr> {
+    fn index_reading(&mut self, start: usize, base: &Expr) -> Option<IndexReading> {
         let end = std::mem::replace(&mut self.pos, start + 1);
         let deepest = self.deepest;
-        let index = self
-            .expr(0)
-            .ok()
-            .filter(|_| self.eat("]") && self.pos == end);
+        let index = match self.expr(0) {
+            Ok(index) if self.eat("]") && self.pos == end => Some(Ok(Box::new(Expr {
+                at: base.at.clone(),
+                kind: Expression::Index(Box::new(base.clone()), Box::new(index)),
+            }))),
+            // A deeply nested index can also parse as a type application.
+            // Keep its limit diagnostic until names choose the reading.
+            Err(error)
+                if error
+                    .downcast_ref::<Diagnostic>()
+                    .is_some_and(|d| d.message == NESTING) =>
+            {
+                Some(Err(Diagnostic::from_boxed(error)))
+            }
+            _ => None,
+        };
         self.pos = end;
-        if index.is_none() {
+        if !matches!(index, Some(Ok(_))) {
             self.deepest = deepest;
         }
-        Some(Expr {
-            at: base.at.clone(),
-            kind: Expression::Index(Box::new(base.clone()), Box::new(index?)),
-        })
+        index
     }
     /// The rest of `[start:stop:step]` after `start`, from its first colon
     /// through the closing bracket.
@@ -505,6 +540,7 @@ impl Parser {
                 let base = p.scratch_type_params.len();
                 loop {
                     let at = p.peek().clone();
+                    let value = p.eat("const");
                     let name = p.name()?;
                     if builtin(&name)
                         || p.scratch_type_params[base..]
@@ -513,7 +549,15 @@ impl Parser {
                     {
                         return Err(at.error("duplicate or builtin type parameter"));
                     }
-                    let bound = if p.eat(":") { Some(p.ty()?) } else { None };
+                    let mut bound = if p.eat(":") { Some(p.ty()?) } else { None };
+                    if value {
+                        let Some(b) = &mut bound else {
+                            return Err(at.error("a const parameter requires a type"));
+                        };
+                        b.metadata
+                            .get_or_insert_with(Default::default)
+                            .value_parameter = true;
+                    }
                     p.scratch_type_params.push((name, bound));
                     if p.eat("]") {
                         return Ok(());
@@ -1772,14 +1816,14 @@ impl Parser {
     }
 }
 /// Keeps the index reading beside the generic one when the brackets have both.
-fn bracketed(at: &Token, generic: Expression, index: Option<Expr>) -> Expression {
+fn bracketed(at: &Token, generic: Expression, index: Option<IndexReading>) -> Expression {
     match index {
         Some(index) => Expression::Ambiguous {
             generic: Box::new(Expr {
                 at: at.clone(),
                 kind: generic,
             }),
-            index: Box::new(index),
+            index,
         },
         None => generic,
     }

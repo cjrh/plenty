@@ -92,6 +92,13 @@ def main() -> Result[(), IoError]:
   or `NonNegative.try_from(n)?`. Read with `.get()`; widen a Positive with
   `NonZero.from(p)` or `NonNegative.from(p)`. See [integer domains](../language/03-types/numbers.md#positive-and-non-negative-integers).
 
+- [`Bounded[T, lo, hi]`](../language/03-types/bounded.md) accepts the eight integer
+  types and inclusive compile-time bounds. Literals convert where expected;
+  an alias such as `type Percent = Bounded[u8, 0, 100]` provides
+  `Percent.try_from(n)?` for runtime inputs. Read `.get()` for arithmetic.
+  [Value parameters](../language/07-generics/values.md) use `const N: i64` or
+  `[T: IntType, const N: T]`.
+
 - Each function and closure has its own declared arithmetic contract,
   independent of its definition or call site. There is no private callback
   channel. Handle a callee's `Result` normally.

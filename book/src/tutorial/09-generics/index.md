@@ -12,6 +12,7 @@ data is an optional extension at the end.
 - [Parameterize a protocol](generic-protocols.md)
 - [Store different implementations of a protocol](boxed-protocols.md)
 - [Give a method its own type parameters](generic-methods.md)
+- [Keep a numeric bound in the type](value-parameters.md)
 - [Calculate with quantities](dimensions.md)
 - [Build recursive data](recursive-data.md)
 - [Use values through a box](recursive-boxes.md)

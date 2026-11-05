@@ -4,7 +4,8 @@ Delivery history and retired backlog entries live here, separate from the
 [backlog](backlog.md), which is the single maintained list of future work.
 
 - [Language and tooling](completed-work/language-and-tooling.md): language
-  foundations, ownership, calls, project tooling and concurrency.
+  foundations, ownership, calls, value parameters and bounded integers, project
+  tooling and concurrency.
 - [Checked-default validation](completed-work/checked-default-validation.md):
   branch-scoped semantic/native qualification, controlled measurements and limits.
 - [Libraries and applications](completed-work/libraries.md): shipped library

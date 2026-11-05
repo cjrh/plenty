@@ -726,3 +726,6 @@ mod test_cleanup_keys;
 
 #[path = "test_boxed_protocols.rs"]
 mod test_boxed_protocols;
+
+#[path = "test_value_generics.rs"]
+mod test_value_generics;

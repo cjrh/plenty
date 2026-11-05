@@ -1402,7 +1402,7 @@ impl Lower<'_> {
             _ => at.clone(),
         };
         let caller = self.method_caller(method, false, &site)?;
-        let function = self.specialize(&caller, vec![ty.clone()], &site)?;
+        let function = self.specialize(&caller, vec![Argument::Type(ty.clone())], &site)?;
         Ok(crate::collection::FormatHook {
             ty: ty.clone(),
             display,

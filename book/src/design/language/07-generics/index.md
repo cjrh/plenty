@@ -1,6 +1,10 @@
 # Generics and constraints
 
-Functions, classes, enums, and methods can declare type parameters:
+Functions, classes, enums, and methods can declare type parameters. They also
+accept [value parameters](values.md), such as `const N: i64`, for compile-time
+integer and boolean specialization.
+
+Type parameters are written as follows:
 
 ```plenty fragment
 def identity[T](value: T) -> T:

@@ -13,7 +13,11 @@ impl TypeAliases {
         if declaration.name != "Quantity" {
             return None;
         }
-        let [storage, Ty::Dimension(dimension)] = args.as_slice() else {
+        let [
+            Argument::Type(storage),
+            Argument::Type(Ty::Dimension(dimension)),
+        ] = args.as_slice()
+        else {
             return None;
         };
         Some((storage.clone(), dimension.clone(), declaration.at.clone()))

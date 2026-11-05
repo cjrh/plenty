@@ -1046,13 +1046,13 @@ from std.net import NetError, TcpListener, TcpStream, connect, listen, loopback_
 from std.sync import CancellationToken
 from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
-pub class Bounded:
+pub class DeadlineReader:
     pub stream: TcpStream
     pub deadline: Deadline
     pub cancel: CancellationToken
     pub failure: Option[NetError]
 
-    pub def read(self: &mut Bounded, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+    pub def read(self: &mut DeadlineReader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
         match self.stream.read_before(buffer, start, stop, &self.deadline, &self.cancel):
             case Ok(count):
                 Ok(count)
@@ -1064,7 +1064,7 @@ def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToke
     stream = listener.accept(deadline, &CancellationToken()?).unwrap()
     limits = std.http.limits()
     within = deadline_after(&monotonic_now(), &milliseconds(5000u32))?
-    mut conn = std.io.buffered_reader(Bounded(stream, within, cancel.share(), Nothing), 64)?
+    mut conn = std.io.buffered_reader(DeadlineReader(stream, within, cancel.share(), Nothing), 64)?
     head = std.http.read_request(&mut conn, &limits).unwrap().unwrap()
     framing = std.http.request_framing(&head).unwrap()
     mut interim = std.io.cursor(std.bytes.empty()?)

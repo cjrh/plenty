@@ -73,6 +73,12 @@ See [workflow and packages](references/workflow.md).
   with `RangeError.OutOfRange`. `.get()` reads `T`. `+` and `*` preserve the
   domain; subtraction and unary `-` return `T`. Widen a Positive explicitly
   with `NonZero.from(p)` or `NonNegative.from(p)`.
+- `Bounded[T, lo, hi]` is an inclusive interval over any integer type. Literals
+  convert where expected; computed values use a complete instance or alias,
+  such as `Percent.try_from(n)?`. Read `.get()` for arithmetic. Value generic
+  parameters use `const N: i64` or a preceding integer parameter
+  `[T: IntType, const N: T]`; bracket arguments are literals, module constants
+  or forwarded parameters, never arithmetic expressions.
 - `channel[T](capacity)` and `ThreadPoolExecutor(workers, queue_capacity)`
   take `Positive[i64]` counts, as does `.par(&pool, chunks=...)`. Positive
   literals convert; computed counts use `Positive.try_from(count)?`. Channel

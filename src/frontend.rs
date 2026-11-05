@@ -20,6 +20,7 @@ use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
 mod annotations;
 mod atomic;
+mod bounded;
 mod byte_buffers;
 mod callables;
 mod calls;
@@ -70,7 +71,9 @@ mod sorting;
 mod tail_calls;
 mod target;
 mod threads;
+mod value_generics;
 mod views;
+use value_generics::Argument;
 
 mod lexer;
 mod parser;
@@ -107,6 +110,9 @@ impl TypeRef {
     /// The type as written, with type parameters by name, for diagnostics
     /// about a generic definition rather than one of its instances.
     fn spelling(&self) -> String {
+        if let Some(e) = self.value_expression() {
+            return value_generics::spelling(e);
+        }
         if let Some(ty) = &self.concrete {
             return ty.to_string();
         }
@@ -150,6 +156,9 @@ impl TypeRef {
         Ok(ty)
     }
     fn resolve_inner(&self, aliases: &TypeAliases) -> Result<Type> {
+        if self.value_expression().is_some() {
+            return Err(self.at.error("expected a type argument, found a value"));
+        }
         if let Some(ty) = &self.concrete {
             return Ok(Some((**ty).clone()));
         }
@@ -680,6 +689,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "NonZero"
                 | "Positive"
                 | "NonNegative"
+                | "Bounded"
                 | "set"
                 | "len"
                 | "sorted"
@@ -1566,10 +1576,17 @@ impl Lower<'_> {
                     .unwrap();
                     return self.class_constructor_value(ty, &e.at, ops).map(Some);
                 }
-                let actual = types
-                    .iter()
-                    .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
-                    .collect::<Result<_>>()?;
+                let template = self
+                    .generics
+                    .templates
+                    .get(name)
+                    .ok_or_else(|| e.at.error(format!("`{name}` is not a generic function")))?;
+                let actual = value_generics::resolve_arguments(
+                    &template.type_params,
+                    types,
+                    self.aliases,
+                    &e.at,
+                )?;
                 let symbol = self.specialize(name, actual, &e.at)?;
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
@@ -4859,8 +4876,14 @@ fn lower(
         require_main,
         inputs,
     } = resolved;
-    let aliases =
-        enums::resolve_types(&declarations, &enums, &classes, dimension_names, &protocols)?;
+    let aliases = enums::resolve_types(
+        &declarations,
+        &enums,
+        &classes,
+        dimension_names,
+        &protocols,
+        &functions,
+    )?;
     consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =
@@ -5009,7 +5032,7 @@ fn lower(
                     let main = sigs.intern("main");
                     let (symbol, function) = generics.instantiate(
                         "std.fmt.entry_report",
-                        vec![error.clone()],
+                        vec![Argument::Type(error.clone())],
                         &protocol.at,
                         &aliases,
                         &access,

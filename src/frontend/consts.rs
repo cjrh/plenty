@@ -46,9 +46,60 @@ impl Value {
     }
 }
 
+/// Lazy output types for constants read before the ordinary folding pass.
+/// The pending entry rejects a constant whose type depends on its own value.
+#[derive(Clone, Default)]
+pub(super) struct Types(std::rc::Rc<std::cell::RefCell<HashMap<String, ConstantType>>>);
+#[derive(Clone)]
+enum ConstantType {
+    Resolving,
+    Resolved(std::result::Result<Ty, Diagnostic>),
+}
+impl Types {
+    fn resolve(&self, f: &Function, aliases: &TypeAliases) -> Result<Ty> {
+        if let Some(state) = self.0.borrow().get(&f.name).cloned() {
+            return match state {
+                ConstantType::Resolving => Err(f.at.error(format!(
+                    "constant `{}` has a cyclic type dependency",
+                    display(&f.name)
+                ))),
+                ConstantType::Resolved(result) => {
+                    result.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+                }
+            };
+        }
+        self.0
+            .borrow_mut()
+            .insert(f.name.clone(), ConstantType::Resolving);
+        let result = f.output.resolve(aliases).and_then(|ty| {
+            ty.ok_or_else(|| f.at.error("module constants require a concrete type"))
+        });
+        self.0.borrow_mut().insert(
+            f.name.clone(),
+            ConstantType::Resolved(result.as_ref().cloned().map_err(|e| Diagnostic::of(&**e))),
+        );
+        result
+    }
+}
+
+/// Folding owns a reference index over its mutable function list; value
+/// arguments borrow the compilation's already indexed constant definitions.
+enum Getters<'a> {
+    References(HashMap<&'a str, &'a Function>),
+    Shared(&'a HashMap<String, Function>),
+}
+impl<'a> Getters<'a> {
+    fn get(&self, name: &str) -> Option<&'a Function> {
+        match self {
+            Self::References(getters) => getters.get(name).copied(),
+            Self::Shared(getters) => getters.get(name),
+        }
+    }
+}
+
 struct Folder<'a> {
     aliases: &'a TypeAliases,
-    getters: HashMap<&'a str, &'a Function>,
+    getters: Getters<'a>,
     values: HashMap<String, Value>,
     active: Vec<String>,
     /// Depth of branches that run time would not take: the unselected arm of
@@ -74,11 +125,13 @@ pub(super) fn fold(functions: &mut Vec<Function>, aliases: &TypeAliases) -> Resu
     {
         let mut folder = Folder {
             aliases,
-            getters: functions
-                .iter()
-                .filter(|f| f.name.starts_with(GETTER))
-                .map(|f| (f.name.as_str(), f))
-                .collect(),
+            getters: Getters::References(
+                functions
+                    .iter()
+                    .filter(|f| f.name.starts_with(GETTER))
+                    .map(|f| (f.name.as_str(), f))
+                    .collect(),
+            ),
             values: HashMap::default(),
             active: vec![],
             unselected: 0,
@@ -109,7 +162,7 @@ pub(super) fn fold(functions: &mut Vec<Function>, aliases: &TypeAliases) -> Resu
             asserts.insert(i);
             continue;
         }
-        let (ty, domain) = declared(f);
+        let (ty, domain) = declared(f, aliases)?;
         let value = value.unwrap_or_else(|| default(&ty, domain));
         f.body = vec![Stmt {
             at: f.at.clone(),
@@ -138,10 +191,12 @@ pub(super) fn known_integer(
     }
     let mut folder = Folder {
         aliases,
-        getters: constants
-            .iter()
-            .map(|(n, f)| (n.as_str(), f.as_ref()))
-            .collect(),
+        getters: Getters::References(
+            constants
+                .iter()
+                .map(|(n, f)| (n.as_str(), f.as_ref()))
+                .collect(),
+        ),
         values: HashMap::default(),
         active: Vec::new(),
         unselected: 0,
@@ -167,7 +222,7 @@ fn is_assert(f: &Function) -> bool {
 
 /// The type a constant folds as, and its integer domain: `Positive[i64]`
 /// folds as `i64`.
-fn declared(f: &Function) -> (Ty, Option<IntegerDomain>) {
+fn declared(f: &Function, aliases: &TypeAliases) -> Result<(Ty, Option<IntegerDomain>)> {
     let output = &f.output;
     let domain = output.name.as_deref().and_then(IntegerDomain::named);
     let ty = match (domain, output.args.as_slice()) {
@@ -178,7 +233,13 @@ fn declared(f: &Function) -> (Ty, Option<IntegerDomain>) {
             .cloned()
             .or_else(|| output.name.as_deref().and_then(named_type)),
     };
-    (ty.expect("module constants have a concrete type"), domain)
+    // Value arguments may read this getter before `fold` prepares Quantity
+    // outputs. Resolve only the getter actually reached by the evaluator.
+    let ty = match ty {
+        Some(ty) => ty,
+        None => aliases.constant_types.resolve(f, aliases)?,
+    };
+    Ok((ty, domain))
 }
 
 fn default(ty: &Ty, domain: Option<IntegerDomain>) -> Value {
@@ -285,7 +346,7 @@ impl<'a> Folder<'a> {
                 "constant dependencies nest more than {MAX_DEPTH} deep"
             )));
         }
-        let (ty, domain) = declared(f);
+        let (ty, domain) = declared(f, self.aliases)?;
         let [
             Stmt {
                 kind: Statement::Expr(initializer),
@@ -299,7 +360,9 @@ impl<'a> Folder<'a> {
         self.active.push(f.name.clone());
         let value = match (domain, self.domain_read(initializer)) {
             // Another constant of the same domain type is already checked.
-            (Some(_), Some(g)) if declared(g) == (ty.clone(), domain) => self.constant(g),
+            (Some(_), Some(g)) if declared(g, self.aliases)? == (ty.clone(), domain) => {
+                self.constant(g)
+            }
             _ => self.typed(initializer, &ty),
         };
         self.active.pop();
@@ -325,11 +388,15 @@ impl<'a> Folder<'a> {
     /// The getter `e` reads, when it reads an integer domain constant.
     fn domain_read(&self, e: &Expr) -> Option<&'a Function> {
         match &ungroup(e).kind {
-            Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => self
-                .getters
-                .get(name.as_str())
-                .copied()
-                .filter(|f| declared(f).1.is_some()),
+            Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => {
+                self.getters.get(name.as_str()).filter(|f| {
+                    f.output
+                        .name
+                        .as_deref()
+                        .and_then(IntegerDomain::named)
+                        .is_some()
+                })
+            }
             _ => None,
         }
     }
@@ -393,7 +460,7 @@ impl<'a> Folder<'a> {
             Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => self
                 .getters
                 .get(name.as_str())
-                .map(|f| declared(f))
+                .and_then(|f| declared(f, self.aliases).ok())
                 .filter(|(_, domain)| domain.is_none())
                 .map(|(ty, _)| ty),
             Expression::Method(base, method, args, _) if method == "get" && args.is_empty() => {
@@ -403,7 +470,9 @@ impl<'a> Folder<'a> {
                         .map(|(storage, _, _)| storage)
                         .or_else(|| ty.domain_element())
                 } else {
-                    self.domain_read(base).map(|f| declared(f).0)
+                    self.domain_read(base)
+                        .and_then(|f| declared(f, self.aliases).ok())
+                        .map(|(ty, _)| ty)
                 }
             }
             Expression::Method(base, method, args, _) if method == "to" && args.len() == 1 => self
@@ -470,10 +539,10 @@ impl<'a> Folder<'a> {
             Expression::Bytes(b) => Ok(Value::Bytes(b.as_slice().into())),
             Expression::Bool(b) => Ok(Value::Bool(*b)),
             Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => {
-                let Some(f) = self.getters.get(name.as_str()).copied() else {
+                let Some(f) = self.getters.get(name.as_str()) else {
                     return Err(e.at.error(format!("unknown constant `{}`", display(name))));
                 };
-                if let (ty, Some(domain)) = declared(f)
+                if let (ty, Some(domain)) = declared(f, self.aliases)?
                     && !self.domain_arguments
                 {
                     let name = display(name);
@@ -908,4 +977,30 @@ fn not_constant(e: &Expr) -> Box<dyn Error> {
     e.at.error(
         "not a constant expression: constants may use literals, other constants, numeric type constants and casts, and operators",
     )
+}
+
+/// Evaluate the deliberately restricted value-argument syntax with the same
+/// width and signedness checks as module constants.
+pub(super) fn generic_value(
+    e: &Expr,
+    expected: &Ty,
+    aliases: &TypeAliases,
+) -> Result<value_generics::Constant> {
+    let mut folder = Folder {
+        aliases,
+        getters: Getters::Shared(&aliases.constants),
+        values: HashMap::default(),
+        active: vec![],
+        unselected: 0,
+        domain_arguments: false,
+    };
+    let value = folder.typed(e, expected)?;
+    match value {
+        Value::Int(value, ty) if ty.is_int() => Ok(value_generics::Constant { ty, value }),
+        Value::Bool(value) => Ok(value_generics::Constant {
+            ty: Ty::Bool,
+            value: i128::from(value),
+        }),
+        _ => Err(e.at.error("value arguments must be integers or bool")),
+    }
 }

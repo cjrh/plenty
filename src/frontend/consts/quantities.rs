@@ -62,7 +62,7 @@ impl Folder<'_> {
                 return Ok(Value::Int(n, storage.clone()));
             }
             if let Some(f) = self.domain_read(e)
-                && declared(f) == (inner, Some(domain))
+                && declared(f, self.aliases)? == (inner, Some(domain))
             {
                 let Value::Int(n, _) = self.constant(f)? else {
                     unreachable!()
