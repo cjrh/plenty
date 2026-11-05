@@ -87,7 +87,12 @@ handles unsupported patterns, Unicode fallback and exhausted DFA caches. Work
 limits include accelerated scans and fallbacks; optional scratch fits within
 the existing memory budget, and allocations remain fallible. Issue #752 adds
 pattern and search-budget compatibility checks before a cursor reuses cached
-transitions.
+transitions. Issue #753 removes per-byte text calls from the ASCII engines
+by borrowing UTF-8 storage once per search, iterates byte slices directly in
+the prefix scanner, and applies that filter at DFA restart states. The full
+regex-redux workload uses 44.36% fewer instructions than the merged #742
+implementation. Remaining scalar lowering and multi-literal filtering are
+tracked in issue #758.
 
 The unchanged regex-redux program measures cleaning, all nine variant counts,
 and five substitutions against the Rust `regex` reference. Reproducible

@@ -2495,6 +2495,11 @@ impl Lower<'_> {
                     return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::regex::RegexOp::named(name) {
+                    if operation == crate::regex::RegexOp::TextBytes {
+                        return Err(e.at.error(
+                            "__regex_text_bytes is only supported at a shared byte-view parameter",
+                        ));
+                    }
                     return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::text::TextOp::named(name) {
