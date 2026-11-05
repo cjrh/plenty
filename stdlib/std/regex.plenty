@@ -1,8 +1,10 @@
 # Regular expressions: a parser that emits a small instruction program, run
-# by a Pike VM. For a compiled program, matching time is linear in the input:
-# each input position visits each instruction at most once. Pattern size,
+# by a Pike VM with bounded prefix, lazy-DFA and one-pass accelerators.
+# Matching time is linear in the input for a compiled program. Pattern size,
 # nesting, repetition counts, program size, matcher memory, and matcher work
 # are bounded by `Limits`. See book/src/design/stdlib/regex.md.
+# Syntax, semantics and the prefilter/fallback strategy follow the Rust regex
+# project (https://docs.rs/regex/1.12.3/regex/); no crate code is embedded here.
 import std.bytes
 from std.bytes import Bytes
 
@@ -949,9 +951,79 @@ pub class Captures:
                 return self.get(index)
         Nothing
 
+# A bounded lazy DFA. States are unordered epsilon-closed NFA subsets: this
+# suffices for existence, and for offsets only when every match has the same
+# byte length. Captures and variable-length leftmost-first searches use Vm.
+# Cache exhaustion disables this accelerator and resumes the bounded VM.
+class Dfa:
+    _states: list[i64]
+    _edges: list[i64]
+    _count: i64
+    _enabled: bool
+    _work: i64
+
+    def search(self: &mut Dfa, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, maximum: i64) -> Result[i64, RegexError]:
+        # There are at most 64 states, 128 byte columns, and 62 NFA bits.
+        # Every offset is bounded by these preallocated extents; at advances
+        # below input_len. Work increments only below the configured maximum.
+        unchecked:
+            mut current = 0
+            mut at = start
+            end = input_len(text, data, textual)
+            accept = 1 << (len(program._op) - 1)
+            if program._dfa_start & accept != 0:
+                if self._work >= maximum:
+                    return Err(RegexError.LimitExceeded(Limit.Work))
+                self._work += 1
+                return Ok(at)
+            while at < end:
+                if current == 0 and textual and program._prefix.byte_len() > 0:
+                    at = __regex_text_find(text, &program._prefix, at)
+                    if at < 0:
+                        return Ok(-1)
+                if self._work >= maximum:
+                    return Err(RegexError.LimitExceeded(Limit.Work))
+                self._work += 1
+                byte = __regex_text_byte(text, at) if textual else i64(data[at])
+                at += 1
+                if byte >= 128:
+                    current = 0
+                    continue
+                edge = current * 128 + byte
+                mut target = self._edges[edge]
+                if target == 0:
+                    active = self._states[current] & program._dfa_masks[byte]
+                    mut bits = program._dfa_start
+                    for pc in range(len(program._op)):
+                        if self._work >= maximum:
+                            return Err(RegexError.LimitExceeded(Limit.Work))
+                        self._work += 1
+                        if active & (1 << pc) != 0:
+                            bits |= program._dfa_after[pc]
+                    if bits & accept != 0:
+                        # Matching edges have one shared terminal marker.
+                        self._edges[edge] = 65
+                        return Ok(at)
+                    mut index = 0
+                    while index < self._count and self._states[index] != bits:
+                        index += 1
+                    if index == self._count:
+                        if index == 64:
+                            self._enabled = False
+                            return Ok(-2)
+                        self._states[index] = bits
+                        self._count += 1
+                    target = index + 1
+                    self._edges[edge] = target
+                if target == 65:
+                    return Ok(at)
+                current = target - 1
+            Ok(-1)
+
 # Matcher scratch for one program: two sparse thread sets, each thread's
 # capture slots, and the explicit stack of the epsilon closure.
 class Vm:
+    _dfa: Dfa
     _n: i64
     _slots: i64
     _dense: list[i64]
@@ -1025,10 +1097,100 @@ class Vm:
                         self._caps[into + k] = self._cur[k]
             Ok(())
 
+    # Shift-And over a conservative ASCII prefix. All prefixes have the same
+    # width, so the first completed window is the earliest possible start.
+    # Non-ASCII bytes reset the window, including invalid UTF-8 in byte input.
+    def candidate(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+        # width is 1..8; state has at most eight bits. at advances only below
+        # the input length and a completed window contains width bytes.
+        unchecked:
+            mut state = 0
+            mut at = start
+            end = input_len(text, data, textual)
+            accept = 1 << (program._filter_width - 1)
+            while at < end:
+                if self._work >= self._max_work:
+                    return Err(RegexError.LimitExceeded(Limit.Work))
+                self._work += 1
+                byte = __regex_text_byte(text, at) if textual else i64(data[at])
+                state = ((state << 1) | 1) & program._filter[byte]
+                at += 1
+                if state & accept != 0:
+                    return Ok(at - program._filter_width)
+            Ok(-1)
+
+    # At most one consuming path can win for each ASCII byte. Remembering the
+    # last accepting position preserves greedy choices without backtracking.
+    # Failed anchored attempts together may scan only one input length before
+    # falling back to the VM, keeping adversarial searches linear.
+    def one_pass(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+        unchecked:
+            end = input_len(text, data, textual)
+            mut remaining = end - start
+            mut begin = start
+            while begin <= end:
+                if program._filter_width > program._prefix.byte_len():
+                    begin = self.candidate(program, text, data, textual, begin)?
+                    if begin < 0:
+                        return Ok(-1)
+                elif textual and program._prefix.byte_len() > 0:
+                    begin = __regex_text_find(text, &program._prefix, begin)
+                    if begin < 0:
+                        return Ok(-1)
+                mut pc = 0
+                mut at = begin
+                mut last = -1
+                while True:
+                    if self._work >= self._max_work:
+                        return Err(RegexError.LimitExceeded(Limit.Work))
+                    self._work += 1
+                    if program._one[pc * 129 + 128] == 1:
+                        last = at
+                    if at == end:
+                        break
+                    if remaining == 0:
+                        return Ok(-2)
+                    remaining -= 1
+                    byte = __regex_text_byte(text, at) if textual else i64(data[at])
+                    if byte >= 128:
+                        return Ok(-2)
+                    target = program._one[pc * 129 + byte]
+                    if target == -1:
+                        last = at
+                        break
+                    if target == 0:
+                        break
+                    pc = target - 1
+                    at += 1
+                if last >= 0:
+                    self._found[0] = begin
+                    self._found[1] = last
+                    return Ok(last)
+                if begin == end:
+                    return Ok(-1)
+                begin += 1
+            Ok(-1)
+
     # Finds the leftmost-first match starting at or after `start` and leaves
     # its slots in `_found`. With `early`, stops at the first match of any
     # length without recording it.
     def search(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+        if not early and self._slots == 2 and len(program._one) > 0:
+            end = self.one_pass(program, text, data, textual, start)?
+            if end != -2:
+                return Ok(end >= 0)
+        if self._dfa._enabled and (early or (self._slots == 2 and program._dfa_width > 0)):
+            self._dfa._work = self._work
+            end = self._dfa.search(program, text, data, textual, start, self._max_work)?
+            self._work = self._dfa._work
+            if end >= 0:
+                if not early:
+                    unchecked:
+                        self._found[0] = end - program._dfa_width
+                    self._found[1] = end
+                return Ok(True)
+            if end == -1:
+                return Ok(False)
         # machine_extents bounds sparse/capture offsets for current=0/1 and
         # pc/index < n. Work increments only below max_work. A decoded unit
         # advances at by its validated width to <= input_len, including invalid bytes.
@@ -1044,7 +1206,11 @@ class Vm:
                 if self._count[current] == 0:
                     if matched:
                         break
-                    if textual and program._prefix.byte_len() > 0:
+                    if program._filter_width > program._prefix.byte_len():
+                        at = self.candidate(program, text, data, textual, at)?
+                        if at < 0:
+                            break
+                    elif textual and program._prefix.byte_len() > 0:
                         found = __regex_text_find(text, &program._prefix, at)
                         if found < 0:
                             break
@@ -1087,6 +1253,8 @@ class Vm:
 # Iteration state for `next_match`: matcher scratch, the next search start,
 # and where the previous match ended.
 pub class Cursor:
+    _pattern: str
+    _max_memory: i64
     _vm: Vm
     _at: i64
     _last_end: i64
@@ -1122,6 +1290,8 @@ class Output:
         Ok(())
 
 pub class Regex:
+    _pattern: str
+    _max_memory: i64
     _op: list[i64]
     _x: list[i64]
     _y: list[i64]
@@ -1134,6 +1304,13 @@ pub class Regex:
     _item_high: list[i64]
     _names: list[str]
     _prefix: str
+    _filter: list[i64]
+    _filter_width: i64
+    _dfa_masks: list[i64]
+    _dfa_after: list[i64]
+    _dfa_start: i64
+    _dfa_width: i64
+    _one: list[i64]
     _max_work: i64
     _empty: Bytes
 
@@ -1201,13 +1378,234 @@ pub class Regex:
                 return True
         False
 
+    # Only case-sensitive ASCII literals and positive ASCII range classes
+    # are admitted. Other instructions end the extracted prefix, never
+    # exclude a possible match (notably Unicode folds such as Kelvin sign).
+    def ascii_atom(self, pc: i64) -> bool:
+        if self._op[pc] == op_char:
+            return self._x[pc] < 128 and self._y[pc] == 0
+        if self._op[pc] != op_class:
+            return False
+        id = self._x[pc]
+        if self._class_negated[id] != 0 or self._class_fold[id] != 0:
+            return False
+        unchecked:
+            for item in range(self._class_start[id], self._class_start[id] + self._class_count[id]):
+                if self._item_kind[item] != item_range or self._item_high[item] >= 128:
+                    return False
+        True
+
+    # Traverse at most eight consuming layers of a small NFA. Unioning the
+    # accepted bytes at each position may create false positives across
+    # alternatives; the VM confirms them in its original priority order.
+    # Assertions are ignored conservatively. An empty or unsupported path
+    # stops extraction at the shortest prefix shared by every possible match.
+    def prepare_filter(self: &mut Regex) -> Result[(), RegexError]:
+        if len(self._op) > 256:
+            return Ok(())
+        mut masks = zeros(256)?
+        mut pending = integers()?
+        mut next = integers()?
+        mut seen = zeros(len(self._op))?
+        held(pending.append(0))?
+        mut width = 0
+        unchecked:
+            while width < 8:
+                mut stop = False
+                mut index = 0
+                for pc in &mut seen:
+                    *pc = 0
+                while index < len(pending):
+                    pc = pending[index]
+                    index += 1
+                    if seen[pc] != 0:
+                        continue
+                    seen[pc] = 1
+                    op = self._op[pc]
+                    if op == op_jump:
+                        held(pending.append(self._x[pc]))?
+                    elif op == op_split:
+                        held(pending.append(self._x[pc]))?
+                        held(pending.append(self._y[pc]))?
+                    elif op == op_save or op == op_assert:
+                        held(pending.append(pc + 1))?
+                    elif self.ascii_atom(pc):
+                        held(next.append(pc + 1))?
+                        for byte in range(128):
+                            if self.accepts(pc, byte):
+                                masks[byte] |= 1 << width
+                    else:
+                        stop = True
+                        break
+                if stop or len(next) == 0:
+                    break
+                width += 1
+                old = pending
+                pending = next
+                next = old
+                next.clear()
+        if width > self._prefix.byte_len():
+            self._filter = masks
+            self._filter_width = width
+        Ok(())
+
+    # Epsilon closure ignores SAVE because this engine never returns captures.
+    # Assertions are excluded before this helper is called.
+    def closure(self, start: i64) -> Result[i64, RegexError]:
+        mut pending = integers()?
+        held(pending.append(start))?
+        mut seen = 0
+        mut result = 0
+        mut index = 0
+        unchecked:
+            while index < len(pending):
+                pc = pending[index]
+                index += 1
+                bit = 1 << pc
+                if seen & bit != 0:
+                    continue
+                seen |= bit
+                op = self._op[pc]
+                if op == op_jump:
+                    held(pending.append(self._x[pc]))?
+                elif op == op_split:
+                    held(pending.append(self._x[pc]))?
+                    held(pending.append(self._y[pc]))?
+                elif op == op_save:
+                    held(pending.append(pc + 1))?
+                else:
+                    result |= bit
+        Ok(result)
+
+    def prepare_dfa(self: &mut Regex, spare_words: i64) -> Result[(), RegexError]:
+        n = len(self._op)
+        # The existing VM memory is retained for fallback; reserve the entire
+        # optional cache within max_memory, or quietly use the VM alone.
+        if n > 62 or spare_words < 8256:
+            return Ok(())
+        for pc in range(n):
+            op = self._op[pc]
+            if op == op_assert or (op <= op_any and not self.ascii_atom(pc)):
+                return Ok(())
+        mut masks = zeros(128)?
+        mut after = zeros(n)?
+        unchecked:
+            for pc in range(n):
+                if self._op[pc] <= op_any:
+                    after[pc] = self.closure(pc + 1)?
+                    for byte in range(128):
+                        if self.accepts(pc, byte):
+                            masks[byte] |= 1 << pc
+        # A repeated visit at a different depth proves variable length (or a
+        # consuming cycle). Traversing each pc once bounds compile work.
+        mut depths = zeros(n)?
+        for depth in &mut depths:
+            *depth = -1
+        mut pending = integers()?
+        held(pending.append(0))?
+        held(pending.append(0))?
+        mut index = 0
+        mut fixed = True
+        unchecked:
+            while index < len(pending):
+                pc = pending[index]
+                depth = pending[index + 1]
+                index += 2
+                if depths[pc] >= 0:
+                    if depths[pc] != depth:
+                        fixed = False
+                    continue
+                depths[pc] = depth
+                op = self._op[pc]
+                if op == op_match:
+                    continue
+                if op == op_split:
+                    held(pending.append(self._y[pc]))?
+                    held(pending.append(depth))?
+                target = if op == op_jump or op == op_split:
+                    self._x[pc]
+                else:
+                    pc + 1
+                held(pending.append(target))?
+                held(pending.append(depth + (1 if op <= op_any else 0)))?
+            self._dfa_width = depths[n - 1] if fixed else -1
+        self._dfa_start = self.closure(0)?
+        self._dfa_masks = masks
+        self._dfa_after = after
+        Ok(())
+
+    # Build ordered epsilon closures, then check that their consuming paths
+    # are disjoint for each ASCII byte. A MATCH before a consumer wins (lazy);
+    # a MATCH after it is retained as a fallback (greedy). Unicode inputs
+    # transfer to the VM, whose scalar and capture behavior is authoritative.
+    def prepare_one(self, spare_words: i64) -> Result[list[i64], RegexError]:
+        n = len(self._op)
+        if n > 62:
+            return integers()
+        words = unchecked:
+            n * 129
+        if spare_words < words:
+            return integers()
+        for op in &self._op:
+            if *op == op_assert:
+                return integers()
+        mut table = zeros(words)?
+        mut stack = integers()?
+        mut order = integers()?
+        unchecked:
+            for origin in range(n):
+                stack.clear()
+                order.clear()
+                held(stack.append(origin))?
+                mut seen = 0
+                while len(stack) > 0:
+                    pc = stack.pop().unwrap()
+                    bit = 1 << pc
+                    if seen & bit != 0:
+                        continue
+                    seen |= bit
+                    op = self._op[pc]
+                    if op == op_split:
+                        held(stack.append(self._y[pc]))?
+                        held(stack.append(self._x[pc]))?
+                    elif op == op_jump:
+                        held(stack.append(self._x[pc]))?
+                    elif op == op_save:
+                        held(stack.append(pc + 1))?
+                    else:
+                        held(order.append(pc))?
+                        if op == op_match:
+                            table[origin * 129 + 128] = 1
+                for byte in range(128):
+                    mut target = 0
+                    for pc in &order:
+                        if self._op[*pc] == op_match:
+                            if target == 0:
+                                target = -1
+                            break
+                        if self.accepts(*pc, byte):
+                            if target != 0:
+                                return integers()
+                            target = *pc + 2
+                    table[origin * 129 + byte] = target
+        Ok(table)
+
     def machine(self, slots: i64) -> Result[Vm, RegexError]:
         n = len(self._op)
         mut width = slots
         if width == 0:
             width = 1
         threads, captures, stack = machine_extents(n, slots)?
-        Ok(Vm(n, slots, zeros(threads)?, zeros(threads)?, zeros(2)?, zeros(captures)?, zeros(stack)?, zeros(width)?, zeros(width)?, 0, self._max_work))
+        mut dfa = Dfa(integers()?, integers()?, 0, False, 0)
+        # A complete literal already has the native substring prefilter; a
+        # byte-at-a-time DFA would regress long, mostly nonmatching haystacks.
+        if self._dfa_start != 0 and self._dfa_width != self._prefix.byte_len() and (slots == 0 or (slots == 2 and self._dfa_width > 0)):
+            dfa._states = zeros(64)?
+            dfa._edges = zeros(8192)?
+            dfa._states[0] = self._dfa_start
+            dfa._count = 1
+            dfa._enabled = True
+        Ok(Vm(dfa, n, slots, zeros(threads)?, zeros(threads)?, zeros(2)?, zeros(captures)?, zeros(stack)?, zeros(width)?, zeros(width)?, 0, self._max_work))
 
     def first(self, text: &str, data: &[u8], textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
         if not valid_start(text, data, textual, start):
@@ -1274,7 +1672,7 @@ pub class Regex:
         self.captured("", data, False, start)
 
     def scan(self, slots: i64) -> Result[Cursor, RegexError]:
-        Ok(Cursor(self.machine(slots)?, 0, -1, False))
+        Ok(Cursor(self._pattern, self._max_memory, self.machine(slots)?, 0, -1, False))
 
     # A cursor for `next_match`, holding matcher scratch sized for this regex.
     pub def cursor(self) -> Result[Cursor, RegexError]:
@@ -1293,7 +1691,7 @@ pub class Regex:
     def advance(self, cursor: &mut Cursor, text: &str, data: &[u8], textual: bool) -> Result[Option[Match], RegexError]:
         # A nonnegative decoded unit advances only to the next boundary <=
         # input_len; an exhausted unit marks the cursor done instead of incrementing.
-        if cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
+        if cursor._pattern != self._pattern or cursor._max_memory != self._max_memory or cursor._vm._max_work != self._max_work or cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
             return Err(RegexError.OutOfRange)
         while not cursor._done:
             if not valid_start(text, data, textual, cursor._at):
@@ -1508,7 +1906,13 @@ pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    Ok(Regex(replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, bounds.max_work.get(), no_bytes()?))
+    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
+    regex.prepare_filter()?
+    unchecked:
+        regex.prepare_dfa(budget - words)?
+        if regex._dfa_width < 0:
+            regex._one = regex.prepare_one(budget - words)?
+    Ok(regex)
 
 # The case-sensitive literals that directly follow the opening SAVE: every
 # match starts with them, so a search skips ahead to them.
