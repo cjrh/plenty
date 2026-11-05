@@ -21,7 +21,10 @@ step 1, `xs[i]` cannot fail when `xs` is a `&list[T]` parameter or a
 [slice view](../../language/04-expressions/slices.md#slice-views): its
 length cannot change while the function runs. Indexing any other list with
 `i`, including through a shared reference made inside the function, or a
-range with any other stop, keeps the check.
+range with any other stop, keeps the check. The counter of
+`for i, x in enumerate(xs)` over such a list or view qualifies the same way,
+when the call has no start; indexing another list with it still checks the
+bound but skips negative-index normalization.
 
 A `while lo < hi` loop over a slice view checks once, before the loop, when
 its body begins by indexing the view with `hi`, and possibly `lo`, as

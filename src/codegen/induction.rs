@@ -345,6 +345,50 @@ pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> 
 
 const STEP_OPS: usize = 8;
 
+/// A forward cursor loop, as list and view iteration lower it:
+/// `while index < length: ...; index = index wrapping+ 1`, where nothing but
+/// that final step writes `index` and nothing writes `length`. Every body read
+/// of `index` precedes the step, so it is below `length`; the step then
+/// cannot wrap, and an `index` that starts nonnegative stays nonnegative.
+/// `enumerate` binds its counter to this index (issue #727).
+pub(super) struct CursorLoop {
+    pub index: u8,
+    pub length: u8,
+}
+
+/// Match a forward cursor loop; [`CursorLoop`] states what the caller must
+/// still check about the slots' values on entry.
+pub(super) fn analyze_cursor(condition: &[Op], body: &[Op]) -> Option<CursorLoop> {
+    use crate::op::IntegerOp;
+    use crate::value::Value as V;
+    let condition: Vec<&Op> = condition.iter().filter(|op| !transparent(op)).collect();
+    let [Op::LoadLocal(index), Op::LoadLocal(length), Op::Lt] = condition[..] else {
+        return None;
+    };
+    let (index, length) = (*index, *length);
+    let step = body.get(body.len().checked_sub(CURSOR_STEP_OPS)?..)?;
+    let [
+        Op::LoadLocal(i),
+        Op::PushInt(V::I64(1)),
+        Op::Integer(IntegerOp::WrappingAdd),
+        Op::StoreLocal(i2),
+    ] = step
+    else {
+        return None;
+    };
+    if index == length || *i != index || *i2 != index {
+        return None;
+    }
+    only_steps(
+        &body[..body.len() - CURSOR_STEP_OPS],
+        &[index, length],
+        step,
+    )
+    .then_some(CursorLoop { index, length })
+}
+
+const CURSOR_STEP_OPS: usize = 4;
+
 /// Whether `ops` and their nested bodies write none of `slots`, except by a
 /// copy of `step` that `continue` follows.
 fn only_steps(ops: &[Op], slots: &[u8], step: &[Op]) -> bool {
