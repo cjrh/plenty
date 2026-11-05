@@ -1,0 +1,52 @@
+{
+  "name": "n-body",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/nbody.html",
+  "reference": {
+    "language": "rust",
+    "program": 3,
+    "file": "reference/nbody.rs",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/nbody-rust-3.html",
+    "authors": [
+      "Ilia Schelokov"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/opt/src/rust-1.84.1/bin/rustc -C opt-level=3 -C target-cpu=ivybridge -C codegen-units=1  nbody.rs -o nbody.rust-3.rust_run",
+    "site_command": "./nbody.rust-3.rust_run 50000000",
+    "build": {
+      "kind": "rust",
+      "command": [
+        "rustc",
+        "-C",
+        "opt-level=3",
+        "-C",
+        "target-cpu=native",
+        "-C",
+        "codegen-units=1",
+        "{source}",
+        "-o",
+        "{output}"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 1000,
+    "expected": "expected/1000.txt",
+    "compare": "float:1e-8"
+  },
+  "sizes": {
+    "quick": 5000000,
+    "full": 50000000,
+    "site": 50000000
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/nbody.plenty",
+      "threads": 1
+    }
+  ]
+}

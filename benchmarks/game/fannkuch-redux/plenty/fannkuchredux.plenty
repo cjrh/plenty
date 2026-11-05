@@ -1,0 +1,84 @@
+# fannkuch-redux: for every permutation of 0..n, reverse the first perm[0] + 1
+# elements until 0 comes first. Print the alternating checksum of flip counts
+# and the largest flip count.
+#
+# Single-threaded, same algorithm as the reference (fannkuchredux.clang-1.c):
+# permutations in the benchmark's incremental rotation order, driven by count[].
+# examples/fannkuch_redux.plenty is the parallel version.
+
+const MAX_N: i64 = 16
+
+type AppError = AllocError | IoError | ParseError | OverflowError[i64]
+
+
+def count_flips(perm: &mut [i64]) -> Result[i64, OverflowError[i64]]:
+    mut flips = 0
+    mut k = perm[0]
+    while k != 0:
+        mut lo = 0
+        mut hi = k
+        while lo < hi:
+            perm.swap(lo, hi)
+            lo += 1
+            hi -= 1
+        flips += 1
+        k = perm[0]
+    Ok(flips)
+
+
+# Returns (checksum, maximum flips).
+def fannkuch(n: i64) -> Result[(i64, i64), AllocError | OverflowError[i64]]:
+    mut perm = list[i64].with_capacity(n)?
+    mut perm1 = list[i64].with_capacity(n)?
+    mut count = list[i64].with_capacity(n)?
+    for i in range(n):
+        perm.append(0)?
+        perm1.append(i)?
+        count.append(0)?
+    mut max_flips = 0
+    mut checksum = 0
+    mut even = True
+    mut r = n
+    mut more = True
+    while more:
+        while r != 1:
+            count[r - 1] = r
+            r -= 1
+        for i in range(n):
+            perm[i] = perm1[i]
+        flips = count_flips(&mut perm)?
+        if flips > max_flips:
+            max_flips = flips
+        checksum += flips if even else -flips
+        even = not even
+        # Rotate perm1[0..=r] left, moving r up while its count digit is spent.
+        mut advancing = True
+        while advancing:
+            if r == n:
+                more = False
+                advancing = False
+            else:
+                perm0 = perm1[0]
+                for i in range(r):
+                    perm1[i] = perm1[i + 1]
+                perm1[r] = perm0
+                count[r] -= 1
+                if count[r] > 0:
+                    advancing = False
+                else:
+                    r += 1
+    Ok((checksum, max_flips))
+
+def main() -> Result[i32, AppError]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        7
+    if n < 1 or n > MAX_N:
+        write_stderr(f"N must be in 1..={MAX_N}\n"?)?
+        return Ok(2)
+    (checksum, max_flips) = fannkuch(n)?
+    print(checksum)?
+    print(f"Pfannkuchen({n}) = {max_flips}"?)?
+    Ok(0)

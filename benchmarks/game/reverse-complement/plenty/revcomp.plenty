@@ -1,0 +1,95 @@
+# reverse-complement: read FASTA from stdin and write each sequence's reverse
+# complement, keeping 60-column lines.
+# Same algorithm as the reference (revcomp.clang-5.c): read all input into one
+# growing buffer, shift each record's line breaks so that reversing the whole
+# record puts them back in 60-column positions, then reverse and complement in
+# place and write the buffer once.
+import std.bytes
+
+const LINE_STRIDE: Positive[i64] = 61
+const NEWLINE: u8 = 10u8
+const HEADER: u8 = 62u8
+const PAIRS: bytes = b"ATCGGCTAUAMKRYWWSSYRKMVBHDDHBVNN\n\n"
+const READ_CHUNK: i64 = 1048576
+
+type AppError = AllocError | IoError | OverflowError[i64]
+
+
+def complement_table() -> Result[std.bytes.Bytes, AllocError | OverflowError[i64]]:
+    mut table = std.bytes.with_capacity(256)?
+    table.resize(256, 0u8)?
+    mut i = 0
+    while i < len(PAIRS):
+        base = PAIRS[i]
+        partner = PAIRS[i + 1]
+        table.set(i64(base), partner)
+        # Lower-case letters complement like upper-case ones.
+        if base >= 65u8 and base <= 90u8:
+            table.set(i64(base) + 32, partner)
+        i += 2
+    Ok(table)
+
+
+def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
+    mut buffer = std.bytes.with_capacity(READ_CHUNK)?
+    mut end = 0
+    while True:
+        if end == buffer.len():
+            buffer.resize(end + READ_CHUNK, 0u8)?
+        count = buffer.read_stdin(end, buffer.len())?
+        if count == 0:
+            break
+        end += count
+    buffer.truncate(end)
+    Ok(buffer)
+
+
+# Reverse-complement the record whose header starts at `start`; `stop` is the
+# index of its final newline.
+def process(buffer: &mut std.bytes.Bytes, table: &std.bytes.Bytes, start: i64, stop: i64) -> Result[(), OverflowError[i64]]:
+    first = match buffer.find(NEWLINE, start, stop):
+        case Some(header_end):
+            header_end + 1
+        case Nothing:
+            return Ok(())
+    length = stop - first
+    offset = 60 - length % LINE_STRIDE
+    if offset != 0:
+        mut m = first + 60 - offset
+        while m < stop:
+            buffer.copy_within(m, m + offset, m + 1)
+            buffer.set(m, NEWLINE)
+            m += 61
+    mut lo = first
+    mut hi = stop - 1
+    while lo <= hi:
+        c = table.get(i64(buffer.get(lo)))
+        buffer.set(lo, table.get(i64(buffer.get(hi))))
+        buffer.set(hi, c)
+        lo += 1
+        hi -= 1
+    Ok(())
+
+
+def main() -> Result[(), AppError]:
+    table = complement_table()?
+    mut buffer = read_all_stdin()?
+    end = buffer.len()
+    mut starts = list[i64].with_capacity(3)?
+    mut at = 0
+    while True:
+        match buffer.find(HEADER, at, end):
+            case Some(index):
+                starts.append(index)?
+                at = index + 1
+            case Nothing:
+                break
+    for k in range(len(starts)):
+        stop = if k + 1 < len(starts):
+            starts[k + 1] - 1
+        else:
+            end - 1
+        process(&mut buffer, &table, starts[k], stop)?
+    write_stdout_bytes(&buffer)?
+    flush_stdout()?
+    Ok(())

@@ -1,0 +1,66 @@
+# spectral-norm: power method on the infinite matrix A(i, j) = 1 / ((i + j)(i + j + 1) / 2 + i + 1).
+# Same algorithm as the reference (spectralnorm.clang-8.c).
+
+# Indices stay below MAX_N, so (i + j + 1)^2 stays far below i64.MAX.
+const MAX_N: i64 = 1_000_000
+
+
+def eval_a(i: i64, j: i64) -> f64:
+    # main bounds i and j by MAX_N, so none of this can overflow.
+    unchecked:
+        ij = i + j
+        1.0 / f64(ij * (ij + 1) // 2 + i + 1)
+
+
+def a_times_u(u: &[f64], au: &mut [f64]) -> ():
+    n = len(u)
+    for i in range(n):
+        mut sum = 0.0
+        for j in range(n):
+            sum += eval_a(i, j) * u[j]
+        au[i] = sum
+
+
+def at_times_u(u: &[f64], au: &mut [f64]) -> ():
+    n = len(u)
+    for i in range(n):
+        mut sum = 0.0
+        for j in range(n):
+            sum += eval_a(j, i) * u[j]
+        au[i] = sum
+
+
+def ata_times_u(u: &[f64], out: &mut [f64], scratch: &mut [f64]) -> ():
+    a_times_u(u, scratch)
+    at_times_u(scratch, out)
+
+
+def filled(n: i64, value: f64) -> Result[list[f64], AllocError]:
+    mut values = list[f64].with_capacity(n)?
+    for _ in range(n):
+        values.append(value)?
+    Ok(values)
+
+
+def main() -> Result[i32, AllocError | IoError | ParseError]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        100
+    if n < 1 or n > MAX_N:
+        write_stderr(f"N must be in 1..={MAX_N}\n"?)?
+        return Ok(2)
+    mut u = filled(n, 1.0)?
+    mut v = filled(n, 0.0)?
+    mut scratch = filled(n, 0.0)?
+    for _ in range(10):
+        ata_times_u(&u, &mut v, &mut scratch)
+        ata_times_u(&v, &mut u, &mut scratch)
+    mut vbv = 0.0
+    mut vv = 0.0
+    for i in range(n):
+        vbv += u[i] * v[i]
+        vv += v[i] * v[i]
+    print(f"{(vbv / vv).sqrt():.9f}"?)?
+    Ok(0)

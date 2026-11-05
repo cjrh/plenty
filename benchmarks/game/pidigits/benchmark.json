@@ -1,0 +1,47 @@
+{
+  "name": "pidigits",
+  "status": "blocked",
+  "blocked_reason": "Plenty's standard library has no arbitrary-precision integer type; the benchmark needs bignum multiply, add and divide. The reference needs GMP (gmp.h and -lgmp).",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/pidigits.html",
+  "reference": {
+    "language": "c",
+    "program": 1,
+    "file": "reference/pidigits.clang-1.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/pidigits-clang-1.html",
+    "authors": [
+      "Mr Ledrug"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  pidigits.c -o pidigits.clang_run -lgmp",
+    "site_command": "./pidigits.clang_run 10000",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}",
+        "-lgmp"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 30,
+    "expected": "expected/30.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 1000,
+    "full": 10000,
+    "site": 10000
+  },
+  "plenty": []
+}

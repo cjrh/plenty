@@ -1,0 +1,52 @@
+{
+  "name": "binary-trees",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/binarytrees.html",
+  "reference": {
+    "language": "c",
+    "program": 1,
+    "file": "reference/binarytrees.clang-1.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/binarytrees-clang-1.html",
+    "authors": [
+      "Kevin Carson"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  binarytrees.c -o binarytrees.clang_run -lm",
+    "site_command": "./binarytrees.clang_run 21",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}",
+        "-lm"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 10,
+    "expected": "expected/10.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 16,
+    "full": 21,
+    "site": 21
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/binarytrees.plenty",
+      "threads": 1
+    }
+  ]
+}

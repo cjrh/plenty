@@ -1,0 +1,99 @@
+# k-nucleotide: count every k-length substring of the third FASTA sequence
+# in a hash table, then report frame-1 and frame-2 frequencies and five
+# specific counts.
+# Same algorithm as the reference (knucleotide.rs, Rust #1): one dictionary per
+# frame length, keyed by an owned copy of each k-length substring. The
+# reference counts the seven frames on seven threads; this version counts them
+# in turn on one thread.
+import std.bytes
+
+const NEWLINE: u8 = 10u8
+const READ_CHUNK: i64 = 1048576
+
+type Counts = dict[str, i64]
+type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError
+
+
+def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
+    mut buffer = std.bytes.with_capacity(READ_CHUNK)?
+    mut end = 0
+    while True:
+        if end == buffer.len():
+            buffer.resize(end + READ_CHUNK, 0u8)?
+        count = buffer.read_stdin(end, buffer.len())?
+        if count == 0:
+            break
+        end += count
+    buffer.truncate(end)
+    Ok(buffer)
+
+
+# The upper-cased letters of the sequence after the ">THREE" header line.
+def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocError | OverflowError[i64]]:
+    mut sequence = std.bytes.with_capacity(input.len())?
+    header = match input.find_bytes(b">THREE", 0, input.len()):
+        case Some(index):
+            index
+        case Nothing:
+            return Ok(sequence)
+    start = match input.find(NEWLINE, header, input.len()):
+        case Some(index):
+            index + 1
+        case Nothing:
+            input.len()
+    for i in range(start, input.len()):
+        c = input.get(i)
+        if c >= 97u8 and c <= 122u8:
+            # c is in 97..=122, so the subtraction cannot wrap.
+            upper = unchecked:
+                c - 32u8
+            sequence.push(upper)?
+        elif c != NEWLINE and c != 13u8:
+            sequence.push(c)?
+    Ok(sequence)
+
+
+def count_frames(sequence: &std.bytes.Bytes, length: i64) -> Result[Counts, AllocError | OverflowError[i64] | std.bytes.BytesError]:
+    mut counts: Counts = {}?
+    for i in range(sequence.len() - length + 1):
+        key = sequence.to_text_range(i, i + length)?
+        match counts.get_mut(&key):
+            case Some(count):
+                *count += 1
+            case Nothing:
+                counts.insert(key, 1)?
+    Ok(counts)
+
+
+def print_frequencies(sequence: &std.bytes.Bytes, length: i64) -> Result[(), AppError]:
+    counts = count_frames(sequence, length)?
+    mut total = 0
+    mut sorted = list[(i64, str)].with_capacity(len(counts))?
+    for (key, count) in counts.items():
+        total += *count
+        sorted.append((-*count, copy(key)?))?
+    # Descending count, then ascending key.
+    sorted.sort()
+    for (count, key) in &sorted:
+        percent = 100.0 * f64(-*count) / f64(total)
+        print(f"{key} {percent:.3f}"?)?
+    print()?
+    Ok(())
+
+
+def print_count(sequence: &std.bytes.Bytes, pattern: &str) -> Result[(), AppError]:
+    counts = count_frames(sequence, len(pattern))?
+    count = counts.get(pattern, 0)
+    print(f"{count}\t{pattern}"?)?
+    Ok(())
+
+
+def main() -> Result[(), AppError]:
+    input = read_all_stdin()?
+    sequence = third_sequence(&input)?
+    drop(input)
+    print_frequencies(&sequence, 1)?
+    print_frequencies(&sequence, 2)?
+    for pattern in ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"]?:
+        print_count(&sequence, &pattern)?
+    Ok(())

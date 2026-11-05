@@ -1,0 +1,55 @@
+{
+  "name": "regex-redux",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/regexredux.html",
+  "reference": {
+    "language": "rust",
+    "program": 1,
+    "file": "reference/regexredux.rs",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/regexredux-rust-1.html",
+    "authors": [
+      "the Rust Project Developers",
+      "BurntSushi",
+      "TeXitoi",
+      "Matt Brubeck"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 9,
+    "asterisk": false,
+    "site_make": "/opt/src/rust-1.84.1/bin/rustc -C opt-level=3 -C target-cpu=ivybridge -C codegen-units=1 -L /opt/src/rust-libs regexredux.rs -o regexredux.rust_run",
+    "site_command": "./regexredux.rust_run 0 < regexredux-input5000000.txt",
+    "build": {
+      "kind": "cargo",
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--release",
+        "--manifest-path",
+        "reference/Cargo.toml"
+      ],
+      "binary": "release/regexredux",
+      "rustflags": "-C target-cpu=native"
+    }
+  },
+  "input": "fasta-stdin",
+  "check": {
+    "size": 1000,
+    "expected": "expected/fasta-1000.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 50000,
+    "full": 5000000,
+    "site": 5000000
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/regexredux.plenty",
+      "threads": 1
+    }
+  ],
+  "notes": "The site links the regex crate from /opt/src/rust-libs; reference/Cargo.toml pins regex 1.12.3, the version in the workspace lockfile. The reference counts the 9 variants on 9 threads; the Plenty program uses std.regex on one thread."
+}
