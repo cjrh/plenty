@@ -7,7 +7,8 @@ pattern or search can consume has an explicit limit. Pattern and search errors
 use `RegexError`; arithmetic on freely constructed `Match` offsets has the
 separate contract described below.
 
-The parser, compiler and matcher (a Pike VM) are Plenty code in the module.
+The parser, compiler and matching engines are Plenty code in the module:
+a Pike VM, bounded ASCII prefix filters, a lazy DFA and a one-pass matcher.
 The runtime supplies only primitives: Unicode properties and single-scalar
 case mappings from the Rust toolchain's Unicode tables, and reads of borrowed
 UTF-8 by byte offset. They do not allocate, except the one that copies a byte
@@ -71,9 +72,13 @@ literal converts where a field is expected; a computed value needs
 | `max_work` | 100000000 | Matcher steps in one call | `Limit.Work` |
 
 `compile` traps when `max_nesting` is above 1000. Matcher
-memory is `8 × (7n + 2ns + 2s + 8)` bytes for `n` instructions and `s`
+base scratch memory is `8 × (7n + 2ns + 2s + 8)` bytes for `n` instructions and `s`
 capture slots (two per group, counting the whole match); `compile` checks it
 for the largest `s` the regex can use, so no later search fails on memory.
+An eligible search may also allocate a 66,048-byte DFA cache, only when it
+fits in the remaining `max_memory` budget. Smaller budgets select the VM
+without rejecting an otherwise valid pattern. The VM scratch remains
+available for fallback; all allocations remain fallible.
 The estimate is checked before comparison: an unrepresentable word estimate
 also exceeds every representable byte budget and reports `Limit.Memory`.
 Actual unrepresentable allocation extents report
@@ -167,7 +172,9 @@ successful instruction emission and preflighted matcher array extents. Unlimited
 replacement does not maintain a redundant total-replacements counter.
 
 A `Cursor` holds the matcher scratch and position, so a loop over
-`next_match` allocates only once. It works only with the regex that made it.
+`next_match` allocates scratch only when it is created. Use it with the regex
+that made it; a different pattern, memory budget or work budget returns
+`OutOfRange` before consulting cached transitions.
 
 ## Pattern syntax
 
@@ -211,20 +218,43 @@ unmatched `)` or `(` is an error too.
 
 ## Costs
 
-A search visits each instruction at most once per input position, so its
-work is at most `2 × instructions() × (len + 1)` steps. `max_work` caps the
-steps of each call: `find`, `captures`, and `is_match` run one search;
-`find_all`, `split`, and `replace_all` count every search they make; each
-`next_match` call is counted separately. Iteration can rescan text after a
-match, so choose `max_work` for the whole call.
+Search is linear in the input for a fixed compiled pattern. The Pike VM
+visits each instruction at most once per input position in each of its two
+sets. Accelerators can add a bounded scan before transferring to the VM;
+there is no unbounded backtracking. `max_work` caps matcher steps in each
+call: `find`, `captures`, and `is_match` run one search; `find_all`, `split`,
+and `replace_all` count every search they make; each `next_match` call is
+counted separately. Work includes accelerated byte scans and uncached DFA
+transitions, and is retained across fallback. Exact step counts depend on
+the engine and its cache. Iteration can rescan text after a match, so choose
+`max_work` for the whole call.
 
-A pattern that starts with a literal prefix (outside `i` mode) skips ahead
-to each occurrence of the prefix in text. Each search allocates its scratch,
-sized by the memory formula above; a `Cursor` reuses one allocation.
+The compiler selects these accelerators without changing match semantics:
 
-The matcher runs as compiled Plenty code: about 1 µs per input byte for a
-pattern of a dozen instructions. That is much slower than the Rust `regex`
-crate, which has a lazy DFA and literal optimizations this module lacks.
+- A case-sensitive literal prefix uses substring search in text. For programs
+  of at most 256 instructions, a bit-parallel filter can instead recognize up
+  to eight mandatory ASCII positions across alternatives and positive range
+  classes. It admits possible matches for the VM to confirm; nullable,
+  case-insensitive or non-ASCII paths shorten or disable this filter.
+- For ASCII-only programs of at most 62 instructions without assertions, a
+  lazy DFA answers existence searches. When every match has the same byte
+  length, it also supplies match offsets for searches, cursors and replacements.
+  Its 64-state cache is local to the matcher and reused by a cursor. Cache
+  exhaustion disables the DFA for that matcher and resumes the VM.
+- For small programs without assertions, a one-pass table accelerates searches
+  that need only whole-match offsets when each ASCII byte has at most one
+  preferred consuming path. It retains greedy/lazy ordering. Non-ASCII input
+  transfers to the VM. Failed anchored attempts can consume at most one input
+  length before fallback, preventing quadratic rescanning. The table has at
+  most 62 × 129 entries and is built only with sufficient memory headroom.
+
+Captures requiring subgroup positions use the Pike VM, with prefix filtering
+where applicable. Unsupported patterns continue to use the VM. Each search
+allocates scratch; a `Cursor` reuses it. No new public API or opt-in flag is
+needed. The [regex-redux measurements](../../development/benchmarks-game.md)
+exercise cleaning, counting and replacement with the same patterns as the
+Rust `regex` reference; remaining gaps include Unicode DFA transitions and
+more selective native literal searching.
 
 ## Choices
 
@@ -237,5 +267,5 @@ the crate.
 
 ## Acknowledgements
 
-- Syntax and match semantics follow the Rust [`regex`](https://docs.rs/regex/1.12.3/regex/) crate 1.12.3.
+- Syntax, match semantics and the prefilter/fallback strategy follow the Rust [`regex`](https://docs.rs/regex/1.12.3/regex/) crate 1.12.3.
 - Matching uses Rob Pike's virtual machine, as described by Russ Cox in ["Regular Expression Matching: the Virtual Machine Approach"](https://swtch.com/~rsc/regexp/regexp2.html) (2009).

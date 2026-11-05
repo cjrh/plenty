@@ -6,6 +6,11 @@ pattern: there is no backtracking, so no pattern can make a search run for
 hours. `compile` takes `Limits`, which also bound the pattern itself, so a
 pattern from an untrusted source is safe to compile.
 
+Keep the compiled `Regex` when searching repeatedly. The library selects
+[prefix filters and faster matching engines](../../design/stdlib/regex.md#costs)
+where the pattern permits them; captures, match ordering and resource limits
+keep the same meaning.
+
 ## Find matches
 
 `find` returns the first match as byte offsets; `text` copies the matched
