@@ -103,9 +103,10 @@ def main() -> Result[(), IoError]:
   independent of its definition or call site. There is no private callback
   channel. Handle a callee's `Result` normally.
 - `unchecked:` asserts that its arithmetic cannot fail and yields an ordinary
-  suite value, not a `Result`. A violation currently terminates the process;
-  do not rely on that. Use wrapping operations for modular arithmetic. Keep
-  opt-outs small and document their bounds.
+  suite value, not a `Result`. A violation traps by default and is undefined
+  behavior with `--unchecked assume`; `unchecked trap:` always traps. Use
+  wrapping operations for modular arithmetic. Keep opt-outs small and document
+  their bounds.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
 - Float arithmetic stays IEEE: overflow may produce infinity and division by
   zero may produce infinity or NaN. For recoverable zero division,

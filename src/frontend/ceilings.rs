@@ -131,6 +131,7 @@ mod tests {
             resolved,
             &mut Heap::default(),
             crate::CheckOptions::default(),
+            crate::UncheckedMode::Trap,
         ) {
             Ok(_) => panic!("invalid default accepted"),
             Err(error) => error.to_string(),

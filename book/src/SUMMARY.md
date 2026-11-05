@@ -610,6 +610,7 @@
     - [Arbitrary-precision integers (`std.bigint`)](proposals/bigint.md)
     - [Checked arithmetic by default](proposals/checked-by-default.md)
         - [Implementation and validation](proposals/checked-by-default/implementation.md)
+        - [Unchecked arithmetic modes](proposals/unchecked-arithmetic-modes.md)
     - [Recursive owned data](proposals/recursive-data.md)
     - [Owned structures and checked node identities](proposals/arenas.md)
         - [Arena prototype assessment](proposals/arenas/prototype.md)

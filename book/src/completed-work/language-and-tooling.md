@@ -212,8 +212,11 @@ block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
 [checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
-That core also supports lexical `unchecked:` suites, whose no-failure
-precondition is currently validated by traps. The private
+That core also supports lexical `unchecked:` suites. Their
+[build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
+(local PR #924): `--unchecked trap` checks the preconditions by default,
+`--unchecked assume` omits the checks outside `std`, and `unchecked trap:`
+always traps; caches key on the mode. The private
 callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float
 helpers retain infallible IEEE values, serial pipeline sums return public

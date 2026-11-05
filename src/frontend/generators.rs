@@ -21,7 +21,7 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
         | Statement::Return(Some(value))
         | Statement::Expr(value) => match &value.kind {
             Expression::Match(_, cases) => cases.iter().any(|case| yields(&case.body)),
-            Expression::Checked(body) | Expression::If(body) => yields(body),
+            Expression::Checked(_, body) | Expression::If(body) => yields(body),
             _ => false,
         },
         _ => false,
@@ -606,7 +606,7 @@ fn free_names(expression: &Expr, bound: &HashSet<String>, names: &mut Vec<String
             }
         }
         Expression::Ambiguous { .. } => unreachable!("module resolution precedes lowering"),
-        Expression::Match(..) | Expression::Checked(_) | Expression::If(_) => {
+        Expression::Match(..) | Expression::Checked(..) | Expression::If(_) => {
             unreachable!("a block value is a statement's whole value")
         }
         Expression::ClassNew(_)

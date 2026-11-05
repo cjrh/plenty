@@ -69,6 +69,10 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --target TRIPLE: require this target to match the supported packaged runtime.
 --fast-compile: skip optimization for faster compilation (optimized by default).
 --release: compatibility alias for the optimized default.
+--unchecked MODE: what plain `unchecked:` blocks outside std do with their
+  arithmetic preconditions: `trap` (default) checks them and traps; `assume`
+  omits the checks, so a violation is undefined behavior. `unchecked trap:`
+  always traps.
 --test-hooks: enable std.test failure injection for FILE or --compile.
   Intended for testing ordinary programs; omitted builds contain no hooks.
 --no-cache: compile/link without cached functions, objects or executables
@@ -255,10 +259,18 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         dump.filter = Some(args.remove(index));
         dump_options = true;
     }
-    let profile_flag = args
+    let mut profile_flag = args
         .iter()
         .find(|a| a.as_str() == "--release" || a.as_str() == "--fast-compile")
         .cloned();
+    if let Some(index) = args.iter().position(|a| a == "--unchecked") {
+        args.remove(index);
+        if index == args.len() {
+            return Err("--unchecked requires `trap` or `assume`".into());
+        }
+        options.unchecked = plenty::UncheckedMode::parse(&args.remove(index))?;
+        profile_flag.get_or_insert_with(|| "--unchecked".into());
+    }
     if let Some(index) = args.iter().position(|a| a == "--fast-compile") {
         args.remove(index);
         options.optimize = false;

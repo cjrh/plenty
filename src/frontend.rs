@@ -1188,7 +1188,7 @@ impl Lower<'_> {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
             }
-            ops.push(Op::Integer(kind));
+            self.push_trapping(Op::Integer(kind), &ty, ops);
             return Ok(ty);
         }
         if op == "/" && !ty.is_float() {
@@ -1203,7 +1203,7 @@ impl Lower<'_> {
         {
             return Ok(ty);
         }
-        ops.push(match op {
+        let operation = match op {
             "+" => Op::Add,
             "-" => Op::Sub,
             "*" => Op::Mul,
@@ -1217,7 +1217,8 @@ impl Lower<'_> {
             "<=" => Op::Le,
             ">=" => Op::Ge,
             _ => unreachable!(),
-        });
+        };
+        self.push_trapping(operation, &ty, ops);
         Ok(if is_comparison(op) { Ty::Bool } else { ty })
     }
     fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -1627,7 +1628,9 @@ impl Lower<'_> {
             }
             Expression::Try(value) => self.propagate(e, value, None, ops)?,
             Expression::Match(value, cases) => self.match_value(&e.at, value, cases, None, ops)?,
-            Expression::Checked(body) => self.checked_value(&e.at, body, None, ops)?,
+            Expression::Checked(suite, body) => {
+                self.checked_value(&e.at, *suite, body, None, ops)?
+            }
             Expression::If(body) => self.if_value(&e.at, body, None, ops)?,
             Expression::Type(ty) => {
                 if let Some(ty @ Ty::Class(_)) = ty.resolve(self.aliases)? {
@@ -1944,7 +1947,7 @@ impl Lower<'_> {
                     if op == "-" {
                         self.mark(&e.at, ops);
                         if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
-                            ops.push(Op::Sub);
+                            self.push_trapping(Op::Sub, &ty, ops);
                         }
                     }
                 }
@@ -2213,7 +2216,7 @@ impl Lower<'_> {
                         if !a.is_int() {
                             return Err(e.at.error("bitwise operations require integers"));
                         }
-                        ops.push(Op::Integer(kind));
+                        self.push_trapping(Op::Integer(kind), &a, ops);
                         Self::end_reads(loans, ops);
                         return Ok(Some(a));
                     }
@@ -2230,7 +2233,7 @@ impl Lower<'_> {
                         Self::end_reads(loans, ops);
                         return Ok(Some(a));
                     }
-                    ops.push(match op.as_str() {
+                    let operation = match op.as_str() {
                         "+" => Op::Add,
                         "-" => Op::Sub,
                         "*" => Op::Mul,
@@ -2244,7 +2247,8 @@ impl Lower<'_> {
                         "<=" => Op::Le,
                         ">=" => Op::Ge,
                         _ => unreachable!(),
-                    });
+                    };
+                    self.push_trapping(operation, &a, ops);
                     Self::end_reads(loans, ops);
                     if is_comparison(op) {
                         Some(Ty::Bool)
@@ -3370,8 +3374,8 @@ impl Lower<'_> {
                 }
                 Statement::Expr(Expr {
                     at,
-                    kind: Expression::Checked(suite),
-                }) if at.is("unchecked") => match self.unchecked_suite(at, suite, tail, ops)? {
+                    kind: Expression::Checked(suite @ (Suite::Unchecked | Suite::Trap), suite_body),
+                }) => match self.unchecked_suite(at, *suite, suite_body, tail, ops)? {
                     BlockResult::Continues(ty) => ty,
                     BlockResult::Exits => return exited_block(body, i),
                 },
@@ -3937,7 +3941,7 @@ fn type_name(ty: Type) -> String {
 fn block_value(e: &Expr) -> bool {
     matches!(
         ungroup(e).kind,
-        Expression::Match(..) | Expression::Checked(_) | Expression::If(_)
+        Expression::Match(..) | Expression::Checked(..) | Expression::If(_)
     )
 }
 
@@ -4080,17 +4084,24 @@ fn integer(text: &str, negative: bool, at: &Token) -> Result<Value> {
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
+#[cfg(test)]
 pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
     lower(
         modules::single(source)?,
         heap,
         crate::CheckOptions::default(),
+        crate::UncheckedMode::Trap,
     )
 }
 
 /// [`compile`] with the checks `check` adds.
 pub(crate) fn check(source: &str, heap: &mut Heap, check: crate::CheckOptions) -> Result<Program> {
-    lower(modules::single(source)?, heap, check)
+    lower(
+        modules::single(source)?,
+        heap,
+        check,
+        crate::UncheckedMode::Trap,
+    )
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4100,8 +4111,14 @@ pub(crate) fn compile_file(
     require_main: bool,
     heap: &mut Heap,
     check: crate::CheckOptions,
+    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
-    lower(modules::load(path, root, require_main)?, heap, check)
+    lower(
+        modules::load(path, root, require_main)?,
+        heap,
+        check,
+        unchecked,
+    )
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4112,7 +4129,12 @@ pub(crate) fn compile_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(modules::load_graph(path, graph, require_main)?, heap, check)
+    lower(
+        modules::load_graph(path, graph, require_main)?,
+        heap,
+        check,
+        crate::UncheckedMode::Trap,
+    )
 }
 
 pub(crate) fn compile_script(
@@ -4124,6 +4146,7 @@ pub(crate) fn compile_script(
         modules::load_graph_with(path, graph, true, None, true)?,
         heap,
         crate::CheckOptions::default(),
+        crate::UncheckedMode::Trap,
     )
 }
 
@@ -4156,9 +4179,18 @@ impl<'a> Sources<'a> {
         })
     }
 
-    pub(crate) fn compile(&self, heap: &mut Heap) -> Result<Program> {
+    pub(crate) fn compile(
+        &self,
+        heap: &mut Heap,
+        unchecked: crate::UncheckedMode,
+    ) -> Result<Program> {
         match self {
-            Sources::Text(source) => compile(source, heap),
+            Sources::Text(source) => lower(
+                modules::single(source)?,
+                heap,
+                crate::CheckOptions::default(),
+                unchecked,
+            ),
             Sources::Graph {
                 entry,
                 graph,
@@ -4168,6 +4200,7 @@ impl<'a> Sources<'a> {
                 modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
                 heap,
                 crate::CheckOptions::default(),
+                unchecked,
             ),
         }
     }
@@ -4222,6 +4255,7 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
         modules::generated_interface(source)?,
         &mut heap,
         crate::CheckOptions::default(),
+        crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)
 }
@@ -4641,6 +4675,7 @@ fn lower_body(
         start: 0,
         function: true,
         arithmetic: true,
+        assume: false,
         failures: Vec::new(),
     });
     let lowered = crate::profile_block!(
@@ -4822,6 +4857,7 @@ fn lower(
     resolved: modules::Resolved,
     heap: &mut Heap,
     check: crate::CheckOptions,
+    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
     ide::declare_program(&resolved);
     let modules::Resolved {
@@ -4873,6 +4909,7 @@ fn lower(
     drop((generic_enums, generic_classes));
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
+    generics.unchecked = unchecked;
     // Queued functions are registered below, in queue order; unused data
     // methods are not queued, so they are registered after them.
     let mut unused_methods = Vec::new();

@@ -5,9 +5,10 @@ It draws inspiration from:
 
 - Python (syntax and standard library)
 - Rust (safety)
-- Zig (explicit allocation)
+- Zig (allocation)
 - Erlang (concurrency)
-- Go and D (fast compilation)
+- Go (interfaces)
+- D (fast compilation)
 
 Here's a small word counter:
 
