@@ -47,6 +47,12 @@
       "variant": "idiomatic",
       "file": "plenty/nbody.plenty",
       "threads": 1
+    },
+    {
+      "variant": "clist",
+      "file": "plenty/nbody_clist.plenty",
+      "threads": 1,
+      "note": "Bodies in a clist[Body]: each field is its own column. Tracks indexed clist field access in loops (issue #759)."
     }
   ]
 }

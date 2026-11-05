@@ -1,0 +1,143 @@
+# n-body: the Benchmarks Game Jovian planets simulation, with the bodies in
+# a columnar list: each field is its own column, and `bodies[i].x` is a
+# checked scalar read. Same algorithm as the reference (nbody.rs, Rust #3)
+# and nbody.plenty: pairwise differences, then magnitudes, then velocity
+# updates, then positions.
+import std.math
+
+const SOLAR_MASS: f64 = 4.0 * std.math.pi * std.math.pi
+const DAYS_PER_YEAR: f64 = 365.24
+
+@copy
+class Body:
+    x: f64
+    y: f64
+    z: f64
+    vx: f64
+    vy: f64
+    vz: f64
+    mass: f64
+
+
+def planet(x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64) -> Body:
+    Body(x, y, z, vx * DAYS_PER_YEAR, vy * DAYS_PER_YEAR, vz * DAYS_PER_YEAR, mass * SOLAR_MASS)
+
+
+def starting_state() -> Result[clist[Body], AllocError | AppendError[Body]]:
+    mut bodies = clist[Body].with_capacity(5)?
+    bodies.append(Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, SOLAR_MASS))?
+    # Jupiter
+    bodies.append(planet(
+        4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01,
+        1.66007664274403694e-03, 7.69901118419740425e-03, -6.90460016972063023e-05,
+        9.54791938424326609e-04,
+    ))?
+    # Saturn
+    bodies.append(planet(
+        8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01,
+        -2.76742510726862411e-03, 4.99852801234917238e-03, 2.30417297573763929e-05,
+        2.85885980666130812e-04,
+    ))?
+    # Uranus
+    bodies.append(planet(
+        1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01,
+        2.96460137564761618e-03, 2.37847173959480950e-03, -2.96589568540237556e-05,
+        4.36624404335156298e-05,
+    ))?
+    # Neptune
+    bodies.append(planet(
+        1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01,
+        2.68067772490389322e-03, 1.62824170038242295e-03, -9.51592254519715870e-05,
+        5.15138902046611451e-05,
+    ))?
+    Ok(bodies)
+
+
+def offset_momentum(bodies: &mut clist[Body]) -> ():
+    mut px = 0.0
+    mut py = 0.0
+    mut pz = 0.0
+    for i in range(len(bodies)):
+        px += bodies[i].vx * bodies[i].mass
+        py += bodies[i].vy * bodies[i].mass
+        pz += bodies[i].vz * bodies[i].mass
+    bodies[0].vx = -px / SOLAR_MASS
+    bodies[0].vy = -py / SOLAR_MASS
+    bodies[0].vz = -pz / SOLAR_MASS
+
+
+def energy(bodies: &clist[Body]) -> Result[f64, OverflowError[i64]]:
+    mut e = 0.0
+    n = len(bodies)
+    for i in range(n):
+        vx = bodies[i].vx
+        vy = bodies[i].vy
+        vz = bodies[i].vz
+        e += 0.5 * bodies[i].mass * (vx * vx + vy * vy + vz * vz)
+        for j in range(i + 1, n):
+            dx = bodies[i].x - bodies[j].x
+            dy = bodies[i].y - bodies[j].y
+            dz = bodies[i].z - bodies[j].z
+            e -= bodies[i].mass * bodies[j].mass / (dx * dx + dy * dy + dz * dz).sqrt()
+    Ok(e)
+
+
+def advance(bodies: &mut clist[Body], dt: f64, steps: i64) -> Result[(), AllocError | OverflowError[i64]]:
+    n = len(bodies)
+    # n is a small body count, so the pair count cannot overflow.
+    pairs = unchecked:
+        n * (n - 1) // 2
+    mut dx = list[f64].with_capacity(pairs)?
+    mut dy = list[f64].with_capacity(pairs)?
+    mut dz = list[f64].with_capacity(pairs)?
+    mut mag = list[f64].with_capacity(pairs)?
+    for _ in range(pairs):
+        dx.append(0.0)?
+        dy.append(0.0)?
+        dz.append(0.0)?
+        mag.append(0.0)?
+    for _ in range(steps):
+        mut k = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx[k] = bodies[i].x - bodies[j].x
+                dy[k] = bodies[i].y - bodies[j].y
+                dz[k] = bodies[i].z - bodies[j].z
+                k += 1
+        for p in range(pairs):
+            d2 = dx[p] * dx[p] + dy[p] * dy[p] + dz[p] * dz[p]
+            mag[p] = dt / (d2 * d2.sqrt())
+        k = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                mi = bodies[i].mass * mag[k]
+                mj = bodies[j].mass * mag[k]
+                bodies[i].vx -= dx[k] * mj
+                bodies[i].vy -= dy[k] * mj
+                bodies[i].vz -= dz[k] * mj
+                bodies[j].vx += dx[k] * mi
+                bodies[j].vy += dy[k] * mi
+                bodies[j].vz += dz[k] * mi
+                k += 1
+        for i in range(n):
+            bodies[i].x += dt * bodies[i].vx
+            bodies[i].y += dt * bodies[i].vy
+            bodies[i].z += dt * bodies[i].vz
+    Ok(())
+
+
+type AppError = AllocError | AppendError[Body] | IoError | ParseError | OverflowError[i64]
+
+
+def main() -> Result[(), AppError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        1000
+    mut bodies = starting_state()?
+    offset_momentum(&mut bodies)
+    print(f"{energy(&bodies)?:.9f}"?)?
+    advance(&mut bodies, 0.01, steps)?
+    print(f"{energy(&bodies)?:.9f}"?)?
+    Ok(())
