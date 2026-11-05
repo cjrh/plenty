@@ -214,6 +214,87 @@ Result[str, std.bytes.BytesError].Ok("ok") Result[str, std.bytes.BytesError].Err
     );
 }
 
+/// Issue #749: ranges up to seven bytes become inline strings and longer ones
+/// are copied into uninitialized storage. ASCII skips the general validator;
+/// lengths and contents are checked on both sides of the inline boundary and
+/// with non-ASCII and invalid bytes at either end of the range.
+#[test]
+fn text_ranges_keep_utf8_and_scalar_counts_across_the_inline_boundary() {
+    native(
+        r#"
+ascii = std.bytes.from_text("abcdefghijklmnopqrstuvwxyz")?
+for stop in [1, 6, 7, 8, 9, 15, 16, 17, 26]?:
+    text = ascii.to_text_range(0, stop)?
+    print(stop, len(text), text.byte_len(), text)?
+mixed = std.bytes.from_text("aé🙂bcdefghé")?
+for (start, stop) in [(0, 7), (0, 8), (1, 3), (3, 7), (0, 16), (7, 16)]?:
+    text = mixed.to_text_range(start, stop)?
+    print(start, stop, len(text), text.byte_len(), text)?
+for (start, stop) in [(0, 2), (2, 4), (4, 9), (0, 15), (2, 16), (15, 16)]?:
+    print(str.repr(mixed.to_text_range(start, stop))?)?
+mut late = std.bytes.from_text("abcdefghijklmnop")?
+late.push(128u8)?
+print(str.repr(late.to_text_range(0, 17))?, late.to_text_range(0, 16)?)?
+mut short = std.bytes.from_text("abc")?
+short.push(255u8)?
+print(str.repr(short.to_text_range(0, 4))?, str.repr(short.to_text_range(3, 4))?)?
+"#,
+        r#"
+1 1 1 a
+6 6 6 abcdef
+7 7 7 abcdefg
+8 8 8 abcdefgh
+9 9 9 abcdefghi
+15 15 15 abcdefghijklmno
+16 16 16 abcdefghijklmnop
+17 17 17 abcdefghijklmnopq
+26 26 26 abcdefghijklmnopqrstuvwxyz
+0 7 3 7 aé🙂
+0 8 4 8 aé🙂b
+1 3 1 2 é
+3 7 1 4 🙂
+0 16 11 16 aé🙂bcdefghé
+7 16 8 9 bcdefghé
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8) abcdefghijklmnop
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8) Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+"#,
+    );
+}
+
+/// Issue #749: inline ranges need no allocation, and a failed copy of a long
+/// non-ASCII range reports the failure and leaks nothing (checked at exit).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn short_text_ranges_do_not_allocate_and_long_ones_report_failure() {
+    native(
+        r#"
+mixed = std.bytes.from_text("aé🙂bcdefghé")?
+print("__test_fail_allocations_after_0__")?
+a = mixed.to_text_range(0, 7)
+b = mixed.to_text_range(0, 0)
+c = mixed.to_text_range(0, 16)
+d = mixed.to_text_range(0, 2)
+print("__test_restore_allocations__")?
+print(str.repr(a)?)?
+print(str.repr(b)?)?
+print(str.repr(c)?)?
+print(str.repr(d)?)?
+"#,
+        r#"
+Result[str, std.bytes.BytesError].Ok("aé🙂")
+Result[str, std.bytes.BytesError].Ok("")
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))
+Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)
+"#,
+    );
+}
+
 /// Issue #375: the range form allocates only the text, so it succeeds when
 /// every allocation after the first fails.
 #[cfg(feature = "runtime-checks")]

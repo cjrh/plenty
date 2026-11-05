@@ -262,10 +262,26 @@ pub(crate) fn try_allocate_in<H, E>(
     count: usize,
     allocator: &'static Allocator,
 ) -> Result<*mut H, AllocError> {
+    try_allocate_with::<H, E>(count, allocator, allocator.allocate_zeroed)
+}
+
+/// [`try_allocate`] without zeroing, for an object whose header and every
+/// element the caller writes before anything reads them, such as a copied
+/// string. Freeing and allocation accounting are the same as for zeroed
+/// storage: both come from the global allocator.
+pub(crate) fn try_allocate_uninit<H, E>(count: usize) -> Result<*mut H, AllocError> {
+    try_allocate_with::<H, E>(count, &GLOBAL, std::alloc::alloc)
+}
+
+fn try_allocate_with<H, E>(
+    count: usize,
+    allocator: &'static Allocator,
+    allocate: unsafe fn(Layout) -> *mut u8,
+) -> Result<*mut H, AllocError> {
     let (layout, offset) = allocation_layout::<H, E>(count)?;
     // SAFETY: the checked layout has a nonzero size. Null means no allocation
     // was obtained, so returning an error leaves nothing to deallocate.
-    let pointer = unsafe { (allocator.allocate_zeroed)(layout) };
+    let pointer = unsafe { allocate(layout) };
     if pointer.is_null() {
         Err(AllocError::OutOfMemory)
     } else {
