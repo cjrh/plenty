@@ -1,5 +1,6 @@
 use super::*;
 use crate::sum::EnumOp;
+use cranelift_codegen::ir::{InstructionData, Opcode};
 
 /// Runtime slots carry 128 bits: a scalar/pointer payload and binary sum tags.
 pub(super) fn pack_value(
@@ -46,7 +47,105 @@ pub(super) fn high_word(
     b: &mut FunctionBuilder<'_>,
     value: cranelift_codegen::ir::Value,
 ) -> cranelift_codegen::ir::Value {
-    b.ins().isplit(value).1
+    split(b, value).1
+}
+
+/// The words of a two-word value. A value just built from its words, or
+/// widened from one word, gives them back rather than an `isplit`: Cranelift
+/// does not see through `isplit`, so constant tag words, such as a payload's
+/// zero high word, would otherwise stay unknown to its optimizer (issue #757).
+pub(super) fn split(
+    b: &mut FunctionBuilder<'_>,
+    value: cranelift_codegen::ir::Value,
+) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
+    let dfg = &b.func.dfg;
+    let value = dfg.resolve_aliases(value);
+    if let cranelift_codegen::ir::ValueDef::Result(inst, _) = dfg.value_def(value) {
+        match dfg.insts[inst] {
+            InstructionData::Binary {
+                opcode: Opcode::Iconcat,
+                args: [low, high],
+            } => return (low, high),
+            InstructionData::Unary {
+                opcode: Opcode::Uextend,
+                arg,
+            } if dfg.value_type(arg) == types::I64 => {
+                let zero = b.ins().iconst(types::I64, 0);
+                return (arg, zero);
+            }
+            _ => {}
+        }
+    }
+    b.ins().isplit(value)
+}
+
+/// Facts a `Match` on a local's tag gives its arms, so re-tagging a payload
+/// costs nothing (issue #757).
+///
+/// `match result: case Ok(value): Ok(value)` between two sum types projects
+/// the payload out of one sum and wraps it in another: a shift right of the
+/// tag word, then a shift left and a tag `or`. When the source is known to
+/// hold the variant and both sums give it the same tag in the same number of
+/// tag bits, the new value has the source's exact bits, so the construction
+/// is the source value itself. The ownership the projection took over passes
+/// on unchanged.
+///
+/// `known` and `projections` hold only facts of the arms enclosing the op
+/// being lowered, since each arm truncates them on exit. A single-field
+/// `Field` or `Take` scans `known`; a single-field `New` scans the
+/// projections, and each matching candidate scans `known`. Both lists grow
+/// with the enclosing arms and their field reads, not with function size.
+#[derive(Default)]
+pub(super) struct TagFacts {
+    /// The copy the op just lowered with a `LoadLocal`, and that local.
+    pub(super) loaded: Option<(cranelift_codegen::ir::Value, u8)>,
+    /// The tag an `Enum(Tag)` just read from a load of a local, and that
+    /// local, for a `Match` right after.
+    pub(super) matched: Option<(cranelift_codegen::ir::Value, u8)>,
+    /// Values with a known tag: each in the body of the match arm that
+    /// decided it.
+    pub(super) known: Vec<(cranelift_codegen::ir::Value, u64)>,
+    /// Single-field projections of values with a known tag.
+    pub(super) projections: Vec<Projection>,
+}
+
+pub(super) struct Projection {
+    payload: cranelift_codegen::ir::Value,
+    source: cranelift_codegen::ir::Value,
+    tag: usize,
+    bits: u32,
+}
+
+impl TagFacts {
+    fn holds(&self, value: cranelift_codegen::ir::Value, tag: usize) -> bool {
+        self.known
+            .iter()
+            .any(|&(known, t)| known == value && t == tag as u64)
+    }
+    /// The source whose bits `New` with `tag` in `bits` tag bits would
+    /// rebuild around `payload`, while an enclosing arm still knows that the
+    /// source holds `tag`. The payload value alone does not suffice: a
+    /// projection may return the source's low word, which every arm of the
+    /// match shares.
+    fn retag(
+        &self,
+        payload: cranelift_codegen::ir::Value,
+        tag: usize,
+        bits: u32,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        self.projections
+            .iter()
+            .find(|p| {
+                p.payload == payload && p.tag == tag && p.bits == bits && self.holds(p.source, tag)
+            })
+            .map(|p| p.source)
+    }
+}
+
+/// Whether a payload of type `ty` keeps every bit of its packed word, so
+/// unpacking and packing it again rebuilds the same two-word value.
+fn full_width(ty: &Ty) -> bool {
+    matches!(clif_type(ty.clone()), types::I64 | types::I128) && !ty.is_float()
 }
 
 impl Lowerer<'_, '_> {
@@ -331,6 +430,9 @@ impl Lowerer<'_, '_> {
             | EnumOp::Take(t, _, _) => t,
             EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
         };
+        // The source and tags of a single-field projection, for a
+        // construction that puts the payload back; see [`TagFacts`].
+        let mut projected = None;
         let result = match op {
             EnumOp::Unwrap(t) => {
                 let (value, _) = self.pop_typed(inputs[0].clone())?;
@@ -355,6 +457,13 @@ impl Lowerer<'_, '_> {
                     }
                     [ty] => {
                         let (v, _) = self.pop_typed(ty.clone())?;
+                        if let Some(source) = self.tags.retag(v, *tag, t.tag_bits())
+                            && full_width(ty)
+                            && clif_type(output.clone()) == types::I128
+                        {
+                            self.stack.push((source, output));
+                            return Ok(());
+                        }
                         self.pack(v, ty)
                     }
                     fields => {
@@ -386,6 +495,11 @@ impl Lowerer<'_, '_> {
                 let tags = self.high_word(value);
                 let mask = (t.get().variants.len().next_power_of_two() - 1).max(1);
                 let tag = self.bcx.ins().band_imm_s(tags, mask as i64);
+                if let Some((loaded, local)) = self.tags.loaded
+                    && loaded == value
+                {
+                    self.tags.matched = Some((tag, local));
+                }
                 if !self.forget_counted_copy(value) {
                     self.release(value, &inputs[0]);
                 }
@@ -395,6 +509,9 @@ impl Lowerer<'_, '_> {
                 let (value, _) = self.pop_typed(inputs[0].clone())?;
                 let fields = t.get().variants[*tag].fields.clone();
                 if fields.len() == 1 {
+                    if self.tags.holds(value, *tag) {
+                        projected = Some((value, *tag, t.tag_bits()));
+                    }
                     // Single-payload projection transfers this operand's
                     // ownership. Any remaining source binding owns its own retain.
                     self.tagged_payload(value, t.tag_bits())
@@ -413,8 +530,22 @@ impl Lowerer<'_, '_> {
             }
             EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
         };
-        let result = self.unpack(result, &output);
-        self.stack.push((result, output));
+        let unpacked = self.unpack(result, &output);
+        if let EnumOp::Tag(_) = op
+            && let Some((tag, _)) = &mut self.tags.matched
+            && *tag == result
+        {
+            *tag = unpacked;
+        }
+        if let Some((source, tag, bits)) = projected {
+            self.tags.projections.push(Projection {
+                payload: unpacked,
+                source,
+                tag,
+                bits,
+            });
+        }
+        self.stack.push((unpacked, output));
         Ok(())
     }
 
@@ -449,7 +580,7 @@ impl Lowerer<'_, '_> {
                 }
                 let payload = self.tagged_payload(value, from.tag_bits());
                 let wrapped = self.wrap_tagged(payload, 0, to.tag_bits());
-                let (word, tags) = self.bcx.ins().isplit(wrapped);
+                let (word, tags) = split(self.bcx, wrapped);
                 let tags = self.bcx.ins().bor(tags, tag);
                 return self.bcx.ins().iconcat(word, tags);
             }
@@ -538,11 +669,27 @@ impl Lowerer<'_, '_> {
         &mut self,
         value: cranelift_codegen::ir::Value,
     ) -> cranelift_codegen::ir::Value {
-        if self.bcx.func.dfg.value_type(value) == types::I128 {
-            self.bcx.ins().ireduce(types::I64, value)
-        } else {
-            value
+        let dfg = &self.bcx.func.dfg;
+        if dfg.value_type(value) != types::I128 {
+            return value;
         }
+        // As in [`split`], a value built from its low word gives it back.
+        if let cranelift_codegen::ir::ValueDef::Result(inst, _) =
+            dfg.value_def(dfg.resolve_aliases(value))
+        {
+            match dfg.insts[inst] {
+                InstructionData::Binary {
+                    opcode: Opcode::Iconcat,
+                    args: [low, _],
+                } => return low,
+                InstructionData::Unary {
+                    opcode: Opcode::Uextend,
+                    arg,
+                } if dfg.value_type(arg) == types::I64 => return arg,
+                _ => {}
+            }
+        }
+        self.bcx.ins().ireduce(types::I64, value)
     }
     pub(super) fn sum_tag(
         &mut self,
@@ -562,7 +709,7 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
-        let (word, tags) = self.bcx.ins().isplit(value);
+        let (word, tags) = split(self.bcx, value);
         let tags = self.bcx.ins().ushr_imm_s(tags, bits as i64);
         self.bcx.ins().iconcat(word, tags)
     }
@@ -579,7 +726,7 @@ impl Lowerer<'_, '_> {
         tag: usize,
         bits: u32,
     ) -> cranelift_codegen::ir::Value {
-        let (word, tags) = self.bcx.ins().isplit(value);
+        let (word, tags) = split(self.bcx, value);
         let tags = self.bcx.ins().ishl_imm_s(tags, bits as i64);
         let tags = self.bcx.ins().bor_imm_s(tags, tag as i64);
         self.bcx.ins().iconcat(word, tags)

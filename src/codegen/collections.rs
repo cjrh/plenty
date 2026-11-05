@@ -680,6 +680,32 @@ impl Lowerer<'_, '_> {
         slot
     }
 
+    /// Stores one two-word operand of a runtime operation. A one-word value
+    /// gets a zero high word stored as a 64-bit constant, rather than being
+    /// widened: a two-word zero is the empty-slot value, which would then be
+    /// live across the call in two callee-saved registers (issue #757).
+    fn store_scratch_operand(
+        &mut self,
+        value: cranelift_codegen::ir::Value,
+        args: cranelift_codegen::ir::Value,
+        offset: i32,
+        zero: cranelift_codegen::ir::Value,
+    ) {
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+        let ty = self.bcx.func.dfg.value_type(value);
+        if ty == types::I128 {
+            self.bcx.ins().store(flags, value, args, offset);
+            return;
+        }
+        let word = if ty == types::I64 {
+            value
+        } else {
+            self.bcx.ins().uextend(types::I64, value)
+        };
+        self.bcx.ins().store(flags, word, args, offset);
+        self.bcx.ins().store(flags, zero, args, offset + 8);
+    }
+
     /// Call runtime operation `opcode` through its own entry symbol,
     /// `plenty_op_<opcode>` (`plenty-runtime/src/aggregates.rs`), so the linker
     /// keeps only the operations a program calls. `site` is the trap site of
@@ -710,32 +736,12 @@ impl Lowerer<'_, '_> {
         let args = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
         for i in 0..3 {
             let value = values.get(i).copied().unwrap_or(zero);
-            let value = if self.bcx.func.dfg.value_type(value) == types::I128 {
-                value
-            } else {
-                self.bcx.ins().uextend(types::I128, value)
-            };
-            self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlagsData::trusted(),
-                value,
-                args,
-                (i * 16) as i32,
-            );
+            self.store_scratch_operand(value, args, (i * 16) as i32, zero);
         }
         // `std.bytes` range copies take up to five operands; the two beyond
         // the fixed inputs travel in the scratch words after the result.
         for (i, value) in values.iter().enumerate().skip(3).take(2) {
-            let value = if self.bcx.func.dfg.value_type(*value) == types::I128 {
-                *value
-            } else {
-                self.bcx.ins().uextend(types::I128, *value)
-            };
-            self.bcx.ins().store(
-                cranelift_codegen::ir::MemFlagsData::trusted(),
-                value,
-                args,
-                ((i + 1) * 16) as i32,
-            );
+            self.store_scratch_operand(*value, args, ((i + 1) * 16) as i32, zero);
         }
         let mut sig = self.module.make_signature();
         sig.call_conv = crate::target::native_call_conv();

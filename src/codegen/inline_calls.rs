@@ -359,6 +359,7 @@ impl Lowerer<'_, '_> {
             return_types: &decl.sig.outputs,
             collection_scratch: self.collection_scratch,
             fresh_load: None,
+            tags: Default::default(),
             scalar_captures,
             portable_simd,
             slot_copies: Vec::new(),

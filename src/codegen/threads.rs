@@ -71,6 +71,7 @@ pub(super) fn build_adapter(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            tags: Default::default(),
             scalar_captures: Default::default(),
             portable_simd: Default::default(),
             slot_copies: Vec::new(),

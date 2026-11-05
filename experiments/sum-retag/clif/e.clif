@@ -1,0 +1,111 @@
+function u0:60(i128) -> i128 tail {
+    ss0 = explicit_slot 96, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata2 (metadata Result[Option[str], AllocError])
+    gv1 = symbol colocated userextname0 ; .Ldata2 (metadata Result[Option[str], AllocError])
+    gv2 = symbol colocated userextname3 ; .Ldata5 (metadata Option[str])
+    sig0 = (i64, i64, i64) system_v
+    sig1 = (i64, i64, i64) system_v
+    sig2 = (i64, i64, i64) system_v
+    fn0 = colocated u2:1 sig0 ; plenty_op_183
+    fn1 = colocated u2:2 sig1 ; plenty_op_26
+    fn2 = colocated u2:2 sig2 ; plenty_op_26
+
+block0(v0: i128):
+    ; line 241
+    v6 = stack_addr.i64 ss0
+    store notrap aligned v0, v6
+    v1 = iconst.i64 0
+    store notrap aligned v1, v6+16  ; v1 = 0
+    store notrap aligned v1, v6+24  ; v1 = 0
+    store notrap aligned v1, v6+32  ; v1 = 0
+    store notrap aligned v1, v6+40  ; v1 = 0
+    v5 = symbol_value.i64 gv0
+    call fn0(v6, v5, v1)  ; v1 = 0
+    v7 = load.i128 notrap aligned v6+48
+    ; line 248
+    v14, v15 = isplit v7
+    v16 = iconst.i64 1
+    v17 = band v15, v16  ; v16 = 1
+    v19 = icmp eq v17, v1  ; v1 = 0
+    brif v19, block2, block6
+
+block6:
+    v117 = band.i64 v15, v16  ; v16 = 1
+    v118 = iconst.i64 1
+    v119 = icmp eq v117, v118  ; v118 = 1
+    brif v119, block3, block7
+
+block7:
+    jump block4
+
+block2:
+    v22, v23 = isplit.i128 v7
+    ; line 250
+    jump block5(v7)
+
+block3:
+    v28, v29 = isplit.i128 v7
+    ; line 252
+    v33, v34 = isplit.i128 v7
+    v120 = iconst.i64 1
+    v121 = ishl v34, v120  ; v120 = 1
+    v122 = bor v121, v120  ; v120 = 1
+    v39 = iconcat v33, v122
+    jump block5(v39)
+
+block4:
+    trap user1
+
+block5(v27: i128):
+    jump block1(v27)
+
+block1(v9: i128):
+    ; line 241
+    v43, v44 = isplit v9
+    v47, v48 = isplit v9
+    v123 = iconst.i64 1
+    v124 = band v44, v123  ; v123 = 1
+    v125 = iconst.i64 0
+    v126 = icmp eq v124, v125  ; v125 = 0
+    brif v126, block8, block9
+
+block9:
+    v127 = iconst.i64 1
+    v128 = bor.i64 v48, v127  ; v127 = 1
+    v58 = iconcat.i64 v47, v128
+    return v58
+
+block8:
+    v129 = iconst.i64 1
+    v130 = ushr.i64 v48, v129  ; v129 = 1
+    v131 = band v130, v129  ; v129 = 1
+    v132 = icmp eq v131, v129  ; v129 = 1
+    brif v132, block10, block14
+
+block14:
+    v133 = iconst.i64 0
+    v134 = icmp.i64 eq v131, v133  ; v133 = 0
+    brif v134, block11, block15
+
+block15:
+    jump block12
+
+block10:
+    ; line 243
+    v74 = uextend.i128 v47
+    jump block13(v74)
+
+block11:
+    v135 = iconst.i64 0
+    v136 = iconst.i64 1
+    v137 = iconcat v135, v136  ; v135 = 0, v136 = 1
+    ; line 245
+    jump block13(v137)
+
+block12:
+    trap user1
+
+block13(v81: i128):
+    return v81
+}
+

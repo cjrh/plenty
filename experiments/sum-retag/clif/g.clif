@@ -1,0 +1,42 @@
+function u0:60(i128) -> i128 tail {
+    ss0 = explicit_slot 96, align = 16
+    gv0 = symbol colocated userextname0
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u2:1 sig0
+
+block0(v0: i128):
+    v6 = stack_addr.i64 ss0
+    store notrap aligned v0, v6
+    v1 = iconst.i64 0
+    store notrap aligned v1, v6+16
+    store notrap aligned v1, v6+24
+    store notrap aligned v1, v6+32
+    store notrap aligned v1, v6+40
+    v5 = symbol_value.i64 gv0
+    call fn0(v6, v5, v1)
+    v7 = load.i128 notrap aligned v6+48
+    v14, v15 = isplit v7
+    v16 = iconst.i64 1
+    v17 = band v15, v16
+    brif v17, block3, block7
+
+block3:
+    v110 = ishl v15, v16
+    v111 = bor v110, v16
+    v112 = bor v111, v16
+    v54 = iconcat v14, v112
+    return v54
+
+block7:
+    v119 = ushr.i64 v15, v16
+    v120 = band v119, v16
+    brif v120, block9, block10
+
+block9:
+    v66 = uextend.i128 v14
+    return v66
+
+block10:
+    v123 = iconcat v1, v16
+    return v123
+}
