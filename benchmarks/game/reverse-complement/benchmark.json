@@ -1,0 +1,53 @@
+{
+  "name": "reverse-complement",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/revcomp.html",
+  "reference": {
+    "language": "c",
+    "program": 5,
+    "file": "reference/revcomp.clang-5.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/revcomp-clang-5.html",
+    "authors": [
+      "Mr Ledrug",
+      "Attila Balazs"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  revcomp.clang-5.c -o revcomp.clang-5.clang_run",
+    "site_command": "./revcomp.clang-5.clang_run 0 < revcomp-input100000001.txt",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}"
+      ]
+    }
+  },
+  "input": "fasta-stdin",
+  "check": {
+    "size": 1000,
+    "expected": "expected/fasta-1000.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 2500000,
+    "full": 25000000,
+    "site": 100000000
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/revcomp.plenty",
+      "threads": 1
+    }
+  ],
+  "notes": "Full mode uses the 25,000,000 fasta input shared with k-nucleotide (about 250 MB) instead of the site's 100,000,000 (about 1 GB), to bound disk use."
+}

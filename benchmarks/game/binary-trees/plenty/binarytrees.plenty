@@ -1,0 +1,68 @@
+# binary-trees: allocate, walk and free many perfect binary trees.
+# Same algorithm as the reference (binarytrees.clang-1.c): every node except
+# the root is a separate heap allocation, freed when its tree is dropped.
+
+const MIN_DEPTH: i64 = 4
+const MAX_N: i64 = 30
+
+type AppError = AllocError | IoError | ParseError | OverflowError[i64]
+
+
+class Node:
+    left: Option[Box[Node]]
+    right: Option[Box[Node]]
+
+
+def bottom_up(depth: i64) -> Result[Node, AllocError | OverflowError[i64]]:
+    if depth == 0:
+        return Ok(Node(Nothing, Nothing))
+    left = Box(bottom_up(depth - 1)?)?
+    right = Box(bottom_up(depth - 1)?)?
+    Ok(Node(Some(left), Some(right)))
+
+
+def check(tree: &Node) -> Result[i64, OverflowError[i64]]:
+    mut total = 1
+    match &tree.left:
+        case Some(left):
+            total += check(left)?
+        case Nothing:
+            pass
+    match &tree.right:
+        case Some(right):
+            total += check(right)?
+        case Nothing:
+            pass
+    Ok(total)
+
+
+def main() -> Result[i32, AppError]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        10
+    if n < 0 or n > MAX_N:
+        write_stderr(f"N must be in 0..={MAX_N}\n"?)?
+        return Ok(2)
+    max_depth = if MIN_DEPTH + 2 > n:
+        MIN_DEPTH + 2
+    else:
+        n
+    stretch_depth = max_depth + 1
+    stretch = bottom_up(stretch_depth)?
+    print(f"stretch tree of depth {stretch_depth}\t check: {check(&stretch)?}"?)?
+    drop(stretch)
+
+    long_lived = bottom_up(max_depth)?
+    mut depth = MIN_DEPTH
+    while depth <= max_depth:
+        iterations = (2).pow(max_depth - depth + MIN_DEPTH)
+        mut total = 0
+        for _ in range(iterations):
+            tree = bottom_up(depth)?
+            total += check(&tree)?
+        print(f"{iterations}\t trees of depth {depth}\t check: {total}"?)?
+        depth += 2
+    print(f"long lived tree of depth {max_depth}\t check: {check(&long_lived)?}"?)?
+    Ok(0)
