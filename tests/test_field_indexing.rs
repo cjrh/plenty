@@ -101,9 +101,9 @@ fn scalar_field_elements_need_no_runtime_calls() {
             "{function} keeps its bounds check"
         );
     }
-    // The outer row is a list, found by `plenty_list_row`; the inner scalar
-    // row is inline.
-    assert_eq!(runtime_calls(PLACES, "nested"), ["plenty_list_row"; 2]);
+    // Both rows are inline: the outer one is a list row, `list_row_bytes`
+    // apart (issue #739).
+    assert_eq!(runtime_calls(PLACES, "nested"), [] as [&str; 0]);
     expect(PLACES, "21 1 2 True False\n1.0 1.75\n5\n");
 }
 

@@ -148,7 +148,10 @@ impl Scan {
                 Op::Try { .. } => true,
                 Op::ReadRef(_)
                 | Op::Reborrow(_)
-                | Op::Class(crate::record::ClassOp::FieldRef(..)) => true,
+                | Op::Class(crate::record::ClassOp::FieldRef(..))
+                // A row reference moves nothing; writes through it are
+                // classified by `WriteRef`.
+                | Op::Collection(C::ElementRef(Ty::List(_), _) | C::ElementRefView(..)) => true,
                 Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => scalar(ty),
                 Op::Collection(
                     C::ListScalarGetRef(_)
@@ -244,6 +247,12 @@ fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
                 Op::Collection(C::ListScalarSetView(ty)),
                 ..,
             ] if lengths.contains(length) => Some(C::ListScalarSetRef(ty.clone())),
+            [
+                Op::LoadLocal(length),
+                Op::LoadLocal(_),
+                Op::Collection(C::ElementRefView(ty, mutable)),
+                ..,
+            ] if lengths.contains(length) => Some(C::ElementRef(ty.clone(), *mutable)),
             _ => None,
         };
         if let Some(restored) = restored {
@@ -3114,8 +3123,8 @@ impl Lower<'_> {
         Ok(())
     }
 
-    /// The cached (length, rows) slots for indexing the scalar list `base`
-    /// inside the innermost loop, if it qualifies; see [`IndexedLists`].
+    /// The cached (length, rows) slots for indexing the list `base` inside
+    /// the innermost loop, if it qualifies; see [`IndexedLists`].
     pub(super) fn indexed_list_view(&mut self, base: &Expr, ty: &Ty) -> Result<Option<[u8; 2]>> {
         let Some((name, path)) = self.list_path(base) else {
             return Ok(None);
@@ -3127,16 +3136,16 @@ impl Lower<'_> {
         let Some(context) = self.indexed_lists.last() else {
             return Ok(None);
         };
-        let scalar = |list: &Ty| matches!(list, Ty::List(element) if element.is_numeric() || **element == Ty::Bool);
-        if !scalar(ty) {
+        let list = |ty: &Ty| matches!(ty, Ty::List(_));
+        if !list(ty) {
             return Ok(None);
         }
         let stable = match (&local.ty, path.is_empty()) {
-            (Ty::Ref(inner, exclusive), true) if scalar(inner) => !exclusive && !local.mutable,
+            (Ty::Ref(inner, exclusive), true) if list(inner) => !exclusive && !local.mutable,
             (Ty::Ref(inner, exclusive), false) if matches!(**inner, Ty::Class(_)) => {
                 !exclusive && !local.mutable
             }
-            (list, true) if scalar(list) => false,
+            (owned, true) if list(owned) => false,
             (Ty::Class(_), false) => false,
             _ => return Ok(None),
         };

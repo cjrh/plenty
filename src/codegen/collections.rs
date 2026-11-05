@@ -43,8 +43,9 @@ impl Lowerer<'_, '_> {
         if let Some(address) = self.counters.checked.find(block, key, row_bytes) {
             return Ok(address);
         }
-        if known.map_or_else(|| self.nonnegative_operand(index), |constant| constant >= 0)
-            && self.counters.bounds.below(dfg, index, length)
+        if (known.map_or_else(|| self.nonnegative_operand(index), |constant| constant >= 0)
+            && self.counters.bounds.below(dfg, index, length))
+            || self.versioned_index(index, length)
         {
             return Ok(self.row_address(rows, index, row_bytes));
         }
@@ -91,6 +92,49 @@ impl Lowerer<'_, '_> {
             .checked
             .record(block, valid, key, row_bytes, address);
         Ok(address)
+    }
+
+    /// Whether the versioned loop copy being lowered may skip the check of
+    /// `index` against `length`, recording the test that copy then needs;
+    /// see [`super::induction::Version`].
+    fn versioned_index(
+        &mut self,
+        index: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+    ) -> bool {
+        use super::induction::Assumed;
+        let dfg = &self.bcx.func.dfg;
+        let (base, k) = super::induction::offset(dfg, index);
+        let bounds = &self.counters.bounds;
+        let Some(version) = &bounds.version else {
+            return false;
+        };
+        let below_stop = bounds
+            .below
+            .get(&base)
+            .is_some_and(|&bound| bounds.canonical(dfg, bound) == version.stop);
+        if !(0..=super::induction::VERSION_OFFSET).contains(&k)
+            || !below_stop
+            || !self.nonnegative_operand(base)
+        {
+            return false;
+        }
+        let length = bounds.canonical(dfg, length);
+        let assumed = if version.entries.get(&length) == Some(&false) {
+            Assumed::Length(length)
+        } else if let Some(&view) = bounds.lengths.get(&length)
+            && version.entries.get(&view) == Some(&true)
+        {
+            Assumed::View(view)
+        } else {
+            return false;
+        };
+        let version = self.counters.bounds.version.as_mut().unwrap();
+        match version.assumed.iter_mut().find(|(a, _)| *a == assumed) {
+            Some((_, most)) => *most = (*most).max(k),
+            None => version.assumed.push((assumed, k)),
+        }
+        true
     }
 
     /// `rows + index * row_bytes`. A shift lets x86-64 fold a power-of-two
@@ -201,22 +245,36 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// The row count of the live scalar list `owner`, read through
-    /// `list_layout`: a scalar row uses its declared width, and a popped
-    /// row stays stored until the next mutation.
+    /// The row count of the live scalar list `owner`: a scalar row uses its
+    /// declared width.
     pub(super) fn scalar_list_len(
         &mut self,
         owner: cranelift_codegen::ir::Value,
         element: &Ty,
     ) -> cranelift_codegen::ir::Value {
+        self.dense_list_len(owner, i64::from(clif_type(element.clone()).bytes()))
+    }
+
+    /// The row count of the live list `owner` whose rows are `row_bytes`
+    /// apart, read through `list_layout` as `Entries::len` computes it for a
+    /// dense list: a popped row stays stored until the next mutation. The
+    /// divisor is a constant, so Cranelift turns the division into a shift or
+    /// a multiplication.
+    pub(super) fn dense_list_len(
+        &mut self,
+        owner: cranelift_codegen::ir::Value,
+        row_bytes: i64,
+    ) -> cranelift_codegen::ir::Value {
         use crate::list_layout::{BYTES, REMOVED};
         let flags = cranelift_codegen::ir::MemFlagsData::trusted();
         let bytes = self.bcx.ins().load(types::I64, flags, owner, BYTES);
         let removed = self.bcx.ins().uload8(types::I64, flags, owner, REMOVED);
-        let stored = self
-            .bcx
-            .ins()
-            .ushr_imm_u(bytes, clif_type(element.clone()).bytes().ilog2() as i64);
+        let stored = if row_bytes.count_ones() == 1 {
+            self.bcx.ins().ushr_imm_u(bytes, row_bytes.ilog2() as i64)
+        } else {
+            let divisor = self.bcx.ins().iconst(types::I64, row_bytes);
+            self.bcx.ins().udiv(bytes, divisor)
+        };
         self.bcx.ins().isub(stored, removed)
     }
 
@@ -244,15 +302,18 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Pops the loop's cached row-0 address and length above a cached scalar
-    /// row access's other operands (`ListScalarGetView`, `ListScalarSetView`).
+    /// Pops the loop's cached row-0 address and length above a cached row
+    /// access's other operands (`ListScalarGetView`, `ListScalarSetView`,
+    /// `ElementRefView`).
     fn cached_rows(
         &mut self,
         operation: &CollectionOp,
     ) -> Result<Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>> {
         if !matches!(
             operation,
-            CollectionOp::ListScalarGetView(_) | CollectionOp::ListScalarSetView(_)
+            CollectionOp::ListScalarGetView(_)
+                | CollectionOp::ListScalarSetView(_)
+                | CollectionOp::ElementRefView(..)
         ) {
             return Ok(None);
         }
@@ -261,10 +322,10 @@ impl Lowerer<'_, '_> {
         Ok(Some((rows, length)))
     }
 
-    /// The row-0 address and length of the scalar list behind `receiver`:
-    /// the loop's `cached` values, or read from its header. With a cache, the
+    /// The row-0 address and length of the list behind `receiver`: the
+    /// loop's `cached` values, or read from its header. With a cache, the
     /// loop's loan or ownership holds the list, and the receiver is unused.
-    fn scalar_rows(
+    fn dense_rows(
         &mut self,
         cached: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
         receiver: cranelift_codegen::ir::Value,
@@ -279,7 +340,8 @@ impl Lowerer<'_, '_> {
             .bcx
             .ins()
             .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
-        (rows, self.scalar_list_len(owner, &list.element().unwrap()))
+        let row_bytes = metadata::list_row_bytes(&list.element().unwrap()) as i64;
+        (rows, self.dense_list_len(owner, row_bytes))
     }
 
     /// A runtime helper that answers `operation` directly: no argument block,
@@ -291,9 +353,6 @@ impl Lowerer<'_, '_> {
         use crate::bytes::BytesOp;
         let runtime = &self.runtime;
         Some(match operation {
-            CollectionOp::ListLenRef(_) => (runtime.list_len, true, Site::None),
-            CollectionOp::ListRowsRef(_) => (runtime.list_rows, true, Site::None),
-            CollectionOp::ListRowBytesRef(_) => (runtime.list_row_bytes, true, Site::None),
             CollectionOp::Len(Ty::List(_)) => (runtime.list_len, false, Site::None),
             CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
                 if element.is_numeric() || **element == Ty::Bool =>
@@ -802,14 +861,11 @@ impl Lowerer<'_, '_> {
             self.stack.push((armed, Ty::Bool));
             return Ok(());
         }
-        if let CollectionOp::ListLenRef(ty) = operation
-            && ty
-                .element()
-                .is_some_and(|e| e.is_numeric() || e == Ty::Bool)
-        {
+        if let CollectionOp::ListLenRef(ty) = operation {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let owner = self.reference_word(receiver);
-            let length = self.scalar_list_len(owner, &ty.element().unwrap());
+            let row_bytes = metadata::list_row_bytes(&ty.element().unwrap()) as i64;
+            let length = self.dense_list_len(owner, row_bytes);
             let bounds = &mut self.counters.bounds;
             let list = bounds.canonical(&self.bcx.func.dfg, receiver);
             if bounds.stable_lists.contains(&list) {
@@ -818,11 +874,9 @@ impl Lowerer<'_, '_> {
             self.stack.push((length, Ty::I64));
             return Ok(());
         }
-        // A scalar list's rows are dense at the element's declared width,
-        // so its row-0 address and row size need no runtime call.
-        if let CollectionOp::ListRowsRef(ty) | CollectionOp::ListRowBytesRef(ty) = operation
-            && let Some(element) = ty.element().filter(|e| e.is_numeric() || *e == Ty::Bool)
-        {
+        // A list's rows are dense, `list_row_bytes` apart, so its row-0
+        // address and row size need no runtime call.
+        if let CollectionOp::ListRowsRef(ty) | CollectionOp::ListRowBytesRef(ty) = operation {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let value = if matches!(operation, CollectionOp::ListRowsRef(_)) {
                 let owner = self.reference_word(receiver);
@@ -831,8 +885,8 @@ impl Lowerer<'_, '_> {
                     .ins()
                     .load(PTR_TY, flags, owner, crate::list_layout::ROWS)
             } else {
-                let bytes = clif_type(element).bytes();
-                self.bcx.ins().iconst(types::I64, i64::from(bytes))
+                let bytes = metadata::list_row_bytes(&ty.element().unwrap());
+                self.bcx.ins().iconst(types::I64, bytes as i64)
             };
             self.stack.push((value, Ty::I64));
             return Ok(());
@@ -842,7 +896,7 @@ impl Lowerer<'_, '_> {
             let cached = self.cached_rows(operation)?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
-            let (rows, length) = self.scalar_rows(cached, receiver, ty);
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
             let element = ty.element().unwrap();
             let bits = self
                 .scalar_row_access(rows, length, index, &element, None)?
@@ -858,7 +912,7 @@ impl Lowerer<'_, '_> {
             let (value, _) = self.pop_typed(element.clone())?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
-            let (rows, length) = self.scalar_rows(cached, receiver, ty);
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
             self.scalar_row_access(rows, length, index, &element, Some(value))?;
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
@@ -995,16 +1049,17 @@ impl Lowerer<'_, '_> {
             self.stack.push((value, element));
             return Ok(());
         }
-        if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable) = operation {
+        // Rows are dense and `list_row_bytes` apart, so a row's address
+        // needs no runtime call (issue #739).
+        if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable)
+        | CollectionOp::ElementRefView(ty @ Ty::List(element), mutable) = operation
+        {
+            let cached = self.cached_rows(operation)?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), *mutable))?;
-            let owner = self.reference_word(receiver);
-            let site = self.trap_site()?;
-            let function = self
-                .module
-                .declare_func_in_func(self.runtime.list_row, self.bcx.func);
-            let call = self.bcx.ins().call(function, &[owner, index, site]);
-            let address = self.bcx.inst_results(call)[0];
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
+            let row_bytes = metadata::list_row_bytes(element) as i64;
+            let address = self.checked_row(rows, length, index, row_bytes)?;
             // As for `ListRowRef`: a row is a top-level slot with no tag.
             let reference = self.bcx.ins().uextend(types::I128, address);
             self.stack
@@ -1534,11 +1589,14 @@ impl Lowerer<'_, '_> {
     /// [`super::induction::Bounds`].
     /// `stop` is the loop's range stop, if any: a local holding it, such as a
     /// row cache's length taken from `range(len(xs))`, bounds the counter.
+    /// A `versioned` loop records every `i64` local, any of which may hold
+    /// a length its test compares; see [`super::induction::Version`].
     fn enter_invariant_locals(
         &mut self,
         condition: &[Op],
         body: &[Op],
         stop: Option<cranelift_codegen::ir::Value>,
+        versioned: bool,
     ) {
         let mut read = crate::hash::HashSet::default();
         let mut written = crate::hash::HashSet::default();
@@ -1561,7 +1619,7 @@ impl Lowerer<'_, '_> {
             let stable = if shared_list {
                 bounds.stable_lists.contains(&entry)
             } else {
-                view || bounds.lengths.contains_key(&entry) || stop == Some(entry)
+                view || versioned || bounds.lengths.contains_key(&entry) || stop == Some(entry)
             };
             if !stable {
                 continue;
@@ -1640,8 +1698,12 @@ impl Lowerer<'_, '_> {
             self.counters.nonnegative_locals.push(below.0);
             self.counters.bounds.below_locals.push(below);
         }
+        let versioned = range_nonnegative.is_some()
+            && stop.is_some()
+            && !self.gathering()
+            && super::induction::versionable(body);
         let invariant = self.counters.bounds.invariant_locals.len();
-        self.enter_invariant_locals(condition, body, stop);
+        self.enter_invariant_locals(condition, body, stop, versioned);
         // Each body value of the counter is an element of the range, so it
         // is below the range's stop.
         let below = range
@@ -1653,10 +1715,103 @@ impl Lowerer<'_, '_> {
         }
         let low = nonnegative.as_ref().map(|counter| counter.local);
         let mut relation = self.enter_relation(condition, body, low, &types, invariant)?;
-        let header = self.bcx.create_block();
-        let iteration = self.bcx.create_block();
+        let proven = |index| {
+            Some(index) == proven_step || Some(index) == bound_step || unit_steps.contains(&index)
+        };
         let exit = self.bcx.create_block();
-        self.bcx.ins().jump(header, &[]);
+        let version = stop.filter(|_| versioned && relation.is_none());
+        if let Some(stop) = version {
+            // See `induction::Version`: lower an unchecked copy, then the test
+            // that selects it, then, if the copy skipped any check, a checked
+            // copy.
+            let guard = self.bcx.create_block();
+            self.bcx.ins().jump(guard, &[]);
+            self.bcx.seal_block(guard);
+            let bounds = &self.counters.bounds;
+            let version = super::induction::Version {
+                stop: bounds.canonical(&self.bcx.func.dfg, stop),
+                entries: bounds
+                    .invariant_locals
+                    .iter()
+                    .map(|&(local, entry)| {
+                        (entry, matches!(self.locals[local as usize].1, Ty::View(..)))
+                    })
+                    .collect(),
+                assumed: Vec::new(),
+            };
+            let outer = self.counters.bounds.version.replace(version);
+            let fast = self.bcx.create_block();
+            self.lower_loop_copy(condition, body, fast, exit, &proven, &mut None)?;
+            let version = std::mem::replace(&mut self.counters.bounds.version, outer).unwrap();
+            self.stack = initial.clone();
+            self.terminated = false;
+            self.bcx.switch_to_block(guard);
+            if version.assumed.is_empty() {
+                self.bcx.ins().jump(fast, &[]);
+                self.bcx.seal_block(fast);
+            } else {
+                let mut holds = None;
+                for (assumed, k) in version.assumed {
+                    let length = match assumed {
+                        super::induction::Assumed::Length(length) => length,
+                        super::induction::Assumed::View(view) => self.bcx.ins().isplit(view).1,
+                    };
+                    // A length is nonnegative, so this cannot wrap.
+                    let limit = self.bcx.ins().iadd_imm_s(length, -k);
+                    let fits = self
+                        .bcx
+                        .ins()
+                        .icmp(IntCC::SignedLessThanOrEqual, stop, limit);
+                    holds = Some(match holds {
+                        Some(all) => self.bcx.ins().band(all, fits),
+                        None => fits,
+                    });
+                }
+                let checked = self.bcx.create_block();
+                self.bcx.ins().brif(holds.unwrap(), fast, &[], checked, &[]);
+                self.bcx.seal_block(fast);
+                self.lower_loop_copy(condition, body, checked, exit, &proven, &mut None)?;
+                self.bcx.seal_block(checked);
+            }
+        } else {
+            let header = self.bcx.create_block();
+            self.bcx.ins().jump(header, &[]);
+            self.lower_loop_copy(condition, body, header, exit, &proven, &mut relation)?;
+            self.bcx.seal_block(header);
+        }
+        if below.is_some() {
+            self.counters.bounds.below_locals.pop();
+        }
+        self.counters.bounds.invariant_locals.truncate(invariant);
+        if cursor_below.is_some() {
+            self.counters.bounds.below_locals.pop();
+            self.counters.nonnegative_locals.pop();
+        }
+        if range_nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
+        if nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
+        self.bcx.switch_to_block(exit);
+        self.bcx.seal_block(exit);
+        self.stack = initial;
+        self.terminated = false;
+        Ok(())
+    }
+
+    /// Lowers one copy of a loop from its `header`, which the caller enters
+    /// and seals, to `exit`.
+    fn lower_loop_copy(
+        &mut self,
+        condition: &[Op],
+        body: &[Op],
+        header: cranelift_codegen::ir::Block,
+        exit: cranelift_codegen::ir::Block,
+        proven: &dyn Fn(usize) -> bool,
+        relation: &mut Option<(usize, usize)>,
+    ) -> Result<()> {
+        let iteration = self.bcx.create_block();
         self.bcx.switch_to_block(header);
         for op in condition {
             self.lower(op)?;
@@ -1674,16 +1829,13 @@ impl Lowerer<'_, '_> {
             if self.terminated {
                 break;
             }
-            let proven = Some(index) == proven_step
-                || Some(index) == bound_step
-                || unit_steps.contains(&index);
-            if proven && !self.gathering() {
+            if proven(index) && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;
             }
         }
-        if let Some((_, below)) = relation {
+        if let Some((_, below)) = relation.take() {
             self.leave_relation(below);
         }
         if !self.terminated {
@@ -1692,25 +1844,6 @@ impl Lowerer<'_, '_> {
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
-        if below.is_some() {
-            self.counters.bounds.below_locals.pop();
-        }
-        self.counters.bounds.invariant_locals.truncate(invariant);
-        if cursor_below.is_some() {
-            self.counters.bounds.below_locals.pop();
-            self.counters.nonnegative_locals.pop();
-        }
-        if range_nonnegative.is_some() {
-            self.counters.nonnegative_locals.pop();
-        }
-        if nonnegative.is_some() {
-            self.counters.nonnegative_locals.pop();
-        }
-        self.bcx.seal_block(header);
-        self.bcx.switch_to_block(exit);
-        self.bcx.seal_block(exit);
-        self.stack = initial;
-        self.terminated = false;
         Ok(())
     }
 }

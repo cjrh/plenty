@@ -112,15 +112,7 @@ impl Lowerer<'_, '_> {
                     .bcx
                     .ins()
                     .load(PTR_TY, flags, list, crate::list_layout::ROWS);
-                let length = if element.is_numeric() || element == Ty::Bool {
-                    self.scalar_list_len(list, &element)
-                } else {
-                    let helper = self
-                        .module
-                        .declare_func_in_func(self.runtime.list_len, self.bcx.func);
-                    let call = self.bcx.ins().call(helper, &[list]);
-                    self.bcx.inst_results(call)[0]
-                };
+                let length = self.dense_list_len(list, metadata::list_row_bytes(&element) as i64);
                 (rows, length)
             }
             _ => {

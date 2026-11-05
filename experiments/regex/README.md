@@ -231,3 +231,147 @@ The general `compile_bench 1000 10 --workload aot` qualification, with
 134,161,518,172; and 134,153,425,719 instructions (spread 9,377,893).
 These candidate-only runs establish a reproducible current result; the
 before/after compilation comparison is the application table above.
+
+## Issue #758: selective paths and bounded native batches
+
+Measured on 2026-11-05 against local main `d951457d`, with freshly rebuilt
+optimized compilers, default arithmetic checks, the unchanged full FASTA
+5,000,000 input and single-threaded Plenty counting. The first attempted
+baseline accidentally embedded a prototype while its build was running; those
+numbers were discarded and the baseline rebuilt before these comparisons.
+
+| Full regex-redux | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Main `d951457d` | 62,270,122,573 | 62,270,152,522 | 62,270,146,955 |
+| Native literal batches + packed fallback | 55,179,085,028 | 55,179,068,896 | 55,179,113,686 |
+
+Median retired instructions fall **11.39%**, or 1.13× fewer instructions.
+Candidate spread is 44,790 instructions. All runs match the baseline and a
+fresh build of the pinned Rust reference byte-for-byte. The Rust reference
+uses 8,519,215,109 instructions with its nine counting threads pinned to CPUs
+0–7; the
+candidate remains about 6.48× its instruction count. No wall-clock claim.
+
+### Selection and bounds
+
+The existing position-wise filter admits combinations across alternatives.
+Up to eight NFA paths now occupy separate eight-bit lanes in its existing
+256-word table. OR-ing every lane's start bit makes a shifted bit from a
+preceding lane irrelevant; masks clear padding when width is below eight.
+The eighth lane's accept bit may be bit 63. Signed bitwise operations preserve
+that bit; no arithmetic assumption clears it.
+
+If those paths expand to at most eight ASCII literals of the same 3–8-byte
+width, search uses `memchr::memmem::find` on borrowed byte windows. The new
+internal primitive accepts a byte view and a borrowed string, allocates
+nothing and reports a byte offset or -1. It works on invalid UTF-8 and NULs.
+Plenty's SIMD API does not provide byte-vector search, so the native primitive
+uses memchr's SIMD search and portable fallbacks; extraction, batching, engine
+confirmation and resource policy remain Plenty. No Rust regex matcher ships.
+
+Extraction is bounded to 2,048 visits and at most 17 pending paths. Larger
+sets, broad classes, unsupported paths and tails retain the scalar filter.
+A 64-byte scalar probe stays in the entry function so dense matches avoid
+both native setup and an extra Result-return helper. A separate scalar tail
+avoids mutually recursive tail calls with borrowed views. Native windows
+contain at most 1,024 bytes and overlap by width minus one.
+Each needle searches at most that window; a hit narrows later searches to
+positions no later than the best candidate. Batch work reserves `1024 * count`
+before searching and charges each actual search span, including no-match
+windows. Thus neither repeated suffix rescanning nor native work can escape
+the limit. Work counts depend on the selected engine, as documented; an early
+match can charge a whole window. Extraction and literal allocation remain
+fallible, and cursor searches allocate no new storage.
+
+### Experiments and remaining scalar code
+
+A backward bit-parallel skip prototype used 65,839,200,426 instructions,
+**5.73% more** than the rebuilt baseline, and was rejected. Packed alternatives
+alone used 62,211,788,890 (about 0.09% less); most of the final improvement comes
+from avoiding scalar scans on long eligible inputs. A sampling profile of the
+packed-only build attributed 16.34% of cycles to `prefix_candidate`, motivating
+the native experiment; sampling percentages are attribution, not a speedup.
+
+| Standalone kernel | Plenty, checked | C, GCC 16.2.1 -O2 |
+|---|---:|---:|
+| `prefix-index.plenty` / `prefix.c` | 19 | 11 |
+| `prefix-packed.plenty` / `prefix-packed.c` | 19 | 12 |
+
+The original +8 attribution remains: mask bounds comparison/branch +2,
+redundant byte extension +1, separate address +1, separate mask load +1,
+shift/OR rather than LEA +1, loop-back jump +1, mask-length spill/reload +2,
+and one fewer induction update -1. The packed C loop needs one additional
+instruction for its variable start mask; its Plenty loop still uses 19.
+Production counts differ with register pressure and inlining: the final
+`prefix_candidate` probe loop has 22 instructions and `prefix_scalar_candidate`
+tail has 21. Inspect each with `--dump-std --dump-filter`. The native algorithm
+avoids most long scalar scans, while these fallback loops retain their checks.
+
+The checked-in `clif/prefix-{a,b,c,d}.clif` isolate the remaining scalar gap:
+
+| Variant | Change | Instructions per byte |
+|---|---|---:|
+| a | Original optimized CLIF | 19 |
+| b | Use the byte's zero-extension to bypass negative-index normalization; keep short-table bounds failure | 18 |
+| c | b, omit bounds branch under an assumed 256-entry table extent | 14 |
+| d | c, express shift/OR as shift/add | 14 |
+
+**c is diagnostic only:** the compiler does not yet prove that extent, and no
+production check was removed. b removes an address instruction but replaces
+two stack operations with register moves. c additionally removes the bounds
+pair and those moves. d does not produce a LEA. Redundant extension and other
+instruction-selection/layout costs remain backend work. These variants and
+attribution are an upstream reproducer, not a patch to pinned dependencies.
+General unsigned-range/table-extent proofs and backend investigation are
+tracked separately in issue #760.
+
+```sh
+cargo build --locked --release --manifest-path experiments/kernels/harness/Cargo.toml \
+  --target-dir target/kernel-harness
+target/kernel-harness/release/plenty-kernel-harness \
+  experiments/regex/clif/prefix-{a,b,c,d}.clif \
+  | python3 experiments/kernels/loops.py -v
+```
+
+### Compilation cost
+
+Application compilation (`PLENTY_CACHE=off`), including all reachable regex
+code, with the baseline and candidate compilers:
+
+| Compiler | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Baseline | 1,039,733,420 | 1,040,047,465 | 1,037,570,247 |
+| Candidate | 1,105,237,651 | 1,098,649,013 | 1,097,911,485 |
+
+Median application compilation increases **5.67%**. Spreads are 2,477,218 and
+7,326,166 instructions respectively. Runtime pattern compilation is included
+in the whole-program figures, not this table. The additional compiled metadata
+and extraction code explain the tradeoff.
+
+
+### Adversarial complement
+
+`prefilter-workload.plenty` scans 200,000 bytes using a reused cursor and prints
+match counts 1, 0 and 25,000 for sparse, near and dense modes. Outputs match the
+baseline. These are single-run instruction probes, separate from regex-redux.
+
+| Input | Baseline | Final | Change |
+|---|---:|---:|---:|
+| Sparse: `z` bytes then one prefix | 9,757,512 | 7,345,555 | -24.72% |
+| Near: `a` bytes, neither `aaaaaaab` nor `baaaaaaa` | 19,545,190 | 7,328,783 | -62.50% |
+| Dense: `a` bytes, `aaaaaaab|aaaaaaaa` | 77,994,609 | 80,953,268 | +3.79% |
+
+The initial native-only candidate used 116,763,268 instructions on the dense
+probe (+49.71%). A helper-based scalar probe reduced this to 90,922,131;
+keeping the probe in the entry function produced the final result above.
+The remaining dense-case cost is a limitation, not a claimed improvement.
+Bounds and exact budget regressions include an overlapping batch/tail at
+`i64.MAX`, eight packed lanes including bit 63, and raw non-UTF-8 input.
+
+
+The final candidate's general `compile_bench 1000 10 --workload aot` runs,
+with normal warm-up and `PLENTY_CACHE=off`, retire 133,856,935,718;
+133,855,934,490; and 133,883,071,297 instructions (spread 27,136,807).
+These are candidate-only qualification runs, not a comparative improvement
+claim. The application compilation table supplies the before/after comparison.
+The stripped regex-redux executable grows from 482,632 to 519,944 bytes.

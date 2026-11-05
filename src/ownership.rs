@@ -2162,96 +2162,17 @@ impl Checker<'_, '_> {
         hotpath::measure(label = "ownership::check_loans")
     )]
     fn loans(&self, ops: &[Op]) -> Result<()> {
-        fn use_loan(id: usize, loans: &HashMap<usize, &Loan>, live: &mut Live) {
-            if live.insert(id) {
-                for dependency in &loans[&id].dependencies {
-                    use_loan(*dependency, loans, live);
-                }
-            }
-        }
-        fn has_loans(ops: &[Op]) -> bool {
-            ops.iter().any(|op| match op {
-                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => has_loans(cleanup),
-                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => has_loans(body),
-
-                Op::Loan(_) => true,
-                Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),
-                Op::Loop { condition, body } => has_loans(condition) || has_loans(body),
-                Op::If {
-                    then,
-                    elifs,
-                    otherwise,
-                } => {
-                    has_loans(then)
-                        || has_loans(otherwise)
-                        || elifs
-                            .iter()
-                            .any(|arm| has_loans(&arm.condition) || has_loans(&arm.body))
-                }
-                _ => false,
-            })
-        }
-        if !has_loans(ops) {
+        let Some(LoanFlow {
+            nodes,
+            reachable,
+            loans,
+            created,
+            live,
+        }) = loan_flow(ops)
+        else {
             return Ok(());
-        }
-        let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
-            let mut nodes = vec![Node::default()];
-            let entry = graph(ops, None, 0, None, None, &mut nodes);
-            let mut seen = vec![false; nodes.len()];
-            let mut todo = vec![entry];
-            while let Some(n) = todo.pop() {
-                if !std::mem::replace(&mut seen[n], true) {
-                    todo.extend(nodes[n].successors.as_slice());
-                }
-            }
-            // Ascending, as liveness visits successors before their predecessors.
-            let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
-            let mut loans = HashMap::default();
-            let mut created = HashMap::default();
-            for node in &nodes {
-                if let Some(Op::Loan(l)) = node.op {
-                    loans.insert(l.id, l);
-                    created.insert(l.id, node.site);
-                }
-            }
-            (nodes, reachable, loans, created)
-        });
+        };
         let mut scratch = Vec::new();
-        let live = crate::profile_block!("ownership::loan_liveness", {
-            let mut live = vec![Live::default(); nodes.len()];
-            let mut before = Live::default();
-            loop {
-                let mut changed = false;
-                for &i in &reachable {
-                    before.0.clear();
-                    for &s in nodes[i].successors.as_slice() {
-                        before.union(&live[s], &mut scratch);
-                    }
-                    match &nodes[i].op {
-                        Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
-                            before.remove(id);
-                            use_loan(*id, &loans, &mut before);
-                        }
-                        Some(Op::Loan(l)) => {
-                            before.remove(&l.id);
-                            if let Some(p) = l.parent {
-                                before.insert(p);
-                            }
-                        }
-                        Some(Op::EndLoan(id)) => before.remove(id),
-                        _ => {}
-                    }
-                    if before != live[i] {
-                        live[i].0.clone_from(&before.0);
-                        changed = true;
-                    }
-                }
-                if !changed {
-                    break;
-                }
-            }
-            live
-        });
         crate::profile_block!("ownership::validate_loans", {
             let ancestor = |candidate: usize, mut child: usize| loop {
                 if candidate == child {
@@ -2506,5 +2427,222 @@ impl Checker<'_, '_> {
             }
             first.map_or(Ok(()), Err)
         })
+    }
+}
+
+/// Mark `id` live, with the loans it depends on.
+fn use_loan(id: usize, loans: &HashMap<usize, &Loan>, live: &mut Live) {
+    if live.insert(id) {
+        for dependency in loans.get(&id).map_or(&[][..], |l| &l.dependencies) {
+            use_loan(*dependency, loans, live);
+        }
+    }
+}
+
+fn has_loans(ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => has_loans(cleanup),
+        Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => has_loans(body),
+        Op::Loan(_) => true,
+        Op::Match(arms) => arms.iter().any(|arm| has_loans(&arm.body)),
+        Op::Loop { condition, body } => has_loans(condition) || has_loans(body),
+        Op::If {
+            then,
+            elifs,
+            otherwise,
+        } => {
+            has_loans(then)
+                || has_loans(otherwise)
+                || elifs
+                    .iter()
+                    .any(|arm| has_loans(&arm.condition) || has_loans(&arm.body))
+        }
+        _ => false,
+    })
+}
+
+/// Loan liveness over one body's access graph.
+struct LoanFlow<'a> {
+    nodes: Vec<Node<'a>>,
+    /// Nodes reachable from the entry, ascending: successors before their
+    /// predecessors.
+    reachable: Vec<usize>,
+    loans: HashMap<usize, &'a Loan>,
+    /// The site of the operation that creates each loan.
+    created: HashMap<usize, Option<Site>>,
+    /// The loans live on entry to each node.
+    live: Vec<Live>,
+}
+
+impl LoanFlow<'_> {
+    /// The loans live after node `i`.
+    fn after(&self, i: usize, into: &mut Live, scratch: &mut Vec<usize>) {
+        into.0.clear();
+        for &s in self.nodes[i].successors.as_slice() {
+            into.union(&self.live[s], scratch);
+        }
+    }
+}
+
+/// Loan liveness of `ops`, or `None` when it creates no loan.
+fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
+    if !has_loans(ops) {
+        return None;
+    }
+    let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
+        let mut nodes = vec![Node::default()];
+        let entry = graph(ops, None, 0, None, None, &mut nodes);
+        let mut seen = vec![false; nodes.len()];
+        let mut todo = vec![entry];
+        while let Some(n) = todo.pop() {
+            if !std::mem::replace(&mut seen[n], true) {
+                todo.extend(nodes[n].successors.as_slice());
+            }
+        }
+        // Ascending, as liveness visits successors before their predecessors.
+        let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
+        let mut loans = HashMap::default();
+        let mut created = HashMap::default();
+        for node in &nodes {
+            if let Some(Op::Loan(l)) = node.op {
+                loans.insert(l.id, l);
+                created.insert(l.id, node.site);
+            }
+        }
+        (nodes, reachable, loans, created)
+    });
+    let mut scratch = Vec::new();
+    let live = crate::profile_block!("ownership::loan_liveness", {
+        let mut live = vec![Live::default(); nodes.len()];
+        let mut before = Live::default();
+        loop {
+            let mut changed = false;
+            for &i in &reachable {
+                before.0.clear();
+                for &s in nodes[i].successors.as_slice() {
+                    before.union(&live[s], &mut scratch);
+                }
+                match &nodes[i].op {
+                    Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
+                        before.remove(id);
+                        use_loan(*id, &loans, &mut before);
+                    }
+                    Some(Op::Loan(l)) => {
+                        before.remove(&l.id);
+                        if let Some(p) = l.parent {
+                            before.insert(p);
+                        }
+                    }
+                    Some(Op::EndLoan(id)) => before.remove(id),
+                    _ => {}
+                }
+                if before != live[i] {
+                    live[i].0.clone_from(&before.0);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        live
+    });
+    Some(LoanFlow {
+        nodes,
+        reachable,
+        loans,
+        created,
+        live,
+    })
+}
+
+/// The reads of a local slot in one function body, as `LoadLocal`
+/// operations identified by address, after which no loan of that slot is
+/// live: no reference to the slot is used again on any path. Codegen's
+/// last-use pass may turn such a read into a move (issue #755). This is the
+/// liveness [`check`] uses to reject a move of a borrowed binding, so a read
+/// it accepts as a move is one the checker would accept as a move too.
+///
+/// A slot is covered only when every `BorrowLocal` of it immediately follows
+/// the `Loan` that records that borrow; some compiler-internal borrows record
+/// no loan, and a slot they read is never included.
+pub(crate) fn unborrowed_reads(ops: &[Op]) -> crate::hash::HashSet<*const Op> {
+    let mut reads = crate::hash::HashSet::default();
+    let mut unrecorded = [false; 256];
+    unrecorded_borrows(ops, &mut unrecorded);
+    let Some(flow) = loan_flow(ops) else {
+        return reads;
+    };
+    // Codegen passes after the checker could, in principle, splice in a
+    // body with its own loan numbers; a reused id would make `flow.loans`
+    // name the wrong root, so such a body moves nothing.
+    let markers = flow
+        .nodes
+        .iter()
+        .filter(|node| matches!(node.op, Some(Op::Loan(_))))
+        .count();
+    if markers != flow.loans.len() {
+        return reads;
+    }
+    let mut after = Live::default();
+    let mut scratch = Vec::new();
+    for &i in &flow.reachable {
+        let Some(op @ Op::LoadLocal(slot)) = flow.nodes[i].op else {
+            continue;
+        };
+        if unrecorded[*slot as usize] {
+            continue;
+        }
+        flow.after(i, &mut after, &mut scratch);
+        if after
+            .0
+            .iter()
+            .all(|id| flow.loans.get(id).is_some_and(|loan| loan.root != *slot))
+        {
+            reads.insert(op as *const Op);
+        }
+    }
+    reads
+}
+
+/// Mark each slot that some `BorrowLocal` in `ops` borrows without a `Loan`
+/// of that slot immediately before it.
+fn unrecorded_borrows(ops: &[Op], unrecorded: &mut [bool; 256]) {
+    let mut previous: Option<&Op> = None;
+    for op in ops {
+        match op {
+            Op::BorrowLocal(slot, _) => {
+                if !matches!(previous, Some(Op::Loan(loan)) if loan.root == *slot) {
+                    unrecorded[*slot as usize] = true;
+                }
+            }
+            Op::Match(arms) => arms
+                .iter()
+                .for_each(|arm| unrecorded_borrows(&arm.body, unrecorded)),
+            Op::Loop { condition, body } => {
+                unrecorded_borrows(condition, unrecorded);
+                unrecorded_borrows(body, unrecorded);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                unrecorded_borrows(then, unrecorded);
+                for arm in elifs.iter() {
+                    unrecorded_borrows(&arm.condition, unrecorded);
+                    unrecorded_borrows(&arm.body, unrecorded);
+                }
+                unrecorded_borrows(otherwise, unrecorded);
+            }
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                unrecorded_borrows(cleanup, unrecorded)
+            }
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                unrecorded_borrows(body, unrecorded)
+            }
+            _ => {}
+        }
+        previous = Some(op);
     }
 }

@@ -1,6 +1,7 @@
 //! A copyable owned local read for the last time is moved rather than copied
 //! (issue #388): a `match` on an owned parameter and a payload binding read
-//! once no longer count a new owner and release the old one.
+//! once no longer count a new owner and release the old one. A borrowed local
+//! moves only where none of its loans is live afterwards (issue #755).
 mod support;
 use support::assert_visible_stdout as native;
 
@@ -266,4 +267,145 @@ fn moved_slot_drops_emit_no_release() {
     assert_eq!(releases("wide"), 0);
     // Moved on one path only: the exit release stays.
     assert_eq!(releases("partial_join"), 2);
+}
+
+// Issue #755: a borrowed local is moved at a read after which none of its
+// loans is live. `ended`, `tally` (the k-nucleotide insert after `get_mut`) and
+// `reborrowed` (a loop that re-borrows, read after the loop) move; the others
+// keep a loan live past the read and must still copy: a returned reference, a
+// closure capturing a reference, a reference carried around a loop, a
+// match-bound payload reference, and a reference argument beside a value
+// argument in one call. Generators cannot capture references.
+const BORROWS: &str = r#"def size(word: &str) -> i64:
+    len(word)
+
+def same(word: &str) -> &str:
+    word
+
+def pair(a: &str, b: str) -> Result[str, AllocError]:
+    a + b
+
+def ended(word: str) -> Result[str, AllocError]:
+    n = size(&word)
+    kept = word
+    if n > 100:
+        return Ok("long")
+    Ok(kept)
+
+def tally(counts: &mut dict[str, i64], key: str) -> Result[(), AllocError | OverflowError[i64]]:
+    match counts.get_mut(&key):
+        case Some(count):
+            *count += 1
+        case Nothing:
+            counts.insert(key, 1)?
+    Ok(())
+
+def reborrowed(word: str, n: i64) -> Result[str, AllocError]:
+    mut out = ""
+    for i in range(n):
+        r = &word
+        out = (out + *r)?
+    kept = word
+    Ok((out + kept)?)
+
+def returned(word: str) -> Result[(), AllocError | IoError]:
+    r = same(&word)
+    kept = word
+    print(kept)?
+    print(*r)?
+    Ok(())
+
+def captured(word: str) -> Result[(), AllocError | IoError]:
+    show = def [&word]() -> Result[(), AllocError | IoError]:
+        print(word)
+    kept = word
+    print(kept)?
+    show()?
+    Ok(())
+
+def carried(word: str) -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    r = &word
+    mut i = 0
+    mut kept = ""
+    while i < 3:
+        print(*r)?
+        if i == 1:
+            kept = word
+        i += 1
+    print(kept)?
+    Ok(())
+
+def matched(o: Option[str]) -> Result[(), AllocError | IoError]:
+    match &o:
+        case Some(text):
+            kept = o
+            print(*text)?
+            match kept:
+                case Some(again):
+                    print(again)?
+                case Nothing:
+                    pass
+        case Nothing:
+            pass
+    Ok(())
+
+def both(word: str) -> Result[str, AllocError]:
+    pair(&word, word)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(ended(("e" + "nded")?)?)?
+    mut counts: dict[str, i64] = {}?
+    for word in ["a", "b", "a", "c", "a"]?:
+        tally(&mut counts, (word + "!")?)?
+    for (key, count) in counts.items():
+        print(f"{key}={*count}"?)?
+    print(reborrowed(("r" + "b")?, 2)?)?
+    returned(("ret" + "urned")?)?
+    captured(("cap" + "tured")?)?
+    carried(("car" + "ried")?)?
+    matched(Some(("mat" + "ched")?))?
+    print(both(("tw" + "o")?)?)?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+const BORROWS_EXPECTED: &str = "ended\na!=3\nb!=1\nc!=1\nrbrbrb\nreturned\nreturned\ncaptured\ncaptured\ncarried\ncarried\ncarried\ncarried\nmatched\nmatched\ntwotwo\n";
+
+#[test]
+fn borrowed_locals_keep_behaviour() {
+    native(BORROWS, BORROWS_EXPECTED);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), BORROWS).unwrap();
+    let output = stdout(plenty(dir.path(), &["--release", "p.plenty"]));
+    let visible: String = output
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .flat_map(|line| [line, "\n"])
+        .collect();
+    assert_eq!(visible, BORROWS_EXPECTED);
+}
+
+#[test]
+fn borrowed_local_moves_once_its_loans_end() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), BORROWS).unwrap();
+    let args = ["--release", "--dump", "ops", "p.plenty", "-o", "out"];
+    stdout(plenty(dir.path(), &args));
+    let ops = |name: &str| section(dir.path(), "ops.txt", name);
+    for (name, slot) in [("ended", 0), ("tally", 1), ("reborrowed", 0)] {
+        let text = ops(name);
+        assert!(
+            text.contains(&format!("MoveLocal({slot})")),
+            "{name}: {text}"
+        );
+        assert!(
+            !text.contains(&format!("LoadLocal({slot})")),
+            "{name}: {text}"
+        );
+    }
+    for name in ["returned", "captured", "carried", "matched", "both"] {
+        let text = ops(name);
+        assert!(text.contains("LoadLocal(0)"), "{name}: {text}");
+        assert!(!text.contains("MoveLocal(0)"), "{name}: {text}");
+    }
 }

@@ -13,6 +13,7 @@ pub enum RegexOp {
     Case,
     /// Retag a borrowed UTF-8 view as bytes; the frontend retains its loan.
     TextBytes,
+    BytesFind,
 }
 
 impl RegexOp {
@@ -25,6 +26,7 @@ impl RegexOp {
             "__regex_text_find" => Self::TextFind,
             "__regex_case" => Self::Case,
             "__regex_text_bytes" => Self::TextBytes,
+            "__regex_bytes_find" => Self::BytesFind,
             _ => return None,
         })
     }
@@ -35,6 +37,7 @@ impl RegexOp {
                 vec![crate::frontend::text_view()],
                 crate::bytes::byte_view(),
             ),
+            Self::BytesFind => (vec![crate::bytes::byte_view(), Ty::Str], Ty::I64),
             Self::Property => (vec![Ty::U32, Ty::I64], Ty::Bool),
             // `code * 8 + width` of the scalar at a byte offset, -1 at the
             // end, or -2 when the offset is not a scalar boundary.
