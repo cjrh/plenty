@@ -66,6 +66,13 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --workspace --lib --no-fail-fast -- --nocapture --test-threads=1 2>&1 | tee artifacts/unit-tests.log
+      # The integration suite is not qualified on macOS yet. Run the
+      # stack-overflow tests: their signal-frame handling is Darwin-specific.
+      - name: Run AArch64 stack-probe integration tests
+        if: runner.os == 'macOS'
+        run: |
+          set -o pipefail
+          cargo test --locked --test integration test_arm_stack_probes:: -- --nocapture 2>&1 | tee artifacts/arm-stack-probe-tests.log
       - name: Build and smoke-test native dataframe release
         env:
           PLENTY_RELEASE_TARGET: ${{ matrix.target }}

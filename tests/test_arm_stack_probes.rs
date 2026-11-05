@@ -1,5 +1,5 @@
 //! AArch64 loop probes leave SP unchanged; registered PCs locate their frontier.
-#![cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#![cfg(all(any(target_os = "linux", target_os = "macos"), target_arch = "aarch64"))]
 
 use rstest::rstest;
 use std::os::unix::process::ExitStatusExt;
@@ -58,6 +58,9 @@ fn unrolled_and_loop_probes_report_with_cold_and_warm_function_caches(
     }
 }
 
+// Linux only: it maps pages just below the thread's SP with MAP_FIXED and
+// expects SIGSEGV, while Darwin reports protection faults as SIGBUS.
+#[cfg(target_os = "linux")]
 #[test]
 fn an_unregistered_below_sp_write_keeps_the_default_fault() {
     let workspace = tempfile::tempdir().unwrap();

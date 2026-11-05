@@ -68,20 +68,15 @@ pub(crate) unsafe fn fault_stack_pointer(context: &libc::ucontext_t, address: us
     // SAFETY: the caller supplies a valid, exclusively borrowed signal frame.
     unsafe {
         #[cfg(target_arch = "aarch64")]
-        if crate::traps::stack_probe(pc(context)) {
-            let registers = &machine(context).__ss;
-            let offset = registers.__x[16] as i64;
-            let frame = registers.__x[17];
-            if let Some(distance) = offset.checked_neg().and_then(|n| usize::try_from(n).ok())
-                && offset < 0
-                && frame > 3 * 4096
-                && frame <= u64::from(u32::MAX)
-                && distance.is_multiple_of(4096)
-                && distance as u64 <= frame + 4095
-                && sp(context).checked_sub(distance) == Some(address)
-            {
-                return address;
-            }
+        if crate::traps::stack_probe(pc(context))
+            && let Some(frontier) = super::probe_frontier(
+                sp(context),
+                machine(context).__ss.__x[16],
+                machine(context).__ss.__x[17],
+                address,
+            )
+        {
+            return frontier;
         }
         let _ = address;
         sp(context)

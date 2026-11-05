@@ -34,7 +34,7 @@ baseline, not yet a qualified Plenty release contract.
 
 The Plenty repository's `portability.yml` workflow additionally builds the actual
 workspace on these macOS and Windows runners and runs unit tests if compilation
-succeeds. It preserves build logs and reports failures while the ports are
+succeeds. On macOS it also runs the AArch64 stack-probe integration tests. It preserves build logs and reports failures while the ports are
 incomplete. Existing `ci.yml` jobs exercise Linux x86-64 and ARM64, including
 optional engines and Docker proxy tests. A successful standalone probe is not
 substituted for any of these compiler/runtime checks.
