@@ -282,6 +282,18 @@ handler can tell them from the proxy at `127.0.0.1`.
 The harness reserves distinct TCP ports and the TLS port's UDP socket through
 configuration setup, then releases them immediately before starting Docker.
 Caddy also opens that UDP port for HTTP/3; this is not HTTP/3 qualification.
+Process-local logical leases retain both port numbers across that handoff and
+until the proxy's Drop cleanup completes, including startup failure and unwind.
+Concurrent cooperating fixtures reject an already claimed port in either role
+and select another pair; only registry operations hold the mutex, not Docker
+startup or scenarios. Deterministic non-Docker tests force reuse during the
+socket-free gap, check cross-role exclusion and RAII release, and stress eight
+concurrent reservers (issue #719). These are helper tests, not renewed real-proxy
+qualification. A separate exact batch on the reviewed port-ownership source
+passes all eight worker and two actor nginx/Caddy cases with two test threads
+(local PR #918), including actual container removal and unchanged foreign
+container state. This is bounded proxy qualification, not a whole-workspace or
+performance result. Unrelated processes remain outside this ownership registry.
 Host networking still has a socket handoff window, so readiness checks a unique
 proxy-local response over both HTTP and verified TLS, without adding upstream
 requests. An unexpected HTTP status or identity fails immediately rather than
