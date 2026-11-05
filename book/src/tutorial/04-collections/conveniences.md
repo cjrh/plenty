@@ -10,8 +10,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(first, second, 2)?
     mut visits = dict[(i64, i64), i64].new()?
     cell = (3, 4)
-    visits.insert(cell, visits.get(cell, 0) + 1)?
-    visits.insert(cell, visits.get(cell, 0) + 1)?
+    *visits.get_or_insert(cell, 0)? += 1
+    *visits.get_or_insert(cell, 0)? += 1
     print(visits.get(cell, 0))?
     visited = {(3, 4), (3, 4), (4, 3)}?
     print(len(visited), cell in visited)?
@@ -25,8 +25,9 @@ north east 2
 
 Tuple keys contain integers, booleans, strings, or further tuples of those
 types. Values compare by their contents; a grid coordinate needs no integer
-encoding or string allocation. `insert` adds or replaces a dictionary value
-with a recoverable allocation error.
+encoding or string allocation. `get_or_insert` starts a missing count at `0`
+and returns a reference to the stored count; see
+[dictionaries](dictionaries.md).
 
 Consume dictionary values directly when the dictionary is finished:
 

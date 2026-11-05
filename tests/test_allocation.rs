@@ -218,6 +218,45 @@ print(len(values)).unwrap()
     );
 }
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_get_or_insert_destroys_moved_inputs_and_present_keys_need_no_allocation() {
+    native(
+        r#"
+class Guard:
+    label: str
+    def __del__(self: &mut Guard) -> ():
+        print(self.label).unwrap()
+mut guards = {"a": Guard("a")}.unwrap()
+unused = Guard("unused")
+missing = Guard("b")
+# An empty dictionary has no storage, so its first entry must allocate.
+mut empty = dict[str, Guard]().unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+match guards.get_or_insert("a", unused):
+    case Ok(guard):
+        print(guard.label).unwrap()
+    case Err(error):
+        print("unexpected failure").unwrap()
+result = empty.get_or_insert("b", missing)
+match result:
+    case Ok(guard):
+        print("unexpected success").unwrap()
+    case Err(error):
+        match error:
+            case AllocError.OutOfMemory:
+                print("handled").unwrap()
+            case AllocError.CapacityOverflow:
+                print("wrong error").unwrap()
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(len(guards), len(empty)).unwrap()
+"#,
+        "unused\na\nb\nhandled\n1 0\na",
+    );
+}
+
 #[rstest]
 #[case("values = [1].unwrap()\nvalues.append(2)", "immutable")]
 #[case("mut values = [1].unwrap()\nvalues.reserve(1u8)", "expected i64")]

@@ -1262,7 +1262,7 @@ impl Lowerer<'_, '_> {
         // retains only the copyable operands it stores.
         let inserts = matches!(
             operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_)
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
         );
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
             if !(held[i] || inserts && i > 0 && ty.affine()) {

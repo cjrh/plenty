@@ -62,6 +62,28 @@ def main() -> Result[(), AllocError | IoError]:
 `get_mut` allocates nothing. The reference borrows the whole dictionary
 exclusively, so the dictionary cannot be read or changed while it is live.
 
+To count or group, a missing key needs a starting value. `get_or_insert(key,
+default)` inserts the default when the key is absent, then returns a mutable
+reference to the stored value. It finds the key with one lookup. Inserting can
+allocate, so it returns a `Result`; `?` propagates the `AllocError`:
+
+```plenty
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut counts: dict[str, i64] = {}?
+    for word in ["red", "blue", "red"]?:
+        *counts.get_or_insert(word, 0)? += 1
+    print(counts)?
+    Ok(())
+```
+
+```output
+{"red": 2, "blue": 1}
+```
+
+The default is built before the lookup, even when the key is present. A
+default like `0` costs nothing; one that allocates, such as `[]?`, allocates on
+every call, so use `get_mut` when the key is usually present.
+
 `keys()` and `values()` borrow elements in insertion order without allocating.
 The references protect the dictionary from mutation while they are used.
 Keep a key view in a local when checking several properties:
