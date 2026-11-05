@@ -17,7 +17,7 @@ Each benchmark directory contains:
 | `benchmark.json` | Provenance, site build and command lines, local build command, thread count, sizes, Plenty variants, and `status` (`ready` or `blocked` with `blocked_reason`) |
 | `reference/` | The reference program, copied verbatim from its site page |
 | `expected/` | Output at the small check size, from the site's downloadable output files |
-| `plenty/` | The Plenty programs: the idiomatic one, and any parallel variant |
+| `plenty/` | The Plenty programs: the idiomatic one, and any parallel or data-layout variant |
 
 The reference programs are distributed under the Benchmarks Game's revised
 BSD license, reproduced in `benchmarks/game/LICENSE-benchmarks-game.txt`.
@@ -26,7 +26,7 @@ Each manifest names the program's page and contributors.
 | Benchmark | Reference | Threads | Plenty variants | Status |
 |---|---|---|---|---|
 | fannkuch-redux | C #1 | 1 | idiomatic; parallel (`examples/fannkuch_redux.plenty`, 8 workers) | ready |
-| n-body | Rust #3 | 1 | idiomatic | ready |
+| n-body | Rust #3 | 1 | idiomatic; clist (bodies in a `clist`) | ready |
 | spectral-norm | C #8 | 1 | idiomatic | ready |
 | mandelbrot | C #8 | 1 | idiomatic | ready |
 | fasta | Rust #3 | 1 | idiomatic | ready |
@@ -123,6 +123,12 @@ seven pool workers, as the reference does, and is the suite's threaded workload
 for reference-count changes (issue #751): each job owns a `Shared` handle to the
 sequence, and its dictionary, with heap-string keys for the 12- and 18-byte
 frames, returns through a future and is released on the main thread.
+
+n-body's clist variant also postdates the baseline. It stores the bodies in a
+`clist[Body]`, one column per field, instead of a `list[Body]`, and tracks the
+cost of indexed clist field access in loops (issue #759): at 1,000,000 steps it
+runs 5.66 billion instructions against 2.95 billion for the `list[Body]`
+program and 0.23 billion for the reference.
 
 ## Blocked benchmarks
 

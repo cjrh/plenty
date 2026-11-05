@@ -245,22 +245,36 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// The row count of the live scalar list `owner`, read through
-    /// `list_layout`: a scalar row uses its declared width, and a popped
-    /// row stays stored until the next mutation.
+    /// The row count of the live scalar list `owner`: a scalar row uses its
+    /// declared width.
     pub(super) fn scalar_list_len(
         &mut self,
         owner: cranelift_codegen::ir::Value,
         element: &Ty,
     ) -> cranelift_codegen::ir::Value {
+        self.dense_list_len(owner, i64::from(clif_type(element.clone()).bytes()))
+    }
+
+    /// The row count of the live list `owner` whose rows are `row_bytes`
+    /// apart, read through `list_layout` as `Entries::len` computes it for a
+    /// dense list: a popped row stays stored until the next mutation. The
+    /// divisor is a constant, so Cranelift turns the division into a shift or
+    /// a multiplication.
+    pub(super) fn dense_list_len(
+        &mut self,
+        owner: cranelift_codegen::ir::Value,
+        row_bytes: i64,
+    ) -> cranelift_codegen::ir::Value {
         use crate::list_layout::{BYTES, REMOVED};
         let flags = cranelift_codegen::ir::MemFlagsData::trusted();
         let bytes = self.bcx.ins().load(types::I64, flags, owner, BYTES);
         let removed = self.bcx.ins().uload8(types::I64, flags, owner, REMOVED);
-        let stored = self
-            .bcx
-            .ins()
-            .ushr_imm_u(bytes, clif_type(element.clone()).bytes().ilog2() as i64);
+        let stored = if row_bytes.count_ones() == 1 {
+            self.bcx.ins().ushr_imm_u(bytes, row_bytes.ilog2() as i64)
+        } else {
+            let divisor = self.bcx.ins().iconst(types::I64, row_bytes);
+            self.bcx.ins().udiv(bytes, divisor)
+        };
         self.bcx.ins().isub(stored, removed)
     }
 
@@ -288,15 +302,18 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Pops the loop's cached row-0 address and length above a cached scalar
-    /// row access's other operands (`ListScalarGetView`, `ListScalarSetView`).
+    /// Pops the loop's cached row-0 address and length above a cached row
+    /// access's other operands (`ListScalarGetView`, `ListScalarSetView`,
+    /// `ElementRefView`).
     fn cached_rows(
         &mut self,
         operation: &CollectionOp,
     ) -> Result<Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>> {
         if !matches!(
             operation,
-            CollectionOp::ListScalarGetView(_) | CollectionOp::ListScalarSetView(_)
+            CollectionOp::ListScalarGetView(_)
+                | CollectionOp::ListScalarSetView(_)
+                | CollectionOp::ElementRefView(..)
         ) {
             return Ok(None);
         }
@@ -305,10 +322,10 @@ impl Lowerer<'_, '_> {
         Ok(Some((rows, length)))
     }
 
-    /// The row-0 address and length of the scalar list behind `receiver`:
-    /// the loop's `cached` values, or read from its header. With a cache, the
+    /// The row-0 address and length of the list behind `receiver`: the
+    /// loop's `cached` values, or read from its header. With a cache, the
     /// loop's loan or ownership holds the list, and the receiver is unused.
-    fn scalar_rows(
+    fn dense_rows(
         &mut self,
         cached: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
         receiver: cranelift_codegen::ir::Value,
@@ -323,7 +340,8 @@ impl Lowerer<'_, '_> {
             .bcx
             .ins()
             .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
-        (rows, self.scalar_list_len(owner, &list.element().unwrap()))
+        let row_bytes = metadata::list_row_bytes(&list.element().unwrap()) as i64;
+        (rows, self.dense_list_len(owner, row_bytes))
     }
 
     /// A runtime helper that answers `operation` directly: no argument block,
@@ -335,9 +353,6 @@ impl Lowerer<'_, '_> {
         use crate::bytes::BytesOp;
         let runtime = &self.runtime;
         Some(match operation {
-            CollectionOp::ListLenRef(_) => (runtime.list_len, true, Site::None),
-            CollectionOp::ListRowsRef(_) => (runtime.list_rows, true, Site::None),
-            CollectionOp::ListRowBytesRef(_) => (runtime.list_row_bytes, true, Site::None),
             CollectionOp::Len(Ty::List(_)) => (runtime.list_len, false, Site::None),
             CollectionOp::Get(Ty::List(element)) | CollectionOp::IterGet(Ty::List(element))
                 if element.is_numeric() || **element == Ty::Bool =>
@@ -846,14 +861,11 @@ impl Lowerer<'_, '_> {
             self.stack.push((armed, Ty::Bool));
             return Ok(());
         }
-        if let CollectionOp::ListLenRef(ty) = operation
-            && ty
-                .element()
-                .is_some_and(|e| e.is_numeric() || e == Ty::Bool)
-        {
+        if let CollectionOp::ListLenRef(ty) = operation {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let owner = self.reference_word(receiver);
-            let length = self.scalar_list_len(owner, &ty.element().unwrap());
+            let row_bytes = metadata::list_row_bytes(&ty.element().unwrap()) as i64;
+            let length = self.dense_list_len(owner, row_bytes);
             let bounds = &mut self.counters.bounds;
             let list = bounds.canonical(&self.bcx.func.dfg, receiver);
             if bounds.stable_lists.contains(&list) {
@@ -862,11 +874,9 @@ impl Lowerer<'_, '_> {
             self.stack.push((length, Ty::I64));
             return Ok(());
         }
-        // A scalar list's rows are dense at the element's declared width,
-        // so its row-0 address and row size need no runtime call.
-        if let CollectionOp::ListRowsRef(ty) | CollectionOp::ListRowBytesRef(ty) = operation
-            && let Some(element) = ty.element().filter(|e| e.is_numeric() || *e == Ty::Bool)
-        {
+        // A list's rows are dense, `list_row_bytes` apart, so its row-0
+        // address and row size need no runtime call.
+        if let CollectionOp::ListRowsRef(ty) | CollectionOp::ListRowBytesRef(ty) = operation {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let value = if matches!(operation, CollectionOp::ListRowsRef(_)) {
                 let owner = self.reference_word(receiver);
@@ -875,8 +885,8 @@ impl Lowerer<'_, '_> {
                     .ins()
                     .load(PTR_TY, flags, owner, crate::list_layout::ROWS)
             } else {
-                let bytes = clif_type(element).bytes();
-                self.bcx.ins().iconst(types::I64, i64::from(bytes))
+                let bytes = metadata::list_row_bytes(&ty.element().unwrap());
+                self.bcx.ins().iconst(types::I64, bytes as i64)
             };
             self.stack.push((value, Ty::I64));
             return Ok(());
@@ -886,7 +896,7 @@ impl Lowerer<'_, '_> {
             let cached = self.cached_rows(operation)?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
-            let (rows, length) = self.scalar_rows(cached, receiver, ty);
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
             let element = ty.element().unwrap();
             let bits = self
                 .scalar_row_access(rows, length, index, &element, None)?
@@ -902,7 +912,7 @@ impl Lowerer<'_, '_> {
             let (value, _) = self.pop_typed(element.clone())?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
-            let (rows, length) = self.scalar_rows(cached, receiver, ty);
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
             self.scalar_row_access(rows, length, index, &element, Some(value))?;
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
@@ -1039,16 +1049,17 @@ impl Lowerer<'_, '_> {
             self.stack.push((value, element));
             return Ok(());
         }
-        if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable) = operation {
+        // Rows are dense and `list_row_bytes` apart, so a row's address
+        // needs no runtime call (issue #739).
+        if let CollectionOp::ElementRef(ty @ Ty::List(element), mutable)
+        | CollectionOp::ElementRefView(ty @ Ty::List(element), mutable) = operation
+        {
+            let cached = self.cached_rows(operation)?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), *mutable))?;
-            let owner = self.reference_word(receiver);
-            let site = self.trap_site()?;
-            let function = self
-                .module
-                .declare_func_in_func(self.runtime.list_row, self.bcx.func);
-            let call = self.bcx.ins().call(function, &[owner, index, site]);
-            let address = self.bcx.inst_results(call)[0];
+            let (rows, length) = self.dense_rows(cached, receiver, ty);
+            let row_bytes = metadata::list_row_bytes(element) as i64;
+            let address = self.checked_row(rows, length, index, row_bytes)?;
             // As for `ListRowRef`: a row is a top-level slot with no tag.
             let reference = self.bcx.ins().uextend(types::I128, address);
             self.stack

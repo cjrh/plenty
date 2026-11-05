@@ -224,7 +224,11 @@ sets. Accelerators can add a bounded scan before transferring to the VM;
 there is no unbounded backtracking. `max_work` caps matcher steps in each
 call: `find`, `captures`, and `is_match` run one search; `find_all`, `split`,
 and `replace_all` count every search they make; each `next_match` call is
-counted separately. Work includes accelerated byte scans and uncached DFA
+counted separately. A native literal batch reserves the sum of its maximum
+search spans before starting, charges each needle's actual search span, and
+retains that charge across fallback. Even a match near the beginning can charge
+an entire window; insufficient budget returns `Limit.Work` before the batch.
+Short tails use the scalar filter. Work includes accelerated byte scans and uncached DFA
 transitions, and is retained across fallback. Exact step counts depend on
 the engine and its cache. Iteration can rescan text after a match, so choose
 `max_work` for the whole call.
@@ -236,6 +240,18 @@ The compiler selects these accelerators without changing match semantics:
   to eight mandatory ASCII positions across alternatives and positive range
   classes. It admits possible matches for the matching engine to confirm; nullable,
   case-insensitive or non-ASCII paths shorten or disable this filter.
+  Up to eight paths can occupy separate eight-bit lanes, preventing false
+  candidates made by mixing alternatives. Extraction visits at most 2,048
+  instructions and keeps at most 17 pending paths; exceeding those bounds
+  retains the position-wise union.
+- When the extracted paths expand to at most eight ASCII literals of the same
+  three-to-eight-byte width, a 64-byte scalar probe returns nearby matches
+  promptly. Longer scans then use native substring search in windows
+  of at most 1,024 bytes. Windows overlap by `width - 1`, and all literals are
+  searched before selecting the earliest candidate. The engine still confirms
+  candidates and resolves alternative priority. Literal storage is bounded by
+  eight short strings; it is compiled metadata, not per-search scratch.
+  Wider classes or excessive path products retain the scalar filter.
 - For ASCII-only programs of at most 62 instructions without assertions, a
   lazy DFA answers existence searches. When every match has the same byte
   length, it also supplies match offsets for searches, cursors and replacements.
@@ -259,13 +275,17 @@ allocates scratch; a `Cursor` reuses it. No new public API or opt-in flag is
 needed. The [regex-redux measurements](../../development/benchmarks-game.md)
 exercise cleaning, counting and replacement with the same patterns as the
 Rust `regex` reference; remaining gaps include Unicode DFA transitions and
-more selective native literal searching.
+the remaining scalar scan lowering (issue #760).
 
 ## Choices
 
 The module uses its own matcher rather than the Rust `regex` crate because
 that crate allocates infallibly and would abort on allocation failure, and
-its Unicode tables would enlarge every program that imports `std.regex`. The
+its Unicode tables would enlarge every program that imports `std.regex`.
+The narrower `memchr::memmem::find` primitive uses constant space and no
+allocation. Its SIMD byte search and portable fallbacks justify native code;
+Plenty's current SIMD API has no byte-vector search operations. Literal
+extraction, batching, work limits and all matching policy remain Plenty. The
 syntax is the subset of the Rust crate's syntax with the same meaning, except
 that Perl classes and `\b` are ASCII-only, which the tests check against
 the crate.
@@ -274,3 +294,5 @@ the crate.
 
 - Syntax, match semantics and the prefilter/fallback strategy follow the Rust [`regex`](https://docs.rs/regex/1.12.3/regex/) crate 1.12.3.
 - Matching uses Rob Pike's virtual machine, as described by Russ Cox in ["Regular Expression Matching: the Virtual Machine Approach"](https://swtch.com/~rsc/regexp/regexp2.html) (2009).
+
+- Native byte substring search uses [`memchr`](https://docs.rs/memchr/2.8.0/) 2.8.0 (MIT OR Unlicense), including its SIMD implementations and portable fallbacks.

@@ -2153,26 +2153,6 @@ unsafe extern "C" fn plenty_trap_list_index(
     out_of_bounds(index, len as usize, site)
 }
 
-/// Narrow ABI: the address of row `i` of a live borrowed list, the slot a
-/// generic element reference (opcode 112) names. Bounds and negative indices
-/// use the same normalization, site, and message as the generic dispatcher.
-/// The compiler holds the list's loan while it uses the address.
-/// Scalar rows require a load/store of the declared width; the returned address
-/// need not have u128 alignment or space for a canonical slot.
-#[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_list_row(
-    owner: *mut u8,
-    i: i64,
-    site: *const crate::Site,
-) -> *mut u128 {
-    // SAFETY: generated callers supply a live list owner under a loan.
-    unsafe {
-        let collection = &mut *owner.cast::<Collection>();
-        let i = index(i, collection.entries.len(), site);
-        collection.entries.slot(i, false)
-    }
-}
-
 /// Exports `plenty_op_<N>` for each runtime operation `N` with
 /// [`operation`]'s argument layout. Generated code calls the operation's own
 /// symbol, and `operation` and the module handlers it reaches are inlined
@@ -2245,7 +2225,7 @@ operation_entries! {
 }
 // `std.regex`.
 operation_entries! {
-    360 361 362 363 364 365
+    360 361 362 363 364 365 367
 }
 // `std.net`.
 operation_entries! {
@@ -2481,7 +2461,7 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as u64,
             )),
-            360..=365 => crate::regex::call(op, a, b, value),
+            360..=365 | 367 => crate::regex::call(op, a, b, value),
             366 => strings::ascii_equal_folded(a as *const Text, b as *const Text) as u128,
             192 => crate::text_io::result(crate::files::seek_bytes(
                 a as *mut crate::files::File,

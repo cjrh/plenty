@@ -4,7 +4,9 @@
 # nesting, repetition counts, program size, matcher memory, and matcher work
 # are bounded by `Limits`. See book/src/design/stdlib/regex.md.
 # Syntax, semantics and the prefilter/fallback strategy follow the Rust regex
-# project (https://docs.rs/regex/1.12.3/regex/); no crate code is embedded here.
+# project (https://docs.rs/regex/1.12.3/regex/). Native byte substring search
+# uses memchr 2.8.0 (https://docs.rs/memchr/2.8.0/), MIT OR Unlicense; parsing,
+# extraction, matching policy and limits remain Plenty.
 import std.bytes
 from std.bytes import Bytes
 
@@ -951,20 +953,72 @@ pub class Captures:
                 return self.get(index)
         Nothing
 
-# Conservative Shift-And scan, shared by the VM and the lazy DFA. The
-# returned work count includes every inspected byte, including no-match scans.
+# Conservative Shift-And scan, shared by the VM and the lazy DFA. Probe a
+# short prefix in this same function so dense matches pay no helper-return
+# overhead. Only a failed probe transfers to native batches; tails stay here.
 def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
     # Callers maintain 0 <= used <= maximum and 0 <= start <= len(data).
-    # width is 1..8 and state has only eight bits. The slice iterator's
-    # index counts inspected bytes; update offsets/work only when returning.
+    # Each start bit resets its eight-bit lane, independent of shifted bits
+    # from the preceding lane. Width is 1..8; offsets are bounded by the view.
+    unchecked:
+        stop = start + 64 if len(program._literals) > 0 and len(data) - start >= 1024 else len(data)
+        mut state = 0
+        available = maximum - used
+        starts = program._filter_start
+        accept = program._filter_accept
+        for index, raw in enumerate(&data[start:stop]):
+            if index >= available:
+                return Err(RegexError.LimitExceeded(Limit.Work))
+            state = ((state << 1) | starts) & program._filter[i64(*raw)]
+            if state & accept != 0:
+                consumed = index + 1
+                return Ok((start + consumed - program._filter_width, used + consumed))
+        if stop < len(data):
+            return prefix_native_candidate(program, data, stop - program._filter_width + 1, used + (stop - start), maximum)
+        Ok((-1, used + (len(data) - start)))
+
+
+# Search bounded overlapping byte windows for at most eight exact prefixes.
+# Each native call searches no more than 1024 bytes. Charging its whole input
+# bounds work even for adversarial near matches; the overlap preserves prefixes
+# crossing a window boundary. The final call has less than 1024 bytes remaining,
+# so it cannot re-enter this helper: call depth is bounded independently of input.
+def prefix_native_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
+    unchecked:
+        mut at = start
+        mut work = used
+        cost = 1024 * len(program._literals)
+        while len(data) - at >= 1024:
+            if maximum - work < cost:
+                return Err(RegexError.LimitExceeded(Limit.Work))
+            mut found = -1
+            mut stop = at + 1024
+            for literal in &program._literals:
+                span = stop - at
+                candidate = __regex_bytes_find(&data[at:stop], literal)
+                work += span
+                if candidate >= 0:
+                    found = at + candidate
+                    stop = found + program._filter_width
+            if found >= 0:
+                return Ok((found, work))
+            at += 1024 - program._filter_width + 1
+        prefix_scalar_candidate(program, data, at, work, maximum)
+
+
+# Tail scan without native dispatch. Keeping the initial probe in its caller
+# avoids a Result-return helper on dense matches; this separate tail also
+# avoids a mutually recursive tail call carrying a borrowed view.
+def prefix_scalar_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
     unchecked:
         mut state = 0
         available = maximum - used
-        accept = 1 << (program._filter_width - 1)
+        starts = program._filter_start
+        accept = program._filter_accept
         for index, raw in enumerate(&data[start:]):
             if index >= available:
                 return Err(RegexError.LimitExceeded(Limit.Work))
-            state = ((state << 1) | 1) & program._filter[i64(*raw)]
+            state = ((state << 1) | starts) & program._filter[i64(*raw)]
             if state & accept != 0:
                 consumed = index + 1
                 return Ok((start + consumed - program._filter_width, used + consumed))
@@ -1330,6 +1384,9 @@ pub class Regex:
     _prefix: str
     _filter: list[i64]
     _filter_width: i64
+    _filter_start: i64
+    _filter_accept: i64
+    _literals: list[str]
     _dfa_masks: list[i64]
     _dfa_after: list[i64]
     _dfa_start: i64
@@ -1471,6 +1528,93 @@ pub class Regex:
         if width > self._prefix.byte_len():
             self._filter = masks
             self._filter_width = width
+            self._filter_start = 1
+            self._filter_accept = unchecked:
+                1 << (width - 1)
+            self.prepare_packed_filter()?
+        Ok(())
+
+    # Keep up to eight NFA paths in separate eight-bit lanes. This prevents
+    # the ordinary position-wise union from mixing different alternatives.
+    # Extraction is optional and bounded: excess paths or traversal work keep
+    # the original conservative filter. The resulting table has the same size.
+    def prepare_packed_filter(self: &mut Regex) -> Result[(), RegexError]:
+        if self._filter_width < 3:
+            return Ok(())
+        mut pending = held(list[(i64, i64, i64)].new())?
+        held(pending.append((0, 0, 0)))?
+        mut paths = integers()?
+        mut visits = 0
+        unchecked:
+            while len(pending) > 0:
+                if visits >= 2048:
+                    return Ok(())
+                visits += 1
+                pc, depth, path = pending.pop().unwrap()
+                if depth == self._filter_width:
+                    if len(paths) >= 8:
+                        return Ok(())
+                    held(paths.append(path))?
+                    continue
+                op = self._op[pc]
+                if op == op_split:
+                    if len(pending) >= 16:
+                        return Ok(())
+                    held(pending.append((self._y[pc], depth, path)))?
+                    held(pending.append((self._x[pc], depth, path)))?
+                elif op == op_jump:
+                    held(pending.append((self._x[pc], depth, path)))?
+                elif op == op_save or op == op_assert:
+                    held(pending.append((pc + 1, depth, path)))?
+                elif self.ascii_atom(pc):
+                    held(pending.append((pc + 1, depth + 1, path | (pc << (depth * 8)))))?
+                else:
+                    return Ok(())
+            self.prepare_literals(&paths)?
+            if len(paths) <= 1:
+                return Ok(())
+            mut masks = zeros(256)?
+            mut starts = 0
+            mut accept = 0
+            for lane in range(len(paths)):
+                starts |= 1 << (lane * 8)
+                accept |= 1 << (lane * 8 + self._filter_width - 1)
+                for position in range(self._filter_width):
+                    pc = (paths[lane] >> (position * 8)) & 255
+                    for byte in range(128):
+                        if self.accepts(pc, byte):
+                            masks[byte] |= 1 << (lane * 8 + position)
+            self._filter = masks
+            self._filter_start = starts
+            self._filter_accept = accept
+        Ok(())
+
+    # Expand only small literal sets. A class or product exceeding eight
+    # complete prefixes keeps the packed/scalar filter. Temporary and retained
+    # storage are bounded independently of pattern size and allocations fail.
+    def prepare_literals(self: &mut Regex, paths: &list[i64]) -> Result[(), RegexError]:
+        mut literals = held(list[str].new())?
+        unchecked:
+            for path in paths:
+                mut prefixes = integers()?
+                held(prefixes.append(0))?
+                for position in range(self._filter_width):
+                    pc = (*path >> (position * 8)) & 255
+                    mut next = integers()?
+                    for prefix in &prefixes:
+                        for byte in range(128):
+                            if self.accepts(pc, byte):
+                                if len(next) + len(literals) >= 8:
+                                    return Ok(())
+                                held(next.append(*prefix | (byte << (position * 8))))?
+                    prefixes = next
+                for prefix in &prefixes:
+                    mut parts = held(list[str].new())?
+                    for position in range(self._filter_width):
+                        held(parts.append(chr(u32((*prefix >> (position * 8)) & 127)).unwrap()))?
+                    literal = held("".join(parts))?
+                    held(literals.append(literal))?
+        self._literals = literals
         Ok(())
 
     # Epsilon closure ignores SAVE because this engine never returns captures.
@@ -1930,7 +2074,7 @@ pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
+    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
     regex.prepare_filter()?
     unchecked:
         regex.prepare_dfa(budget - words)?
